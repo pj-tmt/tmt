@@ -180,6 +180,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "separate remembered harness preferences from binding runtime observations",
         sql: include_str!("schema/033.sql"),
     },
+    Migration {
+        name: "retain foreground launch ownership for binding runtime observations",
+        sql: include_str!("schema/034.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

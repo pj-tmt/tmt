@@ -1,9 +1,13 @@
 //! Identity SQL shares the invocation-owned connection and schema history.
 
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
+use std::{path::Path, time::Duration};
+
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,
+};
 use tmt_core::{
     identity::{Identity, IdentityReader, IdentityRepository, IdentityWriter, Lifetime},
-    names::ValidatedName,
+    names::{ValidatedName, normalize_name},
 };
 
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
@@ -93,6 +97,38 @@ impl IdentityReader for Storage {
 }
 
 impl Storage {
+    /// Shared discovery for interactive completion and identity pickers. This
+    /// never creates or migrates storage, reconciles bindings, or probes tmux.
+    /// Callers may treat unavailable storage as no suggestions, not as absence
+    /// of an identity for a subsequent mutation.
+    pub fn identity_candidates(
+        path: &Path,
+        prefix: &str,
+        remembered_only: bool,
+    ) -> Result<Vec<Identity>, StorageError> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| classify(error, "Open identity discovery"))?;
+        connection
+            .busy_timeout(Duration::from_millis(100))
+            .map_err(|error| classify(error, "Bound identity discovery wait"))?;
+        let prefix = normalize_name(prefix);
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT {COLUMNS} FROM identities WHERE retired_at_ms IS NULL
+             AND substr(canonical_name, 1, length(?1)) = ?1
+             AND (?2 = 0 OR EXISTS (
+               SELECT 1 FROM identity_session_preferences p
+               WHERE p.identity_id = identities.id AND p.provider_session_id IS NOT NULL
+             ))
+             ORDER BY lifetime = 'saved' DESC, canonical_name COLLATE BINARY"
+            ))
+            .map_err(|error| classify(error, "Prepare identity discovery"))?;
+        statement
+            .query_map(params![prefix, remembered_only], identity_row)
+            .and_then(|rows| rows.collect())
+            .map_err(|error| classify(error, "Read identity discovery"))
+    }
+
     /// Request history keeps participant UUIDs after retirement, so compact
     /// projections can continue to name the exact historical participant.
     pub fn find_identity_by_id(&self, id: &str) -> Result<Option<Identity>, StorageError> {

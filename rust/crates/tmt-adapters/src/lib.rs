@@ -56,6 +56,8 @@ pub mod request_runtime;
 pub mod response_input;
 pub mod room;
 #[cfg(unix)]
+pub mod runtime;
+#[cfg(unix)]
 pub mod skill_installation;
 pub mod storage;
 #[cfg(unix)]

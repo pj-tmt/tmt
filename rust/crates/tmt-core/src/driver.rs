@@ -6,7 +6,7 @@
 //! decision by the caller. Drivers do not own request storage or retry policy.
 
 use crate::binding::session::{
-    HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeState, SessionTransition,
+    HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeMode, RuntimeState, SessionTransition,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +66,7 @@ pub struct HarnessStart<'a> {
 pub struct HarnessResume<'a> {
     pub start: HarnessStart<'a>,
     pub session: &'a ProviderSessionId,
+    pub mode: &'a RuntimeMode,
 }
 
 /// Implement only supported actions. Concrete adapters must bound I/O using the
@@ -74,6 +75,12 @@ pub trait Driver {
     type Target: ?Sized;
     type Error;
     type Launch;
+
+    /// Pure command recognition. No argument mutation, process or network I/O.
+    /// A claim describes runtime handling, not authority over an identity.
+    fn claims(&self, _command: &str) -> Option<HarnessId> {
+        None
+    }
 
     fn send(
         &mut self,
@@ -197,6 +204,7 @@ mod tests {
     #[test]
     fn unsupported_runtime_actions_do_not_invent_success() {
         let harness = HarnessId::new("claude").unwrap();
+        let mode = RuntimeMode::new("default").unwrap();
         let session = ProviderSessionId::new("history").unwrap();
         let start = HarnessStart {
             harness: &harness,
@@ -207,7 +215,8 @@ mod tests {
         assert_eq!(
             Unsupported.resume(HarnessResume {
                 start,
-                session: &session
+                session: &session,
+                mode: &mode,
             }),
             ActionResult::Unsupported
         );

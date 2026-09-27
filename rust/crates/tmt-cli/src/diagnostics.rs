@@ -28,6 +28,16 @@ fn inspect(definition: &Command, argv: &[OsString]) -> (OutputMode, Option<Vec<S
     let mut tokens = argv.iter().peekable();
     let mut can_descend = true;
     while let Some(token) = tokens.next() {
+        // Once a trailing positional starts, the rest is opaque command data.
+        // Derive this boundary from Clap rather than naming a special command.
+        if commands.last().is_some_and(|command| {
+            command
+                .get_positionals()
+                .any(|arg| arg.is_trailing_var_arg_set())
+        }) && token.to_str().is_none_or(|value| !value.starts_with('-'))
+        {
+            break;
+        }
         let Some(token) = token.to_str() else {
             continue;
         };

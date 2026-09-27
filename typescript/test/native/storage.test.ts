@@ -85,6 +85,10 @@ function expectNativeSchema(
       version: 33,
       name: 'separate remembered harness preferences from binding runtime observations',
     },
+    {
+      version: 34,
+      name: 'retain foreground launch ownership for binding runtime observations',
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -331,6 +335,15 @@ function expectNativeSchema(
       dflt_value: null,
       pk: 0,
     },
+    { cid: 16, name: 'launch_owner_pid', type: 'INTEGER', notnull: 0, dflt_value: null, pk: 0 },
+    {
+      cid: 17,
+      name: 'launch_owner_start_identity',
+      type: 'TEXT',
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+    },
   ]);
   expect(newBindings.indexes).toEqual(oldBindings.indexes);
   expect(newBindings.foreignKeys).toEqual(oldBindings.foreignKeys);
@@ -342,6 +355,8 @@ function expectNativeSchema(
       runtime_pid: null,
       runtime_start_identity: null,
       observed_provider_session_id: null,
+      launch_owner_pid: null,
+      launch_owner_start_identity: null,
     }))
   );
 

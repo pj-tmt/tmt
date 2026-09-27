@@ -9,6 +9,71 @@ import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 // each sandbox. Explicit descriptors remain available for moved executables.
 
 describe('native grammar process contract', () => {
+  it('rejects misplaced run options before binding, configuration or storage effects', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      writeFileSync(sandbox.globalConfig, '{broken configuration');
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      for (const option of ['-s', '--save', '--resume', '--help']) {
+        const result = await runCli(sandbox, ['run', 'Alice', option]);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('TMT options go before the name');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect(existsSync(sandbox.database)).toBe(false);
+        expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+      }
+    });
+  });
+
+  it('queries completion without configuration, tmux probing or storage initialization', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      writeFileSync(sandbox.globalConfig, '{broken configuration');
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      const empty = await runCli(sandbox, ['__complete', '--', 'run', '']);
+      expect(empty.status, empty.stderr).toBe(0);
+      expect(empty.stdout).toBe('identities\n');
+      expect(empty.stderr).toBe('');
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(existsSync(sandbox.database)).toBe(false);
+      for (const name of ['Zulu', 'Alice Example']) {
+        const created = await runCli(sandbox, ['identity', 'create', name, '--json']);
+        expect(created.status, created.stderr).toBe(0);
+      }
+      const databaseBefore = readFileSync(sandbox.database);
+      for (const args of [
+        ['run', ''],
+        ['this', ''],
+        ['rm', ''],
+        ['talk', 'Bob', 'hello', '--identity', ''],
+      ]) {
+        const result = await runCli(sandbox, ['__complete', '--', ...args]);
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toBe('identities\nAlice Example\nZulu\n');
+        expect(result.stderr).toBe('');
+      }
+      const resume = await runCli(sandbox, ['__complete', '--', 'run', '--resume', '']);
+      expect(resume.stdout).toBe('identities\n');
+      const command = await runCli(sandbox, [
+        '__complete',
+        '--',
+        'run',
+        'Alice Example',
+        'claude',
+        '--identity=literal',
+      ]);
+      expect(command.status, command.stderr).toBe(0);
+      expect(command.stdout).toBe('command\n2\n');
+      expect(command.stderr).toBe('');
+      expect(readFileSync(sandbox.database)).toEqual(databaseBefore);
+      expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+    });
+  });
+
   it('prints scoped help without loading configuration, touching tmux or creating state', async () => {
     await withSandbox(async (sandbox) => {
       const tripwire = await calibrateTmuxTripwire(sandbox);
@@ -63,7 +128,10 @@ describe('native grammar process contract', () => {
           maxBuffer: 1024 * 1024,
         });
         if (shell === 'bash') {
-          const probe = `${completion.stdout}\nCOMP_WORDS=(tmt x ackall --)\nCOMP_CWORD=3\n_tmt tmt -- ackall\nprintf '%s\\n' "\${COMPREPLY[@]}"`;
+          const executable = [sandbox.cli.executable, ...sandbox.cli.args]
+            .map((value) => `'${value.replaceAll("'", "'\\''")}'`)
+            .join(' ');
+          const probe = `${completion.stdout}\ntmt() { ${executable} "$@"; }\nCOMP_WORDS=(tmt x ackall --)\nCOMP_CWORD=3\n_tmt tmt -- ackall\nprintf '%s\\n' "\${COMPREPLY[@]}"`;
           const candidates = execFileSync(shell, ['-c', probe], {
             env: sandbox.env,
             cwd: sandbox.cwd,

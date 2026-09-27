@@ -110,6 +110,68 @@ Metadata does not save a temporary identity and is not authentication,
 authorization, live presence, a capability grant, or a safe place for secrets or
 instructions. Omit `--identity` only from a verified bound pane.
 
+## Launch a command with an identity
+
+Inside a tmux pane, use `run` to bind an identity and start a foreground command:
+
+```bash
+tmt run reviewer claude --model sonnet
+tmt run -s coordinator codex
+tmt run coordinator
+tmt run --resume coordinator
+```
+
+TMT options go before the name. Everything after it is the command and its exact
+arguments; no `--` separator is needed. TMT does not insert a provider session ID
+or store arguments, model choices, secrets or executable paths. A new identity is
+temporary unless `-s`/`--save` is supplied; an existing saved identity stays saved.
+The ordinary binding conflict rules still apply.
+The executable word cannot start with `-`: `tmt run Alice -s` is rejected before
+binding. Use `tmt run -s Alice <command>`; flags after a real command stay exact.
+
+Registered runtime drivers recognize their executables and remember only the
+harness ID. Bare `run <name>` resolves that driver's executable through PATH and
+passes no arguments. Without a remembered harness, specify a command. An
+unrecognized command still runs with the same binding and lifetime tracking,
+without replacing a previously remembered harness.
+
+`--resume` uses an exact remembered provider session and runtime mode, not a
+provider's "last session" shortcut. Session capture belongs to provider hooks;
+`run` alone does not capture it or inject initial context. Without a supported
+remembered session, it reports that fact and starts the remembered harness bare.
+This fallback occurs only before launch. A failed resume process is never
+automatically replaced by a fresh session. Do not combine `--resume` with an
+explicit command.
+
+The command inherits the terminal and foreground job control. Ctrl-C reaches the
+command; Ctrl-Z suspends it together with TMT, and `fg` resumes both. TMT returns
+the command's exit code (128 plus the signal number for signal termination) and
+records its exit without unbinding the pane. If TMT itself is killed with SIGKILL,
+it cannot guarantee child cleanup; an otherwise live child with a missing launch
+owner is Unknown, not a verified delivery destination. Harness-created background
+processes remain the harness's responsibility.
+
+### Shell completion
+
+Load completion in the current shell, or add the corresponding command to your
+own shell configuration:
+
+```bash
+# bash
+source <(tmt completion bash)
+# zsh, after compinit
+source <(tmt completion zsh)
+# fish
+tmt completion fish | source
+```
+
+Identity completion is storage-only: it does not inspect tmux or create a
+database. Saved identities appear before temporary ones; `run --resume` offers
+identities with a remembered session. After the identity, completion belongs to
+the selected command and uses that shell's installed command completions. TMT
+does not install provider completion scripts. Bash integrates with bash-completion
+when it is loaded and can also use already registered function completions.
+
 ## Saved identity notes
 
 Each saved identity can own one ordinary local Markdown file:

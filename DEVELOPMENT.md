@@ -696,6 +696,24 @@ For schema changes, update the independent native schema expectation in
 then run this complete process suite before pushing. Rust storage tests do not
 replace process-level migration and future-version rejection tests.
 
+Runtime resume mappings have deterministic adapter tests and a separate opt-in
+provider parser contract. With the explicitly selected Claude Code 2.1.283 and
+Codex CLI 0.157.1 executables already installed, run:
+
+```bash
+cargo run --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
+  --example runtime-contract -- /absolute/claude /absolute/codex
+```
+
+This invokes only `--version` and the driver's generated resume arguments with
+`--help`, under bounded process ownership. It neither installs providers nor
+starts a model conversation. A different version fails rather than silently
+expanding support; review provider behavior before updating the pinned contract.
+Help-parser acceptance does not prove that a session can actually resume: the
+manual lifecycle evidence in issue #321 owns that distinction, including the
+Codex cross-mode limitation. Normal `tmt run` does not execute this developer
+check or enforce these version pins on user commands.
+
 `typescript/test/native/inbox.test.ts` owns the real no-tmux queue -> bounded listen ->
 detail/receipt -> reply -> result path. It uses isolated SQLite, verifies compact
 listen output excludes receipts and bodies, preserves participant-scoped

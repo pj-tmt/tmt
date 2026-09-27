@@ -137,6 +137,32 @@ fn adapters_allow_legitimate_grouped_reexports_and_dtos() {
 
 #[test]
 fn parsing_modules_reject_effects_and_handler_clap() {
+    assert_exact(
+        &[syntax(
+            "tmt-cli",
+            "grammar/completion.rs",
+            "use clap_complete::Shell;",
+        )],
+        &[],
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-cli",
+            "grammar/completion.rs",
+            "use tmt_adapters::storage::Store;",
+        )],
+        &[
+            "tmt-cli/grammar/completion.rs: parsing depends on effects via tmt_adapters::storage::Store",
+        ],
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-cli",
+            "completion.rs",
+            "use clap_complete::Shell;",
+        )],
+        &["tmt-cli/completion.rs: CLI parsing belongs to grammar/parser, not clap_complete::Shell"],
+    );
     for (file, text, expected) in [
         (
             "grammar.rs",

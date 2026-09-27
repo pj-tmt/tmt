@@ -1,5 +1,7 @@
 use clap::{Arg, ArgAction, Command};
 
+pub mod completion;
+
 // This tree owns recognition, help, completion and allowed-option validation.
 // Root-recognized options are inherited for placement, not universal permission.
 pub fn grammar() -> Command {
@@ -86,6 +88,15 @@ pub fn grammar() -> Command {
             .arg(operand("scope", false)),
     )
     .subcommand(general("init", "Create workspace settings"))
+    .subcommand(
+        base("run", "Bind this pane and run a command with its original arguments")
+            .arg(option("save"))
+            .arg(Arg::new("resume").long("resume").action(ArgAction::SetTrue)
+                .help("Resume the remembered session; put this option before the name"))
+            .arg(Arg::new("run-argv").value_name("NAME [COMMAND...]")
+                .required(true).num_args(1..).trailing_var_arg(true)
+                .value_parser(clap::builder::OsStringValueParser::new())),
+    )
     .subcommand(
         general("list", "List global identities, lifetime and live presence")
             .visible_alias("ls")
@@ -324,6 +335,9 @@ pub fn grammar() -> Command {
         ),
     )
     .subcommand(general("completion", "Generate shell completion").arg(operand("shell", false)))
+    .subcommand(general("__complete", "Internal shell completion context").hide(true)
+        .arg(Arg::new("words").num_args(0..).trailing_var_arg(true)
+            .value_parser(clap::builder::OsStringValueParser::new())))
     .subcommand(
         general(
             "upgrade",

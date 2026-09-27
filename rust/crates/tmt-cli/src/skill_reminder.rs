@@ -50,7 +50,9 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
             Invocation::Help(_)
                 | Invocation::Version
                 | Invocation::Completion(_)
+                | Invocation::Complete(_)
                 | Invocation::Init
+                | Invocation::Run { .. }
                 | Invocation::Learn { .. }
                 | Invocation::Install { .. }
                 | Invocation::Upgrade { .. }
@@ -136,6 +138,12 @@ mod tests {
             Invocation::Version,
             Invocation::Completion(None),
             Invocation::Init,
+            Invocation::Run {
+                name: "runner".into(),
+                command: vec!["claude".into()],
+                resume: false,
+                save: false,
+            },
             Invocation::Learn {
                 skill: Some("tmux-team".into()),
             },

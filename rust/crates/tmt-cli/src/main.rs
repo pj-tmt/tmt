@@ -1,6 +1,7 @@
 mod binding_command;
 mod binding_error;
 mod check_command;
+mod completion;
 mod config_command;
 mod diagnostics;
 mod exchange_command;
@@ -29,6 +30,7 @@ mod parser;
 mod profile_command;
 mod response_command;
 mod room_command;
+mod run_command;
 mod skill_refresh_command;
 mod skill_reminder;
 mod talk_command;
@@ -82,25 +84,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             writeln!(stdout)?;
         }
         Invocation::Version => writeln!(stdout, "{}", env!("CARGO_PKG_VERSION"))?,
+        Invocation::Complete(words) => completion::query(&words, &mut stdout)?,
         Invocation::Completion(shell) => {
-            let shell = match shell.as_deref() {
-                Some("bash") => Some(clap_complete::Shell::Bash),
-                Some("zsh") => Some(clap_complete::Shell::Zsh),
-                _ => None,
-            };
-            if let Some(shell) = shell {
-                clap_complete::generate(
-                    shell,
-                    &mut grammar::public_grammar(&grammar::grammar(), true),
-                    "tmt",
-                    &mut stdout,
-                );
-            } else {
-                writeln!(
-                    stdout,
-                    "Use 'tmt completion bash' or 'tmt completion zsh' to generate a shell script."
-                )?;
-            }
+            grammar::completion::generate(shell.as_deref().unwrap_or(""), &mut stdout)?;
         }
         Invocation::Config(request) => {
             drop(stdout);
@@ -109,6 +95,15 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Init => {
             drop(stdout);
             return init_command::execute(parsed.mode);
+        }
+        Invocation::Run {
+            name,
+            command,
+            resume,
+            save,
+        } => {
+            drop(stdout);
+            return run_command::execute(&name, &command, resume, save);
         }
         Invocation::Learn { skill } => {
             drop(stdout);

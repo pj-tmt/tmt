@@ -19,7 +19,8 @@ const IDENTITY_COLUMNS: &str =
     "i.id, i.name, i.canonical_name, i.lifetime, i.created_at, i.updated_at";
 const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.socket_path, \
     b.server_pid, b.server_start_time, b.pane_pid, b.runtime_state, b.last_transition, \
-    b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id";
+    b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id, \
+    b.launch_owner_pid, b.launch_owner_start_identity";
 
 struct BindingRows<'a>(&'a Connection);
 
@@ -172,7 +173,8 @@ impl BindingRecords for BindingRows<'_> {
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                  RETURNING id, identity_id, pane_id, server_id, socket_path,
                     server_pid, server_start_time, pane_pid, runtime_state, last_transition,
-                    runtime_pid, runtime_start_identity, observed_provider_session_id",
+                    runtime_pid, runtime_start_identity, observed_provider_session_id,
+                    launch_owner_pid, launch_owner_start_identity",
                 params![
                     id,
                     identity.id,

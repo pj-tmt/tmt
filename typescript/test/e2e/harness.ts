@@ -479,6 +479,21 @@ exit ${'$'}status
   }
 
   async createMockPane(name: string, workspace = this.workspace): Promise<MockPane> {
+    const created = this.createPane(
+      name,
+      `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
+      workspace
+    );
+    await this.waitForEvent((event) => event.event === 'ready' && event.pid === created.pid);
+    return created;
+  }
+
+  /** A real interactive shell for foreground job-control scenarios. */
+  createShellPane(name: string, workspace = this.workspace): MockPane {
+    return this.createPane(name, '/bin/bash --noprofile --norc -i', workspace);
+  }
+
+  private createPane(name: string, command: string, workspace: string): MockPane {
     if (!this.started) throw new Error('E2E fixture must be started before creating panes.');
     fs.mkdirSync(workspace, { recursive: true });
     const pane = this.tmux([
@@ -493,14 +508,13 @@ exit ${'$'}status
       name,
       '-c',
       workspace,
-      `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
+      command,
     ]).trim();
     const pid = Number(this.tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']).trim());
     if (!pane || !Number.isInteger(pid) || pid <= 0) {
-      throw new Error(`E2E fixture could not create mock pane '${name}'.`);
+      throw new Error(`E2E fixture could not create pane '${name}'.`);
     }
     this.panePids.push(pid);
-    await this.waitForEvent((event) => event.event === 'ready' && event.pid === pid);
     return { pane, pid, workspace };
   }
 
