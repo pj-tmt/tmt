@@ -36,6 +36,127 @@ impl Fixture {
 
 type DependentSnapshot = Vec<(&'static str, Vec<Vec<Value>>)>;
 
+#[test]
+fn identity_candidates_rank_saved_filter_sessions_and_match_literal_prefixes() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    for (name, lifetime) in [
+        ("Alpha", Lifetime::Temporary),
+        ("Zulu", Lifetime::Saved),
+        ("A_percent%", Lifetime::Saved),
+        ("Retired", Lifetime::Saved),
+    ] {
+        create_or_resolve(&mut storage, name, lifetime).unwrap();
+    }
+    let connection = storage.connection().unwrap();
+    connection
+        .execute(
+            "UPDATE identities SET retired_at_ms = 1 WHERE name = 'Retired'",
+            [],
+        )
+        .unwrap();
+    connection.execute(
+        "INSERT INTO identity_session_preferences (identity_id, remembered_harness, runtime_mode, provider_session_id)
+         SELECT id, 'claude', 'default', 'session-fixture' FROM identities WHERE name = 'Alpha'", [],
+    ).unwrap();
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    let names = |prefix, remembered| {
+        Storage::identity_candidates(&fixture.database, prefix, remembered)
+            .unwrap()
+            .into_iter()
+            .map(|identity| identity.name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names("", false), ["A_percent%", "Zulu", "Alpha"]);
+    assert_eq!(names("AL", false), ["Alpha"]);
+    assert_eq!(names("A_", false), ["A_percent%"]);
+    assert!(names("%", false).is_empty());
+    assert_eq!(names("", true), ["Alpha"]);
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        version
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM identities", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        4
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn identity_candidates_do_not_initialize_missing_storage() {
+    let fixture = Fixture::new();
+    assert!(Storage::identity_candidates(&fixture.database, "", false).is_err());
+    assert!(!fixture.database.parent().unwrap().exists());
+}
+
+#[test]
+fn identity_candidates_preserve_an_older_database_without_migration() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("old.db");
+    let connection = Connection::open(&path).unwrap();
+    connection.execute_batch("PRAGMA user_version = 1; CREATE TABLE sentinel (value TEXT); INSERT INTO sentinel VALUES ('retained');").unwrap();
+    assert!(Storage::identity_candidates(&path, "", false).is_err());
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT value FROM sentinel", [], |row| row
+                .get::<_, String>(0))
+            .unwrap(),
+        "retained"
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE type = 'table'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn identity_candidates_preserve_complete_ranking_for_a_large_catalog() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let transaction = storage.connection.as_mut().unwrap().transaction().unwrap();
+    for index in 0..2000 {
+        transaction.execute(
+            "INSERT INTO identities (id, name, canonical_name, lifetime, created_at, updated_at)
+             VALUES (?1, ?1, ?1, ?2, 'fixture', 'fixture')",
+            params![format!("agent-{index:04}"), if index % 2 == 0 { "saved" } else { "temporary" }],
+        ).unwrap();
+    }
+    transaction.commit().unwrap();
+    let candidates = Storage::identity_candidates(&fixture.database, "agent-", false).unwrap();
+    assert_eq!(candidates.len(), 2000);
+    assert_eq!(candidates[0].name, "agent-0000");
+    assert_eq!(candidates[999].name, "agent-1998");
+    assert_eq!(candidates[1000].name, "agent-0001");
+    assert_eq!(candidates[1999].name, "agent-1999");
+    assert_eq!(
+        Storage::identity_candidates(&fixture.database, "agent-199", false)
+            .unwrap()
+            .len(),
+        10
+    );
+    storage.close().unwrap();
+}
+
 fn snapshot_dependent_rows(connection: &Connection, identity_id: &str) -> DependentSnapshot {
     const TABLES: [(&str, &str); 7] = [
         (

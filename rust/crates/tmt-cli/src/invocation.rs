@@ -3,10 +3,17 @@ pub enum Invocation {
     Help(Vec<String>),
     Version,
     Completion(Option<String>),
+    Complete(Vec<std::ffi::OsString>),
     Learn {
         skill: Option<String>,
     },
     Init,
+    Run {
+        name: String,
+        command: Vec<std::ffi::OsString>,
+        resume: bool,
+        save: bool,
+    },
     List {
         target: Option<String>,
         room: Option<String>,

@@ -11,6 +11,12 @@ use tmt_core::binding::session::{RuntimeIncarnation, RuntimeLiveness};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessObservation {
     Live(RuntimeIncarnation),
+    /// Present but stopped: refuse a second foreground launch, without treating
+    /// the suspended process as a deliverable runtime.
+    Stopped(RuntimeIncarnation),
+    /// Only an owned, unreaped child's probe retains this identity. Ordinary
+    /// runtime observation maps zombies to Gone, and this never permits input.
+    UnreapedZombie(RuntimeIncarnation),
     Gone,
     Unknown,
 }
@@ -19,7 +25,10 @@ impl ProcessObservation {
     pub fn matches(&self, expected: &RuntimeIncarnation) -> RuntimeLiveness {
         match self {
             Self::Live(actual) if actual == expected => RuntimeLiveness::Alive,
-            Self::Live(_) | Self::Gone => RuntimeLiveness::Gone,
+            Self::Stopped(actual) if actual == expected => RuntimeLiveness::Unknown,
+            Self::Live(_) | Self::Stopped(_) | Self::UnreapedZombie(_) | Self::Gone => {
+                RuntimeLiveness::Gone
+            }
             Self::Unknown => RuntimeLiveness::Unknown,
         }
     }
@@ -29,6 +38,27 @@ impl ProcessObservation {
 /// ps start identities have second resolution; they are not cryptographic tokens.
 /// Callers must also establish that this process belongs to the target interface.
 pub fn observe_runtime_process<R: CommandRunner>(
+    runner: &R,
+    pid: u64,
+    deadline: Instant,
+) -> Result<ProcessObservation, CommandError> {
+    observe_process(runner, pid, deadline).map(|observation| match observation {
+        ProcessObservation::UnreapedZombie(_) => ProcessObservation::Gone,
+        other => other,
+    })
+}
+
+/// Called only while InteractiveChild still owns an unreaped PID. This is not
+/// a general routing probe: retained zombie evidence is lifecycle-only.
+pub(super) fn observe_owned_child<R: CommandRunner>(
+    runner: &R,
+    child: &super::interactive::InteractiveChild,
+    deadline: Instant,
+) -> Result<ProcessObservation, CommandError> {
+    observe_process(runner, u64::from(child.pid()), deadline)
+}
+
+fn observe_process<R: CommandRunner>(
     runner: &R,
     pid: u64,
     deadline: Instant,
@@ -110,7 +140,14 @@ fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObservation {
         return ProcessObservation::Unknown;
     }
     if fields[5].starts_with('Z') {
-        return ProcessObservation::Gone;
+        return RuntimeIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
+            .map(ProcessObservation::UnreapedZombie)
+            .unwrap_or(ProcessObservation::Unknown);
+    }
+    if matches!(fields[5].as_bytes().first(), Some(b'T' | b't')) {
+        return RuntimeIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
+            .map(ProcessObservation::Stopped)
+            .unwrap_or(ProcessObservation::Unknown);
     }
     if !matches!(
         fields[5].as_bytes().first(),
@@ -136,6 +173,10 @@ mod tests {
             panic!("valid process");
         };
         assert_eq!(first.matches(key), RuntimeLiveness::Alive);
+        assert_eq!(
+            parse_process_observation(42, b"Sun Sep 27 10:00:00 2026 T+\n"),
+            ProcessObservation::Stopped(key.clone())
+        );
         assert_eq!(
             parse_process_observation(42, b"Sun Sep 27 10:00:01 2026 S+\n").matches(key),
             RuntimeLiveness::Gone

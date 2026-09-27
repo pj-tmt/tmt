@@ -123,7 +123,7 @@ Timeout and interruption end only the observer, never recipient work. A
 `CLEANUP_ERROR` does not undo effects; preserve the request ID and inspect before
 retrying. Missing visible output is not permission to resend.
 
-`help`, `version`, `completion` and `learn` are text-only and reject
+`help`, `version`, `completion`, `learn` and `run` reject
 `--json` with `JSON_UNSUPPORTED`; run them without that flag. Native managed
 `upgrade`/`update` supports one structured JSON result, including partial failures.
 
@@ -479,7 +479,7 @@ Do not treat a failed bind as permission to delete data or try unrelated names.
 
 ## Commands
 
-`name`, `this`, `whoami` and `unbind` require a verified live caller pane.
+`name`, `this`, `run`, `whoami` and `unbind` require a verified live caller pane.
 Matching `TMUX` and `TMUX_PANE` provide the normal evidence; missing variables
 may be resolved through a bounded process-ancestry lookup on the selected server.
 Malformed, conflicting or unresolvable context returns `PANE_NOT_FOUND` (exit 3),
@@ -501,6 +501,7 @@ Use `list` for full active discovery; it is not a prerequisite for `talk` or `ch
 tmt list
 tmt name <global-name>               # bind temporarily; add -s to save
 tmt this <global-name>               # exact supported alias for `name`
+tmt run [-s] <global-name> <command...> # bind and launch; options before the name
 tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
 tmt marked <global-name>             # bind the explicit tmux mark; add -s to save
 tmt whoami                            # show the current pane identity
@@ -551,6 +552,45 @@ discovery.
 `update` aliases `upgrade`; `remove` aliases `rm`. `unbind` retires a temporary
 identity but retains a saved identity/profile offline. There is no `migrate`
 command. Do not delete old user files as a migration workaround.
+
+### Foreground identity launch
+
+`tmt run [-s] <name> <command...>` binds this tmux pane and starts the exact
+command with its terminal streams and normal Ctrl-C/Ctrl-Z/`fg` job control.
+TMT options, including `-s`/`--save` and `--resume`, go before the name; every
+argument after it belongs to the command, without requiring a `--` separator.
+The executable itself cannot start with `-`; misplaced TMT flags such as
+`tmt run Alice -s` fail before binding. Flags after the executable stay verbatim.
+This launches a real program and needs user authorization just like running it
+directly. Do not invoke it to replace an already running agent in this pane.
+
+A new identity is temporary unless `-s` is supplied; existing saved identities
+never downgrade. Registered runtime drivers remember only their harness ID,
+not arguments, model/effort choices, executable paths or provider session IDs
+derived from argv. Generic commands leave the prior harness preference intact.
+Bare `tmt run <name>` launches the remembered registered executable through PATH
+with no arguments; without one, supply an explicit command.
+
+`tmt run --resume <name>` uses an exact hook-recorded provider session and mode.
+`run` itself neither captures a session nor injects initial context. If exact
+resume is unsupported or no session is recorded, it reports a prelaunch fallback
+and launches a usable remembered harness bare. If no registered harness is
+available, it fails without guessing an executable. Never combine `--resume`
+with an explicit command. After any resume process starts, failure is returned
+as-is: no fresh launch or task resend follows automatically.
+
+TMT records the owned command's exit and keeps the pane binding. Its exit status
+is the command's status, or 128 plus a terminating signal number. It reaps only
+its direct child; harness-created background processes are the harness's
+responsibility. Killing TMT with SIGKILL cannot guarantee child cleanup. A live
+child whose launch owner is lost is Unknown and is not a verified input target.
+Do not treat successful spawn, runtime presence or an Ended observation as a
+durable task reply.
+
+`tmt completion bash|zsh|fish` generates an optional shell script with saved-first
+identity candidates and command-owned completion after `run`'s name. Discovery
+does not probe tmux or create storage. Installing shell configuration or provider
+completion scripts is separate and requires user consent.
 
 `talk` sends text to another pane and can cause external input there. Only use
 it when the user has requested that communication or the surrounding task

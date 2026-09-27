@@ -3,6 +3,7 @@
 //! A live container can contain an ended runtime. Conversely, disconnecting a
 //! client need not end a shared runtime. Drivers supply those distinctions;
 //! neither a provider session ID nor inherited hook text authorizes a binding.
+//! Foreground launch callers use `admit_launched`, not direct owner assignment.
 
 use std::{error::Error, fmt};
 
@@ -110,6 +111,8 @@ pub struct BindingSessionState {
     pub last_transition: Option<SessionTransition>,
     pub state: RuntimeState,
     pub key: Option<ObservedSessionKey>,
+    /// The foreground wrapper is binding evidence, not provider session identity.
+    pub launch_owner: Option<RuntimeIncarnation>,
 }
 
 /// Drivers supply verified process identity, never a PID or hook environment alone.
@@ -153,6 +156,63 @@ pub enum RuntimeLiveness {
 }
 
 impl BindingSessionState {
+    /// Record an already-exited, directly owned and unreaped launch. The caller
+    /// must retain actual start evidence for that child and its launch owner.
+    /// Unlike admission, this never constructs a deliverable Running state.
+    pub fn record_launched_exit(
+        &self,
+        key: ObservedSessionKey,
+        owner: RuntimeIncarnation,
+    ) -> Option<Self> {
+        if self.key.as_ref().is_some_and(|old| {
+            old.incarnation == key.incarnation
+                && (self
+                    .launch_owner
+                    .as_ref()
+                    .is_some_and(|current| current != &owner)
+                    || (old.provider_session.is_some()
+                        && old.provider_session != key.provider_session))
+        }) {
+            return None;
+        }
+        Some(Self {
+            key: Some(key),
+            launch_owner: Some(owner),
+            state: RuntimeState::Ended,
+            last_transition: Some(SessionTransition::Ended),
+        })
+    }
+
+    /// A foreground launch needs live evidence for both processes. Hooks use
+    /// `admit` instead and cannot replace ownership on an existing incarnation.
+    pub fn admit_launched(
+        &self,
+        key: ObservedSessionKey,
+        owner: RuntimeIncarnation,
+        transition: SessionTransition,
+        child_liveness: RuntimeLiveness,
+        owner_liveness: RuntimeLiveness,
+    ) -> Option<Self> {
+        if owner_liveness != RuntimeLiveness::Alive
+            || !matches!(
+                transition,
+                SessionTransition::Started | SessionTransition::Resumed
+            )
+            || self.key.as_ref().is_some_and(|old| {
+                old.incarnation == key.incarnation
+                    && self
+                        .launch_owner
+                        .as_ref()
+                        .is_some_and(|current| current != &owner)
+            })
+        {
+            return None;
+        }
+        let mut next = self.admit(key, transition, child_liveness)?;
+        next.launch_owner = Some(owner);
+        Some(next)
+    }
+
     /// Admission requires fresh driver evidence. Uncertain admission leaves a
     /// known-ended observation intact rather than enabling unverified delivery.
     pub fn admit(
@@ -176,6 +236,11 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            launch_owner: self
+                .key
+                .as_ref()
+                .filter(|old| old.incarnation == key.incarnation)
+                .and(self.launch_owner.clone()),
             key: Some(key),
             last_transition: Some(transition),
             state: RuntimeState::Running,
@@ -254,6 +319,7 @@ mod tests {
                 last_transition: None,
                 state: RuntimeState::Unknown,
                 key: None,
+                launch_owner: None,
             }
         );
     }
@@ -323,6 +389,156 @@ mod tests {
             incarnation: RuntimeIncarnation::new(42, start).unwrap(),
             provider_session: Some(ProviderSessionId::new(session).unwrap()),
         }
+    }
+
+    #[test]
+    fn launched_admission_requires_two_live_processes_and_preserves_owner_authority() {
+        let original = key("child-start", "session-a");
+        let owner = RuntimeIncarnation::new(41, "owner-start").unwrap();
+        let initial = BindingSessionState::default();
+        for child in [
+            RuntimeLiveness::Alive,
+            RuntimeLiveness::Gone,
+            RuntimeLiveness::Unknown,
+        ] {
+            for wrapper in [
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Gone,
+                RuntimeLiveness::Unknown,
+            ] {
+                let admitted = initial.admit_launched(
+                    original.clone(),
+                    owner.clone(),
+                    SessionTransition::Started,
+                    child,
+                    wrapper,
+                );
+                assert_eq!(
+                    admitted.is_some(),
+                    child == RuntimeLiveness::Alive && wrapper == RuntimeLiveness::Alive
+                );
+            }
+        }
+        let admitted = initial
+            .admit_launched(
+                original.clone(),
+                owner.clone(),
+                SessionTransition::Resumed,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        assert_eq!(admitted.launch_owner, Some(owner.clone()));
+        assert!(
+            admitted
+                .admit_launched(
+                    original.clone(),
+                    RuntimeIncarnation::new(41, "different-start").unwrap(),
+                    SessionTransition::Resumed,
+                    RuntimeLiveness::Alive,
+                    RuntimeLiveness::Alive
+                )
+                .is_none()
+        );
+        assert!(
+            initial
+                .admit_launched(
+                    original,
+                    owner,
+                    SessionTransition::Forked,
+                    RuntimeLiveness::Alive,
+                    RuntimeLiveness::Alive
+                )
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn fast_launch_completion_never_admits_running_or_replaces_same_child_authority() {
+        let key = key("fast-child", "session-a");
+        let owner = RuntimeIncarnation::new(41, "owner-start").unwrap();
+        let ended = BindingSessionState::default()
+            .record_launched_exit(key.clone(), owner.clone())
+            .unwrap();
+        assert_eq!(ended.state, RuntimeState::Ended);
+        assert_eq!(ended.last_transition, Some(SessionTransition::Ended));
+        assert_eq!(ended.key, Some(key.clone()));
+        assert_eq!(ended.launch_owner, Some(owner.clone()));
+        assert!(
+            ended
+                .admit(
+                    key.clone(),
+                    SessionTransition::Started,
+                    RuntimeLiveness::Alive
+                )
+                .is_none()
+        );
+        assert!(
+            ended
+                .record_launched_exit(
+                    key.clone(),
+                    RuntimeIncarnation::new(41, "other-owner").unwrap()
+                )
+                .is_none()
+        );
+        let mut stale = key;
+        stale.provider_session = None;
+        assert!(ended.record_launched_exit(stale, owner).is_none());
+    }
+
+    #[test]
+    fn hook_events_preserve_launch_ownership_until_a_new_incarnation_is_admitted() {
+        let original = key("child-start", "session-a");
+        let owner = RuntimeIncarnation::new(41, "owner-start").unwrap();
+        let state = BindingSessionState::default()
+            .admit_launched(
+                original.clone(),
+                owner.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        let repeated = state
+            .admit(
+                original.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        assert_eq!(repeated.launch_owner, Some(owner.clone()));
+        let cleared = repeated
+            .transition(
+                &original,
+                SessionTransition::Cleared,
+                Some(ProviderSessionId::new("session-b").unwrap()),
+            )
+            .unwrap();
+        assert_eq!(cleared.launch_owner, Some(owner.clone()));
+        let compacted = cleared
+            .transition(
+                cleared.key.as_ref().unwrap(),
+                SessionTransition::Compacted,
+                None,
+            )
+            .unwrap();
+        assert_eq!(compacted.launch_owner, Some(owner.clone()));
+        let ended = compacted
+            .transition(
+                compacted.key.as_ref().unwrap(),
+                SessionTransition::Ended,
+                None,
+            )
+            .unwrap();
+        assert_eq!(ended.launch_owner, Some(owner));
+        let replacement = ended
+            .admit(
+                key("new-child-start", "session-c"),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        assert_eq!(replacement.launch_owner, None);
     }
 
     #[test]

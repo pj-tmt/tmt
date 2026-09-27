@@ -756,13 +756,65 @@ Resume coordinates pair the session ID with its harness and driver-owned runtime
 mode, separately from the preferred harness. Changing that preference cannot
 silently reinterpret a saved session as belonging to another runtime.
 Runtime observations retain a driver-supplied PID/start-identity pair and an
-optional provider session ID. Admission needs fresh live evidence; inconclusive
+optional provider session ID. Schema 34 additionally retains an optional launch
+owner PID/start-identity pair alongside the provider observation key in the binding
+state. Same-incarnation hook admission and transitions preserve that owner;
+admitting a new incarnation clears it. Hook-admitted runtimes without a wrapper
+retain an absent owner. Admission needs fresh live evidence; inconclusive
 admission preserves the previous observation, including known-ended state.
 Clear and in-process resume remain nonterminal transitions and may change the
 session ID within one incarnation. End/compact events must match the exact current
 key. Observation writes compare the complete expected observation inside the binding transaction;
 late updates for a superseded conversation cannot overwrite a newer one. Drivers
 own process verification and event mapping; core does not interpret hook ancestry.
+
+`tmt-adapters::runtime` registers pure executable recognition on the driver port.
+First-party and community registrations share the same API; descending priority
+and then harness ID resolve competing claims deterministically. Registration is
+in-process, not dynamic plugin discovery. Explicit launches preserve every argv
+byte; the registry neither executes recognition nor remembers arguments or paths.
+Bare relaunch resolves the registered executable through PATH with no arguments.
+Exact resume is runtime-owned, including the mode: the shared constants are
+Claude `default` and Codex `shared`/`embedded`. Provider hooks must record those
+same tokens. First-party resume validates the UUID-shaped IDs observed in #321;
+community drivers own their opaque-ID contracts.
+
+The CLI foreground owner separates command selection, binding, spawn and runtime
+admission. A verified live or stopped previous runtime prevents a second launch.
+An inconclusive previous-runtime probe permits a degraded launch only after
+fencing that same attachment's stored Running state to Unknown; known Ended is
+preserved. This prevents a recovered probe from reviving delivery into the new
+command. Admission failure never restarts or kills a successfully launched child.
+After waiting, completion rereads the binding in an immediate transaction and
+ends only the matching binding, child incarnation and launch owner, using the
+current provider key even if a hook changed it. The SQLite handle is closed
+before the interactive wait and reopened for completion; storage diagnostics
+never replace the actual child exit code.
+An owned, unreaped child that has already exited can retain its real start
+identity for direct Ended recording; it never authorizes delivery. If a child
+exits after the live admission probe, delivery still revalidates process evidence
+and the foreground owner records Ended when it reaps the child.
+The coordinator invokes its injected `HookObserver` only for committed session
+observations, outside storage transactions. Fast exit emits start then end from
+one committed Ended record; a failed admission emits neither, and an already
+recorded end is not emitted twice. Observer failure is diagnostic, never a veto
+or a reason to restart the command. CLI composition currently supplies an empty
+observer; registered feature-extension dispatch belongs to the extension envelope,
+not runtime recognition or the foreground process owner.
+
+`Storage::identity_candidates` is the storage-only discovery owner for completion
+and identity pickers. It opens existing storage read-only, without migration,
+creation or presence reconciliation, and returns active identities in saved-first
+canonical order with optional literal-prefix and remembered-session filters.
+Unavailable discovery is not evidence that an identity does not exist; binding
+and launch still perform their normal authoritative checks.
+The CLI's hidden completion query resolves the unfinished operand through the
+same public Clap grammar and emits only a context tag, candidate names or command
+offset. Shell adapters retain generated static completion and delegate arguments
+after `run`'s identity to the command's own shell completion. They do not own a
+second TMT parser or runtime-driver list. Discovery failures are silent and do
+not initialize storage. `run -s` uses the existing binding lifetime promotion;
+without it a new identity is temporary and an existing saved one stays saved.
 
 `tmt-core::driver` defines optional typed actions and observation-only hook values.
 Unsupported actions are distinct from accepted, queued, failed, denied, approval-
@@ -791,6 +843,11 @@ fallback to legacy unobserved delivery. The probe uses `/usr/bin/env` and fixed
 same deadline. Systems without these utilities cannot verify a recorded runtime.
 The observer does not prove interface ownership; the driver must establish that
 separately.
+For wrapper-launched runtimes, a surviving child also requires a live matching
+launch owner before input is allowed. Missing, reused, stopped or inconclusive
+owner evidence makes the runtime unknown, not ended: the child may survive while
+the shell has reclaimed the terminal. Child death still reports ended regardless
+of owner liveness. Owner fields participate in the same full-observation CAS.
 
 The concrete implementations are `storage::{identities,identity_metadata,identity_status,bindings}`
 and `tmux::{metadata,evidence,binding,caller,transport}`.
@@ -980,6 +1037,15 @@ Its owned running-command handle separates launch from wait when a caller needs
 to release a selection lock; synchronous execution uses that same path. The
 original deadline and cleanup ownership survive the split. An abandoned handle
 stops and reaps its child without introducing a second runner or background task.
+`process::interactive` owns direct-terminal children separately from bounded
+probes: inherited streams and the shell's foreground process group are preserved.
+Invocation-scoped signal notifications wake its wait without a timer. Terminal
+interrupts reach the child directly; wrapper-directed TERM/HUP are forwarded to
+the owned child only. A notification failure reports degraded supervision and
+waits for the child normally instead of killing a live agent. Abandonment first
+requests termination, then kills if necessary and reaps that child, never the shared
+process group. Harness-created descendants and wrapper SIGKILL are outside this
+cleanup guarantee. The CLI `run` owner uses this adapter for foreground commands.
 `interrupt::Interrupt` owns invocation-local signal callbacks and descriptor
 cleanup. `tmux` uses explicit socket/server evidence, bounded command budgets,
 owned buffers and no ambient host fallback. A failed paste or Enter is an

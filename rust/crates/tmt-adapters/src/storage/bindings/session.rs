@@ -27,12 +27,26 @@ pub(super) fn decode_state(row: &Row<'_>, offset: usize) -> rusqlite::Result<Bin
             _ => Err(rusqlite::Error::InvalidQuery),
         })
         .transpose()?;
+    let launch_owner = match (
+        row.get::<_, Option<i64>>(offset + 5)?,
+        row.get::<_, Option<String>>(offset + 6)?,
+    ) {
+        (None, None) => None,
+        (Some(pid), Some(start)) => Some(
+            RuntimeIncarnation::new(
+                u64::try_from(pid).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                &start,
+            )
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        ),
+        _ => return Err(rusqlite::Error::InvalidQuery),
+    };
     let key = match (
         row.get::<_, Option<i64>>(offset + 2)?,
         row.get::<_, Option<String>>(offset + 3)?,
         row.get::<_, Option<String>>(offset + 4)?,
     ) {
-        (None, None, None) => None,
+        (None, None, None) if launch_owner.is_none() => None,
         (Some(pid), Some(start), session) => Some(ObservedSessionKey {
             incarnation: RuntimeIncarnation::new(
                 u64::try_from(pid).map_err(|_| rusqlite::Error::InvalidQuery)?,
@@ -48,6 +62,7 @@ pub(super) fn decode_state(row: &Row<'_>, offset: usize) -> rusqlite::Result<Bin
         _ => return Err(rusqlite::Error::InvalidQuery),
     };
     Ok(BindingSessionState {
+        launch_owner,
         last_transition,
         state,
         key,
@@ -121,6 +136,16 @@ pub(super) fn set_state(
     };
     let next_pid = stored_pid(value)?;
     let expected_pid = stored_pid(expected)?;
+    let owner_pid = |value: &BindingSessionState| {
+        value
+            .launch_owner
+            .as_ref()
+            .map(|owner| super::stored_process_id(owner.pid()))
+            .transpose()
+            .map_err(|error| classify(error, "Validate launch owner PID"))
+    };
+    let next_owner_pid = owner_pid(value)?;
+    let expected_owner_pid = owner_pid(expected)?;
     let state = |value| match value {
         RuntimeState::Unknown => "unknown",
         RuntimeState::Running => "running",
@@ -137,17 +162,21 @@ pub(super) fn set_state(
         })
     };
     connection.execute(
-        "UPDATE bindings SET runtime_state = ?, last_transition = ?, runtime_pid = ?, runtime_start_identity = ?, observed_provider_session_id = ?
-         WHERE id = ? AND runtime_state = ? AND last_transition IS ? AND runtime_pid IS ? AND runtime_start_identity IS ? AND observed_provider_session_id IS ?
+        "UPDATE bindings SET runtime_state = ?, last_transition = ?, runtime_pid = ?, runtime_start_identity = ?, observed_provider_session_id = ?, launch_owner_pid = ?, launch_owner_start_identity = ?
+         WHERE id = ? AND runtime_state = ? AND last_transition IS ? AND runtime_pid IS ? AND runtime_start_identity IS ? AND observed_provider_session_id IS ? AND launch_owner_pid IS ? AND launch_owner_start_identity IS ?
          AND EXISTS (SELECT 1 FROM identities i WHERE i.id = bindings.identity_id AND i.retired_at_ms IS NULL)",
         params![state(value.state), transition(value.last_transition),
             next_pid,
             value.key.as_ref().map(|key| key.incarnation.start_identity()),
             value.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str),
+            next_owner_pid,
+            value.launch_owner.as_ref().map(RuntimeIncarnation::start_identity),
             binding_id, state(expected.state), transition(expected.last_transition),
             expected_pid,
             expected.key.as_ref().map(|key| key.incarnation.start_identity()),
-            expected.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str)],
+            expected.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str),
+            expected_owner_pid,
+            expected.launch_owner.as_ref().map(RuntimeIncarnation::start_identity)],
     ).map(|changed| changed == 1).map_err(|error| classify(error, "Write binding session state"))
 }
 
@@ -207,6 +236,73 @@ mod tests {
         storage
             .with_binding_transaction(|records| {
                 assert_eq!(records.session_preferences(&identity.id)?, preferences);
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn launch_owner_round_trips_and_participates_in_exact_state_comparison() {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let identity = create_or_resolve(&mut storage, "Launched", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let state = BindingSessionState::default()
+            .admit_launched(
+                ObservedSessionKey {
+                    incarnation: RuntimeIncarnation::new(500, "child-start").unwrap(),
+                    provider_session: None,
+                },
+                RuntimeIncarnation::new(400, "owner-start").unwrap(),
+                SessionTransition::Started,
+                tmt_core::binding::session::RuntimeLiveness::Alive,
+                tmt_core::binding::session::RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        let binding = storage
+            .with_binding_transaction(|records| {
+                let binding = records.insert_binding(&identity, &server(), &pane("%5", 105))?;
+                assert!(records.set_session_state(
+                    &binding.id,
+                    &BindingSessionState::default(),
+                    &state
+                )?);
+                Ok::<_, StorageError>(binding)
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let mut storage = fixture.open();
+        storage
+            .with_binding_transaction(|records| {
+                assert_eq!(
+                    records
+                        .entry_by_id(&identity.id)?
+                        .unwrap()
+                        .binding
+                        .unwrap()
+                        .session,
+                    state
+                );
+                let mut stale = state.clone();
+                stale.launch_owner = Some(RuntimeIncarnation::new(400, "old-owner-start").unwrap());
+                let ended = state
+                    .transition(state.key.as_ref().unwrap(), SessionTransition::Ended, None)
+                    .unwrap();
+                assert!(!records.set_session_state(&binding.id, &stale, &ended)?);
+                stale.launch_owner = None;
+                assert!(!records.set_session_state(&binding.id, &stale, &ended)?);
+                assert_eq!(
+                    records
+                        .entry_by_id(&identity.id)?
+                        .unwrap()
+                        .binding
+                        .unwrap()
+                        .session,
+                    state
+                );
+                assert!(records.set_session_state(&binding.id, &state, &ended)?);
                 Ok::<_, StorageError>(())
             })
             .unwrap();
@@ -305,6 +401,7 @@ mod tests {
                     &binding.id,
                     &BindingSessionState::default(),
                     &BindingSessionState {
+                        launch_owner: None,
                         state: RuntimeState::Running,
                         last_transition: Some(SessionTransition::Started),
                         key: Some(ObservedSessionKey {
@@ -416,6 +513,7 @@ mod tests {
                 &binding.id,
                 &BindingSessionState::default(),
                 &BindingSessionState {
+                    launch_owner: None,
                     state: RuntimeState::Ended,
                     last_transition: Some(SessionTransition::Ended),
                     key: Some(ObservedSessionKey {

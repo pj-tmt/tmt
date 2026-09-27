@@ -88,6 +88,23 @@ impl<R: CommandRunner> Driver for BindingSession<'_, R> {
                         RuntimeLiveness::Gone => RuntimeState::Ended,
                         RuntimeLiveness::Unknown => RuntimeState::Unknown,
                     };
+                    if runtime == RuntimeState::Running
+                        && let Some(owner) = &binding.session.launch_owner
+                    {
+                        let owner_observation = match observe_runtime_process(
+                            &self.tmux.runner,
+                            owner.pid(),
+                            self.deadline,
+                        ) {
+                            Ok(observation) => observation,
+                            Err(error) => {
+                                return ActionResult::Failed(ActionError::Process(error));
+                            }
+                        };
+                        if owner_observation.matches(owner) != RuntimeLiveness::Alive {
+                            runtime = RuntimeState::Unknown;
+                        }
+                    }
                 } else if runtime == RuntimeState::Running {
                     runtime = RuntimeState::Unknown;
                 }
@@ -350,6 +367,87 @@ mod tests {
             let calls = tmux.runner.calls.borrow();
             assert_eq!(calls.len(), 2);
             assert_eq!(calls[1].program, "/usr/bin/env");
+        }
+    }
+
+    #[test]
+    fn launched_runtime_requires_its_owner_but_owner_loss_does_not_mean_child_exit() {
+        use tmt_core::binding::session::{ObservedSessionKey, RuntimeIncarnation};
+        for (child, owner, expected) in [
+            ("S+", Some("S+"), RuntimeState::Running),
+            ("S+", Some("Z"), RuntimeState::Unknown),
+            ("S+", Some("T"), RuntimeState::Unknown),
+            ("Z", None, RuntimeState::Ended),
+        ] {
+            let mut entry = entry();
+            let session = &mut entry.binding.as_mut().unwrap().session;
+            session.state = RuntimeState::Running;
+            session.key = Some(ObservedSessionKey {
+                incarnation: RuntimeIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
+                provider_session: None,
+            });
+            session.launch_owner =
+                Some(RuntimeIncarnation::new(43, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap());
+            // A same-process hook must not remove the wrapper's delivery fence.
+            *session = session
+                .admit(
+                    session.key.clone().unwrap(),
+                    tmt_core::binding::session::SessionTransition::Started,
+                    RuntimeLiveness::Alive,
+                )
+                .unwrap();
+            *session = session
+                .transition(
+                    session.key.as_ref().unwrap(),
+                    tmt_core::binding::session::SessionTransition::Compacted,
+                    None,
+                )
+                .unwrap();
+            let runner = ScriptedRunner::default();
+            runner.push_output(observation(&entry, 654, true), Vec::new());
+            runner.push_output(
+                format!("Sun Sep 27 10:00:00 2026 {child}\n").into_bytes(),
+                Vec::new(),
+            );
+            if let Some(owner) = owner {
+                runner.push_output(
+                    format!("Sun Sep 27 10:00:00 2026 {owner}\n").into_bytes(),
+                    Vec::new(),
+                );
+            }
+            if expected == RuntimeState::Running {
+                for _ in 0..3 {
+                    runner.push_output(Vec::new(), Vec::new());
+                }
+            }
+            let tmux = Tmux::new(runner);
+            let result = BindingSession::new(&tmux).send(&entry, "hello");
+            match expected {
+                RuntimeState::Running => assert!(matches!(
+                    result,
+                    ActionResult::Completed(DeliveryAcceptance::Submitted)
+                )),
+                RuntimeState::Unknown => assert!(matches!(
+                    result,
+                    ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified))
+                )),
+                RuntimeState::Ended => assert!(matches!(
+                    result,
+                    ActionResult::Failed(SendFailure::NotSent(ActionError::Offline))
+                )),
+            }
+            let calls = tmux.runner.calls.borrow();
+            assert_eq!(
+                calls.len(),
+                match expected {
+                    RuntimeState::Running => 6,
+                    RuntimeState::Unknown => 3,
+                    RuntimeState::Ended => 2,
+                }
+            );
+            if owner.is_some() {
+                assert_eq!(calls[2].args[4], "43");
+            }
         }
     }
 

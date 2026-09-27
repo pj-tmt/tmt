@@ -297,8 +297,11 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 }
             }
             if source.package == "tmt-cli" {
-                let parsing = ["grammar.rs", "parser.rs", "diagnostics.rs", "invocation.rs"]
-                    .contains(&source.file.as_str());
+                let grammar_owner =
+                    source.file == "grammar.rs" || source.file.starts_with("grammar/");
+                let parsing = grammar_owner
+                    || ["parser.rs", "diagnostics.rs", "invocation.rs"]
+                        .contains(&source.file.as_str());
                 if parsing
                     && (root == "tmt_adapters"
                         || (["crate", "super"].contains(&root)
@@ -311,8 +314,8 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     ));
                 }
                 if ["clap", "clap_complete"].contains(&root)
-                    && (!["main.rs", "grammar.rs", "parser.rs", "diagnostics.rs"]
-                        .contains(&source.file.as_str()))
+                    && !grammar_owner
+                    && (!["main.rs", "parser.rs", "diagnostics.rs"].contains(&source.file.as_str()))
                 {
                     violations.push(format!(
                         "{location}: CLI parsing belongs to grammar/parser, not {}",

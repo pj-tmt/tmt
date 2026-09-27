@@ -74,7 +74,9 @@ fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, Pars
             Invocation::Help(_)
                 | Invocation::Version
                 | Invocation::Completion(_)
+                | Invocation::Complete(_)
                 | Invocation::Learn { .. }
+                | Invocation::Run { .. }
         )
     {
         return Err(ParseError {
@@ -186,10 +188,43 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             Invocation::Help(path)
         }
         ["completion"] => Invocation::Completion(text(m, "shell")),
+        ["__complete"] => Invocation::Complete(
+            m.get_many::<OsString>("words")
+                .map(|values| values.cloned().collect())
+                .unwrap_or_default(),
+        ),
         ["learn"] => Invocation::Learn {
             skill: text(m, "skill"),
         },
         ["init"] => Invocation::Init,
+        ["run"] => {
+            let values = m
+                .get_many::<OsString>("run-argv")
+                .expect("required run operands")
+                .cloned()
+                .collect::<Vec<_>>();
+            let name = values[0]
+                .to_str()
+                .ok_or("Identity name must be valid UTF-8.")?
+                .to_owned();
+            let resume = flag(m, "resume");
+            let command = values[1..].to_vec();
+            if command
+                .first()
+                .is_some_and(|word| word.as_encoded_bytes().starts_with(b"-"))
+            {
+                return Err("The command must not start with '-'. TMT options go before the name: tmt run -s Alice <command>.".into());
+            }
+            if resume && !command.is_empty() {
+                return Err("Use `tmt run --resume <name>` to resume, or pass the command's own flags after the name; do not combine both forms.".into());
+            }
+            Invocation::Run {
+                name,
+                command,
+                resume,
+                save: flag(m, "save"),
+            }
+        }
         ["whoami"] => Invocation::Whoami,
         ["unbind"] => Invocation::Unbind,
         ["upgrade"] => Invocation::Upgrade {
