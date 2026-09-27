@@ -1,5 +1,6 @@
 mod binding_command;
 mod binding_error;
+mod caller_context;
 mod check_command;
 mod completion;
 mod config_command;

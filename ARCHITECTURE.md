@@ -861,6 +861,17 @@ hooks or replace the durable retirement receipts in `identity_hooks`. Container
 interfaces remain the existing tmux binding records; the session interface kind
 is reserved, not a shipped session-only binding store. Current
 public messaging still uses its existing tmux transport and request lifecycle.
+Implicit caller selection first consults the runtime driver's `identify_caller`
+action. `runtime_caller::codex` owns Codex thread markers and bounded process
+ancestry inspection; tmux continues to own server, pane and marker verification.
+A shared app-server's inherited pane is not evidence of the invoking conversation.
+Shared, malformed or unavailable runtime evidence rejects required implicit
+attribution before binding/configuration effects; optional senders remain anonymous.
+Explicit identity or pane selectors bypass
+that inference, not their normal validation. A thread ID is only a correlation
+hint: the current selector does not derive identity from remembered session
+preferences. Automatic current-session correlation remains dependent on the
+runtime hook integration. No caller probe changes bindings or sends input.
 `tmux::BindingSession` also implements the action port: status delegates to the
 same full server/pane/marker evidence evaluator, and send requires present evidence
 before invoking the existing paste-and-Enter transport once. It preserves that

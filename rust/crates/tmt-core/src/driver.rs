@@ -5,6 +5,8 @@
 //! A failed action, including a proven unsent action, requires an explicit routing
 //! decision by the caller. Drivers do not own request storage or retry policy.
 
+pub mod caller;
+
 use crate::binding::session::{
     HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeMode, RuntimeState, SessionTransition,
 };
@@ -80,6 +82,13 @@ pub trait Driver {
     /// A claim describes runtime handling, not authority over an identity.
     fn claims(&self, _command: &str) -> Option<HarnessId> {
         None
+    }
+
+    /// Recognize this invocation's runtime conversation. Concrete drivers own
+    /// environment/process observations; core never interprets provider markers.
+    /// Completed evidence still needs correlation with an active binding.
+    fn identify_caller(&mut self) -> ActionResult<caller::RuntimeCaller, Self::Error> {
+        ActionResult::Unsupported
     }
 
     fn send(

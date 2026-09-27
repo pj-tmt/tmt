@@ -95,6 +95,7 @@ fn preflight(
             ..
         } if is_pane_target(target) => Some(target.as_str()),
         Invocation::Bind { pane: None, .. } | Invocation::Whoami | Invocation::Unbind => {
+            crate::caller_context::require_independent_host()?;
             return tmux
                 .caller_pane(environment)
                 .map_err(endpoint_failure)?

@@ -38,7 +38,7 @@ fn required_failure() -> Failure {
 
 /// Reject an unavailable implicit caller before opening or migrating storage.
 pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
-    select(&Tmux::default(), explicit)?.ok_or_else(required_failure)
+    select(&Tmux::default(), explicit, false)?.ok_or_else(required_failure)
 }
 
 pub fn resolve(storage: &mut Storage, selector: Selector) -> Result<Identity, Failure> {
@@ -50,15 +50,28 @@ pub fn optional(
     tmux: &Tmux,
     explicit: Option<&str>,
 ) -> Result<Option<Identity>, Failure> {
-    match select(tmux, explicit)? {
+    match select(tmux, explicit, true)? {
         Some(selector) => selected(storage, tmux, selector),
         None => Ok(None),
     }
 }
 
-fn select(tmux: &Tmux, explicit: Option<&str>) -> Result<Option<Selector>, Failure> {
+fn select(
+    tmux: &Tmux,
+    explicit: Option<&str>,
+    allow_anonymous: bool,
+) -> Result<Option<Selector>, Failure> {
     if let Some(name) = explicit {
         return Ok(Some(Selector::Explicit(name.to_owned())));
+    }
+    if let Err(error) = crate::caller_context::require_independent_host() {
+        // Anonymous delivery remains valid, but must not acquire the identity
+        // of an unrelated conversation through the shared host's pane.
+        return if allow_anonymous {
+            Ok(None)
+        } else {
+            Err(error)
+        };
     }
     tmux.caller_pane(&CallerEnvironment::current())
         .map(|pane| pane.map(Selector::Pane))
