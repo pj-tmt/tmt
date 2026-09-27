@@ -2,6 +2,8 @@
 //! The communication primitive multiplexes pipes; this boundary owns deadlines,
 //! per-stream limits, failure classification, and explicit termination/reaping.
 
+pub mod runtime;
+
 use nix::{
     errno::Errno,
     sys::signal::{Signal, killpg},

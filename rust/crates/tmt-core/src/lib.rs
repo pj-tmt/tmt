@@ -2,6 +2,7 @@
 
 pub mod binding;
 pub mod dispatch;
+pub mod driver;
 pub mod endpoint;
 pub mod exact_text;
 pub mod identity;

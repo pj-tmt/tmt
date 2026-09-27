@@ -27,6 +27,7 @@ fn fixture(name: &str) -> (Identity, Binding, EndpointSnapshot) {
         server: server.clone(),
         pane_id: "%9".into(),
         pane_pid: 654,
+        session: Default::default(),
     };
     let pane = PaneObservation {
         id: binding.pane_id.clone(),

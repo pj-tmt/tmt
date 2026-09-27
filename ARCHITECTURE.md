@@ -744,6 +744,54 @@ binding use cases. Unknown or conflicting endpoint evidence is never treated as
 proof of death. Saved identities detach and remain offline; temporary identities
 may retire only after conclusive evidence.
 
+`binding::session` separates remembered identity-owned harness/session preferences
+from binding-owned runtime observations. Schema 33 retains the former independently
+of a binding row; deleting/replacing that row resets its observation to unknown.
+An idempotent bind retains the row and its observations. Updates use the existing
+immediate binding transaction and exact binding ID, so an observation for a removed
+binding cannot update its replacement. Retired identities retain preferences but
+cannot read or update them through the active-identity port. Neither a provider
+session ID nor a running observation grants binding ownership or delivery authority.
+Resume coordinates pair the session ID with its harness and driver-owned runtime
+mode, separately from the preferred harness. Changing that preference cannot
+silently reinterpret a saved session as belonging to another runtime.
+Runtime observations retain a driver-supplied PID/start-identity pair and an
+optional provider session ID. Admission needs fresh live evidence; inconclusive
+admission preserves the previous observation, including known-ended state.
+Clear and in-process resume remain nonterminal transitions and may change the
+session ID within one incarnation. End/compact events must match the exact current
+key. Observation writes compare the complete expected observation inside the binding transaction;
+late updates for a superseded conversation cannot overwrite a newer one. Drivers
+own process verification and event mapping; core does not interpret hook ancestry.
+
+`tmt-core::driver` defines optional typed actions and observation-only hook values.
+Unsupported actions are distinct from accepted, queued, failed, denied, approval-
+blocked and uncertain outcomes; only unsupported has automatic fall-through in
+this contract. Concrete adapters must bound their effects through the existing
+process owner. These contracts do not discover or execute plugins, install provider
+hooks or replace the durable retirement receipts in `identity_hooks`. Container
+interfaces remain the existing tmux binding records; the session interface kind
+is reserved, not a shipped session-only binding store. Current
+public messaging still uses its existing tmux transport and request lifecycle.
+`tmux::BindingSession` also implements the action port: status delegates to the
+same full server/pane/marker evidence evaluator, and send requires present evidence
+before invoking the existing paste-and-Enter transport once. It preserves that
+transport's preparation-versus-uncertain failure distinction. Runtime-only actions
+remain unsupported; a live pane does not establish a running provider session.
+Known-ended runtimes reject input as offline. Missing or conflicting interface
+evidence masks the reported runtime to unknown without rewriting stored evidence.
+Recorded running processes are rechecked through the bounded `process::runtime`
+observer before input. It uses a fixed-locale, fixed-timezone `ps` start identity
+(second resolution), not a PID alone or provider transcript. Process disappearance,
+zombie state or a changed start identity reports ended. Stopped/traced processes
+remain unknown rather than ended, allowing later resumption without sending input
+to the shell meanwhile. Inconclusive checks also remain unknown and do not permit
+fallback to legacy unobserved delivery. The probe uses `/usr/bin/env` and fixed
+`/bin/ps`, then `/usr/bin/ps` only when the first executable is missing, within the
+same deadline. Systems without these utilities cannot verify a recorded runtime.
+The observer does not prove interface ownership; the driver must establish that
+separately.
+
 The concrete implementations are `storage::{identities,identity_metadata,identity_status,bindings}`
 and `tmux::{metadata,evidence,binding,caller,transport}`.
 `binding_command` performs caller/target preflight and composes those owners.
@@ -822,7 +870,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 14, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 33, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -1035,8 +1083,11 @@ only then removes fixture state. Signals are sent only to task-owned child
 processes. No host tmux server, provider installation or global environment
 mutation is test evidence.
 
-`typescript/test/support/cli-process.ts` owns each native sandbox's active child runs;
-descriptor clones share that lifetime. Direct-child exit starts same-group
+`typescript/test/support/cli-process.ts` owns each native sandbox's active child runs.
+It also owns `TMUX_TMPDIR` under the sandbox, so ancestor discovery cannot reach
+the host's default tmux server after caller variables are cleared. Native process
+fixtures do not start default-socket servers; real tmux scenarios belong to Docker.
+Descriptor clones share that lifetime. Direct-child exit starts same-group
 cleanup even when descendants retain output pipes. Success requires direct
 close and confirmed group absence; cleanup failure is bounded and retains
 fixture files for diagnosis. Sandbox disposal cancels outstanding runs before

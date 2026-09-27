@@ -2,6 +2,7 @@
 
 mod observation;
 mod operations;
+pub mod session;
 
 #[cfg(test)]
 mod evidence_tests;
@@ -28,6 +29,7 @@ pub struct Binding {
     pub server: ServerEvidence,
     pub pane_id: String,
     pub pane_pid: u64,
+    pub session: session::BindingSessionState,
 }
 
 /// Endpoint evidence frozen before a binding operation begins.
@@ -117,6 +119,23 @@ pub struct UnboundIdentity {
 }
 
 pub trait BindingRecords: IdentityReader {
+    fn session_preferences(
+        &self,
+        identity_id: &str,
+    ) -> Result<session::SessionPreferences, Self::Error>;
+    /// Replace the complete preference record; partial updates read-modify-write
+    /// within this same immediate transaction.
+    fn set_session_preferences(
+        &mut self,
+        identity_id: &str,
+        preferences: &session::SessionPreferences,
+    ) -> Result<bool, Self::Error>;
+    fn set_session_state(
+        &mut self,
+        binding_id: &str,
+        expected: &session::BindingSessionState,
+        state: &session::BindingSessionState,
+    ) -> Result<bool, Self::Error>;
     fn entry_by_id(&self, id: &str) -> Result<Option<BindingEntry>, Self::Error>;
     fn entry_by_pane(&self, pane: &str, server: &str) -> Result<Option<BindingEntry>, Self::Error>;
     fn binding_entries(&self) -> Result<Vec<BindingEntry>, Self::Error>;

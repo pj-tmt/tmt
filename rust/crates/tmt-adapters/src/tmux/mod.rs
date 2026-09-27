@@ -6,7 +6,7 @@ mod caller;
 mod evidence;
 mod metadata;
 mod transport;
-pub use binding::BindingSession;
+pub use binding::{ActionError, BindingSession};
 pub use transport::{DeliveryError, DeliveryStage};
 
 #[cfg(test)]

@@ -20,6 +20,41 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CLEANUP_WAIT: Duration = Duration::from_secs(2);
 
 #[test]
+fn runtime_observer_detects_child_exit_without_a_provider_end_hook() {
+    use crate::process::runtime::{ProcessObservation, observe_runtime_process};
+    let directory = TestDirectory::new();
+    let pid_file = directory.path.join("runtime-pid");
+    let mut cleanup = PidCleanup {
+        path: pid_file.clone(),
+        armed: true,
+    };
+    let args = shell_args("echo $$ > \"$1\"; exec sleep 10", &[path_arg(&pid_file)]);
+    let running = UnixCommandRunner
+        .start(CommandRequest {
+            program: OsStr::new(SHELL),
+            args: &args,
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(3),
+            max_output_bytes: 64,
+        })
+        .unwrap();
+    let pid = wait_for_pid(&pid_file);
+    let observe = || {
+        observe_runtime_process(
+            &UnixCommandRunner,
+            u64::try_from(pid.as_raw()).unwrap(),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap()
+    };
+    assert!(matches!(observe(), ProcessObservation::Live(_)));
+    // Dropping the existing owner kills and reaps the process without any hook.
+    drop(running);
+    assert_pid_gone(pid, &mut cleanup);
+    assert_eq!(observe(), ProcessObservation::Gone);
+}
+
+#[test]
 fn started_command_retains_the_original_deadline() {
     let directory = TestDirectory::new();
     let pid_file = directory.path.join("pid");

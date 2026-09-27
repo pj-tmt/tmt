@@ -110,7 +110,7 @@ fn seed_dependents(connection: &Connection, identity_id: &str) {
         .unwrap();
     connection
         .execute(
-            "INSERT INTO bindings VALUES ('binding', ?, 'tmux', '%1', 'server', '/tmp/socket', 11, 'server-time', 12, 'bound-time', 'verified-time')",
+            "INSERT INTO bindings (id, identity_id, transport, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, bound_at, last_verified_at) VALUES ('binding', ?, 'tmux', '%1', 'server', '/tmp/socket', 11, 'server-time', 12, 'bound-time', 'verified-time')",
             params![identity_id],
         )
         .unwrap();

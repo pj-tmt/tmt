@@ -53,8 +53,10 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
     const cwd = path.join(root, 'cwd');
     const home = path.join(root, 'home');
     const xdgConfigHome = path.join(root, 'xdg');
+    const tmuxTmpdir = path.join(root, 'tmux');
     mkdirSync(cwd);
     mkdirSync(home);
+    mkdirSync(tmuxTmpdir);
 
     const globalDir = path.join(xdgConfigHome, 'tmux-team');
     const env: NodeJS.ProcessEnv = {
@@ -62,6 +64,10 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
       HOME: home,
       XDG_CONFIG_HOME: xdgConfigHome,
       CODEX_HOME: path.join(home, '.codex'),
+      // Clearing TMUX alone still permits ancestor discovery on the host's
+      // default server. Native process tests never start a tmux server; the
+      // Docker harness owns tests that need one.
+      TMUX_TMPDIR: tmuxTmpdir,
     };
     // Provider-specific overrides must not make contract tests write outside
     // their isolated home directory.

@@ -26,6 +26,7 @@ fn recipient() -> PaneIdentity {
         server: server.clone(),
         pane_id: "%14".into(),
         pane_pid: 42,
+        session: Default::default(),
     };
     let pane = PaneObservation {
         id: binding.pane_id.clone(),
