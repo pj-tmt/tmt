@@ -206,7 +206,7 @@ after the door closes. No new dispatch after its deadline.
 
 ### Proposed movement contract
 
-Movement is not implemented; [#179](https://github.com/wkh237/tmux-team/issues/179)
+Movement is not implemented; [#179](https://github.com/wkh237/tmt/issues/179)
 owns the proposed contract for one authoritative local trajectory per identity
 UUID, with revision/map revision, route/waypoints and service-derived timing.
 The browser interpolates without per-frame persistence or model calls. A retarget
@@ -222,8 +222,8 @@ Shared admission/routing is not a second native task engine. It records who may
 request work and where it was routed. Native `RequestService` remains the owner
 of actual delivery, immutable final responses, attention and retention.
 
-Discussion-board behavior is tracked in [#211](https://github.com/wkh237/tmux-team/issues/211),
-with shared guidance in [#213](https://github.com/wkh237/tmux-team/issues/213). Board
+Discussion-board behavior is tracked in [#211](https://github.com/wkh237/tmt/issues/211),
+with shared guidance in [#213](https://github.com/wkh237/tmt/issues/213). Board
 posts are distinct domain content from core exchange records: a post never
 implicitly creates, replies to or acknowledges a native `x` record. Reuse the
 transport and storage infrastructure, not the request state machine; those issues

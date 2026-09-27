@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 publish = false
-repository = "https://github.com/wkh237/tmux-team"
+repository = "https://github.com/wkh237/tmt"
 
 [workspace.dependencies]
 getrandom = "=0.4.3"

@@ -282,7 +282,7 @@ describe('native curl bootstrap', () => {
       expect(script).toContain(
         createHash('sha256').update(readFileSync(fixture.archive)).digest('hex')
       );
-      expect(script).toContain('https://github.com/wkh237/tmux-team/releases/download/');
+      expect(script).toContain('https://github.com/wkh237/tmt/releases/download/');
       expect(script).not.toContain('endpointOverride');
     });
   });
@@ -366,7 +366,7 @@ describe('native curl bootstrap', () => {
         expect(run.log).toBe('');
         expect(existsSync(path.join(run.prefix, 'bin', 'tmt'))).toBe(false);
         const urls = readFileSync(run.curlLog, 'utf8').trim().split('\n');
-        const base = `https://github.com/wkh237/tmux-team/releases/download/v${fixture.version}`;
+        const base = `https://github.com/wkh237/tmt/releases/download/v${fixture.version}`;
         expect(urls).toEqual([
           `${base}/dist-manifest.json`,
           ...(corrupt === 'archive' ? [`${base}/${path.basename(fixture.archive)}`] : []),
@@ -386,7 +386,7 @@ describe('native curl bootstrap', () => {
       expect(run.log).toBe('');
       expect(existsSync(path.join(run.prefix, 'bin', 'tmt'))).toBe(false);
       expect(readFileSync(run.curlLog, 'utf8').trim()).toBe(
-        `https://github.com/wkh237/tmux-team/releases/download/v${fixture.version}/dist-manifest.json`
+        `https://github.com/wkh237/tmt/releases/download/v${fixture.version}/dist-manifest.json`
       );
       expectCleanStage(run.stage);
     });

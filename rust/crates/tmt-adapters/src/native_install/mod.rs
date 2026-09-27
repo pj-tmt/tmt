@@ -30,7 +30,7 @@ use std::{
 };
 use tmt_core::native_install::{Channel, PinAction, plan_version};
 
-const OFFICIAL_REPOSITORY: &str = "wkh237/tmux-team";
+const OFFICIAL_REPOSITORY: &str = "wkh237/tmt";
 
 #[derive(Debug, Clone)]
 pub struct InstallReport {

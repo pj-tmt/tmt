@@ -35,7 +35,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wkh237/tmux-team.git"
+    "url": "git+https://github.com/wkh237/tmt.git"
   },
   "engines": {
     "node": ">=22.12.0"
