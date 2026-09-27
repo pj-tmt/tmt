@@ -97,7 +97,7 @@ fn injected_release(
     manifest: Vec<u8>,
     archive: Vec<u8>,
 ) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>> {
-    let endpoint = "https://api.github.com/repos/wkh237/tmux-team/releases".to_owned();
+    let endpoint = "https://api.github.com/repos/wkh237/tmt/releases".to_owned();
     let exact = format!("{endpoint}/tags/v{version}");
     let manifest_url = format!("{endpoint}/assets/{}", RELEASE_ID * 10 + 1);
     let archive_url = format!("{endpoint}/assets/{}", RELEASE_ID * 10 + 2);

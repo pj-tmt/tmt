@@ -43,7 +43,7 @@ unchanged and is the single built-in catalog/layout owner. Custom props use the
 singular proposed `tmt office prop` namespace and need a versioned successor
 contract, not permissive fallback decoding or a parallel layout copy;
 custom-prop commands are unimplemented and tracked in
-[#238](https://github.com/wkh237/tmux-team/issues/238). Before implementation,
+[#238](https://github.com/wkh237/tmt/issues/238). Before implementation,
 fix numeric byte/dimension/palette/catalog quotas, identifier and digest format,
 schema, storage paths, access rules, version migration and operation costs.
 Shared independent conformance vectors must cover the renderer, native input and

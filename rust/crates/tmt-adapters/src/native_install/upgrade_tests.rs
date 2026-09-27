@@ -131,8 +131,8 @@ fn forged_remote_provenance_is_not_accepted_as_owned_receipt_metadata() {
         serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
     for source in [
         serde_json::json!({"kind":"github-release", "repository":"attacker/other", "release_id":42, "manifest_sha256":"a".repeat(64)}),
-        serde_json::json!({"kind":"github-release", "repository":"wkh237/tmux-team", "release_id":0, "manifest_sha256":"a".repeat(64)}),
-        serde_json::json!({"kind":"github-release", "repository":"wkh237/tmux-team", "release_id":42, "manifest_sha256":"invalid"}),
+        serde_json::json!({"kind":"github-release", "repository":"wkh237/tmt", "release_id":0, "manifest_sha256":"a".repeat(64)}),
+        serde_json::json!({"kind":"github-release", "repository":"wkh237/tmt", "release_id":42, "manifest_sha256":"invalid"}),
     ] {
         let mut forged = original.clone();
         forged["source"] = source;
@@ -390,7 +390,7 @@ fn missing_release_preserves_active_files_without_staging() {
             calls += 1;
             assert_eq!(
                 url,
-                "https://api.github.com/repos/wkh237/tmux-team/releases?per_page=100&page=1"
+                "https://api.github.com/repos/wkh237/tmt/releases?per_page=100&page=1"
             );
             Ok(b"[]".to_vec())
         },
