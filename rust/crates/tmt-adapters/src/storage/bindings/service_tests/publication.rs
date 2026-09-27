@@ -30,6 +30,63 @@ fn temporary_binding_save_reuses_uuid_and_never_downgrades() {
 }
 
 #[test]
+fn same_interface_rebind_retains_runtime_observation_and_preferences() {
+    use tmt_core::binding::session::{
+        BindingSessionState, HarnessId, ProviderSessionId, RememberedSession, RuntimeMode,
+        RuntimeState, SessionPreferences, SessionTransition,
+    };
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let first = bind_identity(&mut storage, &mut endpoint, "%1", "Session", true).unwrap();
+    let state = BindingSessionState {
+        state: RuntimeState::Running,
+        last_transition: Some(SessionTransition::Resumed),
+        key: Some(tmt_core::binding::session::ObservedSessionKey {
+            incarnation: tmt_core::binding::session::RuntimeIncarnation::new(101, "runtime-start")
+                .unwrap(),
+            provider_session: None,
+        }),
+    };
+    let preferences = SessionPreferences {
+        preferred_harness: Some(HarnessId::new("codex").unwrap()),
+        remembered: Some(RememberedSession {
+            harness: HarnessId::new("codex").unwrap(),
+            mode: RuntimeMode::new("shared").unwrap(),
+            provider_session: ProviderSessionId::new("remembered-session").unwrap(),
+        }),
+    };
+    storage
+        .with_binding_transaction(|records| {
+            records.set_session_state(
+                &first.binding.as_ref().unwrap().id,
+                &BindingSessionState::default(),
+                &state,
+            )?;
+            records.set_session_preferences(&first.identity.id, &preferences)?;
+            Ok::<_, crate::storage::StorageError>(())
+        })
+        .unwrap();
+    let rebound = bind_identity(&mut storage, &mut endpoint, "%1", "Session", true).unwrap();
+    assert_eq!(
+        rebound.binding.as_ref().unwrap().id,
+        first.binding.as_ref().unwrap().id
+    );
+    assert_eq!(rebound.binding.unwrap().session, state);
+    assert_eq!(endpoint.publish_calls, 1);
+    storage
+        .with_binding_transaction(|records| {
+            assert_eq!(
+                records.session_preferences(&first.identity.id)?,
+                preferences
+            );
+            Ok::<_, crate::storage::StorageError>(())
+        })
+        .unwrap();
+    storage.close().unwrap();
+}
+
+#[test]
 fn occupied_pane_leaves_new_identity_committed_without_binding() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();

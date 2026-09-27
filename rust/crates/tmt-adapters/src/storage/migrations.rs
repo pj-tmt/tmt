@@ -25,6 +25,8 @@ mod request_room_tests;
 #[cfg(test)]
 mod room_tests;
 #[cfg(test)]
+mod session_tests;
+#[cfg(test)]
 mod test_support;
 #[cfg(test)]
 mod whiteboard_snapshot_tests;
@@ -173,6 +175,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "track advisory wake attempts on durable inbox requests",
         sql: include_str!("schema/032.sql"),
+    },
+    Migration {
+        name: "separate remembered harness preferences from binding runtime observations",
+        sql: include_str!("schema/033.sql"),
     },
 ];
 

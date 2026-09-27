@@ -11,6 +11,7 @@ use tmt_core::{
 pub struct BindingSession<'a, R> {
     tmux: &'a Tmux<R>,
     deadline: Instant,
+    enter_delay: Duration,
 }
 
 impl<'a, R: CommandRunner> BindingSession<'a, R> {
@@ -18,7 +19,14 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
         Self {
             tmux,
             deadline: Instant::now(),
+            enter_delay: Duration::ZERO,
         }
+    }
+
+    /// Preserve the caller's configured transport delay; it is not routing policy.
+    pub fn with_enter_delay(mut self, delay: Duration) -> Self {
+        self.enter_delay = delay;
+        self
     }
 
     fn options<'b>(&self, panes: Option<&'b [String]>) -> OperationOptions<'b> {
@@ -28,6 +36,9 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
         }
     }
 }
+
+mod actions;
+pub use actions::ActionError;
 
 impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     type Error = TmuxError;

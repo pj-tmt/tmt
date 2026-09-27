@@ -13,10 +13,13 @@ use super::{
     identities::{identity_row_at, with_immediate_transaction},
 };
 
+mod session;
+
 const IDENTITY_COLUMNS: &str =
     "i.id, i.name, i.canonical_name, i.lifetime, i.created_at, i.updated_at";
 const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.socket_path, \
-    b.server_pid, b.server_start_time, b.pane_pid";
+    b.server_pid, b.server_start_time, b.pane_pid, b.runtime_state, b.last_transition, \
+    b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id";
 
 struct BindingRows<'a>(&'a Connection);
 
@@ -46,6 +49,7 @@ fn binding_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Binding> {
         },
         pane_id: row.get(offset + 2)?,
         pane_pid: process_id_at(row, offset + 7)?,
+        session: session::decode_state(row, offset + 8)?,
     })
 }
 
@@ -72,6 +76,30 @@ impl IdentityReader for BindingRows<'_> {
 }
 
 impl BindingRecords for BindingRows<'_> {
+    fn session_preferences(
+        &self,
+        identity_id: &str,
+    ) -> Result<tmt_core::binding::session::SessionPreferences, Self::Error> {
+        session::preferences(self.0, identity_id)
+    }
+
+    fn set_session_preferences(
+        &mut self,
+        identity_id: &str,
+        preferences: &tmt_core::binding::session::SessionPreferences,
+    ) -> Result<bool, Self::Error> {
+        session::set_preferences(self.0, identity_id, preferences)
+    }
+
+    fn set_session_state(
+        &mut self,
+        binding_id: &str,
+        expected: &tmt_core::binding::session::BindingSessionState,
+        state: &tmt_core::binding::session::BindingSessionState,
+    ) -> Result<bool, Self::Error> {
+        session::set_state(self.0, binding_id, expected, state)
+    }
+
     fn entry_by_id(&self, id: &str) -> Result<Option<BindingEntry>, Self::Error> {
         self.0
             .query_row(
@@ -143,7 +171,8 @@ impl BindingRecords for BindingRows<'_> {
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                  RETURNING id, identity_id, pane_id, server_id, socket_path,
-                    server_pid, server_start_time, pane_pid",
+                    server_pid, server_start_time, pane_pid, runtime_state, last_transition,
+                    runtime_pid, runtime_start_identity, observed_provider_session_id",
                 params![
                     id,
                     identity.id,

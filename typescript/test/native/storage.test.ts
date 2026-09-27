@@ -81,6 +81,10 @@ function expectNativeSchema(
     { version: 30, name: 'extend shared Office discussions with room scopes' },
     { version: 31, name: 'retain retired meeting rooms without accepting new work' },
     { version: 32, name: 'track advisory wake attempts on durable inbox requests' },
+    {
+      version: 33,
+      name: 'separate remembered harness preferences from binding runtime observations',
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -89,6 +93,7 @@ function expectNativeSchema(
       'identity_hooks',
       'identity_metadata',
       'identity_status',
+      'identity_session_preferences',
       'office_local_blocks',
       'office_local_worlds',
       'office_local_profiles',
@@ -129,6 +134,16 @@ function expectNativeSchema(
     'installed_at_ms',
   ]);
   for (const [name, columns] of [
+    [
+      'identity_session_preferences',
+      [
+        'identity_id',
+        'preferred_harness',
+        'remembered_harness',
+        'runtime_mode',
+        'provider_session_id',
+      ],
+    ],
     ['identity_status', ['identity_id', 'activity', 'mood', 'updated_at_ms', 'expires_at_ms']],
     [
       'office_local_worlds',
@@ -290,6 +305,7 @@ function expectNativeSchema(
       ({ name }) =>
         name !== '_migrations' &&
         name !== 'identities' &&
+        name !== 'bindings' &&
         name !== 'request_attempts' &&
         name !== 'request_responses'
     )
@@ -298,6 +314,36 @@ function expectNativeSchema(
     migrated.tables.filter(({ name }) => unchangedTables.includes(name)).map(({ name }) => name)
   ).toEqual(unchangedTables);
   for (const name of unchangedTables) expect(table(migrated, name)).toEqual(table(reference, name));
+
+  const oldBindings = table(reference, 'bindings');
+  const newBindings = table(migrated, 'bindings');
+  expect(newBindings.columns.slice(0, 11)).toEqual(oldBindings.columns);
+  expect(newBindings.columns.slice(11)).toEqual([
+    { cid: 11, name: 'runtime_state', type: 'TEXT', notnull: 1, dflt_value: "'unknown'", pk: 0 },
+    { cid: 12, name: 'last_transition', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
+    { cid: 13, name: 'runtime_pid', type: 'INTEGER', notnull: 0, dflt_value: null, pk: 0 },
+    { cid: 14, name: 'runtime_start_identity', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
+    {
+      cid: 15,
+      name: 'observed_provider_session_id',
+      type: 'TEXT',
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+    },
+  ]);
+  expect(newBindings.indexes).toEqual(oldBindings.indexes);
+  expect(newBindings.foreignKeys).toEqual(oldBindings.foreignKeys);
+  expect(newBindings.rows).toEqual(
+    oldBindings.rows.map((row) => ({
+      ...row,
+      runtime_state: 'unknown',
+      last_transition: null,
+      runtime_pid: null,
+      runtime_start_identity: null,
+      observed_provider_session_id: null,
+    }))
+  );
 
   const oldHistory = table(reference, '_migrations');
   const newHistory = table(migrated, '_migrations');

@@ -59,6 +59,34 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
+it('owns the default tmux socket directory and removes it with the sandbox', async () => {
+  let socketRoot = '';
+  vi.stubEnv('TMUX_TMPDIR', '/not-the-test-owned-tmux-directory');
+  try {
+    await withSandbox(async (sandbox) => {
+      socketRoot = path.join(sandbox.root, 'tmux');
+      expect(sandbox.env.TMUX_TMPDIR).toBe(socketRoot);
+      expect(fs.statSync(socketRoot).isDirectory()).toBe(true);
+      const result = await runCli(
+        {
+          ...sandbox,
+          cli: {
+            executable: process.execPath,
+            args: ['-e', 'process.stdout.write(process.env.TMUX_TMPDIR)'],
+          },
+        },
+        []
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(socketRoot);
+      expect(result.stderr).toBe('');
+    });
+    expect(fs.existsSync(socketRoot)).toBe(false);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 it.each(['ignore', 'inherit'])(
   'normal parent exit cleans descendants with %s output',
   async (output) => {
