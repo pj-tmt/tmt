@@ -61,6 +61,8 @@ COPY skills skills
 COPY extensions/tmt-office/skills extensions/tmt-office/skills
 COPY contracts contracts
 COPY extensions/tmt-office/contracts extensions/tmt-office/contracts
+# Workspace member: Cargo loads every member's manifest for --workspace builds.
+COPY extensions/tmt-squad extensions/tmt-squad
 COPY --from=browser-tests-base /workspace/target/office-spa /workspace/target/office-spa
 ENV TMT_OFFICE_SPA_DIR=/workspace/target/office-spa
 RUN cd rust && cargo +1.97.0 build --locked --workspace --release --features tmt-office/local-service \
