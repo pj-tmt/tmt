@@ -219,6 +219,10 @@ describe('squad extension', () => {
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
       expect(documentedFields.sort()).toEqual(Object.keys(rows[0]).sort());
       expect(Object.keys(status.body.squad).sort()).toEqual(['layout', 'lead', 'name', 'roomId']);
+      // Without a terminal, the board is exactly status, in text and JSON.
+      const statusText = await runCli(sandbox, ['squad', 'status']);
+      expect(await runCli(sandbox, ['squad', 'board'])).toEqual(statusText);
+      expect((await squad(sandbox, ['board'])).body).toEqual(status.body);
       const text = await runCli(sandbox, ['sq', 'status']);
       expect(text.stdout).toContain('◆ auth-fix');
       expect(text.stdout).toContain('    waiting on you: approve the token rotation plan\n');

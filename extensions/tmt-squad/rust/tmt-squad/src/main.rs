@@ -1,6 +1,7 @@
 //! `tmt squad` (alias `tmt sq`): an optional extension reached through TMT's
 //! external command dispatch. It keeps no state of its own.
 
+mod board;
 mod config;
 mod core;
 mod filter;
@@ -91,6 +92,11 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
+            Command::new("board")
+                .about("Open the terminal board (prints status without a terminal)")
+                .arg(squad_option()),
+        )
+        .subcommand(
             Command::new("skill")
                 .about("The tmt-squad skill for lead agents")
                 .subcommand_required(true)
@@ -142,7 +148,7 @@ fn complete(words: &[String]) -> Vec<String> {
 
 fn human(command: &str, document: &Value) -> String {
     match command {
-        "status" => status::text(document),
+        "status" | "board" => status::text(document),
         "init" => format!(
             "Squad {} {} (room squad-{}); you are {}.\n",
             document["squad"]["name"].as_str().unwrap_or_default(),
@@ -172,6 +178,12 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             .cloned()
             .collect::<Vec<_>>()
     };
+    // The board needs a terminal; otherwise it is `status`, text or JSON.
+    let json = matches.get_flag("json");
+    if command == "board" && !json && std::io::stdout().is_terminal() {
+        board::run(core, text("squad").map(str::to_owned))?;
+        return Ok(Value::Null.into());
+    }
     let mut config = Config::load(&core)?;
     if command == "init" {
         let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
@@ -238,6 +250,8 @@ fn main() -> ExitCode {
         _ => {}
     }
     let (body, code) = match run(command, sub) {
+        // The interactive board has already drawn everything it shows.
+        Ok(outcome) if outcome.document.is_null() => (String::new(), 0),
         Ok(outcome) => {
             let rendered = if json {
                 format!("{}\n", outcome.document)
@@ -276,7 +290,9 @@ mod tests {
         assert_eq!(complete(&words("-- s")), ["set", "skill", "status"]);
         assert_eq!(
             complete(&words("-- ")),
-            ["add", "init", "lead", "remove", "set", "skill", "status"]
+            [
+                "add", "board", "init", "lead", "remove", "set", "skill", "status"
+            ]
         );
         assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);
         assert_eq!(complete(&words("-- skill s")), ["show"]);

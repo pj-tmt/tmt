@@ -336,6 +336,24 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 `activity` and every squad field such as `state`, `pending`, `note` or
 `pr_link`. A bare field name means "present and non-empty".
 
+`tmt squad board` opens the terminal board: squad tabs (←/→), one searchable
+list (`/`), the ◆ rows that wait on you first in the crew layout, and each
+member's note under its row. It refreshes in the background every few seconds
+and re-reads `squad.toml`, so edits apply on the next refresh; `q` or Esc
+closes it. Without a terminal, or with `--json`, it prints `status`. Columns
+and state colors are configurable:
+
+```toml
+[squad.product.columns]
+show = ["member", "state", "task", "pr_link"]   # member is the name
+task = { width = 32, title = "WORK" }
+
+[squad.product.states]
+blocked = { color = "red" }   # default, dim, red, amber, green, cyan, blue, magenta
+```
+
+Row actions (Enter, t, r, a, o, y, n) and panes arrive in later versions.
+
 The lead's skill is embedded in the extension. Until `tmt extension install
 squad` offers it, copy it into your lead agent's skills directory yourself, for
 example `tmt sq skill show > ~/.claude/skills/tmt-squad/SKILL.md` (create the

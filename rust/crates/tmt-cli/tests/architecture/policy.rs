@@ -100,7 +100,15 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Squad is a public-interface consumer: it reaches TMT only through
         // commands and `tmt api`, so it may depend on no workspace crate.
-        "tmt-squad" => &["clap", "serde_json", "toml_edit", "subprocess"],
+        "tmt-squad" => &[
+            "clap",
+            "serde_json",
+            "toml_edit",
+            "subprocess",
+            "ratatui",
+            "unicode-width",
+            "signal-hook",
+        ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
     package["dependencies"]
