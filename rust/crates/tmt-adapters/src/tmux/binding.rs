@@ -12,6 +12,7 @@ pub struct BindingSession<'a, R> {
     tmux: &'a Tmux<R>,
     deadline: Instant,
     enter_delay: Duration,
+    invoker: Option<super::Invoker>,
 }
 
 impl<'a, R: CommandRunner> BindingSession<'a, R> {
@@ -20,7 +21,14 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
             tmux,
             deadline: Instant::now(),
             enter_delay: Duration::ZERO,
+            invoker: None,
         }
+    }
+
+    /// The user's own tmux client location, required only by `focus`.
+    pub fn with_invoker(mut self, invoker: super::Invoker) -> Self {
+        self.invoker = Some(invoker);
+        self
     }
 
     /// Preserve the caller's configured transport delay; it is not routing policy.

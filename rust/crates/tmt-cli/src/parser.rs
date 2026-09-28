@@ -347,6 +347,9 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 },
             }
         }
+        ["focus"] => Invocation::Focus {
+            target: required(m, "target"),
+        },
         ["check"] => {
             let positional = text(m, "capture-lines")
                 .map(|value| integer(&value, "lines", 0, MAX_CAPTURE_LINES))

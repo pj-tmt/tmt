@@ -4,9 +4,11 @@
 mod binding;
 mod caller;
 mod evidence;
+mod focus;
 mod metadata;
 mod transport;
 pub use binding::{ActionError, BindingSession};
+pub use focus::{FocusError, Invoker};
 pub use transport::{DeliveryError, DeliveryStage};
 
 #[cfg(test)]
@@ -90,6 +92,14 @@ impl TmuxError {
 
     pub fn socket_permission_denied(&self) -> bool {
         self.kind == TmuxFailure::SocketPermission
+    }
+
+    /// tmux ran and reported failure (for example an unknown target), as
+    /// opposed to a timeout, spawn or I/O failure.
+    pub fn exited(&self) -> bool {
+        self.cause
+            .as_ref()
+            .is_some_and(|cause| matches!(cause.kind, CommandFailure::Exit { .. }))
     }
 }
 

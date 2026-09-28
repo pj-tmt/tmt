@@ -841,6 +841,8 @@ The maintained public surface is:
 - the versioned local extension interface through `api`;
 - profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
   `reply`, `result`, `talk`/`send`, `check`/`read`;
+- `focus <identity|pane>`, which shows a verified pane in the
+  invoking user's own tmux client (see the driver `focus` action);
 - managed native updates through `upgrade`/`update`, with the hidden
   `__native-install` and `__native-refresh-skills` composition points used by
   verified release tooling;
@@ -1071,29 +1073,35 @@ that inference, not their normal validation. A thread ID is only a correlation
 hint: the current selector does not derive identity from remembered session
 preferences. Automatic current-session correlation remains dependent on the
 runtime hook integration. No caller probe changes bindings or sends input.
-`tmux::BindingSession` also implements the action port: status delegates to the
-same full server/pane/marker evidence evaluator, and send requires present evidence
+`tmux::BindingSession` also implements the action port: status delegates to the same
+full server/pane/marker evidence evaluator, and send requires present evidence
 before invoking the existing paste-and-Enter transport once. It preserves that
-transport's preparation-versus-uncertain failure distinction. Runtime-only actions
-remain unsupported; a live pane does not establish a running provider session.
-Known-ended runtimes reject input as offline. Missing or conflicting interface
-evidence masks the reported runtime to unknown without rewriting stored evidence.
-Recorded running processes are rechecked through the bounded `process::runtime`
-observer before input. It uses a fixed-locale, fixed-timezone `ps` start identity
-(second resolution), not a PID alone or provider transcript. Process disappearance,
-zombie state or a changed start identity reports ended. Stopped/traced processes
-remain unknown rather than ended, allowing later resumption without sending input
-to the shell meanwhile. Inconclusive checks also remain unknown and do not permit
-fallback to legacy unobserved delivery. The probe uses `/usr/bin/env` and fixed
-`/bin/ps`, then `/usr/bin/ps` only when the first executable is missing, within the
-same deadline. Systems without these utilities cannot verify a recorded runtime.
-The observer does not prove interface ownership; the driver must establish that
-separately.
-For wrapper-launched runtimes, a surviving child also requires a live matching
-launch owner before input is allowed. Missing, reused, stopped or inconclusive
-owner evidence makes the runtime unknown, not ended: the child may survive while
-the shell has reclaimed the terminal. Child death still reports ended regardless
-of owner liveness. Owner fields participate in the same full-observation CAS.
+transport's preparation-versus-uncertain failure distinction. `focus` (a
+default-`Unsupported` driver action returning the shown and previous interface IDs)
+requires the same present evidence but no running agent, then switches only the
+invoker's client: the client showing the session of `TMUX_PANE`, or, for a
+display-popup whose own pane has no session, the session named in `TMUX`, choosing
+the most recently active such client. A bare tmux "current client" is never used, a
+foreign or unidentifiable client is `HOST_UNSUPPORTED`, and focus sends no buffer,
+paste or key input. Runtime-only actions remain unsupported; a live pane does not
+establish a running provider session. Known-ended runtimes reject input as offline.
+Missing or conflicting interface evidence masks the reported runtime to unknown
+without rewriting stored evidence. Recorded running processes are rechecked through
+the bounded `process::runtime` observer before input. It uses a fixed-locale,
+fixed-timezone `ps` start identity (second resolution), not a PID alone or provider
+transcript. Process disappearance, zombie state or a changed start identity reports
+ended. Stopped/traced processes remain unknown rather than ended, allowing later
+resumption without sending input to the shell meanwhile. Inconclusive checks also
+remain unknown and do not permit fallback to legacy unobserved delivery. The probe
+uses `/usr/bin/env` and fixed `/bin/ps`, then `/usr/bin/ps` only when the first
+executable is missing, within the same deadline. Systems without these utilities
+cannot verify a recorded runtime. The observer does not prove interface ownership;
+the driver must establish that separately. For wrapper-launched runtimes, a
+surviving child also requires a live matching launch owner before input is allowed.
+Missing, reused, stopped or inconclusive owner evidence makes the runtime unknown,
+not ended: the child may survive while the shell has reclaimed the terminal. Child
+death still reports ended regardless of owner liveness. Owner fields participate in
+the same full-observation CAS.
 
 The concrete implementations are `storage::{identities,identity_metadata,identity_status,bindings}`
 and `tmux::{metadata,evidence,binding,caller,transport}`.

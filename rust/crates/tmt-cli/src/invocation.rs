@@ -51,6 +51,10 @@ pub enum Invocation {
         target: String,
         lines: Option<u64>,
     },
+    /// An identity name, or a pane target (for example a previous `from`).
+    Focus {
+        target: String,
+    },
     Config(ConfigRequest),
     Identity(IdentityRequest),
     Room(RoomOperation),

@@ -2,14 +2,15 @@
 
 use super::*;
 use crate::process::{CommandError, runtime::observe_runtime_process};
-use crate::tmux::DeliveryError;
+use crate::tmux::{DeliveryError, FocusError};
 use tmt_core::{
     binding::{
         BindingEntry, BindingEvidence, evaluate_binding,
         session::{RuntimeLiveness, RuntimeState},
     },
     driver::{
-        ActionResult, DeliveryAcceptance, Driver, InterfacePresence, InterfaceStatus, SendFailure,
+        ActionResult, DeliveryAcceptance, Driver, Focused, InterfacePresence, InterfaceStatus,
+        SendFailure,
     },
 };
 
@@ -18,6 +19,8 @@ pub enum ActionError {
     Evidence(TmuxError),
     Unverified,
     Offline,
+    /// No client of the invoking user can be focused; nothing changed.
+    HostUnsupported,
     Delivery(DeliveryError),
     Process(CommandError),
 }
@@ -28,6 +31,9 @@ impl std::fmt::Display for ActionError {
             Self::Evidence(error) => error.fmt(f),
             Self::Unverified => f.write_str("Could not verify the identity binding."),
             Self::Offline => f.write_str("The agent runtime has ended; no pane input was sent."),
+            Self::HostUnsupported => {
+                f.write_str("No tmux client for this invocation can be focused.")
+            }
             Self::Delivery(error) => error.fmt(f),
             Self::Process(error) => error.fmt(f),
         }
@@ -40,7 +46,7 @@ impl std::error::Error for ActionError {
             Self::Evidence(error) => Some(error),
             Self::Delivery(error) => Some(error),
             Self::Process(error) => Some(error),
-            Self::Unverified | Self::Offline => None,
+            Self::Unverified | Self::Offline | Self::HostUnsupported => None,
         }
     }
 }
@@ -160,6 +166,42 @@ impl<R: CommandRunner> Driver for BindingSession<'_, R> {
                 ActionResult::Failed(SendFailure::Uncertain(ActionError::Delivery(error)))
             }
             Err(error) => ActionResult::Failed(SendFailure::NotSent(ActionError::Delivery(error))),
+        }
+    }
+
+    /// Requires present endpoint evidence (as before input) but no running
+    /// agent: a pane whose agent ended is still where the member worked.
+    fn focus(&mut self, entry: &BindingEntry) -> ActionResult<Focused, ActionError> {
+        let (Some(binding), Some(invoker)) = (&entry.binding, self.invoker.clone()) else {
+            return ActionResult::Failed(if entry.binding.is_none() {
+                ActionError::Unverified
+            } else {
+                ActionError::HostUnsupported
+            });
+        };
+        // The user's client must be on the binding's own server.
+        if invoker.socket != binding.server.socket_path {
+            return ActionResult::Failed(ActionError::HostUnsupported);
+        }
+        match self.status(entry) {
+            ActionResult::Completed(InterfaceStatus {
+                presence: InterfacePresence::Present,
+                ..
+            }) => {}
+            ActionResult::Failed(error) => return ActionResult::Failed(error),
+            _ => return ActionResult::Failed(ActionError::Unverified),
+        }
+        match self
+            .tmux
+            .focus_pane(&invoker, &binding.pane_id, self.options(None))
+        {
+            Ok(previous) => ActionResult::Completed(Focused {
+                interface: binding.pane_id.clone(),
+                previous,
+            }),
+            Err(FocusError::HostUnsupported) => ActionResult::Failed(ActionError::HostUnsupported),
+            Err(FocusError::PaneNotFound) => ActionResult::Failed(ActionError::Unverified),
+            Err(FocusError::Tmux(error)) => ActionResult::Failed(ActionError::Evidence(error)),
         }
     }
 }
@@ -509,6 +551,93 @@ mod tests {
             calls
                 .iter()
                 .all(|call| !call.args.iter().any(|arg| arg == "Enter"))
+        );
+    }
+
+    fn invoker(socket: &str) -> crate::tmux::Invoker {
+        crate::tmux::Invoker {
+            socket: socket.into(),
+            pane: "%2".into(),
+            session: None,
+        }
+    }
+
+    #[test]
+    fn focus_verifies_evidence_then_switches_only_the_invokers_client() {
+        let entry = entry();
+        let runner = ScriptedRunner::default();
+        runner.push_output(observation(&entry, 654, true), Vec::new());
+        runner.push_output(b"%9\n".to_vec(), Vec::new());
+        runner.push_output(b"$1\n".to_vec(), Vec::new());
+        runner.push_output(
+            format!(
+                "client-1{s}$1{s}10{s}%2",
+                s = crate::tmux::evidence::SEPARATOR
+            )
+            .into_bytes(),
+            Vec::new(),
+        );
+        runner.push_output(Vec::new(), Vec::new());
+        let tmux = Tmux::new(runner);
+        let mut driver = BindingSession::new(&tmux).with_invoker(invoker("/tmp/tmt-driver.sock"));
+        let ActionResult::Completed(focused) = driver.focus(&entry) else {
+            panic!("focus");
+        };
+        assert_eq!(
+            focused,
+            Focused {
+                interface: "%9".into(),
+                previous: Some("%2".into())
+            }
+        );
+        let calls = tmux.runner.calls.borrow();
+        assert_eq!(
+            calls.len(),
+            5,
+            "evidence, target, invoker session, clients, switch"
+        );
+        assert_eq!(
+            calls[4].args[2..6],
+            ["switch-client", "-c", "client-1", "-t"]
+        );
+        assert!(calls.iter().all(|call| {
+            !call
+                .args
+                .iter()
+                .any(|arg| ["send-keys", "paste-buffer", "set-buffer"].contains(&arg.as_str()))
+        }));
+    }
+
+    #[test]
+    fn focus_refuses_without_changing_anything_when_it_cannot_prove_the_target() {
+        let entry = entry();
+        // No invoker, or an invoker on another server: no tmux call at all.
+        let tmux = Tmux::new(ScriptedRunner::default());
+        assert!(matches!(
+            BindingSession::new(&tmux).focus(&entry),
+            ActionResult::Failed(ActionError::HostUnsupported)
+        ));
+        let tmux = Tmux::new(ScriptedRunner::default());
+        let mut driver = BindingSession::new(&tmux).with_invoker(invoker("/tmp/other.sock"));
+        assert!(matches!(
+            driver.focus(&entry),
+            ActionResult::Failed(ActionError::HostUnsupported)
+        ));
+        assert!(tmux.runner.calls.borrow().is_empty());
+
+        // A replaced pane (different pid) fails evidence before any focus call.
+        let runner = ScriptedRunner::default();
+        runner.push_output(observation(&entry, 999, true), Vec::new());
+        let tmux = Tmux::new(runner);
+        let mut driver = BindingSession::new(&tmux).with_invoker(invoker("/tmp/tmt-driver.sock"));
+        assert!(matches!(
+            driver.focus(&entry),
+            ActionResult::Failed(ActionError::Unverified)
+        ));
+        assert_eq!(
+            tmux.runner.calls.borrow().len(),
+            1,
+            "only the evidence probe ran"
         );
     }
 }

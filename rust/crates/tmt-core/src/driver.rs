@@ -72,6 +72,15 @@ pub struct HarnessResume<'a> {
     pub mode: &'a RuntimeMode,
 }
 
+/// A completed focus: the host interface now shown to the invoking user, and
+/// the interface it showed before, so a caller can return without host
+/// knowledge. IDs are host-owned (a tmux pane ID, for example).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Focused {
+    pub interface: String,
+    pub previous: Option<String>,
+}
+
 /// Implement only supported actions. Concrete adapters must bound I/O using the
 /// existing process owner. This port neither installs code nor bypasses consent.
 pub trait Driver {
@@ -117,6 +126,12 @@ pub trait Driver {
         _target: &Self::Target,
         _context: &str,
     ) -> ActionResult<(), Self::Error> {
+        ActionResult::Unsupported
+    }
+
+    /// Show the verified target's interface to the invoking user. It changes
+    /// only what the user is looking at: never input, bindings or runtime state.
+    fn focus(&mut self, _target: &Self::Target) -> ActionResult<Focused, Self::Error> {
         ActionResult::Unsupported
     }
 }
