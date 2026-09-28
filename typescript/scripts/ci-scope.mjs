@@ -13,7 +13,11 @@ export function selectCiAreas(paths) {
       path.startsWith('docs/office/')
     ) {
       selected.office = true;
-    } else if (path.startsWith('rust/') || path.startsWith('skills/')) {
+    } else if (
+      path.startsWith('rust/') ||
+      path.startsWith('skills/') ||
+      path.startsWith('extensions/tmt-squad/')
+    ) {
       selected.native = true;
     } else {
       // Includes contracts, security, lockfiles, scripts, tests and CI itself.

@@ -58,6 +58,8 @@ NX_DAEMON=false NX_INTERACTIVE=false ./nx run native:tmt -- --version
 (cd typescript && corepack pnpm tmt office --help)
 (cd rust && cargo build --locked -p tmt-office)
 ./rust/target/debug/tmt-office --help
+(cd rust && cargo build --locked -p tmt-squad)
+./rust/target/debug/tmt-squad --help
 ```
 
 The `native:tmt` Nx target and nested `pnpm tmt` script both launch only this
@@ -794,6 +796,17 @@ one second to confirm direct close and process-group exit. Unconfirmed cleanup
 fails and reports the retained fixture path instead of deleting potentially
 live state. Focused lifecycle regressions live in `typescript/test/tooling/cli-process.test.ts`;
 they use explicit Node fixtures, not a product-runtime fallback.
+
+### Squad extension
+
+`typescript/test/native/squad.test.ts` runs `rust/target/debug/tmt-squad`, or an
+absolute path in `TMT_TEST_SQUAD`, through real `tmt` dispatch. It uses a
+sandbox PATH holding the `tmt-squad` and `tmt-sq` links, with no installed-copy
+fallback. It observes core state through an independent SQLite reader.
+A workspace `cargo build --locked` produces the default executable. Squad unit
+tests run with `cargo test --locked -p tmt-squad`. For dependency changes,
+compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` to prove
+the CLI is unchanged.
 
 ### Provider setup and lifecycle verification
 

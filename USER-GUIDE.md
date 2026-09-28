@@ -288,6 +288,24 @@ Reload the agent before using the new skills. See
 contract; the installed skill owns agent safety, selective notes, decoration,
 pairing, and board behavior.
 
+## Optional squad extension
+
+Squad will organize agents into squads: a lead that dispatches work and keeps a
+board current, and members that do the work. It adds no daemon and no store; a
+squad is the TMT room `squad-<name>`. It is not distributed yet: build it from
+source and put it on PATH together with its `tmt-sq` alias link.
+
+```bash
+(cd rust && cargo build --locked -p tmt-squad)
+ln -s "$PWD/rust/target/debug/tmt-squad" ~/.local/bin/tmt-squad
+ln -s tmt-squad ~/.local/bin/tmt-sq
+tmt squad init product --me <your saved identity>   # creates room squad-product
+```
+
+`me` (your saved identity) is recorded in `squad.toml`, next to TMT's global
+`config.json`. The first interactive `init` asks for it; non-interactive use
+requires `--me`. Re-running `init` changes nothing.
+
 ## Talk and receive a complete reply
 
 Send a request by global name or direct pane target:

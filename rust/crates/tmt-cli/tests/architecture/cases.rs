@@ -937,3 +937,69 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
         .expect("verbatim items must fail closed");
     assert_eq!(error, "lib.rs: unsupported verbatim Rust item");
 }
+
+#[test]
+fn squad_and_core_are_independent_in_both_directions() {
+    // Squad may use its reviewed third-party crates, never a workspace crate.
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-squad",
+            ["clap", "serde_json", "toml_edit", "subprocess"]
+                .into_iter()
+                .map(|name| dependency(name, "normal", Some("cfg(unix)"), None))
+                .collect(),
+        ))
+        .is_empty()
+    );
+    for core in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-command-output",
+        "tmt-office-model",
+    ] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-squad",
+                vec![dependency(core, "normal", None, None)]
+            ))
+            .len(),
+            1,
+            "squad -> {core}"
+        );
+    }
+    for owner in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-office"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency("tmt-squad", "normal", None, None)]
+            ))
+            .len(),
+            1,
+            "{owner} -> squad"
+        );
+    }
+    // Source references are checked too, independently of Cargo metadata.
+    assert_exact(
+        &[syntax(
+            "tmt-squad",
+            "main.rs",
+            "use crate::core::Core; use serde_json::Value; use toml_edit::DocumentMut;",
+        )],
+        &[],
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-squad",
+            "status.rs",
+            "fn f() { let _ = tmt_core::room::resolve_room; }",
+        )],
+        &[
+            "tmt-squad/status.rs: squad reaches TMT only through public commands, not tmt_core::room::resolve_room",
+        ],
+    );
+    assert_exact(
+        &[syntax("tmt-cli", "extra.rs", "use tmt_squad::status;")],
+        &["tmt-cli/extra.rs: no package may depend on the squad extension: tmt_squad::status"],
+    );
+}

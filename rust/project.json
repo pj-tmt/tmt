@@ -9,6 +9,7 @@
       "inputs": [
         "{projectRoot}/**/*",
         "{workspaceRoot}/extensions/tmt-office/rust/**/*",
+        "{workspaceRoot}/extensions/tmt-squad/rust/**/*",
         "{workspaceRoot}/contracts/**/*",
         "{workspaceRoot}/skills/**/*",
         "{workspaceRoot}/extensions/tmt-office/contracts/**/*",
@@ -38,6 +39,7 @@
       "inputs": [
         "{projectRoot}/**/*",
         "{workspaceRoot}/extensions/tmt-office/rust/**/*",
+        "{workspaceRoot}/extensions/tmt-squad/rust/**/*",
         "{workspaceRoot}/contracts/**/*",
         "{workspaceRoot}/skills/**/*",
         "{workspaceRoot}/extensions/tmt-office/contracts/**/*",

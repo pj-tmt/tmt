@@ -98,6 +98,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "serde_json",
             "uuid",
         ],
+        // Squad is a public-interface consumer: it reaches TMT only through
+        // commands and `tmt api`, so it may depend on no workspace crate.
+        "tmt-squad" => &["clap", "serde_json", "toml_edit", "subprocess"],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
     package["dependencies"]
@@ -407,6 +410,18 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             {
                 violations.push(format!(
                     "{location}: unreviewed Office dependency {}",
+                    path.join("::")
+                ));
+            }
+            if source.package == "tmt-squad" && root.starts_with("tmt_") {
+                violations.push(format!(
+                    "{location}: squad reaches TMT only through public commands, not {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_squad" && source.package != "tmt-squad" {
+                violations.push(format!(
+                    "{location}: no package may depend on the squad extension: {}",
                     path.join("::")
                 ));
             }
