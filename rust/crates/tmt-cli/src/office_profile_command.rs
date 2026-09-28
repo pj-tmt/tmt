@@ -13,11 +13,17 @@ use tmt_office_model::office_protocol::OfficeError;
 
 use crate::{
     invocation::{OfficeOperation, OfficeProfileOperation, OutputMode},
-    office_pairing_command::{pairing_error, resolve_identity},
+    office_core_access::CoreAccess,
+    office_pairing_command::pairing_error,
     output::Failure,
 };
 
-pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> Result<u8, Failure> {
+pub fn run(
+    executable: &Path,
+    operation: OfficeOperation,
+    mode: OutputMode,
+    core_access: &dyn CoreAccess,
+) -> Result<u8, Failure> {
     let OfficeOperation::Profile {
         identity: selector,
         operation,
@@ -36,7 +42,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             Some((profile, if_revision))
         }
     };
-    let identity = resolve_identity(selector.as_deref())?;
+    let identity = core_access.identity(selector.as_deref())?;
     let interrupt = Interrupt::install().map_err(unavailable)?;
     if interrupt.is_interrupted() {
         return Err(crate::office_pairing_command::interrupted());
@@ -113,7 +119,7 @@ fn human(value: &serde_json::Value) -> String {
 
 fn profile_error(error: OfficeError, name: &str) -> Failure {
     if error == OfficeError::IdentityInactive {
-        return crate::identity_context::missing(name);
+        return crate::output::identity_missing(name);
     }
     if error == OfficeError::RevisionConflict {
         return Failure::new(

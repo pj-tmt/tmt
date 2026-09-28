@@ -5,8 +5,8 @@ use crate::{
         BoardActorSelection, BoardCategorySelection, ContentInput, OfficeBoardOperation,
         OfficeOperation, OutputMode,
     },
-    office_pairing_command::resolve_identity,
-    output::{Failure, after_cleanup},
+    office_core_access::CoreAccess,
+    output::Failure,
 };
 use serde_json::{Value, json};
 use std::{
@@ -15,14 +15,17 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::{
-    config::ConfigPaths,
     office_companion::invoke_office_board,
     response_input::{read_file, read_stdin},
-    storage::Storage,
 };
 use tmt_office_model::office_protocol::OfficeInvocation;
 
-pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> Result<u8, Failure> {
+pub fn run(
+    executable: &Path,
+    operation: OfficeOperation,
+    mode: OutputMode,
+    core_access: &dyn CoreAccess,
+) -> Result<u8, Failure> {
     let OfficeOperation::Board(operation) = operation else {
         return Err(Failure::new(
             "USAGE_ERROR",
@@ -41,7 +44,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             let operation_id = operation_id.unwrap_or_else(tmt_core::operation::new_operation_id);
             (
                 OfficeInvocation::BoardPost,
-                json!({"category":category_value(category)?,"actor":actor_value(actor)?,"title":title,"body":body_value(body)?,"operationId":operation_id.clone()}),
+                json!({"category":category_value(category, core_access)?,"actor":actor_value(actor, core_access)?,"title":title,"body":body_value(body)?,"operationId":operation_id.clone()}),
                 Some(operation_id),
             )
         }
@@ -54,7 +57,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             let operation_id = operation_id.unwrap_or_else(tmt_core::operation::new_operation_id);
             (
                 OfficeInvocation::BoardReply,
-                json!({"threadId":thread_id,"actor":actor_value(actor)?,"body":body_value(body)?,"operationId":operation_id.clone()}),
+                json!({"threadId":thread_id,"actor":actor_value(actor, core_access)?,"body":body_value(body)?,"operationId":operation_id.clone()}),
                 Some(operation_id),
             )
         }
@@ -76,7 +79,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             let operation_id = operation_id.unwrap_or_else(tmt_core::operation::new_operation_id);
             (
                 OfficeInvocation::BoardEdit,
-                json!({"entryId":entry_id,"actor":actor_value(actor)?,"title":title,"body":body.map(body_value).transpose()?,"ifRevision":if_revision,"operationId":operation_id.clone()}),
+                json!({"entryId":entry_id,"actor":actor_value(actor, core_access)?,"title":title,"body":body.map(body_value).transpose()?,"ifRevision":if_revision,"operationId":operation_id.clone()}),
                 Some(operation_id),
             )
         }
@@ -90,7 +93,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             let operation_id = operation_id.unwrap_or_else(tmt_core::operation::new_operation_id);
             (
                 OfficeInvocation::BoardDelete,
-                json!({"entryId":entry_id,"actor":actor_value(actor)?,"moderate":moderate,"ifRevision":if_revision,"operationId":operation_id.clone()}),
+                json!({"entryId":entry_id,"actor":actor_value(actor, core_access)?,"moderate":moderate,"ifRevision":if_revision,"operationId":operation_id.clone()}),
                 Some(operation_id),
             )
         }
@@ -104,7 +107,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             cursor,
         } => (
             OfficeInvocation::BoardList,
-            json!({"category":category_value(category)?,"view":view,"author":if owner{Some(json!({"kind":"owner"}))}else{author_id.map(|id|json!({"kind":"identity","identityId":id}))},"sinceMs":since.map(|v|parse_rfc3339(&v)).transpose()?,"limit":limit,"cursor":cursor}),
+            json!({"category":category_value(category, core_access)?,"view":view,"author":if owner{Some(json!({"kind":"owner"}))}else{author_id.map(|id|json!({"kind":"identity","identityId":id}))},"sinceMs":since.map(|v|parse_rfc3339(&v)).transpose()?,"limit":limit,"cursor":cursor}),
             None,
         ),
         OfficeBoardOperation::Show {
@@ -162,30 +165,26 @@ fn body_value(input: ContentInput) -> Result<String, Failure> {
         ContentInput::Stdin => read_stdin().map_err(input_failure),
     }
 }
-fn actor_value(actor: BoardActorSelection) -> Result<Value, Failure> {
+fn actor_value(actor: BoardActorSelection, core_access: &dyn CoreAccess) -> Result<Value, Failure> {
     match actor {
         BoardActorSelection::Owner => Ok(json!({"kind":"owner"})),
         BoardActorSelection::Identity(selector) => {
-            let identity = resolve_identity(selector.as_deref())?;
+            let identity = core_access.identity(selector.as_deref())?;
             Ok(json!({"kind":"identity","identityId":identity.id,"name":identity.name}))
         }
     }
 }
-fn category_value(category: BoardCategorySelection) -> Result<Value, Failure> {
+fn category_value(
+    category: BoardCategorySelection,
+    core_access: &dyn CoreAccess,
+) -> Result<Value, Failure> {
     match category {
         BoardCategorySelection::General => Ok(json!({"kind":"general"})),
         BoardCategorySelection::Room(selector) => {
-            let paths = ConfigPaths::discover().map_err(|error| {
-                Failure::new("CONFIG_ERROR", "Could not resolve configuration paths.", 1)
-                    .caused_by(error)
-            })?;
-            let mut storage = Storage::open(paths.database)
-                .map_err(|error| crate::room_command::failure(error.into()))?;
             // Category resolution is classification, not permission to create a
             // new thread. The board transaction fences new posts after replay.
-            let room = crate::room_command::resolve_history(&mut storage, &selector);
-            after_cleanup(room, || storage.close())
-                .map(|room| json!({"kind":"room","roomId":room.id}))
+            let room = core_access.room_history(&selector)?;
+            Ok(json!({"kind":"room","roomId":room.id}))
         }
         BoardCategorySelection::Repository(remote) => {
             let cwd = std::env::current_dir().map_err(io_failure)?;
@@ -460,8 +459,99 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_rfc3339, write_plain_to};
+    use super::{
+        BoardActorSelection, BoardCategorySelection, actor_value, category_value, parse_rfc3339,
+        write_plain_to,
+    };
+    use crate::{
+        office_core_access::{CoreAccess, RoomHistory},
+        output::Failure,
+    };
     use serde_json::json;
+    use std::cell::RefCell;
+    use tmt_core::identity::{Identity, Lifetime};
+
+    #[derive(Default)]
+    struct CoreFixture {
+        selected: RefCell<Vec<Option<String>>>,
+        rooms: RefCell<Vec<String>>,
+    }
+
+    impl CoreAccess for CoreFixture {
+        fn identity(&self, selector: Option<&str>) -> Result<Identity, Failure> {
+            self.selected.borrow_mut().push(selector.map(str::to_owned));
+            Ok(Identity {
+                id: "identity-id".into(),
+                name: "Alice".into(),
+                canonical_name: "alice".into(),
+                lifetime: Lifetime::Saved,
+                created_at: "created".into(),
+                updated_at: "updated".into(),
+            })
+        }
+
+        fn room_history(&self, selector: &str) -> Result<RoomHistory, Failure> {
+            self.rooms.borrow_mut().push(selector.into());
+            Ok(RoomHistory {
+                id: "retired-room-id".into(),
+            })
+        }
+    }
+
+    #[test]
+    fn board_selection_uses_core_access_for_implicit_explicit_and_historical_targets() {
+        let core = CoreFixture::default();
+        assert_eq!(
+            actor_value(BoardActorSelection::Identity(None), &core).unwrap(),
+            json!({"kind":"identity","identityId":"identity-id","name":"Alice"})
+        );
+        assert_eq!(
+            actor_value(BoardActorSelection::Identity(Some("Alice".into())), &core).unwrap(),
+            json!({"kind":"identity","identityId":"identity-id","name":"Alice"})
+        );
+        assert_eq!(
+            category_value(BoardCategorySelection::Room("retired".into()), &core).unwrap(),
+            json!({"kind":"room","roomId":"retired-room-id"})
+        );
+        assert_eq!(*core.selected.borrow(), [None, Some("Alice".into())]);
+        assert_eq!(*core.rooms.borrow(), ["retired"]);
+    }
+
+    struct RejectingCore;
+
+    impl CoreAccess for RejectingCore {
+        fn identity(&self, _selector: Option<&str>) -> Result<Identity, Failure> {
+            Err(Failure::new(
+                "CALLER_IDENTITY_AMBIGUOUS",
+                "Unverified caller.",
+                1,
+            ))
+        }
+
+        fn room_history(&self, _selector: &str) -> Result<RoomHistory, Failure> {
+            Err(Failure::new("ROOM_AMBIGUOUS", "Ambiguous room.", 1))
+        }
+    }
+
+    #[test]
+    fn board_selection_preserves_core_failures_without_fallback() {
+        let identity_error = actor_value(BoardActorSelection::Identity(None), &RejectingCore)
+            .expect_err("implicit selection must not bypass caller verification");
+        assert_eq!(identity_error.code, "CALLER_IDENTITY_AMBIGUOUS");
+        assert_eq!(identity_error.status, 1);
+
+        let room_error = category_value(
+            BoardCategorySelection::Room("ambiguous".into()),
+            &RejectingCore,
+        )
+        .expect_err("room selection must not choose an arbitrary room");
+        assert_eq!(room_error.code, "ROOM_AMBIGUOUS");
+        assert_eq!(room_error.status, 1);
+        assert_eq!(
+            actor_value(BoardActorSelection::Owner, &RejectingCore).unwrap(),
+            json!({"kind":"owner"})
+        );
+    }
 
     #[test]
     fn rfc3339_requires_canonical_field_widths_and_nonempty_fraction() {

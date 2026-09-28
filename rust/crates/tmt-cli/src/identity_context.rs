@@ -2,7 +2,7 @@
 
 use crate::{
     binding_error::{binding_failure, endpoint_failure},
-    output::Failure,
+    output::{Failure, identity_missing},
 };
 use std::io::Write;
 use tmt_adapters::{
@@ -10,14 +10,6 @@ use tmt_adapters::{
     tmux::{BindingSession, CallerEnvironment, Tmux},
 };
 use tmt_core::{binding, identity::Identity};
-
-pub fn missing(name: &str) -> Failure {
-    Failure::new(
-        "NAME_NOT_FOUND",
-        format!("Identity '{name}' was not found."),
-        3,
-    )
-}
 
 pub enum Selector {
     Explicit(String),
@@ -91,7 +83,7 @@ fn selected(
                 Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1)
                     .caused_by(error)
             })?;
-            selected.ok_or_else(|| missing(&name)).map(Some)
+            selected.ok_or_else(|| identity_missing(&name)).map(Some)
         }
         Selector::Pane(pane) => {
             let observed = binding::pane_presence(storage, &mut BindingSession::new(tmux), &pane)

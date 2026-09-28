@@ -173,13 +173,13 @@ fn run(request: Invocation) -> Result<Report, Failure> {
                     .map_err(|error| input_failure(kind, error))?;
                 let value = profile::set_profile(&mut storage, &identity, kind, &content)
                     .map_err(unavailable)?
-                    .ok_or_else(|| identity_context::missing(&identity.name))?;
+                    .ok_or_else(|| crate::output::identity_missing(&identity.name))?;
                 (Some(value), Change::Set)
             }
             Action::Clear => {
                 let cleared = profile::clear_profile(&mut storage, &identity, kind)
                     .map_err(unavailable)?
-                    .ok_or_else(|| identity_context::missing(&identity.name))?;
+                    .ok_or_else(|| crate::output::identity_missing(&identity.name))?;
                 (
                     None,
                     if cleared {
