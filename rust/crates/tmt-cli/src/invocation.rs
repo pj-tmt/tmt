@@ -84,6 +84,7 @@ pub enum Invocation {
         yes: bool,
     },
     ProviderHook {
+        provider: String,
         worker: bool,
     },
     Upgrade {

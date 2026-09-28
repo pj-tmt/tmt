@@ -3,58 +3,65 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
 
-describe('consented Claude setup and bounded hook boundary', () => {
-  it('preserves user settings, requires consent, repairs a stale path and removes only owned hooks', async () => {
-    await withSandbox(async (sandbox) => {
-      const bin = path.join(sandbox.root, 'stable bin');
-      fs.mkdirSync(bin);
-      const launcher = path.join(bin, 'tmt');
-      fs.symlinkSync(sandbox.cli.executable, launcher);
-      sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
-      const provider = path.join(sandbox.home, '.claude');
-      fs.mkdirSync(provider);
-      const settings = path.join(provider, 'settings.json');
-      const userHook = '{ "hooks" : [{ "type": "command", "command": "user-command" }] }';
-      const original = `{\n "permissions": {"allow": ["Bash(git *)"]},\n "future": 1.000e+100,\n "hooks": {"SessionStart": [${userHook}]}\n}\n`;
-      fs.writeFileSync(settings, original);
-      const before = fileSnapshot(sandbox.root);
-      const status = await runCli(sandbox, ['setup', '--json']);
-      expect(status.status, status.stderr).toBe(0);
-      expect(JSON.parse(status.stdout)).toMatchObject({
-        detectedProviders: expect.arrayContaining(['claude']),
-        integrations: [{ provider: 'claude', current: false, settingsPath: settings, launcher }],
+describe('consented provider setup and bounded hook boundary', () => {
+  it.each(['claude', 'codex'])(
+    '%s preserves user settings, requires consent, repairs a stale path and removes only owned hooks',
+    async (name) => {
+      await withSandbox(async (sandbox) => {
+        const bin = path.join(sandbox.root, 'stable bin');
+        fs.mkdirSync(bin);
+        const launcher = path.join(bin, 'tmt');
+        fs.symlinkSync(sandbox.cli.executable, launcher);
+        sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+        const provider = path.join(sandbox.home, `.${name}`);
+        fs.mkdirSync(provider);
+        const settings = path.join(provider, name === 'claude' ? 'settings.json' : 'hooks.json');
+        const userHook = '{ "hooks" : [{ "type": "command", "command": "user-command" }] }';
+        const original = `{\n "permissions": {"allow": ["Bash(git *)"]},\n "future": 1.000e+100,\n "hooks": {"SessionStart": [${userHook}]}\n}\n`;
+        fs.writeFileSync(settings, original);
+        const before = fileSnapshot(sandbox.root);
+        const status = await runCli(sandbox, ['setup', '--json']);
+        expect(status.status, status.stderr).toBe(0);
+        expect(JSON.parse(status.stdout)).toMatchObject({
+          integrations: expect.arrayContaining([
+            { provider: name, current: false, settingsPath: settings, launcher },
+          ]),
+        });
+        expect(
+          JSON.parse(status.stdout).integrations.map((item: { provider: string }) => item.provider)
+        ).toEqual(['claude', 'codex']);
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        const refused = await runCli(sandbox, ['setup', name, '--json']);
+        expect(refused.status).toBe(1);
+        expect(JSON.parse(refused.stdout).error.code).toBe('SETUP_CONSENT_REQUIRED');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        const apply = await runCli(sandbox, ['setup', name, '--yes', '--json']);
+        expect(apply.status, apply.stderr).toBe(0);
+        const report = JSON.parse(apply.stdout);
+        expect(report).toMatchObject({ changed: true, launcher, settingsPath: settings });
+        expect(fs.readFileSync(report.backup, 'utf8')).toBe(original);
+        const installed = fs.readFileSync(settings, 'utf8');
+        expect(installed).toContain(userHook);
+        expect(installed).toContain('"future": 1.000e+100');
+        expect(installed).toContain(`${launcher}' __hook ${name}`);
+        expect(installed).not.toContain(fs.realpathSync(launcher));
+        const again = await runCli(sandbox, ['setup', name, '--yes', '--json']);
+        expect(again.status, again.stderr).toBe(0);
+        expect(JSON.parse(again.stdout)).toMatchObject({ changed: false, backup: null });
+        expect(fs.readFileSync(settings, 'utf8')).toBe(installed);
+        fs.writeFileSync(settings, installed.replaceAll(launcher, '/old/release/tmt'));
+        expect((await runCli(sandbox, ['setup', name, '--yes', '--json'])).status).toBe(0);
+        expect(fs.readFileSync(settings, 'utf8')).toBe(installed);
+        const remove = await runCli(sandbox, ['setup', name, '--remove', '--yes', '--json']);
+        expect(remove.status, remove.stderr).toBe(0);
+        const removed = fs.readFileSync(settings, 'utf8');
+        expect(removed).toContain(userHook);
+        expect(removed).not.toContain('__hook');
+        expect(JSON.parse(removed).permissions).toEqual(JSON.parse(original).permissions);
+        expect(fs.existsSync(sandbox.database)).toBe(false);
       });
-      expect(fileSnapshot(sandbox.root)).toEqual(before);
-      const refused = await runCli(sandbox, ['setup', 'claude', '--json']);
-      expect(refused.status).toBe(1);
-      expect(JSON.parse(refused.stdout).error.code).toBe('SETUP_CONSENT_REQUIRED');
-      expect(fileSnapshot(sandbox.root)).toEqual(before);
-      const apply = await runCli(sandbox, ['setup', 'claude', '--yes', '--json']);
-      expect(apply.status, apply.stderr).toBe(0);
-      const report = JSON.parse(apply.stdout);
-      expect(report).toMatchObject({ changed: true, launcher, settingsPath: settings });
-      expect(fs.readFileSync(report.backup, 'utf8')).toBe(original);
-      const installed = fs.readFileSync(settings, 'utf8');
-      expect(installed).toContain(userHook);
-      expect(installed).toContain('"future": 1.000e+100');
-      expect(installed).toContain(`${launcher}' __hook claude`);
-      expect(installed).not.toContain(fs.realpathSync(launcher));
-      const again = await runCli(sandbox, ['setup', 'claude', '--yes', '--json']);
-      expect(again.status, again.stderr).toBe(0);
-      expect(JSON.parse(again.stdout)).toMatchObject({ changed: false, backup: null });
-      expect(fs.readFileSync(settings, 'utf8')).toBe(installed);
-      fs.writeFileSync(settings, installed.replaceAll(launcher, '/old/release/tmt'));
-      expect((await runCli(sandbox, ['setup', 'claude', '--yes', '--json'])).status).toBe(0);
-      expect(fs.readFileSync(settings, 'utf8')).toBe(installed);
-      const remove = await runCli(sandbox, ['setup', 'claude', '--remove', '--yes', '--json']);
-      expect(remove.status, remove.stderr).toBe(0);
-      const removed = fs.readFileSync(settings, 'utf8');
-      expect(removed).toContain(userHook);
-      expect(removed).not.toContain('__hook');
-      expect(JSON.parse(removed).permissions).toEqual(JSON.parse(original).permissions);
-      expect(fs.existsSync(sandbox.database)).toBe(false);
-    });
-  });
+    }
+  );
 
   it('does not rewrite malformed settings', async () => {
     await withSandbox(async (sandbox) => {
@@ -65,6 +72,31 @@ describe('consented Claude setup and bounded hook boundary', () => {
       const result = await runCli(sandbox, ['setup', 'claude', '--yes', '--json']);
       expect(result.status).toBe(1);
       expect(fileSnapshot(sandbox.root)).toEqual(before);
+    });
+  });
+
+  it('honors CODEX_HOME without changing provider trust or config', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = path.join(sandbox.root, 'stable-bin');
+      fs.mkdirSync(bin);
+      fs.symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+      sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+      const custom = path.join(sandbox.root, 'custom-codex');
+      fs.mkdirSync(custom);
+      sandbox.env.CODEX_HOME = custom;
+      const config = 'model = "fixture"\n';
+      fs.writeFileSync(path.join(custom, 'config.toml'), config);
+      const applied = await runCli(sandbox, ['setup', 'codex', '--yes', '--json']);
+      expect(applied.status, applied.stderr).toBe(0);
+      expect(JSON.parse(applied.stdout).settingsPath).toBe(path.join(custom, 'hooks.json'));
+      expect(fs.readFileSync(path.join(custom, 'config.toml'), 'utf8')).toBe(config);
+      expect(fs.readdirSync(custom).sort()).toEqual([
+        '.tmt-setup.lock',
+        'config.toml',
+        'hooks.json',
+      ]);
+      expect(fs.existsSync(path.join(sandbox.home, '.codex', 'hooks.json'))).toBe(false);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
     });
   });
 

@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 fn event(starting: bool, transition: SessionTransition, session: &str) -> ClaudeObservation {
     ClaudeObservation {

@@ -142,9 +142,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             drop(stdout);
             return setup_command::execute(provider, remove, yes, parsed.mode);
         }
-        Invocation::ProviderHook { worker } => {
+        Invocation::ProviderHook { provider, worker } => {
             drop(stdout);
-            return provider_hook_command::execute(worker);
+            return provider_hook_command::execute(&provider, worker);
         }
         Invocation::Identity(request) => {
             drop(stdout);

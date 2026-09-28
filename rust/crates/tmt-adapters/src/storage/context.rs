@@ -18,6 +18,8 @@ pub struct IdentityContextSnapshot {
     /// Stored evidence, not a claim of current presence. The caller must apply
     /// the core's pure binding evaluator to a fresh driver observation.
     pub entry: BindingEntry,
+    /// Internal correlation only; never included in the rendered context.
+    pub preferences: tmt_core::binding::session::SessionPreferences,
     pub role: Option<String>,
     pub role_truncated: bool,
     pub requests: ContextRequests,
@@ -33,38 +35,81 @@ impl Storage {
         server: &str,
         now_ms: u64,
     ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
-        let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|error| classify(error, "Open context storage read-only"))?;
-        connection
-            .busy_timeout(Duration::from_millis(100))
-            .map_err(|error| classify(error, "Bound context storage wait"))?;
-        let transaction = connection
-            .transaction()
-            .map_err(|error| classify(error, "Begin context read snapshot"))?;
-        super::migrations::require_current(&transaction)?;
-        let Some(entry) = BindingRows(&transaction).entry_by_pane(pane, server)? else {
-            return Ok(None);
-        };
-        let role = transaction
-            .query_row(
-                "SELECT content FROM role_profiles WHERE identity_id = ?",
-                [&entry.identity.id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| classify(error, "Read context role"))?;
-        let role_truncated = role
-            .as_ref()
-            .is_some_and(|text| text.chars().count() > ROLE_LIMIT);
-        let role = role.map(|text| text.chars().take(ROLE_LIMIT).collect());
-        let requests = requests(&transaction, &entry.identity.id, now_ms)?;
-        Ok(Some(IdentityContextSnapshot {
-            entry,
-            role,
-            role_truncated,
-            requests,
-        }))
+        read_context(path, now_ms, |connection| {
+            BindingRows(connection).entry_by_pane(pane, server)
+        })
     }
+
+    /// Only current bound observations paired with the same driver's remembered
+    /// session qualify. A historical preference alone cannot select a binding.
+    /// Ambiguity returns no context; callers must still verify the stored host.
+    pub fn context_by_provider_session(
+        path: &Path,
+        harness: &str,
+        session: &str,
+        now_ms: u64,
+    ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+        read_context(path, now_ms, |connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT b.identity_id FROM bindings b JOIN identities i ON i.id = b.identity_id
+                 JOIN identity_session_preferences p ON p.identity_id = b.identity_id
+                 WHERE i.retired_at_ms IS NULL AND b.transport = 'tmux'
+                   AND b.observed_provider_session_id = ?1
+                   AND p.provider_session_id = ?1 AND p.remembered_harness = ?2 LIMIT 2",
+                )
+                .map_err(|error| classify(error, "Find exact runtime mapping"))?;
+            let ids = statement
+                .query_map(params![session, harness], |row| row.get::<_, String>(0))
+                .map_err(|error| classify(error, "Read exact runtime mappings"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| classify(error, "Decode exact runtime mapping"))?;
+            match ids.as_slice() {
+                [id] => BindingRows(connection).entry_by_id(id),
+                _ => Ok(None),
+            }
+        })
+    }
+}
+
+fn read_context(
+    path: &Path,
+    now_ms: u64,
+    select: impl FnOnce(&Connection) -> Result<Option<BindingEntry>, StorageError>,
+) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+    let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| classify(error, "Open context storage read-only"))?;
+    connection
+        .busy_timeout(Duration::from_millis(100))
+        .map_err(|error| classify(error, "Bound context storage wait"))?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| classify(error, "Begin context read snapshot"))?;
+    super::migrations::require_current(&transaction)?;
+    let Some(entry) = select(&transaction)? else {
+        return Ok(None);
+    };
+    let role = transaction
+        .query_row(
+            "SELECT content FROM role_profiles WHERE identity_id = ?",
+            [&entry.identity.id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| classify(error, "Read context role"))?;
+    let role_truncated = role
+        .as_ref()
+        .is_some_and(|text| text.chars().count() > ROLE_LIMIT);
+    let role = role.map(|text| text.chars().take(ROLE_LIMIT).collect());
+    let requests = requests(&transaction, &entry.identity.id, now_ms)?;
+    let preferences = BindingRows(&transaction).session_preferences(&entry.identity.id)?;
+    Ok(Some(IdentityContextSnapshot {
+        entry,
+        preferences,
+        role,
+        role_truncated,
+        requests,
+    }))
 }
 
 fn requests(

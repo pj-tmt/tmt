@@ -8,6 +8,7 @@ pub use environment::SetupEnvironment;
 pub use publication::{apply, read_settings};
 
 use std::path::PathBuf;
+pub use tmt_core::skill_provider::Provider;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileChange {
@@ -36,6 +37,7 @@ pub enum PlanError {
     EditedHook,
     InvalidLauncher,
     TooLarge,
+    UnsupportedProvider,
 }
 
 impl std::fmt::Display for PlanError {
@@ -45,6 +47,7 @@ impl std::fmt::Display for PlanError {
             Self::EditedHook => "A TMT hook was edited or duplicated; preserve it and resolve the conflict before setup.",
             Self::InvalidLauncher => "Setup needs an absolute stable TMT launcher path without control characters.",
             Self::TooLarge => "Provider settings exceed the 1 MiB setup limit.",
+            Self::UnsupportedProvider => "This provider does not support lifecycle setup.",
         })
     }
 }
@@ -53,7 +56,27 @@ impl std::error::Error for PlanError {}
 
 pub const SETTINGS_LIMIT: usize = 1024 * 1024;
 
+pub const SUPPORTED_PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Codex];
+
+fn hook_entry(provider: Provider, launcher: &str) -> Result<serde_json::Value, PlanError> {
+    match provider {
+        Provider::Claude => Ok(crate::runtime::claude::hook_entry(launcher)),
+        Provider::Codex => Ok(crate::runtime::codex::hook_entry(launcher)),
+        _ => Err(PlanError::UnsupportedProvider),
+    }
+}
+
 pub fn claude_plan(
+    path: PathBuf,
+    before: Option<String>,
+    launcher: PathBuf,
+    removing: bool,
+) -> Result<SetupPlan, PlanError> {
+    plan(Provider::Claude, path, before, launcher, removing)
+}
+
+pub fn plan(
+    provider: Provider,
     path: PathBuf,
     before: Option<String>,
     launcher: PathBuf,
@@ -63,9 +86,14 @@ pub fn claude_plan(
         .to_str()
         .filter(|value| launcher.is_absolute() && !value.chars().any(char::is_control))
         .ok_or(PlanError::InvalidLauncher)?;
-    let after = document::claude_settings(before.as_deref().unwrap_or("{}"), selected, removing)?;
+    let after = document::settings(
+        provider,
+        before.as_deref().unwrap_or("{}"),
+        selected,
+        removing,
+    )?;
     Ok(SetupPlan {
-        provider: "claude",
+        provider: provider.as_str(),
         launcher,
         removing,
         change: FileChange {

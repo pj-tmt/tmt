@@ -12,6 +12,9 @@ use tmt_core::{
 };
 
 pub mod claude;
+pub mod codex;
+mod evidence;
+pub mod hook_protocol;
 
 /// Tokens shared with first-party hook mappings; mode belongs to the runtime,
 /// not the host interface. Codex embedded mode is selected by `--no-daemon`.

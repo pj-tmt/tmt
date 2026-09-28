@@ -25,6 +25,49 @@ fn fixture() -> (TestDirectory, std::path::PathBuf, String) {
     (directory, path, identity.id)
 }
 
+#[test]
+fn shared_mapping_requires_current_driver_session_and_refuses_ambiguity() {
+    let (_directory, path, id) = fixture();
+    let connection = Connection::open(&path).unwrap();
+    connection.execute("INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id) VALUES (?1, 'codex', 'codex', 'embedded', 'thread-a')", [&id]).unwrap();
+    assert!(
+        Storage::context_by_provider_session(&path, "codex", "thread-a", 10)
+            .unwrap()
+            .is_none(),
+        "remembered history is not a current mapping"
+    );
+    connection.execute("UPDATE bindings SET runtime_pid = 20, runtime_start_identity = 'start', observed_provider_session_id = 'thread-a'", []).unwrap();
+    let before = fs::read(&path).unwrap();
+    assert_eq!(
+        Storage::context_by_provider_session(&path, "codex", "thread-a", 10)
+            .unwrap()
+            .unwrap()
+            .entry
+            .identity
+            .id,
+        id
+    );
+    assert!(
+        Storage::context_by_provider_session(&path, "claude", "thread-a", 10)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        Storage::context_by_provider_session(&path, "codex", "foreign", 10)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(fs::read(&path).unwrap(), before);
+    connection.execute("INSERT INTO identities (id,name,canonical_name,lifetime,created_at,updated_at) SELECT 'other','Other','other',lifetime,created_at,updated_at FROM identities WHERE id = ?", [&id]).unwrap();
+    connection.execute("INSERT INTO bindings (id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at,runtime_pid,runtime_start_identity,observed_provider_session_id) SELECT 'other-binding','other',transport,'%2',server_id,socket_path,server_pid,server_start_time,12,bound_at,last_verified_at,30,'other-start','thread-a' FROM bindings WHERE identity_id = ?", [&id]).unwrap();
+    connection.execute("INSERT INTO identity_session_preferences SELECT 'other',preferred_harness,remembered_harness,runtime_mode,provider_session_id FROM identity_session_preferences WHERE identity_id = ?", [&id]).unwrap();
+    assert!(
+        Storage::context_by_provider_session(&path, "codex", "thread-a", 10)
+            .unwrap()
+            .is_none()
+    );
+}
+
 fn insert_request(connection: &Connection, identity: &str, id: &str) {
     connection
         .execute(

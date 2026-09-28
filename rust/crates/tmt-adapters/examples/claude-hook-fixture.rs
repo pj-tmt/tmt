@@ -1,4 +1,4 @@
-//! Deterministic Claude-shaped parent for isolated hook lifecycle tests.
+//! Deterministic runtime-shaped parent for isolated hook lifecycle tests.
 //! No provider, credentials, transcript access or model calls are involved.
 
 use serde::Deserialize;
@@ -16,7 +16,10 @@ struct Step {
 }
 
 fn main() {
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "app-server") {
+        args.remove(0);
+    }
     assert_eq!(args.len(), 3, "CLI, scenario and report paths");
     let steps: Vec<Step> = serde_json::from_slice(&fs::read(&args[1]).unwrap()).unwrap();
     let mut results = Vec::new();

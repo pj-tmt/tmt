@@ -22,14 +22,32 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
     for argv in [
         vec!["setup", "--remove"],
         vec!["setup", "--yes"],
-        vec!["setup", "codex"],
+        vec!["setup", "unknown"],
         vec!["setup", "claude", "--force"],
     ] {
         assert!(parse(&args(&argv)).is_err());
     }
     assert_eq!(
         parsed(&["__hook", "claude"]).invocation,
-        Invocation::ProviderHook { worker: false }
+        Invocation::ProviderHook {
+            provider: "claude".into(),
+            worker: false
+        }
+    );
+    assert_eq!(
+        parsed(&["__hook", "codex"]).invocation,
+        Invocation::ProviderHook {
+            provider: "codex".into(),
+            worker: false
+        }
+    );
+    assert_eq!(
+        parsed(&["setup", "codex", "--yes"]).invocation,
+        Invocation::Setup {
+            provider: Some("codex".into()),
+            remove: false,
+            yes: true
+        }
     );
     assert!(!crate::skill_reminder::eligible_for_drift(&parsed(&[
         "__hook", "claude"

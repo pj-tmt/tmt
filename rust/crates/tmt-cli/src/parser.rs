@@ -200,6 +200,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
         },
         ["__hook"] => Invocation::ProviderHook {
+            provider: text(m, "provider").expect("required provider"),
             worker: flag(m, "worker"),
         },
         ["completion"] => Invocation::Completion(text(m, "shell")),

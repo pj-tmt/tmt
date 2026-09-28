@@ -1,18 +1,23 @@
 //! Claude hook wire mapping. Payloads describe observations, never bindings.
 
+pub use super::hook_protocol::{
+    CONTEXT_LIMIT, HOOK_INPUT_LIMIT, HOOK_TIMEOUT_SECONDS, encode_context,
+};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tmt_core::binding::session::{
     BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
     RuntimeLiveness, RuntimeState, SessionTransition,
 };
 
-mod evidence;
-pub use evidence::observe_in_pane;
-
-pub const HOOK_INPUT_LIMIT: usize = 64 * 1024;
-pub const CONTEXT_LIMIT: usize = 4096;
-pub const HOOK_TIMEOUT_SECONDS: u64 = 3;
+pub fn observe_in_pane(
+    runner: &impl crate::process::CommandRunner,
+    caller_pid: u64,
+    pane_pid: u64,
+    deadline: std::time::Instant,
+) -> Option<RuntimeIncarnation> {
+    super::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, "claude")
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaudeObservation {
@@ -141,33 +146,10 @@ pub fn decode_hook(bytes: &[u8]) -> Result<ClaudeObservation, HookInputError> {
     })
 }
 
-/// Only a verified, successfully processed start may call this encoder. End
-/// hooks, missing context and failures have no stdout, not malformed raw text.
-/// No permission decision, veto or user-facing spinner is part of this output.
-pub fn encode_context(context: &str) -> Option<String> {
-    if context.is_empty() || context.len() > CONTEXT_LIMIT {
-        return None;
-    }
-    Some(
-        json!({
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": context
-            }
-        })
-        .to_string(),
-    )
-}
-
 /// The launcher is selected and validated by setup, retaining its stable symlink
 /// rather than canonicalizing it into an immutable release directory.
 pub fn hook_entry(launcher: &str) -> Value {
-    let quoted = format!("'{}'", launcher.replace('\'', "'\\''"));
-    json!({"hooks": [{
-        "type": "command",
-        "command": format!("{quoted} __hook claude"),
-        "timeout": HOOK_TIMEOUT_SECONDS
-    }]})
+    super::hook_protocol::command_entry("claude", launcher)
 }
 
 #[cfg(test)]
