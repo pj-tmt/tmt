@@ -16,14 +16,15 @@ path = "src/main.rs"
 
 [dependencies]
 tmt-core.workspace = true
-tmt-office-model.workspace = true
 tmt-adapters.workspace = true
+tmt-command-output.workspace = true
+tmt-office-command.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 serde_json.workspace = true
-unicode-width.workspace = true
 
 [dev-dependencies]
+tmt-office-model.workspace = true
 syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
 
 [lints]

@@ -17,7 +17,7 @@ fn cell(value: &str) -> String {
 
 /// Preserve full values and align by displayed columns, not bytes or tab stops.
 /// Const-sized rows prevent silently missing or extra cells at call sites.
-pub(crate) fn write<const N: usize>(
+pub fn write<const N: usize>(
     output: &mut impl Write,
     headers: [&str; N],
     rows: impl IntoIterator<Item = [String; N]>,

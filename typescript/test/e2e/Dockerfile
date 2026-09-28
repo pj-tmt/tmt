@@ -8,12 +8,14 @@ ARG TMT_NATIVE_PROFILE=dev
 RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
+  && CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-office \
   && cargo test --locked --no-run -p tmt-adapters \
   && mkdir /native-artifacts \
   && cp target/debug/examples/tmux-probe /native-artifacts/tmux-probe \
   && cp target/debug/examples/runtime-caller-fixture /native-artifacts/codex \
   && cp target/debug/examples/claude-hook-fixture /native-artifacts/claude \
   && cp "target/$native_output/tmt" /native-artifacts/tmt \
+  && cp "target/$native_output/tmt-office" /native-artifacts/tmt-office \
   && find target/debug/deps -maxdepth 1 -type f -name 'tmt_adapters-*' -executable \
     -exec cp {} /native-artifacts/adapter-tests \;
 
@@ -38,6 +40,7 @@ COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-
 # Exercise the same unset-selector path as a native developer checkout.
 # The selected dev/release profile changes bytes, not this fixture location.
 COPY --from=native-tests /native-artifacts/tmt /workspace/rust/target/debug/tmt
+COPY --from=native-tests /native-artifacts/tmt-office /workspace/rust/target/debug/tmt-office
 ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.

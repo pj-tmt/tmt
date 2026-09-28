@@ -39,6 +39,21 @@ fn main() -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
+    if !arguments
+        .first()
+        .is_some_and(|argument| argument.to_string_lossy().starts_with("__tmt-office"))
+    {
+        return match tmt_office_command::public::execute(&arguments) {
+            Ok(code) => ExitCode::from(code),
+            Err(error) => {
+                let _ = writeln!(
+                    io::stderr().lock(),
+                    "Could not write Office output: {error}"
+                );
+                ExitCode::FAILURE
+            }
+        };
+    }
     let text = arguments
         .iter()
         .map(|arg| arg.to_str())

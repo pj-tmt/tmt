@@ -19,6 +19,7 @@ local-service = ["dep:httparse", "dep:getrandom", "dep:base64", "dep:serde", "de
 tmt-core.workspace = true
 tmt-office-model.workspace = true
 tmt-adapters = { workspace = true, features = ["office"] }
+tmt-office-command.workspace = true
 httparse = { workspace = true, optional = true }
 getrandom = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }

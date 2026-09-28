@@ -1865,8 +1865,19 @@ dependencies = [
  "serde_json",
  "syn 2.0.119",
  "tmt-adapters",
+ "tmt-command-output",
  "tmt-core",
+ "tmt-office-command",
  "tmt-office-model",
+]
+
+[[package]]
+name = "tmt-command-output"
+version = "5.0.0-alpha.7"
+dependencies = [
+ "serde_json",
+ "tmt-adapters",
+ "tmt-core",
  "unicode-width",
 ]
 
@@ -1896,8 +1907,21 @@ dependencies = [
  "serde_json",
  "tmt-adapters",
  "tmt-core",
+ "tmt-office-command",
  "tmt-office-model",
  "uuid",
+]
+
+[[package]]
+name = "tmt-office-command"
+version = "0.1.0-alpha.4"
+dependencies = [
+ "clap",
+ "serde_json",
+ "tmt-adapters",
+ "tmt-command-output",
+ "tmt-core",
+ "tmt-office-model",
 ]
 
 [[package]]

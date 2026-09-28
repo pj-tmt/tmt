@@ -1,8 +1,8 @@
 //! Public pairing composition; no credentials, HTTP or OS-store dependencies.
 
 use crate::{
+    core_access::CoreAccess,
     invocation::{OfficeOperation, OutputMode},
-    office_core_access::CoreAccess,
     output::Failure,
 };
 use std::{

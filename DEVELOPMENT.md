@@ -56,6 +56,8 @@ From this checkout's root:
 (cd rust && cargo build --locked -p tmt-cli)
 NX_DAEMON=false NX_INTERACTIVE=false ./nx run native:tmt -- --version
 (cd typescript && corepack pnpm tmt office --help)
+(cd rust && cargo build --locked -p tmt-office)
+./rust/target/debug/tmt-office --help
 ```
 
 The `native:tmt` Nx target and nested `pnpm tmt` script both launch only this
@@ -66,6 +68,10 @@ after changing Rust sources. For clean JSON stdout use
 The launcher preserves arguments, exit status and environment; normal CLI commands
 still use the usual application data unless you explicitly select isolated settings.
 It does not replace the installed Office companion or update a running Office UI.
+The reserved `tmt office` facade and direct `tmt-office` command share the Office
+parser and handlers. Direct commands resolve core lookups through
+`TMT_EXECUTABLE` (when invoked by TMT) or an executable `tmt` on PATH; use an
+isolated application home when testing writes.
 
 Extensions can use the public [local process API](docs/extension-api.md) for
 structured dispatch, history, conditional room writes and bounded notebook reads.

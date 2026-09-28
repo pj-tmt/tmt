@@ -12,8 +12,8 @@ use tmt_adapters::{
 use tmt_office_model::office_protocol::OfficeError;
 
 use crate::{
+    core_access::CoreAccess,
     invocation::{OfficeOperation, OfficeProfileOperation, OutputMode},
-    office_core_access::CoreAccess,
     office_pairing_command::pairing_error,
     output::Failure,
 };
