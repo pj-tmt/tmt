@@ -4,6 +4,8 @@
 pub mod bounded_file;
 pub mod config;
 mod content_digest;
+#[cfg(unix)]
+pub mod delivery;
 pub mod dispatch;
 #[cfg(unix)]
 pub mod extension_command;
@@ -45,6 +47,8 @@ pub mod office_service;
 pub mod office_whiteboard;
 #[cfg(unix)]
 pub mod office_world;
+#[cfg(unix)]
+pub mod pane_badge;
 #[cfg(unix)]
 pub mod process;
 #[cfg(unix)]

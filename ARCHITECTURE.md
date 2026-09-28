@@ -87,9 +87,12 @@ all accepted/failed recipient attempts commit together. The HTTP adapter retains
 the existing browser authority and settings/connection owners. `LocalRuntime.dispatch`
 uses the shared authenticated transport and validates receipt operation/audience.
 New single-recipient requests can claim one advisory wake on the canonical inbox
-attempt after durable acceptance. The loopback adapter verifies the recipient's
-active binding and endpoint through the existing tmux evidence owner before
-sending only a request-ID and accepted-recipient-UUID instruction. The claim
+attempt after durable acceptance. The loopback adapter delegates to the shared
+`tmt-adapters::delivery` composition used by talk and reply hints. Core routing
+policy and runtime/host drivers verify recorded session state and endpoint evidence;
+an Ended shell stays queued, while a verified replacement can recover through
+the existing session CAS. It sends only a request-ID and accepted-recipient-UUID
+instruction. The claim
 prevents automatic replay after uncertain pane input; wake metadata never
 changes the immutable receipt or queued delivery state. Roster sends and
 announcements do not wake panes.
@@ -971,7 +974,7 @@ and `tmux::{metadata,evidence,binding,caller,transport}`.
 `binding_command` performs caller/target preflight and composes those owners.
 The tmux adapter owns opt-in badge markup derived from recorded session state:
 green running dot, dim ended badge, plain unknown label. Names are sanitized
-before generated style markup is added. CLI `pane_badge` refreshes the current
+before generated style markup is added. Adapter `pane_badge` refreshes the current
 binding's projection after committed launch, exit, provider-hook and recovery
 transitions, sharing hook deadlines. It is bounded, best-effort presentation,
 never routing evidence; no polling, theme mutation or independent state store.

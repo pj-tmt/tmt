@@ -4,14 +4,14 @@ use super::{Request, require_json_origin, response};
 use std::{io, net::TcpStream, time::Duration};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
+    delivery,
     dispatch::{decode_input, encode_receipt_with_wake},
     office_service::ServiceReceipt,
     request_runtime::{valid_request_id, wall_time_ms},
     storage::{DispatchError, Storage},
-    tmux::{BindingSession, Tmux},
+    tmux::Tmux,
 };
 use tmt_core::{
-    binding::{self, Presence},
     dispatch::{Acceptance, DispatchReceipt, DispatchRoom, canonical_id},
     request::{RequestKind, RequestService, WakeState},
     settings::Settings,
@@ -43,38 +43,17 @@ fn wake_direct_request(
         return Some(claim.state);
     }
     let tmux = Tmux::default();
-    let binding = storage
-        .find_identity_by_id(&item.recipient_id)
-        .ok()
-        .flatten()
-        .and_then(|identity| {
-            let mut endpoint = BindingSession::new(&tmux);
-            binding::name_presence(storage, &mut endpoint, &identity.name)
-                .ok()
-                .filter(|presence| {
-                    presence.identity.id == item.recipient_id
-                        && presence.presence == Presence::Active
-                })
-                .and_then(|presence| presence.binding)
-        });
-    let eligible = binding.is_some()
-        && RequestService::new(storage, wall_time_ms)
-            .wake_recipient_is_eligible(&item.request_id, &item.recipient_id)
-            .unwrap_or(false);
-    let state = if let Some(binding) = binding.filter(|_| eligible) {
+    let eligible = RequestService::new(storage, wall_time_ms)
+        .wake_recipient_is_eligible(&item.request_id, &item.recipient_id)
+        .unwrap_or(false);
+    let state = if eligible {
         let notification = format!(
             "Office request {} is queued. Read it with: tmt x show {} --incoming --identity {} --json",
             item.request_id, item.request_id, item.recipient_id
         );
         let delay = Duration::from_secs_f64(settings.paste_enter_delay_ms.min(500.0) / 1000.0);
-        match tmux.send_on(
-            &binding.server.socket_path,
-            &binding.pane_id,
-            &notification,
-            delay,
-        ) {
-            Ok(()) => WakeState::Sent,
-            Err(error) if error.uncertain() => WakeState::Uncertain,
+        match delivery::send(storage, &tmux, &item.recipient_id, &notification, delay) {
+            Ok(outcome) => outcome.wake_state(),
             Err(_) => WakeState::Unavailable,
         }
     } else {
