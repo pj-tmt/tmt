@@ -58,7 +58,8 @@ fn workspace_obeys_native_architecture() {
             "tmt-command-output",
             "tmt-office",
             "tmt-office-command",
-            "tmt-office-model"
+            "tmt-office-model",
+            "tmt-office-storage"
         ]),
         "Review native package boundaries when changing workspace members"
     );

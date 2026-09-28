@@ -625,6 +625,15 @@ in the `rust/Cargo.toml` workspace. Run the same package commands from `rust/`;
 the shared lockfile, toolchain and `rust/target` artifact paths are unchanged.
 Docker build contexts must include both `rust/` and `extensions/tmt-office/rust/`.
 
+Office storage migration tests live in `tmt-office-storage`
+(`cargo test --locked -p tmt-office-storage`) and build their source databases
+under temporary roots through the public core storage entry point. For manual
+diagnostics, the companion's hidden
+`tmt-office __tmt-office-storage 1 <status|prepare|copy|verify> --global-dir <absolute directory>`
+requires an explicit disposable root and never uses configuration discovery.
+Never point it at a real installation. Real migration requires the separately
+consented user path.
+
 Run from `rust/` for a normal native change:
 
 ```bash

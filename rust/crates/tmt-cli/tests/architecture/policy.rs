@@ -57,6 +57,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         "tmt-office" => &[
             "tmt-office-model",
             "tmt-office-command",
+            "tmt-office-storage",
             "tmt-core",
             "tmt-adapters",
             "base64",
@@ -84,6 +85,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "clap",
             "serde_json",
         ],
+        // Office-owned storage reaches core only through the public config and
+        // file-lock owners; it reads the core database directly only to migrate.
+        "tmt-office-storage" => &["tmt-adapters", "rusqlite", "sha2", "serde_json"],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
     package["dependencies"]

@@ -87,14 +87,15 @@ authorization. Removing tester admission clears private UI and denies subsequent
 server operations; previously disclosed content cannot be recalled. No production
 Firebase setup is implied.
 
-| Owner                                              | Responsibility                                                | Forbidden dependency                                                    |
-| -------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `extensions/tmt-office/typescript/apps/office`     | Browser routes, accessible views, UI state, app tests         | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
-| `extensions/tmt-office/typescript/services/office` | Emulator bootstrap, Rules and trusted scoped pairing issuance | Local execution, browser imports or implicit agent authority            |
-| `extensions/tmt-office/contracts`                  | Versioned design schema and structural conformance fixtures   | Browser rendering, Firebase effects or duplicate domain policy          |
-| `rust/`                                            | Existing local CLI, domain and concrete adapters              | Office assets, Node or a Firebase account required by ordinary commands |
-| `extensions/tmt-office/rust/tmt-office`            | Companion executable, embedded SPA and local HTTP service     | A second implementation of core identity, messaging or storage policy   |
-| `docs/office`                                      | Definitions, scenarios and operational guidance               | Describing planned behavior as shipped                                  |
+| Owner                                              | Responsibility                                                 | Forbidden dependency                                                    |
+| -------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `extensions/tmt-office/typescript/apps/office`     | Browser routes, accessible views, UI state, app tests          | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
+| `extensions/tmt-office/typescript/services/office` | Emulator bootstrap, Rules and trusted scoped pairing issuance  | Local execution, browser imports or implicit agent authority            |
+| `extensions/tmt-office/contracts`                  | Versioned design schema and structural conformance fixtures    | Browser rendering, Firebase effects or duplicate domain policy          |
+| `rust/`                                            | Existing local CLI, domain and concrete adapters               | Office assets, Node or a Firebase account required by ordinary commands |
+| `extensions/tmt-office/rust/tmt-office`            | Companion executable, embedded SPA and local HTTP service      | A second implementation of core identity, messaging or storage policy   |
+| `extensions/tmt-office/rust/tmt-office-storage`    | Office database, schema and resumable migration of Office rows | Core storage internals, copied identity/room authority or core writes   |
+| `docs/office`                                      | Definitions, scenarios and operational guidance                | Describing planned behavior as shipped                                  |
 
 ### Offline local service
 

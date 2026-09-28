@@ -12,7 +12,7 @@ pub mod dispatch;
 #[cfg(unix)]
 pub mod extension_command;
 #[cfg(unix)]
-mod file_lock;
+pub mod file_lock;
 pub mod identity_status;
 #[cfg(unix)]
 pub mod interrupt;
