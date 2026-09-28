@@ -195,6 +195,8 @@ async function exerciseBoundMockPane(
   trace.clear();
   const whoami = await fixture.runJsonCli<WhoamiResult>(['whoami'], { pane: pane.pane });
   expect(json(whoami)).toEqual({
+    interfaceKind: 'container',
+    sessionState: 'unknown',
     bound: true,
     id: identity.id,
     name: identityName,

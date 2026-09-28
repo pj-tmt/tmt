@@ -121,6 +121,8 @@ describe.sequential('non-invasive pane badge presentation', () => {
         fixture.tmux(['-u', 'display-message', '-p', '-t', fixture.pane, BADGE_FRAGMENT]).trim()
       ).toBe(`[${label}]`);
       expect(expectJsonResult(await fixture.runJsonCli(['whoami']))).toEqual({
+        interfaceKind: 'container',
+        sessionState: 'unknown',
         bound: true,
         id: identity.id,
         name,
@@ -175,6 +177,8 @@ describe.sequential('non-invasive pane badge presentation', () => {
       const identity = durableIdentity(fixture, 'alice');
       expect(identity.lifetime).toBe('temporary');
       expect(expectJsonResult(await fixture.runJsonCli(['whoami']))).toEqual({
+        interfaceKind: 'container',
+        sessionState: 'unknown',
         bound: true,
         id: identity.id,
         name: 'alice',

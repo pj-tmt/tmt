@@ -60,6 +60,24 @@ fn marker() -> BindingMarker {
 }
 
 #[test]
+fn read_only_snapshot_never_initializes_server_metadata() {
+    use super::{OperationOptions, Tmux, test_support::ScriptedRunner};
+    for (row, valid) in [(valid_endpoint_row(), true), (String::new(), false)] {
+        let runner = ScriptedRunner::default();
+        runner.push_output(row.into_bytes(), Vec::new());
+        let tmux = Tmux::new(runner);
+        assert_eq!(
+            tmux.observe_snapshot(OperationOptions::default()).is_ok(),
+            valid
+        );
+        let calls = tmux.runner.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].args.iter().any(|arg| arg == "list-panes"));
+        assert!(!calls[0].args.iter().any(|arg| arg == "set-option"));
+    }
+}
+
+#[test]
 fn accepts_strict_v4_server_evidence_and_expected_identity() {
     let output = format!(
         "{}\n\n",

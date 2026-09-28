@@ -38,6 +38,7 @@ pub enum Invocation {
         force: bool,
     },
     Whoami,
+    WhoamiContext,
     Unbind,
     Talk {
         target: String,

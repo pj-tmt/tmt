@@ -189,6 +189,8 @@ describe.sequential('strict caller context', () => {
       }>(['whoami']);
       expect(whoami.code).toBe(0);
       expect(json(whoami)).toEqual({
+        interfaceKind: 'container',
+        sessionState: 'unknown',
         bound: true,
         id: current.id,
         name: 'Current',
@@ -232,6 +234,8 @@ describe.sequential('strict caller context', () => {
       }>(['whoami'], { pane: peer.pane });
       expect(peerWhoami.code).toBe(0);
       expect(json(peerWhoami)).toEqual({
+        interfaceKind: 'container',
+        sessionState: 'unknown',
         bound: true,
         id: peerIdentity.id,
         name: 'Peer',
@@ -248,7 +252,12 @@ describe.sequential('strict caller context', () => {
       expect(unbound.code).toBe(0);
       const finalWhoami = await fixture.runJsonCli<{ bound: boolean }>(['whoami']);
       expect(finalWhoami.code).toBe(0);
-      expect(json(finalWhoami)).toEqual({ bound: false, pane: fixture.pane });
+      expect(json(finalWhoami)).toEqual({
+        bound: false,
+        pane: fixture.pane,
+        interfaceKind: 'container',
+        sessionState: 'unknown',
+      });
     });
   }, 30_000);
 

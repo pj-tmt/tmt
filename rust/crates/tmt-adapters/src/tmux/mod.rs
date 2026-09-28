@@ -294,6 +294,21 @@ impl<R: CommandRunner> Tmux<R> {
         }))
     }
 
+    /// Observe existing endpoint evidence without initializing server metadata.
+    /// A server without a valid TMT marker is unavailable, not silently adopted.
+    pub fn observe_snapshot(
+        &self,
+        options: OperationOptions<'_>,
+    ) -> Result<EndpointSnapshot, TmuxError> {
+        let scope = evidence::scoped_ids(options.pane_ids)?;
+        let output = self.execute(
+            list_args(None, scope.as_deref()),
+            options,
+            TmuxFailure::Command,
+        )?;
+        evidence::parse_snapshot(&output, None)
+    }
+
     pub fn snapshot(&self, options: OperationOptions<'_>) -> Result<EndpointSnapshot, TmuxError> {
         let scope = evidence::scoped_ids(options.pane_ids)?;
         let expected = self.ensure_server_id(options)?;

@@ -61,7 +61,7 @@ Long rows may wrap in narrow terminals. Control characters in table metadata are
 shown as escapes, not executed. Use `--json` for scripts and exact metadata;
 human spacing is presentation, not a machine-readable format.
 
-`name` and `whoami` need a live caller pane. `add` accepts `%pane_id`,
+`name` and ordinary `whoami` need a live caller pane. `add` accepts `%pane_id`,
 `window.pane`, or `session:window.pane`; the current order is pane target first,
 global name second. `marked` selects only the pane explicitly marked on the
 tmux server selected by the invocation. It never substitutes the caller or
@@ -69,6 +69,21 @@ active pane, never searches another server, and leaves the mark unchanged.
 Add `-s` to any binding command to save or promote the identity. `tmt unbind`
 retires a temporary identity; a saved identity and its profile remain offline.
 Neither operation kills the pane.
+
+To recover identity context after a conversation restart or compaction, use
+`tmt whoami --context` (add `--json` for tools). It reports the verified identity,
+its lifetime, a short role summary, an existing saved notes path, and counts with
+inspect commands for unacknowledged originated and incoming X items. It does not
+include request bodies or IDs, read notebook contents, bind an identity, create
+files, renew retention or mark messages read. A verified empty pane gets the hint
+`This pane has no TMT identity; run: tmt name <name> (-s to save)`.
+Unavailable or ambiguous evidence instead returns empty human output (JSON
+`status: "unavailable"`) successfully; it does not guess an identity.
+
+Output is at most 4 KiB, with at most 500 role characters. Counts and inspect
+commands remain available when role/path content is shortened; `truncated` marks
+output shortening. Ordinary `whoami --json` retains its existing fields and additionally
+reports `interfaceKind` and `sessionState`. Extension context is currently empty.
 
 Global names are independent of the working directory. A durable identity can
 exist without an active pane:

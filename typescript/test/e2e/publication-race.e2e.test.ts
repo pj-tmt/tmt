@@ -276,7 +276,12 @@ describe.sequential('crash-safe identity publication', () => {
 
       const whoami = await fixture.runJsonCli<{ bound: boolean }>(['whoami']);
       expect(whoami.code).toBe(0);
-      expect(json(whoami)).toEqual({ bound: false, pane: fixture.pane });
+      expect(json(whoami)).toEqual({
+        bound: false,
+        pane: fixture.pane,
+        interfaceKind: 'container',
+        sessionState: 'unknown',
+      });
       const listAfterKill = await fixture.runJsonCli<IdentityList>(['list']);
       expect(listAfterKill.code).toBe(0);
       expect(json(listAfterKill).identities).toEqual([

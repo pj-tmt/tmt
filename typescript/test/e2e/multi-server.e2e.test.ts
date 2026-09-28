@@ -251,6 +251,8 @@ describe.sequential('global identities across isolated tmux servers', () => {
         }
         expect(b.paneMetadata()).toBe(metadata);
         expect(expectJsonResult(await b.runJsonCli(['whoami']))).toEqual({
+          interfaceKind: 'container',
+          sessionState: 'unknown',
           bound: true,
           id: remoteIdentity.id,
           name: 'Remote',
@@ -346,6 +348,8 @@ describe.sequential('global identities across isolated tmux servers', () => {
       });
       expect(durableState(a).identities).toEqual(before.identities);
       expect(expectJsonResult(await b.runJsonCli(['whoami']))).toEqual({
+        interfaceKind: 'container',
+        sessionState: 'unknown',
         bound: true,
         id: remoteIdentity.id,
         name: 'Remote',
@@ -429,6 +433,8 @@ describe.sequential('global identities across isolated tmux servers', () => {
       expectVerificationTimestampsNondecreasing(survivor, afterSurvivor);
       expect(expectJsonResult(await a.runJsonCli(['role', 'show']))).toEqual(profile);
       expect(expectJsonResult(await b.runJsonCli(['whoami'], { pane: peer.pane }))).toEqual({
+        interfaceKind: 'container',
+        sessionState: 'unknown',
         bound: true,
         id: survivorIdentity.id,
         name: 'Survivor',

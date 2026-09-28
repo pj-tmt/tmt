@@ -45,6 +45,41 @@ impl std::error::Error for ActionError {
     }
 }
 
+impl<R: CommandRunner> BindingSession<'_, R> {
+    /// Observe runtime liveness after the caller has verified this binding's
+    /// endpoint. This does not establish presence or grant routing authority.
+    /// It uses the current coordination deadline, without another pane query.
+    pub fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, ActionError> {
+        let mut runtime = binding.session.state;
+        if runtime == RuntimeState::Ended {
+            return Ok(runtime);
+        }
+        if let Some(key) = &binding.session.key {
+            let observation =
+                observe_runtime_process(&self.tmux.runner, key.incarnation.pid(), self.deadline)
+                    .map_err(ActionError::Process)?;
+            runtime = match observation.matches(&key.incarnation) {
+                RuntimeLiveness::Alive => runtime,
+                RuntimeLiveness::Gone => RuntimeState::Ended,
+                RuntimeLiveness::Unknown => RuntimeState::Unknown,
+            };
+            if runtime == RuntimeState::Running
+                && let Some(owner) = &binding.session.launch_owner
+            {
+                let observation =
+                    observe_runtime_process(&self.tmux.runner, owner.pid(), self.deadline)
+                        .map_err(ActionError::Process)?;
+                if observation.matches(owner) != RuntimeLiveness::Alive {
+                    runtime = RuntimeState::Unknown;
+                }
+            }
+        } else if runtime == RuntimeState::Running {
+            runtime = RuntimeState::Unknown;
+        }
+        Ok(runtime)
+    }
+}
+
 impl<R: CommandRunner> Driver for BindingSession<'_, R> {
     type Target = BindingEntry;
     type Error = ActionError;
@@ -70,46 +105,14 @@ impl<R: CommandRunner> Driver for BindingSession<'_, R> {
                 InterfacePresence::Unknown
             }
         };
-        let mut runtime = RuntimeState::Unknown;
-        if presence == InterfacePresence::Present {
-            runtime = binding.session.state;
-            if runtime != RuntimeState::Ended {
-                if let Some(key) = &binding.session.key {
-                    let observation = match observe_runtime_process(
-                        &self.tmux.runner,
-                        key.incarnation.pid(),
-                        self.deadline,
-                    ) {
-                        Ok(observation) => observation,
-                        Err(error) => return ActionResult::Failed(ActionError::Process(error)),
-                    };
-                    runtime = match observation.matches(&key.incarnation) {
-                        RuntimeLiveness::Alive => runtime,
-                        RuntimeLiveness::Gone => RuntimeState::Ended,
-                        RuntimeLiveness::Unknown => RuntimeState::Unknown,
-                    };
-                    if runtime == RuntimeState::Running
-                        && let Some(owner) = &binding.session.launch_owner
-                    {
-                        let owner_observation = match observe_runtime_process(
-                            &self.tmux.runner,
-                            owner.pid(),
-                            self.deadline,
-                        ) {
-                            Ok(observation) => observation,
-                            Err(error) => {
-                                return ActionResult::Failed(ActionError::Process(error));
-                            }
-                        };
-                        if owner_observation.matches(owner) != RuntimeLiveness::Alive {
-                            runtime = RuntimeState::Unknown;
-                        }
-                    }
-                } else if runtime == RuntimeState::Running {
-                    runtime = RuntimeState::Unknown;
-                }
+        let runtime = if presence == InterfacePresence::Present {
+            match self.observed_runtime(binding) {
+                Ok(runtime) => runtime,
+                Err(error) => return ActionResult::Failed(error),
             }
-        }
+        } else {
+            RuntimeState::Unknown
+        };
         ActionResult::Completed(InterfaceStatus { presence, runtime })
     }
 

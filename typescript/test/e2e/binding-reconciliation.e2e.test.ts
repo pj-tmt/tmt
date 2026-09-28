@@ -214,7 +214,11 @@ describe.sequential('binding publication, reconciliation and presentation', () =
         await fixture.runJsonCli<Bound>(['add', peer.pane, 'Second'])
       );
       trace.clear();
-      expect(expectJsonResult(await fixture.runJsonCli<Bound>(['whoami']))).toEqual(owner);
+      expect(expectJsonResult(await fixture.runJsonCli<Bound>(['whoami']))).toEqual({
+        ...owner,
+        interfaceKind: 'container',
+        sessionState: 'unknown',
+      });
       expect(trace.invocations()).toHaveLength(small);
       expect(
         trace
@@ -251,7 +255,11 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       );
       expect(saved).toEqual({ ...initial, lifetime: 'saved' });
       expect(expectJsonResult(await fixture.runJsonCli<Bound>(['name', 'alice']))).toEqual(saved);
-      expect(expectJsonResult(await fixture.runJsonCli<Bound>(['whoami']))).toEqual(saved);
+      expect(expectJsonResult(await fixture.runJsonCli<Bound>(['whoami']))).toEqual({
+        ...saved,
+        interfaceKind: 'container',
+        sessionState: 'unknown',
+      });
       const live = expectJsonResult(
         await fixture.runJsonCli<Listing>(['ls'], { cwd: otherFolder })
       ).identities;
@@ -352,6 +360,8 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       expect(expectJsonResult(await fixture.runJsonCli(['whoami']))).toEqual({
         bound: false,
         pane: fixture.pane,
+        interfaceKind: 'container',
+        sessionState: 'unknown',
       });
       expect(durableState(fixture).identities).toHaveLength(2);
       expect(

@@ -168,7 +168,12 @@ pub fn grammar() -> Command {
         .arg(operand("target", true))
         .arg(operand("capture-lines", false)),
     )
-    .subcommand(general("whoami", "Show this pane's verified identity"))
+    .subcommand(
+        general("whoami", "Show this pane's verified identity").arg(
+            Arg::new("context").long("context").action(ArgAction::SetTrue)
+                .help("Read bounded identity and pending-work context without changing state"),
+        ),
+    )
     .subcommand(general(
         "unbind",
         "Detach this pane; retire temporary identity",

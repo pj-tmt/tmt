@@ -127,13 +127,23 @@ describe.sequential('scoped identity operations in a large tmux session', () => 
         // steady-state costs. No identity is bound and no pane metadata seeded.
         const initialized = await fixture.runJsonCli<WhoamiResult>(['whoami']);
         expect(initialized.code).toBe(0);
-        expect(json(initialized)).toEqual({ bound: false, pane: fixture.pane });
+        expect(json(initialized)).toEqual({
+          bound: false,
+          pane: fixture.pane,
+          interfaceKind: 'container',
+          sessionState: 'unknown',
+        });
         trace.clear();
         const smallStartedAt = performance.now();
         const smallWhoami = await fixture.runJsonCli<WhoamiResult>(['whoami']);
         const smallDurationMs = performance.now() - smallStartedAt;
         expect(smallWhoami.code).toBe(0);
-        expect(json(smallWhoami)).toEqual({ bound: false, pane: fixture.pane });
+        expect(json(smallWhoami)).toEqual({
+          bound: false,
+          pane: fixture.pane,
+          interfaceKind: 'container',
+          sessionState: 'unknown',
+        });
         const smallCommands = trace.commands();
         const smallInvocations = trace.invocations();
         expect(smallCommands).toContain('list-panes');
@@ -150,7 +160,12 @@ describe.sequential('scoped identity operations in a large tmux session', () => 
         const largeWhoami = await fixture.runJsonCli<WhoamiResult>(['whoami']);
         const largeDurationMs = performance.now() - largeStartedAt;
         expect(largeWhoami.code).toBe(0);
-        expect(json(largeWhoami)).toEqual({ bound: false, pane: fixture.pane });
+        expect(json(largeWhoami)).toEqual({
+          bound: false,
+          pane: fixture.pane,
+          interfaceKind: 'container',
+          sessionState: 'unknown',
+        });
         const largeCommands = trace.commands();
         const largeInvocations = trace.invocations();
         expect(largeCommands).toContain('list-panes');
@@ -238,6 +253,8 @@ describe.sequential('scoped identity operations in a large tmux session', () => 
         const whoami = await fixture.runJsonCli<WhoamiResult>(['whoami']);
         expect(whoami.code).toBe(0);
         expect(json(whoami)).toEqual({
+          interfaceKind: 'container',
+          sessionState: 'unknown',
           bound: true,
           id: namedIdentity.id,
           name: 'LargeSession',

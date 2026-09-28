@@ -101,6 +101,8 @@ describe.sequential('durable role profiles', () => {
         },
       ]);
       expect((await fixture.runJsonCli(['whoami'])).json).toEqual({
+        interfaceKind: 'container',
+        sessionState: 'unknown',
         bound: true,
         id: assigned.identity.id,
         name: 'Alice',

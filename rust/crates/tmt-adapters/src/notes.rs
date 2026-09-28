@@ -74,32 +74,53 @@ fn read_existing(
     identity_id: &NotesIdentityId,
 ) -> Result<Vec<u8>, crate::bounded_file::FileReadError> {
     use crate::bounded_file::{FileReadError, read_opened};
-    let acquire = || -> io::Result<File> {
-        let (root, _, file) = paths.notes_layout(identity_id)?;
-        let mut directory = OpenOptions::new()
-            .read(true)
-            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_DIRECTORY).bits())
-            .open(&root)?;
-        let relative = file.strip_prefix(root).map_err(io::Error::other)?;
-        let mut components = relative.components().peekable();
-        while let Some(component) = components.next() {
-            let std::path::Component::Normal(name) = component else {
-                return Err(io::Error::other("Invalid notes path component."));
-            };
-            let flags = OFlag::O_RDONLY
-                | OFlag::O_NOFOLLOW
-                | OFlag::O_CLOEXEC
-                | OFlag::O_NONBLOCK
-                | if components.peek().is_some() {
-                    OFlag::O_DIRECTORY
-                } else {
-                    OFlag::empty()
-                };
-            directory = File::from(openat(&directory, Path::new(name), flags, Mode::empty())?);
-        }
-        Ok(directory)
+    read_opened(
+        open_existing(paths, identity_id).map_err(FileReadError::Io)?,
+        NOTEBOOK_READ_LIMIT,
+    )
+}
+
+/// Project an existing saved-identity notebook without opening storage, creating
+/// directories or reading its contents. The caller owns active-identity lookup.
+pub fn existing_path(
+    paths: &ConfigPaths,
+    identity_id: &NotesIdentityId,
+) -> io::Result<Option<PathBuf>> {
+    let file = match open_existing(paths, identity_id) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
     };
-    read_opened(acquire().map_err(FileReadError::Io)?, NOTEBOOK_READ_LIMIT)
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::other("Notes path is not a regular file."));
+    }
+    Ok(Some(paths.notes_layout(identity_id)?.2))
+}
+
+fn open_existing(paths: &ConfigPaths, identity_id: &NotesIdentityId) -> io::Result<File> {
+    let (root, _, file) = paths.notes_layout(identity_id)?;
+    let mut directory = OpenOptions::new()
+        .read(true)
+        .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_DIRECTORY).bits())
+        .open(&root)?;
+    let relative = file.strip_prefix(root).map_err(io::Error::other)?;
+    let mut components = relative.components().peekable();
+    while let Some(component) = components.next() {
+        let std::path::Component::Normal(name) = component else {
+            return Err(io::Error::other("Invalid notes path component."));
+        };
+        let flags = OFlag::O_RDONLY
+            | OFlag::O_NOFOLLOW
+            | OFlag::O_CLOEXEC
+            | OFlag::O_NONBLOCK
+            | if components.peek().is_some() {
+                OFlag::O_DIRECTORY
+            } else {
+                OFlag::empty()
+            };
+        directory = File::from(openat(&directory, Path::new(name), flags, Mode::empty())?);
+    }
+    Ok(directory)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

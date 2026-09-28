@@ -911,6 +911,23 @@ and `tmux::{metadata,evidence,binding,caller,transport}`.
 `binding_command` performs caller/target preflight and composes those owners.
 Presence is observation, not routing permission; an explicit socket or pane
 marker cannot authorize a different identity.
+`context_command` composes `whoami --context` separately from mutating binding
+reconciliation. `storage::context` opens SQLite read-only and reads the binding,
+role and unacknowledged X counts in one transaction; fresh driver evidence must still
+establish presence before those identity details are rendered. The projection
+does not create storage, migrate schemas, refresh binding timestamps, acknowledge
+requests or run retention cleanup. Originated and incoming counts use their
+independent per-item and bulk attention watermarks, matching the corresponding
+X lists. Expired requests are filtered at read time. Runtime caller evidence gates
+implicit host attribution; `tmux::observe_snapshot` never initializes server
+metadata. Ambiguous, missing or failed evidence renders no human context, not an
+unbound hint. Only a verified empty pane gets that hint. `notes::existing_path`
+uses the existing no-follow path traversal without opening the notebook content
+or creating a notebook. CLI presentation bounds the complete human/JSON output
+to 4 KiB, preserves counts and inspect commands when shortening role/path content,
+and marks truncation. No request IDs, bodies, receipts or notebook contents enter context.
+The extension contribution slot is currently empty; this path neither discovers
+nor executes extensions. Session-only interfaces remain unimplemented as above.
 Binding SQLite reads and writes reuse `endpoint::valid_process_id` with checked
 signed/unsigned conversion. Invalid stored PIDs fail decoding
 without repair or retirement, and invalid inputs fail before insertion.
