@@ -1,7 +1,6 @@
 //! CLI companion and HTTP share one close-before-publication storage operation.
 
-use crate::{LocalOfficeError, LocalWorldSnapshot, OfficeStore, WorldStoreError};
-use std::path::Path;
+use crate::{LocalOfficeError, LocalWorldSnapshot, OfficeStore, StorageLayout, WorldStoreError};
 use tmt_adapters::{
     config::ConfigPaths,
     office_world::{WorldFailure, WorldFailureCode, snapshot_value},
@@ -10,11 +9,12 @@ use tmt_office_model::codec::office_world::{SaveWorld, WorldCodecError, decode_s
 use tmt_office_model::office_protocol::OfficeInvocation;
 
 pub fn run(
-    database: &Path,
+    layout: &StorageLayout,
     edit: Option<SaveWorld>,
     now_ms: u64,
 ) -> Result<LocalWorldSnapshot, WorldFailure> {
-    let mut storage = OfficeStore::open(database).map_err(|_| WorldFailure::unavailable())?;
+    let mut storage =
+        OfficeStore::open_configured(layout).map_err(|_| WorldFailure::unavailable())?;
     let result = match edit {
         Some(edit) => storage.apply_local_world(
             edit.expected_revision,
@@ -43,7 +43,7 @@ pub fn execute(operation: OfficeInvocation, bytes: &[u8]) -> Vec<u8> {
     .and_then(|edit| {
         let paths = ConfigPaths::discover().map_err(|_| WorldFailure::unavailable())?;
         run(
-            &paths.database,
+            &StorageLayout::new(&paths),
             edit,
             tmt_adapters::request_runtime::wall_time_ms(),
         )

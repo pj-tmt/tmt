@@ -102,11 +102,11 @@ impl Recovery {
 }
 
 /// Core's record that Office storage became authoritative.
-struct Receipt {
+pub(super) struct Receipt {
     device: i64,
     inode: i64,
     manifest: String,
-    switched_at_ms: i64,
+    pub(super) switched_at_ms: i64,
 }
 
 /// Switches a verified copy. Any interrupted earlier switch is settled first.
@@ -142,6 +142,20 @@ pub fn switch(layout: &StorageLayout, service: &dyn Quiesce) -> Result<Switched>
         backup,
         service_was_running: quiesced.was_running,
     })
+}
+
+/// Ensures switched Office storage is activated; for store selection after
+/// core reported a receipt.
+pub(crate) fn ensure_active(layout: &StorageLayout) -> Result<()> {
+    if activation(&layout.database).unwrap_or(false) {
+        return Ok(());
+    }
+    match recover(layout)? {
+        Recovery::Current | Recovery::Activated => Ok(()),
+        Recovery::None | Recovery::Reverted => Err(MigrationError::State(
+            "Office storage has no recorded switch.".to_owned(),
+        )),
+    }
 }
 
 /// Settles an interrupted switch from core's receipt and the activation marker.
@@ -195,7 +209,7 @@ fn recovery_required(layout: &StorageLayout, condition: &str) -> MigrationError 
     }
 }
 
-fn read_receipt(source: &Path) -> Result<Option<Receipt>> {
+pub(super) fn read_receipt(source: &Path) -> Result<Option<Receipt>> {
     let connection = super::open_source_unchecked(source)?;
     let fenced: bool = connection
         .query_row(
@@ -262,7 +276,7 @@ fn decide(layout: &StorageLayout, record: &Record) -> Result<()> {
 }
 
 /// Core schema 36 must fence the retained rows before a receipt can mean anything.
-fn require_fence(source: &Connection) -> Result<()> {
+pub(super) fn require_fence(source: &Connection) -> Result<()> {
     let fences: Vec<String> = schema::core_fences().collect();
     let placeholders = vec!["?"; fences.len()].join(", ");
     let present: i64 = source

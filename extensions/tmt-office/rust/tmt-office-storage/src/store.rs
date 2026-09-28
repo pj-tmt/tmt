@@ -1,12 +1,17 @@
 //! The Office repository connection and its transaction helper.
 //!
-//! Until the storage switch, Office repositories run on the shared core
-//! database file. Opening goes through the public core storage entry point so
-//! creation, migration and file permissions stay exactly as before; Office then
-//! owns its own connection with the same connection policy. Core-owned
-//! references are read only through [`CoreReferences`] preflight.
+//! Core's storage cutover receipt selects the store: before the switch, Office
+//! repositories run on the shared core database file, opened through the public
+//! core storage entry point so creation, migration and file permissions stay
+//! exactly as before; after it they run on `office.db`, activated first if an
+//! interrupted switch left it unmarked. Core-owned references are read only
+//! through [`CoreReferences`] preflight.
 
-use crate::core_references::{CoreReferences, CoreStore};
+use crate::{
+    StorageLayout,
+    core_references::{CoreReferences, CoreStore},
+    migration::{self, MigrationError},
+};
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 use std::{path::Path, time::Duration};
 use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
@@ -17,7 +22,27 @@ pub struct OfficeStore {
 }
 
 impl OfficeStore {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
+    /// Opens the store selected by core's cutover receipt.
+    pub fn open_configured(layout: &StorageLayout) -> Result<Self, StorageError> {
+        let references = CoreStore::open(&layout.source)?;
+        if references.storage_cutover()?.is_none() {
+            return Self::with_references(&layout.source, Box::new(references));
+        }
+        migration::ensure_active(layout).map_err(|error| {
+            let code = match error {
+                MigrationError::Busy => StorageErrorCode::Busy,
+                MigrationError::NotWritable(_) => StorageErrorCode::NotWritable,
+                _ => StorageErrorCode::Unknown,
+            };
+            StorageError::new(code, error.to_string())
+        })?;
+        Self::with_references(&layout.database, Box::new(references))
+    }
+
+    /// Opens repositories on one database file, the pre-switch layout. Tests
+    /// only: production must honor the receipt through [`Self::open_configured`].
+    #[cfg(test)]
+    pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let path = path.as_ref();
         let references = CoreStore::open(path)?;
         Self::with_references(path, Box::new(references))

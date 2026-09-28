@@ -2,7 +2,6 @@
 
 use crate::{OfficeStore, WhiteboardStoreError};
 use serde::Deserialize;
-use std::path::Path;
 use tmt_adapters::config::ConfigPaths;
 use tmt_office_model::codec::office_whiteboard::snapshot::encode_snapshot;
 use tmt_office_model::office_protocol::OfficeError;
@@ -36,7 +35,7 @@ fn admit(operation: OfficeInvocation, bytes: &[u8]) -> Result<String, OfficeErro
 pub fn execute(operation: OfficeInvocation, input: &[u8]) -> Vec<u8> {
     let result = admit(operation, input).and_then(|id| {
         let paths = ConfigPaths::discover().map_err(|_| OfficeError::StorageUnavailable)?;
-        read(&paths.database, operation, &id)
+        read(&crate::StorageLayout::new(&paths), operation, &id)
     });
     result.unwrap_or_else(|error| {
         serde_json::to_vec(&serde_json::json!({"error":error.code()}))
@@ -48,8 +47,13 @@ fn storage_error(error: WhiteboardStoreError) -> OfficeError {
     OfficeError::parse(error.code()).unwrap_or(OfficeError::StorageUnavailable)
 }
 
-fn read(database: &Path, operation: OfficeInvocation, id: &str) -> Result<Vec<u8>, OfficeError> {
-    let mut storage = OfficeStore::open(database).map_err(|_| OfficeError::StorageUnavailable)?;
+fn read(
+    layout: &crate::StorageLayout,
+    operation: OfficeInvocation,
+    id: &str,
+) -> Result<Vec<u8>, OfficeError> {
+    let mut storage =
+        OfficeStore::open_configured(layout).map_err(|_| OfficeError::StorageUnavailable)?;
     let result = if operation == OfficeInvocation::WhiteboardSnapshotImage {
         storage
             .show_whiteboard_snapshot_image(id)

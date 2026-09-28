@@ -22,7 +22,7 @@ use tmt_core::native_install::{Channel, PinAction};
 
 const INSTALL_HINT: &str = "Install Office with: tmt office install --yes";
 
-fn consent(yes: bool, mode: OutputMode, action: &str) -> Result<bool, Failure> {
+pub(crate) fn consent(yes: bool, mode: OutputMode, action: &str) -> Result<bool, Failure> {
     if yes {
         return Ok(true);
     }
@@ -399,6 +399,7 @@ fn run(
                 if started.changed {
                     office_start_hint(mode);
                 }
+                crate::office_storage_command::pending_hint(&executable, mode);
             })
         }
         OfficeOperation::Stop => {
@@ -468,6 +469,12 @@ fn run(
             }
             crate::office_board_command::run(&executable, operation, mode, core_access)
         }
+        OfficeOperation::Storage(storage) => {
+            if !installed(&executable)? {
+                return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
+            }
+            crate::office_storage_command::run(&executable, storage, mode)
+        }
         OfficeOperation::WhiteboardSnapshot { reference, output } => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
@@ -526,6 +533,11 @@ fn run(
                 human
             };
             report(json!({"installed": true, "version": version, "protocolVersion": tmt_office_model::office_protocol::OFFICE_PROTOCOL_VERSION, "executable": executable, "service":service_value}), &human, mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
+                .inspect(|_| {
+                    if operation == OfficeOperation::Status {
+                        crate::office_storage_command::pending_hint(&executable, mode);
+                    }
+                })
         }
         OfficeOperation::Install {
             yes,

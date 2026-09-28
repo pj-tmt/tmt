@@ -104,17 +104,18 @@ pub(super) fn api(
             br#"{"error":"OFFICE_PROP_INVALID"}"#,
         );
     };
-    let mut storage = match OfficeStore::open(&paths.database) {
-        Ok(storage) => storage,
-        Err(_) => {
-            return response(
-                stream,
-                500,
-                "application/json",
-                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-            );
-        }
-    };
+    let mut storage =
+        match OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(paths)) {
+            Ok(storage) => storage,
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
     let result = match operation {
         Operation::List(input) => storage.list_local_prop_packs(20, input.cursor.as_deref()).map(|page| json!({
             "revision": page.catalog_revision,

@@ -6,6 +6,15 @@ pub const OFFICE_PROTOCOL_VERSION: &str = "1";
 pub const OFFICE_PROTOCOL_OUTPUT_LIMIT: usize = 1024;
 pub const OFFICE_HOOK_BATCH_LIMIT: usize = 16;
 pub const OFFICE_BOARD_CAPABILITY: &str = "office_board_v1";
+pub const OFFICE_STORAGE_MIGRATION_CAPABILITY: &str = "office_storage_migration_v1";
+
+/// Capabilities an installed companion advertises. Unknown lines from a newer
+/// companion are ignored, so each command checks only the one it needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OfficeCapabilities {
+    pub board: bool,
+    pub storage_migration: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OfficeSyncReport {
@@ -169,6 +178,8 @@ pub enum OfficeInvocation {
     BoardCategories,
     WhiteboardSnapshotShow,
     WhiteboardSnapshotImage,
+    StoragePlan,
+    StorageMigrate,
 }
 
 impl OfficeInvocation {
@@ -248,6 +259,8 @@ impl OfficeInvocation {
                 OFFICE_PROTOCOL_VERSION,
                 "whiteboard-snapshot-image",
             ],
+            Self::StoragePlan => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "storage-plan"],
+            Self::StorageMigrate => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "storage-migrate"],
         }
     }
 
@@ -287,6 +300,8 @@ impl OfficeInvocation {
             Self::BoardCategories,
             Self::WhiteboardSnapshotShow,
             Self::WhiteboardSnapshotImage,
+            Self::StoragePlan,
+            Self::StorageMigrate,
         ]
         .into_iter()
         .find(|operation| arguments == operation.arguments())
@@ -295,18 +310,39 @@ impl OfficeInvocation {
 }
 
 pub fn encode_office_capabilities() -> String {
-    format!("TMT-OFFICE-CAPABILITIES/{OFFICE_PROTOCOL_VERSION}\n{OFFICE_BOARD_CAPABILITY}\n")
+    format!(
+        "TMT-OFFICE-CAPABILITIES/{OFFICE_PROTOCOL_VERSION}\n{OFFICE_BOARD_CAPABILITY}\n{OFFICE_STORAGE_MIGRATION_CAPABILITY}\n"
+    )
 }
 
-pub fn decode_office_capabilities(bytes: &[u8]) -> Result<(), &'static str> {
+/// Decodes the capability set: the exact header, then distinct lowercase
+/// tokens, each on its own line.
+pub fn decode_office_capabilities(bytes: &[u8]) -> Result<OfficeCapabilities, &'static str> {
+    const INVALID: &str = "Invalid or unsupported Office capabilities.";
     if bytes.len() > OFFICE_PROTOCOL_OUTPUT_LIMIT {
         return Err("Office capabilities exceed their bound.");
     }
-    if bytes == encode_office_capabilities().as_bytes() {
-        Ok(())
-    } else {
-        Err("Invalid or unsupported Office capabilities.")
+    let text = std::str::from_utf8(bytes).map_err(|_| INVALID)?;
+    let body = text
+        .strip_prefix(&format!(
+            "TMT-OFFICE-CAPABILITIES/{OFFICE_PROTOCOL_VERSION}\n"
+        ))
+        .and_then(|body| body.strip_suffix('\n'))
+        .ok_or(INVALID)?;
+    let mut seen = std::collections::BTreeSet::new();
+    for line in body.split('\n') {
+        let token = !line.is_empty()
+            && line
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_');
+        if !token || !seen.insert(line) {
+            return Err(INVALID);
+        }
     }
+    Ok(OfficeCapabilities {
+        board: seen.contains(OFFICE_BOARD_CAPABILITY),
+        storage_migration: seen.contains(OFFICE_STORAGE_MIGRATION_CAPABILITY),
+    })
 }
 
 pub fn encode_office_probe(version: &Version) -> String {
@@ -370,18 +406,39 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_are_exact_bounded_and_fail_closed() {
+    fn capabilities_are_a_bounded_set_that_fails_closed_on_malformed_bytes() {
         assert_eq!(
             decode_office_capabilities(encode_office_capabilities().as_bytes()),
-            Ok(())
+            Ok(OfficeCapabilities {
+                board: true,
+                storage_migration: true
+            })
+        );
+        // The exact bytes an earlier companion advertises keep boards working.
+        assert_eq!(
+            decode_office_capabilities(b"TMT-OFFICE-CAPABILITIES/1\noffice_board_v1\n"),
+            Ok(OfficeCapabilities {
+                board: true,
+                storage_migration: false
+            })
+        );
+        // A newer companion's unknown capability is ignored, not fatal.
+        assert_eq!(
+            decode_office_capabilities(b"TMT-OFFICE-CAPABILITIES/1\noffice_board_v1\nfuture_v2\n"),
+            Ok(OfficeCapabilities {
+                board: true,
+                storage_migration: false
+            })
         );
         for bytes in [
             b"TMT-OFFICE-CAPABILITIES/1\n".as_slice(),
+            b"TMT-OFFICE-CAPABILITIES/2\noffice_board_v1\n",
             b"TMT-OFFICE-CAPABILITIES/1\noffice_board_v1\noffice_board_v1\n",
-            b"TMT-OFFICE-CAPABILITIES/1\nunknown\n",
-            b"TMT-OFFICE-CAPABILITIES/1\noffice_board_v1\nunknown\n",
+            b"TMT-OFFICE-CAPABILITIES/1\noffice_board_v1",
+            b"TMT-OFFICE-CAPABILITIES/1\noffice_board_v1\n\n",
+            b"TMT-OFFICE-CAPABILITIES/1\nOffice Board\n",
         ] {
-            assert!(decode_office_capabilities(bytes).is_err());
+            assert!(decode_office_capabilities(bytes).is_err(), "{bytes:?}");
         }
         assert!(decode_office_capabilities(&vec![b'x'; OFFICE_PROTOCOL_OUTPUT_LIMIT + 1]).is_err());
     }

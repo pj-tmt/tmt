@@ -16,6 +16,7 @@ mod office_layout_command;
 mod office_pairing_command;
 mod office_profile_command;
 mod office_prop_command;
+mod office_storage_command;
 mod office_whiteboard_command;
 
 mod output {

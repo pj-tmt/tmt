@@ -110,13 +110,20 @@ function expectRetiredNamesAndFlagsAbsent(output: string, shell?: 'bash' | 'zsh'
     expect(output).not.toMatch(/^\s+migrate\b/m);
     return;
   }
+  // The retired name is the top-level registry command; `tmt office storage
+  // migrate` is a current, nested command and must not trip these checks.
   if (shell === 'zsh') {
-    expect(output).not.toMatch(/'migrate:/);
-    expect(output).not.toMatch(/migrate\)/);
+    const topLevel = output.match(/^_tmt_static_commands\(\) \{\n([\s\S]*?)^\}/m)?.[1];
+    expect(topLevel).toBeDefined();
+    expect(topLevel).not.toMatch(/'migrate:/);
+    expect(output).not.toContain('_tmt_static__subcmd__migrate_commands');
     return;
   }
-  expect(output).not.toMatch(/^\s+opts="[^"]*\bmigrate\b/m);
-  expect(output).not.toMatch(/migrate\|/);
+  const topLevel = output.match(/^\s+tmt\)\n\s+opts="([^"\n]+)"/m)?.[1].split(/\s+/);
+  expect(topLevel).toBeDefined();
+  expect(topLevel).not.toContain('migrate');
+  expect(output).not.toMatch(/\btmt,migrate\)/);
+  expect(output).not.toContain('tmt__subcmd__migrate)');
 }
 
 const HELP_ALIASES = [

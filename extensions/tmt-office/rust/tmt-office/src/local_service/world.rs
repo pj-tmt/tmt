@@ -56,7 +56,11 @@ pub(super) fn api(
             );
         }
     };
-    match access::run(&paths.database, input, wall_time_ms()) {
+    match access::run(
+        &tmt_office_storage::StorageLayout::new(paths),
+        input,
+        wall_time_ms(),
+    ) {
         Ok(snapshot) => response(
             stream,
             200,

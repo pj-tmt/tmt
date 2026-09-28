@@ -5,5 +5,6 @@ pub mod avatar;
 pub mod board;
 pub mod profile;
 pub mod prop;
+pub mod storage;
 pub mod whiteboard;
 pub mod world;

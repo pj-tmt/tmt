@@ -3,6 +3,12 @@
 pub use tmt_command_output::ContentInput;
 pub use tmt_command_output::OutputMode;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfficeStorageOperation {
+    Status,
+    Migrate { yes: bool },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum OfficeOperation {
     Open,
@@ -29,6 +35,7 @@ pub enum OfficeOperation {
         instance: String,
     },
     Board(OfficeBoardOperation),
+    Storage(OfficeStorageOperation),
     WhiteboardSnapshot {
         reference: String,
         output: Option<String>,

@@ -314,6 +314,14 @@ pub fn translate(path: &[&str], m: &ArgMatches) -> Result<OfficeOperation, Strin
             identity: text(m, "identity"),
             emulator: flag(m, "emulator"),
         },
+        Some("status") if path.get(1) == Some(&"storage") => {
+            OfficeOperation::Storage(OfficeStorageOperation::Status)
+        }
+        Some("migrate") if path.get(1) == Some(&"storage") => {
+            OfficeOperation::Storage(OfficeStorageOperation::Migrate {
+                yes: m.get_flag("yes"),
+            })
+        }
         Some("status") => match text(m, "world") {
             Some(world) => OfficeOperation::PairStatus {
                 world,
@@ -435,6 +443,19 @@ mod public_tests {
                 operation: OfficeProfileOperation::Show,
             }
         );
+        assert_eq!(
+            parse(&["storage", "status", "--json"]).unwrap().operation,
+            OfficeOperation::Storage(OfficeStorageOperation::Status)
+        );
+        assert_eq!(
+            parse(&["storage", "migrate", "--yes"]).unwrap().operation,
+            OfficeOperation::Storage(OfficeStorageOperation::Migrate { yes: true })
+        );
+        assert_eq!(
+            parse(&["storage", "migrate"]).unwrap().operation,
+            OfficeOperation::Storage(OfficeStorageOperation::Migrate { yes: false })
+        );
+        assert!(parse(&["storage"]).is_err());
         assert_eq!(
             parse(&["status", "--team", "old", "--json"])
                 .unwrap_err()

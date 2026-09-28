@@ -42,7 +42,8 @@ fn execute_inner(operation: OfficeInvocation, input: &[u8]) -> Result<Value, Off
     }
     let paths = tmt_adapters::config::ConfigPaths::discover()
         .map_err(|_| OfficeError::CredentialsUnavailable)?;
-    let mut storage = crate::OfficeStore::open(paths.database).map_err(storage_avatar_error)?;
+    let mut storage = crate::OfficeStore::open_configured(&crate::StorageLayout::new(&paths))
+        .map_err(storage_avatar_error)?;
     let result = match operation {
         OfficeInvocation::LocalAvatarInstall => {
             let candidate = command_pack(&input)?;

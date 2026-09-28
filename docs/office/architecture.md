@@ -794,11 +794,14 @@ preserving entries, receipts and revisions. Category discovery includes stored
 room and repository scopes; membership is not an ACL. New room posts validate
 room existence, while retained thread reads and exact retries survive removal.
 The original `TMT-OFFICE/1` version probe remains byte-for-byte compatible.
-Board calls additionally require the separate exact, bounded version-1
-capabilities probe to advertise `office_board_v1` before dispatch. An older,
-malformed, duplicate or unknown-only capability response fails as incompatible
-without attempting the mutation; capability support is never inferred from the
-package version.
+Board calls additionally require the separate bounded version-1 capabilities
+probe to advertise `office_board_v1` before dispatch, and storage commands require
+`office_storage_migration_v1`. The response is an exact header followed by
+distinct lowercase tokens; unknown tokens from a newer companion are ignored, so
+each command checks only the capability it needs. A malformed or duplicate
+response, or one without the needed token, fails as incompatible without
+attempting the operation; capability support is never inferred from the package
+version.
 
 There is no work connector, deployed service or shared browser runtime package yet.
 The independently versioned native `tmt-office` companion currently implements
@@ -932,7 +935,7 @@ If Office storage reports that it needs recovery, restore the backup it names:
 3. Remove `<global>/office/office.db` and its `-wal` and `-shm` files.
 4. Copy the backup's `config.json` and `office/` files back to `<global>/`, keeping
    their permissions.
-5. Start Office again with `tmt office start`.
+5. Run `tmt office storage status`.
 
 Restoring discards tmt activity after the backup, because the whole tmt database
 returns to the moment the backup was taken.

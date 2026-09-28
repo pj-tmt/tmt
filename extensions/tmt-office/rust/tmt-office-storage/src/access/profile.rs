@@ -33,7 +33,8 @@ fn execute_inner(operation: OfficeInvocation, input: &[u8]) -> Result<Value, Off
     let input: LocalProfileInput =
         serde_json::from_slice(input).map_err(|_| OfficeError::ProfileInvalid)?;
     let paths = ConfigPaths::discover().map_err(|_| OfficeError::CredentialsUnavailable)?;
-    let mut storage = OfficeStore::open(paths.database).map_err(storage_error)?;
+    let mut storage =
+        OfficeStore::open_configured(&crate::StorageLayout::new(&paths)).map_err(storage_error)?;
     let result = match operation {
         OfficeInvocation::LocalProfileShow
             if input.profile.is_none() && input.expected_revision.is_none() =>

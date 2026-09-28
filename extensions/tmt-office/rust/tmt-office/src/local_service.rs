@@ -537,17 +537,18 @@ fn api(
                 br#"{"error":"OFFICE_PROP_INVALID"}"#,
             );
         }
-        let mut storage = match OfficeStore::open(&paths.database) {
-            Ok(storage) => storage,
-            Err(_) => {
-                return response(
-                    stream,
-                    500,
-                    "application/json",
-                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-                );
-            }
-        };
+        let mut storage =
+            match OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(paths)) {
+                Ok(storage) => storage,
+                Err(_) => {
+                    return response(
+                        stream,
+                        500,
+                        "application/json",
+                        br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                    );
+                }
+            };
         let resolution = match storage.resolve_local_prop_packs(&input.digests) {
             Ok(resolution) => resolution,
             Err(_) => {
@@ -619,17 +620,18 @@ fn api(
 }
 
 fn avatar_catalog_api(stream: &mut TcpStream, paths: &ConfigPaths) -> io::Result<()> {
-    let mut storage = match OfficeStore::open(&paths.database) {
-        Ok(storage) => storage,
-        Err(_) => {
-            return response(
-                stream,
-                500,
-                "application/json",
-                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-            );
-        }
-    };
+    let mut storage =
+        match OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(paths)) {
+            Ok(storage) => storage,
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
     let mut cursor = None;
     let mut revision = None;
     let mut packs = Vec::new();
@@ -727,7 +729,7 @@ fn profile_api(
             }
         };
         let profiles =
-            match OfficeStore::open(&paths.database)
+            match OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(paths))
                 .map_err(|_| ())
                 .and_then(|mut office| {
                     let profiles = office.list_active_local_profiles().map_err(|_| ());
@@ -861,17 +863,18 @@ fn profile_api(
     } else {
         None
     };
-    let mut storage = match OfficeStore::open(&paths.database) {
-        Ok(storage) => storage,
-        Err(_) => {
-            return response(
-                stream,
-                500,
-                "application/json",
-                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-            );
-        }
-    };
+    let mut storage =
+        match OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(paths)) {
+            Ok(storage) => storage,
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
     let result = match edit {
         Some((expected_revision, profile)) => storage
             .apply_local_profile(identity_id, expected_revision, &profile)
@@ -918,7 +921,7 @@ fn board_api(
     let body = tmt_office_storage::access::board::execute_at(
         operation,
         &serde_json::to_vec(&value)?,
-        &paths.database,
+        &tmt_office_storage::StorageLayout::new(paths),
     );
     let code = serde_json::from_slice::<Value>(&body)
         .ok()
@@ -1593,7 +1596,8 @@ mod tests {
             "../../../contracts/avatar-pack-v1-sample.tmtavatar.json"
         ))
         .unwrap();
-        let mut office = OfficeStore::open(&paths.database).unwrap();
+        let mut office =
+            OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(&paths)).unwrap();
         office.install_local_avatar_pack(0, &avatar).unwrap();
         office.close().unwrap();
         let avatar_ref = format!("{}/{}", avatar.digest(), avatar.pack().avatars[0].key);

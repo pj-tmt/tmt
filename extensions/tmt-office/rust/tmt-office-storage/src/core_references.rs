@@ -9,7 +9,9 @@
 //! over the public `tmt api` can replace [`CoreStore`] without changing callers.
 
 use std::{cell::RefCell, path::Path};
-use tmt_adapters::storage::{RoomStoreError, Storage, StorageError, StorageErrorCode};
+use tmt_adapters::storage::{
+    RoomStoreError, Storage, StorageCutover, StorageError, StorageErrorCode,
+};
 use tmt_core::{
     identity::{IdentityReader, Lifetime},
     room::RoomRepository,
@@ -36,6 +38,8 @@ pub trait CoreReferences {
     fn active_identities(&self) -> Result<Vec<CoreIdentity>, StorageError>;
     /// Any room with this UUID, including a retired one.
     fn room(&self, id: &str) -> Result<Option<CoreRoom>, StorageError>;
+    /// Core's record that Office storage became authoritative, if any.
+    fn storage_cutover(&self) -> Result<Option<StorageCutover>, StorageError>;
 }
 
 /// In-process implementation over core's public repository API.
@@ -106,6 +110,10 @@ impl CoreReferences for CoreStore {
             id: room.id,
             retired: room.retired,
         }))
+    }
+
+    fn storage_cutover(&self) -> Result<Option<StorageCutover>, StorageError> {
+        self.storage.borrow().extension_storage_cutover("office")
     }
 }
 

@@ -155,6 +155,18 @@ pub fn grammar() -> Command {
         )
         .subcommand(office_board_commands())
         .subcommand(
+            office("storage", "Report or migrate where Office data is stored")
+                .subcommand_required(true)
+                .subcommand(office("status", "Show where Office data is stored"))
+                .subcommand(
+                    office(
+                        "migrate",
+                        "Move Office data into its own database, after a backup",
+                    )
+                    .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
+                ),
+        )
+        .subcommand(
             office("whiteboard", "Read local immutable whiteboard snapshots")
                 .subcommand_required(true)
                 .subcommand(
