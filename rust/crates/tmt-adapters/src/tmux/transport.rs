@@ -49,6 +49,10 @@ impl DeliveryError {
         self.stage != DeliveryStage::Prepare
     }
 
+    pub fn socket_permission_denied(&self) -> bool {
+        !self.uncertain() && self.cause.socket_permission_denied()
+    }
+
     pub fn cleanup_failed(&self) -> bool {
         self.cause.cleanup_failed()
             || self

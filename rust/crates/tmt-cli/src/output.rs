@@ -7,7 +7,9 @@ use std::{
     error::Error,
     fmt,
     io::{self, Write},
+    path::Path,
 };
+use tmt_adapters::storage::{StorageError, StorageErrorCode};
 
 #[derive(Debug)]
 pub struct Failure {
@@ -35,6 +37,27 @@ struct TargetDetails {
 }
 
 impl Failure {
+    pub fn storage_access(
+        error: StorageError,
+        directory: &Path,
+        effect: &str,
+        fallback_code: &'static str,
+        fallback_message: &str,
+    ) -> Self {
+        if error.code == StorageErrorCode::NotWritable {
+            Self::new(
+                "STORAGE_NOT_WRITABLE",
+                format!(
+                    "TMT cannot write its data directory {}. An agent sandbox may be blocking it: allow that directory or use the provider's escalation for the next authorized command. {effect}",
+                    directory.display()
+                ),
+                1,
+            )
+            .caused_by(error)
+        } else {
+            Self::new(fallback_code, fallback_message, 1).caused_by(error)
+        }
+    }
     pub fn new(code: &'static str, message: impl Into<String>, status: u8) -> Self {
         Self {
             code,

@@ -144,6 +144,18 @@ fn open_errors_preserve_existing_files() {
 }
 
 #[test]
+fn missing_open_path_does_not_claim_a_permission_failure() {
+    let fixture = Fixture::new();
+    let missing = fixture.directory.path.join("absent").join("missing.db");
+    let error = Connection::open_with_flags(&missing, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .unwrap_err();
+    assert_eq!(
+        classify_open(error, "Open storage", &missing).code,
+        StorageErrorCode::Permission
+    );
+}
+
+#[test]
 fn concurrent_openers_commit_each_migration_only_once() {
     let fixture = Fixture::new();
     // Establish WAL independently without applying any migration. This tests

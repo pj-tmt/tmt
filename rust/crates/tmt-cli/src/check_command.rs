@@ -1,6 +1,7 @@
 //! Diagnostic capture composition; terminal content never completes a request.
 
 use crate::{
+    binding_error::socket_failure,
     invocation::OutputMode,
     output::{Failure, after_cleanup},
     target,
@@ -30,13 +31,22 @@ fn run(target: String, lines: Option<u64>) -> Result<Report, Failure> {
     .settings;
     let lines = lines.unwrap_or(settings.capture_lines);
     let tmux = Tmux::default();
-    let mut storage = Storage::open(paths.database).map_err(|error| {
-        Failure::new("IDENTITY_ERROR", "Could not open identity storage.", 1).caused_by(error)
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No pane input occurred; retrying the identical command is safe.",
+            "IDENTITY_ERROR",
+            "Could not open identity storage.",
+        )
     })?;
     let pending = target::resolve(&mut storage, &tmux, &target).and_then(|observed| {
         let output = tmux
             .capture_on(&observed.server.socket_path, &observed.pane.id, lines)
             .map_err(|error| {
+                if error.socket_permission_denied() {
+                    return socket_failure(error);
+                }
                 Failure::new(
                     "ERROR",
                     format!(

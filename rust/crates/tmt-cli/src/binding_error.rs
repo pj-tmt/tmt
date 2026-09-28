@@ -1,14 +1,23 @@
 //! Shared CLI error translation; binding policy remains in core.
 
 use crate::output::Failure;
+use std::error::Error;
 use tmt_adapters::{storage::StorageError, tmux::TmuxError};
 use tmt_core::binding::BindingError;
 
 pub fn endpoint_failure(error: TmuxError) -> Failure {
+    if error.socket_permission_denied() {
+        return socket_failure(error);
+    }
     Failure::new("RECONCILIATION_FAILED", error.to_string(), 1).caused_by(error)
 }
 
 pub fn binding_failure(error: BindingError<StorageError, TmuxError>) -> Failure {
+    if let BindingError::Endpoint(endpoint) = &error
+        && endpoint.socket_permission_denied()
+    {
+        return socket_failure(error);
+    }
     let (code, status) = match &error {
         BindingError::InvalidName(_) => ("INVALID_NAME", 1),
         BindingError::NameNotFound(_) => ("NAME_NOT_FOUND", 3),
@@ -20,4 +29,13 @@ pub fn binding_failure(error: BindingError<StorageError, TmuxError>) -> Failure 
         _ => ("RECONCILIATION_FAILED", 1),
     };
     Failure::new(code, error.to_string(), status).caused_by(error)
+}
+
+pub fn socket_failure(error: impl Error + 'static) -> Failure {
+    Failure::new(
+        "TMUX_PERMISSION_DENIED",
+        "TMT cannot access the tmux socket. An agent sandbox may be blocking it: rerun this same command with the provider's escalation, or allow the socket. No pane input occurred.",
+        1,
+    )
+    .caused_by(error)
 }

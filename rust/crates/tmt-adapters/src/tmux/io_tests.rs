@@ -1,8 +1,47 @@
 use super::test_support::{ScriptedRunner, failure};
 use super::*;
-use crate::process::CommandOutput;
+use crate::process::{CommandError, CommandFailure, CommandOutput};
 
 const SERVER_ID: &str = "123e4567-e89b-42d3-a456-426614174000";
+
+#[test]
+fn socket_permission_is_typed_without_treating_other_tmux_exits_as_denial() {
+    let failed = |stderr: &str| {
+        let mut error = CommandError::new(CommandFailure::Exit {
+            code: Some(1),
+            signal: None,
+        });
+        error.output = Some(CommandOutput {
+            stdout: Vec::new(),
+            stderr: stderr.as_bytes().to_vec(),
+        });
+        error
+    };
+    let denied = Tmux::new(ScriptedRunner::new([Err(failed(
+        "error connecting to /tmp/private.sock (Permission denied)\n",
+    ))]));
+    assert!(
+        denied
+            .caller_pane(&full_environment())
+            .unwrap_err()
+            .socket_permission_denied()
+    );
+
+    let blocked = Tmux::new(ScriptedRunner::new([Err(failed(
+        "error connecting to /tmp/private.sock (Operation not permitted)\n",
+    ))]));
+    assert!(
+        blocked
+            .caller_pane(&full_environment())
+            .unwrap_err()
+            .socket_permission_denied()
+    );
+
+    let absent = Tmux::new(ScriptedRunner::new([Err(failed(
+        "error connecting to /tmp/private.sock (No such file or directory)\n",
+    ))]));
+    assert!(absent.caller_pane(&full_environment()).unwrap().is_none());
+}
 
 fn marked_row() -> String {
     [

@@ -10,6 +10,7 @@ use crate::{
 };
 use std::{
     io,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 use tmt_adapters::{
@@ -34,6 +35,7 @@ struct Input {
 }
 #[derive(Clone)]
 struct Correlation {
+    data_dir: PathBuf,
     request_id: String,
     target: String,
     pane: String,
@@ -79,6 +81,28 @@ impl Correlation {
         }
     }
     fn state_error(&self, error: RequestError<StorageError>, possible_delivery: bool) -> Failure {
+        let error = match error {
+            RequestError::Repository(storage) => {
+                return Failure::storage_access(
+                storage,
+                &self.data_dir,
+                if possible_delivery {
+                    "Pane input may have happened; inspect the retained request before retrying."
+                } else {
+                    "No message was sent; inspect the retained request before retrying."
+                },
+                "REQUEST_STATE_ERROR",
+                if possible_delivery {
+                    "Request state failed after transport; delivery may have occurred."
+                } else {
+                    "Request state failed before transport; no message was sent."
+                },
+            )
+            .with_request(self.request_id.clone(), None)
+                .suggestion(self.inspection());
+            }
+            other => other,
+        };
         self.error(
             "REQUEST_STATE_ERROR",
             if possible_delivery {
@@ -98,6 +122,15 @@ impl Correlation {
             1,
         )
         .suggestion(self.inspection())
+    }
+
+    fn socket_error(&self, error: tmt_adapters::tmux::DeliveryError) -> Failure {
+        self.error(
+            "TMUX_PERMISSION_DENIED",
+            "TMT cannot access the tmux socket. An agent sandbox may be blocking it: allow the socket or use the provider's escalation to inspect the retained request. No message was sent; inspect before retrying.",
+            1,
+        )
+        .caused_by(error)
     }
 }
 
@@ -200,12 +233,13 @@ fn deliver(
                     Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
                 )
                 .map_err(|error| {
-                    Failure::new(
+                    Failure::storage_access(
+                        error,
+                        &correlation.data_dir,
+                        "No message was sent; inspect the retained request before retrying.",
                         "DELIVERY_PREPARATION_FAILED",
                         "Could not verify delivery state.",
-                        1,
                     )
-                    .caused_by(error)
                 })?
             } else {
                 crate::delivery::Delivery::Unavailable
@@ -226,6 +260,9 @@ fn deliver(
             }
             if !matches!(outcome, crate::delivery::Delivery::Sent) {
                 if let crate::delivery::Delivery::Transport(error) = outcome {
+                    if error.socket_permission_denied() {
+                        return Err(correlation.socket_error(error));
+                    }
                     return Err(correlation
                         .error(
                             if error.uncertain() {
@@ -274,6 +311,9 @@ fn deliver(
                         return Err(correlation
                             .state_error(state, uncertain)
                             .with_secondary_error(error));
+                    }
+                    if error.socket_permission_denied() {
+                        return Err(correlation.socket_error(error));
                     }
                     return Err(correlation
                         .error(
@@ -345,16 +385,17 @@ fn run(
     mode: OutputMode,
 ) -> Result<Report, Failure> {
     let mut storage = Storage::open(&paths.database).map_err(|error| {
-        Failure::new(
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            "No message was sent; retrying the identical command is safe.",
             "REQUEST_STATE_ERROR",
             "Could not open request storage; no message was sent.",
-            1,
         )
-        .caused_by(error)
     })?;
     let tmux = Tmux::default();
     let mut cleanup_correlation = None;
-    let pending = preparation::prepare(&mut storage, &tmux, &input, &settings, interrupt).and_then(|mut prepared| {
+    let pending = preparation::prepare(&mut storage, &tmux, &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
         cleanup_correlation = Some(prepared.correlation.clone());
         if !mode.json && !input.options.detach && !input.options.force && let Some(previous) = &prepared.previous_request_id {
             eprintln!("Another recent request exists for '{}' (id: {previous}). Input processing is not serialized; durable results remain associated by request ID.", input.target);

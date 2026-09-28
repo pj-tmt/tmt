@@ -67,6 +67,7 @@ impl ObserverRuntime for FakeRuntime {
 
 fn correlation() -> Correlation {
     Correlation {
+        data_dir: std::env::temp_dir().join("tmt-observer-test"),
         offline: false,
         request_id: "request-observe".into(),
         target: "worker".into(),

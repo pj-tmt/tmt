@@ -14,6 +14,7 @@ pub(super) fn prepare(
     input: &Input,
     settings: &Settings,
     interrupt: Option<&Interrupt>,
+    data_dir: &std::path::Path,
 ) -> Result<Prepared, Failure> {
     let room = input
         .options
@@ -97,6 +98,7 @@ pub(super) fn prepare(
         );
     let (request_id, attempt_id) = request_ids();
     let correlation = Correlation {
+        data_dir: data_dir.to_path_buf(),
         request_id,
         target: input.target.clone(),
         pane: observed
