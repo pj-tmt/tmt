@@ -55,6 +55,8 @@ pub enum Invocation {
     Focus {
         target: String,
     },
+    /// Read-only: the invoker's tmux client and the pane it shows.
+    FocusClient,
     Config(ConfigRequest),
     Identity(IdentityRequest),
     Room(RoomOperation),

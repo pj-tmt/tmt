@@ -2240,4 +2240,12 @@ fn focus_takes_one_identity_or_pane_target() {
         );
     }
     assert_eq!(parse_error(&["focus"]).code, "USAGE_ERROR");
+    assert_eq!(
+        parsed(&["focus", "--client", "--json"]).invocation,
+        Invocation::FocusClient
+    );
+    assert_eq!(
+        parse_error(&["focus", "auth-fix", "--client"]).code,
+        "USAGE_ERROR"
+    );
 }

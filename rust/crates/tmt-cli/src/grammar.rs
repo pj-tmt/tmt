@@ -174,7 +174,14 @@ pub fn grammar() -> Command {
     )
     .subcommand(
         general("focus", "Show an identity's or pane's view in your tmux client")
-            .arg(operand("target", true)),
+            .arg(operand("target", false).required_unless_present("client"))
+            .arg(
+                Arg::new("client")
+                    .long("client")
+                    .action(ArgAction::SetTrue)
+                    .conflicts_with("target")
+                    .help("Name your tmux client and the pane it shows; takes no target, switches nothing"),
+            ),
     )
     .subcommand(
         general("whoami", "Show this pane's verified identity").arg(

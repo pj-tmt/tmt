@@ -347,6 +347,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 },
             }
         }
+        ["focus"] if flag(m, "client") => Invocation::FocusClient,
         ["focus"] => Invocation::Focus {
             target: required(m, "target"),
         },

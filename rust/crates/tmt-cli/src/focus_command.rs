@@ -1,5 +1,6 @@
 //! `tmt focus`: show a verified identity's pane, or a pane (for example to
 //! return), in the invoking user's tmux client. It changes only the view.
+//! `tmt focus --client` only names that client and the pane it shows.
 
 use crate::{
     binding_error::endpoint_failure,
@@ -95,9 +96,10 @@ fn run(target: String) -> Result<Focused, Failure> {
             let pane = observed.pane.id;
             return tmux
                 .focus_pane(&invoker, &pane, OperationOptions::default())
-                .map(|previous| Focused {
+                .map(|before| Focused {
                     interface: pane.clone(),
-                    previous,
+                    previous: before.pane,
+                    viewer: before.client,
                 })
                 .map_err(|error| pane_failure(error, &pane));
         };
@@ -114,6 +116,32 @@ fn run(target: String) -> Result<Focused, Failure> {
     after_cleanup(pending, || storage.close())
 }
 
+/// Resolves the invoker's client exactly as a focus would, without switching
+/// anything or opening storage.
+pub fn client(mode: OutputMode) -> io::Result<u8> {
+    let view = match invoker().and_then(|invoker| {
+        Tmux::default()
+            .invoker_client(&invoker, OperationOptions::default())
+            .map_err(|error| pane_failure(error, &invoker.pane))
+    }) {
+        Ok(view) => view,
+        Err(error) => return error.publish(mode),
+    };
+    let mut stdout = io::stdout().lock();
+    if mode.json {
+        let document = serde_json::json!({"client": view.client, "pane": view.pane});
+        writeln!(stdout, "{document}")?;
+    } else {
+        writeln!(
+            stdout,
+            "Client {} shows {}.",
+            view.client,
+            view.pane.as_deref().unwrap_or("no pane")
+        )?;
+    }
+    Ok(0)
+}
+
 pub fn execute(target: String, mode: OutputMode) -> io::Result<u8> {
     let focused = match run(target) {
         Ok(focused) => focused,
@@ -124,6 +152,7 @@ pub fn execute(target: String, mode: OutputMode) -> io::Result<u8> {
         let document = serde_json::json!({
             "focused": {"pane": focused.interface},
             "from": focused.previous.map(|pane| serde_json::json!({"pane": pane})),
+            "client": focused.viewer,
         });
         writeln!(stdout, "{document}")?;
     } else {

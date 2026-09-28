@@ -185,6 +185,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             drop(stdout);
             return focus_command::execute(target, parsed.mode);
         }
+        Invocation::FocusClient => {
+            drop(stdout);
+            return focus_command::client(parsed.mode);
+        }
         request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
             drop(stdout);
             return response_command::execute(request, parsed.mode);

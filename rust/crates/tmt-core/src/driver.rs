@@ -72,13 +72,15 @@ pub struct HarnessResume<'a> {
     pub mode: &'a RuntimeMode,
 }
 
-/// A completed focus: the host interface now shown to the invoking user, and
-/// the interface it showed before, so a caller can return without host
-/// knowledge. IDs are host-owned (a tmux pane ID, for example).
+/// A completed focus: the host interface now shown to the invoking user, the
+/// interface it showed before, so a caller can return without host
+/// knowledge, and the user view that moved. IDs are host-owned (a tmux pane
+/// ID and client name, for example).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Focused {
     pub interface: String,
     pub previous: Option<String>,
+    pub viewer: String,
 }
 
 /// Implement only supported actions. Concrete adapters must bound I/O using the
