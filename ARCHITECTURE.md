@@ -615,7 +615,9 @@ an `io::Error` value without giving the model an I/O operation.
 definitions of the 14 Office-owned tables, so migration copies raw cells, minus
 the two `identities(id)` references that Office replaces with preflight. It adds
 an Office-local retired-identity marker and a migration record; schema v2 adds the
-activation marker written when `office.db` becomes authoritative. The crate reaches
+activation marker written when `office.db` becomes authoritative, and v3 adds
+the retired-room marker. Switched storage from an earlier Office schema upgrades
+when opened. The crate reaches
 core only through public owners: `config`, `file_lock`, `Storage::open` and the
 `StorageError` type with its `classify` mapping. It owns the Office repositories
 (worlds and legacy blocks, profiles, prop and avatar catalogs, the discussion board
@@ -667,6 +669,28 @@ reads and receipt write, the `office_pairing` module still living in
 `tmt-adapters`, and removing the retained Office rows and fences from core. An
 independently versioned Office binary must eventually reach core only through
 public commands and `tmt api`, never opening or migrating the core database itself.
+
+Reconciliation v1 (`tmt-office-storage::reconciliation`) compares every identity
+and room UUID Office stores (local profiles, legacy blocks, world personal and
+meeting areas, board identity authors and room categories) with core through
+`CoreReferences`, and records the ones core confirms retired in the monotonic
+`office_retired_identities` and `office_retired_rooms` markers of `office.db`
+(Office schema v3). It never erases or rewrites content: an unknown UUID is not
+retired, and a lookup error stops the run before anything is written, so failure
+means "retry", never "deleted". It runs at local-service start and before each
+one-shot write command; reads never reconcile, and a failure never blocks the
+command (the one-shot protocol keeps stderr empty, so only the service reports
+it). Office transactions that write an identity or room reference (profile and
+block apply, world save, board post and reply) check the markers inside the same
+transaction, closing both orderings: a mark recorded after preflight blocks the
+in-flight write, and a write that committed first is found by the next run.
+Point-of-use reads apply the markers through `retirement::MarkedReferences`, so
+a marked reference reads as retired, never missing, and history stays visible
+without granting new authority. Before the switch the shared core file has no
+markers and core stays authoritative. There is no queue or continuation: a full
+run over 50 identities, 20 rooms and 2,000 board entries takes about 13 ms in a
+release build. Add batching only if a run exceeds 100 ms or the inventory
+exceeds about 10,000 stored references.
 
 The migration coordinator is the one Office component that opens the core
 database for its own reads outside the store: query-only,

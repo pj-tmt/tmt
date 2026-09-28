@@ -156,6 +156,23 @@ pub fn run() -> ExitCode {
     }
 }
 
+/// Records retirements core confirmed before serving. A failure never blocks
+/// startup; point-of-use and in-transaction checks still apply.
+fn reconcile(paths: &ConfigPaths) {
+    let result = OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(paths))
+        .and_then(|mut store| {
+            let outcome = store.reconcile(tmt_adapters::request_runtime::wall_time_ms() as i64);
+            let _ = store.close();
+            outcome
+        });
+    if let Err(error) = result {
+        let _ = writeln!(
+            io::stderr().lock(),
+            "Office reconciliation unavailable ({error}); retired references are still checked when used."
+        );
+    }
+}
+
 fn serve() -> Result<(), ServeError> {
     let paths = ConfigPaths::discover().map_err(io::Error::other)?;
     let _service_lock = office_service::service_lock(&paths)?;
@@ -179,6 +196,7 @@ fn serve() -> Result<(), ServeError> {
     // Readiness means storage is usable, not only that the port can accept a socket.
     let mut storage = Storage::open(&paths.database).map_err(io::Error::other)?;
     storage.close().map_err(io::Error::other)?;
+    reconcile(&paths);
     let receipt = ServiceReceipt {
         schema_version: 1,
         pid: std::process::id(),

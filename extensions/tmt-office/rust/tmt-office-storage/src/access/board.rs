@@ -107,6 +107,14 @@ pub fn execute(operation: OfficeInvocation, input: &[u8]) -> Vec<u8> {
         Ok(paths) => paths,
         Err(_) => return br#"{"error":"STORAGE_ERROR"}"#.to_vec(),
     };
+    if !matches!(
+        prepared,
+        DecodedBoardCall::List { .. }
+            | DecodedBoardCall::Show { .. }
+            | DecodedBoardCall::Categories { .. }
+    ) {
+        super::reconcile_before_write(&crate::StorageLayout::new(&paths));
+    }
     encode_result(execute_prepared(
         prepared,
         &crate::StorageLayout::new(&paths),

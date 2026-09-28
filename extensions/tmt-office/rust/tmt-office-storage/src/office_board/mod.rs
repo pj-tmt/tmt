@@ -52,7 +52,14 @@ impl OfficeBoardRepository for OfficeStore {
             {
                 return Ok(receipt);
             }
-            if !room_active {
+            let room_marked = match &request.category {
+                Category::Room(id) => {
+                    crate::retirement::is_marked(tx, crate::retirement::Marker::Room, id)
+                        .map_err(BoardError::storage)?
+                }
+                _ => false,
+            };
+            if !room_active || room_marked {
                 return Err(BoardError::policy(BoardErrorCode::Invalid));
             }
             let sequence = next_sequence(tx)?;
@@ -551,7 +558,15 @@ fn preflight_actor(store: &OfficeStore, actor: &Actor) -> Result<Actor, BoardErr
 /// Office-owned actor checks inside the transaction; identities were preflighted.
 fn active_actor(tx: &Transaction<'_>, actor: &Actor) -> Result<Actor, BoardError<StorageError>> {
     match actor {
-        Actor::Identity { .. } => Ok(actor.clone()),
+        // A retirement Office recorded after preflight blocks the write.
+        Actor::Identity { identity_id, .. } => {
+            if crate::retirement::is_marked(tx, crate::retirement::Marker::Identity, identity_id)
+                .map_err(BoardError::storage)?
+            {
+                return Err(BoardError::policy(BoardErrorCode::Forbidden));
+            }
+            Ok(actor.clone())
+        }
         Actor::Owner { world_id } => {
             let matches: bool = tx
                 .query_row(

@@ -42,6 +42,9 @@ pub fn execute(operation: OfficeInvocation, bytes: &[u8]) -> Vec<u8> {
     .map_err(WorldFailure::from)
     .and_then(|edit| {
         let paths = ConfigPaths::discover().map_err(|_| WorldFailure::unavailable())?;
+        if edit.is_some() {
+            super::reconcile_before_write(&StorageLayout::new(&paths));
+        }
         run(
             &StorageLayout::new(&paths),
             edit,

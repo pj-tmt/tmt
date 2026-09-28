@@ -188,6 +188,16 @@ impl OfficeStore {
         let label = target_label(self, target)?;
         preflight_complete();
         with_immediate_transaction(self, "local Office block", |transaction| {
+            // A retirement Office recorded after preflight blocks this write.
+            if let LocalBlockTarget::Identity(identity_id) = target
+                && crate::retirement::is_marked(
+                    transaction,
+                    crate::retirement::Marker::Identity,
+                    identity_id,
+                )?
+            {
+                return Err(LocalOfficeError::IdentityInactive);
+            }
             let current = read_block(transaction, target)?;
             let encoded = serde_json::to_string(
                 &tmt_office_model::codec::office_block::local_layout_value(layout),

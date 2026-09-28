@@ -299,10 +299,10 @@ pub(super) fn require_fence(source: &Connection) -> Result<()> {
 /// Upgrades staging to the current Office schema and renames it into place.
 fn publish(layout: &StorageLayout) -> Result<()> {
     let staging = open_existing_staging(layout)?;
-    let version = require_schema(&staging)?;
-    if version < schema::VERSION {
-        schema::upgrade(&staging, version).map_err(destination("Upgrade staged Office storage"))?;
-    }
+    require_schema(&staging)?;
+    schema::upgrade_existing(&staging)
+        .map_err(destination("Upgrade staged Office storage"))?
+        .map_err(MigrationError::Destination)?;
     drop(staging);
     File::open(&layout.staging)
         .and_then(|file| file.sync_all())
@@ -345,10 +345,14 @@ fn activate(layout: &StorageLayout) -> Result<()> {
         .map_err(unreadable)?;
     if integrity != "ok"
         || copied.as_ref() != Some(&receipt.manifest)
-        || require_schema(&connection).ok() != Some(schema::VERSION)
+        || require_schema(&connection).is_err()
     {
         return Err(recovery_required(layout, "is unreadable"));
     }
+    // Storage switched by an earlier build activates at the current schema.
+    schema::upgrade_existing(&connection)
+        .map_err(destination("Upgrade Office storage"))?
+        .map_err(MigrationError::Destination)?;
     connection
         .pragma_update(None, "journal_mode", "WAL")
         .map_err(destination("Configure Office storage"))?;

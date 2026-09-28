@@ -7,6 +7,7 @@ use rusqlite::Connection;
 const MIGRATIONS: &[(&str, &str)] = &[
     ("office-storage-v1", include_str!("schema/001.sql")),
     ("office-activation", include_str!("schema/002.sql")),
+    ("office-retired-rooms", include_str!("schema/003.sql")),
 ];
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;
 /// The Office tables' shape, which the core copy must match.
@@ -38,6 +39,43 @@ const CORE_REFERENCE: &str = " REFERENCES identities(id)";
 
 pub(crate) fn install(connection: &Connection) -> rusqlite::Result<()> {
     upgrade(connection, 0)
+}
+
+/// Brings an existing Office database to the current schema. The version is
+/// read inside the immediate transaction, so concurrent openers apply each
+/// migration once; a newer schema is left untouched and reported.
+pub(crate) fn upgrade_existing(connection: &Connection) -> rusqlite::Result<Result<(), String>> {
+    connection.execute_batch("BEGIN IMMEDIATE")?;
+    let result = (|| {
+        let version: i64 = connection.query_row(
+            "SELECT coalesce(max(version), 0) FROM _office_schema",
+            [],
+            |row| row.get(0),
+        )?;
+        if version > VERSION {
+            return Ok(Err(format!(
+                "Office storage uses schema {version}, newer than this Office supports; update Office."
+            )));
+        }
+        for (index, (name, sql)) in MIGRATIONS.iter().enumerate().skip(version as usize) {
+            connection.execute_batch(sql)?;
+            connection.execute(
+                "INSERT INTO _office_schema (version, name) VALUES (?, ?)",
+                rusqlite::params![index as i64 + 1, name],
+            )?;
+        }
+        Ok(Ok(()))
+    })();
+    match result {
+        Ok(outcome) => {
+            connection.execute_batch("COMMIT")?;
+            Ok(outcome)
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
 }
 
 /// Applies every migration after `from` in one transaction.
