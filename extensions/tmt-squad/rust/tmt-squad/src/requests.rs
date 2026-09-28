@@ -1,5 +1,6 @@
 //! Request state read from core: the user's open annotations in the squad
-//! room and the requests members are waiting on the user for. Everything is
+//! room, the requests members are waiting on the user for, and the finals
+//! to the user's squad requests. Everything is
 //! derived per load from bounded `requests.list` pages; nothing is stored and
 //! nothing here acknowledges.
 
@@ -13,6 +14,8 @@ use std::collections::BTreeMap;
 /// Items per `requests.list` page, and the most pages one view reads.
 pub const PAGE: usize = 50;
 pub const PAGES: usize = 4;
+/// Replies whose bodies one view reads; older ones show only their header.
+pub const BODIES: usize = 8;
 
 /// The newest requests matching a filter, and whether older ones exist.
 pub struct Window {
@@ -160,27 +163,127 @@ pub fn me(core: &Core, name: &str) -> Result<(String, String), SquadError> {
     }
 }
 
-/// Reads both windows and applies them; without `me` rows get empty values.
+/// The squad room's requests as the user sent them, kept for [`replies`].
+pub struct Sent {
+    me: String,
+    room: Window,
+}
+
+/// Reads both windows and applies them; without `me` rows get empty values
+/// and there is nothing sent.
 pub fn overlay(
     core: &Core,
     squad: &Squad,
     me: Option<&str>,
     document: &mut Value,
-) -> Result<(), SquadError> {
+) -> Result<Option<Sent>, SquadError> {
     let Some(me) = me else {
         let empty = Window {
             items: Vec::new(),
             complete: true,
         };
         apply(document, &squad.name, "", &empty, &empty);
-        return Ok(());
+        return Ok(None);
     };
     let (me_id, _) = self::me(core, me)?;
     let fetch = |input| core.api("requests.list", input);
     let room = window(fetch, &json!({"roomId": squad.room_id}))?;
     let inbox = window(fetch, &json!({"recipientId": me_id}))?;
     apply(document, &squad.name, &me_id, &room, &inbox);
+    Ok(Some(Sent { me: me_id, room }))
+}
+
+/// Finals to the user's requests in the squad room, newest final first:
+/// `{requestId, to, prompt, status, submittedAtMs, response}`. `response`
+/// is filled by [`bodies`]; listing never reads or acknowledges one.
+pub fn replies(sent: &Sent, document: &Value) -> Vec<Value> {
+    let mut names = BTreeMap::new();
+    let lead = &document["squad"]["lead"];
+    let rows = document["sections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|section| section["rows"].as_array().into_iter().flatten());
+    for row in rows.chain([lead]) {
+        if let (Some(id), Some(name)) = (row["id"].as_str(), row["name"].as_str()) {
+            names.insert(id, name);
+        }
+    }
+    let mut replies: Vec<Value> = sent
+        .room
+        .items
+        .iter()
+        .filter(|item| {
+            item["kind"] == "request"
+                && sender(item) == Some(sent.me.as_str())
+                && !matches!(
+                    item["final"]["status"].as_str(),
+                    None | Some("not_submitted" | "not_required")
+                )
+        })
+        .map(|item| {
+            let to = item["recipientId"].as_str().unwrap_or_default();
+            json!({
+                "requestId": item["requestId"],
+                "to": names.get(to).copied().unwrap_or(to),
+                "prompt": item["preview"],
+                "status": item["final"]["status"],
+                "submittedAtMs": item["final"]["submittedAtMs"],
+                "response": null,
+            })
+        })
+        .collect();
+    replies.sort_by_key(|reply| std::cmp::Reverse(reply["submittedAtMs"].as_u64()));
+    replies
+}
+
+/// Fills `response` for the newest [`BODIES`] retained finals. A submitted
+/// final never changes, so bodies are cached by request ID; the cache keeps
+/// only what the current list shows.
+pub fn bodies(
+    mut show: impl FnMut(&str) -> Result<Value, SquadError>,
+    replies: &mut [Value],
+    cache: &mut BTreeMap<String, String>,
+) -> Result<(), SquadError> {
+    let shown: Vec<String> = replies
+        .iter()
+        .take(BODIES)
+        .filter_map(|reply| reply["requestId"].as_str().map(str::to_owned))
+        .collect();
+    cache.retain(|id, _| shown.contains(id));
+    for reply in replies.iter_mut().take(BODIES) {
+        if reply["status"] != "retained" {
+            continue;
+        }
+        let id = reply["requestId"].as_str().unwrap_or_default().to_owned();
+        if !cache.contains_key(&id) {
+            let detail = show(&id)?;
+            if let Some(response) = detail["final"]["response"].as_str() {
+                cache.insert(id.clone(), response.to_owned());
+            }
+        }
+        if let Some(response) = cache.get(&id) {
+            reply["response"] = json!(response);
+        }
+    }
     Ok(())
+}
+
+/// A compact age: 45s, 12m, 3h or 2d.
+pub fn age(now_ms: u64, then_ms: u64) -> String {
+    let seconds = now_ms.saturating_sub(then_ms) / 1000;
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3600 => format!("{}m", seconds / 60),
+        3600..86400 => format!("{}h", seconds / 3600),
+        _ => format!("{}d", seconds / 86400),
+    }
+}
+
+/// Reads one request's detail through `requests.show`, which acknowledges
+/// nothing.
+pub fn show_request(core: &Core, id: &str) -> Result<Value, SquadError> {
+    core.api("requests.show", json!({"requestId": id}))
 }
 
 #[cfg(test)]
@@ -224,6 +327,81 @@ mod tests {
         .unwrap();
         assert!(short.complete);
         assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn replies_list_only_my_finals_newest_first_and_bodies_are_bounded_and_cached() {
+        let final_item = |id: &str, from: &str, to: &str, at: u64, status: &str| {
+            let mut item = item(id, from, to, "[product · auth-fix] note", false);
+            item["final"] = json!({"status": status, "submittedAtMs": at});
+            item
+        };
+        let mut items = vec![
+            final_item("a", "ME", "L", 10, "retained"),
+            final_item("b", "ME", "A", 30, "retained"),
+            final_item("c", "X", "L", 40, "retained"),
+            final_item("d", "ME", "L", 20, "expired"),
+            item("e", "ME", "L", "still open", false),
+        ];
+        for index in 0..10 {
+            items.push(final_item(
+                &format!("old{index}"),
+                "ME",
+                "L",
+                index,
+                "retained",
+            ));
+        }
+        let sent = Sent {
+            me: "ME".into(),
+            room: Window {
+                items,
+                complete: true,
+            },
+        };
+        let document = json!({
+            "squad": {"lead": {"id": "L", "name": "sol"}},
+            "sections": [{"rows": [{"id": "A", "name": "auth-fix"}]}]
+        });
+        let mut list = replies(&sent, &document);
+        let order: Vec<&str> = list
+            .iter()
+            .take(3)
+            .map(|r| r["requestId"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            order,
+            ["b", "d", "a"],
+            "only mine, finals only, newest first"
+        );
+        assert_eq!(list[0]["to"], "auth-fix");
+        assert_eq!(list.len(), 13);
+
+        let reads = std::cell::Cell::new(0);
+        let mut cache = BTreeMap::new();
+        let show = |id: &str| {
+            reads.set(reads.get() + 1);
+            Ok(json!({"final": {"response": format!("body of {id}")}}))
+        };
+        bodies(show, &mut list, &mut cache).unwrap();
+        assert_eq!(list[0]["response"], "body of b");
+        assert_eq!(
+            list[1]["response"],
+            Value::Null,
+            "an expired final has no body"
+        );
+        assert!(
+            list[BODIES]["response"].is_null(),
+            "older ones stay headers"
+        );
+        assert_eq!(
+            reads.get(),
+            BODIES - 1,
+            "retained ones among the newest eight"
+        );
+        bodies(show, &mut list, &mut cache).unwrap();
+        assert_eq!(reads.get(), BODIES - 1, "cached bodies are not read again");
+        assert!(cache.len() <= BODIES);
     }
 
     #[test]

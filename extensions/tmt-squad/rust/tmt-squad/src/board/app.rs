@@ -34,6 +34,8 @@ pub struct View {
     pub clipboard: Option<Vec<String>>,
     /// The user's saved identity, the sender of talk, reply and annotate.
     pub me: Option<String>,
+    /// Finals to the user's squad requests, newest first (replies pane).
+    pub replies: Vec<Value>,
 }
 
 /// The lead's notebook, already sanitized for display.
@@ -184,6 +186,7 @@ pub struct App {
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
     pub notes_scroll: u16,
+    pub replies_scroll: u16,
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
@@ -652,6 +655,12 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') if self.focused() == Pane::Notes => {
                 self.notes_scroll = self.notes_scroll.saturating_add(1);
             }
+            KeyCode::Up | KeyCode::Char('k') if self.focused() == Pane::Replies => {
+                self.replies_scroll = self.replies_scroll.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') if self.focused() == Pane::Replies => {
+                self.replies_scroll = self.replies_scroll.saturating_add(1);
+            }
             KeyCode::Up | KeyCode::Char('k') => self.selected = self.selected.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => {
                 self.selected += 1;
@@ -732,6 +741,7 @@ mod tests {
             opener: None,
             clipboard: None,
             me: None,
+            replies: Vec::new(),
         }
     }
 

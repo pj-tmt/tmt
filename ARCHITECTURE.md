@@ -1633,6 +1633,10 @@ as a talk tagged `[<squad> · <row>]`, and replies with the receipt that `x show
 row's `annotation` (the user's newest open tagged request) and `waitingOnYou`
 (open requests to the user) per load from `requests.list`, at most four pages
 of 50, and marks the document `olderRequestsNotShown` when a window is cut off.
+The same room window yields the replies list (finals to the user's requests,
+newest first); bodies come from `requests.show` for the newest eight only, and
+the refresh worker caches them by request ID because a submitted final never
+changes. Bodies are agent-written and are sanitized like notes before display.
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
