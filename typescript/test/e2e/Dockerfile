@@ -5,6 +5,8 @@ COPY extensions/tmt-office/rust/ ../extensions/tmt-office/rust/
 COPY extensions/tmt-office/contracts/ ../extensions/tmt-office/contracts/
 COPY skills/ ../skills/
 COPY extensions/tmt-office/skills/ ../extensions/tmt-office/skills/
+# Workspace member: Cargo must load its manifest even when not building it.
+COPY extensions/tmt-squad/ ../extensions/tmt-squad/
 ARG TMT_NATIVE_PROFILE=dev
 RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
