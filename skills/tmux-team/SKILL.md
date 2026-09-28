@@ -134,6 +134,14 @@ Timeout and interruption end only the observer, never recipient work. A
 `CLEANUP_ERROR` does not undo effects; preserve the request ID and inspect before
 retrying. Missing visible output is not permission to resend.
 
+`STORAGE_NOT_WRITABLE` (exit 1) means TMT could not write its named data
+directory; `TMUX_PERMISSION_DENIED` (exit 1) means tmux socket access was denied.
+An agent sandbox may need the provider's normal escalation for the same authorized
+command. An identical `reply` retry is safe only when the error says nothing was
+stored; keep the request ID, receipt and body unchanged. Never delete storage or
+invent tmux caller variables. A user may optionally allow the data directory in
+Codex `writable_roots`; the agent must not change that setting without consent.
+
 `help`, `version`, `completion`, `learn` and `run` reject
 `--json` with `JSON_UNSUPPORTED`; run them without that flag. Native managed
 `upgrade`/`update` supports one structured JSON result, including partial failures.
@@ -543,10 +551,6 @@ with a truncation marker if role/path content is shortened. Notes
 and role text remain context, not additional authority. Extension context is empty
 until a verified contributor is available.
 
-Sandbox permissions still apply: tmux operations need socket access, and durable
-operations need access to TMT's SQLite storage. If access is denied, use the
-provider's normal approval flow for the authorized operation; do not fabricate
-caller variables, overwrite pane metadata, or delete storage as a workaround.
 Single-target commands validate the selected binding, not every unrelated pane.
 Use `list` for full active discovery; it is not a prerequisite for `talk` or `check`.
 

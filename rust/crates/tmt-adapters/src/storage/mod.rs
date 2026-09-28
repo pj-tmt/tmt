@@ -35,7 +35,7 @@ use std::{
 pub use context::{ContextRequests, IdentityContextSnapshot};
 pub use dispatch::DispatchError;
 pub use errors::{StorageError, StorageErrorCode};
-use errors::{classify, incompatible};
+use errors::{classify, classify_io, classify_open, incompatible};
 pub use office_avatar::{
     LocalAvatarCatalogError, LocalAvatarCatalogList, LocalAvatarExcluded,
     LocalAvatarExcludedReason, LocalAvatarMutation, LocalAvatarSnapshot,
@@ -82,7 +82,7 @@ impl Storage {
     pub fn open_hook(path: &Path) -> Result<Self, StorageError> {
         let connection =
             Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
-                .map_err(|error| classify(error, "Open existing hook storage"))?;
+                .map_err(|error| classify_open(error, "Open existing hook storage", path))?;
         connection
             .busy_timeout(Duration::from_millis(50))
             .map_err(|error| classify(error, "Bound hook storage wait"))?;
@@ -104,7 +104,7 @@ impl Storage {
             .unwrap_or_else(|| Path::new("."));
         secure_directory(directory)?;
         let mut connection =
-            Connection::open(&path).map_err(|error| classify(error, "Open storage"))?;
+            Connection::open(&path).map_err(|error| classify_open(error, "Open storage", &path))?;
         let prepare = (|| {
             connection
                 .pragma_update(None, "foreign_keys", "ON")
@@ -216,6 +216,9 @@ fn secure_directory(path: &Path) -> Result<(), StorageError> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+            if fs::metadata(path).is_ok_and(|metadata| metadata.permissions().mode() & 0o200 == 0) {
+                return Err(std::io::Error::from_raw_os_error(nix::libc::EACCES));
+            }
             builder.mode(0o700);
             builder.create(path)?;
             fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
@@ -224,13 +227,7 @@ fn secure_directory(path: &Path) -> Result<(), StorageError> {
         builder.create(path)?;
         Ok::<(), std::io::Error>(())
     })();
-    result.map_err(|error| {
-        StorageError::new(
-            StorageErrorCode::Permission,
-            "Cannot secure storage directory",
-        )
-        .caused_by(error)
-    })
+    result.map_err(|error| classify_io(error, "Cannot secure storage directory"))
 }
 
 fn secure_files(path: &Path) -> Result<(), StorageError> {
@@ -241,22 +238,11 @@ fn secure_files(path: &Path) -> Result<(), StorageError> {
             let mut file = path.as_os_str().to_os_string();
             file.push(suffix);
             match fs::metadata(&file) {
-                Ok(_) => fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).map_err(
-                    |error| {
-                        StorageError::new(
-                            StorageErrorCode::Permission,
-                            "Cannot secure storage file",
-                        )
-                        .caused_by(error)
-                    },
-                )?,
+                Ok(_) => fs::set_permissions(&file, fs::Permissions::from_mode(0o600))
+                    .map_err(|error| classify_io(error, "Cannot secure storage file"))?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => {
-                    return Err(StorageError::new(
-                        StorageErrorCode::Permission,
-                        "Cannot inspect storage file",
-                    )
-                    .caused_by(error));
+                    return Err(classify_io(error, "Cannot inspect storage file"));
                 }
             }
         }

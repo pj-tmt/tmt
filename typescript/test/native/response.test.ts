@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import path from 'node:path';
@@ -27,6 +27,59 @@ import {
 } from './response-fixture.js';
 
 describe('native response authorization and retention boundaries', () => {
+  it('identifies an unwritable data directory before reply, result, or talk effects', async () => {
+    await withSandbox(async (sandbox) => {
+      await initializeSchema(sandbox);
+      const seeded = seedResponse(sandbox.database, 'permission-retry');
+      const before = responseSnapshot(sandbox.database, seeded.requestId);
+      const reply = [
+        'reply',
+        seeded.requestId,
+        '--receipt',
+        seeded.compactReceipt,
+        '--message',
+        'exact retry body',
+        '--json',
+      ];
+      chmodSync(sandbox.globalDir, 0o500);
+      try {
+        for (const args of [
+          reply,
+          ['result', seeded.requestId, '--json'],
+          ['talk', '%14', 'must not send', '--json'],
+        ]) {
+          const failed = await runCli(sandbox, args);
+          expect(failed.status).toBe(1);
+          expectError(failed, 'STORAGE_NOT_WRITABLE');
+          const message = (parseWholeStdout(failed).error as { message: string }).message;
+          expect(message).toContain(sandbox.globalDir);
+          expect(message).toContain('sandbox');
+          if (args === reply) expect(message).toContain('Nothing was stored');
+          if (args[0] === 'talk') expect(message).toContain('No message was sent');
+        }
+      } finally {
+        chmodSync(sandbox.globalDir, 0o700);
+      }
+      expect(responseSnapshot(sandbox.database, seeded.requestId)).toEqual(before);
+      const accepted = await runCli(sandbox, reply);
+      expect(accepted.status).toBe(0);
+      expect(responseSnapshot(sandbox.database, seeded.requestId).response).toMatchObject({
+        body: 'exact retry body',
+      });
+    });
+  });
+
+  it('keeps non-permission storage errors on the existing response code', async () => {
+    await withSandbox(async (sandbox) => {
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      writeFileSync(sandbox.database, 'not a SQLite database');
+      const failed = await runCli(sandbox, ['result', 'missing-request', '--json']);
+      expect(failed.status).toBe(1);
+      expectError(failed, 'RESPONSE_ERROR');
+      expect(readFileSync(sandbox.database, 'utf8')).toBe('not a SQLite database');
+    });
+  });
+
   it.each(['v1', 'v2'] as const)(
     'rejects every %s request/attempt/endpoint mismatch without mutation',
     async (version) => {

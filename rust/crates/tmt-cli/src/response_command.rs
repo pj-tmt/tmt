@@ -50,7 +50,27 @@ fn input_failure(error: ResponseInputError) -> Failure {
     Failure::new(error.code(), error.to_string(), status).caused_by(error)
 }
 
-fn response_failure(error: RequestError<StorageError>) -> Failure {
+fn response_failure(
+    error: RequestError<StorageError>,
+    directory: &Path,
+    is_reply: bool,
+) -> Failure {
+    let error = match error {
+        RequestError::Repository(storage) => {
+            return Failure::storage_access(
+                storage,
+                directory,
+                if is_reply {
+                    "Nothing was stored; retrying the identical reply command is safe."
+                } else {
+                    "No result was changed; retrying the identical command is safe."
+                },
+                "RESPONSE_ERROR",
+                "Could not complete the response operation.",
+            );
+        }
+        other => other,
+    };
     let RequestError::Response(reason) = &error else {
         return unavailable(error);
     };
@@ -117,7 +137,19 @@ fn run(request: Invocation) -> Result<Report, Failure> {
         _ => unreachable!("response dispatch only accepts reply/result"),
     };
     let paths = ConfigPaths::discover().map_err(unavailable)?;
-    let mut storage = Storage::open(paths.database).map_err(unavailable)?;
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
+        Failure::storage_access(
+            error,
+            &paths.global_dir,
+            if submission.is_some() {
+                "Nothing was stored; retrying the identical reply command is safe."
+            } else {
+                "No result was changed; retrying the identical command is safe."
+            },
+            "RESPONSE_ERROR",
+            "Could not complete the response operation.",
+        )
+    })?;
     // Invalid clocks fail closed through the service's safe-integer validation.
     // Sample inside its transaction, not once before acquiring the writer lock.
     let pending = match submission {
@@ -125,7 +157,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
             let gone_waiter = crate::delivery::gone_waiter(&mut storage, &request_id);
             let accepted = RequestService::new(&mut storage, wall_time_ms)
                 .submit_response_with_hint(input, gone_waiter.as_ref())
-                .map_err(response_failure);
+                .map_err(|error| response_failure(error, &paths.global_dir, true));
             accepted.map(|(response, hint)| {
                 let notification = hint
                     .as_ref()
@@ -135,7 +167,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
         }
         None => RequestService::new(&mut storage, wall_time_ms)
             .get_response(&request_id)
-            .map_err(response_failure)
+            .map_err(|error| response_failure(error, &paths.global_dir, false))
             .and_then(|record| match record {
                 ResponseLookup::Available(response) => Ok(Report::Completed(*response)),
                 ResponseLookup::NotRequired => Ok(Report::NotRequired(request_id.clone())),

@@ -44,6 +44,7 @@ pub enum TmuxFailure {
     Command,
     MetadataRead,
     MetadataWrite,
+    SocketPermission,
 }
 
 #[derive(Debug)]
@@ -63,9 +64,15 @@ impl TmuxError {
     }
 
     fn command(kind: TmuxFailure, cause: CommandError) -> Self {
+        let kind = if socket_permission_denied(&cause) {
+            TmuxFailure::SocketPermission
+        } else {
+            kind
+        };
         let message = match kind {
             TmuxFailure::MetadataRead => "Could not read pane metadata",
             TmuxFailure::MetadataWrite => "Could not write pane metadata",
+            TmuxFailure::SocketPermission => "Could not access the tmux socket",
             _ => "Could not execute tmux operation",
         };
         Self {
@@ -80,6 +87,28 @@ impl TmuxError {
             .as_ref()
             .is_some_and(CommandError::cleanup_failed)
     }
+
+    pub fn socket_permission_denied(&self) -> bool {
+        self.kind == TmuxFailure::SocketPermission
+    }
+}
+
+fn socket_permission_denied(cause: &CommandError) -> bool {
+    if !matches!(cause.kind, CommandFailure::Exit { .. }) {
+        return false;
+    }
+    let Some(output) = &cause.output else {
+        return false;
+    };
+    let Ok(stderr) = std::str::from_utf8(&output.stderr) else {
+        return false;
+    };
+    // tmux reports a denied connect through its own exit status, not the OS
+    // errno of this parent process. Only its socket-connect diagnostic counts.
+    stderr.starts_with("error connecting to ")
+        && ["(Permission denied)", "(Operation not permitted)"]
+            .iter()
+            .any(|ending| stderr.trim_end().ends_with(ending))
 }
 
 impl fmt::Display for TmuxError {
@@ -233,7 +262,9 @@ impl<R: CommandRunner> Tmux<R> {
         };
         let value = match read() {
             Ok(value) => value,
-            Err(error) if error.cleanup_failed() => return Err(error),
+            Err(error) if error.cleanup_failed() || error.socket_permission_denied() => {
+                return Err(error);
+            }
             Err(_) => {
                 let mut args = socket_args(socket);
                 args.extend([
@@ -355,7 +386,9 @@ impl<R: CommandRunner> Tmux<R> {
                         panes: Vec::new(),
                     }))
                 }
-                Err(error) if error.cleanup_failed() => Err(error),
+                Err(error) if error.cleanup_failed() || error.socket_permission_denied() => {
+                    Err(error)
+                }
                 Err(_) => Ok(probe_death(recorded_pid)),
                 _ => Ok(EndpointProbe::Unknown),
             };
@@ -366,7 +399,9 @@ impl<R: CommandRunner> Tmux<R> {
             TmuxFailure::Command,
         ) {
             Ok(output) => output,
-            Err(error) if error.cleanup_failed() => return Err(error),
+            Err(error) if error.cleanup_failed() || error.socket_permission_denied() => {
+                return Err(error);
+            }
             Err(_) => return Ok(probe_death(recorded_pid)),
         };
         let observed = if !output.trim().is_empty() {
@@ -384,7 +419,7 @@ impl<R: CommandRunner> Tmux<R> {
             Ok(snapshot) if snapshot.server.socket_path == socket => {
                 Ok(EndpointProbe::Live(snapshot))
             }
-            Err(error) if error.cleanup_failed() => Err(error),
+            Err(error) if error.cleanup_failed() || error.socket_permission_denied() => Err(error),
             // A fresh server at a reused socket has no TMT server marker yet.
             // Malformed output alone is not death, but ESRCH for the recorded
             // process is independent, conclusive evidence. Never initialize the
@@ -508,7 +543,7 @@ impl<R: CommandRunner> Tmux<R> {
 fn optional_observation<T>(result: Result<T, TmuxError>) -> Result<Option<T>, TmuxError> {
     match result {
         Ok(value) => Ok(Some(value)),
-        Err(error) if error.cleanup_failed() => Err(error),
+        Err(error) if error.cleanup_failed() || error.socket_permission_denied() => Err(error),
         Err(_) => Ok(None),
     }
 }
