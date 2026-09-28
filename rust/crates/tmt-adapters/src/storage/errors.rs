@@ -154,11 +154,3 @@ fn wal_permission_failure(error: &rusqlite::Error) -> bool {
 pub(crate) fn incompatible(message: impl Into<String>) -> StorageError {
     StorageError::new(StorageErrorCode::IncompatibleSchema, message)
 }
-
-// Office board repositories propagate storage failures with `?`; the orphan
-// rule places this conversion with the storage error type.
-impl From<StorageError> for tmt_office_model::office_board::BoardError<StorageError> {
-    fn from(error: StorageError) -> Self {
-        Self::storage(error)
-    }
-}

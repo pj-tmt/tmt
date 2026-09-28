@@ -10,7 +10,7 @@ use tmt_office_model::codec::office_prop::parse_prop_reference;
 use crate::{
     OfficeStore,
     office_prop::{LocalPropCatalogError, LocalPropResolver},
-    store::with_immediate_transaction,
+    store::{preflight_complete, with_immediate_transaction},
 };
 use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 
@@ -85,11 +85,11 @@ impl OfficeStore {
         &mut self,
         target: &LocalBlockTarget,
     ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
+        let label = target_label(self, target)?;
         let transaction = self
             .connection_mut()?
             .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
             .map_err(|error| classify(error, "Observe local Office block"))?;
-        let label = target_label(&transaction, target)?;
         let stored = read_block(&transaction, target)?;
         let snapshot = snapshot(
             &mut LocalPropResolver::new(&transaction),
@@ -104,15 +104,22 @@ impl OfficeStore {
     }
 
     pub fn list_local_blocks(&mut self) -> Result<Vec<LocalBlockSnapshot>, LocalOfficeError> {
+        // Core owns the active roster and its order; Office joins its own rows.
+        let active: std::collections::HashMap<String, (usize, String)> = self
+            .references()
+            .active_identities()?
+            .into_iter()
+            .enumerate()
+            .map(|(order, identity)| (identity.id, (order, identity.name)))
+            .collect();
         let transaction = self
             .connection_mut()?
             .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
             .map_err(|error| classify(error, "Observe active local Office blocks"))?;
         let mut statement = transaction
             .prepare(
-                "SELECT b.identity_id, i.name, b.block_id, b.revision, b.layout, b.updated_at_ms \
-                 FROM office_local_blocks b JOIN identities i ON i.id = b.identity_id \
-                 WHERE i.retired_at_ms IS NULL ORDER BY i.canonical_name COLLATE BINARY, b.block_id",
+                "SELECT identity_id, block_id, revision, layout, updated_at_ms \
+                 FROM office_local_blocks WHERE target_kind = 'identity'",
             )
             .map_err(|error| classify(error, "Prepare active local Office blocks"))?;
         let rows = statement
@@ -120,16 +127,31 @@ impl OfficeStore {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
                 ))
             })
             .map_err(|error| classify(error, "List active local Office blocks"))?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|error| classify(error, "Read active local Office block"))?;
         drop(statement);
+        let mut rows: Vec<_> = rows
+            .into_iter()
+            .filter_map(|(identity_id, block_id, revision, layout, updated_at_ms)| {
+                let (order, name) = active.get(&identity_id)?.clone();
+                Some((
+                    order,
+                    identity_id,
+                    name,
+                    block_id,
+                    revision,
+                    layout,
+                    updated_at_ms,
+                ))
+            })
+            .collect();
+        rows.sort_by(|left, right| (left.0, &left.3).cmp(&(right.0, &right.3)));
         let mut resolver = LocalPropResolver::new(&transaction);
         let mut snapshots = vec![snapshot(
             &mut resolver,
@@ -140,7 +162,7 @@ impl OfficeStore {
         snapshots.extend(
             rows.into_iter()
                 .map(
-                    |(identity_id, identity_name, block_id, revision, layout, updated_at_ms)| {
+                    |(_, identity_id, identity_name, block_id, revision, layout, updated_at_ms)| {
                         snapshot(
                             &mut resolver,
                             &LocalBlockTarget::Identity(identity_id),
@@ -163,8 +185,9 @@ impl OfficeStore {
         expected_revision: u64,
         layout: &LocalBlockLayout,
     ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
+        let label = target_label(self, target)?;
+        preflight_complete();
         with_immediate_transaction(self, "local Office block", |transaction| {
-            let label = target_label(transaction, target)?;
             let current = read_block(transaction, target)?;
             let encoded = serde_json::to_string(
                 &tmt_office_model::codec::office_block::local_layout_value(layout),
@@ -273,22 +296,19 @@ impl OfficeStore {
 
 type StoredBlock = (String, i64, String, i64);
 
-/// Authorization is resolved under the same read/write transaction as the layout.
+/// Preflight: identity blocks belong only to active identities.
 fn target_label(
-    connection: &rusqlite::Connection,
+    store: &OfficeStore,
     target: &LocalBlockTarget,
 ) -> Result<String, LocalOfficeError> {
     match target {
         LocalBlockTarget::Lobby => Ok("Lobby".into()),
-        LocalBlockTarget::Identity(identity_id) => connection
-            .query_row(
-                "SELECT name FROM identities WHERE id = ? AND retired_at_ms IS NULL",
-                [identity_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|error| classify(error, "Read active local Office identity"))?
-            .ok_or(LocalOfficeError::IdentityInactive),
+        LocalBlockTarget::Identity(identity_id) => {
+            match store.references().identity(identity_id)? {
+                Some(identity) if !identity.retired => Ok(identity.name),
+                _ => Err(LocalOfficeError::IdentityInactive),
+            }
+        }
     }
 }
 
@@ -818,5 +838,40 @@ mod tests {
         assert_eq!(active.len(), 2);
         assert_eq!(active[1].target, second_target);
         storage.close().unwrap();
+    }
+    #[test]
+    fn block_identity_retired_inside_the_preflight_window_commits_like_apply_then_retire() {
+        let directory = TestDirectory::new();
+        let path = directory.path.join("race.db");
+        let mut storage = OfficeStore::open(&path).unwrap();
+        let id = "32323232-1111-4111-8111-111111111111";
+        insert_identity(&storage, id, "Alice", "saved");
+        let target = LocalBlockTarget::Identity(id.into());
+        let initial = storage.show_local_block(&target).unwrap();
+        crate::test_support::at_next_preflight_execute(
+            &path,
+            "UPDATE identities SET retired_at_ms = 1 WHERE id = ?",
+            id,
+        );
+        let saved = storage
+            .apply_local_block(&target, 0, &initial.layout)
+            .unwrap();
+        assert_eq!(saved.revision, 1);
+        // Serial equivalent: the row is retained; the active projection hides it.
+        let rows: i64 = storage
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM office_local_blocks WHERE identity_id = ?",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 1);
+        assert_eq!(storage.list_local_blocks().unwrap().len(), 1, "Lobby only");
+        assert!(matches!(
+            storage.apply_local_block(&target, 1, &initial.layout),
+            Err(LocalOfficeError::IdentityInactive)
+        ));
     }
 }

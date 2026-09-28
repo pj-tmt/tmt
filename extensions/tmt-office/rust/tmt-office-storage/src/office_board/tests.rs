@@ -1121,3 +1121,79 @@ fn concurrent_reply_limit_and_stale_edit_are_serialized_without_lost_updates() {
     ));
     storage.close().unwrap();
 }
+
+#[test]
+fn references_retired_inside_the_preflight_window_commit_like_post_then_retire() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("race.db");
+    let mut storage = OfficeStore::open(&path).unwrap();
+    let identity_id = "33333333-1111-4111-8111-111111111111";
+    insert_identity(&storage, identity_id, "alice");
+    let actor = Actor::Identity {
+        identity_id: identity_id.into(),
+        name: "alice".into(),
+    };
+    crate::test_support::at_next_preflight_execute(
+        &path,
+        "UPDATE identities SET retired_at_ms=5 WHERE id=?",
+        identity_id,
+    );
+    let receipt = post(
+        &mut storage,
+        actor.clone(),
+        "44444444-1111-4111-8111-111111111111",
+    );
+    let author: String = storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT author_name FROM office_board_entries WHERE id=?",
+            [&receipt.entry_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(author, "alice");
+    // Already retired at preflight: the same policy error and no write.
+    let rejected = storage
+        .post(&PostRequest {
+            category: Category::General,
+            actor,
+            title: "Later".into(),
+            body: "Body".into(),
+            operation_id: "55555555-1111-4111-8111-111111111111".into(),
+        })
+        .unwrap_err();
+    assert_eq!(rejected.code, BoardErrorCode::Forbidden);
+
+    let room = "66666666-1111-4111-8111-111111111111";
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO office_meeting_rooms (room_id,name,revision) VALUES (?,'Review',1)",
+            [room],
+        )
+        .unwrap();
+    let owner = local_owner_actor(&mut storage).unwrap();
+    let request = PostRequest {
+        category: Category::Room(room.into()),
+        actor: owner,
+        title: "Room".into(),
+        body: "Body".into(),
+        operation_id: "77777777-1111-4111-8111-111111111111".into(),
+    };
+    crate::test_support::at_next_preflight_execute(
+        &path,
+        "UPDATE office_meeting_rooms SET retired=1,revision=revision+1 WHERE room_id=?",
+        room,
+    );
+    let created = storage.post(&request).unwrap();
+    // The retained thread replays exactly; a new thread in the retired room is rejected.
+    assert_eq!(storage.post(&request).unwrap(), created);
+    let mut later = request.clone();
+    later.operation_id = "88888888-1111-4111-8111-111111111111".into();
+    assert_eq!(
+        storage.post(&later).unwrap_err().code,
+        BoardErrorCode::Invalid
+    );
+}

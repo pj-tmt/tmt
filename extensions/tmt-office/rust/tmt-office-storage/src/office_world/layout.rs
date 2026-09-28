@@ -1,12 +1,13 @@
 use super::{ensure_world, legacy};
 use crate::{
     OfficeStore,
-    core_lookup::{active_identity_by_id, identity_by_id, read_historical_room, read_room},
+    core_references::{CoreIdentity, CoreReferences, CoreRoom},
     office_local::{ItemResolution, LocalOfficeError, resolve_item},
     office_prop::LocalPropResolver,
-    store::with_immediate_transaction,
+    store::{preflight_complete, with_immediate_transaction_and_references},
 };
 use rusqlite::{Connection, OptionalExtension, params};
+use std::collections::HashMap;
 use tmt_adapters::storage::{StorageError, classify};
 use tmt_core::identity::Lifetime;
 use tmt_core::limits::MAX_JS_SAFE_INTEGER;
@@ -75,11 +76,11 @@ impl From<StorageError> for WorldStoreError {
 
 impl OfficeStore {
     pub fn show_local_world(&mut self) -> Result<LocalWorldSnapshot, WorldStoreError> {
-        let transaction = self
-            .connection_mut()?
+        let (connection, references) = self.split()?;
+        let transaction = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
             .map_err(|error| classify(error, "Observe Office world"))?;
-        let snapshot = read(&transaction)?;
+        let snapshot = read(&transaction, references)?;
         transaction
             .commit()
             .map_err(|error| classify(error, "Finish Office world observation"))?;
@@ -100,47 +101,56 @@ impl OfficeStore {
         if encoded.len() > WORLD_DOCUMENT_LIMIT {
             return Err(WorldStoreError::InvalidInput);
         }
-        with_immediate_transaction(self, "Office world", |transaction| {
-            let current = read(transaction)?;
-            if current.revision != expected_revision
-                || current.legacy_basis.as_deref() != legacy_basis
-            {
-                return Err(WorldStoreError::RevisionConflict);
-            }
-            validate_bindings(transaction, &current.layout, proposed)?;
-            validate_props(transaction, &current.layout, proposed)?;
-            if current.revision > 0 && world_value(&current.layout) == world_value(proposed) {
-                return Ok(current);
-            }
-            if current.revision == MAX_JS_SAFE_INTEGER {
-                return Err(WorldStoreError::RevisionExhausted);
-            }
-            let id = ensure_world(transaction, || Ok(now_ms as i64))?;
-            let revision = current.revision + 1;
-            transaction.execute(
+        let bindings = Bindings::preflight(self.references(), proposed)?;
+        preflight_complete();
+        with_immediate_transaction_and_references(
+            self,
+            "Office world",
+            |transaction, references| {
+                let current = read(transaction, references)?;
+                if current.revision != expected_revision
+                    || current.legacy_basis.as_deref() != legacy_basis
+                {
+                    return Err(WorldStoreError::RevisionConflict);
+                }
+                bindings.validate(&current.layout, proposed)?;
+                validate_props(transaction, &current.layout, proposed)?;
+                if current.revision > 0 && world_value(&current.layout) == world_value(proposed) {
+                    return Ok(current);
+                }
+                if current.revision == MAX_JS_SAFE_INTEGER {
+                    return Err(WorldStoreError::RevisionExhausted);
+                }
+                let id = ensure_world(transaction, || Ok(now_ms as i64))?;
+                let revision = current.revision + 1;
+                transaction.execute(
                 "UPDATE office_local_worlds SET layout_revision=?,layout_json=?,layout_updated_at_ms=? WHERE singleton=1 AND layout_revision=?",
                 params![revision as i64,encoded,now_ms as i64,current.revision as i64],
             ).map_err(|error| classify(error, "Save complete Office world"))?;
-            // The same transaction retires the superseded rows only after the
-            // complete candidate passed validation. Resource content tables are untouched.
-            if current.revision == 0 {
-                transaction
-                    .execute("DELETE FROM office_local_blocks", [])
-                    .map_err(|error| classify(error, "Retire migrated Office block rows"))?;
-            }
-            Ok(LocalWorldSnapshot {
-                world_id: Some(id),
-                revision,
-                legacy_basis: None,
-                layout: proposed.clone(),
-                updated_at_ms: now_ms,
-                changed: true,
-            })
-        })
+                // The same transaction retires the superseded rows only after the
+                // complete candidate passed validation. Resource content tables are untouched.
+                if current.revision == 0 {
+                    transaction
+                        .execute("DELETE FROM office_local_blocks", [])
+                        .map_err(|error| classify(error, "Retire migrated Office block rows"))?;
+                }
+                Ok(LocalWorldSnapshot {
+                    world_id: Some(id),
+                    revision,
+                    legacy_basis: None,
+                    layout: proposed.clone(),
+                    updated_at_ms: now_ms,
+                    changed: true,
+                })
+            },
+        )
     }
 }
 
-fn read(connection: &Connection) -> Result<LocalWorldSnapshot, WorldStoreError> {
+fn read(
+    connection: &Connection,
+    references: &dyn CoreReferences,
+) -> Result<LocalWorldSnapshot, WorldStoreError> {
     let row = connection.query_row(
         "SELECT id,layout_revision,layout_json,layout_updated_at_ms FROM office_local_worlds WHERE singleton=1", [],
         |row| Ok((row.get::<_, String>(0)?,row.get::<_, i64>(1)?,row.get::<_, Option<String>>(2)?,row.get::<_, i64>(3)?)),
@@ -149,7 +159,7 @@ fn read(connection: &Connection) -> Result<LocalWorldSnapshot, WorldStoreError> 
         .map(|(id, revision, encoded, timestamp)| (Some(id), revision, encoded, timestamp))
         .unwrap_or((None, 0, None, 0));
     if revision == 0 && encoded.is_none() && timestamp == 0 {
-        let (layout, basis) = legacy::project(connection, id.as_deref())?;
+        let (layout, basis) = legacy::project(connection, references, id.as_deref())?;
         return Ok(LocalWorldSnapshot {
             world_id: id,
             revision: 0,
@@ -178,57 +188,93 @@ fn read(connection: &Connection) -> Result<LocalWorldSnapshot, WorldStoreError> 
     })
 }
 
-fn validate_bindings(
-    connection: &Connection,
-    current: &WorldLayout,
-    proposed: &WorldLayout,
-) -> Result<(), WorldStoreError> {
-    for area in &proposed.map().draft().areas {
-        match &area.kind {
-            AreaKind::Personal {
-                identity_id: Some(id),
-            } => {
-                let active = active_identity_by_id(connection, id)?;
-                if active
-                    .as_ref()
-                    .is_some_and(|identity| identity.lifetime == Lifetime::Saved)
-                {
-                    continue;
+/// Preflighted core references named by a proposed layout's area bindings.
+struct Bindings {
+    identities: HashMap<String, Option<CoreIdentity>>,
+    rooms: HashMap<String, Option<CoreRoom>>,
+}
+
+impl Bindings {
+    fn preflight(
+        references: &dyn CoreReferences,
+        proposed: &WorldLayout,
+    ) -> Result<Self, StorageError> {
+        let mut bindings = Self {
+            identities: HashMap::new(),
+            rooms: HashMap::new(),
+        };
+        for area in &proposed.map().draft().areas {
+            match &area.kind {
+                AreaKind::Personal {
+                    identity_id: Some(id),
+                } if !bindings.identities.contains_key(id) => {
+                    bindings
+                        .identities
+                        .insert(id.clone(), references.identity(id)?);
                 }
-                let retained = current
-                    .map()
-                    .draft()
-                    .areas
-                    .iter()
-                    .any(|old| old.id == area.id && old.kind == area.kind);
-                // Retirement suppresses the avatar, not retained layout content.
-                // A retained saved UUID cannot grant a new assignment elsewhere.
-                if retained
-                    && active.is_none()
-                    && identity_by_id(connection, id)?
-                        .is_some_and(|identity| identity.lifetime == Lifetime::Saved)
-                {
-                    continue;
+                AreaKind::Meeting { room_id } if !bindings.rooms.contains_key(room_id) => {
+                    bindings
+                        .rooms
+                        .insert(room_id.clone(), references.room(room_id)?);
                 }
-                return Err(WorldStoreError::IdentityIneligible);
+                _ => {}
             }
-            AreaKind::Meeting { room_id } if read_room(connection, room_id)?.is_none() => {
-                if current
-                    .map()
-                    .draft()
-                    .areas
-                    .iter()
-                    .any(|old| old.id == area.id && old.kind == area.kind)
-                    && read_historical_room(connection, room_id)?.is_some_and(|room| room.retired)
-                {
-                    continue;
-                }
-                return Err(WorldStoreError::RoomMissing);
-            }
-            _ => {}
         }
+        Ok(bindings)
     }
-    Ok(())
+
+    fn validate(
+        &self,
+        current: &WorldLayout,
+        proposed: &WorldLayout,
+    ) -> Result<(), WorldStoreError> {
+        for area in &proposed.map().draft().areas {
+            match &area.kind {
+                AreaKind::Personal {
+                    identity_id: Some(id),
+                } => {
+                    let identity = self.identities.get(id).and_then(Option::as_ref);
+                    let saved =
+                        identity.is_some_and(|identity| identity.lifetime == Lifetime::Saved);
+                    let active = identity.is_some_and(|identity| !identity.retired);
+                    if active && saved {
+                        continue;
+                    }
+                    let retained = current
+                        .map()
+                        .draft()
+                        .areas
+                        .iter()
+                        .any(|old| old.id == area.id && old.kind == area.kind);
+                    // Retirement suppresses the avatar, not retained layout content.
+                    // A retained saved UUID cannot grant a new assignment elsewhere.
+                    if retained && !active && saved {
+                        continue;
+                    }
+                    return Err(WorldStoreError::IdentityIneligible);
+                }
+                AreaKind::Meeting { room_id } => {
+                    let room = self.rooms.get(room_id).and_then(Option::as_ref);
+                    if room.is_some_and(|room| !room.retired) {
+                        continue;
+                    }
+                    if current
+                        .map()
+                        .draft()
+                        .areas
+                        .iter()
+                        .any(|old| old.id == area.id && old.kind == area.kind)
+                        && room.is_some_and(|room| room.retired)
+                    {
+                        continue;
+                    }
+                    return Err(WorldStoreError::RoomMissing);
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
 }
 
 fn validate_props(

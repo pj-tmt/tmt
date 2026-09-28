@@ -783,7 +783,7 @@ instead of advertising a ready service with failing resource endpoints.
 The board's storage and transport follow their existing ownership independently of
 the block model. `tmt-office-model::office_board` owns its bounded values, actors,
 receipts and cursor policy; `tmt-office-storage::office_board` owns the single
-board revision, exact-UUID/owner revalidation, soft deletion, retry receipts and
+board revision, exact-UUID preflight and owner revalidation, soft deletion, retry receipts and
 indexed pagination. CLI calls use the verified companion one-shot protocol and
 remain independent of the running web service. Authenticated loopback routes use
 the same operations with a fixed Owner actor. Category discovery projects one

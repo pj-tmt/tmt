@@ -9,7 +9,7 @@
 pub mod access;
 mod catalog_replay;
 mod cells;
-mod core_lookup;
+pub mod core_references;
 pub mod migration;
 mod office_avatar;
 mod office_board;
