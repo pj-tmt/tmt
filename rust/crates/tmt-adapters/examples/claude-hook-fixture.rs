@@ -49,7 +49,14 @@ fn main() {
         }
         drop(child.stdin.take());
         let output = child.wait_with_output().expect("reap fixture-owned CLI");
+        let badge = Command::new("tmux")
+            .args(["-u", "show-options", "-p", "-qv", "-t"])
+            .arg(std::env::var("TMUX_PANE").unwrap())
+            .arg("@tmux-team.badge")
+            .output()
+            .expect("read fixture pane badge");
         results.push(json!({"code":output.status.code(),
+            "badge": String::from_utf8(badge.stdout).unwrap().trim(),
             "stdout": String::from_utf8(output.stdout).unwrap(),
             "stderr": String::from_utf8(output.stderr).unwrap()}));
     }

@@ -3,7 +3,7 @@
 use super::{CommandRunner, OperationOptions, Tmux, TmuxError, TmuxFailure, socket_args};
 use std::time::{Duration, Instant};
 use tmt_core::{
-    binding::{Binding, BindingEndpoint},
+    binding::{Binding, BindingEndpoint, session::RuntimeState},
     endpoint::{EndpointProbe, EndpointSnapshot, ServerEvidence},
     identity::Identity,
 };
@@ -103,10 +103,24 @@ impl<R: CommandRunner> Tmux<R> {
         binding: &Binding,
         name: Option<&str>,
     ) -> Result<(), TmuxError> {
+        self.update_binding_badge_until(binding, name, Instant::now() + Duration::from_secs(1))
+    }
+
+    /// Hook callers share their existing deadline; cosmetic work gets no extra
+    /// budget and cannot turn a successful session write into a retry.
+    pub fn update_binding_badge_until(
+        &self,
+        binding: &Binding,
+        name: Option<&str>,
+        deadline: Instant,
+    ) -> Result<(), TmuxError> {
+        if Instant::now() >= deadline {
+            return Ok(());
+        }
         let result = (|| {
             let panes = [binding.pane_id.clone()];
             let options = OperationOptions {
-                deadline: Some(Instant::now() + Duration::from_secs(1)),
+                deadline: Some(deadline),
                 pane_ids: Some(&panes),
             };
             let EndpointProbe::Live(snapshot) = self.probe(
@@ -153,7 +167,7 @@ impl<R: CommandRunner> Tmux<R> {
                 "@tmux-team.badge".into(),
             ]);
             if let Some(name) = name {
-                args.push(badge_label(name));
+                args.push(badge_label(name, binding.session.state));
             }
             self.execute(args, options, TmuxFailure::Command)
                 .map(|_| ())
@@ -165,7 +179,7 @@ impl<R: CommandRunner> Tmux<R> {
     }
 }
 
-fn badge_label(name: &str) -> String {
+fn badge_label(name: &str, state: RuntimeState) -> String {
     let mut characters = name.chars();
     let mut label: String = characters
         .by_ref()
@@ -184,5 +198,37 @@ fn badge_label(name: &str) -> String {
         label.push('…');
     }
     label.push_str(" (tmt)");
-    label
+    match state {
+        RuntimeState::Running => {
+            format!("#[push-default]#[fg=green]●#[default]#[pop-default] {label}")
+        }
+        RuntimeState::Ended => format!("#[push-default]#[dim]○ {label}#[default]#[pop-default]"),
+        RuntimeState::Unknown => label,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_badges_restore_styles_and_keep_names_literal() {
+        assert_eq!(badge_label("alice", RuntimeState::Unknown), "alice (tmt)");
+        assert_eq!(
+            badge_label("alice", RuntimeState::Running),
+            "#[push-default]#[fg=green]●#[default]#[pop-default] alice (tmt)"
+        );
+        assert_eq!(
+            badge_label("alice", RuntimeState::Ended),
+            "#[push-default]#[dim]○ alice (tmt)#[default]#[pop-default]"
+        );
+        assert_eq!(
+            badge_label("#[fg=red]\n", RuntimeState::Running),
+            "#[push-default]#[fg=green]●#[default]#[pop-default] ＃[fg=red]  (tmt)"
+        );
+        assert_eq!(
+            badge_label(&"x".repeat(49), RuntimeState::Unknown),
+            format!("{}… (tmt)", "x".repeat(48))
+        );
+    }
 }

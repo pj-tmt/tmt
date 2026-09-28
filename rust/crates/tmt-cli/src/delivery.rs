@@ -102,6 +102,14 @@ fn recover(
     })?;
     if changed {
         entry.binding.as_mut().expect("verified binding").session = next;
+        if let Ok(paths) = tmt_adapters::config::ConfigPaths::discover() {
+            crate::pane_badge::refresh(
+                &paths,
+                &Tmux::default(),
+                entry.binding.as_ref().expect("verified binding"),
+                Instant::now() + Duration::from_secs(1),
+            );
+        }
     }
     Ok(())
 }

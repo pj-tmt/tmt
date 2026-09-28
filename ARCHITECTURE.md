@@ -969,6 +969,12 @@ of owner liveness. Owner fields participate in the same full-observation CAS.
 The concrete implementations are `storage::{identities,identity_metadata,identity_status,bindings}`
 and `tmux::{metadata,evidence,binding,caller,transport}`.
 `binding_command` performs caller/target preflight and composes those owners.
+The tmux adapter owns opt-in badge markup derived from recorded session state:
+green running dot, dim ended badge, plain unknown label. Names are sanitized
+before generated style markup is added. CLI `pane_badge` refreshes the current
+binding's projection after committed launch, exit, provider-hook and recovery
+transitions, sharing hook deadlines. It is bounded, best-effort presentation,
+never routing evidence; no polling, theme mutation or independent state store.
 Presence is observation, not routing permission; an explicit socket or pane
 marker cannot authorize a different identity.
 `context_command` composes `whoami --context` separately from mutating binding

@@ -730,10 +730,13 @@ never acknowledge a result. Cleanup is not file shrinkage or secure erasure;
 wall-clock rollback can delay logical expiry while data remains stored.
 
 `tmt config set ui.paneBadge on --global` opts into a cosmetic pane-local
-`@tmux-team.badge` label, such as `alice (tmt)`; `off` is the default.
+`@tmux-team.badge` label; `off` is the default. Recorded Running displays
+`● alice (tmt)` with a green dot, Ended displays a dim `○ alice (tmt)`, and
+Unknown displays plain `alice (tmt)`. This is recorded session state, not work
+activity or permission to type; without lifecycle updates it can become stale.
 It is global-only and uses `ui.paneBadge` in the same global file. Settings
-changes do not scan panes; the next successful `name`, `this`, `add`, or
-`marked` applies the setting to that pane. `unbind` clears its badge regardless
+changes do not scan panes; the next binding, launch/exit, provider hook or
+recovered session applies the setting to that pane. `unbind` clears its badge regardless
 of the setting.
 With `off`, the next successful binding clears a previously published badge.
 Badge writes are bounded and best-effort; a display failure is not a reason to
@@ -750,12 +753,12 @@ and control characters and cap names at 48 Unicode code points; identity names
 are unchanged. Previously overwritten titles/layouts require restoration from
 the user's saved theme; do not guess or overwrite them as a migration.
 
-For an explicitly requested black-on-light-blue badge hidden below 80 columns:
-`#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}},#[push-default]#[fg=black bg=colour153] #{@tmux-team.badge} #[default]#[pop-default],}`.
-The width threshold is theme-specific, not automatic fitting. The style
-save/restore is only suitable if the surrounding theme does not already use
-`push-default`; tmux does not support nested saved defaults. Otherwise use the
-theme's existing style restoration rather than inserting a conflicting stack.
+For a badge hidden below 80 columns:
+`#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}`.
+The width threshold is theme-specific, not automatic fitting. Generated session
+styles restore surrounding attributes with `push-default`/`default`/`pop-default`.
+Do not place this inside another `push-default` span: tmux has no nested saved
+defaults. Place it outside that span and use the theme's explicit restoration.
 
 Invalid known fields in a loaded config return `CONFIG_ERROR` (exit 1) before
 talk/check effects, even when another layer would override them. Unknown and

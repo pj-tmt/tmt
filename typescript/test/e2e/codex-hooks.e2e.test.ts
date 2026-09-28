@@ -16,6 +16,9 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
   await withE2EFixture(
     async (fixture) => {
       expect((await fixture.runJsonCli(['name', 'Owner', '-s'])).code).toBe(0);
+      expect(
+        (await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'])).code
+      ).toBe(0);
       const scenario = path.join(fixture.root, 'codex-independent.json');
       const report = path.join(fixture.root, 'codex-independent-report.json');
       fs.writeFileSync(
@@ -53,6 +56,17 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         )
       ).toBe(true);
       const identity = JSON.parse(results[0].stdout);
+      const badge = () =>
+        fixture
+          .tmux(['-u', 'show-options', '-p', '-qv', '-t', targetPane, '@tmux-team.badge'])
+          .trim();
+      expect(results[0].badge).toBe('Codex Reader (tmt)');
+      expect(results[1].badge).toBe(
+        '#[push-default]#[fg=green]●#[default]#[pop-default] Codex Reader (tmt)'
+      );
+      expect(results[4].badge).toBe(
+        '#[push-default]#[dim]○ Codex Reader (tmt)#[default]#[pop-default]'
+      );
       for (const index of [1, 2])
         expect(JSON.parse(results[index].stdout).hookSpecificOutput.additionalContext).toContain(
           identity.id
@@ -124,7 +138,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         ]);
         await fixture.waitFor(() => fs.existsSync(sharedReport), 15000, 'shared Codex hook report');
         const shared = JSON.parse(fs.readFileSync(sharedReport, 'utf8'));
-        expect(shared[0]).toEqual({ code: 0, stdout: '', stderr: '' });
+        expect(shared[0]).toEqual({ code: 0, stdout: '', stderr: '', badge: '' });
         for (const index of [1, 2]) {
           expect(shared[index].code).toBe(0);
           expect(shared[index].stderr).toBe('');
@@ -133,6 +147,9 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
           );
         }
         expect(read()).toEqual({ ...before, runtime_state: 'running', runtime_mode: 'shared' });
+        expect(badge()).toBe(
+          '#[push-default]#[fg=green]●#[default]#[pop-default] Codex Reader (tmt)'
+        );
         await fixture.waitFor(
           () => {
             const row = db
@@ -190,6 +207,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         );
         expect(fs.readFileSync(status, 'utf8')).toBe('0');
         expect(read()).toEqual({ ...before, runtime_state: 'unknown', runtime_mode: 'shared' });
+        expect(badge()).toBe('Codex Reader (tmt)');
       } finally {
         db.close();
       }

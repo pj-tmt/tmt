@@ -30,6 +30,7 @@ mod office_profile_command;
 mod office_prop_command;
 mod office_whiteboard_command;
 mod output;
+mod pane_badge;
 mod parser;
 mod profile_command;
 mod provider_hook_command;

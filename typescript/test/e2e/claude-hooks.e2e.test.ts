@@ -22,6 +22,9 @@ describe.sequential('Claude hooks with a real pane and verified runtime ancestry
       async (fixture) => {
         // Initialize only fixture-owned server/storage before the unbound check.
         expect((await fixture.runJsonCli(['name', 'Fixture owner', '-s'])).code).toBe(0);
+        expect(
+          (await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'])).code
+        ).toBe(0);
         const scenario = path.join(fixture.root, 'hook-scenario.json');
         const report = path.join(fixture.root, 'hook-report.json');
         const whoami = { args: ['whoami', '--json'] };
@@ -58,6 +61,7 @@ describe.sequential('Claude hooks with a real pane and verified runtime ancestry
           code: number;
           stdout: string;
           stderr: string;
+          badge: string;
         }>;
         expect(results).toHaveLength(12);
         expect(results.every((item) => item.code === 0)).toBe(true);
@@ -66,8 +70,12 @@ describe.sequential('Claude hooks with a real pane and verified runtime ancestry
           'TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).\n'
         );
         const identity = JSON.parse(results[1].stdout);
+        expect(results[1].badge).toBe('Hook Reader (tmt)');
+        const runningBadge =
+          '#[push-default]#[fg=green]●#[default]#[pop-default] Hook Reader (tmt)';
         for (const index of [2, 5, 9]) {
           expect(results[index].stderr).toBe('');
+          expect(results[index].badge).toBe(runningBadge);
           const context = JSON.parse(results[index].stdout).hookSpecificOutput.additionalContext;
           expect(context).toContain('TMT identity: "Hook Reader" (saved)');
           expect(context).toContain(identity.id);
@@ -80,8 +88,12 @@ describe.sequential('Claude hooks with a real pane and verified runtime ancestry
         }
         expect(results[7].stdout).toBe('');
         expect(results[7].stderr).toContain('continuing without context');
+        expect(results[7].badge).toBe(runningBadge);
         expect(results[10].stdout).toBe('');
         expect(results[10].stderr).toBe('');
+        expect(results[10].badge).toBe(
+          '#[push-default]#[dim]○ Hook Reader (tmt)#[default]#[pop-default]'
+        );
         expect(JSON.parse(results[11].stdout)).toMatchObject({
           id: identity.id,
           sessionState: 'ended',
