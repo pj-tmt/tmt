@@ -1,8 +1,8 @@
 //! Public pairing composition; no credentials, HTTP or OS-store dependencies.
 
 use crate::{
-    identity_context,
     invocation::{OfficeOperation, OutputMode},
+    office_core_access::CoreAccess,
     output::Failure,
 };
 use std::{
@@ -11,23 +11,10 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::{
-    config::ConfigPaths,
     interrupt::Interrupt,
     office_companion::{PairingCall, PairingReply, invoke_office_pairing, invoke_office_sync},
-    storage::Storage,
 };
 use tmt_office_model::office_protocol::{OfficeError, OfficeInvocation};
-
-pub(crate) fn resolve_identity(
-    selector: Option<&str>,
-) -> Result<tmt_core::identity::Identity, Failure> {
-    let selector = identity_context::required(selector)?;
-    let paths = ConfigPaths::discover().map_err(unavailable)?;
-    let mut storage = Storage::open(paths.database).map_err(unavailable)?;
-    let identity = identity_context::resolve(&mut storage, selector)?;
-    storage.close().map_err(unavailable)?;
-    Ok(identity)
-}
 
 pub(crate) fn sync_before_operation(executable: &Path) -> Result<(), Failure> {
     match invoke_office_sync(executable, Instant::now() + Duration::from_secs(30)) {
@@ -36,7 +23,12 @@ pub(crate) fn sync_before_operation(executable: &Path) -> Result<(), Failure> {
     }
 }
 
-pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> Result<u8, Failure> {
+pub fn run(
+    executable: &Path,
+    operation: OfficeOperation,
+    mode: OutputMode,
+    core_access: &dyn CoreAccess,
+) -> Result<u8, Failure> {
     if matches!(operation, OfficeOperation::Sync) {
         return sync(executable, mode);
     }
@@ -85,7 +77,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             ));
         }
     };
-    let identity = resolve_identity(identity.as_deref())?;
+    let identity = core_access.identity(identity.as_deref())?;
     let call = PairingCall {
         world: &world,
         identity_id: &identity.id,

@@ -351,6 +351,7 @@ fn run(
     operation: OfficeOperation,
     mode: OutputMode,
 ) -> Result<u8, Failure> {
+    let core_access = crate::office_core_access::InProcessCoreAccess;
     let prefix = prefix
         .map(PathBuf::from)
         .map_or_else(native_install::default_install_prefix, Ok)
@@ -414,7 +415,7 @@ fn run(
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
-            crate::office_pairing_command::run(&executable, operation, mode)
+            crate::office_pairing_command::run(&executable, operation, mode, &core_access)
         }
         OfficeOperation::Layout(operation) => {
             if !installed(&executable)? {
@@ -426,13 +427,13 @@ fn run(
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
-            crate::office_block_command::run(&executable, operation, mode)
+            crate::office_block_command::run(&executable, operation, mode, &core_access)
         }
         OfficeOperation::Profile { .. } => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
-            crate::office_profile_command::run(&executable, operation, mode)
+            crate::office_profile_command::run(&executable, operation, mode, &core_access)
         }
         OfficeOperation::Prop(_) => {
             if !installed(&executable)? {
@@ -456,7 +457,7 @@ fn run(
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
-            crate::office_board_command::run(&executable, operation, mode)
+            crate::office_board_command::run(&executable, operation, mode, &core_access)
         }
         OfficeOperation::WhiteboardSnapshot { reference, output } => {
             if !installed(&executable)? {

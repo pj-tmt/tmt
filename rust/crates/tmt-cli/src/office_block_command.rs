@@ -2,7 +2,8 @@
 
 use crate::{
     invocation::{OfficeBlockOperation, OfficeBlockTarget, OfficeOperation, OutputMode},
-    office_pairing_command::{pairing_error, resolve_identity, sync_before_operation},
+    office_core_access::CoreAccess,
+    office_pairing_command::{pairing_error, sync_before_operation},
     output::Failure,
 };
 use std::{
@@ -16,7 +17,12 @@ use tmt_adapters::{
     office_companion::{PairingCall, invoke_office_block},
 };
 
-pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> Result<u8, Failure> {
+pub fn run(
+    executable: &Path,
+    operation: OfficeOperation,
+    mode: OutputMode,
+    core_access: &dyn CoreAccess,
+) -> Result<u8, Failure> {
     let OfficeOperation::Block {
         target,
         identity: selector,
@@ -38,7 +44,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             if_revision,
         } => (block_id, Some((file, if_revision))),
     };
-    let identity = resolve_identity(selector.as_deref())?;
+    let identity = core_access.identity(selector.as_deref())?;
     let interrupt = Interrupt::install().map_err(unavailable)?;
     sync_before_operation(executable)?;
     if interrupt.is_interrupted() {

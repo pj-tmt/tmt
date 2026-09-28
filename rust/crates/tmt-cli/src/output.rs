@@ -174,6 +174,14 @@ impl Failure {
     }
 }
 
+pub fn identity_missing(name: &str) -> Failure {
+    Failure::new(
+        "NAME_NOT_FOUND",
+        format!("Identity '{name}' was not found."),
+        3,
+    )
+}
+
 pub fn identity_document(identity: &tmt_core::identity::Identity) -> serde_json::Value {
     serde_json::json!({"id": identity.id, "name": identity.name,
         "canonicalName": identity.canonical_name, "lifetime": identity.lifetime.as_str()})

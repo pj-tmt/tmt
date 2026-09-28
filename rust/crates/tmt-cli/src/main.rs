@@ -24,6 +24,7 @@ mod office_avatar_command;
 mod office_block_command;
 mod office_board_command;
 mod office_command;
+mod office_core_access;
 mod office_extension_command;
 mod office_layout_command;
 mod office_pairing_command;

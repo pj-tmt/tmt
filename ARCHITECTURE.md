@@ -600,6 +600,11 @@ repository URL admission consumer, and the reserved Office grammar/commands. New
 consumers, dependency aliases, adapter re-exports and reverse model dependencies
 are rejected. Office runtime adapters and the reserved core `office` command are
 still retained extraction debt, not a second implementation or a storage migration.
+Within that retained command, `office_core_access::CoreAccess` limits Office
+handlers to identity selection and historical room lookup. Its in-process
+implementation delegates verified caller selection and room resolution to the
+existing core CLI owners; handlers do not reopen core storage for those lookups.
+The port does not change the direct companion entry point or public commands.
 The executable is independently versioned and
 exposes the compatibility probe and typed one-shot pairing/status/inspect/sync operations.
 It depends on core and the existing adapters, not the CLI. Its adapter `office`
