@@ -3,6 +3,7 @@
 
 mod config;
 mod core;
+mod filter;
 mod membership;
 mod runner;
 mod squad;
@@ -195,7 +196,8 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
         ),
         _ => {
             let layout = config.layout(&squad.name)?;
-            Ok(status::document(&squad, layout, squad.members(&core)?).into())
+            let sections = config.sections(&squad.name)?;
+            Ok(status::document(&squad, layout, &sections, squad.members(&core)?).into())
         }
     }
 }

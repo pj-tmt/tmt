@@ -318,6 +318,24 @@ select it; with several, pass `--squad <name>`. `status` lists members with ◆ 
 rows that wait on you (`pending`). `set field=` clears a field. `remove` clears
 only that squad's fields.
 
+`status` shows one list unless you define sections in `squad.toml`. Each section
+has a title, an optional filter and optional sort keys; a member appears in every
+section whose filter it matches:
+
+```toml
+[[squad.product.section]]
+title  = "Needs me"
+filter = "pending or state = blocked"   # and, or, not, (), =, !=; quote values with spaces
+
+[[squad.product.section]]
+title = "Everyone"
+sort  = ["state", "-name"]              # "-" sorts descending; state follows the layout
+```
+
+Filters compare text fields of a row: `name`, `presence`, `lifetime`,
+`activity` and every squad field such as `state`, `pending`, `note` or
+`pr_link`. A bare field name means "present and non-empty".
+
 The lead's skill is embedded in the extension. Until `tmt extension install
 squad` offers it, copy it into your lead agent's skills directory yourself, for
 example `tmt sq skill show > ~/.claude/skills/tmt-squad/SKILL.md` (create the
