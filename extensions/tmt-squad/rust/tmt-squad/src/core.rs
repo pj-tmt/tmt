@@ -44,6 +44,7 @@ fn unavailable(message: &str) -> SquadError {
     SquadError::new("SQUAD_CORE_UNAVAILABLE", message)
 }
 
+#[derive(Clone)]
 pub struct Core {
     executable: PathBuf,
 }

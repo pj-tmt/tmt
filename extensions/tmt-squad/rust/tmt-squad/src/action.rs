@@ -1,0 +1,300 @@
+//! `[bind]` actions: `event = "verb …"`, parsed once when squad.toml loads.
+//! Arguments are split at load time; a `{field}` value later fills (part of)
+//! exactly one argument and is never re-split, re-quoted or shell-parsed.
+
+use crate::template::{DEFAULT_COPY, Template};
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verb {
+    Jump,
+    Back,
+    Open,
+    Copy,
+    Notes,
+    Refresh,
+    NextPane,
+    /// The row's action menu (the plain host's Enter).
+    Menu,
+    Talk,
+    Reply,
+    Annotate,
+}
+
+impl Verb {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "jump" => Self::Jump,
+            "back" => Self::Back,
+            "open" => Self::Open,
+            "copy" => Self::Copy,
+            "notes" => Self::Notes,
+            "refresh" => Self::Refresh,
+            "next-pane" => Self::NextPane,
+            "menu" => Self::Menu,
+            "talk" => Self::Talk,
+            "reply" => Self::Reply,
+            "annotate" => Self::Annotate,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Jump => "jump",
+            Self::Back => "back",
+            Self::Open => "open",
+            Self::Copy => "copy",
+            Self::Notes => "notes",
+            Self::Refresh => "refresh",
+            Self::NextPane => "next-pane",
+            Self::Menu => "menu",
+            Self::Talk => "talk",
+            Self::Reply => "reply",
+            Self::Annotate => "annotate",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Action {
+    pub verb: Verb,
+    /// `run`: the program, then its arguments, one template per argument.
+    /// `open`: at most one template. `copy`: one template of free text.
+    /// `annotate`: the addressee, `lead` or `member`.
+    pub args: Vec<Template>,
+    /// The configured line, for help and menus.
+    pub text: String,
+}
+
+/// Splits at whitespace; double quotes group literal text (with `\"`).
+fn tokens(text: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut started = false;
+    let mut chars = text.chars();
+    while let Some(character) = chars.next() {
+        match character {
+            '"' => {
+                quoted = !quoted;
+                started = true;
+            }
+            '\\' if quoted => match chars.next() {
+                Some(escaped @ ('"' | '\\')) => current.push(escaped),
+                _ => return Err("only \\\" and \\\\ escapes are allowed in quotes".into()),
+            },
+            c if c.is_whitespace() && !quoted => {
+                if started {
+                    out.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            c if c.is_control() => return Err("control characters are not allowed".into()),
+            c => {
+                current.push(c);
+                started = true;
+            }
+        }
+    }
+    if quoted {
+        return Err("unterminated quote".into());
+    }
+    if started {
+        out.push(current);
+    }
+    Ok(out)
+}
+
+impl Action {
+    pub fn parse(line: &str) -> Result<Self, String> {
+        let line = line.trim();
+        let (verb_name, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+        let rest = rest.trim();
+        let verb =
+            Verb::parse(verb_name).ok_or_else(|| format!("'{verb_name}' is not an action"))?;
+        let args = match verb {
+            Verb::Copy => vec![Template::parse(if rest.is_empty() {
+                DEFAULT_COPY
+            } else {
+                rest
+            })?],
+            Verb::Annotate => match rest {
+                "" | "lead" => vec![Template::parse("lead")?],
+                "member" => vec![Template::parse("member")?],
+                other => return Err(format!("annotate takes lead or member, not '{other}'")),
+            },
+            Verb::Open => {
+                let args = tokens(rest)?
+                    .iter()
+                    .map(|token| Template::parse(token))
+                    .collect::<Result<Vec<_>, _>>()?;
+                if args.len() > 1 {
+                    return Err("open takes one link, for example open {pr_link}".into());
+                }
+                args
+            }
+            _ if !rest.is_empty() => return Err(format!("{} takes no arguments", verb.name())),
+            _ => Vec::new(),
+        };
+        Ok(Self {
+            verb,
+            args,
+            text: line.to_owned(),
+        })
+    }
+}
+
+/// Board keys no binding may take: quit, select, search and help.
+const RESERVED: &[&str] = &["q", "j", "k", "/", "?"];
+
+/// Keys a binding may name. Ctrl-C always quits.
+pub fn valid_event(event: &str) -> bool {
+    if RESERVED.contains(&event) {
+        return false;
+    }
+    const NAMED: &[&str] = &[
+        "enter",
+        "backspace",
+        "tab",
+        "space",
+        "delete",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+    ];
+    let mut chars = event.chars();
+    let single = matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_graphic());
+    let function = event
+        .strip_prefix('f')
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=12).contains(&n));
+    let ctrl = event
+        .strip_prefix("ctrl-")
+        .is_some_and(|key| key.len() == 1 && key.as_bytes()[0].is_ascii_lowercase() && key != "c");
+    NAMED.contains(&event) || single || function || ctrl
+}
+
+/// Parsed bindings, by event.
+pub type Bindings = BTreeMap<String, Action>;
+
+pub fn parse_bindings<'a>(
+    entries: impl Iterator<Item = (&'a str, Option<&'a str>)>,
+    place: &str,
+) -> Result<Bindings, String> {
+    entries
+        .map(|(event, line)| {
+            if !valid_event(event) {
+                return Err(format!("`{place}.{event}` is not a bindable key"));
+            }
+            let line = line.ok_or_else(|| format!("`{place}.{event}` must be an action string"))?;
+            let action =
+                Action::parse(line).map_err(|error| format!("`{place}.{event}`: {error}"))?;
+            Ok((event.to_owned(), action))
+        })
+        .collect()
+}
+
+/// Host presets. The tmux host jumps; a plain terminal cannot, so Enter
+/// opens the row's action menu instead.
+pub fn preset(tmux: bool) -> Bindings {
+    let enter = if tmux { "jump" } else { "menu" };
+    [
+        ("enter", enter),
+        ("backspace", "back"),
+        ("t", "talk"),
+        ("r", "reply"),
+        ("a", "annotate lead"),
+        ("o", "open"),
+        ("y", "copy"),
+        ("n", "notes"),
+        ("tab", "next-pane"),
+    ]
+    .into_iter()
+    .map(|(event, line)| {
+        (
+            event.to_owned(),
+            Action::parse(line).expect("preset action"),
+        )
+    })
+    .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn row() -> Value {
+        json!({
+            "name": "auth-fix", "state": "blocked", "pending": null, "note": "needs a call",
+            "pane": {"id": "%5", "target": "crew:2.0", "cwd": "/w/app 3"},
+            "fields": {
+                "task": "rotate; $(rm -rf ~) `id` \"quoted\" *.rs",
+                "worktree": "-rf /",
+                "pr_link": "https://example.com/pull/412",
+            }
+        })
+    }
+
+    #[test]
+    fn copy_open_and_annotate_take_their_own_argument_shapes() {
+        let copy = Action::parse("copy - [{name}]({pr_link}) {state}").unwrap();
+        assert_eq!(
+            copy.args[0].fill(&row()).unwrap(),
+            "- [auth-fix](https://example.com/pull/412) blocked"
+        );
+        assert_eq!(
+            Action::parse("copy").unwrap().args[0],
+            Template::parse(DEFAULT_COPY).unwrap()
+        );
+        assert_eq!(Action::parse("open {pr_link}").unwrap().args.len(), 1);
+        assert!(Action::parse("open").unwrap().args.is_empty());
+        assert_eq!(
+            Action::parse("annotate member").unwrap().args[0],
+            Template::parse("member").unwrap()
+        );
+        assert_eq!(
+            Action::parse("annotate").unwrap().args[0],
+            Template::parse("lead").unwrap()
+        );
+    }
+
+    #[test]
+    fn malformed_actions_events_and_fields_are_rejected() {
+        for line in [
+            "launch",
+            "jump now",
+            "open {a} {b}",
+            "run",
+            "run {program}",
+            "run ./local",
+            "run code {Bad}",
+            "run code {unclosed",
+            "run code }",
+            "run code \"open",
+            "annotate everyone",
+            "copy {two words}",
+            "refresh please",
+        ] {
+            assert!(Action::parse(line).is_err(), "{line}");
+        }
+        for event in ["enter", "o", "Y", "x", "f5", "ctrl-r"] {
+            assert!(valid_event(event), "{event}");
+        }
+        for event in [
+            "ctrl-c", "ctrl-", "hold", "f13", "", "ab", "é", "q", "j", "k", "/", "?",
+        ] {
+            assert!(!valid_event(event), "{event}");
+        }
+    }
+
+    #[test]
+    fn presets_differ_only_where_the_host_cannot_jump() {
+        let (tmux, plain) = (preset(true), preset(false));
+        assert_eq!(tmux["enter"].verb, Verb::Jump);
+        assert_eq!(plain["enter"].verb, Verb::Menu);
+        assert_eq!(tmux["o"], plain["o"]);
+    }
+}

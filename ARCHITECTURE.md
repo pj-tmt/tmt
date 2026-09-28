@@ -1543,7 +1543,7 @@ pulldown-cmark view over that sanitized text: it styles headings, lists,
 emphasis, inline code and links, and shows every other construct as its source.
 State `sort` overrides reorder the vocabulary for both `status` and the board.
 `effects` holds the row actions behind the plain `jump`, `open` and `copy`
-commands. `template` fills `{field}` placeholders into one value and refuses
+commands and the board. `template` fills `{field}` placeholders into one value and refuses
 empty values. Programs run as argv, never through a shell: the configured
 top-level `opener` and `clipboard` arrays, or the system opener. An opener
 starts in its own process group with null stdio, and a thread reaps it. Copy
@@ -1552,6 +1552,17 @@ load-buffer -w -`: `-V` must report 3.2 or later, and `show -sv set-clipboard`
 decides whether the text reached the clipboard or only a buffer. Otherwise copy
 writes OSC 52 to `/dev/tty`. `jump` checks membership and then calls `tmt
 focus`; squad has no focus logic of its own.
+`action` parses `[bind]` and `[squad.<name>.section.bind]` once per load into
+events and actions whose arguments are templates; bad events, actions or field
+syntax are configuration errors. The board resolves the selected row's section
+binding, then `[bind]`, then the host preset (tmux: Enter jumps; a plain
+terminal: Enter opens the row's action menu) into a fully filled request before
+anything runs; a missing value is a notice, not a partial action. `back` keeps a
+disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
+0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).
+Every jump pushes the pane the client left, under the client `tmt focus`
+reports; `back` asks core for the invoker's client with `tmt focus --client`,
+pops its entry and focuses it, so squad still never talks to tmux about clients.
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.

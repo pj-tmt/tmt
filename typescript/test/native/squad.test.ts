@@ -331,6 +331,21 @@ sort = ["-name"]
         body: { error: { code: 'SQUAD_CONFIG_INVALID' } },
       });
       expect(refused.body.error.message).toContain('squad.product.section[0].filter');
+
+      // Section bindings are validated whenever sections load.
+      for (const [bind, place] of [
+        ['o = "launch {name}"', 'squad.product.section[0].bind.o'],
+        ['q = "refresh"', 'squad.product.section[0].bind.q'],
+        ['o = "open {pr link}"', 'squad.product.section[0].bind.o'],
+      ]) {
+        writeFileSync(
+          squadToml,
+          `${base}\n[[squad.product.section]]\ntitle = "Mine"\n[squad.product.section.bind]\n${bind}\n`
+        );
+        const invalid = await squad(sandbox, ['status']);
+        expect(invalid.body.error.code, bind).toBe('SQUAD_CONFIG_INVALID');
+        expect(invalid.body.error.message, bind).toContain(place);
+      }
     });
   });
   it('orders status by the configured state sort before the layout default', async () => {
@@ -413,6 +428,7 @@ sort = ["-name"]
         [['copy', 'auth-fix', '--format', '{bad field}'], 'SQUAD_ACTION_REFUSED'],
         // Outside tmux there is no client to show; core's refusal passes through.
         [['jump', 'auth-fix'], 'HOST_UNSUPPORTED'],
+        [['back'], 'HOST_UNSUPPORTED'],
         [['jump', 'Rin'], 'SQUAD_NOT_MEMBER'],
       ] as const) {
         const refused = await squad(sandbox, [...args]);

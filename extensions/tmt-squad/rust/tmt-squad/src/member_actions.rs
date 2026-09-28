@@ -2,6 +2,7 @@
 //! member, for scripts and terminals without the board.
 
 use crate::{
+    back,
     config::Config,
     core::{Core, SquadError},
     effects,
@@ -48,12 +49,25 @@ pub fn jump(
     name: &str,
 ) -> Result<Outcome, SquadError> {
     row(core, squad, config, name)?;
-    let focus = effects::focus(core, name)?;
-    Ok(json!({
+    let (focus, warning) = back::jump(core, name)?;
+    let mut document = json!({
         "member": name,
         "focused": {"pane": focus.pane},
         "from": focus.from.map(|pane| json!({"pane": pane})),
-    })
+        "client": focus.client,
+    });
+    if let Some(warning) = warning {
+        document["warning"] = json!(format!("back will not return here: {warning}"));
+    }
+    Ok(document.into())
+}
+
+/// `tmt squad back`: needs no squad; the stack belongs to the tmux client.
+pub fn back(core: &Core) -> Result<Outcome, SquadError> {
+    Ok(match back::back(core)? {
+        Some(focus) => json!({"back": {"focused": {"pane": focus.pane}, "client": focus.client}}),
+        None => json!({"back": null, "message": "Nothing to go back to."}),
+    }
     .into())
 }
 

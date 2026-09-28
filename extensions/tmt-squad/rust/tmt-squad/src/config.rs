@@ -2,7 +2,10 @@
 //! it and writes only `me`, preserving every other byte of the document.
 
 use crate::core::{Core, SquadError};
-use crate::filter::{Filter, Row};
+use crate::{
+    action::{Bindings, parse_bindings, preset},
+    filter::{Filter, Row},
+};
 use std::{
     collections::BTreeMap,
     fs,
@@ -28,6 +31,8 @@ pub struct Section {
     /// None shows every row.
     pub filter: Option<Filter>,
     pub sort: Vec<SortKey>,
+    /// This section's own bindings, over `[bind]` and the host preset.
+    pub bind: Bindings,
 }
 
 impl Section {
@@ -90,20 +95,15 @@ impl Section {
                 })
                 .collect::<Result<_, _>>()?,
         };
-        if let Some(bind) = table.get("bind") {
-            let entries = bind
-                .as_table_like()
-                .ok_or_else(|| invalid(format!("`{place}.bind` must be a table.")))?;
-            if entries.iter().any(|(_, action)| action.as_str().is_none()) {
-                return Err(invalid(format!(
-                    "`{place}.bind` values must be action strings."
-                )));
-            }
-        }
+        let bind = match table.get("bind") {
+            None => Bindings::new(),
+            Some(bind) => bindings_table(bind, &format!("{place}.bind"))?,
+        };
         Ok(Self {
             title: title.into(),
             filter,
             sort,
+            bind,
         })
     }
 
@@ -312,6 +312,17 @@ fn field_name(value: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
+fn bindings_table(item: &Item, place: &str) -> Result<Bindings, SquadError> {
+    let table = item
+        .as_table_like()
+        .ok_or_else(|| invalid(format!("`{place}` must be a table of bindings.")))?;
+    parse_bindings(
+        table.iter().map(|(event, action)| (event, action.as_str())),
+        place,
+    )
+    .map_err(invalid)
+}
+
 /// A program as argv: a non-empty array of strings, the first a bare name on
 /// PATH or an absolute path. It never passes through a shell.
 fn program(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
@@ -380,6 +391,15 @@ impl Config {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The host preset's bindings, overridden by top-level `[bind]`.
+    pub fn bindings(&self, tmux: bool) -> Result<Bindings, SquadError> {
+        let mut bindings = preset(tmux);
+        if let Some(item) = self.document.get("bind") {
+            bindings.extend(bindings_table(item, "bind")?);
+        }
+        Ok(bindings)
     }
 
     /// Top-level `opener` and `clipboard`: programs that replace the system
@@ -910,6 +930,8 @@ sort = ["state", "-name"]
             ["Needs me", "Everyone"]
         );
         assert!(sections[0].filter.is_some() && sections[1].filter.is_none());
+        assert_eq!(sections[0].bind["enter"].verb, crate::action::Verb::Reply);
+        assert!(sections[1].bind.is_empty());
         assert_eq!(
             sections[1].sort,
             [
@@ -973,6 +995,45 @@ sort = ["state", "-name"]
             fs::write(&path, body).unwrap();
             let error = Config::read(path.clone())
                 .and_then(|config| config.program("opener"))
+                .unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn bind_overrides_the_host_preset_and_rejects_bad_actions_at_load() {
+        let path = temp("bind");
+        fs::write(
+            &path,
+            "[bind]\nenter = \"open {pr_link}\"\nf5 = \"refresh\"\n",
+        )
+        .unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        for tmux in [true, false] {
+            let bindings = config.bindings(tmux).unwrap();
+            assert_eq!(bindings["enter"].verb, crate::action::Verb::Open);
+            assert_eq!(bindings["f5"].verb, crate::action::Verb::Refresh);
+            assert_eq!(bindings["y"].verb, crate::action::Verb::Copy, "preset kept");
+        }
+        fs::write(&path, "").unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert_eq!(
+            config.bindings(false).unwrap()["enter"].verb,
+            crate::action::Verb::Menu
+        );
+        for body in [
+            "[bind]\nq = \"refresh\"\n",
+            "[bind]\nhold = \"refresh\"\n",
+            "[bind]\no = \"launch\"\n",
+            "[bind]\no = \"run ./script {name}\"\n",
+            "[bind]\no = \"open {pr link}\"\n",
+            "[bind]\no = 1\n",
+            "bind = \"o\"\n",
+        ] {
+            fs::write(&path, body).unwrap();
+            let error = Config::read(path.clone())
+                .and_then(|config| config.bindings(true))
                 .unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
         }
