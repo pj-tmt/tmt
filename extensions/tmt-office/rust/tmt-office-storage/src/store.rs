@@ -19,6 +19,8 @@ use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 pub struct OfficeStore {
     connection: Option<Connection>,
     references: Box<dyn CoreReferences + Send>,
+    /// Whether this is `office.db`, which alone holds Office-local tables.
+    office_database: bool,
 }
 
 impl OfficeStore {
@@ -36,7 +38,9 @@ impl OfficeStore {
             };
             StorageError::new(code, error.to_string())
         })?;
-        Self::with_references(&layout.database, Box::new(references))
+        let mut store = Self::with_references(&layout.database, Box::new(references))?;
+        store.office_database = true;
+        Ok(store)
     }
 
     /// Opens repositories on one database file, the pre-switch layout. Tests
@@ -75,6 +79,7 @@ impl OfficeStore {
         Ok(Self {
             connection: Some(connection),
             references,
+            office_database: false,
         })
     }
 
@@ -96,6 +101,10 @@ impl OfficeStore {
     pub(crate) fn split(&mut self) -> Result<(&mut Connection, &dyn CoreReferences), StorageError> {
         let connection = self.connection.as_mut().ok_or_else(closed)?;
         Ok((connection, self.references.as_ref()))
+    }
+
+    pub(crate) fn is_office_database(&self) -> bool {
+        self.office_database
     }
 
     /// Core-owned identity and room reads for preflight.

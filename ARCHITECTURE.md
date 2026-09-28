@@ -640,12 +640,23 @@ crate test enforces that. This accepts a window: a reference retired between
 preflight and commit leaves exactly the state of the legal serial order "Office
 commit, then retirement", because identities are never deleted, rooms are retired
 rather than removed, and core retirement never changes Office rows. References
-that are already retired or missing at preflight keep their existing errors. The
-retired-identity marker fence for pairing grants and the durable retirement
-consumer arrive in the reconciliation slice. Known debt owned by #355: the
-in-process `CoreStore` links core storage, while an independently versioned
-Office binary must eventually reach core only through `tmt api` and never open
-or migrate the core database itself.
+that are already retired or missing at preflight keep their existing errors.
+
+Retirement reaches pairing through the `office_pairing::RetirementFence` port,
+implemented by `tmt-office-storage::retirement` and injected by the companion. An
+identity is fenced when Office's `office_retired_identities` marker in `office.db`
+records it or core reports it retired (before the switch only core decides, and
+marking changes nothing). The durable hook consumer settles each delivery under
+the pairing scope lock in order: mark, revoke, then acknowledge the core hook, so
+an interruption leaves the hook pending and a retry repeats only idempotent
+steps. Every write that grants or extends pairing authority (pair-begin,
+pair-poll's claim reservation and completion, and the refresh and renewal on
+inspect and block operations) passes the fence under the same lock; only unpair
+and the consumer's own refresh, which reduce authority, are exempt, and a test
+pins those sites. Known debt owned by #355: the in-process `CoreStore` links core
+storage and the hook consumer still lives in `tmt-adapters`, while an
+independently versioned Office binary must eventually own the consumer and reach
+core only through `tmt api`, never opening or migrating the core database itself.
 
 The migration coordinator is the one Office component that opens the core
 database for its own reads outside the store: query-only,

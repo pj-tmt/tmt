@@ -142,7 +142,11 @@ fn main() -> ExitCode {
                     ) {
                         tmt_office_storage::access::board::execute(operation, &input)
                     } else {
-                        tmt_adapters::office_pairing::execute(operation, &input)
+                        tmt_adapters::office_pairing::execute(
+                            operation,
+                            &input,
+                            &tmt_office_storage::retirement::OfficeRetirementFence::discover(),
+                        )
                     };
                     io::stdout().lock().write_all(&output)
                 }

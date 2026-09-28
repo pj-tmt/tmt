@@ -1,6 +1,9 @@
 //! Office consumes committed lifecycle notifications; it never owns retirement.
 
-use super::{OfficeError, OfficeInstallation, PairingRecord, ProtectedEntry};
+use super::{
+    OfficeError, OfficeInstallation, PairingRecord, ProtectedEntry, RetirementFence,
+    fence::settle_retirement,
+};
 use crate::{config::ConfigPaths, storage::Storage};
 use std::{io, time::Instant};
 use tmt_core::identity_hooks::IdentityHook;
@@ -20,6 +23,7 @@ pub(super) fn register(paths: &ConfigPaths, identity: &str, key: &str) -> Result
 pub(super) fn sync(
     paths: &ConfigPaths,
     deadline: Instant,
+    fence: &dyn RetirementFence,
 ) -> Result<OfficeSyncReport, OfficeError> {
     // No prior local identity database means there can be no registered hooks.
     match std::fs::symlink_metadata(&paths.database) {
@@ -51,10 +55,16 @@ pub(super) fn sync(
                 continue;
             }
             let result = installation.with_key(hook.reference(), || {
-                deliver(&installation, &hook, deadline)?;
-                storage
-                    .acknowledge_identity_hook(&hook)
-                    .map_err(unavailable)
+                settle_retirement(
+                    fence,
+                    hook.identity_id(),
+                    || deliver(&installation, &hook, deadline),
+                    || {
+                        storage
+                            .acknowledge_identity_hook(&hook)
+                            .map_err(unavailable)
+                    },
+                )
             });
             match result {
                 Ok(true) => report.completed += 1,
