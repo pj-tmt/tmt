@@ -1125,6 +1125,7 @@ provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
 It classifies OS-denied writes and SQLite read-only/WAL failures as a typed
 not-writable error; a generic CANTOPEN needs independent permission evidence.
+An existing data directory without owner write permission is reported, not repaired.
 CLI failure projection names the selected data directory and preserves the
 pre-transport versus uncertain-delivery distinction. The tmux adapter similarly
 classifies socket access denial before CLI presentation.

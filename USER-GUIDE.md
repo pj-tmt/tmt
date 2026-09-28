@@ -411,7 +411,8 @@ installation, custom skill roots, and retiring an older Claude integration, see
 
 If `STORAGE_NOT_WRITABLE` names the TMT data directory, an agent sandbox may
 be denying SQLite or WAL access. Allow that directory or use the provider's
-escalation for the authorized command. An identical `reply` retry is safe when
+escalation for the authorized command. An existing data directory without owner
+write permission is reported, not repaired. An identical `reply` retry is safe when
 the error says nothing was stored; keep its request ID, receipt and body
 unchanged. `TMUX_PERMISSION_DENIED` means the sandbox may instead be blocking
 the tmux socket. Do not delete storage or change tmux identity evidence to work
