@@ -1909,6 +1909,7 @@ dependencies = [
  "tmt-core",
  "tmt-office-command",
  "tmt-office-model",
+ "tmt-office-storage",
  "uuid",
 ]
 
@@ -1937,6 +1938,16 @@ dependencies = [
  "tmt-core",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "tmt-office-storage"
+version = "5.0.0-alpha.7"
+dependencies = [
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tmt-adapters",
 ]
 
 [[package]]
