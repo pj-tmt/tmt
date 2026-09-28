@@ -31,9 +31,11 @@ mod office_whiteboard_command;
 mod output;
 mod parser;
 mod profile_command;
+mod provider_hook_command;
 mod response_command;
 mod room_command;
 mod run_command;
+mod setup_command;
 mod skill_refresh_command;
 mod skill_reminder;
 mod talk_command;
@@ -131,6 +133,18 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         } => {
             drop(stdout);
             return install_command::execute(target, directory, force, parsed.mode);
+        }
+        Invocation::Setup {
+            provider,
+            remove,
+            yes,
+        } => {
+            drop(stdout);
+            return setup_command::execute(provider, remove, yes, parsed.mode);
+        }
+        Invocation::ProviderHook { worker } => {
+            drop(stdout);
+            return provider_hook_command::execute(worker);
         }
         Invocation::Identity(request) => {
             drop(stdout);

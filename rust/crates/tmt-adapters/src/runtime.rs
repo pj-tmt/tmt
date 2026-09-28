@@ -11,6 +11,8 @@ use tmt_core::{
     driver::{ActionResult, Driver, HarnessResume, HarnessStart},
 };
 
+pub mod claude;
+
 /// Tokens shared with first-party hook mappings; mode belongs to the runtime,
 /// not the host interface. Codex embedded mode is selected by `--no-daemon`.
 pub const CLAUDE_MODE_DEFAULT: &str = "default";

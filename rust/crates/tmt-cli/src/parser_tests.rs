@@ -2,6 +2,43 @@ use crate::invocation::IdentityStatusRequest;
 use std::ffi::OsString;
 
 #[test]
+fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
+    assert_eq!(
+        parsed(&["setup"]).invocation,
+        Invocation::Setup {
+            provider: None,
+            remove: false,
+            yes: false,
+        }
+    );
+    assert_eq!(
+        parsed(&["setup", "claude", "--remove", "--yes", "--json"]).invocation,
+        Invocation::Setup {
+            provider: Some("claude".into()),
+            remove: true,
+            yes: true,
+        }
+    );
+    for argv in [
+        vec!["setup", "--remove"],
+        vec!["setup", "--yes"],
+        vec!["setup", "codex"],
+        vec!["setup", "claude", "--force"],
+    ] {
+        assert!(parse(&args(&argv)).is_err());
+    }
+    assert_eq!(
+        parsed(&["__hook", "claude"]).invocation,
+        Invocation::ProviderHook { worker: false }
+    );
+    assert!(!crate::skill_reminder::eligible_for_drift(&parsed(&[
+        "__hook", "claude"
+    ])));
+    let grammar = crate::grammar::grammar();
+    assert!(grammar.find_subcommand("__hook").unwrap().is_hide_set());
+}
+
+#[test]
 fn run_identity_starts_an_opaque_command_tail() {
     use std::os::unix::ffi::OsStringExt;
     let command = vec![

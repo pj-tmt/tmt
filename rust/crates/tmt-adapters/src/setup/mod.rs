@@ -1,0 +1,77 @@
+//! Consented provider setup plans. Planning is pure; publication rechecks input.
+
+mod document;
+mod environment;
+mod publication;
+
+pub use environment::SetupEnvironment;
+pub use publication::{apply, read_settings};
+
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileChange {
+    pub path: PathBuf,
+    pub before: Option<String>,
+    pub after: String,
+}
+
+impl FileChange {
+    pub fn changed(&self) -> bool {
+        self.before.as_deref().unwrap_or("{}") != self.after
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupPlan {
+    pub provider: &'static str,
+    pub launcher: PathBuf,
+    pub removing: bool,
+    pub change: FileChange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanError {
+    InvalidSettings,
+    EditedHook,
+    InvalidLauncher,
+    TooLarge,
+}
+
+impl std::fmt::Display for PlanError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::InvalidSettings => "Provider settings must be valid JSON with unambiguous hook objects and arrays.",
+            Self::EditedHook => "A TMT hook was edited or duplicated; preserve it and resolve the conflict before setup.",
+            Self::InvalidLauncher => "Setup needs an absolute stable TMT launcher path without control characters.",
+            Self::TooLarge => "Provider settings exceed the 1 MiB setup limit.",
+        })
+    }
+}
+
+impl std::error::Error for PlanError {}
+
+pub const SETTINGS_LIMIT: usize = 1024 * 1024;
+
+pub fn claude_plan(
+    path: PathBuf,
+    before: Option<String>,
+    launcher: PathBuf,
+    removing: bool,
+) -> Result<SetupPlan, PlanError> {
+    let selected = launcher
+        .to_str()
+        .filter(|value| launcher.is_absolute() && !value.chars().any(char::is_control))
+        .ok_or(PlanError::InvalidLauncher)?;
+    let after = document::claude_settings(before.as_deref().unwrap_or("{}"), selected, removing)?;
+    Ok(SetupPlan {
+        provider: "claude",
+        launcher,
+        removing,
+        change: FileChange {
+            path,
+            before,
+            after,
+        },
+    })
+}

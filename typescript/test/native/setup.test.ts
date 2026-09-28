@@ -1,0 +1,151 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
+
+describe('consented Claude setup and bounded hook boundary', () => {
+  it('preserves user settings, requires consent, repairs a stale path and removes only owned hooks', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = path.join(sandbox.root, 'stable bin');
+      fs.mkdirSync(bin);
+      const launcher = path.join(bin, 'tmt');
+      fs.symlinkSync(sandbox.cli.executable, launcher);
+      sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+      const provider = path.join(sandbox.home, '.claude');
+      fs.mkdirSync(provider);
+      const settings = path.join(provider, 'settings.json');
+      const userHook = '{ "hooks" : [{ "type": "command", "command": "user-command" }] }';
+      const original = `{\n "permissions": {"allow": ["Bash(git *)"]},\n "future": 1.000e+100,\n "hooks": {"SessionStart": [${userHook}]}\n}\n`;
+      fs.writeFileSync(settings, original);
+      const before = fileSnapshot(sandbox.root);
+      const status = await runCli(sandbox, ['setup', '--json']);
+      expect(status.status, status.stderr).toBe(0);
+      expect(JSON.parse(status.stdout)).toMatchObject({
+        detectedProviders: expect.arrayContaining(['claude']),
+        integrations: [{ provider: 'claude', current: false, settingsPath: settings, launcher }],
+      });
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      const refused = await runCli(sandbox, ['setup', 'claude', '--json']);
+      expect(refused.status).toBe(1);
+      expect(JSON.parse(refused.stdout).error.code).toBe('SETUP_CONSENT_REQUIRED');
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      const apply = await runCli(sandbox, ['setup', 'claude', '--yes', '--json']);
+      expect(apply.status, apply.stderr).toBe(0);
+      const report = JSON.parse(apply.stdout);
+      expect(report).toMatchObject({ changed: true, launcher, settingsPath: settings });
+      expect(fs.readFileSync(report.backup, 'utf8')).toBe(original);
+      const installed = fs.readFileSync(settings, 'utf8');
+      expect(installed).toContain(userHook);
+      expect(installed).toContain('"future": 1.000e+100');
+      expect(installed).toContain(`${launcher}' __hook claude`);
+      expect(installed).not.toContain(fs.realpathSync(launcher));
+      const again = await runCli(sandbox, ['setup', 'claude', '--yes', '--json']);
+      expect(again.status, again.stderr).toBe(0);
+      expect(JSON.parse(again.stdout)).toMatchObject({ changed: false, backup: null });
+      expect(fs.readFileSync(settings, 'utf8')).toBe(installed);
+      fs.writeFileSync(settings, installed.replaceAll(launcher, '/old/release/tmt'));
+      expect((await runCli(sandbox, ['setup', 'claude', '--yes', '--json'])).status).toBe(0);
+      expect(fs.readFileSync(settings, 'utf8')).toBe(installed);
+      const remove = await runCli(sandbox, ['setup', 'claude', '--remove', '--yes', '--json']);
+      expect(remove.status, remove.stderr).toBe(0);
+      const removed = fs.readFileSync(settings, 'utf8');
+      expect(removed).toContain(userHook);
+      expect(removed).not.toContain('__hook');
+      expect(JSON.parse(removed).permissions).toEqual(JSON.parse(original).permissions);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('does not rewrite malformed settings', async () => {
+    await withSandbox(async (sandbox) => {
+      const settings = path.join(sandbox.home, '.claude', 'settings.json');
+      fs.mkdirSync(path.dirname(settings));
+      fs.writeFileSync(settings, '{invalid');
+      const before = fileSnapshot(sandbox.root);
+      const result = await runCli(sandbox, ['setup', 'claude', '--yes', '--json']);
+      expect(result.status).toBe(1);
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+    });
+  });
+
+  it('fails open without context or storage on malformed, excessive or incomplete hook input', async () => {
+    await withSandbox(async (sandbox) => {
+      const before = fileSnapshot(sandbox.root);
+      for (const input of ['{malformed', 'x'.repeat(65537)]) {
+        const result = await runCli(sandbox, ['__hook', 'claude'], { stdin: input });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toBe('');
+        expect(result.stderr.trim().split('\n')).toHaveLength(1);
+        expect(result.stderr).not.toContain(input);
+      }
+      const started = performance.now();
+      const slow = await runCli(sandbox, ['__hook', 'claude'], {
+        stdin: '{',
+        closeStdin: false,
+        deadlineMs: 5000,
+      });
+      expect(slow.status, slow.stderr).toBe(0);
+      expect(slow.stdout).toBe('');
+      expect(performance.now() - started).toBeLessThan(4500);
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('fails open and terminates a stalled probe and its descendant', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = path.join(sandbox.root, 'probes');
+      fs.mkdirSync(bin);
+      const pidFile = path.join(sandbox.root, 'probe-child');
+      fs.writeFileSync(
+        path.join(bin, 'tmux'),
+        '#!/bin/sh\n/bin/sleep 20 &\necho $! > "$TMT_TEST_PROBE_PID"\nwait\n',
+        { mode: 0o755 }
+      );
+      sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+      sandbox.env.TMT_TEST_PROBE_PID = pidFile;
+      let child: number | undefined;
+      const failures: unknown[] = [];
+      try {
+        const result = await runCli(sandbox, ['__hook', 'claude'], {
+          stdin: JSON.stringify({
+            hook_event_name: 'SessionStart',
+            source: 'startup',
+            session_id: 'fixture-session',
+          }),
+          deadlineMs: 5000,
+        });
+        child = Number(fs.readFileSync(pidFile, 'utf8').trim());
+        expect(Number.isSafeInteger(child) && child > 1).toBe(true);
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toBe('');
+        expect(result.stderr.trim().split('\n')).toHaveLength(1);
+        await vi.waitFor(
+          () => {
+            let gone = false;
+            try {
+              process.kill(child!, 0);
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+              gone = true;
+            }
+            expect(gone).toBe(true);
+          },
+          { timeout: 2000 }
+        );
+        child = undefined;
+        expect(fs.existsSync(sandbox.database)).toBe(false);
+      } catch (error) {
+        failures.push(error);
+      }
+      if (child !== undefined && Number.isSafeInteger(child) && child > 1) {
+        try {
+          process.kill(child, 'SIGKILL');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') failures.push(error);
+        }
+      }
+      if (failures.length) throw new AggregateError(failures, 'Hook cleanup regression');
+    });
+  });
+});

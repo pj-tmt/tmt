@@ -78,6 +78,14 @@ pub enum Invocation {
         directory: Option<String>,
         force: bool,
     },
+    Setup {
+        provider: Option<String>,
+        remove: bool,
+        yes: bool,
+    },
+    ProviderHook {
+        worker: bool,
+    },
     Upgrade {
         channel: Option<tmt_core::native_install::Channel>,
         exact: Option<String>,

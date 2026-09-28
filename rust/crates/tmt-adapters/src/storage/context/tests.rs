@@ -64,6 +64,36 @@ fn absent_storage_is_not_created_and_missing_binding_is_not_reconciled() {
 }
 
 #[test]
+fn hook_open_neither_creates_missing_storage_nor_migrates_an_old_schema() {
+    let directory = TestDirectory::new();
+    let absent = directory.path.join("missing.db");
+    assert!(Storage::open_hook(&absent).is_err());
+    assert!(!absent.exists());
+    let old = directory.path.join("old.db");
+    let connection = Connection::open(&old).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE user_data (value TEXT); INSERT INTO user_data VALUES ('keep');",
+        )
+        .unwrap();
+    connection.close().unwrap();
+    let before = fs::read(&old).unwrap();
+    assert!(Storage::open_hook(&old).is_err());
+    assert_eq!(fs::read(&old).unwrap(), before);
+    let (_directory, path, _) = fixture();
+    let mut current = Storage::open_hook(&path).unwrap();
+    assert_eq!(
+        current
+            .connection()
+            .unwrap()
+            .query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        50
+    );
+    current.close().unwrap();
+}
+
+#[test]
 fn acknowledged_work_is_excluded_and_role_is_bounded_without_writes() {
     let (_directory, path, identity) = fixture();
     let connection = Connection::open(&path).unwrap();

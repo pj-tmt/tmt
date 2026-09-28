@@ -56,6 +56,8 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::Run { .. }
                 | Invocation::Learn { .. }
                 | Invocation::Install { .. }
+                | Invocation::Setup { .. }
+                | Invocation::ProviderHook { .. }
                 | Invocation::Upgrade { .. }
                 | Invocation::NativeInstall { .. }
                 | Invocation::NativeRefreshSkills

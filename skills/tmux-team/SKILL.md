@@ -202,6 +202,16 @@ echoed in acknowledgements.
 
 ## Calling an agent
 
+For optional Claude lifecycle integration, `tmt setup` inspects status without
+changing settings. `tmt setup claude` shows a plan and asks for approval;
+noninteractive changes require explicit user-authorized `--yes`. It adds only
+owned start/end hooks using the stable PATH launcher; `--remove` removes only
+unchanged owned hooks. Do not install into the user's provider settings merely
+because a conversation lost context. Hooks restore bounded verified identity
+context and remember the session, not permission grants or arbitrary instructions.
+Timeout or uncertain evidence produces no identity claim. Session-only binding
+is not supported; a hook never names, transfers or resurrects an identity.
+
 `tmt talk <target> "message" [--timeout <time> | --detach] [--json]` waits for
 one durable final by default. The default is 180 seconds unless
 `defaults.timeout` is configured. Time accepts positive seconds or `ms`/`s`/`m`

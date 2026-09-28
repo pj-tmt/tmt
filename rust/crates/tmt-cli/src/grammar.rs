@@ -340,6 +340,13 @@ pub fn grammar() -> Command {
                 .ignore_case(true),
         ),
     )
+    .subcommand(general("setup", "Inspect or consent to agent lifecycle integration")
+        .arg(operand("provider", false).value_parser(["claude"]))
+        .arg(Arg::new("remove").long("remove").action(ArgAction::SetTrue).requires("provider"))
+        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue).requires("provider")))
+    .subcommand(general("__hook", "Internal bounded provider lifecycle callback").hide(true)
+        .arg(operand("provider", true).value_parser(["claude"]))
+        .arg(Arg::new("worker").long("worker").hide(true).action(ArgAction::SetTrue)))
     .subcommand(general("completion", "Generate shell completion").arg(operand("shell", false)))
     .subcommand(general("__complete", "Internal shell completion context").hide(true)
         .arg(Arg::new("words").num_args(0..).trailing_var_arg(true)

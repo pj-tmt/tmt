@@ -126,6 +126,12 @@ pub fn read_stdin() -> Result<String, ResponseInputError> {
     read_stream(&io::stdin(), STDIN_TIMEOUT)
 }
 
+/// Reuse descriptor restoration and bounded EOF acquisition for native hooks.
+/// The caller owns wire validation and maps errors without exposing payloads.
+pub fn read_stdin_bounded(timeout: Duration, maximum: usize) -> Result<String, ResponseInputError> {
+    read_stream_bounded(&io::stdin(), timeout, maximum)
+}
+
 // fcntl operates on the inherited open-file description. Restore its exact
 // previous flags before reporting success or failure; never leave a shell pipe
 // nonblocking. The caller must not concurrently read this invocation's stdin.
@@ -167,6 +173,14 @@ impl<F: AsFd> Drop for StreamFlags<'_, F> {
 }
 
 fn read_stream(stream: &impl AsFd, timeout: Duration) -> Result<String, ResponseInputError> {
+    read_stream_bounded(stream, timeout, MAX_EXCHANGE_TEXT_BYTES)
+}
+
+fn read_stream_bounded(
+    stream: &impl AsFd,
+    timeout: Duration,
+    maximum: usize,
+) -> Result<String, ResponseInputError> {
     let deadline = Instant::now()
         .checked_add(timeout)
         .ok_or(ResponseInputFailure::Invalid)?;
@@ -185,11 +199,11 @@ fn read_stream(stream: &impl AsFd, timeout: Duration) -> Result<String, Response
         }
         Err(cause) => return Err(ResponseInputError::io(ResponseInputFailure::Invalid, cause)),
     };
-    if timeout.is_zero() || terminal {
+    if timeout.is_zero() || terminal || maximum == 0 || maximum > MAX_EXCHANGE_TEXT_BYTES {
         return Err(ResponseInputFailure::Invalid.into());
     }
     let mut flags = StreamFlags::acquire(stream)?;
-    let pending = read_until_eof(stream, deadline);
+    let pending = read_until_eof(stream, deadline, maximum);
     let restored = flags.restore();
     match pending {
         Err(mut primary) => {
@@ -200,7 +214,11 @@ fn read_stream(stream: &impl AsFd, timeout: Duration) -> Result<String, Response
     }
 }
 
-fn read_until_eof(stream: &impl AsFd, deadline: Instant) -> Result<String, ResponseInputError> {
+fn read_until_eof(
+    stream: &impl AsFd,
+    deadline: Instant,
+    maximum: usize,
+) -> Result<String, ResponseInputError> {
     let mut bytes = Vec::new();
     let mut chunk = [0; 8192];
     loop {
@@ -230,7 +248,7 @@ fn read_until_eof(stream: &impl AsFd, deadline: Instant) -> Result<String, Respo
         if !ready.intersects(PollFlags::POLLIN | PollFlags::POLLHUP) {
             continue;
         }
-        let capacity = chunk.len().min(MAX_EXCHANGE_TEXT_BYTES + 1 - bytes.len());
+        let capacity = chunk.len().min(maximum + 1 - bytes.len());
         let count = match read(stream, &mut chunk[..capacity]) {
             Ok(count) => count,
             Err(Errno::EINTR | Errno::EAGAIN) => continue,
@@ -243,7 +261,7 @@ fn read_until_eof(stream: &impl AsFd, deadline: Instant) -> Result<String, Respo
             return decode(&bytes);
         }
         bytes.extend_from_slice(&chunk[..count]);
-        if bytes.len() > MAX_EXCHANGE_TEXT_BYTES {
+        if bytes.len() > maximum {
             return Err(ResponseInputFailure::TooLarge.into());
         }
     }
