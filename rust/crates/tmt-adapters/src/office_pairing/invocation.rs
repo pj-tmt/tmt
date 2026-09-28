@@ -269,7 +269,9 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
             | OfficeInvocation::BoardDelete
             | OfficeInvocation::BoardCategories
             | OfficeInvocation::WhiteboardSnapshotShow
-            | OfficeInvocation::WhiteboardSnapshotImage => Err(OfficeError::CredentialsInvalid),
+            | OfficeInvocation::WhiteboardSnapshotImage
+            | OfficeInvocation::StoragePlan
+            | OfficeInvocation::StorageMigrate => Err(OfficeError::CredentialsInvalid),
         }
     };
     if operation == OfficeInvocation::PairStatus {

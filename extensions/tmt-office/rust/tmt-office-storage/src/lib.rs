@@ -59,7 +59,7 @@ impl StorageLayout {
         Self::within(&paths.database, &paths.global_dir, &paths.global_config)
     }
 
-    fn within(source: &Path, global: &Path, config: &Path) -> Self {
+    pub(crate) fn within(source: &Path, global: &Path, config: &Path) -> Self {
         let directory = global.join("office");
         Self {
             source: source.to_path_buf(),

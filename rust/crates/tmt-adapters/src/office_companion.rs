@@ -64,6 +64,8 @@ pub fn invoke_office_pairing(
             | OfficeInvocation::BoardCategories
             | OfficeInvocation::WhiteboardSnapshotShow
             | OfficeInvocation::WhiteboardSnapshotImage
+            | OfficeInvocation::StoragePlan
+            | OfficeInvocation::StorageMigrate
     ) {
         return Err(invalid_pairing());
     }
@@ -903,9 +905,81 @@ fn valid_board_success(op: OfficeInvocation, value: &serde_json::Value) -> bool 
     }
 }
 
+/// Bound for storage plan and migration documents.
+pub const OFFICE_STORAGE_OUTPUT_LIMIT: usize = 64 * 1024;
+
+/// Runs one Office storage operation after the pinned companion advertises
+/// storage migration. `Unsupported` means the installed Office predates it.
+pub fn invoke_office_storage(
+    executable: &Path,
+    operation: OfficeInvocation,
+    input: &[u8],
+    deadline: Instant,
+) -> io::Result<serde_json::Value> {
+    if !matches!(
+        operation,
+        OfficeInvocation::StoragePlan | OfficeInvocation::StorageMigrate
+    ) || input.len() > 4096
+    {
+        return Err(invalid_pairing());
+    }
+    let capability_launch =
+        native_install::with_active_product(Product::Office, executable, |installed| {
+            start_selected(
+                &installed.active_executable,
+                OfficeInvocation::Capabilities,
+                &[],
+                deadline,
+                OFFICE_PROTOCOL_OUTPUT_LIMIT,
+            )
+            .map(|running| (running, installed.release_id()))
+        })
+        .map_err(unsupported_office)?;
+    let (capability_process, pinned_release) = capability_launch.map_err(unsupported_office)?;
+    let capability_bytes = finish_selected(capability_process)
+        .map_err(|error| io::Error::new(io::ErrorKind::Unsupported, error))?;
+    if !decode_office_capabilities(&capability_bytes)
+        .map_err(|message| io::Error::new(io::ErrorKind::Unsupported, message))?
+        .storage_migration
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "The installed Office does not support storage migration.",
+        ));
+    }
+    let launch = native_install::with_active_product(Product::Office, executable, |installed| {
+        if installed.release_id() != pinned_release {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Office release changed after capability verification; refusing storage dispatch.",
+            ));
+        }
+        start_selected(
+            &installed.active_executable,
+            operation,
+            input,
+            deadline,
+            OFFICE_STORAGE_OUTPUT_LIMIT,
+        )
+    })
+    .map_err(unsupported_office)?;
+    let bytes = finish_selected(launch.map_err(unsupported_office)?)?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| invalid_pairing())?;
+    if !value.is_object() {
+        return Err(invalid_pairing());
+    }
+    Ok(value)
+}
+
 fn require_board_capability<T>(bytes: &[u8], dispatch: impl FnOnce() -> T) -> io::Result<T> {
-    decode_office_capabilities(bytes)
+    let capabilities = decode_office_capabilities(bytes)
         .map_err(|message| io::Error::new(io::ErrorKind::Unsupported, message))?;
+    if !capabilities.board {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "The installed Office does not support the discussion board.",
+        ));
+    }
     Ok(dispatch())
 }
 

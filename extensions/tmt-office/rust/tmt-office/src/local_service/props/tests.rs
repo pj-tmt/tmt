@@ -89,7 +89,9 @@ fn browser_install_shares_exact_bytes_revision_and_retry_with_the_existing_catal
         json!({"expectedRevision":0,"document":document("Other art")}),
     ));
     assert!(conflict.starts_with("HTTP/1.1 409"));
-    let mut storage = OfficeStore::open(&fixture.paths.database).unwrap();
+    let mut storage =
+        OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(&fixture.paths))
+            .unwrap();
     let stored = storage.show_local_prop_pack(candidate.digest()).unwrap();
     assert_eq!(stored.pack.bytes(), source.as_bytes());
     assert_eq!(stored.catalog_revision, 1);
@@ -108,7 +110,9 @@ fn browser_install_shares_exact_bytes_revision_and_retry_with_the_existing_catal
 #[test]
 fn browser_catalog_pages_metadata_and_rejects_stale_cursor_without_altering_content() {
     let fixture = HttpFixture::new();
-    let mut storage = OfficeStore::open(&fixture.paths.database).unwrap();
+    let mut storage =
+        OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(&fixture.paths))
+            .unwrap();
     for revision in 0..21 {
         let candidate =
             office_prop::validate_pack(document(&format!("Art {revision}")).as_bytes()).unwrap();

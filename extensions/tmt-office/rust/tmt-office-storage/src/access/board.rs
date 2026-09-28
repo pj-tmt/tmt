@@ -107,16 +107,18 @@ pub fn execute(operation: OfficeInvocation, input: &[u8]) -> Vec<u8> {
         Ok(paths) => paths,
         Err(_) => return br#"{"error":"STORAGE_ERROR"}"#.to_vec(),
     };
-    encode_result(execute_prepared(prepared, &paths.database))
+    encode_result(execute_prepared(
+        prepared,
+        &crate::StorageLayout::new(&paths),
+    ))
 }
 
 pub fn execute_at(
     operation: OfficeInvocation,
     input: &[u8],
-    database: &std::path::Path,
+    layout: &crate::StorageLayout,
 ) -> Vec<u8> {
-    let result =
-        prepare(operation, input).and_then(|prepared| execute_prepared(prepared, database));
+    let result = prepare(operation, input).and_then(|prepared| execute_prepared(prepared, layout));
     encode_result(result)
 }
 
@@ -311,9 +313,9 @@ fn prepared_actor(value: ActorInput) -> Result<DecodedBoardActor, BoardErrorCode
 
 fn execute_prepared(
     prepared: DecodedBoardCall,
-    database: &std::path::Path,
+    layout: &crate::StorageLayout,
 ) -> Result<Value, BoardErrorCode> {
-    let mut storage = OfficeStore::open(database).map_err(|_| BoardErrorCode::Storage)?;
+    let mut storage = OfficeStore::open_configured(layout).map_err(|_| BoardErrorCode::Storage)?;
     let result = (|| match prepared {
         DecodedBoardCall::Post {
             category,
@@ -593,11 +595,12 @@ mod contract_tests {
     #[test]
     fn invalid_wire_input_has_no_database_or_owner_side_effect() {
         let directory = crate::test_support::TestDirectory::new();
-        let database = directory.path.join("missing/state.db");
+        let global = directory.path.join("missing");
+        let database = global.join("state.db");
         let output = execute_at(
             OfficeInvocation::BoardPost,
             br#"{"category":{"kind":"general"},"actor":{"kind":"owner"},"title":"","body":"b"}"#,
-            &database,
+            &crate::StorageLayout::within(&database, &global, &global.join("config.json")),
         );
         assert_eq!(output, br#"{"error":"BOARD_INVALID"}"#);
         assert!(!database.exists());

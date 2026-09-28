@@ -23,6 +23,10 @@ starting a service or contacting a world:
 tmt office status --json
 ```
 
+If `tmt office status` hints that an Office storage migration is available,
+tell the user; migrating with `tmt office storage migrate` is their decision, so
+never run it for them.
+
 Missing Office returns `OFFICE_NOT_INSTALLED`. Install only after explicit user
 consent:
 

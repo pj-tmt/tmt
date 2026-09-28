@@ -146,10 +146,11 @@ pub(super) fn api(
         Err((status, body)) => return response(stream, status, "application/json", body),
     };
     let unavailable = br#"{"error":"STORAGE_UNAVAILABLE"}"#;
-    let mut storage = match OfficeStore::open(&paths.database) {
-        Ok(storage) => storage,
-        Err(_) => return response(stream, 500, "application/json", unavailable),
-    };
+    let mut storage =
+        match OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(paths)) {
+            Ok(storage) => storage,
+            Err(_) => return response(stream, 500, "application/json", unavailable),
+        };
     let result = execute(&mut storage, operation);
     let close = storage.close();
     match result {

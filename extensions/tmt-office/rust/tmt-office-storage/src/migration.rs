@@ -13,7 +13,9 @@ use crate::{
     schema,
 };
 
+mod plan;
 mod switch;
+pub use plan::{Plan, PlanState, migrate, plan};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, config::DbConfig};
 use std::{
     fmt, fs, io,
@@ -21,6 +23,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+pub(crate) use switch::ensure_active;
 pub use switch::{
     Backup, Held, OfficeService, Quiesce, Quiesced, Recovery, Switched, recover, switch,
 };
@@ -91,6 +94,8 @@ pub enum MigrationError {
     Service(String),
     /// The backup could not be written or verified; nothing was switched.
     Backup(String),
+    /// The data or storage changed after the user reviewed the plan.
+    PlanChanged,
     /// The switch was recorded, but Office storage is missing or unusable.
     RecoveryRequired {
         database: PathBuf,
@@ -109,6 +114,9 @@ impl fmt::Display for MigrationError {
             | Self::Destination(message)
             | Self::Service(message)
             | Self::Backup(message) => formatter.write_str(message),
+            Self::PlanChanged => formatter.write_str(
+                "The migration plan changed after it was shown; review it and try again.",
+            ),
             Self::NotWritable(directory) => write!(
                 formatter,
                 "{} is not writable; check its permissions and try again.",
@@ -156,6 +164,7 @@ impl MigrationError {
             Self::NotWritable(_) => "OFFICE_STORAGE_NOT_WRITABLE",
             Self::Service(_) => "OFFICE_STORAGE_SERVICE",
             Self::Backup(_) => "OFFICE_STORAGE_BACKUP",
+            Self::PlanChanged => "OFFICE_STORAGE_PLAN_CHANGED",
             Self::RecoveryRequired { .. } => "OFFICE_STORAGE_RECOVERY_REQUIRED",
         }
     }

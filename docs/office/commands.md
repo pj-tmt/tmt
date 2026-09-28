@@ -216,6 +216,27 @@ the character cue without a refresh. Info retains the text and timestamps as
 stale. A reply-ready cue takes priority. Status is self-reported, separate from
 endpoint presence and request completion; see the [status contract](../../contracts/identity-status-v1.md).
 
+### Office storage
+
+```sh
+tmt office storage status [--json]
+tmt office storage migrate [--yes] [--json]
+```
+
+Office data starts in the shared tmt database. `status` reports where it lives,
+how much there is, whether the local service is running and any retained
+backups; it changes nothing. `migrate` prints the plan, including the backup
+location and the free space it needs, and asks for confirmation on a terminal;
+without a terminal it requires `--yes` and otherwise changes nothing. It stops the
+local Office service, backs up the whole tmt database and Office configuration
+under `<global>/backups/office-storage-<UTC time>/`, and moves Office data into
+`<global>/office/office.db`. The move is forward-only; older tmt and tmt-office
+versions cannot write migrated data, and undoing it means restoring the backup
+(see [Office storage recovery](architecture.md#office-storage-recovery)). Start
+the service again afterwards with `tmt office start`. When a migration is
+available, `tmt office status` and `tmt office start` print a one-line hint; set
+`TMT_HINTS=off` to hide it.
+
 ### Local discussion board
 
 The optional companion also owns an installation-local discussion board. Its

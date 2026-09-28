@@ -94,6 +94,11 @@ fn main() -> ExitCode {
                         OfficeInvocation::LocalWorldShow | OfficeInvocation::LocalWorldApply
                     ) {
                         tmt_office_storage::access::world::execute(operation, &input)
+                    } else if matches!(
+                        operation,
+                        OfficeInvocation::StoragePlan | OfficeInvocation::StorageMigrate
+                    ) {
+                        tmt_office_storage::access::storage::execute(operation, &input)
                     } else if operation == OfficeInvocation::LocalExtensionValidate {
                         tmt_office_model::codec::office_extension::preflight::execute(&input)
                     } else if matches!(

@@ -620,9 +620,14 @@ core only through public owners: `config`, `file_lock`, `Storage::open` and the
 `StorageError` type with its `classify` mapping. It owns the Office repositories
 (worlds and legacy blocks, profiles, prop and avatar catalogs, the discussion board
 and whiteboards) on `OfficeStore`, and the `access` operations shared by the
-one-shot companion protocol and the local HTTP service. Until the storage switch,
-`OfficeStore` opens the shared core database file through `Storage::open`, so
-creation and migration are unchanged. The CLI side keeps only file readers, reply
+one-shot companion protocol and the local HTTP service. Production opens go
+through `OfficeStore::open_configured(&StorageLayout)`, which reads core's cutover
+receipt through `CoreReferences::storage_cutover`: without a receipt it opens the
+shared core database file through `Storage::open`, so creation and migration are
+unchanged; with one it opens `office.db`, finishing an interrupted activation
+first and failing with the recovery error rather than recreating lost storage.
+The single-file constructor is test-only, so no production path can bypass a
+switched store. The CLI side keeps only file readers, reply
 decoders and wire limits in `tmt-adapters`; the core `tmt office` facade still
 reaches storage only by invoking the installed companion.
 
@@ -670,9 +675,12 @@ the marker and moves `office.db` to WAL. Recovery derives the outcome from the
 receipt and the marker: no receipt renames `office.db` back to staging, a receipt
 without a marker finishes activation, and a receipt with missing, replaced or
 unreadable storage reports `OFFICE_STORAGE_RECOVERY_REQUIRED` naming the newest
-backup. The switch and recovery are reachable only through the hidden
-diagnostic entry until store selection serves `office.db`; the user-facing command
-arrives with it.
+backup. Users reach the switch through `tmt office storage migrate`: the
+companion's `storage-plan` operation reports the plan without taking locks or
+creating files, and `storage-migrate` runs prepare, copy, verify and switch only
+when the recomputed plan digest equals the one the user confirmed
+(`OFFICE_STORAGE_PLAN_CHANGED` otherwise). The hidden diagnostic entry remains for
+disposable roots.
 
 The architecture guard freezes the exact remaining adapter consumer paths in
 `office_consumer`; core grammar and parser no longer import the Office model.
