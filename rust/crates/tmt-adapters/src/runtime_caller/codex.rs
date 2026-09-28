@@ -56,7 +56,16 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
         }
     }
 
-    fn observe_host(&self) -> Result<Option<HostAttribution>, ()> {
+    /// Reused by hooks: the process is evidence of host mode, not identity.
+    /// Callers still need a fresh incarnation and independent binding proof.
+    pub fn observe_host(
+        &self,
+    ) -> Result<Option<(HostAttribution, u32)>, CallerObservationUnavailable> {
+        self.observe_host_inner()
+            .map_err(|_| CallerObservationUnavailable)
+    }
+
+    fn observe_host_inner(&self) -> Result<Option<(HostAttribution, u32)>, ()> {
         let deadline = Instant::now() + Duration::from_secs(3);
         let output = query_ps(
             self.runner,
@@ -126,9 +135,9 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                 // possible app-server even when global options precede it. A literal
                 // app-server word inside an exec prompt can conservatively match too.
                 if tail.split_whitespace().any(|word| word == "app-server") {
-                    return Ok(Some(HostAttribution::Ambiguous));
+                    return Ok(Some((HostAttribution::Ambiguous, pid)));
                 }
-                observed = Some(HostAttribution::Independent);
+                observed.get_or_insert((HostAttribution::Independent, pid));
             }
             pid = parent;
         }
@@ -144,12 +153,12 @@ impl<R: CommandRunner> Driver for CodexCaller<'_, R> {
     fn identify_caller(&mut self) -> ActionResult<RuntimeCaller, Self::Error> {
         let host = match self.observe_host() {
             Ok(observation) => observation,
-            Err(()) if self.environment.thread_id.is_some() => {
+            Err(_) if self.environment.thread_id.is_some() => {
                 return ActionResult::Failed(CallerObservationUnavailable);
             }
-            Err(()) => return ActionResult::Unsupported,
+            Err(_) => return ActionResult::Unsupported,
         };
-        let Some(host) = host else {
+        let Some((host, _)) = host else {
             return ActionResult::Unsupported;
         };
         let session = self

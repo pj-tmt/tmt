@@ -761,17 +761,20 @@ fails and reports the retained fixture path instead of deleting potentially
 live state. Focused lifecycle regressions live in `typescript/test/tooling/cli-process.test.ts`;
 they use explicit Node fixtures, not a product-runtime fallback.
 
-### Claude setup and lifecycle verification
+### Provider setup and lifecycle verification
 
 Setup planning/publication tests use disposable settings files and preserve user
 hook/permission bytes, exact reruns, recovery copies and changed-input refusal.
 `test/native/setup.test.ts` owns CLI consent, stable-launcher repair/removal and
-the always-zero bounded hook failure contract. Runtime adapter tests own Claude
-payload mapping, pane-ancestor evidence, continuation transitions and stale-end
-rejection; core/storage tests retain session CAS and transaction ownership.
-Real pane/process integration belongs to Docker E2E, not a host provider config.
-Manual Claude acceptance must use a disposable identity/window and project-local
-settings; installing hooks into the user's real global settings needs explicit
+the always-zero bounded hook failure contract, including custom `CODEX_HOME`
+without trust/config mutation. Runtime adapter tests own Claude/Codex payload
+mapping, pane-ancestor evidence, continuation transitions and stale-end rejection;
+core/storage tests retain session CAS, unique exact-thread lookup and transaction
+ownership. Docker E2E owns real pane/process integration, including Codex's
+independent-to-shared transition and unmapped shared rejection. Fixture hook
+execution proves TMT integration, not provider-version compatibility or trust UI.
+Manual provider acceptance must use a disposable identity/window and isolated
+provider settings; installing hooks into the user's real global settings needs explicit
 consent. No test invokes setup against the user's actual provider directory.
 
 ## Docker E2E

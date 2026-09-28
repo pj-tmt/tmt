@@ -4,6 +4,7 @@ use std::{env, fs, io, os::unix::fs::PermissionsExt, path::PathBuf};
 
 pub struct SetupEnvironment {
     pub claude_settings: PathBuf,
+    pub codex_settings: PathBuf,
     pub launcher: PathBuf,
 }
 
@@ -23,7 +24,22 @@ impl SetupEnvironment {
             .ok_or_else(|| io::Error::other("Put the stable tmt launcher on PATH before setup."))?;
         Ok(Self {
             claude_settings: home.join(".claude/settings.json"),
+            codex_settings: env::var_os("CODEX_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("hooks.json"),
             launcher,
         })
+    }
+
+    pub fn settings_path(
+        &self,
+        provider: super::Provider,
+    ) -> Result<&std::path::Path, super::PlanError> {
+        match provider {
+            super::Provider::Claude => Ok(&self.claude_settings),
+            super::Provider::Codex => Ok(&self.codex_settings),
+            _ => Err(super::PlanError::UnsupportedProvider),
+        }
     }
 }

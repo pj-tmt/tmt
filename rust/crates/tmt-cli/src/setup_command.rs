@@ -4,7 +4,7 @@ use crate::{invocation::OutputMode, output::Failure};
 use serde_json::json;
 use std::io::{self, IsTerminal, Write};
 use tmt_adapters::{
-    setup::{self, SetupEnvironment},
+    setup::{self, Provider, SetupEnvironment},
     skill_installation::ProviderEnvironment,
 };
 
@@ -26,14 +26,20 @@ fn failure(error: impl std::error::Error + 'static) -> Failure {
 
 fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Result<(), Failure> {
     let environment = SetupEnvironment::capture().map_err(failure)?;
-    let before = setup::read_settings(&environment.claude_settings).map_err(failure)?;
-    let plan = setup::claude_plan(
-        environment.claude_settings,
-        before,
-        environment.launcher,
-        remove,
-    )
-    .map_err(failure)?;
+    let selected = provider.and_then(Provider::parse);
+    let plans = selected
+        .map_or_else(|| setup::SUPPORTED_PROVIDERS.to_vec(), |value| vec![value])
+        .into_iter()
+        .map(|provider| {
+            let path = environment
+                .settings_path(provider)
+                .map_err(failure)?
+                .to_path_buf();
+            let before = setup::read_settings(&path).map_err(failure)?;
+            setup::plan(provider, path, before, environment.launcher.clone(), remove)
+                .map_err(failure)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut output = io::stdout().lock();
     if provider.is_none() {
         let detected = ProviderEnvironment::capture().map_err(failure)?.detect();
@@ -42,10 +48,10 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
             writeln!(
                 output,
                 "{}",
-                json!({"detectedProviders": providers, "integrations": [{
+                json!({"detectedProviders": providers, "integrations": plans.iter().map(|plan| json!({
                     "provider": plan.provider, "current": !plan.change.changed(),
                     "settingsPath": plan.change.path, "launcher": plan.launcher
-                }]})
+                })).collect::<Vec<_>>()})
             )
             .map_err(failure)?;
         } else {
@@ -59,23 +65,30 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
                 }
             )
             .map_err(failure)?;
-            writeln!(
-                output,
-                "Claude hooks: {} ({})",
-                if plan.change.changed() {
-                    "not current; run tmt setup claude"
-                } else {
-                    "current"
-                },
-                plan.change.path.display()
-            )
-            .map_err(failure)?;
+            for plan in &plans {
+                writeln!(
+                    output,
+                    "{} hooks: {} ({})",
+                    plan.provider,
+                    if plan.change.changed() {
+                        "not current"
+                    } else {
+                        "current"
+                    },
+                    plan.change.path.display()
+                )
+                .map_err(failure)?;
+            }
         }
         return Ok(());
     }
+    let plan = plans
+        .into_iter()
+        .next()
+        .expect("one selected provider plan");
     if !mode.json {
-        writeln!(output, "{} Claude SessionStart and SessionEnd hooks in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes.",
-            if remove { "Remove TMT-owned" } else { "Configure" }, plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
+        writeln!(output, "{} {} SessionStart and SessionEnd hooks in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes. Provider hook trust review still applies.",
+            if remove { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
     }
     if !yes {
         if mode.json || !io::stdin().is_terminal() || !io::stdout().is_terminal() {

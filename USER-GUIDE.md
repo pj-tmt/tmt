@@ -35,27 +35,33 @@ fresh installation: stop old writers first; no configuration, database or
 historical exchange is migrated or deleted. Native schema migrations are forward-only,
 so never use the old TypeScript writer on a native database.
 
-## Connect Claude lifecycle hooks
+## Connect agent lifecycle hooks
 
-`tmt setup` is read-only: it shows detected providers and Claude hook status.
-Run `tmt setup claude` to review the exact settings and launcher paths and approve
-one plan. Noninteractive use requires `tmt setup claude --yes`; add `--json` for a
+`tmt setup` is read-only: it shows detected providers and Claude/Codex hook status.
+Run `tmt setup claude` or `tmt setup codex` to review the exact settings and launcher
+paths and approve one plan. Noninteractive use requires `--yes`; add `--json` for a
 structured result. This updates only TMT-owned SessionStart/SessionEnd entries in
-`~/.claude/settings.json`, retaining other hooks and permission settings. It does
-not install Claude or change its permission policy.
+`~/.claude/settings.json` or Codex's `CODEX_HOME/hooks.json` (default
+`~/.codex/hooks.json`), retaining other hooks and permission settings. It does
+not install the agent, approve provider hook trust, or change permission policy.
 
 The hook uses the stable `tmt` launcher selected on PATH. Keep that launcher in
 place across upgrades; rerun setup if it moves. An identical rerun makes no
-changes. `tmt setup claude --remove` reviews removal of only unchanged TMT hooks.
+changes. Add `--remove` to review removal of only unchanged TMT hooks.
 Edited/conflicting hooks or invalid JSON are left untouched. Updates report a
 recoverable settings backup; identity, notes and exchange data are never removed.
 
 In a verified bound tmux pane, starts restore the small `whoami --context` summary
-and record the exact Claude session for resume. Clear and compact do not change
+and record the exact independent Claude/Codex session for resume. Clear and compact do not change
 the pane's identity. Unbound panes receive a binding hint, not a guessed identity;
-unavailable evidence produces no context. Hook failures do not veto Claude or
+unavailable evidence produces no context. Hook failures do not veto the agent or
 grant permissions. Hooks observe only their own short lifecycle window; they do
 not run a daemon. Session-only/Desktop identity binding is not supported yet.
+
+Codex shared-server hooks require an existing exact thread mapping, recorded by
+an independent session or an exact `tmt run --resume`; the server's inherited pane
+never selects your identity. An unmapped shared thread receives no context or
+session write. Disconnecting a shared client does not prove that its thread ended.
 
 ## Name panes and inspect presence
 

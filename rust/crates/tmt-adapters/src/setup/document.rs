@@ -1,8 +1,7 @@
 //! Surgical JSON edits: preserve unrelated values and all document bytes outside
 //! the edited value. RawValue borrows retain opaque numbers and user hook text.
 
-use super::{PlanError, SETTINGS_LIMIT};
-use crate::runtime::claude::hook_entry;
+use super::{PlanError, Provider, SETTINGS_LIMIT};
 use serde::{
     Deserialize, Deserializer,
     de::{MapAccess, Visitor},
@@ -65,7 +64,7 @@ fn set(text: &str, key: &str, value: &str) -> Result<String, PlanError> {
 
 /// Only the exact generated command shape establishes ownership. A matching
 /// marker in user text is not enough; edited entries are never overwritten.
-fn owned(entry: &RawValue) -> Result<bool, PlanError> {
+fn owned(provider: Provider, entry: &RawValue) -> Result<bool, PlanError> {
     let fields = object(entry.get())?;
     let handlers: Vec<&RawValue> =
         serde_json::from_str(field(&fields, "hooks").ok_or(PlanError::InvalidSettings)?)
@@ -76,7 +75,7 @@ fn owned(entry: &RawValue) -> Result<bool, PlanError> {
         if let Some(command) = field(&fields, "command") {
             let command: String =
                 serde_json::from_str(command).map_err(|_| PlanError::InvalidSettings)?;
-            if command.contains("__hook claude") {
+            if command.contains(&format!("__hook {}", provider.as_str())) {
                 candidates.push(command);
             }
         }
@@ -91,26 +90,33 @@ fn owned(entry: &RawValue) -> Result<bool, PlanError> {
     // provider data remains raw, including numbers outside f64's range.
     let value: Value = serde_json::from_str(entry.get()).map_err(|_| PlanError::EditedHook)?;
     let quoted = candidates[0]
-        .strip_suffix(" __hook claude")
+        .strip_suffix(&format!(" __hook {}", provider.as_str()))
         .and_then(|value| value.strip_prefix('\''))
         .and_then(|value| value.strip_suffix('\''))
         .ok_or(PlanError::EditedHook)?;
     let launcher = quoted.replace("'\\''", "'");
-    if !std::path::Path::new(&launcher).is_absolute() || value != hook_entry(&launcher) {
+    if !std::path::Path::new(&launcher).is_absolute()
+        || value != super::hook_entry(provider, &launcher)?
+    {
         return Err(PlanError::EditedHook);
     }
     Ok(true)
 }
 
-fn event_array(text: &str, launcher: &str, removing: bool) -> Result<String, PlanError> {
+fn event_array(
+    provider: Provider,
+    text: &str,
+    launcher: &str,
+    removing: bool,
+) -> Result<String, PlanError> {
     let entries: Vec<&RawValue> =
         serde_json::from_str(text).map_err(|_| PlanError::InvalidSettings)?;
     let mut count = 0;
-    let desired = hook_entry(launcher).to_string();
+    let desired = super::hook_entry(provider, launcher)?.to_string();
     let mut result = Vec::new();
     let mut changed = false;
     for entry in entries {
-        if owned(entry)? {
+        if owned(provider, entry)? {
             count += 1;
             if count > 1 {
                 return Err(PlanError::EditedHook);
@@ -120,7 +126,7 @@ fn event_array(text: &str, launcher: &str, removing: bool) -> Result<String, Pla
             } else {
                 let old: Value =
                     serde_json::from_str(entry.get()).map_err(|_| PlanError::InvalidSettings)?;
-                if old == hook_entry(launcher) {
+                if old == super::hook_entry(provider, launcher)? {
                     result.push(entry.get().to_owned());
                 } else {
                     changed = true;
@@ -142,7 +148,8 @@ fn event_array(text: &str, launcher: &str, removing: bool) -> Result<String, Pla
     })
 }
 
-pub(super) fn claude_settings(
+pub(super) fn settings(
+    provider: Provider,
     text: &str,
     launcher: &str,
     removing: bool,
@@ -162,7 +169,7 @@ pub(super) fn claude_settings(
         if old.is_none() && removing {
             continue;
         }
-        let edited = event_array(old.unwrap_or("[]"), launcher, removing)?;
+        let edited = event_array(provider, old.unwrap_or("[]"), launcher, removing)?;
         hooks = set(&hooks, event, &edited)?;
     }
     let result = set(text, "hooks", &hooks)?;
@@ -175,6 +182,11 @@ pub(super) fn claude_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::claude::hook_entry;
+
+    fn claude_settings(text: &str, launcher: &str, removing: bool) -> Result<String, PlanError> {
+        settings(Provider::Claude, text, launcher, removing)
+    }
 
     #[test]
     fn preserves_user_bytes_and_repairs_only_stale_owned_launchers() {

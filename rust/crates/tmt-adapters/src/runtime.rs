@@ -12,6 +12,10 @@ use tmt_core::{
 };
 
 pub mod claude;
+pub mod codex;
+mod evidence;
+pub mod hook_protocol;
+pub mod lifecycle;
 
 /// Tokens shared with first-party hook mappings; mode belongs to the runtime,
 /// not the host interface. Codex embedded mode is selected by `--no-daemon`.
@@ -60,6 +64,7 @@ struct Registration {
     executable: OsString,
     priority: i32,
     driver: Box<RegisteredDriver>,
+    lifecycle: Option<Box<dyn lifecycle::RuntimeLifecycle>>,
 }
 
 /// First-party and community drivers use the same registration boundary.
@@ -84,6 +89,13 @@ impl RuntimeRegistry {
                     driver,
                 )
                 .expect("unique built-in runtime registration");
+            let lifecycle: Box<dyn lifecycle::RuntimeLifecycle> = match driver {
+                FirstParty::Claude => Box::new(claude::ClaudeLifecycle),
+                FirstParty::Codex => Box::new(codex::CodexLifecycle),
+            };
+            registry
+                .register_lifecycle(&HarnessId::new(name).unwrap(), lifecycle)
+                .expect("registered first-party lifecycle");
         }
         registry
     }
@@ -110,6 +122,7 @@ impl RuntimeRegistry {
             executable: executable.into(),
             priority,
             driver: Box::new(driver),
+            lifecycle: None,
         });
         self.registrations.sort_by(|a, b| {
             b.priority
@@ -117,6 +130,29 @@ impl RuntimeRegistry {
                 .then_with(|| a.harness.as_str().cmp(b.harness.as_str()))
         });
         Ok(())
+    }
+
+    pub fn register_lifecycle(
+        &mut self,
+        harness: &HarnessId,
+        lifecycle: Box<dyn lifecycle::RuntimeLifecycle>,
+    ) -> Result<(), RuntimeError> {
+        let entry = self
+            .registrations
+            .iter_mut()
+            .find(|entry| &entry.harness == harness)
+            .filter(|entry| entry.lifecycle.is_none())
+            .ok_or(RuntimeError::InvalidRegistration)?;
+        entry.lifecycle = Some(lifecycle);
+        Ok(())
+    }
+
+    pub fn lifecycle(&self, harness: &HarnessId) -> Option<&dyn lifecycle::RuntimeLifecycle> {
+        self.registrations
+            .iter()
+            .find(|entry| &entry.harness == harness)?
+            .lifecycle
+            .as_deref()
     }
 
     pub fn claim(&self, executable: &OsStr) -> Option<HarnessId> {
@@ -266,6 +302,76 @@ mod tests {
     struct Community {
         id: HarnessId,
     }
+
+    struct CommunityLifecycle;
+    impl lifecycle::RuntimeLifecycle for CommunityLifecycle {
+        fn encode_context(&self, text: &str) -> Option<String> {
+            Some(format!("community:{text}"))
+        }
+    }
+
+    #[test]
+    fn lifecycle_registration_is_harness_owned_and_generic_exit_keeps_its_default() {
+        use lifecycle::RuntimeLifecycle;
+        use tmt_core::binding::session::{
+            BindingSessionState, ObservedSessionKey, RuntimeIncarnation, RuntimeState,
+            SessionPreferences,
+        };
+        let mut registry = RuntimeRegistry::first_party();
+        assert!(
+            registry
+                .register_lifecycle(&id("missing"), Box::new(CommunityLifecycle))
+                .is_err()
+        );
+        registry
+            .register(
+                id("community"),
+                "community",
+                0,
+                Community {
+                    id: id("community"),
+                },
+            )
+            .unwrap();
+        assert!(registry.lifecycle(&id("community")).is_none());
+        registry
+            .register_lifecycle(&id("community"), Box::new(CommunityLifecycle))
+            .unwrap();
+        assert_eq!(
+            registry
+                .lifecycle(&id("community"))
+                .unwrap()
+                .encode_context("identity"),
+            Some("community:identity".into())
+        );
+        assert!(
+            registry
+                .register_lifecycle(&id("community"), Box::new(CommunityLifecycle))
+                .is_err()
+        );
+        let decoded = registry
+            .lifecycle(&id("codex"))
+            .unwrap()
+            .decode(
+                br#"{"hook_event_name":"SessionStart","source":"startup","session_id":"opaque"}"#,
+            )
+            .unwrap();
+        assert_eq!(decoded.session().as_str(), "opaque");
+        assert!(decoded.starting());
+        let ended = lifecycle::NoLifecycle
+            .client_exit(
+                &BindingSessionState::default(),
+                ObservedSessionKey {
+                    incarnation: RuntimeIncarnation::new(2, "child").unwrap(),
+                    provider_session: None,
+                },
+                RuntimeIncarnation::new(1, "owner").unwrap(),
+                &SessionPreferences::default(),
+            )
+            .unwrap();
+        assert_eq!(ended.state, RuntimeState::Ended);
+    }
+
     impl Driver for Community {
         type Target = ();
         type Error = RuntimeError;

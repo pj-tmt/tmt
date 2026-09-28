@@ -18,7 +18,10 @@ use tmt_adapters::{
         interactive::InteractiveChild,
         runtime::{ProcessObservation, observe_runtime_process},
     },
-    runtime::{RuntimeCommand, RuntimeError, RuntimeRegistry},
+    runtime::{
+        RuntimeCommand, RuntimeError, RuntimeRegistry,
+        lifecycle::{NoLifecycle, RuntimeLifecycle},
+    },
     storage::{Storage, StorageError},
     tmux::{BindingSession, CallerEnvironment, Tmux},
 };
@@ -264,6 +267,10 @@ fn run_bound(
     let mut registry = RuntimeRegistry::first_party();
     let launch = select_command(&mut registry, command, resume, &preferences)?;
     let claim = registry.claim(&launch.command.executable);
+    let lifecycle = claim
+        .as_ref()
+        .and_then(|harness| registry.lifecycle(harness))
+        .unwrap_or(&NoLifecycle);
     let bound = binding::bind_identity_with_creation(
         storage,
         &mut BindingSession::new(tmux),
@@ -416,10 +423,17 @@ fn run_bound(
                 .cloned()
                 .unwrap_or(ObservedSessionKey {
                     incarnation: child.clone(),
-                    provider_session: None,
+                    // Exact resume coordinates came from the driver-owned
+                    // remembered record, never from user argv or a hook pane.
+                    provider_session: launch
+                        .resumed
+                        .then_some(preferences.remembered.as_ref())
+                        .flatten()
+                        .filter(|session| Some(&session.harness) == claim.as_ref())
+                        .map(|session| session.provider_session.clone()),
                 });
             let next = if already_exited {
-                current.session.record_launched_exit(key, owner.clone())
+                lifecycle.client_exit(&current.session, key, owner.clone(), &preferences)
             } else {
                 current.session.admit_launched(
                     key,
@@ -439,7 +453,7 @@ fn run_bound(
             if !records.set_session_state(&binding.id, &current.session, &next)? {
                 return Ok(None);
             }
-            Ok(next.key)
+            Ok(next.key.map(|key| (key, next.state)))
         })
         .unwrap_or(None);
     if admitted.is_none() {
@@ -457,9 +471,11 @@ fn run_bound(
     observe_admission(
         observer,
         &binding.id,
-        admitted.as_ref(),
+        admitted.as_ref().map(|(key, _)| key),
         launch.resumed,
-        already_exited,
+        admitted
+            .as_ref()
+            .is_some_and(|(_, state)| *state == tmt_core::binding::session::RuntimeState::Ended),
     );
     let status = child.wait(|_| diagnostic("tmt: signal observation degraded; waiting for the original command without restarting it."))
         .map_err(|error| Failure::new("PROCESS_ERROR", "Could not finish observing the requested command.", 1).caused_by(error))?;
@@ -468,7 +484,7 @@ fn run_bound(
         && let (Some(owner), Some(child)) = (&owner, &child_incarnation)
     {
         let recorded = Storage::open(database).and_then(|mut storage| {
-            let recorded = finish(&mut storage, binding, owner, child);
+            let recorded = finish(&mut storage, binding, owner, child, lifecycle);
             if storage.close().is_err() {
                 diagnostic(
                     "tmt: could not close final state cleanly; the recorded exit is unchanged.",
@@ -485,6 +501,7 @@ fn run_bound(
                 },
             ),
             Ok(Finished::AlreadyEnded) => {}
+            Ok(Finished::Disconnected) => {}
             Ok(Finished::Replaced) | Err(_) => diagnostic(
                 "tmt: command exited, but its final state could not be stored; no command was retried.",
             ),
@@ -496,6 +513,7 @@ fn run_bound(
 enum Finished {
     Written(ObservedSessionKey),
     AlreadyEnded,
+    Disconnected,
     Replaced,
 }
 
@@ -504,6 +522,7 @@ fn finish(
     binding: &Binding,
     owner: &RuntimeIncarnation,
     child: &RuntimeIncarnation,
+    lifecycle: &dyn RuntimeLifecycle,
 ) -> Result<Finished, StorageError> {
     storage.with_binding_transaction(|records| {
         let Some(current) = records
@@ -515,6 +534,20 @@ fn finish(
         else {
             return Ok(Finished::Replaced);
         };
+        if let Some(next) = lifecycle.disconnected(
+            &current.session,
+            &records.session_preferences(&binding.identity_id)?,
+        ) {
+            return records
+                .set_session_state(&binding.id, &current.session, &next)
+                .map(|written| {
+                    if written {
+                        Finished::Disconnected
+                    } else {
+                        Finished::Replaced
+                    }
+                });
+        }
         let Some(key) = current
             .session
             .key

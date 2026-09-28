@@ -32,6 +32,7 @@ COPY . .
 COPY --from=native-tests /native-artifacts/tmux-probe /opt/tmt-tests/tmux-probe
 COPY --from=native-tests /native-artifacts/codex /opt/tmt-tests/codex
 COPY --from=native-tests /native-artifacts/claude /opt/tmt-tests/claude
+COPY --from=native-tests /native-artifacts/claude /opt/tmt-tests/hook-runtime/codex
 COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-tests
 # Exercise the same unset-selector path as a native developer checkout.
 # The selected dev/release profile changes bytes, not this fixture location.
