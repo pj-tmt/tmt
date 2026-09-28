@@ -1,7 +1,7 @@
 //! Board state and key handling, independent of the terminal. Every keypress
 //! works on what is already loaded; loading happens in the refresh worker.
 
-use crate::config::{Board, Column, Pane};
+use crate::config::{Board, Column, NotesRender, Pane};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -14,6 +14,7 @@ pub struct View {
     pub colors: BTreeMap<String, String>,
     pub board: Board,
     pub notes: Notes,
+    pub render: NotesRender,
 }
 
 /// The lead's notebook, already sanitized for display.
@@ -255,6 +256,7 @@ mod tests {
                 sizes: vec![100],
             },
             notes: super::Notes::NotShown,
+            render: crate::config::NotesRender::Markdown,
         }
     }
 

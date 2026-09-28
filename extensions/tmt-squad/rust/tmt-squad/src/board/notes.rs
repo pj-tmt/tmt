@@ -7,9 +7,29 @@ use unicode_width::UnicodeWidthChar;
 const ESC: char = '\u{1b}';
 const BEL: char = '\u{7}';
 
+/// Invisible Unicode format characters that can reorder or hide text: bidi
+/// embeddings, overrides and isolates, directional marks, and zero-width and
+/// word-joiner forms. Zero-width joiners (U+200C/U+200D) stay, because scripts
+/// and emoji sequences need them to render correctly.
+fn hidden_format(character: char) -> bool {
+    matches!(
+        character,
+        '\u{061c}'
+            | '\u{180e}'
+            | '\u{200b}'
+            | '\u{200e}'..='\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206f}'
+            | '\u{feff}'
+            | '\u{fff9}'..='\u{fffb}'
+    )
+}
+
 /// Removes escape sequences (CSI, OSC, DCS, SOS, PM, APC and two-byte ESC
-/// forms, including their 8-bit C1 introducers) and all other control
-/// characters. Newlines are kept; tabs become four spaces; CR is dropped.
+/// forms, including their 8-bit C1 introducers), all other control
+/// characters, and hidden bidi/format characters. Newlines are kept; tabs
+/// become four spaces; CR is dropped.
 pub fn sanitize(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
@@ -36,7 +56,7 @@ pub fn sanitize(text: &str) -> String {
                 out.push_str("    ");
                 continue;
             }
-            other if other.is_control() => continue,
+            other if other.is_control() || hidden_format(other) => continue,
             other => {
                 out.push(other);
                 continue;
@@ -139,6 +159,20 @@ mod tests {
     }
 
     #[test]
+    fn bidi_and_invisible_format_characters_are_removed() {
+        // "Trojan Source": an override makes text display in a different order.
+        let spoofed = "approve \u{202e}evil\u{202c} plan \u{2066}x\u{2069}\u{200e}\u{200f}";
+        assert_eq!(sanitize(spoofed), "approve evil plan x");
+        let hidden = "a\u{200b}b\u{2060}c\u{feff}d\u{061c}e\u{2064}f\u{fff9}g";
+        assert_eq!(sanitize(hidden), "abcdefg");
+        // Joiners are kept: they are needed to render scripts and emoji.
+        assert_eq!(
+            sanitize("👩\u{200d}💻 می\u{200c}خواهم"),
+            "👩\u{200d}💻 می\u{200c}خواهم"
+        );
+    }
+
+    #[test]
     fn wrapping_counts_display_cells_and_never_splits_a_wide_character() {
         assert_eq!(wrap("one two three", 7), ["one two", "three"]);
         assert_eq!(
@@ -151,5 +185,17 @@ mod tests {
             let cells: usize = line.chars().map(|c| c.width().unwrap_or(0)).sum();
             assert!(cells <= 9, "{line:?}");
         }
+    }
+
+    #[test]
+    fn plain_output_is_the_notebook_after_control_removal() {
+        let raw =
+            "## Now\n- tokens: \u{1b}[31mwaiting\u{1b}[0m on Ben\n\n| a | b |\n安装指南\u{202e}x";
+        let clean = sanitize(raw);
+        assert_eq!(wrap(&clean, 10_000).join("\n"), clean);
+        assert_eq!(
+            clean,
+            "## Now\n- tokens: waiting on Ben\n\n| a | b |\n安装指南x"
+        );
     }
 }

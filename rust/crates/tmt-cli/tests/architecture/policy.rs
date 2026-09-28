@@ -108,6 +108,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "ratatui",
             "unicode-width",
             "signal-hook",
+            "pulldown-cmark",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };

@@ -89,6 +89,7 @@ fn load(core: &Core, wanted: Option<String>) -> Snapshot {
         Ok(View {
             columns: config.columns(&squad.name)?,
             colors: states.colors,
+            render: config.notes_render(&squad.name)?,
             board,
             notes,
             document,

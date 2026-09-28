@@ -366,8 +366,11 @@ sizes     = [60, 40]           # split only: one percentage per pane, total 100
 ```
 
 Tab moves between panes (or tabs); ↑/↓ scroll the notes pane when it has focus.
-In tabs mode the lead's notes always get their own tab. Notes are shown as plain
-text: terminal escapes and control characters in them are removed. The crew
+In tabs mode the lead's notes always get their own tab. Notes render as light
+Markdown: headings, lists, bold, italic, inline code and links (shown as text);
+tables, HTML, images, code blocks and quotes appear as written. Terminal
+escapes, control characters and hidden bidi/format characters are removed
+first. Set `[squad.<name>.notes] render = "plain"` to show the text unformatted. The crew
 layout shows rows and notes side by side, pr-queue shows rows over detail, and
 minimal shows rows only. Row actions (Enter, t, r, a, o, y, n) arrive in later
 versions.

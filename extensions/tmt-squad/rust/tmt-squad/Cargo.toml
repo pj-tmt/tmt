@@ -19,6 +19,7 @@ clap.workspace = true
 serde_json.workspace = true
 toml_edit.workspace = true
 ratatui.workspace = true
+pulldown-cmark.workspace = true
 unicode-width.workspace = true
 
 [target.'cfg(unix)'.dependencies]
