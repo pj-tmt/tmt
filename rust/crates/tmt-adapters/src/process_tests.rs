@@ -234,7 +234,9 @@ fn read_pid(path: &Path) -> Pid {
 fn wait_for_pid(path: &Path) -> Pid {
     let deadline = Instant::now() + CLEANUP_WAIT;
     loop {
-        if path.is_file() {
+        // Shell redirection creates the file before printf publishes its PID.
+        // Readiness is the payload, not the existence of an empty file.
+        if fs::read_to_string(path).is_ok_and(|value| !value.trim().is_empty()) {
             return read_pid(path);
         }
         assert!(Instant::now() < deadline, "fixture did not write its PID");

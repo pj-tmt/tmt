@@ -35,6 +35,28 @@ fresh installation: stop old writers first; no configuration, database or
 historical exchange is migrated or deleted. Native schema migrations are forward-only,
 so never use the old TypeScript writer on a native database.
 
+## Connect Claude lifecycle hooks
+
+`tmt setup` is read-only: it shows detected providers and Claude hook status.
+Run `tmt setup claude` to review the exact settings and launcher paths and approve
+one plan. Noninteractive use requires `tmt setup claude --yes`; add `--json` for a
+structured result. This updates only TMT-owned SessionStart/SessionEnd entries in
+`~/.claude/settings.json`, retaining other hooks and permission settings. It does
+not install Claude or change its permission policy.
+
+The hook uses the stable `tmt` launcher selected on PATH. Keep that launcher in
+place across upgrades; rerun setup if it moves. An identical rerun makes no
+changes. `tmt setup claude --remove` reviews removal of only unchanged TMT hooks.
+Edited/conflicting hooks or invalid JSON are left untouched. Updates report a
+recoverable settings backup; identity, notes and exchange data are never removed.
+
+In a verified bound tmux pane, starts restore the small `whoami --context` summary
+and record the exact Claude session for resume. Clear and compact do not change
+the pane's identity. Unbound panes receive a binding hint, not a guessed identity;
+unavailable evidence produces no context. Hook failures do not veto Claude or
+grant permissions. Hooks observe only their own short lifecycle window; they do
+not run a daemon. Session-only/Desktop identity binding is not supported yet.
+
 ## Name panes and inspect presence
 
 Give each live agent pane a global name from that pane's shell, before
@@ -76,7 +98,7 @@ its lifetime, a short role summary, an existing saved notes path, and counts wit
 inspect commands for unacknowledged originated and incoming X items. It does not
 include request bodies or IDs, read notebook contents, bind an identity, create
 files, renew retention or mark messages read. A verified empty pane gets the hint
-`This pane has no TMT identity; run: tmt name <name> (-s to save)`.
+`TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).`
 Unavailable or ambiguous evidence instead returns empty human output (JSON
 `status: "unavailable"`) successfully; it does not guess an identity.
 

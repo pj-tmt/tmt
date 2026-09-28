@@ -4,13 +4,14 @@ COPY rust/ ./
 COPY contracts/office/ ../contracts/office/
 COPY skills/ ../skills/
 ARG TMT_NATIVE_PROFILE=dev
-RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture \
+RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
   && cargo test --locked --no-run -p tmt-adapters \
   && mkdir /native-artifacts \
   && cp target/debug/examples/tmux-probe /native-artifacts/tmux-probe \
   && cp target/debug/examples/runtime-caller-fixture /native-artifacts/codex \
+  && cp target/debug/examples/claude-hook-fixture /native-artifacts/claude \
   && cp "target/$native_output/tmt" /native-artifacts/tmt \
   && find target/debug/deps -maxdepth 1 -type f -name 'tmt_adapters-*' -executable \
     -exec cp {} /native-artifacts/adapter-tests \;
@@ -30,6 +31,7 @@ RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile \
 COPY . .
 COPY --from=native-tests /native-artifacts/tmux-probe /opt/tmt-tests/tmux-probe
 COPY --from=native-tests /native-artifacts/codex /opt/tmt-tests/codex
+COPY --from=native-tests /native-artifacts/claude /opt/tmt-tests/claude
 COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-tests
 # Exercise the same unset-selector path as a native developer checkout.
 # The selected dev/release profile changes bytes, not this fixture location.

@@ -194,6 +194,14 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             crate::grammar::help_command(&path)?;
             Invocation::Help(path)
         }
+        ["setup"] => Invocation::Setup {
+            provider: text(m, "provider"),
+            remove: flag(m, "remove"),
+            yes: flag(m, "yes"),
+        },
+        ["__hook"] => Invocation::ProviderHook {
+            worker: flag(m, "worker"),
+        },
         ["completion"] => Invocation::Completion(text(m, "shell")),
         ["__complete"] => Invocation::Complete(
             m.get_many::<OsString>("words")

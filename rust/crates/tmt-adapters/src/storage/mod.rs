@@ -76,6 +76,26 @@ pub struct Storage {
 }
 
 impl Storage {
+    /// Hooks observe existing state; they must not initialize or upgrade storage.
+    /// The supervising hook process supplies the overall deadline, including any
+    /// pathological filesystem wait; lock contention is bounded independently.
+    pub fn open_hook(path: &Path) -> Result<Self, StorageError> {
+        let connection =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+                .map_err(|error| classify(error, "Open existing hook storage"))?;
+        connection
+            .busy_timeout(Duration::from_millis(50))
+            .map_err(|error| classify(error, "Bound hook storage wait"))?;
+        migrations::require_current(&connection)?;
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|error| classify(error, "Configure hook foreign keys"))?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            connection: Some(connection),
+        })
+    }
+
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let path = path.as_ref().to_path_buf();
         let directory = path

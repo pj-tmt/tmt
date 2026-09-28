@@ -47,11 +47,13 @@ fn observe() -> Option<serde_json::Value> {
     let stored =
         Storage::context_by_pane(&paths.database, &pane, &snapshot.server.server_id, now).ok()?;
     let Some(stored) = stored else {
+        // This branch emits only the fixed unbound hint, never identity data.
+        // A command-derived suggested name is not a stored binding marker.
         return snapshot
             .panes
             .iter()
             .find(|candidate| candidate.id == pane)
-            .filter(|candidate| candidate.marker.is_none() && candidate.suggested_name.is_none())
+            .filter(|candidate| candidate.marker.is_none())
             .map(|_| presentation::unbound());
     };
     if !matches!(
@@ -60,9 +62,27 @@ fn observe() -> Option<serde_json::Value> {
     ) {
         return None;
     }
+    Some(verified_document(stored, &paths))
+}
+
+pub(crate) fn verified_document(
+    stored: tmt_adapters::storage::IdentityContextSnapshot,
+    paths: &ConfigPaths,
+) -> serde_json::Value {
     let notes = NotesIdentityId::try_from(&stored.entry.identity)
         .ok()
-        .and_then(|id| notes::existing_path(&paths, &id).ok().flatten())
+        .and_then(|id| notes::existing_path(paths, &id).ok().flatten())
         .and_then(|path| path.into_os_string().into_string().ok());
-    Some(presentation::document(stored, notes))
+    presentation::document(stored, notes)
+}
+
+pub(crate) fn render_verified(
+    stored: tmt_adapters::storage::IdentityContextSnapshot,
+    paths: &ConfigPaths,
+) -> io::Result<String> {
+    presentation::bounded(verified_document(stored, paths), false)
+}
+
+pub(crate) fn unbound_text() -> io::Result<String> {
+    presentation::bounded(presentation::unbound(), false)
 }

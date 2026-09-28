@@ -106,6 +106,42 @@ pub trait CommandRunner {
 
 pub struct UnixCommandRunner;
 
+/// Probes inside an already supervised worker must remain in its process group.
+/// The worker must propagate failure to its supervisor, which owns group cleanup.
+pub struct SupervisedProbeRunner;
+
+impl SupervisedProbeRunner {
+    /// Abort the worker and all probes before its leader can be reaped. A
+    /// post-exit group signal is deliberately not used: its numeric ID may
+    /// already be reusable. Never signal an inherited shell/process group.
+    pub fn abort_worker_group() -> io::Result<()> {
+        let own_pid = nix::unistd::getpid();
+        if nix::unistd::getpgrp() != own_pid {
+            return Err(io::Error::other("Worker does not own its process group"));
+        }
+        killpg(own_pid, Signal::SIGKILL).map_err(io::Error::from)
+    }
+}
+
+impl CommandRunner for SupervisedProbeRunner {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        let result = start_command(request, false)?.wait();
+        if result.as_ref().is_err_and(|error| {
+            error.cleanup_failed()
+                || matches!(
+                    error.kind,
+                    CommandFailure::Timeout | CommandFailure::OutputLimit | CommandFailure::Io
+                )
+        }) {
+            // Observation adapters may map unavailable evidence to None. A
+            // failed bounded probe is not absence: abort while the worker owns
+            // its group so that such mapping cannot leave descendants alive.
+            let _ = Self::abort_worker_group();
+        }
+        result
+    }
+}
+
 impl CommandRunner for UnixCommandRunner {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         self.start(request)?.wait()
@@ -118,22 +154,35 @@ impl UnixCommandRunner {
         &self,
         request: CommandRequest<'_>,
     ) -> Result<RunningCommand, CommandError> {
-        remaining(request.deadline)?;
-        let job = Exec::cmd(request.program)
-            .args(request.args.iter().cloned())
-            .stdin(request.input.to_vec())
-            .stdout(Redirection::Pipe)
-            .stderr(Redirection::Pipe)
-            .setpgid()
-            .start()
-            .map_err(|cause| CommandError::io(CommandFailure::Spawn, cause))?;
-        Ok(RunningCommand {
-            job,
-            finished: false,
-            deadline: request.deadline,
-            max_output_bytes: request.max_output_bytes,
-        })
+        start_command(request, true)
     }
+}
+
+fn start_command(
+    request: CommandRequest<'_>,
+    owns_group: bool,
+) -> Result<RunningCommand, CommandError> {
+    remaining(request.deadline)?;
+    let command = Exec::cmd(request.program)
+        .args(request.args.iter().cloned())
+        .stdin(request.input.to_vec())
+        .stdout(Redirection::Pipe)
+        .stderr(Redirection::Pipe);
+    let command = if owns_group {
+        command.setpgid()
+    } else {
+        command
+    };
+    let job = command
+        .start()
+        .map_err(|cause| CommandError::io(CommandFailure::Spawn, cause))?;
+    Ok(RunningCommand {
+        job,
+        finished: false,
+        deadline: request.deadline,
+        max_output_bytes: request.max_output_bytes,
+        owns_group,
+    })
 }
 
 /// Owns the same bounded child from successful spawn through wait or abandonment.
@@ -142,6 +191,7 @@ pub(crate) struct RunningCommand {
     finished: bool,
     deadline: Instant,
     max_output_bytes: usize,
+    owns_group: bool,
 }
 
 impl RunningCommand {
@@ -248,7 +298,11 @@ impl Write for CappedOutput {
 
 impl RunningCommand {
     fn cleanup(&mut self) -> io::Result<()> {
-        let signal = self.job.send_signal_group(Signal::SIGKILL as i32);
+        let signal = if self.owns_group {
+            self.job.send_signal_group(Signal::SIGKILL as i32)
+        } else {
+            self.job.send_signal(Signal::SIGKILL as i32)
+        };
         let waited = self.job.wait_timeout(CLEANUP_TIMEOUT);
         // An exceptional OS cleanup failure must not turn into an unbounded
         // blocking destructor. No reader threads were spawned by this adapter.
@@ -257,6 +311,12 @@ impl RunningCommand {
             self.job.detach();
         }
         self.finished = true;
+        if !self.owns_group && matches!(waited, Ok(Some(_))) {
+            return match signal {
+                Err(error) if error.raw_os_error() == Some(Errno::ESRCH as i32) => Ok(()),
+                result => result,
+            };
+        }
         match waited {
             Ok(Some(_)) => confirm_group_termination(signal, || {
                 let pid = i32::try_from(self.job.pid()).map_err(|_| Errno::EINVAL)?;
@@ -306,6 +366,44 @@ impl Drop for RunningCommand {
 #[cfg(test)]
 mod cleanup_policy_tests {
     use super::*;
+
+    #[test]
+    fn supervised_probes_stay_in_the_supervisors_group() {
+        let args = ["-c".into(), "ps -o pgid= -p $$".into()];
+        let request = || CommandRequest {
+            program: OsStr::new("/bin/sh"),
+            args: &args,
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(2),
+            max_output_bytes: 128,
+        };
+        let inherited = SupervisedProbeRunner.execute(request()).unwrap();
+        let group: i32 = std::str::from_utf8(&inherited.stdout)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(group, nix::unistd::getpgrp().as_raw());
+        let separate = UnixCommandRunner.execute(request()).unwrap();
+        let group: i32 = std::str::from_utf8(&separate.stdout)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_ne!(group, nix::unistd::getpgrp().as_raw());
+
+        let error = SupervisedProbeRunner
+            .execute(CommandRequest {
+                program: OsStr::new("/bin/sleep"),
+                args: &["20".into()],
+                input: &[],
+                deadline: Instant::now() + Duration::from_millis(50),
+                max_output_bytes: 128,
+            })
+            .unwrap_err();
+        assert_eq!(error.kind, CommandFailure::Timeout);
+        assert!(!error.cleanup_failed());
+    }
 
     #[test]
     fn permission_failure_requires_observed_group_absence() {
