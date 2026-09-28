@@ -1,6 +1,8 @@
 //! `tmt squad` (alias `tmt sq`): an optional extension reached through TMT's
 //! external command dispatch. It keeps no state of its own.
 
+mod action;
+mod back;
 mod board;
 mod config;
 mod core;
@@ -106,6 +108,10 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
+            Command::new("back")
+                .about("Return your tmux client to where its last squad jump came from"),
+        )
+        .subcommand(
             Command::new("open")
                 .about("Open a member's http(s) link: pr_link, link or another *_link field")
                 .arg(operand("member", "Member or lead"))
@@ -184,10 +190,17 @@ fn human(command: &str, document: &Value) -> String {
     match command {
         "status" | "board" => status::text(document),
         "jump" => format!(
-            "Showing {} ({}).\n",
+            "Showing {} ({}).\n{}",
             document["member"].as_str().unwrap_or_default(),
-            document["focused"]["pane"].as_str().unwrap_or_default()
+            document["focused"]["pane"].as_str().unwrap_or_default(),
+            document["warning"]
+                .as_str()
+                .map_or(String::new(), |warning| format!("Note: {warning}\n"))
         ),
+        "back" => match document["back"]["focused"]["pane"].as_str() {
+            Some(pane) => format!("Back at {pane}.\n"),
+            None => "Nothing to go back to.\n".into(),
+        },
         "open" => format!(
             "Opened {}\n",
             document["opened"].as_str().unwrap_or_default()
@@ -222,6 +235,9 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             .cloned()
             .collect::<Vec<_>>()
     };
+    if command == "back" {
+        return member_actions::back(&core);
+    }
     let mut config = Config::load(&core)?;
     if command == "init" {
         let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
@@ -354,8 +370,8 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "board", "copy", "init", "jump", "lead", "open", "remove", "set", "skill",
-                "status"
+                "add", "back", "board", "copy", "init", "jump", "lead", "open", "remove", "set",
+                "skill", "status"
             ]
         );
         assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);

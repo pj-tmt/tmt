@@ -17,18 +17,37 @@ use ratatui::{
 use serde_json::Value;
 use unicode_width::UnicodeWidthChar;
 
-const HINTS: &str =
-    "⏎ jump  t talk  r reply  o open  y copy  tab pane  / search  ←→ squad  ? more  q quit";
-const HELP: &[&str] = &[
-    "↑ ↓ / j k   select a row",
+const KEYS: &[&str] = &[
+    "↑ ↓ / j k   select a row (↑ ↓ scroll a focused notes pane)",
     "← →         switch squad",
     "/           search; Esc clears",
-    "Tab         next pane (or tab); ↑ ↓ scroll the notes pane",
     "?           this help",
     "q, Esc      close the board",
     "",
-    "Enter, t, r, a, o, y and n act on rows in a later version.",
 ];
+
+/// The footer names what the most used keys do for the selected row.
+fn hints(app: &App) -> String {
+    let bindings = app.bindings();
+    let mut hints: Vec<String> = [("enter", "⏎"), ("o", "o"), ("y", "y"), ("tab", "tab")]
+        .into_iter()
+        .filter_map(|(event, label)| {
+            let action = bindings.get(event)?;
+            Some(format!("{label} {}", action.verb.name()))
+        })
+        .collect();
+    hints.extend(["/ search", "←→ squad", "? more", "q quit"].map(str::to_owned));
+    hints.join("  ")
+}
+
+/// Fixed keys, then every binding for the selected row.
+fn help_lines(app: &App) -> Vec<String> {
+    let mut lines: Vec<String> = KEYS.iter().map(|line| (*line).to_owned()).collect();
+    for (event, action) in app.bindings() {
+        lines.push(format!("{event:<11} {}", action.text));
+    }
+    lines
+}
 
 fn color(name: &str) -> Style {
     let style = Style::new();
@@ -142,23 +161,55 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_body(frame, app, body);
     let footer_line = if app.searching {
         Line::from(format!("/{}▏", app.search))
-    } else if let Some(notice) = app.notice {
-        Line::from(Span::styled(notice, color("amber")))
+    } else if let Some(notice) = &app.notice {
+        Line::from(Span::styled(notice.as_str(), color("amber")))
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), color("red")))
     } else {
-        Line::from(Span::styled(HINTS, color("dim")))
+        Line::from(Span::styled(hints(app), color("dim")))
     };
     frame.render_widget(Paragraph::new(footer_line), footer);
     if app.help {
-        let height = (HELP.len() as u16 + 2).min(body.height);
+        let lines = help_lines(app);
+        let height = (lines.len() as u16).min(body.height);
         let area = Rect { height, ..body };
         frame.render_widget(Clear, area);
         frame.render_widget(
-            Paragraph::new(
-                HELP.iter()
-                    .map(|line| Line::from(*line))
-                    .collect::<Vec<_>>(),
+            Paragraph::new(lines.into_iter().map(Line::from).collect::<Vec<_>>()),
+            area,
+        );
+    }
+    if let Some(menu) = &app.menu {
+        let height = (menu.entries.len() as u16 + 2).min(body.height);
+        let width = body.width.min(48);
+        let area = Rect {
+            x: body.x + (body.width - width) / 2,
+            y: body.y + (body.height - height) / 2,
+            width,
+            height,
+        };
+        let lines: Vec<Line> = menu
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, (event, action))| {
+                let line = Line::from(fit(
+                    &format!(" {event:<9} {}", action.text),
+                    usize::from(width.saturating_sub(2)),
+                ));
+                if index == menu.selected {
+                    line.style(Style::new().add_modifier(Modifier::REVERSED))
+                } else {
+                    line
+                }
+            })
+            .collect();
+        frame.render_widget(Clear, area);
+        frame.render_widget(
+            Paragraph::new(lines).block(
+                Block::new()
+                    .borders(Borders::ALL)
+                    .title(format!(" {} · Enter runs, Esc closes ", menu.title)),
             ),
             area,
         );
@@ -497,6 +548,10 @@ mod tests {
             },
             notes: crate::board::app::Notes::NotShown,
                 render: crate::config::NotesRender::Markdown,
+                bindings: crate::action::preset(true),
+                section_bindings: Vec::new(),
+                opener: None,
+                clipboard: None,
             }),
         });
         app
@@ -525,6 +580,32 @@ mod tests {
         assert_eq!(screen[5], "EVERYONE");
         assert_eq!(screen[6], "  文件-sweep working  整理安装指南");
         assert!(screen[8].starts_with("⏎ jump"));
+    }
+
+    #[test]
+    fn the_menu_and_help_show_the_selected_rows_bindings() {
+        let mut app = board(json!([
+            {"title": "Needs me", "rows": [row("auth-fix", "blocked", "rotate", json!({"note": "needs a call"}))]},
+            {"title": "Everyone", "rows": [row("docs", "working", "guide", json!({}))]}
+        ]));
+        app.selected = 1;
+        app.view.as_mut().unwrap().bindings = crate::action::preset(false);
+        app.help = true;
+        let help = draw(&app, 60, 24);
+        assert!(
+            help.iter().any(|line| line == "y           copy"),
+            "{help:#?}"
+        );
+        app.help = false;
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let screen = draw(&app, 60, 16);
+        assert!(
+            screen
+                .iter()
+                .any(|line| line.contains("docs · Enter runs, Esc closes"))
+        );
+        assert!(screen.iter().any(|line| line.contains("backspace back")));
+        assert!(draw(&App::new(None), 60, 3)[2].starts_with("/ search"));
     }
 
     #[test]
@@ -584,6 +665,10 @@ mod tests {
                 board,
                 notes,
                 render: NotesRender::Markdown,
+                bindings: crate::action::preset(true),
+                section_bindings: Vec::new(),
+                opener: None,
+                clipboard: None,
             }),
         });
         app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["fields"]["pr_link"] =

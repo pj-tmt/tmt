@@ -392,23 +392,58 @@ tables, HTML, images, code blocks and quotes appear as written. Terminal
 escapes, control characters and hidden bidi/format characters are removed
 first. Set `[squad.<name>.notes] render = "plain"` to show the text unformatted. The crew
 layout shows rows and notes side by side, pr-queue shows rows over detail, and
-minimal shows rows only. Row actions (Enter, t, r, a, o, y, n) arrive in later
-versions.
+minimal shows rows only.
 
-Some row actions also work as commands, for scripts and terminals without the
-board:
+Keys act on the selected row. Inside tmux, Enter jumps to the member's pane and
+Backspace goes back; in a plain terminal, where the board cannot show another
+pane, Enter opens a menu of the row's actions instead. `o` opens the row's link,
+`y` copies it, `n` focuses the notes pane and Tab moves to the next pane; `t`,
+`r` and `a` (talk, reply, annotate) arrive in a later version, and `?` lists
+every key. Rebind keys in `squad.toml`, for all squads or for one section's rows:
+
+```toml
+[bind]                               # over the host preset, for every squad
+enter = "open {pr_link}"
+f5    = "refresh"
+y     = "copy - [{name}]({pr_link})"
+
+[[squad.product.section]]
+title = "Needs me"
+filter = "pending"
+[squad.product.section.bind]         # over [bind], for this section's rows only
+enter = "copy {name}: {pending}"
+```
+
+A binding is `event = "action [argument]"`. Events are `enter`, `backspace`,
+`tab`, `space`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1`–`f12`,
+`ctrl-<letter>` (except `ctrl-c`) or one printable character other than the
+board's own `q`, `j`, `k`, `/` and `?`. Actions are `jump`, `back`,
+`open [{field}]`, `copy [template]`, `notes`, `refresh`, `next-pane`, `menu`,
+`talk`, `reply` and `annotate [lead|member]`. An unknown action, event or field
+syntax makes the board report the configuration error; a field that is empty
+for the selected row refuses the action with a notice and runs nothing.
+
+Some row actions also work as commands, for scripts, tmux key bindings and
+terminals without the board:
 
 ```sh
 tmt squad jump auth-fix                     # show its pane in your tmux client
+tmt squad back                              # return to where the last jump came from
 tmt squad open auth-fix                     # pr_link, else link, else another *_link
 tmt squad open auth-fix --link issue_link
 tmt squad copy auth-fix                     # "auth-fix: <task> (<state>)"
 tmt squad copy auth-fix --format '- [{name}]({pr_link})'
 ```
 
-`jump` is `tmt focus` for a squad member or the lead: run it inside tmux from a
-pane with an attached client, and return with `tmt focus <from pane>` from where
-you then are. `open` opens only http and https links, with `open` on macOS and
+`jump` is `tmt focus` for a squad member or the lead, run inside tmux. Each
+jump, from the board or the command, records where your tmux client came from;
+`back` (or Backspace on the board) returns that client there. Run `back` from
+where your client is now: the member's pane, a new popup, or a key binding such
+as `bind B run-shell "tmt squad back"`. A board left behind by its own jump no
+longer shows your client, so its Backspace cannot return it. With nothing
+recorded, `back` says so and changes nothing. The record is disposable, kept per
+tmux server and client under `$XDG_CACHE_HOME/tmt-squad` (or
+`~/.cache/tmt-squad`), at most 32 entries. `open` opens only http and https links, with `open` on macOS and
 `xdg-open` elsewhere. `--format` fills `{field}` placeholders from the row:
 `name`, `state`, `pending`, `note`, `presence`, `lifetime`, `activity`, `pane`,
 `target`, `cwd` or any squad field. An empty or missing field refuses the action

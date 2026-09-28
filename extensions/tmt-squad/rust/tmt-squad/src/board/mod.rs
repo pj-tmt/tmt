@@ -8,8 +8,12 @@ mod refresh;
 mod terminal;
 mod view;
 
-use crate::core::{Core, SquadError};
-use app::{App, Effect, Snapshot};
+use crate::{
+    back,
+    core::{Core, SquadError},
+    effects,
+};
+use app::{App, Effect, Request, Snapshot};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -57,6 +61,35 @@ fn spawn_input() -> Receiver<Event> {
     events
 }
 
+/// Carries out a resolved request. Nothing here reads the row or config.
+/// Jump and back share the plain commands' path, including the per-client
+/// back stack.
+fn execute(core: &Core, request: Request) -> Result<String, String> {
+    match request {
+        Request::Jump(member) => back::jump(core, &member)
+            .map(|(focus, warning)| match warning {
+                None => format!("Showing {member} ({}).", focus.pane),
+                Some(warning) => format!(
+                    "Showing {member} ({}); back will not return here: {warning}",
+                    focus.pane
+                ),
+            })
+            .map_err(|error| error.message),
+        Request::Back => match back::back(core) {
+            Ok(Some(focus)) => Ok(format!("Back at {}.", focus.pane)),
+            Ok(None) => Ok("Nothing to go back to.".into()),
+            Err(error) => Err(error.message),
+        },
+        Request::Open { link, opener } => {
+            effects::open(&link, opener.as_deref()).map(|()| format!("Opened {link}"))
+        }
+        Request::Copy { text, program } => {
+            effects::copy(&text, program.as_deref(), effects::tmux_socket().as_deref())
+                .map(|copied| copied.describe().to_owned())
+        }
+    }
+}
+
 /// The board loop, independent of the real terminal. It always returns within
 /// one input wait of a stop signal or a closed input, whatever the reader does.
 fn session(
@@ -65,6 +98,7 @@ fn session(
     input: &Receiver<Event>,
     results: &Receiver<Snapshot>,
     request: impl Fn(Option<String>),
+    mut act: impl FnMut(Request) -> Result<String, String>,
     mut draw: impl FnMut(&App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
     let mut refreshed = Instant::now();
@@ -76,19 +110,25 @@ fn session(
         if let Some(signal) = terminal::stop_signal(stop) {
             return Ok(Some(signal));
         }
-        match input.recv_timeout(INPUT_WAIT) {
-            Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => match app.key(key) {
-                Effect::Quit => return Ok(None),
-                Effect::Load(squad) => {
-                    request(Some(squad));
-                    refreshed = Instant::now();
-                }
-                Effect::None => {}
-            },
-            Ok(_) | Err(RecvTimeoutError::Timeout) => {}
+        let effect = match input.recv_timeout(INPUT_WAIT) {
+            Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => app.key(key),
+            Ok(_) | Err(RecvTimeoutError::Timeout) => Effect::None,
             Err(RecvTimeoutError::Disconnected) => {
                 return Ok(Some(terminal::stop_signal(stop).unwrap_or(HANGUP)));
             }
+        };
+        match effect {
+            Effect::Quit => return Ok(None),
+            Effect::Load(squad) => {
+                request(Some(squad));
+                refreshed = Instant::now();
+            }
+            Effect::Refresh => {
+                request(app.current.clone());
+                refreshed = Instant::now();
+            }
+            Effect::Act(action) => app.finished(act(action)),
+            Effect::None => {}
         }
         if refreshed.elapsed() >= REFRESH {
             request(app.current.clone());
@@ -101,7 +141,7 @@ fn session(
 pub fn run(core: Core, squad: Option<String>) -> Result<Option<i32>, SquadError> {
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
-    let worker = refresh::Worker::spawn(core);
+    let worker = refresh::Worker::spawn(core.clone(), effects::tmux_socket().is_some());
     worker.request(squad.clone());
     let mut app = App::new(squad);
     let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
@@ -113,6 +153,7 @@ pub fn run(core: Core, squad: Option<String>) -> Result<Option<i32>, SquadError>
         &input,
         &worker.results,
         |squad| worker.request(squad),
+        |request| execute(&core, request),
         |app| screen.draw(|frame| view::render(frame, app)).map(|_| ()),
     );
     // Restore first, whatever happened; then report the session's outcome.
@@ -130,6 +171,10 @@ mod tests {
         atomic::Ordering,
         mpsc::{Sender, channel},
     };
+
+    fn no_actions(request: Request) -> Result<String, String> {
+        panic!("unexpected {request:?}")
+    }
 
     fn fixture() -> (
         App,
@@ -151,12 +196,28 @@ mod tests {
             KeyModifiers::NONE,
         )))
         .unwrap();
-        let outcome = session(&mut app, &stop, &input, &results, |_| {}, |_| Ok(()));
+        let outcome = session(
+            &mut app,
+            &stop,
+            &input,
+            &results,
+            |_| {},
+            no_actions,
+            |_| Ok(()),
+        );
         assert_eq!(outcome.unwrap(), None);
 
         let (mut app, stop, _keys, input, results) = fixture();
         stop.store(signal_hook::consts::SIGTERM as usize, Ordering::Relaxed);
-        let outcome = session(&mut app, &stop, &input, &results, |_| {}, |_| Ok(()));
+        let outcome = session(
+            &mut app,
+            &stop,
+            &input,
+            &results,
+            |_| {},
+            no_actions,
+            |_| Ok(()),
+        );
         assert_eq!(outcome.unwrap(), Some(signal_hook::consts::SIGTERM));
 
         // A hung-up terminal can leave the reader spinning without events:
@@ -164,7 +225,15 @@ mod tests {
         let (mut app, stop, keys, input, results) = fixture();
         drop(keys);
         let started = Instant::now();
-        let outcome = session(&mut app, &stop, &input, &results, |_| {}, |_| Ok(()));
+        let outcome = session(
+            &mut app,
+            &stop,
+            &input,
+            &results,
+            |_| {},
+            no_actions,
+            |_| Ok(()),
+        );
         assert_eq!(outcome.unwrap(), Some(HANGUP));
         assert!(started.elapsed() < Duration::from_secs(2));
     }
@@ -178,6 +247,7 @@ mod tests {
             &input,
             &results,
             |_| {},
+            no_actions,
             |_| Err(io::Error::other("terminal gone")),
         );
         assert_eq!(outcome.unwrap_err().to_string(), "terminal gone");
@@ -193,7 +263,15 @@ mod tests {
             setter.store(signal_hook::consts::SIGHUP as usize, Ordering::Relaxed);
         });
         let started = Instant::now();
-        let outcome = session(&mut app, &stop, &input, &results, |_| {}, |_| Ok(()));
+        let outcome = session(
+            &mut app,
+            &stop,
+            &input,
+            &results,
+            |_| {},
+            no_actions,
+            |_| Ok(()),
+        );
         signaller.join().unwrap();
         assert_eq!(outcome.unwrap(), Some(signal_hook::consts::SIGHUP));
         assert!(started.elapsed() < Duration::from_secs(2));

@@ -226,10 +226,11 @@ pub fn tmux_socket() -> Option<String> {
     (!socket.is_empty()).then(|| socket.to_owned())
 }
 
-/// Where a focus went, and where it came from (for `back`).
+/// Where a focus went, where it came from, and the tmux client that moved.
 pub struct Focus {
     pub pane: String,
     pub from: Option<String>,
+    pub client: String,
 }
 
 pub fn focus(core: &Core, target: &str) -> Result<Focus, SquadError> {
@@ -240,6 +241,7 @@ pub fn focus(core: &Core, target: &str) -> Result<Focus, SquadError> {
             .unwrap_or_default()
             .to_owned(),
         from: focused["from"]["pane"].as_str().map(str::to_owned),
+        client: focused["client"].as_str().unwrap_or_default().to_owned(),
     })
 }
 

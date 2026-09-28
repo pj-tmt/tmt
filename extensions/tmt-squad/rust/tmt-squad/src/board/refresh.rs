@@ -21,7 +21,8 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn spawn(core: Core) -> Self {
+    /// `tmux` selects the host preset: whether a jump can show a pane.
+    pub fn spawn(core: Core, tmux: bool) -> Self {
         let (requests, pending) = mpsc::channel::<Option<String>>();
         let (sender, results) = mpsc::channel();
         std::thread::spawn(move || {
@@ -29,7 +30,7 @@ impl Worker {
                 while let Ok(newer) = pending.try_recv() {
                     wanted = newer;
                 }
-                if sender.send(load(&core, wanted)).is_err() {
+                if sender.send(load(&core, tmux, wanted)).is_err() {
                     break;
                 }
             }
@@ -43,7 +44,7 @@ impl Worker {
     }
 }
 
-fn load(core: &Core, wanted: Option<String>) -> Snapshot {
+fn load(core: &Core, tmux: bool, wanted: Option<String>) -> Snapshot {
     let squads = match Squad::list(core) {
         Ok(squads) => squads,
         Err(error) => {
@@ -74,13 +75,8 @@ fn load(core: &Core, wanted: Option<String>) -> Snapshot {
         let layout = config.layout(&squad.name)?;
         let states = config.states(&squad.name, layout)?;
         let board = config.board(&squad.name, layout)?;
-        let document = status::document(
-            &squad,
-            layout,
-            &states,
-            &config.sections(&squad.name)?,
-            squad.members(core)?,
-        );
+        let sections = config.sections(&squad.name)?;
+        let document = status::document(&squad, layout, &states, &sections, squad.members(core)?);
         let notes = if board.panes.contains(&Pane::Notes) {
             lead_notes(core, &document["squad"]["lead"])
         } else {
@@ -90,6 +86,10 @@ fn load(core: &Core, wanted: Option<String>) -> Snapshot {
             columns: config.columns(&squad.name)?,
             colors: states.colors,
             render: config.notes_render(&squad.name)?,
+            bindings: config.bindings(tmux)?,
+            section_bindings: sections.into_iter().map(|section| section.bind).collect(),
+            opener: config.program("opener")?,
+            clipboard: config.program("clipboard")?,
             board,
             notes,
             document,
