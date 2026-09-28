@@ -435,7 +435,7 @@ fn staging_from_an_earlier_office_schema_is_upgraded_when_published() {
     let root = verified();
     root.staging()
         .execute_batch(
-            "DROP TABLE _office_activation; DELETE FROM _office_schema WHERE version > 1;",
+            "DROP TABLE _office_activation; DROP TABLE office_retired_rooms; DELETE FROM _office_schema WHERE version > 1;",
         )
         .unwrap();
     migration::switch(&root.layout, &Service::new(false)).unwrap();
@@ -447,7 +447,7 @@ fn staging_from_an_earlier_office_schema_is_upgraded_when_published() {
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
-    assert_eq!(versions, [1, 2]);
+    assert_eq!(versions, [1, 2, 3]);
     assert_eq!(state(&root), State::Switched);
 }
 

@@ -116,6 +116,14 @@ impl OfficeStore {
         let identity_name = active_identity_name(self, identity_id)?;
         preflight_complete();
         with_immediate_transaction(self, "local Office profile", |transaction| {
+            // A retirement Office recorded after preflight blocks this write.
+            if crate::retirement::is_marked(
+                transaction,
+                crate::retirement::Marker::Identity,
+                identity_id,
+            )? {
+                return Err(LocalProfileError::IdentityInactive);
+            }
             let current = transaction.query_row(
                 "SELECT revision, profile, updated_at_ms FROM office_local_profiles WHERE identity_id = ?", [identity_id],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),

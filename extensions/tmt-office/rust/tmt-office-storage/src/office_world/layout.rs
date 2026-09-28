@@ -113,7 +113,9 @@ impl OfficeStore {
                 {
                     return Err(WorldStoreError::RevisionConflict);
                 }
-                bindings.validate(&current.layout, proposed)?;
+                bindings
+                    .with_markers(transaction)?
+                    .validate(&current.layout, proposed)?;
                 validate_props(transaction, &current.layout, proposed)?;
                 if current.revision > 0 && world_value(&current.layout) == world_value(proposed) {
                     return Ok(current);
@@ -221,6 +223,31 @@ impl Bindings {
             }
         }
         Ok(bindings)
+    }
+
+    /// Applies retirements Office recorded after preflight, read inside the
+    /// saving transaction, so a newly marked reference cannot gain an area.
+    fn with_markers(&self, connection: &Connection) -> Result<Self, StorageError> {
+        use crate::retirement::{Marker, is_marked};
+        let mut marked = Self {
+            identities: self.identities.clone(),
+            rooms: self.rooms.clone(),
+        };
+        for (id, identity) in &mut marked.identities {
+            if let Some(identity) = identity
+                && is_marked(connection, Marker::Identity, id)?
+            {
+                identity.retired = true;
+            }
+        }
+        for (id, room) in &mut marked.rooms {
+            if let Some(room) = room
+                && is_marked(connection, Marker::Room, id)?
+            {
+                room.retired = true;
+            }
+        }
+        Ok(marked)
     }
 
     fn validate(

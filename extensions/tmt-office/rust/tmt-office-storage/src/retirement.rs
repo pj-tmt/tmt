@@ -6,7 +6,10 @@
 //! marker; before the storage switch marking changes nothing, because the
 //! shared core database already records the retirement.
 
-use crate::{OfficeStore, StorageLayout};
+use crate::{
+    OfficeStore, StorageLayout,
+    core_references::{CoreIdentity, CoreReferences, CoreRoom},
+};
 use rusqlite::OptionalExtension;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tmt_adapters::{
@@ -108,4 +111,128 @@ impl RetirementFence for OfficeRetirementFence {
             .mark_retired(identity_id, now_ms)
             .map_err(|_| OfficeError::CredentialsUnavailable)
     }
+}
+
+/// Office's recorded retirements, loaded when `office.db` opens.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Markers {
+    identities: std::collections::HashSet<String>,
+    rooms: std::collections::HashSet<String>,
+}
+
+impl Markers {
+    pub(crate) fn load(connection: &rusqlite::Connection) -> rusqlite::Result<Self> {
+        let ids = |sql: &str| -> rusqlite::Result<std::collections::HashSet<String>> {
+            connection
+                .prepare(sql)?
+                .query_map([], |row| row.get(0))?
+                .collect()
+        };
+        Ok(Self {
+            identities: ids("SELECT identity_id FROM office_retired_identities")?,
+            rooms: ids("SELECT room_id FROM office_retired_rooms")?,
+        })
+    }
+}
+
+/// Core references with Office's markers applied: a marked identity or room
+/// reads as retired, never as missing, so history stays visible and no new
+/// authority is granted.
+pub(crate) struct MarkedReferences {
+    core: Box<dyn CoreReferences + Send>,
+    markers: Markers,
+}
+
+impl MarkedReferences {
+    pub(crate) fn new(core: Box<dyn CoreReferences + Send>, markers: Markers) -> Self {
+        Self { core, markers }
+    }
+}
+
+impl CoreReferences for MarkedReferences {
+    fn identity(&self, id: &str) -> Result<Option<CoreIdentity>, StorageError> {
+        Ok(self.core.identity(id)?.map(|mut identity| {
+            identity.retired |= self.markers.identities.contains(id);
+            identity
+        }))
+    }
+
+    fn active_identities(&self) -> Result<Vec<CoreIdentity>, StorageError> {
+        Ok(self
+            .core
+            .active_identities()?
+            .into_iter()
+            .filter(|identity| !self.markers.identities.contains(&identity.id))
+            .collect())
+    }
+
+    fn room(&self, id: &str) -> Result<Option<CoreRoom>, StorageError> {
+        Ok(self.core.room(id)?.map(|mut room| {
+            room.retired |= self.markers.rooms.contains(id);
+            room
+        }))
+    }
+
+    fn storage_cutover(
+        &self,
+    ) -> Result<Option<tmt_adapters::storage::StorageCutover>, StorageError> {
+        self.core.storage_cutover()
+    }
+}
+
+/// Placeholder while the store swaps its reference port; never queried.
+pub(crate) struct Unset;
+
+impl CoreReferences for Unset {
+    fn identity(&self, _: &str) -> Result<Option<CoreIdentity>, StorageError> {
+        unreachable!("replaced before use")
+    }
+    fn active_identities(&self) -> Result<Vec<CoreIdentity>, StorageError> {
+        unreachable!("replaced before use")
+    }
+    fn room(&self, _: &str) -> Result<Option<CoreRoom>, StorageError> {
+        unreachable!("replaced before use")
+    }
+    fn storage_cutover(
+        &self,
+    ) -> Result<Option<tmt_adapters::storage::StorageCutover>, StorageError> {
+        unreachable!("replaced before use")
+    }
+}
+
+/// Which marker a reference write checks inside its Office transaction.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Marker {
+    Identity,
+    Room,
+}
+
+/// Whether Office recorded this reference as retired. The shared core file
+/// before the switch has no marker tables, so it reports nothing there.
+pub(crate) fn is_marked(
+    connection: &rusqlite::Connection,
+    marker: Marker,
+    id: &str,
+) -> Result<bool, StorageError> {
+    let (table, column) = match marker {
+        Marker::Identity => ("office_retired_identities", "identity_id"),
+        Marker::Room => ("office_retired_rooms", "room_id"),
+    };
+    let present: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
+            [table],
+            |row| row.get(0),
+        )
+        .map_err(|error| classify(error, "Read Office retirement markers"))?;
+    if !present {
+        return Ok(false);
+    }
+    connection
+        .query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE {column} = ?)"),
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|error| classify(error, "Read Office retirement markers"))
 }

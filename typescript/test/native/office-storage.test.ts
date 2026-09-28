@@ -46,6 +46,20 @@ it(
         '--body',
         'Kept across the move',
       ]);
+      const bea = await runCli(sandbox, ['identity', 'create', 'Bea', '--json']);
+      expect(bea.status, bea.stdout).toBe(0);
+      const beaId = JSON.parse(bea.stdout).identity.id as string;
+      await office([
+        'board',
+        'post',
+        '--general',
+        '--identity',
+        'Bea',
+        '--title',
+        'By Bea',
+        '--body',
+        'Signed',
+      ]);
       const officeDatabase = path.join(sandbox.globalDir, 'office', 'office.db');
       const backups = path.join(sandbox.globalDir, 'backups');
 
@@ -88,7 +102,18 @@ it(
       expect(count(sandbox.database, 'office_board_entries')).toBe(retained);
 
       // The browser's local API serves the migrated rows after a restart.
+      // Retired after the move: the service reconciles before serving.
+      const retired = await runCli(sandbox, ['rm', 'Bea', '--force', '--json']);
+      expect(retired.status, retired.stdout).toBe(0);
       const started = await office(['start']);
+      const marker = new Database(officeDatabase, { readonly: true });
+      try {
+        expect(marker.prepare('SELECT identity_id FROM office_retired_identities').all()).toEqual([
+          { identity_id: beaId },
+        ]);
+      } finally {
+        marker.close();
+      }
       try {
         const url = new URL(started.url as string);
         const token = new URLSearchParams(url.hash.slice(1)).get('token');

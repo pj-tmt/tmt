@@ -40,6 +40,14 @@ impl OfficeStore {
         })?;
         let mut store = Self::with_references(&layout.database, Box::new(references))?;
         store.office_database = true;
+        crate::schema::upgrade_existing(store.connection()?)
+            .map_err(|error| classify(error, "Upgrade Office storage"))?
+            .map_err(|message| StorageError::new(StorageErrorCode::IncompatibleSchema, message))?;
+        // Point-of-use reads treat Office-recorded retirements like core's.
+        let markers = crate::retirement::Markers::load(store.connection()?)
+            .map_err(|error| classify(error, "Read Office retirement markers"))?;
+        let core = std::mem::replace(&mut store.references, Box::new(crate::retirement::Unset));
+        store.references = Box::new(crate::retirement::MarkedReferences::new(core, markers));
         Ok(store)
     }
 
@@ -101,6 +109,12 @@ impl OfficeStore {
     pub(crate) fn split(&mut self) -> Result<(&mut Connection, &dyn CoreReferences), StorageError> {
         let connection = self.connection.as_mut().ok_or_else(closed)?;
         Ok((connection, self.references.as_ref()))
+    }
+
+    /// Replaces the reference port of an opened store, for fault injection.
+    #[cfg(test)]
+    pub(crate) fn replace_references(&mut self, references: Box<dyn CoreReferences + Send>) {
+        self.references = references;
     }
 
     pub(crate) fn is_office_database(&self) -> bool {

@@ -18,6 +18,7 @@ mod office_profile;
 mod office_prop;
 mod office_whiteboard;
 mod office_world;
+pub mod reconciliation;
 pub mod retirement;
 mod schema;
 mod store;
