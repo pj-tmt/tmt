@@ -25,7 +25,7 @@ and browser editor are implemented; complete CLI cutover and acceptance remain.
 The separately versioned [private world document v1](private-world.md) is the
 direct-Firestore contract. It uses native Firestore timestamps and Rules,
 not the work-handoff HTTP/JSON envelopes below. Its actual client adapter and
-Rules are exercised together in `typescript/apps/office/e2e/world-rules.spec.ts`.
+Rules are exercised together in `extensions/tmt-office/typescript/apps/office/e2e/world-rules.spec.ts`.
 
 The [home block document v1](block-v1.md) extends that owner-only world with
 bounded, revision-checked decoration. Its vectors are shared by client and

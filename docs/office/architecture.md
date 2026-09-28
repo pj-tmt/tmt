@@ -6,7 +6,7 @@ separate proposed capabilities from implemented behavior.
 
 ## Current implementation
 
-Office is an optional React SPA under `typescript/apps/office`. Its local shell has a home
+Office is an optional React SPA under `extensions/tmt-office/typescript/apps/office`. Its local shell has a home
 route, setup explanation, unknown-route recovery and provider-local presentation
 state. Default preview does not initialize Firebase. Explicit `emulator` mode
 on loopback enables local Google-provider popup sign-in, UID display and logout
@@ -87,14 +87,14 @@ authorization. Removing tester admission clears private UI and denies subsequent
 server operations; previously disclosed content cannot be recalled. No production
 Firebase setup is implied.
 
-| Owner                                   | Responsibility                                                | Forbidden dependency                                                    |
-| --------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `typescript/apps/office`                | Browser routes, accessible views, UI state, app tests         | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
-| `typescript/services/office`            | Emulator bootstrap, Rules and trusted scoped pairing issuance | Local execution, browser imports or implicit agent authority            |
-| `contracts/office`                      | Versioned design schema and structural conformance fixtures   | Browser rendering, Firebase effects or duplicate domain policy          |
-| `rust/`                                 | Existing local CLI, domain and concrete adapters              | Office assets, Node or a Firebase account required by ordinary commands |
-| `extensions/tmt-office/rust/tmt-office` | Companion executable, embedded SPA and local HTTP service     | A second implementation of core identity, messaging or storage policy   |
-| `docs/office`                           | Definitions, scenarios and operational guidance               | Describing planned behavior as shipped                                  |
+| Owner                                              | Responsibility                                                | Forbidden dependency                                                    |
+| -------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `extensions/tmt-office/typescript/apps/office`     | Browser routes, accessible views, UI state, app tests         | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
+| `extensions/tmt-office/typescript/services/office` | Emulator bootstrap, Rules and trusted scoped pairing issuance | Local execution, browser imports or implicit agent authority            |
+| `contracts/office`                                 | Versioned design schema and structural conformance fixtures   | Browser rendering, Firebase effects or duplicate domain policy          |
+| `rust/`                                            | Existing local CLI, domain and concrete adapters              | Office assets, Node or a Firebase account required by ordinary commands |
+| `extensions/tmt-office/rust/tmt-office`            | Companion executable, embedded SPA and local HTTP service     | A second implementation of core identity, messaging or storage policy   |
+| `docs/office`                                      | Definitions, scenarios and operational guidance               | Describing planned behavior as shipped                                  |
 
 ### Offline local service
 
@@ -844,7 +844,7 @@ for paging consistency and limitations.
 
 ### Trusted pairing issuer
 
-`typescript/services/office/functions` is a separate Node 22 Functions package, not a CLI
+`extensions/tmt-office/typescript/services/office/functions` is a separate Node 22 Functions package, not a CLI
 runtime or SPA dependency. Official Admin/Functions SDKs own token verification,
 signing, Firestore transactions and HTTP platform integration; no custom JWT or
 database client is introduced. Its [pairing contract](../../contracts/office/pairing-v1.md)
@@ -972,7 +972,7 @@ or automatic federation. No cloud provisioning, billing or deployment occurs her
 | Unmount and start another app         | Disclosure resets; no global/persisted UI state               |
 
 DOM tests use the real router, with focused session lifecycle tests beside the
-owner. Playwright under `typescript/apps/office/e2e` proves real Chromium/SDK/Auth Emulator
+owner. Playwright under `extensions/tmt-office/typescript/apps/office/e2e` proves real Chromium/SDK/Auth Emulator
 popup flow, cancellation, transport failure, memory isolation and default-preview
 network inactivity. Its opt-in Docker target extends the existing emulator image;
 it does not duplicate emulator pins or use the native tmux harness. Upstream

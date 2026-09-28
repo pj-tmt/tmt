@@ -15,8 +15,8 @@ COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE ./
 COPY docs/NATIVE-INSTALL.md docs/NATIVE-INSTALL.md
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
-COPY typescript/apps/office/package.json typescript/apps/office/package.json
-COPY typescript/apps/office/ typescript/apps/office/
+COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
+COPY extensions/tmt-office/typescript/apps/office/ extensions/tmt-office/typescript/apps/office/
 COPY contracts/ contracts/
 RUN cd rust && cargo fetch --locked
 RUN scripts/build-native-artifact.sh "$TARGET_TRIPLE" "$PRODUCT" > native-manifest.json
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y binutils \
 RUN npm install --global pnpm@10.33.0
 WORKDIR /verification
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
-COPY typescript/apps/office/package.json typescript/apps/office/package.json
+COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
 RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile --ignore-scripts
 COPY typescript/scripts/native-artifact-policy.mjs typescript/scripts/verify-native-artifact.mjs typescript/scripts/verify-native-installation.mjs typescript/scripts/packed-command.mjs typescript/scripts/
 COPY typescript/scripts/native-runtime-proof.mjs typescript/scripts/

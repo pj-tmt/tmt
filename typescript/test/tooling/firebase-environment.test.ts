@@ -11,25 +11,25 @@ describe('Firebase configuration isolation', () => {
   it('ignores local settings and secrets but keeps shared setup trackable', () => {
     const ignored = [
       '.firebaserc',
-      'typescript/services/office/.firebaserc',
-      'typescript/services/office/.env.local',
-      'typescript/apps/office/.env.production',
-      'typescript/services/office/.firebase/cache.json',
-      'typescript/services/office/.firebase-local/export/data.json',
-      'typescript/services/office/.secrets/arbitrary-name.json',
-      'typescript/services/office/project-firebase-adminsdk-fixture.json',
-      'typescript/services/office/service-account.json',
-      'typescript/services/office/application_default_credentials.json',
-      'typescript/services/office/private.pem',
-      'typescript/services/office/private.key',
+      'extensions/tmt-office/typescript/services/office/.firebaserc',
+      'extensions/tmt-office/typescript/services/office/.env.local',
+      'extensions/tmt-office/typescript/apps/office/.env.production',
+      'extensions/tmt-office/typescript/services/office/.firebase/cache.json',
+      'extensions/tmt-office/typescript/services/office/.firebase-local/export/data.json',
+      'extensions/tmt-office/typescript/services/office/.secrets/arbitrary-name.json',
+      'extensions/tmt-office/typescript/services/office/project-firebase-adminsdk-fixture.json',
+      'extensions/tmt-office/typescript/services/office/service-account.json',
+      'extensions/tmt-office/typescript/services/office/application_default_credentials.json',
+      'extensions/tmt-office/typescript/services/office/private.pem',
+      'extensions/tmt-office/typescript/services/office/private.key',
     ];
     const shared = [
-      'typescript/services/office/.firebaserc.example',
-      'typescript/services/office/.env.example',
-      'typescript/services/office/firebase.json',
-      'typescript/services/office/firestore.rules',
-      'typescript/services/office/compose.yaml',
-      'typescript/services/office/Dockerfile',
+      'extensions/tmt-office/typescript/services/office/.firebaserc.example',
+      'extensions/tmt-office/typescript/services/office/.env.example',
+      'extensions/tmt-office/typescript/services/office/firebase.json',
+      'extensions/tmt-office/typescript/services/office/firestore.rules',
+      'extensions/tmt-office/typescript/services/office/compose.yaml',
+      'extensions/tmt-office/typescript/services/office/Dockerfile',
     ];
     // Test only the versioned rules; local/global excludes could mask a missing
     // rule in the developer checkout and produce a false pass.
@@ -62,11 +62,23 @@ describe('Firebase configuration isolation', () => {
 
   it('keeps owner mapping opt-in with no real-project default in the shared template', () => {
     const template = JSON.parse(
-      readFileSync(new URL('../../services/office/.firebaserc.example', import.meta.url), 'utf8')
+      readFileSync(
+        new URL(
+          '../../../extensions/tmt-office/typescript/services/office/.firebaserc.example',
+          import.meta.url
+        ),
+        'utf8'
+      )
     );
     expect(template).toEqual({ projects: { owner: 'replace-with-your-project-id' } });
     const config = JSON.parse(
-      readFileSync(new URL('../../services/office/firebase.json', import.meta.url), 'utf8')
+      readFileSync(
+        new URL(
+          '../../../extensions/tmt-office/typescript/services/office/firebase.json',
+          import.meta.url
+        ),
+        'utf8'
+      )
     );
     expect(Object.keys(config.emulators).sort()).toEqual([
       'auth',

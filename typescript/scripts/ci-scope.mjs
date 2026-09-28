@@ -9,7 +9,7 @@ export function selectCiAreas(paths) {
   for (const path of paths) {
     if (
       path.startsWith('apps/office/') ||
-      path.startsWith('typescript/apps/office/') ||
+      path.startsWith('extensions/tmt-office/typescript/apps/office/') ||
       path.startsWith('docs/office/')
     ) {
       selected.office = true;

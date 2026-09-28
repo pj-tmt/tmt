@@ -1,7 +1,7 @@
 # Architecture
 
 The shipped CLI runtime is the Rust workspace in `rust/`. An optional Office
-SPA foundation lives in `typescript/apps/office`; it is not a CLI fallback or a
+SPA foundation lives in `extensions/tmt-office/typescript/apps/office`; it is not a CLI fallback or a
 shipped connector. The nested `typescript` pnpm workspace owns Vitest, fixture
 and release-verification tooling; the repository root has no Node package. Nx
 orchestrates explicit Rust and TypeScript targets through the pinned non-JavaScript
@@ -27,6 +27,10 @@ of native schema and application state.
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
 the `@tmt/office` SPA, and the `@tmt/office-service` trusted pairing service.
+The two Office packages live under `extensions/tmt-office/typescript` as
+parent-relative members of that same workspace and lockfile. They resolve only
+their declared dependencies, never root-hoisted tooling packages; Office browser
+specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. The Nx task graph orders only the Office SPA producer, embedded
 native companion and installed-browser acceptance chain; ordinary CLI targets
@@ -537,7 +541,7 @@ The detailed lifecycle and verification map lives only in
 [Office architecture](docs/office/architecture.md); exact persisted data belongs
 in [Office contracts](contracts/office/README.md).
 
-`typescript/services/office` owns isolated emulator infrastructure, Rules and the trusted
+`extensions/tmt-office/typescript/services/office` owns isolated emulator infrastructure, Rules and the trusted
 pairing issuer under `functions/`, not a deployed backend. Admin operations
 bypass Rules: the issuer explicitly checks verified human authentication, live
 admission, ownership and grant authority in its transaction owner. Signing stays

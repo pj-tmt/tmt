@@ -116,7 +116,7 @@ by these Rules:
 
 ## Verification ownership
 
-`typescript/apps/office/e2e/agent-grant-rules.spec.ts` uses real custom-auth emulator tokens,
+`extensions/tmt-office/typescript/apps/office/e2e/agent-grant-rules.spec.ts` uses real custom-auth emulator tokens,
 direct SDK requests and independent operator fixtures. It proves scoped writes,
 full layout bounds, cross-principal/world/capability denial, claim mismatch,
 malformed/expired grants, one-way revocation and retained content. Existing block

@@ -9,7 +9,7 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 
 - Write repository content in English. Use rustfmt for Rust and the nested
   `typescript` Prettier/strict TypeScript configuration for developer tooling and Oxfmt
-  for `typescript/apps/office`; run checks
+  for `extensions/tmt-office/typescript/apps/office`; run checks
   rather than restyling unrelated files.
 - Rust uses snake_case modules and owner-local tests. Node tooling uses
   kebab-case files, `<module>.test.ts` tests and `.e2e.test.ts` integration scenarios.
@@ -62,7 +62,7 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 ## Dependencies and refactoring
 
 Office is a React SPA, not a second CLI runtime. Keep routes, view components
-and UI state under `typescript/apps/office/src`, with behavioral tests beside the owner.
+and UI state under `extensions/tmt-office/typescript/apps/office/src`, with behavioral tests beside the owner.
 Use TanStack Router for navigation and Jotai for shared cross-view presentation
 state; component-local forms and selection may use React state.
 Do not parse URLs or invent an application-wide store in view components.
