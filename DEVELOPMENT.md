@@ -73,6 +73,15 @@ Its contract is owned by [architecture](ARCHITECTURE.md#local-extension-api-v1).
 
 ## Office SPA
 
+Office native data contracts and codecs are in
+`extensions/tmt-office/rust/tmt-office-model`, a member of the `rust/` workspace.
+Use `cargo test --manifest-path rust/Cargo.toml -p tmt-office-model` for pure
+admission/vector checks, and the affected adapter tests for file/storage behavior.
+After changing these boundaries, run `cargo test --manifest-path rust/Cargo.toml
+-p tmt-cli --test architecture`; the guard checks actual workspace dependencies
+and the retained Office consumer inventory. Full isolated verification still
+covers the runtime consumers; pure model tests do not replace it.
+
 The optional app uses React, Vite, TanStack Router and Jotai. Read
 [Office architecture](docs/office/architecture.md) before changing its boundaries.
 From the repository root:

@@ -2,7 +2,7 @@ use super::super::test_fixture::HttpFixture as Fixture;
 use super::super::tests::{parse_wire, response_value, test_receipt};
 use super::*;
 use serde_json::{Value, json};
-use tmt_adapters::office_whiteboard::document::SAVE_INPUT_LIMIT;
+use tmt_office_model::codec::office_whiteboard::document::SAVE_INPUT_LIMIT;
 
 mod snapshots;
 

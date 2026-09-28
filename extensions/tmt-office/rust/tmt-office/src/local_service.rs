@@ -12,20 +12,24 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    config::ConfigPaths,
-    office_avatar::{ValidatedAvatarPack, validate_pack as validate_avatar_pack},
-    office_profile::{
-        mutation_value as local_profile_mutation, snapshot_value as local_profile_snapshot,
-    },
-    office_profile_wire,
-    office_prop::{PACK_INPUT_LIMIT, ValidatedPropPack, validate_pack as validate_prop_pack},
-    office_service::{self, ServiceReceipt},
-    storage::{LocalProfileError, Storage},
-    tmux::{BindingSession, CallerEnvironment, Tmux},
-};
+use tmt_adapters::config::ConfigPaths;
+use tmt_adapters::office_profile::mutation_value as local_profile_mutation;
+use tmt_adapters::office_profile::snapshot_value as local_profile_snapshot;
+use tmt_adapters::office_service;
+use tmt_adapters::office_service::ServiceReceipt;
+use tmt_adapters::storage::LocalProfileError;
+use tmt_adapters::storage::Storage;
+use tmt_adapters::tmux::BindingSession;
+use tmt_adapters::tmux::CallerEnvironment;
+use tmt_adapters::tmux::Tmux;
 use tmt_core::binding;
-use tmt_core::office_protocol::OfficeInvocation;
+use tmt_office_model::codec::office_avatar::ValidatedAvatarPack;
+use tmt_office_model::codec::office_avatar::validate_pack as validate_avatar_pack;
+use tmt_office_model::codec::office_profile_wire;
+use tmt_office_model::codec::office_prop::PACK_INPUT_LIMIT;
+use tmt_office_model::codec::office_prop::ValidatedPropPack;
+use tmt_office_model::codec::office_prop::validate_pack as validate_prop_pack;
+use tmt_office_model::office_protocol::OfficeInvocation;
 
 use crate::local_assets;
 
@@ -45,7 +49,7 @@ const PREVIEW_LIMIT: usize = 4;
 const PREVIEW_LIFETIME: Duration = Duration::from_secs(5 * 60);
 // Preserve the retained-catalog envelope and reserve one maximum bundled pack.
 const AVATAR_CATALOG_OUTPUT_LIMIT: usize =
-    256 * 1024 + tmt_adapters::office_avatar::PACK_INPUT_LIMIT;
+    256 * 1024 + tmt_office_model::codec::office_avatar::PACK_INPUT_LIMIT;
 const MAX_CONNECTIONS: usize = 16;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(3);
 const RESPONSE_DEADLINE: Duration = Duration::from_secs(15);
@@ -522,10 +526,9 @@ fn api(
         };
         let unique = input.digests.iter().collect::<HashSet<_>>();
         if unique.len() != input.digests.len()
-            || input
-                .digests
-                .iter()
-                .any(|digest| tmt_adapters::office_prop::parse_pack_digest(digest).is_none())
+            || input.digests.iter().any(|digest| {
+                tmt_office_model::codec::office_prop::parse_pack_digest(digest).is_none()
+            })
         {
             return response(
                 stream,
@@ -653,7 +656,10 @@ fn avatar_catalog_api(stream: &mut TcpStream, paths: &ConfigPaths) -> io::Result
             page.packs
                 .into_iter()
                 .filter(|snapshot| {
-                    tmt_adapters::office_avatar::builtin_by_digest(snapshot.pack.digest()).is_none()
+                    tmt_office_model::codec::office_avatar::builtin_by_digest(
+                        snapshot.pack.digest(),
+                    )
+                    .is_none()
                 })
                 .map(
                     |snapshot| json!({"digest":snapshot.pack.digest(),"pack":snapshot.pack.pack()}),
@@ -806,7 +812,7 @@ fn profile_api(
                 br#"{"error":"ORIGIN_REJECTED"}"#,
             );
         }
-        if request.body.len() > tmt_core::office_profile::MAX_PROFILE_FILE_BYTES {
+        if request.body.len() > tmt_office_model::office_profile::MAX_PROFILE_FILE_BYTES {
             return response(
                 stream,
                 400,
@@ -825,7 +831,7 @@ fn profile_api(
                 );
             }
         };
-        if input.expected_revision > tmt_core::office_profile::MAX_REVISION {
+        if input.expected_revision > tmt_office_model::office_profile::MAX_REVISION {
             return response(
                 stream,
                 400,
@@ -1069,7 +1075,7 @@ fn read_request(stream: &mut TcpStream, deadline: Instant) -> io::Result<Request
     let body_limit = if method == "POST" && path == "/control/v1/prop-previews" {
         PACK_INPUT_LIMIT
     } else if method == "POST" && path == "/control/v1/avatar-previews" {
-        tmt_adapters::office_avatar::PACK_INPUT_LIMIT
+        tmt_office_model::codec::office_avatar::PACK_INPUT_LIMIT
     } else if let Some(limit) = whiteboard::input_limit(&method, &path) {
         limit
     } else if method == "POST" && path == dispatch::PATH {
@@ -1264,14 +1270,14 @@ mod tests {
         assert!(
             parse_wire(wire_with_body(
                 "/control/v1/avatar-previews",
-                tmt_adapters::office_avatar::PACK_INPUT_LIMIT
+                tmt_office_model::codec::office_avatar::PACK_INPUT_LIMIT
             ))
             .is_ok()
         );
         assert!(
             parse_wire(wire_with_body(
                 "/control/v1/avatar-previews",
-                tmt_adapters::office_avatar::PACK_INPUT_LIMIT + 1
+                tmt_office_model::codec::office_avatar::PACK_INPUT_LIMIT + 1
             ))
             .is_err()
         );

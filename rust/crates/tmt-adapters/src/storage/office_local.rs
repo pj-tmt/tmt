@@ -1,11 +1,11 @@
 //! Installation-owned Office data stored beside the existing identity repository.
 
 use rusqlite::{OptionalExtension, params};
-use tmt_core::office_block::{
+use tmt_office_model::office_block::{
     BlockLayout, LocalBlockLayout, LocalBlockTarget, MAX_REVISION, PropPlacement,
 };
 
-use crate::office_prop::parse_prop_reference;
+use tmt_office_model::codec::office_prop::parse_prop_reference;
 
 use super::{
     Storage, StorageError, StorageErrorCode,
@@ -166,8 +166,10 @@ impl Storage {
         with_immediate_transaction(self, "local Office block", |transaction| {
             let label = target_label(transaction, target)?;
             let current = read_block(transaction, target)?;
-            let encoded = serde_json::to_string(&crate::office_block::local_layout_value(layout))
-                .map_err(|error| {
+            let encoded = serde_json::to_string(
+                &tmt_office_model::codec::office_block::local_layout_value(layout),
+            )
+            .map_err(|error| {
                 StorageError::new(
                     StorageErrorCode::Unknown,
                     "Encode local Office layout failed",
@@ -175,7 +177,7 @@ impl Storage {
                 .caused_by(error)
             })?;
             let now = current_time_ms()?;
-            if encoded.len() > tmt_core::office_block::STORED_LAYOUT_LIMIT {
+            if encoded.len() > tmt_office_model::office_block::STORED_LAYOUT_LIMIT {
                 return Err(LocalOfficeError::LayoutInvalid);
             }
             let mut resolver = LocalPropResolver::new(transaction);
@@ -308,7 +310,7 @@ fn snapshot(
     stored: Option<StoredBlock>,
 ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
     let Some((block_id, revision, layout, updated_at_ms)) = stored else {
-        let layout = crate::office_block::default_local_layout(target);
+        let layout = tmt_office_model::codec::office_block::default_local_layout(target);
         let resolutions = resolve_layout(&layout, resolver)?;
         return Ok(LocalBlockSnapshot {
             target: target.clone(),
@@ -347,7 +349,7 @@ pub(super) fn decode_layout(value: &str) -> Result<LocalBlockLayout, LocalOffice
             .map(|layout| LocalBlockLayout::from_legacy(&layout))
             .map_err(|_| LocalOfficeError::StoredLayoutInvalid);
     }
-    crate::office_block::decode_local_layout(value.as_bytes())
+    tmt_office_model::codec::office_block::decode_local_layout(value.as_bytes())
         .map_err(|_| LocalOfficeError::StoredLayoutInvalid)
 }
 
@@ -461,8 +463,9 @@ fn current_time_ms() -> Result<u64, LocalOfficeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{office_prop::validate_pack, test_support::TestDirectory};
-    use tmt_core::office_block::{Furniture, FurnitureAsset};
+    use crate::test_support::TestDirectory;
+    use tmt_office_model::codec::office_prop::validate_pack;
+    use tmt_office_model::office_block::{Furniture, FurnitureAsset};
 
     fn insert_identity(storage: &Storage, id: &str, name: &str, lifetime: &str) {
         storage
@@ -585,7 +588,7 @@ mod tests {
 
     #[test]
     fn customized_layouts_preserve_capacity_and_unavailable_occurrences_across_restart() {
-        use tmt_core::office_block::PropCustomization;
+        use tmt_office_model::office_block::PropCustomization;
         let directory = TestDirectory::new();
         let path = directory.path.join("state.db");
         let mut storage = Storage::open(&path).unwrap();
@@ -616,10 +619,12 @@ mod tests {
             }),
         };
         let layout = LocalBlockLayout::new(vec![item; 16]).unwrap();
-        let encoded =
-            serde_json::to_vec(&crate::office_block::local_layout_value(&layout)).unwrap();
+        let encoded = serde_json::to_vec(
+            &tmt_office_model::codec::office_block::local_layout_value(&layout),
+        )
+        .unwrap();
         assert!(encoded.len() > 4096);
-        assert!(encoded.len() <= tmt_core::office_block::STORED_LAYOUT_LIMIT);
+        assert!(encoded.len() <= tmt_office_model::office_block::STORED_LAYOUT_LIMIT);
         let target = LocalBlockTarget::Lobby;
         let saved = storage.apply_local_block(&target, 0, &layout).unwrap();
         assert_eq!(saved.revision, 1);
@@ -683,7 +688,7 @@ mod tests {
         )
         .objects()
         .to_vec();
-        layout[0].customization = Some(tmt_core::office_block::PropCustomization {
+        layout[0].customization = Some(tmt_office_model::office_block::PropCustomization {
             tint: Some("#123456".into()),
             text: None,
         });

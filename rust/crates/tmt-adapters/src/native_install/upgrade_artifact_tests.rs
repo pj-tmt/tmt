@@ -1,14 +1,14 @@
 use super::*;
+use crate::native_install::artifact;
+use crate::native_install::publication::Layout;
 use crate::native_install::{InstallRequest, install_observed};
-use crate::{
-    content_digest::sha256,
-    native_install::{artifact, publication::Layout},
-    process::{
-        CommandError, CommandFailure, CommandOutput, CommandRequest, CommandRunner,
-        UnixCommandRunner,
-    },
-    test_support::TestDirectory,
-};
+use crate::process::CommandError;
+use crate::process::CommandFailure;
+use crate::process::CommandOutput;
+use crate::process::CommandRequest;
+use crate::process::CommandRunner;
+use crate::process::UnixCommandRunner;
+use crate::test_support::TestDirectory;
 use serde_json::{Value, json};
 use std::{
     env,
@@ -18,6 +18,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+use tmt_core::content_digest::sha256;
 use tmt_core::native_install::{Channel, PinAction};
 
 const TASK_ROOT: &str = "TMT_UPGRADE_TASK";

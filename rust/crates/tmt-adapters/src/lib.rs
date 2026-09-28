@@ -6,7 +6,6 @@ pub mod api;
 #[cfg(unix)]
 pub mod bounded_file;
 pub mod config;
-mod content_digest;
 #[cfg(unix)]
 pub mod delivery;
 pub mod dispatch;
@@ -15,11 +14,9 @@ pub mod extension_command;
 #[cfg(unix)]
 mod file_lock;
 pub mod identity_status;
-mod indexed_art;
 #[cfg(unix)]
 pub mod interrupt;
 mod json_document;
-mod json_integer;
 #[cfg(unix)]
 pub mod native_install;
 #[cfg(unix)]
@@ -33,16 +30,12 @@ pub mod office_board;
 pub mod office_companion;
 #[cfg(feature = "office")]
 pub mod office_deployment;
-#[cfg(unix)]
-pub mod office_extension;
 #[cfg(feature = "office")]
 mod office_http;
-pub mod office_map;
 #[cfg(feature = "office")]
 pub mod office_pairing;
 #[cfg(unix)]
 pub mod office_profile;
-pub mod office_profile_wire;
 #[cfg(unix)]
 pub mod office_prop;
 #[cfg(unix)]

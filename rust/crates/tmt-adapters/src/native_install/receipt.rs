@@ -102,7 +102,7 @@ impl Receipt {
             ));
         }
         if value.get("pinned_version").is_none()
-            || !crate::content_digest::is_sha256(text("archive_sha256")?)
+            || !tmt_core::content_digest::is_sha256(text("archive_sha256")?)
         {
             return Err(invalid("Native receipt digest or pin metadata is invalid."));
         }
@@ -139,7 +139,7 @@ impl Receipt {
                 .ok_or_else(|| invalid("Invalid native release provenance."))?;
             let manifest_sha256 = source["manifest_sha256"]
                 .as_str()
-                .filter(|hash| crate::content_digest::is_sha256(hash))
+                .filter(|hash| tmt_core::content_digest::is_sha256(hash))
                 .ok_or_else(|| invalid("Invalid native release provenance."))?
                 .into();
             Some(GitHubProvenance {

@@ -1,15 +1,15 @@
 //! Exact snapshot replies over the existing verified companion process owner.
 
-use crate::office_whiteboard::{
-    image::{SNAPSHOT_PNG_LIMIT, validate_image_response},
-    snapshot::{SNAPSHOT_OUTPUT_LIMIT, decode_snapshot},
-};
 use serde::Deserialize;
 use std::{io, path::Path, time::Instant};
-use tmt_core::{
-    office_protocol::{OfficeError, OfficeInvocation},
-    office_whiteboard::snapshot::{WhiteboardSnapshot, resolve_snapshot_reference},
-};
+use tmt_office_model::codec::office_whiteboard::image::SNAPSHOT_PNG_LIMIT;
+use tmt_office_model::codec::office_whiteboard::image::validate_image_response;
+use tmt_office_model::codec::office_whiteboard::snapshot::SNAPSHOT_OUTPUT_LIMIT;
+use tmt_office_model::codec::office_whiteboard::snapshot::decode_snapshot;
+use tmt_office_model::office_protocol::OfficeError;
+use tmt_office_model::office_protocol::OfficeInvocation;
+use tmt_office_model::office_whiteboard::snapshot::WhiteboardSnapshot;
+use tmt_office_model::office_whiteboard::snapshot::resolve_snapshot_reference;
 
 pub enum SnapshotResource {
     Scene(WhiteboardSnapshot),
@@ -88,11 +88,12 @@ fn decode_reply(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::office_whiteboard::{
-        image::{decode_snapshot_image, test_support},
-        snapshot::encode_snapshot,
+    use crate::office_whiteboard::image_tests::test_support;
+    use tmt_office_model::codec::office_whiteboard::image::decode_snapshot_image;
+    use tmt_office_model::codec::office_whiteboard::snapshot::encode_snapshot;
+    use tmt_office_model::office_whiteboard::{
+        document::empty_document, snapshot::WhiteboardSnapshot,
     };
-    use tmt_core::office_whiteboard::{document::empty_document, snapshot::WhiteboardSnapshot};
 
     #[test]
     fn reply_rejects_wrong_resources_unknown_errors_and_invalid_images() {

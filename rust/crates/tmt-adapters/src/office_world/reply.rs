@@ -1,16 +1,16 @@
 //! Shared public diagnostics and strict companion response admission.
 
-use super::{WORLD_REPLY_LIMIT, WorldCodecError, WorldDocument, admit_world};
-use crate::{
-    json_integer::whole,
-    storage::{LocalWorldSnapshot, WorldStoreError},
-};
+use crate::storage::LocalWorldSnapshot;
+use crate::storage::WorldStoreError;
 use serde::{Deserialize, Serialize};
-use tmt_core::{
-    dispatch::canonical_id,
-    limits::MAX_JS_SAFE_INTEGER,
-    office_world::{PlacementError, WorldError},
+use tmt_core::dispatch::canonical_id;
+use tmt_core::limits::MAX_JS_SAFE_INTEGER;
+use tmt_office_model::codec::office_world::{
+    WORLD_REPLY_LIMIT, WorldCodecError, WorldDocument, admit_world,
 };
+use tmt_office_model::json_integer::whole;
+use tmt_office_model::office_world::PlacementError;
+use tmt_office_model::office_world::WorldError;
 
 #[cfg(test)]
 mod tests;
@@ -184,7 +184,7 @@ pub fn decode_reply(
     if let Ok(error) = serde_json::from_slice::<WorldFailure>(bytes) {
         if error.message.as_ref().is_some_and(|text| text.len() > 1024)
             || error.issues.as_ref().is_some_and(|issues| {
-                issues.len() > tmt_core::office_world::MAX_OBJECTS
+                issues.len() > tmt_office_model::office_world::MAX_OBJECTS
                     || issues
                         .iter()
                         .any(|issue| issue.object_id.as_ref().is_some_and(|id| !canonical_id(id)))
@@ -208,7 +208,7 @@ pub fn decode_reply(
         || snapshot
             .legacy_basis
             .as_ref()
-            .is_some_and(|basis| !crate::content_digest::is_sha256(basis))
+            .is_some_and(|basis| !tmt_core::content_digest::is_sha256(basis))
     {
         return Err(WorldCodecError::InvalidJson);
     }

@@ -1,6 +1,6 @@
 use super::*;
 use crate::test_support::TestDirectory;
-use tmt_core::office_whiteboard::document::SaveDocument;
+use tmt_office_model::office_whiteboard::document::SaveDocument;
 
 const SAVE: &str = "11111111-1111-4111-8111-111111111111";
 pub(super) const CAPTURE: &str = "22222222-2222-4222-8222-222222222222";
@@ -82,7 +82,7 @@ fn snapshot_retains_original_content_and_replays_after_live_edits_and_reopen() {
     assert_eq!(storage.capture_whiteboard(&request, 400).unwrap(), snapshot);
     assert_eq!(counts(&storage), (1, 1, 2, 0));
     let output: serde_json::Value = serde_json::from_slice(
-        &crate::office_whiteboard::snapshot::encode_snapshot(&snapshot).unwrap(),
+        &tmt_office_model::codec::office_whiteboard::snapshot::encode_snapshot(&snapshot).unwrap(),
     )
     .unwrap();
     assert_eq!(output["documentRevision"], 1);

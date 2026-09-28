@@ -1,16 +1,15 @@
 //! Read-only companion access to the same retained resources served by HTTP.
 
-use super::snapshot::encode_snapshot;
 use crate::{
     config::ConfigPaths,
     storage::{Storage, WhiteboardStoreError},
 };
 use serde::Deserialize;
 use std::path::Path;
-use tmt_core::{
-    office_protocol::{OfficeError, OfficeInvocation},
-    office_whiteboard::snapshot::valid_snapshot_id,
-};
+use tmt_office_model::codec::office_whiteboard::snapshot::encode_snapshot;
+use tmt_office_model::office_protocol::OfficeError;
+use tmt_office_model::office_protocol::OfficeInvocation;
+use tmt_office_model::office_whiteboard::snapshot::valid_snapshot_id;
 
 pub const READ_INPUT_LIMIT: usize = 4096;
 

@@ -2,18 +2,22 @@
 
 use super::{Request, require_content_origin, require_json_origin, response};
 use std::{io, net::TcpStream};
-use tmt_adapters::{
-    config::ConfigPaths,
-    office_service::ServiceReceipt,
-    office_whiteboard::{
-        document::{SAVE_INPUT_LIMIT, decode_save, encode_document, encode_receipt},
-        image::{SNAPSHOT_PNG_LIMIT, ValidatedSnapshotImage, decode_snapshot_image},
-        snapshot::{CAPTURE_INPUT_LIMIT, decode_capture, encode_snapshot},
-    },
-    request_runtime::wall_time_ms,
-    storage::{Storage, WhiteboardStoreError},
-};
-use tmt_core::office_whiteboard::{
+use tmt_adapters::config::ConfigPaths;
+use tmt_adapters::office_service::ServiceReceipt;
+use tmt_adapters::request_runtime::wall_time_ms;
+use tmt_adapters::storage::Storage;
+use tmt_adapters::storage::WhiteboardStoreError;
+use tmt_office_model::codec::office_whiteboard::document::SAVE_INPUT_LIMIT;
+use tmt_office_model::codec::office_whiteboard::document::decode_save;
+use tmt_office_model::codec::office_whiteboard::document::encode_document;
+use tmt_office_model::codec::office_whiteboard::document::encode_receipt;
+use tmt_office_model::codec::office_whiteboard::image::SNAPSHOT_PNG_LIMIT;
+use tmt_office_model::codec::office_whiteboard::image::ValidatedSnapshotImage;
+use tmt_office_model::codec::office_whiteboard::image::decode_snapshot_image;
+use tmt_office_model::codec::office_whiteboard::snapshot::CAPTURE_INPUT_LIMIT;
+use tmt_office_model::codec::office_whiteboard::snapshot::decode_capture;
+use tmt_office_model::codec::office_whiteboard::snapshot::encode_snapshot;
+use tmt_office_model::office_whiteboard::{
     document::{DocumentError, SaveDocument, SaveReceipt, WhiteboardDocument, valid_document_id},
     snapshot::{CaptureWhiteboard, WhiteboardSnapshot, valid_snapshot_id},
 };

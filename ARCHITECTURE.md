@@ -50,8 +50,8 @@ operations retain their original owner until resolved. Closing a panel is not a
 document switch or disposal.
 The local [whiteboard scene contract](contracts/office/whiteboard-v1.md) keeps
 drawing values separate from World placement, request delivery and resource storage.
-Pure scene policy belongs to `tmt-core::office_whiteboard`, its strict JSON boundary
-to `tmt-adapters::office_whiteboard`, and the matching browser projection to
+Pure scene policy belongs to `tmt-office-model::office_whiteboard`, its strict JSON boundary
+to `tmt-office-model::codec::office_whiteboard`, and the matching browser projection to
 `whiteboard/scene-contract.ts`; literal vectors cover both projections.
 Document revision policy lives in its core `document` module, envelope admission
 in the adapter, and atomic document/operation persistence in
@@ -178,7 +178,7 @@ Scoped delivery and spatial integration are defined
 in [rooms and walls](contracts/office/rooms-and-walls.md), not implemented by roster
 commands alone.
 The local [map v1 foundation](contracts/office/map-v1.md) separates topology from
-resource contents. `tmt-core::office_map` owns native admission and derived walls.
+resource contents. `tmt-office-model::office_map` owns native admission and derived walls.
 Its `modules` owner projects fixed room slots and circulation into that same
 admission boundary. [Versioned modular topology](contracts/office/modules-v2.md) stores
 the module source only; the admitted map's immutable floor/edge projection is
@@ -265,7 +265,7 @@ the initializer does not create wall-mounted lights, windows or decorations.
 floor projection and portal presentation. Two physical thresholds remain in the
 admitted map; v2 rendering paints one frame per short passage. V3 corridors
 separate the physical thresholds and expose their shared floor.
-`tmt-adapters::office_map` owns its strict codec. Browser `world-map` owns bounded
+`tmt-office-model::codec::office_map` owns its strict codec. Browser `world-map` owns bounded
 draft editing and disposable rendering projection, not save authority. Literal
 vectors cover shared geometry and intentional draft/admission differences.
 Browser `rendering/world-projection` separates saved ground coordinates from
@@ -313,7 +313,7 @@ projections. `use-world-editor` retains the existing serialized JSON/CAS persist
 and pauses on conflicts; Yjs adds no provider, remote authority or second database.
 See [Office architecture](docs/office/architecture.md) for history lifecycle and limits.
 The [world value foundation](contracts/office/world-v1.md) composes that map with
-stable placement IDs. `tmt-core::office_world` validates floor/wall support,
+stable placement IDs. `tmt-office-model::office_world` validates floor/wall support,
 door clearance and window exclusions over the map index. Shared prop appearance
 admission is independent of the legacy 32x32 bounds; signed positions support
 world coordinates without loosening legacy block validity. The world adapter
@@ -394,8 +394,8 @@ assignment registry or permission mutation. Rules and the trusted issuer
 enforce authority; views never grant it. Remote snapshots have one owner, separate
 from unsaved drafts and ephemeral
 presentation state. No stored markup executes and no parallel layout is stored.
-Native decoration uses `tmt-core::office_block` for pure layout validation and
-codec conformance, `tmt-adapters::office_block` for readable JSON, and the existing
+Native decoration uses `tmt-office-model::office_block` for pure layout validation and
+codec conformance, `tmt-office-model::codec::office_block` for readable JSON, and the existing
 paired companion for authenticated conditional Firestore commits. Browser and
 native implementations share the versioned block contract and literal vectors;
 neither creates a second scene store. The CLI owns grammar and presentation, not
@@ -586,9 +586,20 @@ replaces review of behavior or effects.
 The optional `extensions/tmt-office/rust/tmt-office` executable remains a member
 of the `rust/` Cargo workspace, with the same lockfile and `rust/target` output.
 This package owns the companion entry point, embedded SPA and local HTTP service.
-Office domain/adapters and the reserved core `office` command still live in the
-existing core/adapters/CLI crates; their extraction is a separate boundary change,
-not an additional implementation or a storage migration.
+`extensions/tmt-office/rust/tmt-office-model` owns Office domain values, strict
+codecs, immutable catalogs and data-only admission. It depends on core identity
+syntax, numeric limits and content digests, never on Storage or runtime adapters.
+Retained Storage imports that owner directly; there are no core Office re-exports.
+Codecs own in-memory PNG processing; filesystem reads, publication, storage response
+projection and process/config access remain adapters. Acquisition errors may retain
+an `io::Error` value without giving the model an I/O operation.
+
+The architecture guard freezes the exact remaining adapter and CLI consumer paths
+in `office_consumer`: storage, pairing/companion/installer-facing operations, the
+repository URL admission consumer, and the reserved Office grammar/commands. New
+consumers, dependency aliases, adapter re-exports and reverse model dependencies
+are rejected. Office runtime adapters and the reserved core `office` command are
+still retained extraction debt, not a second implementation or a storage migration.
 The executable is independently versioned and
 exposes the compatibility probe and typed one-shot pairing/status/inspect/sync operations.
 It depends on core and the existing adapters, not the CLI. Its adapter `office`
@@ -597,12 +608,12 @@ records and explicit platform credential stores; ordinary CLI builds do not enab
 that feature. Serde derives reject duplicate/unknown descriptor fields; the URL
 Standard library matches browser URL interpretation instead of introducing a
 handwritten parser. Neither dependency enters core. The probe acquires no
-credentials or network data. `tmt-core::office_protocol` owns the fixed typed
+credentials or network data. `tmt-office-model::office_protocol` owns the fixed typed
 handshake; `tmt-adapters::office_companion` verifies active installation ownership
 and starts the existing bounded subprocess under the installer lock, then waits
 outside that lock and validates the version selected at launch.
 Its contract is [native companion handshake](contracts/office/native-companion.md).
-Local presentation profiles are a separate UUID-owned resource: `tmt-core::office_profile`
+Local presentation profiles are a separate UUID-owned resource: `tmt-office-model::office_profile`
 owns the literal default catalog, text bounds, optional immutable `avatarRef` grammar and
 deterministic default; SQLite schema 15 owns only the canonical override and CAS revision.
 Native commands and authenticated loopback HTTP reuse that owner. A profile change to a
@@ -1135,7 +1146,7 @@ enforce the 64-entry limit atomically. Retirement hides metadata; explicit
 content removal deletes it, while a same-name replacement receives a new UUID
 and inherits nothing.
 Schema 14 adds the installation-owned local Office discussion board. Pure bounded
-values, actors, receipts and cursor policy live in `tmt-core::office_board`;
+values, actors, receipts and cursor policy live in `tmt-office-model::office_board`;
 `storage::office_board` owns active-UUID and owner-world revalidation, immediate
 transactions, soft deletion, board-local idempotency receipts, the single board
 revision and indexed keyset pages. The CLI crosses the verified `tmt-office`

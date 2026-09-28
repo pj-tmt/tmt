@@ -1,14 +1,18 @@
 use super::*;
-use crate::{
-    office_block::local_layout_value, office_world::world_value, storage::Storage,
-    test_support::TestDirectory,
-};
+use crate::storage::Storage;
+use crate::test_support::TestDirectory;
 use rusqlite::params;
-use tmt_core::{
-    office_block::{BlockLayout, Furniture, FurnitureAsset, LocalBlockLayout, LocalBlockTarget},
-    office_map::{AreaKind, OfficeMap},
-    office_world::{Surface, WorldLayout},
-};
+use tmt_office_model::codec::office_block::local_layout_value;
+use tmt_office_model::codec::office_world::world_value;
+use tmt_office_model::office_block::BlockLayout;
+use tmt_office_model::office_block::Furniture;
+use tmt_office_model::office_block::FurnitureAsset;
+use tmt_office_model::office_block::LocalBlockLayout;
+use tmt_office_model::office_block::LocalBlockTarget;
+use tmt_office_model::office_map::AreaKind;
+use tmt_office_model::office_map::OfficeMap;
+use tmt_office_model::office_world::Surface;
+use tmt_office_model::office_world::WorldLayout;
 
 const ALICE: &str = "10000000-0000-4000-8000-000000000001";
 const TEMP: &str = "10000000-0000-4000-8000-000000000002";
@@ -86,8 +90,8 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
     let value = world_value(&initial.layout);
     assert_eq!(value["map"]["version"], 8);
     assert!(initial.layout.objects().iter().all(|object| {
-        object.surface == tmt_core::office_world::Surface::Floor { base: None }
-            && object.kind == tmt_core::office_world::ObjectKind::Decoration
+        object.surface == tmt_office_model::office_world::Surface::Floor { base: None }
+            && object.kind == tmt_office_model::office_world::ObjectKind::Decoration
     }));
     let modules = value["map"]["modules"].as_array().unwrap();
     assert_eq!(modules.len(), 5);
@@ -109,21 +113,20 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
             module["area"]["binding"],
             serde_json::json!({"type":"personal", "identityId":null})
         );
-        let workstation: Vec<_> = initial
-            .layout
-            .objects()
-            .iter()
-            .filter(|object| {
-                object
-                    .placement
-                    .prop
-                    .starts_with(crate::office_prop::MODULAR_WORKSTATION_DIGEST)
-                    && object.placement.x >= column * 56
-                    && object.placement.x < column * 56 + 48
-                    && object.placement.y >= row * 48
-                    && object.placement.y < row * 48 + 40
-            })
-            .collect();
+        let workstation: Vec<_> =
+            initial
+                .layout
+                .objects()
+                .iter()
+                .filter(|object| {
+                    object.placement.prop.starts_with(
+                        tmt_office_model::codec::office_prop::MODULAR_WORKSTATION_DIGEST,
+                    ) && object.placement.x >= column * 56
+                        && object.placement.x < column * 56 + 48
+                        && object.placement.y >= row * 48
+                        && object.placement.y < row * 48 + 40
+                })
+                .collect();
         assert_eq!(workstation.len(), 4);
         let desk = workstation
             .iter()
@@ -165,7 +168,10 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
             .unwrap();
         assert_eq!(
             object.placement.prop,
-            format!("{}/{key}", crate::office_prop::MODULAR_FACILITIES_DIGEST)
+            format!(
+                "{}/{key}",
+                tmt_office_model::codec::office_prop::MODULAR_FACILITIES_DIGEST
+            )
         );
         assert_eq!(object.placement.footprint_width, width);
         assert_eq!(object.placement.footprint_height, width);
@@ -178,7 +184,7 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
             object
                 .placement
                 .prop
-                .starts_with(crate::office_prop::MODULAR_RECEPTION_DIGEST)
+                .starts_with(tmt_office_model::codec::office_prop::MODULAR_RECEPTION_DIGEST)
         })
         .map(|object| {
             (
@@ -203,7 +209,11 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
     );
     for (key, x, y) in [("oak-bookcase", 4, 50), ("reading-lamp", 18, 52)] {
         assert!(initial.layout.objects().iter().any(|object| {
-            object.placement.prop == format!("{}/{key}", crate::office_prop::STUDY_DIGEST)
+            object.placement.prop
+                == format!(
+                    "{}/{key}",
+                    tmt_office_model::codec::office_prop::STUDY_DIGEST
+                )
                 && object.placement.x == x
                 && object.placement.y == y
         }));
@@ -315,8 +325,10 @@ fn compact_default_does_not_replace_a_saved_central_grid_world() {
     let initial = storage.show_local_world().unwrap();
     let mut retained = world_value(&initial.layout);
     retained["map"]["version"] = serde_json::json!(4);
-    let layout =
-        crate::office_world::decode_world(&serde_json::to_vec(&retained).unwrap()).unwrap();
+    let layout = tmt_office_model::codec::office_world::decode_world(
+        &serde_json::to_vec(&retained).unwrap(),
+    )
+    .unwrap();
     save(&mut storage, &initial, &layout, 10).unwrap();
     drop(storage);
 
@@ -328,7 +340,7 @@ fn compact_default_does_not_replace_a_saved_central_grid_world() {
 
 #[test]
 fn module_source_survives_storage_reopen_and_material_edits_preserve_objects() {
-    use tmt_core::office_map::modules::{Material, Module, ModuleDraft, Slot};
+    use tmt_office_model::office_map::modules::{Material, Module, ModuleDraft, Slot};
     let directory = TestDirectory::new();
     let path = directory.path.join("modules.db");
     let mut storage = Storage::open(&path).unwrap();
@@ -337,13 +349,13 @@ fn module_source_survives_storage_reopen_and_material_edits_preserve_objects() {
         .apply_local_block(
             &LocalBlockTarget::Lobby,
             0,
-            &crate::office_block::default_local_layout(&LocalBlockTarget::Lobby),
+            &tmt_office_model::codec::office_block::default_local_layout(&LocalBlockTarget::Lobby),
         )
         .unwrap();
     let initial = storage.show_local_world().unwrap();
     let lobby = initial.layout.map().draft().areas[0].clone();
     let modules = ModuleDraft {
-        layout: tmt_core::office_map::modules::ModuleLayout::ShortLinks,
+        layout: tmt_office_model::office_map::modules::ModuleLayout::ShortLinks,
         primary_lobby_id: lobby.id.clone(),
         modules: vec![Module {
             area: lobby,
@@ -839,7 +851,7 @@ fn oversized_legacy_inventory_fails_without_truncating_the_source() {
     let directory = TestDirectory::new();
     let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
     let preview = storage.show_local_world().unwrap();
-    let count = tmt_core::office_map::MAX_AREAS + 1;
+    let count = tmt_office_model::office_map::MAX_AREAS + 1;
     let transaction = storage.connection_mut().unwrap().transaction().unwrap();
     for index in 1..=count {
         let id = format!("10000000-0000-4000-8000-{index:012x}");
@@ -882,7 +894,7 @@ fn oversized_legacy_inventory_fails_without_truncating_the_source() {
 
 #[test]
 fn functional_objects_share_existing_resources_and_removal_never_resets_the_preset() {
-    use tmt_core::office_whiteboard::document::SaveDocument;
+    use tmt_office_model::office_whiteboard::document::SaveDocument;
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
     let mut storage = Storage::open(&path).unwrap();
@@ -892,7 +904,7 @@ fn functional_objects_share_existing_resources_and_removal_never_resets_the_pres
     assert_eq!(count(&storage, "office_whiteboards"), 0);
     assert_eq!(count(&storage, "office_board_entries"), 0);
     assert_eq!(count(&storage, "request_attempts"), 0);
-    let scene = crate::office_whiteboard::decode_scene(include_bytes!(
+    let scene = tmt_office_model::codec::office_whiteboard::decode_scene(include_bytes!(
         "../../../../../../contracts/office/whiteboard-scene-v1.json"
     ))
     .unwrap();
@@ -953,7 +965,7 @@ fn functional_objects_share_existing_resources_and_removal_never_resets_the_pres
 
 #[test]
 fn save_rejects_known_binding_mismatch_without_materializing_resources() {
-    use tmt_core::office_extension::ResourceBinding;
+    use tmt_office_model::office_extension::ResourceBinding;
     let directory = TestDirectory::new();
     let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
     let preview = storage.show_local_world().unwrap();
@@ -975,7 +987,7 @@ fn save_rejects_known_binding_mismatch_without_materializing_resources() {
     assert!(matches!(
         save(&mut storage, &initial, &invalid, 101),
         Err(WorldStoreError::Extension(
-            crate::office_extension::ExtensionError::BindingMismatch
+            tmt_office_model::codec::office_extension::ExtensionError::BindingMismatch
         ))
     ));
     let current = storage.show_local_world().unwrap();
@@ -987,7 +999,7 @@ fn save_rejects_known_binding_mismatch_without_materializing_resources() {
 
 #[test]
 fn external_link_is_layout_data_and_survives_reopen_without_creating_resources() {
-    use tmt_core::office_extension::{ExtensionAttachment, ResourceBinding};
+    use tmt_office_model::office_extension::{ExtensionAttachment, ResourceBinding};
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
     let mut storage = Storage::open(&path).unwrap();
@@ -1017,9 +1029,10 @@ fn external_link_is_layout_data_and_survives_reopen_without_creating_resources()
 
 #[test]
 fn wall_catalog_objects_persist_with_native_mount_rules_without_a_second_store() {
-    use crate::office_prop::{WALL_DIGEST, builtin_by_digest};
-    use crate::office_world::decode_world;
     use serde_json::json;
+    use tmt_office_model::codec::office_prop::WALL_DIGEST;
+    use tmt_office_model::codec::office_prop::builtin_by_digest;
+    use tmt_office_model::codec::office_world::decode_world;
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
     let mut storage = Storage::open(&path).unwrap();
@@ -1028,7 +1041,7 @@ fn wall_catalog_objects_persist_with_native_mount_rules_without_a_second_store()
         .apply_local_block(
             &LocalBlockTarget::Lobby,
             0,
-            &crate::office_block::default_local_layout(&LocalBlockTarget::Lobby),
+            &tmt_office_model::codec::office_block::default_local_layout(&LocalBlockTarget::Lobby),
         )
         .unwrap();
     let initial = storage.show_local_world().unwrap();

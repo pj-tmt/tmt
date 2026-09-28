@@ -17,7 +17,7 @@ impl Drop for Stage {
 pub fn export_snapshot_image(destination: &Path, bytes: &[u8]) -> io::Result<()> {
     if destination.file_name().is_none()
         || bytes.is_empty()
-        || bytes.len() > super::image::SNAPSHOT_PNG_LIMIT
+        || bytes.len() > tmt_office_model::codec::office_whiteboard::image::SNAPSHOT_PNG_LIMIT
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,

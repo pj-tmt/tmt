@@ -257,7 +257,7 @@ pub fn stop(paths: &ConfigPaths) -> Result<bool, ServiceError> {
 pub fn preview(
     paths: &ConfigPaths,
     installed_version: &str,
-    pack: &crate::office_prop::ValidatedPropPack,
+    pack: &tmt_office_model::codec::office_prop::ValidatedPropPack,
 ) -> Result<serde_json::Value, PreviewError> {
     preview_pack(
         paths,
@@ -271,7 +271,7 @@ pub fn preview(
 pub fn preview_avatar(
     paths: &ConfigPaths,
     installed_version: &str,
-    pack: &crate::office_avatar::ValidatedAvatarPack,
+    pack: &tmt_office_model::codec::office_avatar::ValidatedAvatarPack,
 ) -> Result<serde_json::Value, PreviewError> {
     preview_pack(
         paths,
@@ -561,7 +561,7 @@ mod tests {
     #[test]
     fn preview_reply_must_match_candidate_and_exact_private_target() {
         let receipt = receipt();
-        let pack = crate::office_prop::builtin_pack();
+        let pack = tmt_office_model::codec::office_prop::builtin_pack();
         let preview_id = "p".repeat(43);
         let valid = serde_json::json!({
             "digest": pack.digest(),
@@ -616,7 +616,7 @@ mod tests {
                 PreviewKind::Prop
             ));
         }
-        let directional = crate::office_prop::validate_pack(include_bytes!(
+        let directional = tmt_office_model::codec::office_prop::validate_pack(include_bytes!(
             "../../../../contracts/office/prop-pack-v2-sample.tmtprop.json"
         ))
         .unwrap();
@@ -634,7 +634,7 @@ mod tests {
             directional.digest(),
             PreviewKind::Prop
         ));
-        let avatar_digest = crate::office_avatar::framed_digest(pack.bytes(), 1);
+        let avatar_digest = tmt_office_model::codec::office_avatar::framed_digest(pack.bytes(), 1);
         let avatar = serde_json::json!({
             "digest": avatar_digest,
             "previewId": preview_id,

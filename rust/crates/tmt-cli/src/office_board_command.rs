@@ -20,7 +20,7 @@ use tmt_adapters::{
     response_input::{read_file, read_stdin},
     storage::Storage,
 };
-use tmt_core::office_protocol::OfficeInvocation;
+use tmt_office_model::office_protocol::OfficeInvocation;
 
 pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> Result<u8, Failure> {
     let OfficeOperation::Board(operation) = operation else {
@@ -139,7 +139,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
         }
     })?
     .map_err(|code| {
-        if code == tmt_core::office_board::BoardErrorCode::Storage
+        if code == tmt_office_model::office_board::BoardErrorCode::Storage
             && let Some(operation_id) = mutation_id.as_deref()
         {
             uncertain_mutation(operation_id)
@@ -302,11 +302,11 @@ fn author_label(value: &Value) -> String {
         None => "-".into(),
     }
 }
-fn board_failure(code: tmt_core::office_board::BoardErrorCode) -> Failure {
+fn board_failure(code: tmt_office_model::office_board::BoardErrorCode) -> Failure {
     let exit = if matches!(
         code,
-        tmt_core::office_board::BoardErrorCode::ThreadNotFound
-            | tmt_core::office_board::BoardErrorCode::EntryNotFound
+        tmt_office_model::office_board::BoardErrorCode::ThreadNotFound
+            | tmt_office_model::office_board::BoardErrorCode::EntryNotFound
     ) {
         3
     } else {

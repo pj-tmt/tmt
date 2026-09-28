@@ -2,13 +2,20 @@
 
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tmt_core::{
-    office_board::{
-        self, Actor, AuthorFilter, BoardErrorCode, Category, CategoryListRequest, DeleteRequest,
-        EditRequest, ListRequest, ListView, PostRequest, ReplyRequest, ShowRequest,
-    },
-    office_protocol::OfficeInvocation,
-};
+use tmt_office_model::office_board;
+use tmt_office_model::office_board::Actor;
+use tmt_office_model::office_board::AuthorFilter;
+use tmt_office_model::office_board::BoardErrorCode;
+use tmt_office_model::office_board::Category;
+use tmt_office_model::office_board::CategoryListRequest;
+use tmt_office_model::office_board::DeleteRequest;
+use tmt_office_model::office_board::EditRequest;
+use tmt_office_model::office_board::ListRequest;
+use tmt_office_model::office_board::ListView;
+use tmt_office_model::office_board::PostRequest;
+use tmt_office_model::office_board::ReplyRequest;
+use tmt_office_model::office_board::ShowRequest;
+use tmt_office_model::office_protocol::OfficeInvocation;
 
 use crate::{
     config::ConfigPaths,

@@ -75,8 +75,8 @@ Wall height is 16 local units, independent of screen scale or apparent wall thic
   is filtered, cropped, relocated or silently removed. The previous world stays
   unchanged. Removing a placement does not remove its artwork or resource.
 
-`tmt-core::office_world` owns this policy using `office_map::Geometry` and existing
-prop validation. `tmt-adapters::office_world` owns the strict composed JSON boundary.
+`tmt-office-model::office_world` owns this policy using `office_map::Geometry` and existing
+prop validation. `tmt-office-model::codec::office_world` owns the strict composed JSON boundary.
 Existing block readers/writers still serve old callers during local development;
 they must be removed at the caller cutover, not retained as dual writers.
 Web-link attachments use the existing extension binding, admission and guarded

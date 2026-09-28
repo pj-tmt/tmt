@@ -12,6 +12,6 @@ pub use invocation::execute;
 pub use local::OfficeInstallation;
 pub use record::PairingRecord;
 pub use remote::{AgentCredential, claim_pairing};
-pub use tmt_core::office_protocol::OfficeError;
+use tmt_office_model::office_protocol::OfficeError;
 pub use vault::ProtectedEntry;
 pub use wire::{Approval, Claim, Proof};

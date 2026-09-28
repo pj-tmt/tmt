@@ -496,7 +496,7 @@ fn office_commands() -> Command {
                                 .required(true)
                                 .value_parser(
                                     clap::value_parser!(u64)
-                                        .range(0..tmt_core::office_block::MAX_REVISION),
+                                        .range(0..tmt_office_model::office_block::MAX_REVISION),
                                 ),
                         ),
                     true,
@@ -540,7 +540,7 @@ fn office_commands() -> Command {
                         .required(true)
                         .value_parser(
                             clap::value_parser!(u64)
-                                .range(0..=tmt_core::office_profile::MAX_REVISION),
+                                .range(0..=tmt_office_model::office_profile::MAX_REVISION),
                         ),
                 ),
             ),

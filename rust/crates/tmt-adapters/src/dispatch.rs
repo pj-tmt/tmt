@@ -131,7 +131,7 @@ pub(crate) fn intent_digest(input: &DispatchInput) -> String {
             identity_id,
         }),
     };
-    crate::content_digest::framed_sha256(
+    tmt_core::content_digest::framed_sha256(
         b"tmt:office:dispatch:v1\0",
         &serde_json::to_vec(&intent).expect("string-only intent"),
     )

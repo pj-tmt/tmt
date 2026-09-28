@@ -3,10 +3,13 @@
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use std::collections::HashMap;
 
-use crate::office_prop::{
-    PACK_INPUT_LIMIT, PropPackError, ValidatedPropPack, builtin_by_digest, builtin_packs,
-    parse_pack_digest, validate_pack,
-};
+use tmt_office_model::codec::office_prop::PACK_INPUT_LIMIT;
+use tmt_office_model::codec::office_prop::PropPackError;
+use tmt_office_model::codec::office_prop::ValidatedPropPack;
+use tmt_office_model::codec::office_prop::builtin_by_digest;
+use tmt_office_model::codec::office_prop::builtin_packs;
+use tmt_office_model::codec::office_prop::parse_pack_digest;
+use tmt_office_model::codec::office_prop::validate_pack;
 
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
 
@@ -716,14 +719,18 @@ fn current_time_ms() -> Result<u64, LocalPropCatalogError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        office_prop::{
-            BROADCASTER_DIGEST, BUILTIN_DIGEST, COMMONS_DIGEST, MODULAR_LOUNGE_DIGEST,
-            MODULAR_MOUNTED_DIGEST, MODULAR_WORKSTATION_DIGEST, STUDY_DIGEST, WALL_DIGEST,
-            WHITEBOARD_DIGEST, WORKSHOP_DIGEST, validate_pack,
-        },
-        test_support::TestDirectory,
-    };
+    use crate::test_support::TestDirectory;
+    use tmt_office_model::codec::office_prop::BROADCASTER_DIGEST;
+    use tmt_office_model::codec::office_prop::BUILTIN_DIGEST;
+    use tmt_office_model::codec::office_prop::COMMONS_DIGEST;
+    use tmt_office_model::codec::office_prop::MODULAR_LOUNGE_DIGEST;
+    use tmt_office_model::codec::office_prop::MODULAR_MOUNTED_DIGEST;
+    use tmt_office_model::codec::office_prop::MODULAR_WORKSTATION_DIGEST;
+    use tmt_office_model::codec::office_prop::STUDY_DIGEST;
+    use tmt_office_model::codec::office_prop::WALL_DIGEST;
+    use tmt_office_model::codec::office_prop::WHITEBOARD_DIGEST;
+    use tmt_office_model::codec::office_prop::WORKSHOP_DIGEST;
+    use tmt_office_model::codec::office_prop::validate_pack;
 
     fn custom(label: &str) -> ValidatedPropPack {
         validate_pack(
@@ -875,8 +882,11 @@ mod tests {
         let mut bytes =
             include_bytes!("../../../../../contracts/office/prop-pack-v2-sample.tmtprop.json")
                 .to_vec();
-        bytes.resize(crate::office_prop::V1_PACK_INPUT_LIMIT + 1, b' ');
-        let pack = crate::office_prop::validate_pack(&bytes).unwrap();
+        bytes.resize(
+            tmt_office_model::codec::office_prop::V1_PACK_INPUT_LIMIT + 1,
+            b' ',
+        );
+        let pack = tmt_office_model::codec::office_prop::validate_pack(&bytes).unwrap();
         let mut storage = Storage::open(&database).unwrap();
         let mutation = storage.install_local_prop_pack(0, &pack).unwrap();
         assert!(mutation.changed);
@@ -896,7 +906,10 @@ mod tests {
         let pack = custom("Oversized v1");
         storage.install_local_prop_pack(0, &pack).unwrap();
         let mut bytes = pack.bytes().to_vec();
-        bytes.resize(crate::office_prop::V1_PACK_INPUT_LIMIT + 1, b' ');
+        bytes.resize(
+            tmt_office_model::codec::office_prop::V1_PACK_INPUT_LIMIT + 1,
+            b' ',
+        );
         storage
             .connection()
             .unwrap()
@@ -1031,12 +1044,12 @@ mod tests {
                 MODULAR_WORKSTATION_DIGEST,
                 MODULAR_MOUNTED_DIGEST,
                 MODULAR_LOUNGE_DIGEST,
-                crate::office_prop::MODULAR_FACILITIES_DIGEST,
-                crate::office_prop::MODULAR_RECEPTION_DIGEST,
-                crate::office_prop::DIRECTIONAL_WORKSTATION_DIGEST,
-                crate::office_prop::DIRECTIONAL_LOUNGE_DIGEST,
-                crate::office_prop::DIRECTIONAL_RECEPTION_DIGEST,
-                crate::office_prop::DIRECTIONAL_FACILITIES_DIGEST,
+                tmt_office_model::codec::office_prop::MODULAR_FACILITIES_DIGEST,
+                tmt_office_model::codec::office_prop::MODULAR_RECEPTION_DIGEST,
+                tmt_office_model::codec::office_prop::DIRECTIONAL_WORKSTATION_DIGEST,
+                tmt_office_model::codec::office_prop::DIRECTIONAL_LOUNGE_DIGEST,
+                tmt_office_model::codec::office_prop::DIRECTIONAL_RECEPTION_DIGEST,
+                tmt_office_model::codec::office_prop::DIRECTIONAL_FACILITIES_DIGEST,
             ]
         );
         assert!(list.packs.is_empty());

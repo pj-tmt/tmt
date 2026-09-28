@@ -3,10 +3,11 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::Path;
-use tmt_core::{
-    office_profile::{LocalProfile, MAX_PROFILE_FILE_BYTES, MAX_REVISION},
-    office_protocol::{OfficeError, OfficeInvocation},
-};
+use tmt_office_model::office_profile::LocalProfile;
+use tmt_office_model::office_profile::MAX_PROFILE_FILE_BYTES;
+use tmt_office_model::office_profile::MAX_REVISION;
+use tmt_office_model::office_protocol::OfficeError;
+use tmt_office_model::office_protocol::OfficeInvocation;
 
 use crate::{
     config::ConfigPaths,
@@ -26,7 +27,8 @@ struct LocalProfileInput {
 pub fn read_profile_file(path: &Path) -> Result<LocalProfile, OfficeError> {
     let bytes = crate::bounded_file::read(path, MAX_PROFILE_FILE_BYTES)
         .map_err(|_| OfficeError::ProfileInvalid)?;
-    crate::office_profile_wire::decode_slice(&bytes).map_err(|_| OfficeError::ProfileInvalid)
+    tmt_office_model::codec::office_profile_wire::decode_slice(&bytes)
+        .map_err(|_| OfficeError::ProfileInvalid)
 }
 
 pub fn execute(operation: OfficeInvocation, input: &[u8]) -> Vec<u8> {
@@ -54,7 +56,7 @@ fn execute_inner(operation: OfficeInvocation, input: &[u8]) -> Result<Value, Off
                 .map_err(profile_error)
         }
         OfficeInvocation::LocalProfileApply => {
-            let profile = crate::office_profile_wire::decode_value(
+            let profile = tmt_office_model::codec::office_profile_wire::decode_value(
                 input.profile.ok_or(OfficeError::ProfileInvalid)?,
             )
             .map_err(|_| OfficeError::ProfileInvalid)?;
@@ -83,13 +85,13 @@ pub fn snapshot_value(snapshot: LocalProfileSnapshot) -> Value {
         "identityName": snapshot.identity_name,
         "exists": snapshot.exists,
         "revision": snapshot.revision,
-        "profile": crate::office_profile_wire::encode_value(&snapshot.profile),
+        "profile": tmt_office_model::codec::office_profile_wire::encode_value(&snapshot.profile),
         "updatedAtMs": snapshot.updated_at_ms,
         "catalog": {
-            "hairStyles": tmt_core::office_profile::HAIR_STYLES,
-            "hairColors": tmt_core::office_profile::HAIR_COLORS,
-            "skinTones": tmt_core::office_profile::SKIN_TONES,
-            "shirtColors": tmt_core::office_profile::SHIRT_COLORS,
+            "hairStyles": tmt_office_model::office_profile::HAIR_STYLES,
+            "hairColors": tmt_office_model::office_profile::HAIR_COLORS,
+            "skinTones": tmt_office_model::office_profile::SKIN_TONES,
+            "shirtColors": tmt_office_model::office_profile::SHIRT_COLORS,
         }
     })
 }
