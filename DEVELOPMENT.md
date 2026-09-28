@@ -67,6 +67,10 @@ The launcher preserves arguments, exit status and environment; normal CLI comman
 still use the usual application data unless you explicitly select isolated settings.
 It does not replace the installed Office companion or update a running Office UI.
 
+Extensions can use the public [local process API](docs/extension-api.md) for
+structured dispatch, history, conditional room writes and bounded notebook reads.
+Its contract is owned by [architecture](ARCHITECTURE.md#local-extension-api-v1).
+
 ## Office SPA
 
 The optional app uses React, Vite, TanStack Router and Jotai. Read

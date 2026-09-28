@@ -8,6 +8,7 @@ pub enum Invocation {
     },
     Help(Vec<String>),
     Version,
+    Api,
     Completion(Option<String>),
     Complete(Vec<std::ffi::OsString>),
     Learn {

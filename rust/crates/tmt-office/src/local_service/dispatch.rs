@@ -9,11 +9,10 @@ use tmt_adapters::{
     office_service::ServiceReceipt,
     request_runtime::{valid_request_id, wall_time_ms},
     storage::{DispatchError, Storage},
-    tmux::Tmux,
 };
 use tmt_core::{
     dispatch::{Acceptance, DispatchReceipt, DispatchRoom, canonical_id},
-    request::{RequestKind, RequestService, WakeState},
+    request::{RequestKind, WakeState},
     settings::Settings,
 };
 
@@ -35,38 +34,18 @@ fn wake_direct_request(
     {
         return None;
     }
-    let claim = match RequestService::new(storage, wall_time_ms).claim_wake(&item.request_id) {
-        Ok(claim) => claim,
-        Err(_) => return Some(WakeState::Claimed),
-    };
-    if !claim.claimed {
-        return Some(claim.state);
-    }
-    let tmux = Tmux::default();
-    let eligible = RequestService::new(storage, wall_time_ms)
-        .wake_recipient_is_eligible(&item.request_id, &item.recipient_id)
-        .unwrap_or(false);
-    let state = if eligible {
-        let notification = format!(
-            "Office request {} is queued. Read it with: tmt x show {} --incoming --identity {} --json",
-            item.request_id, item.request_id, item.recipient_id
-        );
-        let delay = Duration::from_secs_f64(settings.paste_enter_delay_ms.min(500.0) / 1000.0);
-        match delivery::send(storage, &tmux, &item.recipient_id, &notification, delay) {
-            Ok(outcome) => outcome.wake_state(),
-            Err(_) => WakeState::Unavailable,
-        }
-    } else {
-        WakeState::Unavailable
-    };
-    if RequestService::new(storage, wall_time_ms)
-        .settle_wake(&item.request_id, state)
-        .is_err()
-    {
-        Some(WakeState::Claimed)
-    } else {
-        Some(state)
-    }
+    let notification = format!(
+        "Office request {} is queued. Read it with: tmt x show {} --incoming --identity {} --json",
+        item.request_id, item.request_id, item.recipient_id
+    );
+    let delay = Duration::from_secs_f64(settings.paste_enter_delay_ms.min(500.0) / 1000.0);
+    Some(delivery::wake_request(
+        storage,
+        &item.request_id,
+        &item.recipient_id,
+        &notification,
+        delay,
+    ))
 }
 
 #[cfg(test)]

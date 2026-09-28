@@ -29,6 +29,10 @@ pub fn grammar() -> Command {
         root = root.arg(option(id).global(true));
     }
     root = root.subcommand(office_commands());
+    root = root.subcommand(storage(
+        "api",
+        "Versioned JSON extension interface (one request on stdin)",
+    ));
     root = root.subcommand(
         storage(
             "room",

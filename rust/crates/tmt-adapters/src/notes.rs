@@ -23,6 +23,14 @@ pub struct Notebook {
     pub content: String,
 }
 
+pub fn value(notebook: &Notebook) -> serde_json::Value {
+    serde_json::json!({"identityId": notebook.identity_id, "name": notebook.name, "content": notebook.content})
+}
+
+pub fn encode(notebook: &Notebook) -> Vec<u8> {
+    serde_json::to_vec(&value(notebook)).expect("notebook resource")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotebookError {
     InvalidIdentity,
@@ -32,6 +40,20 @@ pub enum NotebookError {
     TooLarge,
     InvalidText,
     Unavailable,
+}
+
+impl NotebookError {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::InvalidIdentity => "NOTEBOOK_INVALID_IDENTITY",
+            Self::IdentityNotFound => "NOTEBOOK_IDENTITY_NOT_FOUND",
+            Self::SavedIdentityRequired => "NOTEBOOK_SAVED_IDENTITY_REQUIRED",
+            Self::Missing => "NOTEBOOK_NOT_FOUND",
+            Self::TooLarge => "NOTEBOOK_TOO_LARGE",
+            Self::InvalidText => "NOTEBOOK_INVALID_TEXT",
+            Self::Unavailable => "NOTEBOOK_UNAVAILABLE",
+        }
+    }
 }
 
 /// The browser selects an identity, never a path. Reading does not initialize notes.

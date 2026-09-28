@@ -140,6 +140,17 @@ impl Storage {
     pub fn find_active_identity_by_id(&self, id: &str) -> Result<Option<Identity>, StorageError> {
         active_identity_by_id(self.connection()?, id)
     }
+
+    /// Explicit CLI/API selection prefers an active UUID over a UUID-shaped
+    /// display name. Unknown or retired UUIDs retain normalized name lookup.
+    pub fn resolve_identity(&self, selector: &str) -> Result<Option<Identity>, StorageError> {
+        if tmt_core::dispatch::canonical_id(selector)
+            && let Some(identity) = self.find_active_identity_by_id(selector)?
+        {
+            return Ok(Some(identity));
+        }
+        self.find_identity(&normalize_name(selector))
+    }
 }
 
 pub(super) fn identity_by_id(

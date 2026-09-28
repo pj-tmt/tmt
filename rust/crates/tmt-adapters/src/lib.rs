@@ -1,6 +1,9 @@
 //! Concrete native adapters. Application policy must not depend on this crate.
 
 #[cfg(unix)]
+pub mod api;
+
+#[cfg(unix)]
 pub mod bounded_file;
 pub mod config;
 mod content_digest;
