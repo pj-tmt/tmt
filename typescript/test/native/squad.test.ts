@@ -325,4 +325,27 @@ sort = ["-name"]
       expect(refused.body.error.message).toContain('squad.product.section[0].filter');
     });
   });
+  it('orders status by the configured state sort before the layout default', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'a-work', 'b-review', 'c-parked']) await identity(sandbox, name);
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['add', 'a-work', 'b-review', 'c-parked']);
+      await squad(sandbox, ['set', 'b-review', 'state=review']);
+      await squad(sandbox, ['set', 'c-parked', 'state=parked']);
+      const order = async () =>
+        (await squad(sandbox, ['status'])).body.sections[0].rows.map(
+          (row: { name: string }) => row.name
+        );
+      expect(await order()).toEqual(['a-work', 'b-review', 'c-parked']);
+      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        squadToml,
+        `${readFileSync(squadToml, 'utf8')}\n[squad.product.states]\nreview = { sort = 0 }\nparked = { sort = 0, color = "dim" }\n`
+      );
+      expect(await order()).toEqual(['b-review', 'c-parked', 'a-work']);
+      writeFileSync(squadToml, 'me = "Ben"\n[squad.product.states]\nreview = { sort = -1 }\n');
+      expect((await squad(sandbox, ['status'])).body.error.code).toBe('SQUAD_CONFIG_INVALID');
+    });
+  });
 });

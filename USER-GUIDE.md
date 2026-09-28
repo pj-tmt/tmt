@@ -349,10 +349,28 @@ show = ["member", "state", "task", "pr_link"]   # member is the name
 task = { width = 32, title = "WORK" }
 
 [squad.product.states]
-blocked = { color = "red" }   # default, dim, red, amber, green, cyan, blue, magenta
+blocked = { color = "red", sort = 0 }   # colors: default, dim, red, amber, green,
+                                        # cyan, blue, magenta; sort 0-999 orders states
 ```
 
-Row actions (Enter, t, r, a, o, y, n) and panes arrive in later versions.
+The board is made of panes: `rows`, `notes` (the lead's own notebook, the same
+file as `tmt notes`, read-only), `detail` (the selected row) and `replies`
+(filled in a later version). Choose them and how they sit:
+
+```toml
+[squad.product.board]
+mode      = "split"            # split or tabs
+direction = "left-right"       # or top-bottom
+panes     = ["rows", "notes"]  # also detail, replies; rows is required
+sizes     = [60, 40]           # split only: one percentage per pane, total 100
+```
+
+Tab moves between panes (or tabs); ↑/↓ scroll the notes pane when it has focus.
+In tabs mode the lead's notes always get their own tab. Notes are shown as plain
+text: terminal escapes and control characters in them are removed. The crew
+layout shows rows and notes side by side, pr-queue shows rows over detail, and
+minimal shows rows only. Row actions (Enter, t, r, a, o, y, n) arrive in later
+versions.
 
 The lead's skill is embedded in the extension. Until `tmt extension install
 squad` offers it, copy it into your lead agent's skills directory yourself, for

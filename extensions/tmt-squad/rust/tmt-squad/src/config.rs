@@ -180,6 +180,99 @@ pub const COLORS: &[&str] = &[
     "default", "dim", "red", "amber", "green", "cyan", "blue", "magenta",
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pane {
+    Rows,
+    Notes,
+    Detail,
+    Replies,
+}
+
+impl Pane {
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "rows" => Some(Self::Rows),
+            "notes" => Some(Self::Notes),
+            "detail" => Some(Self::Detail),
+            "replies" => Some(Self::Replies),
+            _ => None,
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Rows => "rows",
+            Self::Notes => "notes",
+            Self::Detail => "detail",
+            Self::Replies => "replies",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoardMode {
+    Split,
+    Tabs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    LeftRight,
+    TopBottom,
+}
+
+/// `[squad.<name>.board]`: which panes the board shows and how they sit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Board {
+    pub mode: BoardMode,
+    pub direction: Direction,
+    pub panes: Vec<Pane>,
+    /// Split mode: percentages per pane, summing to 100.
+    pub sizes: Vec<u16>,
+}
+
+impl Board {
+    /// Crew keeps rows and the lead's notes side by side; pr-queue pairs rows
+    /// with the selected row's detail; minimal shows rows only.
+    fn preset(layout: Layout) -> Self {
+        let (direction, panes, sizes) = match layout {
+            Layout::Crew => (
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![60, 40],
+            ),
+            Layout::PrQueue => (
+                Direction::TopBottom,
+                vec![Pane::Rows, Pane::Detail],
+                vec![70, 30],
+            ),
+            Layout::Minimal => (Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        };
+        Self {
+            mode: BoardMode::Split,
+            direction,
+            panes,
+            sizes,
+        }
+    }
+}
+
+/// A squad's state vocabulary after overrides: display order and colors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct States {
+    /// Known states in sort order; unknown states sort after all of them.
+    pub order: Vec<String>,
+    pub colors: BTreeMap<String, String>,
+}
+
+impl States {
+    pub fn rank(&self, state: Option<&str>) -> usize {
+        state
+            .and_then(|state| self.order.iter().position(|known| known == state))
+            .unwrap_or(self.order.len())
+    }
+}
+
 /// One board column: a row field (`member` is the name), its title and width.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Column {
@@ -423,54 +516,181 @@ impl Config {
             .collect()
     }
 
-    /// State colors: the layout's defaults, overridden by
-    /// `[squad.<name>.states] <state> = { color = "..." }`.
-    pub fn state_colors(
-        &self,
-        squad: &str,
-        layout: Layout,
-    ) -> Result<BTreeMap<String, String>, SquadError> {
+    /// `[squad.<name>.board]` over the layout's preset. Validated before the
+    /// terminal changes mode, so a mistake never leaves a half-drawn screen.
+    pub fn board(&self, squad: &str, layout: Layout) -> Result<Board, SquadError> {
+        let mut board = Board::preset(layout);
+        let place = format!("squad.{squad}.board");
+        let Some(item) = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("board"))
+        else {
+            return Ok(board);
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+        let text = |key: &str| table.get(key).map(|value| value.as_str());
+        for (key, _) in table.iter() {
+            if !["mode", "direction", "panes", "sizes"].contains(&key) {
+                return Err(invalid(format!("`{place}.{key}` is not a board setting.")));
+            }
+        }
+        match text("mode") {
+            None => {}
+            Some(Some("split")) => board.mode = BoardMode::Split,
+            Some(Some("tabs")) => board.mode = BoardMode::Tabs,
+            Some(_) => return Err(invalid(format!("`{place}.mode` must be split or tabs."))),
+        }
+        match text("direction") {
+            None => {}
+            Some(Some("left-right")) => board.direction = Direction::LeftRight,
+            Some(Some("top-bottom")) => board.direction = Direction::TopBottom,
+            Some(_) => {
+                return Err(invalid(format!(
+                    "`{place}.direction` must be left-right or top-bottom."
+                )));
+            }
+        }
+        let panes_set = table.get("panes").is_some();
+        if let Some(panes) = table.get("panes") {
+            let names = panes
+                .as_array()
+                .ok_or_else(|| invalid(format!("`{place}.panes` must list panes.")))?;
+            let mut chosen = Vec::new();
+            for name in names.iter() {
+                let pane = name.as_str().and_then(Pane::parse).ok_or_else(|| {
+                    invalid(format!(
+                        "`{place}.panes` entries are rows, notes, detail or replies."
+                    ))
+                })?;
+                if chosen.contains(&pane) {
+                    return Err(invalid(format!(
+                        "`{place}.panes` lists {} twice.",
+                        pane.title()
+                    )));
+                }
+                chosen.push(pane);
+            }
+            if !chosen.contains(&Pane::Rows) {
+                return Err(invalid(format!("`{place}.panes` must include rows.")));
+            }
+            board.panes = chosen;
+        }
+        match (table.get("sizes"), board.mode) {
+            (Some(_), BoardMode::Tabs) => {
+                return Err(invalid(format!(
+                    "`{place}.sizes` applies to split mode only."
+                )));
+            }
+            (Some(sizes), BoardMode::Split) => {
+                board.sizes = sizes
+                    .as_array()
+                    .ok_or_else(|| invalid(format!("`{place}.sizes` must list percentages.")))?
+                    .iter()
+                    .map(|size| {
+                        size.as_integer()
+                            .and_then(|size| u16::try_from(size).ok())
+                            .filter(|size| (10..=100).contains(size))
+                            .ok_or_else(|| {
+                                invalid(format!("`{place}.sizes` entries must be 10-100."))
+                            })
+                    })
+                    .collect::<Result<_, _>>()?;
+            }
+            // Changed panes without sizes share the width equally.
+            (None, _) if panes_set => {
+                let share = 100 / board.panes.len() as u16;
+                board.sizes = vec![share; board.panes.len()];
+                if let Some(last) = board.sizes.last_mut() {
+                    *last += 100 - share * board.panes.len() as u16;
+                }
+            }
+            (None, _) => {}
+        }
+        if board.mode == BoardMode::Split
+            && (board.sizes.len() != board.panes.len() || board.sizes.iter().sum::<u16>() != 100)
+        {
+            return Err(invalid(format!(
+                "`{place}.sizes` needs one percentage per pane, summing to 100."
+            )));
+        }
+        // In tabs mode the lead's full notes always get their own tab.
+        if board.mode == BoardMode::Tabs && !board.panes.contains(&Pane::Notes) {
+            board.panes.push(Pane::Notes);
+        }
+        Ok(board)
+    }
+
+    /// The state vocabulary: the layout's order and colors, overridden by
+    /// `[squad.<name>.states] <state> = { color = "...", sort = N }`. An explicit
+    /// `sort` ranks before a layout default with the same number.
+    pub fn states(&self, squad: &str, layout: Layout) -> Result<States, SquadError> {
+        // (explicit sort, implicit tie-break, layout position, name)
+        let mut ranks: BTreeMap<String, (u16, bool, usize)> = layout
+            .states()
+            .iter()
+            .enumerate()
+            .map(|(index, state)| ((*state).into(), (index as u16, true, index)))
+            .collect();
         let mut colors: BTreeMap<String, String> = layout
             .state_colors()
             .iter()
             .map(|(state, color)| ((*state).into(), (*color).into()))
             .collect();
         let place = format!("squad.{squad}.states");
-        let Some(item) = self
+        if let Some(item) = self
             .squad_table(squad)?
             .and_then(|table| table.get("states"))
-        else {
-            return Ok(colors);
-        };
-        let table = item
-            .as_table_like()
-            .ok_or_else(|| invalid(format!("`{place}` must be a table of states.")))?;
-        for (state, settings) in table.iter() {
-            let settings = settings
+        {
+            let table = item
                 .as_table_like()
-                .filter(|_| field_name(state))
-                .ok_or_else(|| invalid(format!("`{place}.{state}` must be a table.")))?;
-            for (key, value) in settings.iter() {
-                let color = value.as_str().filter(|color| COLORS.contains(color));
-                match (key, color) {
-                    ("color", Some(color)) => {
-                        colors.insert(state.into(), color.into());
-                    }
-                    ("color", None) => {
-                        return Err(invalid(format!(
-                            "`{place}.{state}.color` must be one of {}.",
-                            COLORS.join(", ")
-                        )));
-                    }
-                    (other, _) => {
-                        return Err(invalid(format!(
-                            "`{place}.{state}.{other}` is not supported yet; use color."
-                        )));
+                .ok_or_else(|| invalid(format!("`{place}` must be a table of states.")))?;
+            for (state, settings) in table.iter() {
+                let settings = settings
+                    .as_table_like()
+                    .filter(|_| field_name(state))
+                    .ok_or_else(|| invalid(format!("`{place}.{state}` must be a table.")))?;
+                for (key, value) in settings.iter() {
+                    match key {
+                        "color" => {
+                            let color = value
+                                .as_str()
+                                .filter(|color| COLORS.contains(color))
+                                .ok_or_else(|| {
+                                    invalid(format!(
+                                        "`{place}.{state}.color` must be one of {}.",
+                                        COLORS.join(", ")
+                                    ))
+                                })?;
+                            colors.insert(state.into(), color.into());
+                        }
+                        "sort" => {
+                            let sort = value
+                                .as_integer()
+                                .and_then(|sort| u16::try_from(sort).ok())
+                                .filter(|sort| *sort <= 999)
+                                .ok_or_else(|| {
+                                    invalid(format!("`{place}.{state}.sort` must be 0-999."))
+                                })?;
+                            let position = ranks.get(state).map_or(usize::MAX, |rank| rank.2);
+                            ranks.insert(state.into(), (sort, false, position));
+                        }
+                        other => {
+                            return Err(invalid(format!(
+                                "`{place}.{state}.{other}` is not a state setting; use color or sort."
+                            )));
+                        }
                     }
                 }
             }
         }
-        Ok(colors)
+        let mut order: Vec<(String, (u16, bool, usize))> = ranks.into_iter().collect();
+        order.sort_by(|(a, left), (b, right)| left.cmp(right).then_with(|| a.cmp(b)));
+        Ok(States {
+            order: order.into_iter().map(|(state, _)| state).collect(),
+            colors,
+        })
     }
 
     /// Writes `me` by replacing the file atomically. Refuses if another editor
@@ -686,14 +906,15 @@ sort = ["state", "-name"]
             }
         );
         assert_eq!(columns[0].title, "MEMBER");
-        let colors = config.state_colors("product", Layout::Crew).unwrap();
+        let colors = config.states("product", Layout::Crew).unwrap().colors;
         assert_eq!(colors["blocked"], "red");
         assert_eq!(colors["parked"], "dim");
         assert_eq!(colors["working"], "green", "layout defaults remain");
         assert!(
             config
-                .state_colors("other", Layout::Minimal)
+                .states("other", Layout::Minimal)
                 .unwrap()
+                .colors
                 .is_empty()
         );
         for body in [
@@ -703,17 +924,100 @@ sort = ["state", "-name"]
             "[squad.x.columns]\nmember = { width = 0 }\n",
             "[squad.x.columns]\nmember = { align = \"left\" }\n",
             "[squad.x.states]\nworking = { color = \"teal\" }\n",
-            "[squad.x.states]\nworking = { sort = 1 }\n",
+            "[squad.x.states]\nworking = { sort = 1000 }\n",
+            "[squad.x.states]\nworking = { sort = \"first\" }\n",
+            "[squad.x.states]\nworking = { order = 1 }\n",
         ] {
             fs::write(&path, body).unwrap();
             let config = Config::read(path.clone()).unwrap();
             let code = config
                 .columns("x")
-                .and_then(|_| config.state_colors("x", Layout::Crew))
+                .and_then(|_| config.states("x", Layout::Crew))
                 .err()
                 .map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
         }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn board_presets_overrides_and_validation() {
+        let path = temp("panes");
+        let read = |body: &str| {
+            fs::write(&path, body).unwrap();
+            Config::read(path.clone()).unwrap()
+        };
+        let config = read("");
+        let crew = config.board("x", Layout::Crew).unwrap();
+        assert_eq!(
+            (crew.panes.clone(), crew.sizes.clone()),
+            (vec![Pane::Rows, Pane::Notes], vec![60, 40])
+        );
+        let queue = config.board("x", Layout::PrQueue).unwrap();
+        assert_eq!(
+            (queue.direction, queue.panes.clone()),
+            (Direction::TopBottom, vec![Pane::Rows, Pane::Detail])
+        );
+        assert_eq!(
+            config.board("x", Layout::Minimal).unwrap().panes,
+            [Pane::Rows]
+        );
+
+        let custom = read("[squad.x.board]\ndirection = \"top-bottom\"\npanes = [\"detail\", \"rows\", \"replies\"]\n")
+            .board("x", Layout::Crew)
+            .unwrap();
+        assert_eq!(custom.panes, [Pane::Detail, Pane::Rows, Pane::Replies]);
+        assert_eq!(custom.sizes, [33, 33, 34], "unsized panes share the space");
+        let tabs = read("[squad.x.board]\nmode = \"tabs\"\npanes = [\"rows\", \"detail\"]\n")
+            .board("x", Layout::Crew)
+            .unwrap();
+        assert_eq!(
+            tabs.panes,
+            [Pane::Rows, Pane::Detail, Pane::Notes],
+            "notes always get a tab"
+        );
+
+        for body in [
+            "[squad.x.board]\nmode = \"grid\"\n",
+            "[squad.x.board]\ndirection = \"diagonal\"\n",
+            "[squad.x.board]\npanes = [\"notes\"]\n",
+            "[squad.x.board]\npanes = [\"rows\", \"rows\"]\n",
+            "[squad.x.board]\npanes = [\"rows\", \"chat\"]\n",
+            "[squad.x.board]\nsizes = [50, 40]\n",
+            "[squad.x.board]\nsizes = [95, 5]\n",
+            "[squad.x.board]\nsizes = [100]\n",
+            "[squad.x.board]\nmode = \"tabs\"\nsizes = [60, 40]\n",
+            "[squad.x.board]\ncolumns = 2\n",
+        ] {
+            let code = read(body)
+                .board("x", Layout::Crew)
+                .err()
+                .map(|error| error.code);
+            assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn state_sort_overrides_reorder_known_and_new_states() {
+        let path = temp("order");
+        fs::write(
+            &path,
+            "[squad.x.states]\nblocked = { color = \"amber\", sort = 0 }\nparked = { sort = 3 }\n",
+        )
+        .unwrap();
+        let states = Config::read(path.clone())
+            .unwrap()
+            .states("x", Layout::Crew)
+            .unwrap();
+        assert_eq!(
+            states.order,
+            [
+                "blocked", "working", "idle", "parked", "review", "testing", "hold"
+            ]
+        );
+        assert_eq!(states.rank(Some("blocked")), 0);
+        assert_eq!(states.rank(Some("unknown")), states.order.len());
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 }
