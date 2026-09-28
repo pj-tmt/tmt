@@ -108,7 +108,7 @@ fn public_diagnostics_are_closed_and_bounded_not_arbitrary_companion_output() {
         json!({"error": "WORLD_INVALID", "issues": [{"objectId": "not-an-id", "reason": "outsideFloor"}]}),
         json!({"error": "WORLD_INVALID", "issues": [{"objectId": null, "reason": "invented"}]}),
         json!({"error": "WORLD_INVALID", "issues": [{"objectId": null, "reason": "outsideFloor", "extra": true}]}),
-        json!({"error": "WORLD_INVALID", "issues": vec![json!({"objectId": null, "reason": "invalidId"}); tmt_core::office_world::MAX_OBJECTS + 1]}),
+        json!({"error": "WORLD_INVALID", "issues": vec![json!({"objectId": null, "reason": "invalidId"}); tmt_office_model::office_world::MAX_OBJECTS + 1]}),
     ] {
         assert!(decode(&invalid).is_err());
     }

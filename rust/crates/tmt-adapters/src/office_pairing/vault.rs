@@ -12,7 +12,7 @@ pub struct ProtectedEntry(Entry);
 
 impl ProtectedEntry {
     pub fn open(scope: &str) -> Result<Self, OfficeError> {
-        if !crate::content_digest::is_sha256(scope) {
+        if !tmt_core::content_digest::is_sha256(scope) {
             return Err(OfficeError::CredentialsInvalid);
         }
         #[cfg(target_os = "linux")]

@@ -4,12 +4,12 @@ use super::{Request, require_json_origin, response};
 use serde::Deserialize;
 use serde_json::json;
 use std::{io, net::TcpStream};
-use tmt_adapters::{
-    config::ConfigPaths,
-    office_prop::{self, ValidatedPropPack},
-    office_service::ServiceReceipt,
-    storage::{LocalPropCatalogError, Storage},
-};
+use tmt_adapters::config::ConfigPaths;
+use tmt_adapters::office_service::ServiceReceipt;
+use tmt_adapters::storage::LocalPropCatalogError;
+use tmt_adapters::storage::Storage;
+use tmt_office_model::codec::office_prop;
+use tmt_office_model::codec::office_prop::ValidatedPropPack;
 
 const LIST: &str = "/api/v1/local/props/list";
 const INSTALL: &str = "/api/v1/local/props/install";
@@ -68,7 +68,7 @@ fn decode(request: &Request) -> Option<Operation> {
         Some(Operation::List(input))
     } else {
         let input: InstallInput = serde_json::from_slice(&request.body).ok()?;
-        if input.expected_revision > tmt_core::office_profile::MAX_REVISION {
+        if input.expected_revision > tmt_office_model::office_profile::MAX_REVISION {
             return None;
         }
         Some(Operation::Install {
@@ -152,7 +152,9 @@ pub(super) fn api(
                 stream,
                 status,
                 "application/json",
-                &serde_json::to_vec(&json!({"error":office_prop::catalog_error(error).code()}))?,
+                &serde_json::to_vec(
+                    &json!({"error":tmt_adapters::office_prop::catalog_error(error).code()}),
+                )?,
             )
         }
     }

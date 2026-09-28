@@ -7,13 +7,16 @@ use super::super::{
     room::{read_historical_room, read_room},
 };
 use super::{ensure_world, legacy};
-use crate::office_extension::{ExtensionError, validate_attachment};
-use crate::office_world::{WORLD_DOCUMENT_LIMIT, decode_world, world_value};
 use rusqlite::{Connection, OptionalExtension, params};
-use tmt_core::{
-    identity::Lifetime, limits::MAX_JS_SAFE_INTEGER, office_map::AreaKind,
-    office_world::WorldLayout,
-};
+use tmt_core::identity::Lifetime;
+use tmt_core::limits::MAX_JS_SAFE_INTEGER;
+use tmt_office_model::codec::office_extension::ExtensionError;
+use tmt_office_model::codec::office_extension::validate_attachment;
+use tmt_office_model::codec::office_world::WORLD_DOCUMENT_LIMIT;
+use tmt_office_model::codec::office_world::decode_world;
+use tmt_office_model::codec::office_world::world_value;
+use tmt_office_model::office_map::AreaKind;
+use tmt_office_model::office_world::WorldLayout;
 
 #[derive(Debug)]
 pub enum WorldStoreError {

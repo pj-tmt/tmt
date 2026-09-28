@@ -51,7 +51,13 @@ fn workspace_obeys_native_architecture() {
         .collect();
     assert_eq!(
         packages,
-        BTreeSet::from(["tmt-core", "tmt-adapters", "tmt-cli", "tmt-office"]),
+        BTreeSet::from([
+            "tmt-core",
+            "tmt-adapters",
+            "tmt-cli",
+            "tmt-office",
+            "tmt-office-model"
+        ]),
         "Review native package boundaries when changing workspace members"
     );
     for package in metadata["packages"].as_array().expect("Cargo packages") {

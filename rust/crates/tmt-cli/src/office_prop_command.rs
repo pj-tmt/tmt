@@ -6,11 +6,12 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    office_companion::invoke_local_office_prop,
-    office_prop::{PropPackError, command_pack_input, quality_warnings, read_pack_file},
-};
-use tmt_core::office_protocol::{OfficeError, OfficeInvocation};
+use tmt_adapters::office_companion::invoke_local_office_prop;
+use tmt_adapters::office_prop::read_pack_file;
+use tmt_office_model::codec::office_prop::PropPackError;
+use tmt_office_model::codec::office_prop::command_pack_input;
+use tmt_office_model::codec::office_prop::quality_warnings;
+use tmt_office_model::office_protocol::{OfficeError, OfficeInvocation};
 
 use crate::{
     invocation::{OfficeOperation, OfficePropOperation, OutputMode},

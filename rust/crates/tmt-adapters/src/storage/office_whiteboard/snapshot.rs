@@ -8,13 +8,13 @@ use super::{
     with_immediate_transaction,
 };
 use rusqlite::{Connection, OptionalExtension};
-use tmt_core::{
-    limits::MAX_JS_SAFE_INTEGER,
-    office_whiteboard::snapshot::{
-        CaptureWhiteboard, WhiteboardSnapshot, capture_document, valid_snapshot_id,
-        validate_capture, validate_snapshot,
-    },
-};
+use tmt_core::limits::MAX_JS_SAFE_INTEGER;
+use tmt_office_model::office_whiteboard::snapshot::CaptureWhiteboard;
+use tmt_office_model::office_whiteboard::snapshot::WhiteboardSnapshot;
+use tmt_office_model::office_whiteboard::snapshot::capture_document;
+use tmt_office_model::office_whiteboard::snapshot::valid_snapshot_id;
+use tmt_office_model::office_whiteboard::snapshot::validate_capture;
+use tmt_office_model::office_whiteboard::snapshot::validate_snapshot;
 
 impl Storage {
     pub fn capture_whiteboard(

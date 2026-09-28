@@ -5,7 +5,7 @@ use super::{
     WhiteboardStoreError, classify, params, read_snapshot, valid_snapshot_id,
     with_immediate_transaction,
 };
-use crate::office_whiteboard::image::ValidatedSnapshotImage;
+use tmt_office_model::codec::office_whiteboard::image::ValidatedSnapshotImage;
 
 impl Storage {
     pub fn attach_whiteboard_snapshot_image(

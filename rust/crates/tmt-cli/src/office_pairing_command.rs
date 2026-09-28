@@ -16,7 +16,7 @@ use tmt_adapters::{
     office_companion::{PairingCall, PairingReply, invoke_office_pairing, invoke_office_sync},
     storage::Storage,
 };
-use tmt_core::office_protocol::{OfficeError, OfficeInvocation};
+use tmt_office_model::office_protocol::{OfficeError, OfficeInvocation};
 
 pub(crate) fn resolve_identity(
     selector: Option<&str>,

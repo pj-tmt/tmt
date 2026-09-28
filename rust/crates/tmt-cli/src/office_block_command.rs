@@ -101,8 +101,8 @@ fn unconfirmed() -> Failure {
     )
 }
 
-fn block_error(error: tmt_core::office_protocol::OfficeError) -> Failure {
-    if error == tmt_core::office_protocol::OfficeError::RemoteUncertain {
+fn block_error(error: tmt_office_model::office_protocol::OfficeError) -> Failure {
+    if error == tmt_office_model::office_protocol::OfficeError::RemoteUncertain {
         return unconfirmed();
     }
     pairing_error(error)

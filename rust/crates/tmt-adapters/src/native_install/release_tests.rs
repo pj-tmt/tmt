@@ -1,5 +1,4 @@
 use super::{OFFICIAL_REPOSITORY, artifact, download};
-use crate::content_digest::sha256;
 use flate2::{Compression, write::GzEncoder};
 use serde_json::{Value, json};
 use std::{
@@ -8,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tar::{Builder, EntryType, Header};
+use tmt_core::content_digest::sha256;
 use tmt_core::native_install::{Channel, Product};
 
 const TARGET: &str = "aarch64-apple-darwin";

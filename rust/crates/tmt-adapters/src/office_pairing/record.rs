@@ -189,9 +189,9 @@ impl PairingRecord {
         target: &WorldTarget,
         now_ms: u64,
         requested_id: Option<&str>,
-        edit: Option<(&tmt_core::office_block::BlockLayout, u64)>,
+        edit: Option<(&tmt_office_model::office_block::BlockLayout, u64)>,
         deadline: std::time::Instant,
-    ) -> Result<crate::office_block::BlockSnapshot, OfficeError> {
+    ) -> Result<tmt_office_model::codec::office_block::BlockSnapshot, OfficeError> {
         match &self.phase {
             Phase::Paired {
                 grant_expires_at,

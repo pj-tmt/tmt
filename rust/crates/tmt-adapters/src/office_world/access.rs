@@ -6,7 +6,7 @@ use crate::{
     storage::{LocalWorldSnapshot, Storage},
 };
 use std::path::Path;
-use tmt_core::office_protocol::OfficeInvocation;
+use tmt_office_model::office_protocol::OfficeInvocation;
 
 pub fn run(
     database: &Path,

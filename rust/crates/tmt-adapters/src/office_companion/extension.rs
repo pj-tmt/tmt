@@ -1,9 +1,11 @@
 //! One allowlisted structural preflight through the verified companion.
 
 use super::invoke_bytes_bounded;
-use crate::office_extension::preflight::{PROTOCOL_INPUT_LIMIT, ValidationInput, ValidationReport};
 use std::{io, path::Path, time::Instant};
-use tmt_core::office_protocol::{OFFICE_PROTOCOL_OUTPUT_LIMIT, OfficeInvocation};
+use tmt_office_model::codec::office_extension::preflight::PROTOCOL_INPUT_LIMIT;
+use tmt_office_model::codec::office_extension::preflight::ValidationInput;
+use tmt_office_model::codec::office_extension::preflight::ValidationReport;
+use tmt_office_model::office_protocol::{OFFICE_PROTOCOL_OUTPUT_LIMIT, OfficeInvocation};
 
 pub fn validate_office_extension(
     executable: &Path,
@@ -34,7 +36,8 @@ fn decode_report(bytes: &[u8]) -> io::Result<ValidationReport> {
         instance,
         ..
     } = &report
-        && (!crate::indexed_art::valid_key(definition) || !crate::indexed_art::valid_key(instance))
+        && (!tmt_office_model::indexed_art::valid_key(definition)
+            || !tmt_office_model::indexed_art::valid_key(instance))
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,

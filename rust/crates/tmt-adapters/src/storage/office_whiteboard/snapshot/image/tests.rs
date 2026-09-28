@@ -1,9 +1,8 @@
 use super::super::tests::{CAPTURE, MISSING, counts, document, input};
 use super::*;
-use crate::{
-    office_whiteboard::image::{decode_snapshot_image, test_support},
-    test_support::TestDirectory,
-};
+use crate::office_whiteboard::image_tests::test_support;
+use crate::test_support::TestDirectory;
+use tmt_office_model::codec::office_whiteboard::image::decode_snapshot_image;
 
 fn image(pixel: [u8; 4]) -> ValidatedSnapshotImage {
     decode_snapshot_image(&test_support::solid(pixel)).unwrap()

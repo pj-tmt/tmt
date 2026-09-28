@@ -6,10 +6,10 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    office_companion::{SnapshotResource, read_office_snapshot},
-    office_whiteboard::{export::export_snapshot_image, snapshot::encode_snapshot},
-};
+use tmt_adapters::office_companion::SnapshotResource;
+use tmt_adapters::office_companion::read_office_snapshot;
+use tmt_adapters::office_whiteboard::export::export_snapshot_image;
+use tmt_office_model::codec::office_whiteboard::snapshot::encode_snapshot;
 
 pub fn run(
     executable: &Path,
@@ -49,7 +49,7 @@ pub fn run(
                 .caused_by(error)
             })?;
             let value = if mode.json {
-                serde_json::json!({"path":path,"bytes":bytes.len(),"snapshotId":tmt_core::office_whiteboard::snapshot::resolve_snapshot_reference(reference).expect("validated reference")}).to_string()
+                serde_json::json!({"path":path,"bytes":bytes.len(),"snapshotId":tmt_office_model::office_whiteboard::snapshot::resolve_snapshot_reference(reference).expect("validated reference")}).to_string()
             } else {
                 format!("Saved snapshot to {path}")
             };

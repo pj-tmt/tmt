@@ -17,7 +17,7 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_core::office_protocol::{
+use tmt_office_model::office_protocol::{
     OFFICE_HOOK_BATCH_LIMIT, OFFICE_PROTOCOL_OUTPUT_LIMIT, OfficeError, OfficeInvocation,
     OfficeSyncReport, decode_office_capabilities, decode_office_probe,
 };
@@ -80,15 +80,16 @@ pub fn invoke_office_pairing(
 pub fn invoke_local_office_profile(
     executable: &Path,
     identity_id: &str,
-    edit: Option<(&tmt_core::office_profile::LocalProfile, u64)>,
+    edit: Option<(&tmt_office_model::office_profile::LocalProfile, u64)>,
     deadline: Instant,
 ) -> io::Result<Result<serde_json::Value, OfficeError>> {
     let mut input = serde_json::json!({"identityId":identity_id});
     let operation = if let Some((profile, revision)) = edit {
-        if revision > tmt_core::office_profile::MAX_REVISION || profile.validate().is_err() {
+        if revision > tmt_office_model::office_profile::MAX_REVISION || profile.validate().is_err()
+        {
             return Ok(Err(OfficeError::ProfileInvalid));
         }
-        input["profile"] = crate::office_profile_wire::encode_value(profile);
+        input["profile"] = tmt_office_model::codec::office_profile_wire::encode_value(profile);
         input["expectedRevision"] = serde_json::json!(revision);
         OfficeInvocation::LocalProfileApply
     } else {
@@ -125,7 +126,7 @@ pub fn invoke_local_office_prop(
         return Err(invalid_pairing());
     }
     let input = serde_json::to_vec(input)?;
-    if input.len() > crate::office_prop::PROTOCOL_INPUT_LIMIT {
+    if input.len() > tmt_office_model::codec::office_prop::PROTOCOL_INPUT_LIMIT {
         return Err(invalid_pairing());
     }
     let bytes = match invoke_bytes_bounded(executable, operation, &input, deadline, 131_072) {
@@ -165,7 +166,7 @@ pub fn invoke_local_office_avatar(
         return Err(invalid_pairing());
     }
     let input = serde_json::to_vec(input)?;
-    if input.len() > crate::office_avatar::PROTOCOL_INPUT_LIMIT {
+    if input.len() > tmt_office_model::codec::office_avatar::PROTOCOL_INPUT_LIMIT {
         return Err(invalid_pairing());
     }
     let bytes = match invoke_bytes_bounded(
@@ -173,7 +174,7 @@ pub fn invoke_local_office_avatar(
         operation,
         &input,
         deadline,
-        crate::office_avatar::PROTOCOL_OUTPUT_LIMIT,
+        tmt_office_model::codec::office_avatar::PROTOCOL_OUTPUT_LIMIT,
     ) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -229,7 +230,7 @@ fn valid_local_avatar_reply(operation: OfficeInvocation, value: &serde_json::Val
                 ],
             ) && safe_u64(&value["catalogRevision"])
                 && value["builtins"].as_array().is_some_and(|items| {
-                    items.len() <= crate::office_avatar::builtin_packs().len()
+                    items.len() <= tmt_office_model::codec::office_avatar::builtin_packs().len()
                         && items.iter().all(|item| {
                             valid_avatar_pack_projection(
                                 item,
@@ -270,7 +271,7 @@ fn valid_local_avatar_reply(operation: OfficeInvocation, value: &serde_json::Val
 fn valid_avatar_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bool {
     let Some(format) = value["formatVersion"]
         .as_u64()
-        .and_then(crate::office_avatar::avatar_format)
+        .and_then(tmt_office_model::codec::office_avatar::avatar_format)
     else {
         return false;
     };
@@ -287,21 +288,25 @@ fn valid_avatar_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bo
     fields.extend_from_slice(extra);
     exact_object(value, &fields)
         && valid_avatar_digest(&value["digest"])
-        && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
-        && valid_indexed_text(&value["credit"], crate::indexed_art::CREDIT_LIMIT)
+        && valid_indexed_text(&value["label"], tmt_office_model::indexed_art::LABEL_LIMIT)
+        && valid_indexed_text(
+            &value["credit"],
+            tmt_office_model::indexed_art::CREDIT_LIMIT,
+        )
         && value["license"]
             .as_str()
-            .is_some_and(crate::indexed_art::valid_license)
+            .is_some_and(tmt_office_model::indexed_art::valid_license)
         && value["fileBytes"]
             .as_u64()
             .is_some_and(|bytes| (1..=32 * 1024).contains(&bytes))
         && value["cellCount"].as_u64().is_some_and(|cells| {
-            ((format.width * format.height) as u64..=crate::office_avatar::PACK_CELL_LIMIT as u64)
+            ((format.width * format.height) as u64
+                ..=tmt_office_model::codec::office_avatar::PACK_CELL_LIMIT as u64)
                 .contains(&cells)
         })
         && value["avatars"].as_array().is_some_and(|avatars| {
             !avatars.is_empty()
-                && avatars.len() <= crate::office_avatar::PACK_AVATAR_LIMIT
+                && avatars.len() <= tmt_office_model::codec::office_avatar::PACK_AVATAR_LIMIT
                 && value["cellCount"].as_u64()
                     == Some((avatars.len() * format.width * format.height) as u64)
                 && avatars
@@ -311,13 +316,13 @@ fn valid_avatar_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bo
 }
 fn valid_avatar_summary(
     value: &serde_json::Value,
-    format: crate::office_avatar::AvatarFormat,
+    format: tmt_office_model::codec::office_avatar::AvatarFormat,
 ) -> bool {
     exact_object(value, &["key", "label", "raster"])
         && value["key"]
             .as_str()
-            .is_some_and(crate::indexed_art::valid_key)
-        && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
+            .is_some_and(tmt_office_model::indexed_art::valid_key)
+        && valid_indexed_text(&value["label"], tmt_office_model::indexed_art::LABEL_LIMIT)
         && exact_object(&value["raster"], &["width", "height"])
         && value["raster"]["width"].as_u64() == Some(format.width as u64)
         && value["raster"]["height"].as_u64() == Some(format.height as u64)
@@ -325,7 +330,7 @@ fn valid_avatar_summary(
 fn valid_avatar_digest(value: &serde_json::Value) -> bool {
     value
         .as_str()
-        .and_then(crate::office_avatar::parse_pack_digest)
+        .and_then(tmt_office_model::codec::office_avatar::parse_pack_digest)
         .is_some()
 }
 
@@ -365,7 +370,7 @@ fn valid_local_prop_reply(operation: OfficeInvocation, value: &serde_json::Value
                 ],
             ) && safe_u64(&value["catalogRevision"])
                 && value["builtins"].as_array().is_some_and(|items| {
-                    items.len() == crate::office_prop::builtin_packs().len()
+                    items.len() == tmt_office_model::codec::office_prop::builtin_packs().len()
                         && items.iter().all(|item| {
                             valid_prop_snapshot_projection(item)
                                 && item["builtin"].as_bool() == Some(true)
@@ -429,16 +434,19 @@ fn valid_prop_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bool
     exact_object(value, &fields)
         && valid_prop_digest(&value["digest"])
         && matches!(value["formatVersion"].as_u64(), Some(1 | 2))
-        && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
-        && valid_indexed_text(&value["credit"], crate::indexed_art::CREDIT_LIMIT)
+        && valid_indexed_text(&value["label"], tmt_office_model::indexed_art::LABEL_LIMIT)
+        && valid_indexed_text(
+            &value["credit"],
+            tmt_office_model::indexed_art::CREDIT_LIMIT,
+        )
         && value["license"]
             .as_str()
-            .is_some_and(crate::indexed_art::valid_license)
+            .is_some_and(tmt_office_model::indexed_art::valid_license)
         && value["fileBytes"].as_u64().is_some_and(|bytes| {
             (1..=if value["formatVersion"] == 2 {
-                crate::office_prop::PACK_INPUT_LIMIT as u64
+                tmt_office_model::codec::office_prop::PACK_INPUT_LIMIT as u64
             } else {
-                crate::office_prop::V1_PACK_INPUT_LIMIT as u64
+                tmt_office_model::codec::office_prop::V1_PACK_INPUT_LIMIT as u64
             })
                 .contains(&bytes)
         })
@@ -482,14 +490,14 @@ fn valid_prop_summary(value: &serde_json::Value, directional: bool) -> bool {
     exact_object(value, &keys)
         && value["key"]
             .as_str()
-            .is_some_and(crate::indexed_art::valid_key)
-        && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
+            .is_some_and(tmt_office_model::indexed_art::valid_key)
+        && valid_indexed_text(&value["label"], tmt_office_model::indexed_art::LABEL_LIMIT)
         && valid_dimensions(
             &value["footprint"],
             if directional {
-                tmt_core::office_block::PROP_FOOTPRINT_LIMIT as u64
+                tmt_office_model::office_block::PROP_FOOTPRINT_LIMIT as u64
             } else {
-                crate::office_prop::FOOTPRINT_LIMIT as u64
+                tmt_office_model::codec::office_prop::FOOTPRINT_LIMIT as u64
             },
         )
         && if directional {
@@ -514,14 +522,14 @@ fn valid_dimensions(value: &serde_json::Value, limit: u64) -> bool {
 fn valid_prop_digest(value: &serde_json::Value) -> bool {
     value
         .as_str()
-        .and_then(crate::office_prop::parse_pack_digest)
+        .and_then(tmt_office_model::codec::office_prop::parse_pack_digest)
         .is_some()
 }
 
 fn valid_indexed_text(value: &serde_json::Value, limit: usize) -> bool {
     value
         .as_str()
-        .is_some_and(|text| crate::indexed_art::valid_text(text, limit))
+        .is_some_and(|text| tmt_office_model::indexed_art::valid_text(text, limit))
 }
 
 fn exact_object(value: &serde_json::Value, fields: &[&str]) -> bool {
@@ -564,13 +572,13 @@ fn decode_local_profile_reply(
     {
         return Err(invalid_pairing());
     }
-    crate::office_profile_wire::decode_value(value["profile"].clone())
+    tmt_office_model::codec::office_profile_wire::decode_value(value["profile"].clone())
         .map_err(|_| invalid_pairing())?;
     let expected_catalog = serde_json::json!({
-        "hairStyles": tmt_core::office_profile::HAIR_STYLES,
-        "hairColors": tmt_core::office_profile::HAIR_COLORS,
-        "skinTones": tmt_core::office_profile::SKIN_TONES,
-        "shirtColors": tmt_core::office_profile::SHIRT_COLORS,
+        "hairStyles": tmt_office_model::office_profile::HAIR_STYLES,
+        "hairColors": tmt_office_model::office_profile::HAIR_COLORS,
+        "skinTones": tmt_office_model::office_profile::SKIN_TONES,
+        "shirtColors": tmt_office_model::office_profile::SHIRT_COLORS,
     });
     if value["catalog"] != expected_catalog {
         return Err(invalid_pairing());
@@ -580,7 +588,7 @@ fn decode_local_profile_reply(
     if editing && value["changed"].as_bool().is_none() {
         return Err(invalid_pairing());
     }
-    if revision > tmt_core::office_profile::MAX_REVISION
+    if revision > tmt_office_model::office_profile::MAX_REVISION
         || value["updatedAtMs"].as_u64().is_some_and(|timestamp| {
             timestamp == 0 || timestamp > tmt_core::limits::MAX_JS_SAFE_INTEGER
         })
@@ -597,7 +605,7 @@ pub fn invoke_office_board(
     operation: OfficeInvocation,
     input: &[u8],
     deadline: Instant,
-) -> io::Result<Result<serde_json::Value, tmt_core::office_board::BoardErrorCode>> {
+) -> io::Result<Result<serde_json::Value, tmt_office_model::office_board::BoardErrorCode>> {
     if !matches!(
         operation,
         OfficeInvocation::BoardPost
@@ -654,17 +662,23 @@ pub fn invoke_office_board(
         && let Some(code) = value["error"].as_str()
     {
         let error = match code {
-            "BOARD_INVALID" => tmt_core::office_board::BoardErrorCode::Invalid,
-            "BOARD_THREAD_NOT_FOUND" => tmt_core::office_board::BoardErrorCode::ThreadNotFound,
-            "BOARD_ENTRY_NOT_FOUND" => tmt_core::office_board::BoardErrorCode::EntryNotFound,
-            "BOARD_REVISION_CONFLICT" => tmt_core::office_board::BoardErrorCode::RevisionConflict,
-            "BOARD_FORBIDDEN" => tmt_core::office_board::BoardErrorCode::Forbidden,
-            "BOARD_IDEMPOTENCY_CONFLICT" => {
-                tmt_core::office_board::BoardErrorCode::IdempotencyConflict
+            "BOARD_INVALID" => tmt_office_model::office_board::BoardErrorCode::Invalid,
+            "BOARD_THREAD_NOT_FOUND" => {
+                tmt_office_model::office_board::BoardErrorCode::ThreadNotFound
             }
-            "BOARD_CURSOR_INVALID" => tmt_core::office_board::BoardErrorCode::CursorInvalid,
-            "BOARD_CURSOR_STALE" => tmt_core::office_board::BoardErrorCode::CursorStale,
-            "STORAGE_ERROR" => tmt_core::office_board::BoardErrorCode::Storage,
+            "BOARD_ENTRY_NOT_FOUND" => {
+                tmt_office_model::office_board::BoardErrorCode::EntryNotFound
+            }
+            "BOARD_REVISION_CONFLICT" => {
+                tmt_office_model::office_board::BoardErrorCode::RevisionConflict
+            }
+            "BOARD_FORBIDDEN" => tmt_office_model::office_board::BoardErrorCode::Forbidden,
+            "BOARD_IDEMPOTENCY_CONFLICT" => {
+                tmt_office_model::office_board::BoardErrorCode::IdempotencyConflict
+            }
+            "BOARD_CURSOR_INVALID" => tmt_office_model::office_board::BoardErrorCode::CursorInvalid,
+            "BOARD_CURSOR_STALE" => tmt_office_model::office_board::BoardErrorCode::CursorStale,
+            "STORAGE_ERROR" => tmt_office_model::office_board::BoardErrorCode::Storage,
             _ => return Err(invalid_pairing()),
         };
         return Ok(Err(error));
@@ -697,14 +711,15 @@ fn positive_revision(value: &serde_json::Value) -> bool {
 }
 fn cursor_value(value: &serde_json::Value) -> bool {
     value.is_null()
-        || value
-            .as_str()
-            .is_some_and(|s| !s.is_empty() && s.len() <= tmt_core::office_board::CURSOR_MAX_BYTES)
+        || value.as_str().is_some_and(|s| {
+            !s.is_empty() && s.len() <= tmt_office_model::office_board::CURSOR_MAX_BYTES
+        })
 }
 fn prop_cursor_value(value: &serde_json::Value) -> bool {
     value.is_null()
         || value.as_str().is_some_and(|s| {
-            !s.is_empty() && s.len() <= crate::office_prop::CATALOG_CURSOR_MAX_BYTES
+            !s.is_empty()
+                && s.len() <= tmt_office_model::codec::office_prop::CATALOG_CURSOR_MAX_BYTES
         })
 }
 fn category_value(value: &serde_json::Value) -> bool {
@@ -713,7 +728,7 @@ fn category_value(value: &serde_json::Value) -> bool {
             && value["kind"] == "repository"
             && value["repositoryId"]
                 .as_str()
-                .is_some_and(tmt_core::office_board::valid_repository_id)
+                .is_some_and(tmt_office_model::office_board::valid_repository_id)
         || exact_keys(value, &["kind", "roomId"])
             && value["kind"] == "room"
             && value["roomId"]
@@ -780,16 +795,16 @@ fn entry_value(value: &serde_json::Value, summary: bool) -> bool {
     if o.get("title").is_some_and(|v| {
         v.as_str().is_none_or(|s| {
             s.is_empty()
-                || s.len() > tmt_core::office_board::TITLE_MAX_BYTES
+                || s.len() > tmt_office_model::office_board::TITLE_MAX_BYTES
                 || s.chars().any(char::is_control)
         })
     }) {
         return false;
     }
     let body_max = if value["id"] == value["threadId"] {
-        tmt_core::office_board::ROOT_BODY_MAX_BYTES
+        tmt_office_model::office_board::ROOT_BODY_MAX_BYTES
     } else {
-        tmt_core::office_board::REPLY_BODY_MAX_BYTES
+        tmt_office_model::office_board::REPLY_BODY_MAX_BYTES
     };
     if o.get("body").is_some_and(|v| {
         v.as_str().is_none_or(|s| {
@@ -898,15 +913,15 @@ pub fn invoke_office_block(
     executable: &Path,
     call: &PairingCall<'_>,
     block_id: Option<&str>,
-    edit: Option<(&tmt_core::office_block::BlockLayout, u64)>,
+    edit: Option<(&tmt_office_model::office_block::BlockLayout, u64)>,
     deadline: Instant,
-) -> io::Result<Result<crate::office_block::BlockSnapshot, OfficeError>> {
+) -> io::Result<Result<tmt_office_model::codec::office_block::BlockSnapshot, OfficeError>> {
     let mut input = serde_json::json!({"world":call.world,"identityId":call.identity_id,"emulator":call.emulator,"readOnly":false,"blockId":block_id});
     let operation = if let Some((layout, revision)) = edit {
-        if revision >= tmt_core::office_block::MAX_REVISION {
+        if revision >= tmt_office_model::office_block::MAX_REVISION {
             return Ok(Err(OfficeError::LayoutInvalid));
         }
-        input["layout"] = crate::office_block::layout_value(layout);
+        input["layout"] = tmt_office_model::codec::office_block::layout_value(layout);
         input["expectedRevision"] = serde_json::json!(revision);
         OfficeInvocation::BlockApply
     } else {
@@ -932,7 +947,7 @@ pub fn invoke_office_block(
 fn decode_block_reply(
     bytes: &[u8],
     block_id: Option<&str>,
-) -> io::Result<Result<crate::office_block::BlockSnapshot, OfficeError>> {
+) -> io::Result<Result<tmt_office_model::codec::office_block::BlockSnapshot, OfficeError>> {
     if bytes.len() > 4096 {
         return Err(invalid_pairing());
     }
@@ -942,8 +957,8 @@ fn decode_block_reply(
     {
         return Ok(Err(error));
     }
-    let snapshot =
-        crate::office_block::BlockSnapshot::decode(bytes).map_err(|_| invalid_pairing())?;
+    let snapshot = tmt_office_model::codec::office_block::BlockSnapshot::decode(bytes)
+        .map_err(|_| invalid_pairing())?;
     if block_id.is_some_and(|id| id != snapshot.block_id) {
         return Err(invalid_pairing());
     }
@@ -1164,7 +1179,7 @@ mod pairing_tests {
         assert!(require_board_capability(b"TMT-OFFICE/1\n0.1.0\n", || dispatched = true).is_err());
         assert!(!dispatched);
         require_board_capability(
-            tmt_core::office_protocol::encode_office_capabilities().as_bytes(),
+            tmt_office_model::office_protocol::encode_office_capabilities().as_bytes(),
             || dispatched = true,
         )
         .unwrap();
@@ -1212,11 +1227,11 @@ mod pairing_tests {
         assert!(!actor_value(
             &serde_json::json!({"kind":"identity","identityId":id,"name":"bad\nname"})
         ));
-        let summary = serde_json::json!({"id":id,"threadId":id,"category":{"kind":"general"},"author":{"kind":"owner"},"revision":1,"deleted":false,"createdAtMs":1,"updatedAtMs":1,"title":"x".repeat(tmt_core::office_board::TITLE_MAX_BYTES+1),"replyCount":0,"activitySequence":1});
+        let summary = serde_json::json!({"id":id,"threadId":id,"category":{"kind":"general"},"author":{"kind":"owner"},"revision":1,"deleted":false,"createdAtMs":1,"updatedAtMs":1,"title":"x".repeat(tmt_office_model::office_board::TITLE_MAX_BYTES+1),"replyCount":0,"activitySequence":1});
         assert!(!entry_value(&summary, true));
         assert!(!valid_board_success(
             OfficeInvocation::BoardCategories,
-            &serde_json::json!({"categories":[],"nextCursor":"x".repeat(tmt_core::office_board::CURSOR_MAX_BYTES+1),"boardRevision":1})
+            &serde_json::json!({"categories":[],"nextCursor":"x".repeat(tmt_office_model::office_board::CURSOR_MAX_BYTES+1),"boardRevision":1})
         ));
     }
 
@@ -1257,8 +1272,9 @@ mod pairing_tests {
             },
             {
                 let mut v = valid.clone();
-                v["replies"][0]["body"] =
-                    serde_json::json!("x".repeat(tmt_core::office_board::REPLY_BODY_MAX_BYTES + 1));
+                v["replies"][0]["body"] = serde_json::json!(
+                    "x".repeat(tmt_office_model::office_board::REPLY_BODY_MAX_BYTES + 1)
+                );
                 v
             },
             {
@@ -1314,91 +1330,91 @@ mod pairing_tests {
                 "props":pack["props"], "builtin":true, "catalogRevision":0,
                 "installedAtMs":null
             }, {
-                "digest":crate::office_prop::WORKSHOP_DIGEST, "formatVersion":2, "label":"Workshop",
+                "digest":tmt_office_model::codec::office_prop::WORKSHOP_DIGEST, "formatVersion":2, "label":"Workshop",
                 "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"desk","label":"Desk","footprint":{"width":1,"height":1},
                     "frames":[{"width":1,"height":1},{"width":1,"height":1},{"width":1,"height":1},{"width":1,"height":1}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::COMMONS_DIGEST, "formatVersion":2, "label":"Commons",
+                "digest":tmt_office_model::codec::office_prop::COMMONS_DIGEST, "formatVersion":2, "label":"Commons",
                 "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"noticeboard","label":"Noticeboard","footprint":{"width":12,"height":8},
                     "frames":[{"width":96,"height":64},{"width":64,"height":96},{"width":96,"height":64},{"width":64,"height":96}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::WHITEBOARD_DIGEST, "formatVersion":2, "label":"Whiteboard",
+                "digest":tmt_office_model::codec::office_prop::WHITEBOARD_DIGEST, "formatVersion":2, "label":"Whiteboard",
                 "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"whiteboard","label":"Whiteboard","footprint":{"width":12,"height":8},
                     "frames":[{"width":96,"height":64},{"width":64,"height":96},{"width":96,"height":64},{"width":64,"height":96}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::BROADCASTER_DIGEST, "formatVersion":2, "label":"Broadcaster",
+                "digest":tmt_office_model::codec::office_prop::BROADCASTER_DIGEST, "formatVersion":2, "label":"Broadcaster",
                 "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"broadcast-station","label":"Broadcast station","footprint":{"width":8,"height":8},
                     "frames":[{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::STUDY_DIGEST, "formatVersion":2, "label":"Study",
+                "digest":tmt_office_model::codec::office_prop::STUDY_DIGEST, "formatVersion":2, "label":"Study",
                 "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"oak-bookcase","label":"Bookcase","footprint":{"width":12,"height":12},
                     "frames":[{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::WALL_DIGEST, "formatVersion":2, "label":"Walls",
+                "digest":tmt_office_model::codec::office_prop::WALL_DIGEST, "formatVersion":2, "label":"Walls",
                 "credit":"TMT", "license":"CC0-1.0", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"observatory-window","label":"Window","footprint":{"width":12,"height":8},
                     "frames":[{"width":96,"height":64},{"width":64,"height":96},{"width":96,"height":64},{"width":64,"height":96}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::MODULAR_WORKSTATION_DIGEST, "formatVersion":2, "label":"Modular workstation",
+                "digest":tmt_office_model::codec::office_prop::MODULAR_WORKSTATION_DIGEST, "formatVersion":2, "label":"Modular workstation",
                 "credit":"TMT", "license":"MIT", "fileBytes":283399, "pixelCount":129280,
                 "props":[{"key":"workstation-chair","label":"Rolling chair","footprint":{"width":8,"height":8},
                     "frames":[{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::MODULAR_MOUNTED_DIGEST, "formatVersion":2, "label":"Modular wall objects",
+                "digest":tmt_office_model::codec::office_prop::MODULAR_MOUNTED_DIGEST, "formatVersion":2, "label":"Modular wall objects",
                 "credit":"TMT", "license":"MIT", "fileBytes":256962, "pixelCount":116736,
                 "props":[{"key":"mounted-window","label":"Celestial window","footprint":{"width":16,"height":16},
                     "frames":[{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::MODULAR_LOUNGE_DIGEST, "formatVersion":2, "label":"Modular lounge",
+                "digest":tmt_office_model::codec::office_prop::MODULAR_LOUNGE_DIGEST, "formatVersion":2, "label":"Modular lounge",
                 "credit":"TMT", "license":"MIT", "fileBytes":272183, "pixelCount":123904,
                 "props":[{"key":"lounge-sofa","label":"Velvet sofa","footprint":{"width":16,"height":16},
                     "frames":[{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::MODULAR_FACILITIES_DIGEST, "formatVersion":2, "label":"Modular facilities",
+                "digest":tmt_office_model::codec::office_prop::MODULAR_FACILITIES_DIGEST, "formatVersion":2, "label":"Modular facilities",
                 "credit":"TMT", "license":"MIT", "fileBytes":259019, "pixelCount":118784,
                 "props":[{"key":"lobby-radio","label":"Radio","footprint":{"width":8,"height":8},
                     "frames":[{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::MODULAR_RECEPTION_DIGEST, "formatVersion":2, "label":"Modular reception",
+                "digest":tmt_office_model::codec::office_prop::MODULAR_RECEPTION_DIGEST, "formatVersion":2, "label":"Modular reception",
                 "credit":"TMT", "license":"MIT", "fileBytes":222410, "pixelCount":102400,
                 "props":[{"key":"reception-armchair","label":"Reception armchair","footprint":{"width":12,"height":12},
                     "frames":[{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::DIRECTIONAL_WORKSTATION_DIGEST, "formatVersion":2, "label":"Directional workstation",
+                "digest":tmt_office_model::codec::office_prop::DIRECTIONAL_WORKSTATION_DIGEST, "formatVersion":2, "label":"Directional workstation",
                 "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"workstation-desk","label":"Furniture","footprint":{"width":16,"height":16},
                     "frames":[{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::DIRECTIONAL_LOUNGE_DIGEST, "formatVersion":2, "label":"Directional lounge",
+                "digest":tmt_office_model::codec::office_prop::DIRECTIONAL_LOUNGE_DIGEST, "formatVersion":2, "label":"Directional lounge",
                 "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"lounge-sofa","label":"Furniture","footprint":{"width":16,"height":16},
                     "frames":[{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::DIRECTIONAL_RECEPTION_DIGEST, "formatVersion":2, "label":"Directional reception",
+                "digest":tmt_office_model::codec::office_prop::DIRECTIONAL_RECEPTION_DIGEST, "formatVersion":2, "label":"Directional reception",
                 "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"reception-armchair","label":"Furniture","footprint":{"width":12,"height":12},
                     "frames":[{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
             }, {
-                "digest":crate::office_prop::DIRECTIONAL_FACILITIES_DIGEST, "formatVersion":2, "label":"Directional facilities",
+                "digest":tmt_office_model::codec::office_prop::DIRECTIONAL_FACILITIES_DIGEST, "formatVersion":2, "label":"Directional facilities",
                 "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
                 "props":[{"key":"lobby-radio","label":"Furniture","footprint":{"width":8,"height":8},
                     "frames":[{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64}]}],
@@ -1419,14 +1435,16 @@ mod pairing_tests {
             ));
         }
         let mut cursor_list = list.clone();
-        cursor_list["nextCursor"] =
-            serde_json::json!("x".repeat(crate::office_prop::CATALOG_CURSOR_MAX_BYTES));
+        cursor_list["nextCursor"] = serde_json::json!(
+            "x".repeat(tmt_office_model::codec::office_prop::CATALOG_CURSOR_MAX_BYTES)
+        );
         assert!(valid_local_prop_reply(
             OfficeInvocation::LocalPropList,
             &cursor_list
         ));
-        cursor_list["nextCursor"] =
-            serde_json::json!("x".repeat(crate::office_prop::CATALOG_CURSOR_MAX_BYTES + 1));
+        cursor_list["nextCursor"] = serde_json::json!(
+            "x".repeat(tmt_office_model::codec::office_prop::CATALOG_CURSOR_MAX_BYTES + 1)
+        );
         assert!(!valid_local_prop_reply(
             OfficeInvocation::LocalPropList,
             &cursor_list
@@ -1435,11 +1453,14 @@ mod pairing_tests {
 
     #[test]
     fn directional_prop_replies_preserve_the_admitted_shape_and_reject_hostile_summaries() {
-        let pack = crate::office_prop::validate_pack(include_bytes!(
+        let pack = tmt_office_model::codec::office_prop::validate_pack(include_bytes!(
             "../../../../contracts/office/prop-pack-v2-sample.tmtprop.json"
         ))
         .unwrap();
-        let input = serde_json::to_vec(&crate::office_prop::command_pack_input(&pack)).unwrap();
+        let input = serde_json::to_vec(&tmt_office_model::codec::office_prop::command_pack_input(
+            &pack,
+        ))
+        .unwrap();
         let summary: serde_json::Value = serde_json::from_slice(&crate::office_prop::execute(
             OfficeInvocation::LocalPropValidate,
             &input,
@@ -1507,7 +1528,9 @@ mod pairing_tests {
                 "dimension" => value["props"][0]["frames"][0]["width"] = serde_json::json!(129),
                 "footprint" => value["props"][0]["footprint"]["width"] = serde_json::json!(17),
                 "bytes" => {
-                    value["fileBytes"] = serde_json::json!(crate::office_prop::PACK_INPUT_LIMIT + 1)
+                    value["fileBytes"] = serde_json::json!(
+                        tmt_office_model::codec::office_prop::PACK_INPUT_LIMIT + 1
+                    )
                 }
                 "cells" => value["pixelCount"] = serde_json::json!(131_073),
                 _ => unreachable!(),
@@ -1593,7 +1616,7 @@ mod pairing_tests {
         }
         let mut maximum_key = pack.clone();
         maximum_key["avatars"][0]["key"] =
-            serde_json::json!("a".repeat(crate::indexed_art::KEY_LIMIT));
+            serde_json::json!("a".repeat(tmt_office_model::office_art_reference::KEY_LIMIT));
         assert!(valid_local_avatar_reply(
             OfficeInvocation::LocalAvatarValidate,
             &maximum_key
@@ -1601,8 +1624,9 @@ mod pairing_tests {
         for invalid in [
             {
                 let mut value = pack.clone();
-                value["avatars"][0]["key"] =
-                    serde_json::json!("a".repeat(crate::indexed_art::KEY_LIMIT + 1));
+                value["avatars"][0]["key"] = serde_json::json!(
+                    "a".repeat(tmt_office_model::office_art_reference::KEY_LIMIT + 1)
+                );
                 value
             },
             {

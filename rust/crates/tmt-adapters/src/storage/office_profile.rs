@@ -1,7 +1,7 @@
 //! UUID-owned local Office presentation profile persistence and CAS policy.
 
 use rusqlite::{OptionalExtension, params};
-use tmt_core::office_profile::{LocalProfile, MAX_REVISION, deterministic_default};
+use tmt_office_model::office_profile::{LocalProfile, MAX_REVISION, deterministic_default};
 
 use super::{
     Storage, StorageError, StorageErrorCode, errors::classify,
@@ -124,7 +124,8 @@ impl Storage {
         profile
             .validate()
             .map_err(|_| LocalProfileError::ProfileInvalid)?;
-        let encoded = crate::office_profile_wire::encode_value(profile).to_string();
+        let encoded =
+            tmt_office_model::codec::office_profile_wire::encode_value(profile).to_string();
         with_immediate_transaction(self, "local Office profile", |transaction| {
             let identity_name = transaction
                 .query_row(
@@ -246,7 +247,7 @@ fn decode_stored_profile(encoded: &str) -> Result<LocalProfile, LocalProfileErro
     serde_json::from_str(encoded)
         .map_err(|_| LocalProfileError::StoredProfileInvalid)
         .and_then(|value| {
-            crate::office_profile_wire::decode_value(value)
+            tmt_office_model::codec::office_profile_wire::decode_value(value)
                 .map_err(|_| LocalProfileError::StoredProfileInvalid)
         })
 }
@@ -314,8 +315,8 @@ mod tests {
         ).unwrap();
     }
 
-    fn avatar_pack() -> crate::office_avatar::ValidatedAvatarPack {
-        crate::office_avatar::validate_pack(include_bytes!(
+    fn avatar_pack() -> tmt_office_model::codec::office_avatar::ValidatedAvatarPack {
+        tmt_office_model::codec::office_avatar::validate_pack(include_bytes!(
             "../../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
         ))
         .unwrap()
@@ -571,14 +572,16 @@ mod tests {
             selected.avatar_ref = Some(avatar_ref());
             let selected = storage.apply_local_profile(id, 0, &selected).unwrap();
 
-            let mut reset_wire =
-                crate::office_profile_wire::encode_value(&selected.snapshot.profile);
+            let mut reset_wire = tmt_office_model::codec::office_profile_wire::encode_value(
+                &selected.snapshot.profile,
+            );
             if explicit_null {
                 reset_wire["avatarRef"] = serde_json::Value::Null;
             } else {
                 reset_wire.as_object_mut().unwrap().remove("avatarRef");
             }
-            let reset_profile = crate::office_profile_wire::decode_value(reset_wire).unwrap();
+            let reset_profile =
+                tmt_office_model::codec::office_profile_wire::decode_value(reset_wire).unwrap();
             let reset = storage.apply_local_profile(id, 1, &reset_profile).unwrap();
             assert!(reset.changed, "{case}");
             assert_eq!(reset.snapshot.profile.avatar_ref, None, "{case}");

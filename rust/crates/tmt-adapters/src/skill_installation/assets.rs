@@ -1,12 +1,12 @@
 //! One embedded authored source, materialized without a checkout dependency.
 
 use crate::bounded_file;
-use crate::content_digest::sha256 as digest;
 use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
 };
+use tmt_core::content_digest::sha256 as digest;
 use uuid::Uuid;
 
 pub(super) const SKILL: &[u8] = include_bytes!("../../../../../skills/tmux-team/SKILL.md");

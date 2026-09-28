@@ -883,8 +883,8 @@ fn office_block_commands_are_typed_and_scoped() {
             },
         }
     );
-    let max_revision = tmt_core::office_block::MAX_REVISION.to_string();
-    let max_minus_one = (tmt_core::office_block::MAX_REVISION - 1).to_string();
+    let max_revision = tmt_office_model::office_block::MAX_REVISION.to_string();
+    let max_minus_one = (tmt_office_model::office_block::MAX_REVISION - 1).to_string();
     assert_eq!(
         parsed(&[
             "office",
@@ -909,7 +909,7 @@ fn office_block_commands_are_typed_and_scoped() {
                 operation: OfficeBlockOperation::Apply {
                     block_id: None,
                     file: "layout.json".into(),
-                    if_revision: tmt_core::office_block::MAX_REVISION - 1,
+                    if_revision: tmt_office_model::office_block::MAX_REVISION - 1,
                 },
             },
         }
@@ -1084,7 +1084,7 @@ fn office_profile_commands_are_local_typed_and_revision_bounded() {
             prefix: None
         }
     );
-    let maximum = tmt_core::office_profile::MAX_REVISION.to_string();
+    let maximum = tmt_office_model::office_profile::MAX_REVISION.to_string();
     assert_eq!(
         parsed(&[
             "office",
@@ -1102,13 +1102,13 @@ fn office_profile_commands_are_local_typed_and_revision_bounded() {
                 identity: None,
                 operation: OfficeProfileOperation::Apply {
                     file: "profile.json".into(),
-                    if_revision: tmt_core::office_profile::MAX_REVISION,
+                    if_revision: tmt_office_model::office_profile::MAX_REVISION,
                 },
             },
             prefix: None,
         }
     );
-    let above_maximum = (tmt_core::office_profile::MAX_REVISION + 1).to_string();
+    let above_maximum = (tmt_office_model::office_profile::MAX_REVISION + 1).to_string();
     for invalid in [
         vec!["office", "profile", "show"],
         vec![

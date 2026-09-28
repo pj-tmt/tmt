@@ -12,7 +12,8 @@ use crate::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tmt_core::{identity::Identity, office_protocol::OfficeInvocation};
+use tmt_core::identity::Identity;
+use tmt_office_model::office_protocol::OfficeInvocation;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -24,7 +25,7 @@ struct Request {
     #[serde(default)]
     block_id: Option<String>,
     #[serde(default)]
-    layout: Option<crate::office_block::LayoutInput>,
+    layout: Option<tmt_office_model::codec::office_block::LayoutInput>,
     #[serde(default)]
     expected_revision: Option<u64>,
 }
@@ -79,7 +80,7 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
         OfficeInvocation::BlockApply => {
             let revision = request
                 .expected_revision
-                .filter(|value| *value < tmt_core::office_block::MAX_REVISION)
+                .filter(|value| *value < tmt_office_model::office_block::MAX_REVISION)
                 .ok_or(OfficeError::LayoutInvalid)?;
             let layout = request
                 .layout
@@ -336,7 +337,7 @@ mod tests {
             error(OfficeInvocation::BlockShow, &show),
             OfficeError::CredentialsInvalid
         );
-        show["expectedRevision"] = json!(tmt_core::office_block::MAX_REVISION);
+        show["expectedRevision"] = json!(tmt_office_model::office_block::MAX_REVISION);
         assert_eq!(
             error(OfficeInvocation::BlockApply, &show),
             OfficeError::LayoutInvalid

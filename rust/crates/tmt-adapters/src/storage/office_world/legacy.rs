@@ -2,25 +2,33 @@
 
 use super::super::errors::classify;
 use super::layout::WorldStoreError;
-use crate::{
-    content_digest::framed_sha256,
-    office_block::default_local_layout,
-    office_world::{lobby_objects, new_world, placement_id, world_value},
-};
 use rusqlite::Connection;
 use serde_json::{Value, json};
-use tmt_core::{
-    office_block::LocalBlockTarget,
-    office_map::{Area, AreaKind, Axis, Edge, FloorSpan, MapDraft, OfficeMap},
-    office_world::{ObjectKind, Surface, WorldLayout, WorldObject},
-};
+use tmt_core::content_digest::framed_sha256;
+use tmt_office_model::codec::office_block::default_local_layout;
+use tmt_office_model::codec::office_world::lobby_objects;
+use tmt_office_model::codec::office_world::new_world;
+use tmt_office_model::codec::office_world::placement_id;
+use tmt_office_model::codec::office_world::world_value;
+use tmt_office_model::office_block::LocalBlockTarget;
+use tmt_office_model::office_map::Area;
+use tmt_office_model::office_map::AreaKind;
+use tmt_office_model::office_map::Axis;
+use tmt_office_model::office_map::Edge;
+use tmt_office_model::office_map::FloorSpan;
+use tmt_office_model::office_map::MapDraft;
+use tmt_office_model::office_map::OfficeMap;
+use tmt_office_model::office_world::ObjectKind;
+use tmt_office_model::office_world::Surface;
+use tmt_office_model::office_world::WorldLayout;
+use tmt_office_model::office_world::WorldObject;
 
 struct Block {
     id: String,
     lobby: bool,
     identity: Option<String>,
     eligible: bool,
-    layout: tmt_core::office_block::LocalBlockLayout,
+    layout: tmt_office_model::office_block::LocalBlockLayout,
 }
 
 pub(super) fn project(
@@ -32,22 +40,25 @@ pub(super) fn project(
          FROM office_local_blocks b LEFT JOIN identities i ON i.id=b.identity_id ORDER BY b.block_id LIMIT ?"
     ).map_err(|error| classify(error, "Read retained Office layouts"))?;
     let rows = query
-        .query_map([tmt_core::office_map::MAX_AREAS as i64 + 1], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, Option<i64>>(7)?,
-            ))
-        })
+        .query_map(
+            [tmt_office_model::office_map::MAX_AREAS as i64 + 1],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                ))
+            },
+        )
         .map_err(|error| classify(error, "Query retained Office layouts"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| classify(error, "Decode retained Office layouts"))?;
-    if rows.len() > tmt_core::office_map::MAX_AREAS {
+    if rows.len() > tmt_office_model::office_map::MAX_AREAS {
         return Err(WorldStoreError::MigrationInvalid);
     }
     if rows.is_empty() {
@@ -99,7 +110,7 @@ pub(super) fn project(
 }
 
 fn build(blocks: &[Block]) -> Result<WorldLayout, WorldStoreError> {
-    if blocks.len() > tmt_core::office_map::MAX_AREAS
+    if blocks.len() > tmt_office_model::office_map::MAX_AREAS
         || blocks.iter().filter(|block| block.lobby).count() != 1
     {
         return Err(WorldStoreError::MigrationInvalid);

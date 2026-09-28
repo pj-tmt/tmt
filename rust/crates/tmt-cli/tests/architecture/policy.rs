@@ -20,10 +20,20 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "icu_normalizer",
             "icu_locale_core",
             "sha2",
-            // Pure URL syntax admission for inert Office links, not networking.
+        ],
+        "tmt-office-model" => &[
+            "tmt-core",
+            "serde",
+            "serde_json",
+            "base64",
+            "png",
             "url",
+            "sha2",
+            "uuid",
+            "semver",
         ],
         "tmt-adapters" => &[
+            "tmt-office-model",
             "getrandom",
             "keyring-core",
             "zbus-secret-service-keyring-store",
@@ -34,7 +44,6 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "semver",
             "tar",
             "flate2",
-            "png",
             "tmt-core",
             "rusqlite",
             "serde_json",
@@ -46,6 +55,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
         ],
         "tmt-office" => &[
+            "tmt-office-model",
             "tmt-core",
             "tmt-adapters",
             "base64",
@@ -56,6 +66,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
         ],
         "tmt-cli" => &[
+            "tmt-office-model",
             "unicode-width",
             "tmt-core",
             "tmt-adapters",
@@ -95,6 +106,7 @@ struct Declaration {
 #[derive(Default)]
 struct Facts {
     references: Vec<Vec<String>>,
+    reexports: Vec<Vec<String>>,
     declarations: Vec<Declaration>,
     broad_failure: bool,
     depth: usize,
@@ -173,6 +185,9 @@ impl<'ast> Visit<'ast> for Facts {
 
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
         use_paths(&item.tree, Vec::new(), &mut self.references);
+        if matches!(item.vis, syn::Visibility::Public(_)) {
+            use_paths(&item.tree, Vec::new(), &mut self.reexports);
+        }
     }
 
     fn visit_item_extern_crate(&mut self, item: &'ast syn::ItemExternCrate) {
@@ -202,8 +217,66 @@ impl<'ast> Visit<'ast> for Facts {
 
 fn owns_declarations(source: &Source) -> bool {
     source.package == "tmt-core"
+        || (source.package == "tmt-office-model" && source.file.starts_with("office_"))
         || (source.package == "tmt-cli"
             && matches!(source.file.as_str(), "invocation.rs" | "output.rs"))
+}
+
+// Retained consumers while Office storage and commands are extracted. These are
+// exact production paths, not permission for new core-to-Office coupling.
+fn office_consumer(source: &Source) -> bool {
+    let allowed: &[&str] = match source.package.as_str() {
+        "tmt-adapters" => &[
+            "office_avatar.rs",
+            "office_block.rs",
+            "office_board.rs",
+            "office_companion.rs",
+            "office_companion/extension.rs",
+            "office_companion/whiteboard.rs",
+            "office_companion/world.rs",
+            "office_pairing.rs",
+            "office_pairing/hooks.rs",
+            "office_pairing/invocation.rs",
+            "office_pairing/record.rs",
+            "office_pairing/remote/blocks.rs",
+            "office_profile.rs",
+            "office_prop.rs",
+            "office_service.rs",
+            "office_whiteboard/access.rs",
+            "office_whiteboard/export.rs",
+            "office_world.rs",
+            "office_world/access.rs",
+            "office_world/reply.rs",
+            "repository_remote.rs",
+            "storage/mod.rs",
+            "storage/office_avatar.rs",
+            "storage/office_board/mod.rs",
+            "storage/office_local.rs",
+            "storage/office_profile.rs",
+            "storage/office_prop.rs",
+            "storage/office_whiteboard/mod.rs",
+            "storage/office_whiteboard/snapshot.rs",
+            "storage/office_whiteboard/snapshot/image.rs",
+            "storage/office_world/layout.rs",
+            "storage/office_world/legacy.rs",
+        ],
+        "tmt-cli" => &[
+            "grammar.rs",
+            "parser.rs",
+            "office_avatar_command.rs",
+            "office_block_command.rs",
+            "office_board_command.rs",
+            "office_command.rs",
+            "office_extension_command.rs",
+            "office_layout_command.rs",
+            "office_pairing_command.rs",
+            "office_profile_command.rs",
+            "office_prop_command.rs",
+            "office_whiteboard_command.rs",
+        ],
+        _ => &[],
+    };
+    allowed.contains(&source.file.as_str())
 }
 
 pub fn source_violations(sources: &[Source]) -> Vec<String> {
@@ -224,7 +297,10 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
         for d in &facts.declarations {
             // Public free functions in core are policy entrypoints. Methods and
             // command-local execute/run helpers do not become reserved names.
-            if !d.public || (d.function && source.package != "tmt-core") {
+            if !d.public
+                || (d.function
+                    && !["tmt-core", "tmt-office-model"].contains(&source.package.as_str()))
+            {
                 continue;
             }
             let owner = format!("{}/{}", source.package, source.file);
@@ -244,12 +320,23 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
     }
     for (source, facts) in sources.iter().zip(&facts) {
         let location = format!("{}/{}", source.package, source.file);
+        if ["tmt-core", "tmt-adapters", "tmt-cli"].contains(&source.package.as_str()) {
+            for path in &facts.reexports {
+                if path.first().is_some_and(|root| root == "tmt_office_model") {
+                    violations.push(format!(
+                        "{location}: import the Office owner directly; do not re-export {}",
+                        path.join("::")
+                    ));
+                }
+            }
+        }
         for d in &facts.declarations {
             // Public owners (including inline modules) were checked above. Keep one actionable
             // diagnostic per competing owner instead of reporting both ways.
             if owns_declarations(source)
                 && d.public
-                && (!d.function || source.package == "tmt-core")
+                && (!d.function
+                    || ["tmt-core", "tmt-office-model"].contains(&source.package.as_str()))
             {
                 continue;
             }
@@ -262,7 +349,8 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
         for path in &facts.references {
             let root = path.first().map(String::as_str).unwrap_or_default();
             let module = path.get(1).map(String::as_str).unwrap_or_default();
-            if source.package == "tmt-core" {
+            let model = source.package == "tmt-office-model";
+            if source.package == "tmt-core" || model {
                 let pure_std = [
                     "borrow",
                     "boxed",
@@ -287,7 +375,13 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     "string",
                     "vec",
                 ];
-                if (root == "std" && !pure_std.contains(&module))
+                let model_value = model
+                    && ((module == "sync" && path.get(2).is_some_and(|p| p == "OnceLock"))
+                        || (module == "io"
+                            && path
+                                .get(2)
+                                .is_some_and(|p| ["Error", "Cursor"].contains(&p.as_str()))));
+                if (root == "std" && !pure_std.contains(&module) && !model_value)
                     || ["print", "println", "eprint", "eprintln", "dbg"].contains(&root)
                 {
                     violations.push(format!(
@@ -295,6 +389,24 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                         path.join("::")
                     ));
                 }
+            }
+            if model
+                && root == "tmt_core"
+                && !["dispatch", "limits", "content_digest"].contains(&module)
+            {
+                violations.push(format!(
+                    "{location}: Office model cannot acquire core runtime responsibilities via {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_office_model"
+                && source.package != "tmt-office"
+                && !office_consumer(source)
+            {
+                violations.push(format!(
+                    "{location}: unreviewed Office dependency {}",
+                    path.join("::")
+                ));
             }
             if source.package == "tmt-cli" {
                 let grammar_owner =

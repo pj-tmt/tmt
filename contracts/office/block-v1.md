@@ -48,7 +48,7 @@ Firestore's `objects` field stores that same ordered list as four-character
 ASCII tokens, not maps: asset (`d`, `c`, `p`, `r`), rotation (`0`..`3`), X and Y
 as one lowercase base-32 digit each (`0`..`9`, `a`..`v`). For example `d1us`
 is a desk rotated once at (30, 28). `block-contract.ts` implements the browser
-codec; `tmt-core::office_block` implements the pure native codec against the same
+codec; `tmt-office-model::office_block` implements the pure native codec against the same
 literal conformance vectors and this contract. Native adapters own readable JSON
 and Firestore envelopes; command inputs retain readable named fields. There is
 no second stored layout or cache. Unknown tokens/fields reject, never truncate.

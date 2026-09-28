@@ -122,9 +122,9 @@ remains authoritative for remaining-room connectivity and full layout validity.
 
 ## Ownership and migration boundary
 
-`tmt-core::office_map::modules` is the pure projection owner. An admitted
+`tmt-office-model::office_map::modules` is the pure projection owner. An admitted
 `OfficeMap` retains the immutable module source and its derived geometry.
-`tmt-adapters::office_map` retains source version 2 through 8, never the derivative
+`tmt-office-model::codec::office_map` retains source version 2 through 8, never the derivative
 as another editable input. The world codec and storage path reuse this map codec.
 
 Browser `world-map/map-source` decodes the source union and supplies a cached,

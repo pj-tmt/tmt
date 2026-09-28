@@ -3,10 +3,9 @@
 use super::{OfficeError, OfficeInstallation, PairingRecord, ProtectedEntry};
 use crate::{config::ConfigPaths, storage::Storage};
 use std::{io, time::Instant};
-use tmt_core::{
-    identity_hooks::IdentityHook,
-    office_protocol::{OFFICE_HOOK_BATCH_LIMIT, OfficeSyncReport},
-};
+use tmt_core::identity_hooks::IdentityHook;
+use tmt_office_model::office_protocol::OFFICE_HOOK_BATCH_LIMIT;
+use tmt_office_model::office_protocol::OfficeSyncReport;
 
 const CONSUMER: &str = "tmt-office";
 

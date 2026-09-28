@@ -1,13 +1,17 @@
 //! Whole-world stdin/stdout boundary; no HTTP server or identity binding required.
 
 use super::invoke_bytes_bounded;
-use crate::office_world::{
-    SaveWorld, WORLD_ENVELOPE_LIMIT, WORLD_REPLY_LIMIT, WorldFailure, decode_reply, decode_save,
-    save_value, world_value,
-};
+use crate::office_world::WorldFailure;
+use crate::office_world::decode_reply;
 use crate::storage::LocalWorldSnapshot;
 use std::{io, path::Path, time::Instant};
-use tmt_core::office_protocol::OfficeInvocation;
+use tmt_office_model::codec::office_world::SaveWorld;
+use tmt_office_model::codec::office_world::WORLD_ENVELOPE_LIMIT;
+use tmt_office_model::codec::office_world::WORLD_REPLY_LIMIT;
+use tmt_office_model::codec::office_world::decode_save;
+use tmt_office_model::codec::office_world::save_value;
+use tmt_office_model::codec::office_world::world_value;
+use tmt_office_model::office_protocol::OfficeInvocation;
 
 pub fn invoke_office_world(
     executable: &Path,
@@ -59,8 +63,8 @@ fn check_receipt(snapshot: &LocalWorldSnapshot, edit: Option<&SaveWorld>) -> io:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::office_world::decode_world;
     use serde_json::{Value, json};
+    use tmt_office_model::codec::office_world::decode_world;
 
     #[test]
     fn success_must_confirm_the_requested_revision_and_complete_candidate() {

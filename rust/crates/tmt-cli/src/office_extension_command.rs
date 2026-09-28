@@ -6,11 +6,10 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    bounded_file,
-    office_companion::validate_office_extension,
-    office_extension::preflight::{ValidationInput, ValidationReport},
-};
+use tmt_adapters::bounded_file;
+use tmt_adapters::office_companion::validate_office_extension;
+use tmt_office_model::codec::office_extension::preflight::ValidationInput;
+use tmt_office_model::codec::office_extension::preflight::ValidationReport;
 
 pub fn run(executable: &Path, file: &str, instance: &str, mode: OutputMode) -> Result<u8, Failure> {
     let input = ValidationInput {
@@ -47,10 +46,12 @@ pub fn run(executable: &Path, file: &str, instance: &str, mode: OutputMode) -> R
 }
 
 fn read(path: &str) -> Result<String, Failure> {
-    let bytes = bounded_file::read_no_follow(Path::new(path), tmt_core::office_block::INPUT_LIMIT)
-        .map_err(|error| {
-            Failure::new("OFFICE_EXTENSION_INPUT_INVALID", error.to_string(), 1).caused_by(error)
-        })?;
+    let bytes =
+        bounded_file::read_no_follow(Path::new(path), tmt_office_model::office_block::INPUT_LIMIT)
+            .map_err(|error| {
+                Failure::new("OFFICE_EXTENSION_INPUT_INVALID", error.to_string(), 1)
+                    .caused_by(error)
+            })?;
     String::from_utf8(bytes).map_err(|error| {
         Failure::new(
             "OFFICE_EXTENSION_INPUT_INVALID",

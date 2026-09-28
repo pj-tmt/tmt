@@ -70,7 +70,7 @@ credentials (including empty userinfo), raw whitespace/control characters,
 backslashes or directional-override/isolate characters. Query and fragment are
 allowed. Input bytes are retained; the review displays the parsed canonical
 origin and full URL. [Shared vectors](external-link-vectors.json) cover native
-and browser admission. `tmt-core::office_extension` owns native validity using
+and browser admission. `tmt-office-model::office_extension` owns native validity using
 the existing workspace URL parser; adapters do not fetch a destination.
 
 `link.open` opens only the host-owned destination review. A separate explicit
