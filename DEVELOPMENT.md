@@ -714,6 +714,24 @@ manual lifecycle evidence in issue #321 owns that distinction, including the
 Codex cross-mode limitation. Normal `tmt run` does not execute this developer
 check or enforce these version pins on user commands.
 
+`tmt whoami --context [--json]` is the read-only rehydration entry point. It reports
+the verified caller identity and lifetime, up to 500 characters of role text,
+an existing saved notebook path (not its contents), and unacknowledged originated
+and incoming X counts with explicit-identity inspect commands. The complete output
+is limited to 4 KiB, with a truncation marker when role/path content is shortened.
+Only a verified empty pane receives the binding hint. Unavailable or ambiguous
+evidence returns empty human output or JSON `status: "unavailable"`, successfully,
+without initializing configuration, storage or tmux metadata.
+Ordinary `whoami` keeps its existing human output and
+adds `interfaceKind` and `sessionState` to its JSON projection.
+
+The `identity-context` and `identity-context-requests` Docker scenarios own bound
+context acceptance. Their independent SQLite snapshots include verification
+timestamps, retention and both participants' attention state: context reads must
+not change them. `typescript/test/native/context.test.ts` owns unbound/missing
+configuration no-side-effect checks; Rust storage/formatter tests own retained
+counts, role limits, escaping and the complete serialized byte bound.
+
 `typescript/test/native/inbox.test.ts` owns the real no-tmux queue -> bounded listen ->
 detail/receipt -> reply -> result path. It uses isolated SQLite, verifies compact
 listen output excludes receipts and bodies, preserves participant-scoped

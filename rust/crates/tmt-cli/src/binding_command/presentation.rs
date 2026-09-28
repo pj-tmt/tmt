@@ -48,10 +48,19 @@ pub(super) fn document(report: &Report) -> Value {
             &result.presence.identity,
             &result.presence.pane.as_ref().expect("verified binding").id,
         ),
-        Report::Caller { pane, identity } => identity.as_ref().map_or_else(
-            || json!({"bound": false, "pane": pane}),
-            |identity| bound_document(identity, pane),
-        ),
+        Report::Caller {
+            pane,
+            identity,
+            runtime,
+        } => {
+            let mut value = identity.as_ref().map_or_else(
+                || json!({"bound": false, "pane": pane}),
+                |identity| bound_document(identity, pane),
+            );
+            value["interfaceKind"] = "container".into();
+            value["sessionState"] = runtime.as_str().into();
+            value
+        }
         Report::Unbound { pane, result } => json!({"unbound": true, "id": result.identity.id,
             "name": result.identity.name, "pane": pane, "lifetime": result.identity.lifetime.as_str(), "retired": result.retired}),
         Report::Removed(entry) => {
@@ -76,6 +85,9 @@ pub(super) fn document(report: &Report) -> Value {
 const HEADERS: [&str; 7] = [
     "NAME", "LIFETIME", "STATUS", "PANE", "TARGET", "CWD", "COMMAND",
 ];
+
+#[cfg(test)]
+mod caller_tests;
 
 fn identity_row(identity: &Identity, status: &str, pane: Option<&PaneObservation>) -> [String; 7] {
     [
@@ -102,6 +114,7 @@ pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
         Report::Caller {
             pane,
             identity: Some(identity),
+            ..
         } => writeln!(
             output,
             "Bound {} identity '{}' on pane {pane}.",
@@ -111,6 +124,7 @@ pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
         Report::Caller {
             pane,
             identity: None,
+            ..
         } => writeln!(output, "Pane {pane} is unbound."),
         Report::Unbound { pane, result } => writeln!(
             output,

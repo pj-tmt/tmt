@@ -232,6 +232,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 save: flag(m, "save"),
             }
         }
+        ["whoami"] if flag(m, "context") => Invocation::WhoamiContext,
         ["whoami"] => Invocation::Whoami,
         ["unbind"] => Invocation::Unbind,
         ["upgrade"] => Invocation::Upgrade {

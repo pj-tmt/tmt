@@ -86,6 +86,23 @@ fn run_save_belongs_only_before_the_identity() {
 }
 
 #[test]
+fn whoami_context_is_a_read_mode_not_a_new_command_or_global_option() {
+    assert_eq!(parsed(&["whoami"]).invocation, Invocation::Whoami);
+    assert_eq!(
+        parsed(&["whoami", "--context"]).invocation,
+        Invocation::WhoamiContext
+    );
+    let context = parsed(&["whoami", "--context", "--json"]);
+    assert_eq!(context.invocation, Invocation::WhoamiContext);
+    assert!(context.mode.json);
+    assert!(!crate::skill_reminder::eligible_for_drift(&parsed(&[
+        "whoami",
+        "--context"
+    ])));
+    assert!(parse(&args(&["list", "--context"])).is_err());
+}
+
+#[test]
 fn identity_status_uses_shared_duration_grammar_and_scoped_options() {
     for (duration, ttl_ms) in [
         ("1s", 1000),

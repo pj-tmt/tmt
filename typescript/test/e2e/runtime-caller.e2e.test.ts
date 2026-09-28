@@ -43,6 +43,13 @@ describe.sequential('runtime-owned caller attribution through real process ances
         expect(host.id).not.toBe(alice.id);
         const before = durableState(fixture);
         const metadata = fixture.paneMetadata();
+        const context = await fixture.runJsonCli(['whoami', '--context']);
+        expect(context).toMatchObject({ code: 0, json: { bound: false, status: 'unavailable' } });
+        const humanContext = await fixture.runCli(['whoami', '--context']);
+        expect(humanContext).toMatchObject({ code: 0, stdout: '', stderr: '' });
+        expect(context.stdout).not.toContain(host.id);
+        expect(durableState(fixture)).toEqual(before);
+        expect(fixture.paneMetadata()).toBe(metadata);
         // The real fixture process is named codex and retains the host pane's
         // environment, while the calling conversation cannot be inferred from it.
         // No real provider, credentials or external model is involved.
@@ -125,7 +132,15 @@ describe.sequential('runtime-owned caller attribution through real process ances
       await withE2EFixture(
         async (fixture) => {
           const alice = expectJsonResult(await fixture.runJsonCli<Bound>(['name', 'Alice', '-s']));
-          expect(expectJsonResult(await fixture.runJsonCli<Bound>(['whoami']))).toEqual(alice);
+          expect(expectJsonResult(await fixture.runJsonCli<Bound>(['whoami']))).toEqual({
+            ...alice,
+            interfaceKind: 'container',
+            sessionState: 'unknown',
+          });
+          expect(await fixture.runJsonCli(['whoami', '--context'])).toMatchObject({
+            code: 0,
+            json: { bound: true, id: alice.id, name: 'Alice' },
+          });
           const receiver = expectJsonResult(
             await fixture.runJsonCli<{ identity: { id: string } }>([
               'identity',

@@ -4,6 +4,7 @@ mod caller_context;
 mod check_command;
 mod completion;
 mod config_command;
+mod context_command;
 mod diagnostics;
 mod exchange_command;
 mod extension_command;
@@ -165,6 +166,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
             drop(stdout);
             return response_command::execute(request, parsed.mode);
+        }
+        Invocation::WhoamiContext => {
+            drop(stdout);
+            return context_command::execute(parsed.mode);
         }
         request @ (Invocation::Bind { .. }
         | Invocation::BindMarked { .. }

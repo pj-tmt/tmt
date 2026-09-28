@@ -364,6 +364,16 @@ fn validate_table(connection: &Connection) -> Result<(), StorageError> {
     Ok(())
 }
 
+/// Read-only consumers must not interpret an unsupported or incomplete schema.
+pub(super) fn require_current(connection: &Connection) -> Result<(), StorageError> {
+    if validate_history(connection)? != MIGRATIONS.len() {
+        return Err(incompatible(
+            "Database requires migration before context can be read",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_history(connection: &Connection) -> Result<usize, StorageError> {
     let mut statement = connection
         .prepare("SELECT version, name FROM _migrations ORDER BY version")

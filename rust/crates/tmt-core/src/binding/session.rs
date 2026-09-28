@@ -21,6 +21,16 @@ pub enum RuntimeState {
     Ended,
 }
 
+impl RuntimeState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Running => "running",
+            Self::Ended => "ended",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionTransition {
     Started,

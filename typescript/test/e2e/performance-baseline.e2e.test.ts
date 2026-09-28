@@ -337,13 +337,23 @@ baselineSuite('TMT performance baseline', () => {
             expect(durableState(fixture).identities).toHaveLength(1);
 
             const whoamiWarmup = await fixture.runJsonCli<WhoamiResult>(['whoami']);
-            expect(json(whoamiWarmup)).toEqual({ bound: false, pane: fixture.pane });
+            expect(json(whoamiWarmup)).toEqual({
+              bound: false,
+              pane: fixture.pane,
+              interfaceKind: 'container',
+              sessionState: 'unknown',
+            });
 
             const whoamiSmall = await measureSeries(
               trace,
               () => fixture.runJsonCli<WhoamiResult>(['whoami']),
               (result) => {
-                expect(json(result)).toEqual({ bound: false, pane: fixture.pane });
+                expect(json(result)).toEqual({
+                  bound: false,
+                  pane: fixture.pane,
+                  interfaceKind: 'container',
+                  sessionState: 'unknown',
+                });
               }
             );
 
@@ -384,7 +394,12 @@ baselineSuite('TMT performance baseline', () => {
               trace,
               () => fixture.runJsonCli<WhoamiResult>(['whoami']),
               (result) => {
-                expect(json(result)).toEqual({ bound: false, pane: fixture.pane });
+                expect(json(result)).toEqual({
+                  bound: false,
+                  pane: fixture.pane,
+                  interfaceKind: 'container',
+                  sessionState: 'unknown',
+                });
               }
             );
             const checkLarge = await measureSeries(

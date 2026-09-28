@@ -15,6 +15,7 @@ use tmt_adapters::{
     tmux::{BindingSession, CallerEnvironment, OperationOptions, Tmux},
 };
 use tmt_core::{
+    binding::session::RuntimeState,
     binding::{
         self, BindingEntry, BindingTargetEvidence, BoundIdentity, IdentityPresence, UnboundIdentity,
     },
@@ -34,6 +35,7 @@ enum Report {
     Caller {
         pane: String,
         identity: Option<Identity>,
+        runtime: RuntimeState,
     },
     Unbound {
         pane: String,
@@ -203,9 +205,15 @@ fn operation(
             let pane = pane.expect("caller preflight").id;
             let observed =
                 binding::pane_presence(storage, endpoint, &pane).map_err(binding_failure)?;
+            let runtime = observed
+                .binding
+                .as_ref()
+                .and_then(|binding| endpoint.observed_runtime(binding).ok())
+                .unwrap_or(RuntimeState::Unknown);
             Ok(Report::Caller {
                 pane,
                 identity: observed.identity,
+                runtime,
             })
         }
         Invocation::Unbind => {

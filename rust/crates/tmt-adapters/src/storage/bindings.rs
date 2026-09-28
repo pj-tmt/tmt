@@ -22,7 +22,7 @@ const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.so
     b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id, \
     b.launch_owner_pid, b.launch_owner_start_identity";
 
-struct BindingRows<'a>(&'a Connection);
+pub(super) struct BindingRows<'a>(pub(super) &'a Connection);
 
 fn process_id_at(row: &Row<'_>, offset: usize) -> rusqlite::Result<u64> {
     u64::try_from(row.get::<_, i64>(offset)?)

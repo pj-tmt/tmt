@@ -1,6 +1,7 @@
 mod bindings;
 pub(crate) mod catalog_cursor;
 mod catalog_replay;
+mod context;
 mod dispatch;
 mod errors;
 mod identities;
@@ -31,6 +32,7 @@ use std::{
     time::Duration,
 };
 
+pub use context::{ContextRequests, IdentityContextSnapshot};
 pub use dispatch::DispatchError;
 pub use errors::{StorageError, StorageErrorCode};
 use errors::{classify, incompatible};

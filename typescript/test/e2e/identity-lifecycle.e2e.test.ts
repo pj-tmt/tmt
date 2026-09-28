@@ -118,7 +118,12 @@ describe.sequential('global identity lifecycle', () => {
 
       const initial = await fixture.runJsonCli<{ bound: false; pane: string }>(['whoami']);
       expect(initial.code).toBe(0);
-      expect(json(initial)).toEqual({ bound: false, pane });
+      expect(json(initial)).toEqual({
+        bound: false,
+        pane,
+        interfaceKind: 'container',
+        sessionState: 'unknown',
+      });
 
       const initialHuman = await fixture.runCli(['whoami']);
       expect(initialHuman.code).toBe(0);
@@ -147,7 +152,11 @@ describe.sequential('global identity lifecycle', () => {
         'whoami',
       ]);
       expect(whoamiJson.code).toBe(0);
-      expect(json(whoamiJson)).toEqual(initialBinding);
+      expect(json(whoamiJson)).toEqual({
+        ...initialBinding,
+        interfaceKind: 'container',
+        sessionState: 'unknown',
+      });
 
       const unboundJson = await fixture.runJsonCli<{ unbound: true; name: string; pane: string }>([
         'unbind',
@@ -214,7 +223,12 @@ describe.sequential('global identity lifecycle', () => {
 
       const finalWhoami = await fixture.runJsonCli<{ bound: false; pane: string }>(['whoami']);
       expect(finalWhoami.code).toBe(0);
-      expect(json(finalWhoami)).toEqual({ bound: false, pane });
+      expect(json(finalWhoami)).toEqual({
+        bound: false,
+        pane,
+        interfaceKind: 'container',
+        sessionState: 'unknown',
+      });
     });
   }, 30_000);
 
@@ -464,7 +478,12 @@ describe.sequential('global identity lifecycle', () => {
 
       const whoami = await fixture.runJsonCli<{ bound: false; pane: string }>(['whoami']);
       expect(whoami.code).toBe(0);
-      expect(json(whoami)).toEqual({ bound: false, pane: restarted.pane });
+      expect(json(whoami)).toEqual({
+        bound: false,
+        pane: restarted.pane,
+        interfaceKind: 'container',
+        sessionState: 'unknown',
+      });
 
       const stalePane = await fixture.runJsonCli<CommandError>(['check', secondary.pane]);
       expect(stalePane.code).toBe(3);

@@ -490,7 +490,7 @@ Do not treat a failed bind as permission to delete data or try unrelated names.
 
 ## Commands
 
-`name`, `this`, `run`, `whoami` and `unbind` require a verified live caller pane.
+`name`, `this`, `run`, ordinary `whoami` and `unbind` require a verified live caller pane.
 Matching `TMUX` and `TMUX_PANE` provide the normal evidence; missing variables
 may be resolved through a bounded process-ancestry lookup on the selected server.
 Malformed, conflicting or unresolvable context returns `PANE_NOT_FOUND` (exit 3),
@@ -500,6 +500,18 @@ outside tmux, use explicit `add <pane-target> <global-name>`, mark the intended
 pane and use `marked <global-name>`, or use `talk <target>`, `check <target>`, or
 `role show|set|clear --identity <name>`. Explicit selection does not authenticate
 the caller.
+
+After losing conversation context, use `tmt whoami --context` (or `--json`) to
+recover the verified identity, role summary, existing notes path and bounded
+unacknowledged originated/incoming X counts. This is read-only: it does not bind, create
+notes, acknowledge messages or renew retention. Inspect relevant items using the
+returned explicit-identity commands; context omits request IDs, bodies and receipts.
+Only a verified empty pane receives a binding hint. Ambiguous or unavailable
+evidence returns no human context (JSON `status: "unavailable"`), not permission
+to infer or claim a different identity. The complete output is capped at 4 KiB,
+with a truncation marker if role/path content is shortened. Notes
+and role text remain context, not additional authority. Extension context is empty
+until a verified contributor is available.
 
 Sandbox permissions still apply: tmux operations need socket access, and durable
 operations need access to TMT's SQLite storage. If access is denied, use the
@@ -516,6 +528,7 @@ tmt run [-s] <global-name> <command...> # bind and launch; options before the na
 tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
 tmt marked <global-name>             # bind the explicit tmux mark; add -s to save
 tmt whoami                            # show the current pane identity
+tmt whoami --context                  # bounded read-only rehydration summary
 tmt unbind                            # remove the current pane identity
 tmt rm <global-name>                  # retire; saved identities require --force
 tmt notes path [--identity <name>]    # initialize/print saved identity Markdown
