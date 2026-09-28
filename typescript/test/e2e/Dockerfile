@@ -2,8 +2,9 @@ FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e7
 WORKDIR /native/rust
 COPY rust/ ./
 COPY extensions/tmt-office/rust/ ../extensions/tmt-office/rust/
-COPY contracts/office/ ../contracts/office/
+COPY extensions/tmt-office/contracts/ ../extensions/tmt-office/contracts/
 COPY skills/ ../skills/
+COPY extensions/tmt-office/skills/ ../extensions/tmt-office/skills/
 ARG TMT_NATIVE_PROFILE=dev
 RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { runCli, withSandbox } from '../../../../../../typescript/test/support/cli-process.js';
 import { installNativeOffice } from './native-office-fixture.js';
-import pairs from '../../../../../../contracts/office/extension-pair-vectors.json' with { type: 'json' };
+import pairs from '../../../../contracts/extension-pair-vectors.json' with { type: 'json' };
 
 test('extension preflight uses the installed companion, rejects unsafe inputs and never writes Office state', async () => {
   await withSandbox(async (sandbox) => {

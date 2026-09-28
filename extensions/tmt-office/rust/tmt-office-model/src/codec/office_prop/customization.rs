@@ -119,7 +119,7 @@ mod tests {
 
     fn vectors() -> Value {
         serde_json::from_str(include_str!(
-            "../../../../../../../contracts/office/prop-customization-vectors.json"
+            "../../../../../contracts/prop-customization-vectors.json"
         ))
         .unwrap()
     }

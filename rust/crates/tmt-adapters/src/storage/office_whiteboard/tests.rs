@@ -12,7 +12,7 @@ fn request() -> SaveDocument {
         expected_revision: 0,
         operation_id: OP.into(),
         scene: tmt_office_model::codec::office_whiteboard::decode_scene(include_bytes!(
-            "../../../../../../contracts/office/whiteboard-scene-v1.json"
+            "../../../../../../extensions/tmt-office/contracts/whiteboard-scene-v1.json"
         ))
         .unwrap(),
     }

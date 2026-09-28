@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/modules-central-grid-vectors.json';
+import vectors from '../../../../../contracts/modules-central-grid-vectors.json';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { decodeModuleMap } from './module-contract.js';
 import { addMeetingModule, meetingExpansionPassages, nextMeetingSlot } from './meeting-module.js';

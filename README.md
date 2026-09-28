@@ -124,9 +124,9 @@ updating. Installation does not reload a running agent. See the
 [provider guide](skills/README.md) and
 [canonical collaboration skill](skills/tmux-team/SKILL.md). Core installation
 manages the `tmux-team` and `tmt-inbox` skills. Explicit Office setup separately
-manages the optional [`tmt-office`](skills/tmt-office/SKILL.md) and
-[`tmt-prop-create`](skills/tmt-prop-create/SKILL.md) skills, plus
-[`tmt-avatar-create`](skills/tmt-avatar-create/SKILL.md); core installation does
+manages the optional [`tmt-office`](extensions/tmt-office/skills/tmt-office/SKILL.md) and
+[`tmt-prop-create`](extensions/tmt-office/skills/tmt-prop-create/SKILL.md) skills, plus
+[`tmt-avatar-create`](extensions/tmt-office/skills/tmt-avatar-create/SKILL.md); core installation does
 not add them.
 
 ## Boundaries worth knowing

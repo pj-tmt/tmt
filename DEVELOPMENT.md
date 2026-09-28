@@ -116,7 +116,7 @@ The distinct Vitest versions are lockfile-owned, not a claim that native tests
 were migrated to the newer app runner.
 Office wire-schema conformance is a nested tooling test. From `typescript`, run
 `corepack pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
-[`contracts/office`](contracts/office/README.md) for its single source of truth,
+[`extensions/tmt-office/contracts`](extensions/tmt-office/contracts/README.md) for its single source of truth,
 versioning and limits. Design vectors are not executable authorization or crash
 recovery evidence; downstream suites must prove those behaviors separately.
 Root tooling runs at most two suite workers to avoid simultaneous subprocess
@@ -909,8 +909,8 @@ executables are not proof of release archives or public installation.
 ## Installed guidance source ownership
 
 `skills/tmux-team/SKILL.md`, `skills/tmt-inbox/SKILL.md`, and the optional
-`skills/tmt-office/SKILL.md`, `skills/tmt-prop-create/SKILL.md`, and
-`skills/tmt-avatar-create/SKILL.md` are the five
+`extensions/tmt-office/skills/tmt-office/SKILL.md`, `extensions/tmt-office/skills/tmt-prop-create/SKILL.md`, and
+`extensions/tmt-office/skills/tmt-avatar-create/SKILL.md` are the five
 canonical guidance sources in one versioned bundle. Core install exposes only
 the first two; explicit Office install or upgrade manages all three Office siblings
 in detected and already-managed custom roots. Verify exact embedded bytes,

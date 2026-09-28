@@ -112,7 +112,7 @@ Retained-block reassignment is supported during owner approval. Lost-credential
 repair remains separate work, not an implicit M1 acceptance gate. Retirement
 delivery is defined below; token refresh never extends a grant lease.
 Actual native/browser/isolated-vault evidence is required by the
-[local-first acceptance contract](../../DEVELOPMENT.md#personal-office-milestone-acceptance).
+[local-first acceptance contract](../../../DEVELOPMENT.md#personal-office-milestone-acceptance).
 
 ## Explicit cancellation and reuse
 

@@ -24,7 +24,7 @@ test('bundled modular robots need no installation and preserve explicit selectio
       identityIds.push(created.identity.id);
     }
     const file = path.join(sandbox.root, 'robots.tmtavatar.json');
-    const bytes = readFileSync('../../../../../contracts/office/modular-robots-v2.tmtavatar.json');
+    const bytes = readFileSync('../../../contracts/modular-robots-v2.tmtavatar.json');
     writeFileSync(file, bytes);
     const validated = await office(['avatar', 'validate', '--file', file]);
     expect(validated).toMatchObject({ formatVersion: 2, cellCount: 6144 });

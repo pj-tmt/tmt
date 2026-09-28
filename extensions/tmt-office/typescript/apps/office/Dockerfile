@@ -9,5 +9,5 @@ RUN pnpm office:install \
   && test ! -e /node_modules \
   && test ! -e /workspace/rust/target/debug/tmt
 COPY extensions/tmt-office/typescript/apps/office /workspace/extensions/tmt-office/typescript/apps/office
-COPY contracts/office /workspace/contracts/office
+COPY extensions/tmt-office/contracts /workspace/extensions/tmt-office/contracts
 CMD ["sh", "-c", "pnpm office:check && pnpm office:test && pnpm office:build"]

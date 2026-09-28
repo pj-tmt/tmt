@@ -2,10 +2,7 @@ use super::*;
 use serde_json::json;
 
 fn fixture() -> Value {
-    serde_json::from_str(include_str!(
-        "../../../../../../../contracts/office/map-v1-vectors.json"
-    ))
-    .unwrap()
+    serde_json::from_str(include_str!("../../../../../contracts/map-v1-vectors.json")).unwrap()
 }
 
 #[test]

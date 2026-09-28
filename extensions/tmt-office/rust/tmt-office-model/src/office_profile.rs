@@ -157,10 +157,9 @@ mod tests {
 
     #[test]
     fn shared_conformance_vectors_match_catalog_defaults_and_validation() {
-        let vectors: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../contracts/office/profile-v1.vectors.json"
-        ))
-        .unwrap();
+        let vectors: serde_json::Value =
+            serde_json::from_str(include_str!("../../../contracts/profile-v1.vectors.json"))
+                .unwrap();
         assert_eq!(
             vectors["catalog"]["hairStyles"],
             serde_json::json!(HAIR_STYLES)

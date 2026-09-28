@@ -4,7 +4,7 @@ import { PROFILE_CATALOG, ProfileConflict } from './profile-contract.js';
 import type { Profile, ProfileMutation, ProfilePort, ProfileSnapshot } from './profile-contract.js';
 import { ProfilePanel } from './profile-view.js';
 import { decodeAvatarCatalog } from '../avatars/avatar-catalog.js';
-import avatarVectors from '../../../../../../../contracts/office/avatar-pack-vectors.json';
+import avatarVectors from '../../../../../contracts/avatar-pack-vectors.json';
 
 const avatarDigest = `sha256:${'1'.repeat(64)}`;
 const avatarRef = `${avatarDigest}/signal-bot`;

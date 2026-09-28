@@ -113,7 +113,7 @@ mod tests {
     fn native_reference_resolution_matches_shared_vectors() {
         use crate::office_whiteboard::snapshot::resolve_snapshot_reference;
         let vectors: serde_json::Value = serde_json::from_slice(include_bytes!(
-            "../../../../../../../contracts/office/snapshot-reference-vectors.json"
+            "../../../../../contracts/snapshot-reference-vectors.json"
         ))
         .unwrap();
         for item in vectors["valid"].as_array().unwrap() {
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn snapshot_decoder_preserves_raw_scene_validation_and_bounds() {
         let scene: serde_json::Value = serde_json::from_slice(include_bytes!(
-            "../../../../../../../contracts/office/whiteboard-scene-v1.json"
+            "../../../../../contracts/whiteboard-scene-v1.json"
         ))
         .unwrap();
         let value = json!({"id":"11111111-1111-4111-8111-111111111111","documentId":"lobby","documentRevision":1,"scene":scene,"selectedElementIds":[],"annotation":"Review this.","createdAtMs":100});

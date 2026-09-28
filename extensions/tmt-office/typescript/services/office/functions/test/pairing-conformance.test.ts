@@ -9,10 +9,7 @@ interface PairingVectors {
 }
 
 const vectors = JSON.parse(
-  readFileSync(
-    new URL('../../../../../../../contracts/office/pairing-examples.json', import.meta.url),
-    'utf8'
-  )
+  readFileSync(new URL('../../../../../contracts/pairing-examples.json', import.meta.url), 'utf8')
 ) as PairingVectors;
 
 describe('pairing request conformance', () => {

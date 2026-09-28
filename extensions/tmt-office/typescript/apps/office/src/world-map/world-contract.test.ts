@@ -1,7 +1,7 @@
 import { mapGeometry } from './map-source.js';
 import { describe, expect, it } from 'vitest';
-import maps from '../../../../../../../contracts/office/map-v1-vectors.json';
-import vectors from '../../../../../../../contracts/office/world-v1-vectors.json';
+import maps from '../../../../../contracts/map-v1-vectors.json';
+import vectors from '../../../../../contracts/world-v1-vectors.json';
 import { builtinFurniture, validFurniture } from '../blocks/block-contract.js';
 import { decodeWorldDocument, WORLD_LIMITS } from './world-contract.js';
 import { removeWorldObject, updateWorldMap, worldHistory } from './world-draft.js';

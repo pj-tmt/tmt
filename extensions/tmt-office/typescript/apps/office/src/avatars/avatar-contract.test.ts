@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/avatar-pack-vectors.json';
+import vectors from '../../../../../contracts/avatar-pack-vectors.json';
 import { decodeAvatarPack } from './avatar-contract.js';
-import detailed from '../../../../../../../contracts/office/avatar-pack-v2-sample.tmtavatar.json';
-import detailVectors from '../../../../../../../contracts/office/avatar-pack-v2-vectors.json';
+import detailed from '../../../../../contracts/avatar-pack-v2-sample.tmtavatar.json';
+import detailVectors from '../../../../../contracts/avatar-pack-v2-vectors.json';
 
 describe('avatar-pack projection', () => {
   it('matches v2 literal vectors with full-byte indices and exact dimensions', () => {

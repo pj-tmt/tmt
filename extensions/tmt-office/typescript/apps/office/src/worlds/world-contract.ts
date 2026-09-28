@@ -17,7 +17,7 @@ export interface WorldDraft {
   name: string;
 }
 
-/** Mirrors the feedback subset of contracts/office/private-world.md. Rules enforce it. */
+/** Mirrors the feedback subset of extensions/tmt-office/contracts/private-world.md. Rules enforce it. */
 export function validWorldName(name: string): boolean {
   const characters = [...name];
   return (

@@ -9,7 +9,7 @@ import {
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import { savedWorld } from './native-world-state.js';
 import { workshopStarter } from '../src/blocks/workshop-starter.js';
-import vectors from '../../../../../../contracts/office/modules-v2-vectors.json' with { type: 'json' };
+import vectors from '../../../../contracts/modules-v2-vectors.json' with { type: 'json' };
 import { decodeModuleMap } from '../src/world-map/module-contract.js';
 import { moduleBounds } from '../src/world-map/module-geometry.js';
 import type { WorldDocument, WorldObject } from '../src/world-map/world-contract.js';

@@ -1200,7 +1200,7 @@ mod tests {
 
     fn avatar_preview_bytes(index: usize) -> Vec<u8> {
         let mut value: Value = serde_json::from_slice(include_bytes!(
-            "../../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
+            "../../../contracts/avatar-pack-v1-sample.tmtavatar.json"
         ))
         .unwrap();
         value["label"] = json!(format!("Preview {index}"));
@@ -1287,7 +1287,7 @@ mod tests {
     fn preview_registry_has_one_shared_limit_and_exact_retries_reuse_the_slot() {
         let previews: Previews = Arc::new(Mutex::new(HashMap::new()));
         let receipt = test_receipt();
-        let prop = include_bytes!("../../../../../contracts/office/builtin-props-v1.tmtprop.json");
+        let prop = include_bytes!("../../../contracts/builtin-props-v1.tmtprop.json");
         assert!(
             call_preview(&previews, &receipt, prop.to_vec(), PreviewKind::Prop)
                 .starts_with("HTTP/1.1 200")
@@ -1583,7 +1583,7 @@ mod tests {
         .identity
         .id;
         let avatar = validate_avatar_pack(include_bytes!(
-            "../../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
+            "../../../contracts/avatar-pack-v1-sample.tmtavatar.json"
         ))
         .unwrap();
         storage.install_local_avatar_pack(0, &avatar).unwrap();

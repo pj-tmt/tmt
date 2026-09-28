@@ -3,10 +3,8 @@ use crate::office_block::BUILTIN_PROP_PACK_DIGEST;
 use crate::office_world::PlacementError;
 
 fn fixture() -> Value {
-    let maps: Value = serde_json::from_str(include_str!(
-        "../../../../../../../contracts/office/map-v1-vectors.json"
-    ))
-    .unwrap();
+    let maps: Value =
+        serde_json::from_str(include_str!("../../../../../contracts/map-v1-vectors.json")).unwrap();
     json!({
         "version": 1,
         "map": maps["lobby"],
@@ -66,7 +64,7 @@ fn floor_base_roundtrips_without_rewriting_legacy_or_accepting_hostile_geometry(
 fn old_corridors_retain_readable_windows_until_explicit_validated_upgrade() {
     let mut old = fixture();
     old["map"] = serde_json::from_str::<Value>(include_str!(
-        "../../../../../../../contracts/office/modules-v2-vectors.json"
+        "../../../../../contracts/modules-v2-vectors.json"
     ))
     .unwrap()["starter"]
         .clone();
@@ -212,7 +210,7 @@ fn wire_budgets_versions_and_numeric_values_are_explicit() {
 #[test]
 fn shared_attachment_vectors_preserve_references_without_admitting_executable_fields() {
     let vectors: Value = serde_json::from_str(include_str!(
-        "../../../../../../../contracts/office/world-v1-vectors.json"
+        "../../../../../contracts/world-v1-vectors.json"
     ))
     .unwrap();
     assert_eq!(vectors["limits"]["documentBytes"], WORLD_DOCUMENT_LIMIT);

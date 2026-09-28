@@ -248,7 +248,7 @@ test('directional workshop art previews exact pixels and saves upright views acr
       return JSON.parse(result.stdout);
     };
     // Furniture belongs to the installation world; no identity is required.
-    const file = path.resolve('../../../../../contracts/office/workshop-furniture-v2.tmtprop.json');
+    const file = path.resolve('../../../contracts/workshop-furniture-v2.tmtprop.json');
     const source = JSON.parse(readFileSync(file, 'utf8')) as {
       palette: string[];
       props: {
@@ -361,9 +361,7 @@ test('directional workshop art previews exact pixels and saves upright views acr
             await office(['stop']);
             started = await office(['start', '--port', String(await unusedLoopbackPort())]);
           }
-          const previewFile = path.resolve(
-            `../../../../../contracts/office/${packName}-v2.tmtprop.json`
-          );
+          const previewFile = path.resolve(`../../../contracts/${packName}-v2.tmtprop.json`);
           const authored = JSON.parse(readFileSync(previewFile, 'utf8')) as typeof source;
           const currentPreview =
             previewFile === file

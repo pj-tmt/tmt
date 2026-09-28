@@ -14,9 +14,7 @@ test('avatar v2 survives preview, selection, missing-art fallback and exact rein
     const created = await runCli(sandbox, ['identity', 'create', 'Artist', '--json']);
     expect(created.status, created.stdout).toBe(0);
     const identityId = JSON.parse(created.stdout).identity.id as string;
-    const bytes = readFileSync(
-      '../../../../../contracts/office/avatar-pack-v2-sample.tmtavatar.json'
-    );
+    const bytes = readFileSync('../../../contracts/avatar-pack-v2-sample.tmtavatar.json');
     const file = path.join(sandbox.root, 'artist.tmtavatar.json');
     writeFileSync(file, bytes);
     const office = async (args: string[]) => {
@@ -39,10 +37,7 @@ test('avatar v2 survives preview, selection, missing-art fallback and exact rein
     };
     const before = stored();
     const bundled = path.join(sandbox.root, 'workshop.tmtavatar.json');
-    writeFileSync(
-      bundled,
-      readFileSync('../../../../../contracts/office/workshop-robot-v2.tmtavatar.json')
-    );
+    writeFileSync(bundled, readFileSync('../../../contracts/workshop-robot-v2.tmtavatar.json'));
     expect(await office(['avatar', 'validate', '--file', bundled])).toMatchObject({
       formatVersion: 2,
       cellCount: 1536,

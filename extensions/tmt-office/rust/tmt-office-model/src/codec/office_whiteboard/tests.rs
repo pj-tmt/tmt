@@ -1,8 +1,7 @@
 use super::*;
 use serde_json::{Value, json};
 
-const EXAMPLE: &[u8] =
-    include_bytes!("../../../../../../../contracts/office/whiteboard-scene-v1.json");
+const EXAMPLE: &[u8] = include_bytes!("../../../../../contracts/whiteboard-scene-v1.json");
 
 fn example() -> Value {
     serde_json::from_slice(EXAMPLE).unwrap()
@@ -51,7 +50,7 @@ fn shared_vectors_and_all_element_kinds_round_trip_without_reordering() {
         example()
     );
     let vectors: Value = serde_json::from_slice(include_bytes!(
-        "../../../../../../../contracts/office/whiteboard-vectors.json"
+        "../../../../../contracts/whiteboard-vectors.json"
     ))
     .unwrap();
     for case in vectors.as_array().unwrap() {

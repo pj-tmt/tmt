@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/snapshot-reference-vectors.json';
+import vectors from '../../../../../contracts/snapshot-reference-vectors.json';
 import { resolveSnapshotReference, snapshotReference } from './snapshot-reference.js';
 
 it('shares exact local reference admission with native readers', () => {

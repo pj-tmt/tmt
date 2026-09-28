@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import example from '../../../../../../../contracts/office/whiteboard-scene-v1.json';
-import vectors from '../../../../../../../contracts/office/whiteboard-vectors.json';
+import example from '../../../../../contracts/whiteboard-scene-v1.json';
+import vectors from '../../../../../contracts/whiteboard-vectors.json';
 import {
   decodeWhiteboardScene,
   parseWhiteboardScene,

@@ -6,9 +6,9 @@ supplies the verified version URL when one is available. No plugin, marketplace
 or separate slash-command package is required. The native executable embeds the
 canonical [tmux-team skill](tmux-team/SKILL.md), focused
 [tmt-inbox skill](tmt-inbox/SKILL.md), optional
-[tmt-office skill](tmt-office/SKILL.md), and optional
-[tmt-prop-create skill](tmt-prop-create/SKILL.md) and
-[tmt-avatar-create skill](tmt-avatar-create/SKILL.md) in one versioned bundle. Core
+[tmt-office skill](../extensions/tmt-office/skills/tmt-office/SKILL.md), and optional
+[tmt-prop-create skill](../extensions/tmt-office/skills/tmt-prop-create/SKILL.md) and
+[tmt-avatar-create skill](../extensions/tmt-office/skills/tmt-avatar-create/SKILL.md) in one versioned bundle. Core
 install exposes only the first two; explicit Office setup manages all three Office skills.
 
 The native runtime needs no Node.js, Rust toolchain or source checkout; tmux is

@@ -3,7 +3,7 @@ import type { Appearance } from './profile-contract.js';
 import type { IndexedArt } from '../rendering/indexed-art.js';
 import { tintPalette } from '../rendering/indexed-art.js';
 import { avatarRaster, decodeAvatarPack } from '../avatars/avatar-contract.js';
-import robotDocument from '../../../../../../../contracts/office/workshop-robot-v2.tmtavatar.json' with { type: 'json' };
+import robotDocument from '../../../../../contracts/workshop-robot-v2.tmtavatar.json' with { type: 'json' };
 import materials from './robot-materials.json' with { type: 'json' };
 
 export type AvatarArt = Pick<IndexedArt, 'pixels' | 'palette' | 'indexWidth'>;

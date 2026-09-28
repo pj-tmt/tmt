@@ -218,7 +218,7 @@ The reserved wing remains excluded from personal-office expansion. Removing
 a meeting does not repack survivors. Expansion offers the next index after the
 highest occupied meeting slot, and its wireframe has no passage preview.
 The reserved wing projects these slots with fixed visible gaps, including vacant
-indices; see [rendering ownership](../../docs/office/architecture.md).
+indices; see [rendering ownership](../../../docs/office/architecture.md).
 [Island vectors](modules-island-vectors.json) specify independent native/browser
 floor samples, dimensions and budgets.
 

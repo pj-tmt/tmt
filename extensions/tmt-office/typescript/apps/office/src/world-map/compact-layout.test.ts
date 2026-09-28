@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import central from '../../../../../../../contracts/office/modules-central-grid-vectors.json';
+import central from '../../../../../contracts/modules-central-grid-vectors.json';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { decodeModuleMap } from './module-contract.js';
 import { mapGeometry } from './map-source.js';

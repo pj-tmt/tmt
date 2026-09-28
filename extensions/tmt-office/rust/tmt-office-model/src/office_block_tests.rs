@@ -168,10 +168,8 @@ fn codec_round_trip_is_canonical_and_rejects_malformed_tokens() {
 
 #[test]
 fn literal_contract_vectors_match_in_both_directions() {
-    let corpus: Value = serde_json::from_str(include_str!(
-        "../../../../../contracts/office/block-v1.vectors.json"
-    ))
-    .unwrap();
+    let corpus: Value =
+        serde_json::from_str(include_str!("../../../contracts/block-v1.vectors.json")).unwrap();
     for vector in corpus.as_array().unwrap() {
         let valid = vector["valid"].as_bool().unwrap();
         let stored = vector["stored"].as_str();
@@ -197,10 +195,8 @@ fn literal_contract_vectors_match_in_both_directions() {
 
 #[test]
 fn vector_deserialization_rejects_unknown_item_fields() {
-    let corpus: Value = serde_json::from_str(include_str!(
-        "../../../../../contracts/office/block-v1.vectors.json"
-    ))
-    .unwrap();
+    let corpus: Value =
+        serde_json::from_str(include_str!("../../../contracts/block-v1.vectors.json")).unwrap();
     let item = corpus
         .as_array()
         .unwrap()

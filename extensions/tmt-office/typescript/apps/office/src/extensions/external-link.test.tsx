@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import vectors from '../../../../../../../contracts/office/external-link-vectors.json';
-import definition from '../../../../../../../contracts/office/link-extension-v1.json';
+import vectors from '../../../../../contracts/external-link-vectors.json';
+import definition from '../../../../../contracts/link-extension-v1.json';
 import { externalLink } from './external-link.js';
 import { decodeExtensionDefinition, decodeResourceBinding } from './extension-contract.js';
 import { activateExtension, bindWorldExtension } from './extension-binding.js';

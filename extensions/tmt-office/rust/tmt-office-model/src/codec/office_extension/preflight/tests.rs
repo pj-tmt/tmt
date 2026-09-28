@@ -1,15 +1,13 @@
 use super::*;
 use serde_json::{Value, json};
 
-const DEFINITION: &str =
-    include_str!("../../../../../../../../contracts/office/discussion-extension-v1.json");
-const INSTANCE: &str =
-    include_str!("../../../../../../../../contracts/office/lobby-extension-v1.json");
+const DEFINITION: &str = include_str!("../../../../../../contracts/discussion-extension-v1.json");
+const INSTANCE: &str = include_str!("../../../../../../contracts/lobby-extension-v1.json");
 
 #[test]
 fn shared_pair_vectors_validate_identity_binding_and_rotated_edges() {
     let vectors: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../contracts/office/extension-pair-vectors.json"
+        "../../../../../../contracts/extension-pair-vectors.json"
     ))
     .unwrap();
     let definition = serde_json::to_vec(&vectors["definition"]).unwrap();
@@ -28,12 +26,12 @@ fn every_bundled_binding_preflights_without_storage_or_catalog_resolution() {
     for (definition, instance) in [
         (DEFINITION, INSTANCE),
         (
-            include_str!("../../../../../../../../contracts/office/whiteboard-extension-v1.json"),
-            include_str!("../../../../../../../../contracts/office/lobby-whiteboard-v1.json"),
+            include_str!("../../../../../../contracts/whiteboard-extension-v1.json"),
+            include_str!("../../../../../../contracts/lobby-whiteboard-v1.json"),
         ),
         (
-            include_str!("../../../../../../../../contracts/office/broadcaster-extension-v1.json"),
-            include_str!("../../../../../../../../contracts/office/lobby-broadcaster-v1.json"),
+            include_str!("../../../../../../contracts/broadcaster-extension-v1.json"),
+            include_str!("../../../../../../contracts/lobby-broadcaster-v1.json"),
         ),
     ] {
         let input = ValidationInput {

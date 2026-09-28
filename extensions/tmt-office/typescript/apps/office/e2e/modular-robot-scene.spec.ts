@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import robots from '../../../../../../contracts/office/modular-robots-v2.tmtavatar.json' with { type: 'json' };
-import central from '../../../../../../contracts/office/modules-central-grid-vectors.json' with { type: 'json' };
+import robots from '../../../../contracts/modular-robots-v2.tmtavatar.json' with { type: 'json' };
+import central from '../../../../contracts/modules-central-grid-vectors.json' with { type: 'json' };
 import { decodeModuleMap } from '../src/world-map/module-contract.js';
 import { furnishedOfficeFixture } from './furnished-office-fixture.js';
 import { captureWorldScene, installDrawObserver } from './scene-observation.js';

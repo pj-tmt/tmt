@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/profile-v1.vectors.json';
+import vectors from '../../../../../contracts/profile-v1.vectors.json';
 import {
   PROFILE_CATALOG,
   decodeProfileMutation,

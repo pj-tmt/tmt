@@ -1,11 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import examples from '../../../contracts/office/examples.json' with { type: 'json' };
-import scenarios from '../../../contracts/office/scenarios.json' with { type: 'json' };
+import examples from '../../../extensions/tmt-office/contracts/examples.json' with { type: 'json' };
+import scenarios from '../../../extensions/tmt-office/contracts/scenarios.json' with { type: 'json' };
 
 const schema = JSON.parse(
-  readFileSync(new URL('../../../contracts/office/v1.schema.json', import.meta.url), 'utf8')
+  readFileSync(
+    new URL('../../../extensions/tmt-office/contracts/v1.schema.json', import.meta.url),
+    'utf8'
+  )
 );
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 const validate = ajv.compile(schema);

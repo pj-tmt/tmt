@@ -32,18 +32,19 @@ parent-relative members of that same workspace and lockfile. They resolve only
 their declared dependencies, never root-hoisted tooling packages; Office browser
 specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
-that boundary. The Nx task graph orders only the Office SPA producer, embedded
+that boundary. `contracts/` holds core contracts only; Office contracts, vectors
+and the Office skill sources live under `extensions/tmt-office/`. The Nx task graph orders only the Office SPA producer, embedded
 native companion and installed-browser acceptance chain; ordinary CLI targets
 remain independent. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
 the chosen React/Vite/TanStack/Jotai stack and the
 [Office design](docs/office/design.md) for planned trust/lifecycle semantics.
 Office runtime code must not import local SQLite/process adapters or native test helpers.
-The accepted [World extension design](contracts/office/functional-props.md)
+The accepted [World extension design](extensions/tmt-office/contracts/functional-props.md)
 separates spatial composition from concrete board/notebook/broadcast features.
 Bundled features are not automatically World core. Reuse existing domain services;
 extract capability interfaces from consumers rather than adding another command
-runner or exchange engine. The first [data-only binding](contracts/office/extension-v1.md)
+runner or exchange engine. The first [data-only binding](extensions/tmt-office/contracts/extension-v1.md)
 composes discussion and whiteboard resource views with physical instances through
 a guarded host registry; native/browser admission is separate from capability
 registration. Shared `useExtensionPanel` owns the native modal lifetime, while
@@ -52,7 +53,7 @@ each resource retains its own draft and persistence owner. Whiteboard
 state: unsaved content requires confirmation, while pending document/snapshot/send
 operations retain their original owner until resolved. Closing a panel is not a
 document switch or disposal.
-The local [whiteboard scene contract](contracts/office/whiteboard-v1.md) keeps
+The local [whiteboard scene contract](extensions/tmt-office/contracts/whiteboard-v1.md) keeps
 drawing values separate from World placement, request delivery and resource storage.
 Pure scene policy belongs to `tmt-office-model::office_whiteboard`, its strict JSON boundary
 to `tmt-office-model::codec::office_whiteboard`, and the matching browser projection to
@@ -81,7 +82,7 @@ validates replies over its parent's existing bounded process owner. The CLI owns
 the explicit export path, while `office_whiteboard::export` publishes a private,
 no-clobber file. The core snapshot module owns local reference identity; browser
 formatting/resolution shares conformance vectors.
-The local [request dispatch capability](contracts/office/dispatch-v1.md) composes
+The local [request dispatch capability](extensions/tmt-office/contracts/dispatch-v1.md) composes
 explicit recipients over `RequestService::enqueue`. Core `dispatch` owns
 composition values, its adapter owns JSON/digests, and `storage::dispatch`
 owns an immutable acceptance ledger in schema 23. `storage::requests` lends its
@@ -120,7 +121,7 @@ Discussion `local/board-share` supplies a live thread UUID and native reader
 instruction to the same composer; it does not create snapshot storage or another
 reference parser. The board retains its content/draft owner while the request
 view freezes the selected thread and requires explicit discard before leaving.
-The [meeting-room resource](contracts/office/meeting-room-v1.md) owns explicit local
+The [meeting-room resource](extensions/tmt-office/contracts/meeting-room-v1.md) owns explicit local
 rosters in schema 24. Fan-out reads its effective membership inside the existing
 enqueue transaction and fences both room revision and UUID audience, after replay
 lookup. Retirement filters active projections without changing core identity hooks.
@@ -179,12 +180,12 @@ lookup. Dispatch and new spatial bindings use active selection, while committed
 receipts, delivered requests and retained areas remain intact. CLI and HTTP reuse
 the transition; no archive database or cascading content deletion is introduced.
 Scoped delivery and spatial integration are defined
-in [rooms and walls](contracts/office/rooms-and-walls.md), not implemented by roster
+in [rooms and walls](extensions/tmt-office/contracts/rooms-and-walls.md), not implemented by roster
 commands alone.
-The local [map v1 foundation](contracts/office/map-v1.md) separates topology from
+The local [map v1 foundation](extensions/tmt-office/contracts/map-v1.md) separates topology from
 resource contents. `tmt-office-model::office_map` owns native admission and derived walls.
 Its `modules` owner projects fixed room slots and circulation into that same
-admission boundary. [Versioned modular topology](contracts/office/modules-v2.md) stores
+admission boundary. [Versioned modular topology](extensions/tmt-office/contracts/modules-v2.md) stores
 the module source only; the admitted map's immutable floor/edge projection is
 not another write model. The map codec preserves v1 values until explicit
 conversion; v2 retains short links and v3 derives continuous grid
@@ -316,7 +317,7 @@ update-byte-budget checkpoint, not stored in SQLite. Domain decoders still admit
 projections. `use-world-editor` retains the existing serialized JSON/CAS persistence
 and pauses on conflicts; Yjs adds no provider, remote authority or second database.
 See [Office architecture](docs/office/architecture.md) for history lifecycle and limits.
-The [world value foundation](contracts/office/world-v1.md) composes that map with
+The [world value foundation](extensions/tmt-office/contracts/world-v1.md) composes that map with
 stable placement IDs. `tmt-office-model::office_world` validates floor/wall support,
 door clearance and window exclusions over the map index. Shared prop appearance
 admission is independent of the legacy 32x32 bounds; signed positions support
@@ -381,7 +382,7 @@ The [workshop references](docs/office/references/workshop/README.md)
 own visual intent, not evidence that proposed extension APIs are implemented.
 Its browser E2E may reuse the established test-only process and artifact owners.
 The pairing issuer is implemented for local emulator verification and disabled
-by default outside that environment; it is not deployed. `contracts/office`
+by default outside that environment; it is not deployed. `extensions/tmt-office/contracts`
 owns the versioned work-handoff schema and fixtures; derived representations must
 prove conformance there. Structural tests do not prove remote authorization or
 delivery. Future connector dispatch reuses native request/storage ownership,
@@ -491,7 +492,7 @@ prop catalog or occupy saved floor tiles. Module source selects the finish throu
 the existing world draft, without changing geometry or resource bindings.
 The directional prop format extends the existing catalog and raster
 projection, not the scene state owner; see the versioned
-[prop contract](contracts/office/prop-pack-v2.md). Prop-specific byte budgets and
+[prop contract](extensions/tmt-office/contracts/prop-pack-v2.md). Prop-specific byte budgets and
 schema 18 do not change avatar admission or unrelated command envelopes.
 Reviewed modular source art is encoded offline into the same immutable v2 prop
 packs; both native and browser registries admit those exact contract bytes.
@@ -514,7 +515,7 @@ explicit edits. This is world placement data, not a rewrite of immutable art.
 Scene projection, culling and picking keep the full artwork bounds. The scene
 passes one complete placement candidate to the existing world editor so base,
 position and rotation cannot commit as separate history entries. See the
-[world contract](contracts/office/world-v1.md) for support and compatibility rules.
+[world contract](extensions/tmt-office/contracts/world-v1.md) for support and compatibility rules.
 `world-object-placement` owns bundled wall-authoring hints used by both library
 grouping and initial kind/mount selection. These hints grant no capability or
 placement authority; arbitrary admitted artwork still uses the same world validation.
@@ -539,7 +540,7 @@ with a transfer receipt and records immutable approval intent; no second
 assignment registry or resource copy is introduced.
 The detailed lifecycle and verification map lives only in
 [Office architecture](docs/office/architecture.md); exact persisted data belongs
-in [Office contracts](contracts/office/README.md).
+in [Office contracts](extensions/tmt-office/contracts/README.md).
 
 `extensions/tmt-office/typescript/services/office` owns isolated emulator infrastructure, Rules and the trusted
 pairing issuer under `functions/`, not a deployed backend. Admin operations
@@ -548,7 +549,7 @@ admission, ownership and grant authority in its transaction owner. Signing stays
 outside transactions. Rules enforce the issued grant using the existing UUID
 block validator. The native companion consumes this issuer through its optional
 Office adapter feature. See
-[pairing v1](contracts/office/pairing-v1.md) for approval/retry semantics and the
+[pairing v1](extensions/tmt-office/contracts/pairing-v1.md) for approval/retry semantics and the
 agent-grant contract for resource leases. Owner-local configuration stays outside Git and Docker. Native tmux,
 Office browser/Rules and bootstrap smoke proofs retain separate fixture owners.
 Installation-local data-only prop and avatar packs are implemented under separate bounded
@@ -634,7 +635,7 @@ credentials or network data. `tmt-office-model::office_protocol` owns the fixed 
 handshake; `tmt-adapters::office_companion` verifies active installation ownership
 and starts the existing bounded subprocess under the installer lock, then waits
 outside that lock and validates the version selected at launch.
-Its contract is [native companion handshake](contracts/office/native-companion.md).
+Its contract is [native companion handshake](extensions/tmt-office/contracts/native-companion.md).
 Local presentation profiles are a separate UUID-owned resource: `tmt-office-model::office_profile`
 owns the literal default catalog, text bounds, optional immutable `avatarRef` grammar and
 deterministic default; SQLite schema 15 owns only the canonical override and CAS revision.
@@ -684,7 +685,7 @@ per-scope lock owners to revoke, retain a secret-free receipt, then acknowledge.
 No SQL transaction spans remote work. Office pair/inspect and explicit `office
 sync` consume bounded batches; ordinary identity commands only enqueue locally.
 No background or punctual remote cleanup is implied. The
-[native pairing lifecycle contract](contracts/office/native-pairing.md#identity-retirement-hooks)
+[native pairing lifecycle contract](extensions/tmt-office/contracts/native-pairing.md#identity-retirement-hooks)
 owns delivery order, retries and compatibility limitations. This is a retirement
 hook, not an arbitrary executable event bus.
 
@@ -1113,7 +1114,7 @@ it never initializes missing notes. The authenticated loopback GET adapter expos
 only UUID/name/exact UTF-8 content, not caller-selected paths or writes. Its separate
 1 MiB viewer ceiling does not restrict agent file edits. The browser port and
 read-only panel own response admission and cancellable read lifetime, not storage.
-See the [notebook contract](contracts/office/notebook-v1.md).
+See the [notebook contract](extensions/tmt-office/contracts/notebook-v1.md).
 
 Identity retirement deliberately leaves notebooks in place. A later same-name
 identity has a different UUID and therefore a different path. No command moves
@@ -1315,6 +1316,12 @@ an owned core skill. CLI upgrades refresh recorded Office links without creating
 missing integrations. Core's `skill_provider::Provider` is the only provider
 inventory. Skill installation does not open application configuration, SQLite
 or tmux, and never silently replaces an unmanaged path.
+
+The core skill sources stay under `skills/`; the three Office skill sources live
+under `extensions/tmt-office/skills/`. `skill_installation::assets` still embeds
+those Office sources into the core bundle, so core compiles bytes from the
+extension tree. This is retained core-to-extension extraction debt owned by a
+later #328 slice, not a second skill source or a provider-specific copy.
 
 Native executable installation is a different owner under
 `tmt-adapters::native_install`:

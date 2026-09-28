@@ -25,69 +25,68 @@ pub const PALETTE_LIMIT: usize = crate::indexed_art::PALETTE_LIMIT;
 pub const FOOTPRINT_LIMIT: u8 = 8;
 pub const BUILTIN_DIGEST: &str = crate::office_block::BUILTIN_PROP_PACK_DIGEST;
 pub const BUILTIN_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/builtin-props-v1.tmtprop.json");
+    include_bytes!("../../../../contracts/builtin-props-v1.tmtprop.json");
 pub const WORKSHOP_DIGEST: &str =
     "sha256:288fb4f9ef08db8bdf635fbd1b16a3d602fbe0d53a095d96a7988969dabe3529";
 pub const WORKSHOP_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/workshop-furniture-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/workshop-furniture-v2.tmtprop.json");
 pub const COMMONS_DIGEST: &str =
     "sha256:39a02590febbe0b7e9175951db1d7908a9b66ef32aa37eeb1ed9aa5cd524f63c";
 pub const COMMONS_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/commons-props-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/commons-props-v2.tmtprop.json");
 pub const WHITEBOARD_DIGEST: &str =
     "sha256:2514687c911f644e28ea816e2c28b611d2c074e0105e584e6bba86ca208797e8";
 pub const WHITEBOARD_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/whiteboard-props-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/whiteboard-props-v2.tmtprop.json");
 pub const BROADCASTER_DIGEST: &str =
     "sha256:00f2f262077a0486fb3f4524a4efb6125c64a4349faaada079b13f6b25067a04";
 pub const BROADCASTER_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/broadcaster-props-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/broadcaster-props-v2.tmtprop.json");
 pub const STUDY_DIGEST: &str =
     "sha256:78f0c0dc0700aaa37c55ae8cbe91c2d96585555a06e093a9131b529791360eed";
 pub const STUDY_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/study-furniture-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/study-furniture-v2.tmtprop.json");
 pub const WALL_DIGEST: &str =
     "sha256:5303fe9a3e5bf8a22c9958faeef1922a3cc21cfefb95a7b701a6a86213ac4415";
-pub const WALL_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/wall-props-v2.tmtprop.json");
+pub const WALL_BYTES: &[u8] = include_bytes!("../../../../contracts/wall-props-v2.tmtprop.json");
 pub const MODULAR_WORKSTATION_DIGEST: &str =
     "sha256:10dc14a38d1cb0c92148c084b5e6239a54ee401348070444ae65fe8f6d815755";
 pub const MODULAR_WORKSTATION_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/modular-workstation-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/modular-workstation-v2.tmtprop.json");
 pub const MODULAR_MOUNTED_DIGEST: &str =
     "sha256:86e7784ccb08d6c8804de7deeb2e3063898d3804e6ed81e3f7c8735b1996c7eb";
 pub const MODULAR_MOUNTED_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/modular-mounted-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/modular-mounted-v2.tmtprop.json");
 pub const MODULAR_LOUNGE_DIGEST: &str =
     "sha256:a4538f15b7da963679094f89d6f954215453492b5eb23bde40a4ffc6969a64b2";
 pub const MODULAR_LOUNGE_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/modular-lounge-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/modular-lounge-v2.tmtprop.json");
 pub const MODULAR_FACILITIES_DIGEST: &str =
     "sha256:b400ccadbacad373c9f420845a820256840829de7856f587cd5fd7d78786a55c";
 pub const MODULAR_FACILITIES_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/modular-facilities-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/modular-facilities-v2.tmtprop.json");
 pub const MODULAR_RECEPTION_DIGEST: &str =
     "sha256:a00df6330d569dd6ab8d94bab391c074306be6529fdd224d5da9f9ef601052dc";
 pub const MODULAR_RECEPTION_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/modular-reception-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/modular-reception-v2.tmtprop.json");
 
 const DIGEST_DOMAIN: &[u8] = b"TMT-OFFICE-PROP-PACK-V1\0";
 pub const DIRECTIONAL_WORKSTATION_DIGEST: &str =
     "sha256:510f5c18585f9c626260ca7d851c10df9ee1f6858e2dedb494aff8dc7ad82003";
 pub const DIRECTIONAL_WORKSTATION_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/directional-workstation-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/directional-workstation-v2.tmtprop.json");
 pub const DIRECTIONAL_LOUNGE_DIGEST: &str =
     "sha256:79b890d1e7f7a9139e856a45efdbfb111052dd4b9414050367f8290f677ea802";
 pub const DIRECTIONAL_LOUNGE_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/directional-lounge-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/directional-lounge-v2.tmtprop.json");
 pub const DIRECTIONAL_RECEPTION_DIGEST: &str =
     "sha256:bbd2099aec2ebef001386e84bc28c7ff119cdecb2cb566665b51b1fabb99a93b";
 pub const DIRECTIONAL_RECEPTION_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/directional-reception-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/directional-reception-v2.tmtprop.json");
 pub const DIRECTIONAL_FACILITIES_DIGEST: &str =
     "sha256:206562d849112c6ad6bfe2099bd1dc62fcdb82c73f58c3ff7e6062dd9fcf924f";
 pub const DIRECTIONAL_FACILITIES_BYTES: &[u8] =
-    include_bytes!("../../../../../../contracts/office/directional-facilities-v2.tmtprop.json");
+    include_bytes!("../../../../contracts/directional-facilities-v2.tmtprop.json");
 const DIRECTIONAL_DIGEST_DOMAIN: &[u8] = b"TMT-OFFICE-PROP-PACK-V2\0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

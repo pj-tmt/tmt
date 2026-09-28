@@ -36,6 +36,8 @@ describe('CI area selection', () => {
     'typescript/scripts/ci-scope.mjs',
     'typescript/test/e2e/Dockerfile',
     'contracts/office/request.json',
+    'extensions/tmt-office/contracts/request.json',
+    'extensions/tmt-office/skills/tmt-office/SKILL.md',
     'extensions/tmt-office/rust/tmt-office/src/main.rs',
     'extensions/tmt-office/typescript/services/office/firestore.rules',
     'typescript/apps/office/src/main.tsx',

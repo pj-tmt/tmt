@@ -37,7 +37,7 @@ RUN pnpm --filter @tmt/office exec playwright install --with-deps chromium
 USER node
 COPY --from=emulators --chown=node:node /home/node/office/ /home/node/office/
 COPY --chown=node:node extensions/tmt-office/typescript/apps/office /workspace/extensions/tmt-office/typescript/apps/office
-COPY --chown=node:node contracts/office /workspace/contracts/office
+COPY --chown=node:node extensions/tmt-office/contracts /workspace/extensions/tmt-office/contracts
 COPY --chown=node:node typescript/test/e2e test/e2e
 COPY --chown=node:node typescript/test/support test/support
 COPY --chown=node:node extensions/tmt-office/typescript/services/office/functions /workspace/extensions/tmt-office/typescript/services/office/functions
@@ -58,7 +58,9 @@ WORKDIR /workspace
 COPY rust rust
 COPY extensions/tmt-office/rust extensions/tmt-office/rust
 COPY skills skills
+COPY extensions/tmt-office/skills extensions/tmt-office/skills
 COPY contracts contracts
+COPY extensions/tmt-office/contracts extensions/tmt-office/contracts
 COPY --from=browser-tests-base /workspace/target/office-spa /workspace/target/office-spa
 ENV TMT_OFFICE_SPA_DIR=/workspace/target/office-spa
 RUN cd rust && cargo +1.97.0 build --locked --workspace --release --features tmt-office/local-service \

@@ -1,6 +1,6 @@
 import { mapGeometry } from '../world-map/map-source.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import maps from '../../../../../../../contracts/office/map-v1-vectors.json';
+import maps from '../../../../../contracts/map-v1-vectors.json';
 import { builtinFurniture } from '../blocks/block-contract.js';
 import { decodeWorldDocument } from '../world-map/world-contract.js';
 import {

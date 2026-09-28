@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import scene from '../../../../../../../contracts/office/whiteboard-scene-v1.json';
+import scene from '../../../../../contracts/whiteboard-scene-v1.json';
 import { decodeWhiteboardDocument } from './document-contract.js';
 import { decodeWhiteboardSnapshot } from './snapshot-contract.js';
 import type { WhiteboardSnapshot, WhiteboardSnapshotPort } from './snapshot-contract.js';

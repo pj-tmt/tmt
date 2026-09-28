@@ -18,7 +18,7 @@ fn snapshot_upgrade_preserves_saved_scene_and_rolls_back_schema_with_history() {
     )
     .unwrap();
     let original = std::str::from_utf8(include_bytes!(
-        "../../../../../../contracts/office/whiteboard-scene-v1.json"
+        "../../../../../../extensions/tmt-office/contracts/whiteboard-scene-v1.json"
     ))
     .unwrap();
     old.execute("INSERT INTO office_whiteboards (document_id,world_id,revision,scene,updated_at_ms) VALUES ('lobby',?,1,?,100)", params![world_id, original]).unwrap();

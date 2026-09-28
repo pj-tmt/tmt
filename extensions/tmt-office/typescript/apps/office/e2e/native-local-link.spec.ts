@@ -9,10 +9,7 @@ import { openKeyboardSelection, openOfficeObjects } from './office-navigation.js
 import type { WorldDocument } from '../src/world-map/world-contract.js';
 
 const definition = JSON.parse(
-  readFileSync(
-    new URL('../../../../../../contracts/office/link-extension-v1.json', import.meta.url),
-    'utf8'
-  )
+  readFileSync(new URL('../../../../contracts/link-extension-v1.json', import.meta.url), 'utf8')
 ) as ExtensionDefinition;
 
 test('a persisted web object stays inert through restart and review until an explicit destination click', async ({

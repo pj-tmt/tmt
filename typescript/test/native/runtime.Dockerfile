@@ -6,5 +6,5 @@ COPY typescript/scripts/native-runtime-proof.mjs typescript/scripts/verify-nativ
 COPY typescript/test/support/performance-contract.mjs typescript/test/support/performance-contract.mjs
 COPY skills/tmux-team/SKILL.md skills/tmux-team/SKILL.md
 COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
-COPY skills/tmt-office/SKILL.md skills/tmt-office/SKILL.md
+COPY extensions/tmt-office/skills/tmt-office/SKILL.md extensions/tmt-office/skills/tmt-office/SKILL.md
 ENTRYPOINT ["node", "typescript/scripts/verify-native-runtime.mjs"]

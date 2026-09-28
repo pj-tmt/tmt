@@ -7,7 +7,7 @@ import { propDocumentDigest } from '../props/prop-catalog-contract.js';
 import { decodePropPack, WORKSHOP_DIGEST } from '../props/prop-contract.js';
 
 const document = readFileSync(
-  path.resolve(process.cwd(), '../../../../../contracts/office/prop-pack-v2-sample.tmtprop.json'),
+  path.resolve(process.cwd(), '../../../contracts/prop-pack-v2-sample.tmtprop.json'),
   'utf8'
 );
 const token = 'a'.repeat(43);

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/modules-island-vectors.json';
+import vectors from '../../../../../contracts/modules-island-vectors.json';
 import { decodeMapSource, mapGeometry } from './map-source.js';
 import { moduleBounds, meetingCirculation } from './module-geometry.js';
 import { nextMeetingSlot, meetingExpansionPassages } from './meeting-module.js';

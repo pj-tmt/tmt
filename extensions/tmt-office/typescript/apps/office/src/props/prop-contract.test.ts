@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import builtinDocument from '../../../../../../../contracts/office/builtin-props-v1.tmtprop.json' with { type: 'json' };
-import vectors from '../../../../../../../contracts/office/prop-block-vectors.json' with { type: 'json' };
+import builtinDocument from '../../../../../contracts/builtin-props-v1.tmtprop.json' with { type: 'json' };
+import vectors from '../../../../../contracts/prop-block-vectors.json' with { type: 'json' };
 import {
   BUILTIN_DIGEST,
   BUILTIN_PACK,
@@ -174,9 +174,7 @@ describe('data-only prop pack contract', () => {
       keys: ['lobby-whiteboard', 'lobby-discussion-board', 'lobby-radio'],
     },
   ])('admits $file with its frozen v2 identity without replacing existing art', (fixture) => {
-    const bytes = readFileSync(
-      path.resolve(process.cwd(), '../../../../../contracts/office', fixture.file)
-    );
+    const bytes = readFileSync(path.resolve(process.cwd(), '../../../contracts', fixture.file));
     const length = Buffer.alloc(8);
     length.writeBigUInt64BE(BigInt(bytes.length));
     const digest = createHash('sha256')
@@ -210,7 +208,7 @@ describe('data-only prop pack contract', () => {
 
   it('independently accepts the frozen built-in pack', () => {
     const bytes = readFileSync(
-      path.resolve(process.cwd(), '../../../../../contracts/office/builtin-props-v1.tmtprop.json')
+      path.resolve(process.cwd(), '../../../contracts/builtin-props-v1.tmtprop.json')
     );
     const length = Buffer.alloc(8);
     length.writeBigUInt64BE(BigInt(bytes.length));

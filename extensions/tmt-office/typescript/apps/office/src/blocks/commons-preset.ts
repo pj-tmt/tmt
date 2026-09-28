@@ -1,4 +1,4 @@
-import document from '../../../../../../../contracts/office/commons-preset-v1.json';
+import document from '../../../../../contracts/commons-preset-v1.json';
 import { validLocalLayout } from './block-contract.js';
 import type { Furniture } from './block-contract.js';
 

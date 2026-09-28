@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import definitionDocument from '../../../../../../../contracts/office/whiteboard-extension-v1.json';
+import definitionDocument from '../../../../../contracts/whiteboard-extension-v1.json';
 import { builtinFurniture, defaultCatalog } from '../blocks/block-contract.js';
 import { decodeExtensionDefinition } from './extension-contract.js';
 import { activateExtension, bindWorldExtension } from './extension-binding.js';

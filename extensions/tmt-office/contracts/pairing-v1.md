@@ -237,7 +237,7 @@ enabling production, billing, IAM, ingress limits and deployment are not authori
 by an emulator test. Validate emulator configuration against the demo project and
 loopback endpoints, never accept unsigned emulator credentials in a real project.
 
-The [local-first M1 acceptance contract](../../DEVELOPMENT.md#personal-office-milestone-acceptance)
+The [local-first M1 acceptance contract](../../../DEVELOPMENT.md#personal-office-milestone-acceptance)
 owns verification/cost requirements. Issuer tests must exercise actual emulator
 tokens, transactions, concurrent claims, injected signer failure and downstream
 Rules. Browser scenarios additionally verify explicit owner consent, lost-response

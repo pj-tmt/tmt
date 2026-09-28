@@ -46,7 +46,7 @@ pub fn builtin_packs() -> &'static [ValidatedAvatarPack] {
     PACKS.get_or_init(|| {
         vec![
             validate_pack(include_bytes!(
-                "../../../../../../contracts/office/modular-robots-v2.tmtavatar.json"
+                "../../../../contracts/modular-robots-v2.tmtavatar.json"
             ))
             .expect("bundled robot pack must pass normal admission"),
         ]

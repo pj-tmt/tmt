@@ -13,7 +13,7 @@ pub(super) fn document() -> SaveDocument {
         expected_revision: 0,
         operation_id: SAVE.into(),
         scene: decode_scene(include_bytes!(
-            "../../../../../../../contracts/office/whiteboard-scene-v1.json"
+            "../../../../../../../extensions/tmt-office/contracts/whiteboard-scene-v1.json"
         ))
         .unwrap(),
     }

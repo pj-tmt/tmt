@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createSceneTextures } from './scene-textures.js';
-import detailed from '../../../../../../../contracts/office/avatar-pack-v2-sample.tmtavatar.json';
+import detailed from '../../../../../contracts/avatar-pack-v2-sample.tmtavatar.json';
 import { avatarRaster, decodeAvatarPack } from '../avatars/avatar-contract.js';
 
 const gpu = vi.hoisted(() => ({ allocations: vi.fn(), releases: vi.fn() }));

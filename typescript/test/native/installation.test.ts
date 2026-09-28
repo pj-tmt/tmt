@@ -53,7 +53,7 @@ function officeSkill(): Buffer {
   return readFileSync(
     path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      '../../../skills/tmt-office/SKILL.md'
+      '../../../extensions/tmt-office/skills/tmt-office/SKILL.md'
     )
   );
 }
@@ -62,7 +62,7 @@ function propCreateSkill(): Buffer {
   return readFileSync(
     path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      '../../../skills/tmt-prop-create/SKILL.md'
+      '../../../extensions/tmt-office/skills/tmt-prop-create/SKILL.md'
     )
   );
 }
@@ -71,7 +71,7 @@ function avatarCreateSkill(): Buffer {
   return readFileSync(
     path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      '../../../skills/tmt-avatar-create/SKILL.md'
+      '../../../extensions/tmt-office/skills/tmt-avatar-create/SKILL.md'
     )
   );
 }
@@ -163,7 +163,7 @@ describe('native installation process contract', () => {
       expect(propGuidance.status).toBe(0);
       expect(propGuidance.stderr).toBe('');
       expect(propGuidance.stdout).toBe(propCreateSkill().toString('utf8'));
-      expect(propGuidance.stdout).not.toContain('contracts/office/');
+      expect(propGuidance.stdout).not.toContain('extensions/tmt-office/contracts/');
       for (const required of [
         '"formatVersion": 1',
         'tmt office prop validate --file',
@@ -178,7 +178,7 @@ describe('native installation process contract', () => {
       expect(avatarGuidance.status).toBe(0);
       expect(avatarGuidance.stderr).toBe('');
       expect(avatarGuidance.stdout).toBe(avatarCreateSkill().toString('utf8'));
-      expect(avatarGuidance.stdout).not.toContain('contracts/office/');
+      expect(avatarGuidance.stdout).not.toContain('extensions/tmt-office/contracts/');
       for (const required of [
         '`formatVersion: 1`',
         '32×48 pixels',

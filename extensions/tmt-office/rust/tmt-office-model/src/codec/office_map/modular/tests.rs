@@ -32,7 +32,7 @@ fn skybridge_source_round_trips_without_reinterpreting_old_versions() {
 fn independent_meeting_projection_matches_shared_literal_vectors() {
     use crate::office_map::Tile;
     let corpus: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../contracts/office/modules-island-vectors.json"
+        "../../../../../../contracts/modules-island-vectors.json"
     ))
     .unwrap();
     let source = &corpus["map"];
@@ -65,7 +65,7 @@ fn independent_meeting_projection_matches_shared_literal_vectors() {
 #[test]
 fn compact_revision_round_trips_without_reinterpreting_central_grid() {
     let corpus: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../contracts/office/modules-central-grid-vectors.json"
+        "../../../../../../contracts/modules-central-grid-vectors.json"
     ))
     .unwrap();
     let old = corpus["map"].clone();
@@ -85,7 +85,7 @@ fn compact_revision_round_trips_without_reinterpreting_central_grid() {
 fn central_lobby_lattice_and_sparse_meetings_match_literal_vectors() {
     use crate::office_map::{Axis, Edge, Tile};
     let corpus: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../contracts/office/modules-central-grid-vectors.json"
+        "../../../../../../contracts/modules-central-grid-vectors.json"
     ))
     .unwrap();
     let source = &corpus["map"];
@@ -168,7 +168,7 @@ fn grid_version_does_not_reinterpret_existing_short_link_sources() {
 fn literal_starter_vectors_lock_metrics_bounds_and_real_openings() {
     use crate::office_map::{Axis, Edge, modules::*};
     let corpus: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../contracts/office/modules-v2-vectors.json"
+        "../../../../../../contracts/modules-v2-vectors.json"
     ))
     .unwrap();
     assert_eq!(
@@ -230,7 +230,7 @@ fn module_round_trip_does_not_persist_derived_floor_or_door_arrays() {
 #[test]
 fn unified_area_vectors_match_browser_geometry_and_round_trip_without_derived_state() {
     let vectors: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../../../../contracts/office/modules-unified-vectors.json"
+        "../../../../../../contracts/modules-unified-vectors.json"
     ))
     .unwrap();
     let map = decode_map(&serde_json::to_vec(&vectors["map"]).unwrap()).unwrap();

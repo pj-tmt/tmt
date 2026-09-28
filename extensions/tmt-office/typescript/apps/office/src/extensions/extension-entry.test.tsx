@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import definitionDocument from '../../../../../../../contracts/office/discussion-extension-v1.json';
-import instanceDocument from '../../../../../../../contracts/office/lobby-extension-v1.json';
+import definitionDocument from '../../../../../contracts/discussion-extension-v1.json';
+import instanceDocument from '../../../../../contracts/lobby-extension-v1.json';
 import { defaultCatalog } from '../blocks/block-contract.js';
 import { bindExtension } from './extension-binding.js';
 import { decodeExtensionDefinition, decodeExtensionInstance } from './extension-contract.js';

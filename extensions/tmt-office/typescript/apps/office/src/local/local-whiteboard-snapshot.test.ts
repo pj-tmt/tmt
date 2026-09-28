@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import scene from '../../../../../../../contracts/office/whiteboard-scene-v1.json';
+import scene from '../../../../../contracts/whiteboard-scene-v1.json';
 import { startLocalRuntime } from './local-runtime.js';
 import { SNAPSHOT_PNG_LIMIT } from '../whiteboard/snapshot-contract.js';
 

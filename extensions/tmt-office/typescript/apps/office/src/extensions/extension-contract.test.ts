@@ -1,14 +1,14 @@
 import { expect, it, vi } from 'vitest';
-import vectors from '../../../../../../../contracts/office/extension-vectors.json';
-import pairs from '../../../../../../../contracts/office/extension-pair-vectors.json';
-import definitionDocument from '../../../../../../../contracts/office/discussion-extension-v1.json';
-import instanceDocument from '../../../../../../../contracts/office/lobby-extension-v1.json';
-import whiteboardDefinition from '../../../../../../../contracts/office/whiteboard-extension-v1.json';
-import whiteboardInstance from '../../../../../../../contracts/office/lobby-whiteboard-v1.json';
-import broadcasterDefinition from '../../../../../../../contracts/office/broadcaster-extension-v1.json';
-import broadcasterInstance from '../../../../../../../contracts/office/lobby-broadcaster-v1.json';
-import notebookVectors from '../../../../../../../contracts/office/notebook-binding-vectors.json';
-import notebookDefinition from '../../../../../../../contracts/office/notebook-extension-v1.json';
+import vectors from '../../../../../contracts/extension-vectors.json';
+import pairs from '../../../../../contracts/extension-pair-vectors.json';
+import definitionDocument from '../../../../../contracts/discussion-extension-v1.json';
+import instanceDocument from '../../../../../contracts/lobby-extension-v1.json';
+import whiteboardDefinition from '../../../../../contracts/whiteboard-extension-v1.json';
+import whiteboardInstance from '../../../../../contracts/lobby-whiteboard-v1.json';
+import broadcasterDefinition from '../../../../../contracts/broadcaster-extension-v1.json';
+import broadcasterInstance from '../../../../../contracts/lobby-broadcaster-v1.json';
+import notebookVectors from '../../../../../contracts/notebook-binding-vectors.json';
+import notebookDefinition from '../../../../../contracts/notebook-extension-v1.json';
 import { defaultCatalog } from '../blocks/block-contract.js';
 import {
   decodeExtensionDefinition,

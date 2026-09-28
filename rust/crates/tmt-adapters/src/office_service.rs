@@ -617,7 +617,7 @@ mod tests {
             ));
         }
         let directional = tmt_office_model::codec::office_prop::validate_pack(include_bytes!(
-            "../../../../contracts/office/prop-pack-v2-sample.tmtprop.json"
+            "../../../../extensions/tmt-office/contracts/prop-pack-v2-sample.tmtprop.json"
         ))
         .unwrap();
         let mut directional_reply = valid.clone();

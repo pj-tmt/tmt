@@ -5,13 +5,13 @@ import type {
   WorldDocument,
   WorldObject,
 } from '../../../extensions/tmt-office/typescript/apps/office/src/world-map/world-contract.js';
-import lobby from '../../../contracts/office/lobby-preset-v1.json' with { type: 'json' };
-import discussion from '../../../contracts/office/discussion-extension-v1.json' with { type: 'json' };
-import whiteboard from '../../../contracts/office/whiteboard-extension-v1.json' with { type: 'json' };
-import broadcaster from '../../../contracts/office/broadcaster-extension-v1.json' with { type: 'json' };
-import discussionInstance from '../../../contracts/office/lobby-extension-v1.json' with { type: 'json' };
-import whiteboardInstance from '../../../contracts/office/lobby-whiteboard-v1.json' with { type: 'json' };
-import broadcasterInstance from '../../../contracts/office/lobby-broadcaster-v1.json' with { type: 'json' };
+import lobby from '../../../extensions/tmt-office/contracts/lobby-preset-v1.json' with { type: 'json' };
+import discussion from '../../../extensions/tmt-office/contracts/discussion-extension-v1.json' with { type: 'json' };
+import whiteboard from '../../../extensions/tmt-office/contracts/whiteboard-extension-v1.json' with { type: 'json' };
+import broadcaster from '../../../extensions/tmt-office/contracts/broadcaster-extension-v1.json' with { type: 'json' };
+import discussionInstance from '../../../extensions/tmt-office/contracts/lobby-extension-v1.json' with { type: 'json' };
+import whiteboardInstance from '../../../extensions/tmt-office/contracts/lobby-whiteboard-v1.json' with { type: 'json' };
+import broadcasterInstance from '../../../extensions/tmt-office/contracts/lobby-broadcaster-v1.json' with { type: 'json' };
 import { decodeExtensionAttachment } from '../../../extensions/tmt-office/typescript/apps/office/src/extensions/extension-contract.js';
 
 /** Explicit retained-block composition. Tests of older topology must not inherit

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import scene from '../../../../../../../contracts/office/whiteboard-scene-v1.json';
+import scene from '../../../../../contracts/whiteboard-scene-v1.json';
 import { decodeWhiteboardCapture, decodeWhiteboardSnapshot } from './snapshot-contract.js';
 
 const id = '11111111-1111-4111-8111-111111111111';

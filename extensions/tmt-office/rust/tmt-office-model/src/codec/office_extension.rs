@@ -214,15 +214,11 @@ pub fn bundled_definitions() -> &'static [ExtensionDefinition; 5] {
     static DEFINITIONS: std::sync::OnceLock<[ExtensionDefinition; 5]> = std::sync::OnceLock::new();
     DEFINITIONS.get_or_init(|| {
         [
-            include_bytes!("../../../../../../contracts/office/discussion-extension-v1.json")
-                .as_slice(),
-            include_bytes!("../../../../../../contracts/office/whiteboard-extension-v1.json")
-                .as_slice(),
-            include_bytes!("../../../../../../contracts/office/broadcaster-extension-v1.json")
-                .as_slice(),
-            include_bytes!("../../../../../../contracts/office/link-extension-v1.json").as_slice(),
-            include_bytes!("../../../../../../contracts/office/notebook-extension-v1.json")
-                .as_slice(),
+            include_bytes!("../../../../contracts/discussion-extension-v1.json").as_slice(),
+            include_bytes!("../../../../contracts/whiteboard-extension-v1.json").as_slice(),
+            include_bytes!("../../../../contracts/broadcaster-extension-v1.json").as_slice(),
+            include_bytes!("../../../../contracts/link-extension-v1.json").as_slice(),
+            include_bytes!("../../../../contracts/notebook-extension-v1.json").as_slice(),
         ]
         .map(|bytes| decode_definition(bytes).expect("admitted bundled extension"))
     })
@@ -232,11 +228,9 @@ pub(crate) fn bundled_instances() -> &'static [ExtensionInstance; 3] {
     static INSTANCES: std::sync::OnceLock<[ExtensionInstance; 3]> = std::sync::OnceLock::new();
     INSTANCES.get_or_init(|| {
         [
-            include_bytes!("../../../../../../contracts/office/lobby-extension-v1.json").as_slice(),
-            include_bytes!("../../../../../../contracts/office/lobby-whiteboard-v1.json")
-                .as_slice(),
-            include_bytes!("../../../../../../contracts/office/lobby-broadcaster-v1.json")
-                .as_slice(),
+            include_bytes!("../../../../contracts/lobby-extension-v1.json").as_slice(),
+            include_bytes!("../../../../contracts/lobby-whiteboard-v1.json").as_slice(),
+            include_bytes!("../../../../contracts/lobby-broadcaster-v1.json").as_slice(),
         ]
         .map(|bytes| decode_instance(bytes).expect("admitted bundled extension instance"))
     })
@@ -338,7 +332,7 @@ mod tests {
     #[test]
     fn notebook_bindings_share_structural_admission_without_granting_access() {
         let vectors: Value = serde_json::from_slice(include_bytes!(
-            "../../../../../../contracts/office/notebook-binding-vectors.json"
+            "../../../../contracts/notebook-binding-vectors.json"
         ))
         .unwrap();
         for case in vectors.as_array().unwrap() {
@@ -375,7 +369,7 @@ mod tests {
     #[test]
     fn shared_extension_vectors_and_defaults_are_admitted_exactly() {
         let vectors: Value = serde_json::from_slice(include_bytes!(
-            "../../../../../../contracts/office/extension-vectors.json"
+            "../../../../contracts/extension-vectors.json"
         ))
         .unwrap();
         for case in vectors["definitions"].as_array().unwrap() {
@@ -406,22 +400,16 @@ mod tests {
         }
         for (definition_bytes, instance_bytes) in [
             (
-                include_bytes!("../../../../../../contracts/office/discussion-extension-v1.json")
-                    .as_slice(),
-                include_bytes!("../../../../../../contracts/office/lobby-extension-v1.json")
-                    .as_slice(),
+                include_bytes!("../../../../contracts/discussion-extension-v1.json").as_slice(),
+                include_bytes!("../../../../contracts/lobby-extension-v1.json").as_slice(),
             ),
             (
-                include_bytes!("../../../../../../contracts/office/whiteboard-extension-v1.json")
-                    .as_slice(),
-                include_bytes!("../../../../../../contracts/office/lobby-whiteboard-v1.json")
-                    .as_slice(),
+                include_bytes!("../../../../contracts/whiteboard-extension-v1.json").as_slice(),
+                include_bytes!("../../../../contracts/lobby-whiteboard-v1.json").as_slice(),
             ),
             (
-                include_bytes!("../../../../../../contracts/office/broadcaster-extension-v1.json")
-                    .as_slice(),
-                include_bytes!("../../../../../../contracts/office/lobby-broadcaster-v1.json")
-                    .as_slice(),
+                include_bytes!("../../../../contracts/broadcaster-extension-v1.json").as_slice(),
+                include_bytes!("../../../../contracts/lobby-broadcaster-v1.json").as_slice(),
             ),
         ] {
             let definition = decode_definition(definition_bytes).unwrap();
@@ -438,10 +426,9 @@ mod tests {
 
     #[test]
     fn external_links_share_core_admission_and_strict_attachment_fields() {
-        let definition =
-            include_bytes!("../../../../../../contracts/office/link-extension-v1.json");
+        let definition = include_bytes!("../../../../contracts/link-extension-v1.json");
         let vectors: Value = serde_json::from_slice(include_bytes!(
-            "../../../../../../contracts/office/external-link-vectors.json"
+            "../../../../contracts/external-link-vectors.json"
         ))
         .unwrap();
         for case in vectors.as_array().unwrap() {
@@ -475,7 +462,7 @@ mod tests {
     #[test]
     fn raw_duplicate_fields_and_oversized_documents_are_rejected() {
         let definition = std::str::from_utf8(include_bytes!(
-            "../../../../../../contracts/office/discussion-extension-v1.json"
+            "../../../../contracts/discussion-extension-v1.json"
         ))
         .unwrap();
         for (original, duplicate) in [
@@ -496,7 +483,7 @@ mod tests {
         assert!(decode_definition(&oversized).is_err());
         assert!(decode_instance(&oversized).is_err());
         let instance = std::str::from_utf8(include_bytes!(
-            "../../../../../../contracts/office/lobby-whiteboard-v1.json"
+            "../../../../contracts/lobby-whiteboard-v1.json"
         ))
         .unwrap();
         for (original, duplicate) in [

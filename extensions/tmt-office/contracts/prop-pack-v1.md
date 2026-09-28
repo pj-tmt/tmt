@@ -320,7 +320,7 @@ block placement, or external request.
 ## Acceptance ownership
 
 - Literal valid/full-capacity/invalid JSON files and digest/reference vectors
-  live in `contracts/office`; Rust domain and browser decoders consume them
+  live in `extensions/tmt-office/contracts`; Rust domain and browser decoders consume them
   independently.
 - Rust unit tests own file bounds, duplicate/unknown fields, exact digest,
   palette/pixel validation, catalog quotas, install/remove/reinstall, corrupt-row

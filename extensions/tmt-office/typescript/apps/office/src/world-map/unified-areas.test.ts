@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/modules-unified-vectors.json';
-import old from '../../../../../../../contracts/office/modules-island-vectors.json';
+import vectors from '../../../../../contracts/modules-unified-vectors.json';
+import old from '../../../../../contracts/modules-island-vectors.json';
 import { decodeModuleMap } from './module-contract.js';
 import { mapGeometry, decodeMapSource } from './map-source.js';
 import { moduleBounds } from './module-geometry.js';
