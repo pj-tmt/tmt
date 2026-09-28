@@ -195,9 +195,10 @@ impl<R: CommandRunner> Driver for BindingSession<'_, R> {
             .tmux
             .focus_pane(&invoker, &binding.pane_id, self.options(None))
         {
-            Ok(previous) => ActionResult::Completed(Focused {
+            Ok(before) => ActionResult::Completed(Focused {
                 interface: binding.pane_id.clone(),
-                previous,
+                previous: before.pane,
+                viewer: before.client,
             }),
             Err(FocusError::HostUnsupported) => ActionResult::Failed(ActionError::HostUnsupported),
             Err(FocusError::PaneNotFound) => ActionResult::Failed(ActionError::Unverified),
@@ -557,7 +558,7 @@ mod tests {
     fn invoker(socket: &str) -> crate::tmux::Invoker {
         crate::tmux::Invoker {
             socket: socket.into(),
-            pane: "%2".into(),
+            pane: Some("%2".into()),
             session: None,
         }
     }
@@ -587,7 +588,8 @@ mod tests {
             focused,
             Focused {
                 interface: "%9".into(),
-                previous: Some("%2".into())
+                previous: Some("%2".into()),
+                viewer: "client-1".into()
             }
         );
         let calls = tmux.runner.calls.borrow();

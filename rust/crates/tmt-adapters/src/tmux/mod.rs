@@ -8,7 +8,7 @@ mod focus;
 mod metadata;
 mod transport;
 pub use binding::{ActionError, BindingSession};
-pub use focus::{FocusError, Invoker};
+pub use focus::{ClientView, FocusError, Invoker};
 pub use transport::{DeliveryError, DeliveryStage};
 
 #[cfg(test)]

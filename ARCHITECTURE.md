@@ -884,7 +884,9 @@ The maintained public surface is:
 - profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
   `reply`, `result`, `talk`/`send`, `check`/`read`;
 - `focus <identity|pane>`, which shows a verified pane in the
-  invoking user's own tmux client (see the driver `focus` action);
+  invoking user's own tmux client and reports that client (see the driver
+  `focus` action), and the read-only `focus --client`, which names the same
+  client and the pane it shows without switching;
 - managed native updates through `upgrade`/`update`, with the hidden
   `__native-install` and `__native-refresh-skills` composition points used by
   verified release tooling;
@@ -1119,13 +1121,16 @@ runtime hook integration. No caller probe changes bindings or sends input.
 full server/pane/marker evidence evaluator, and send requires present evidence
 before invoking the existing paste-and-Enter transport once. It preserves that
 transport's preparation-versus-uncertain failure distinction. `focus` (a
-default-`Unsupported` driver action returning the shown and previous interface IDs)
+default-`Unsupported` driver action returning the shown and previous interface IDs
+and the host's name for the view that moved)
 requires the same present evidence but no running agent, then switches only the
-invoker's client: the client showing the session of `TMUX_PANE`, or, for a
-display-popup whose own pane has no session, the session named in `TMUX`, choosing
+invoker's client: the client showing the session of `TMUX_PANE`, or, without
+`TMUX_PANE` (key-binding jobs) or for a display-popup whose own pane has no
+session, the session named in `TMUX`, choosing
 the most recently active such client. A bare tmux "current client" is never used, a
 foreign or unidentifiable client is `HOST_UNSUPPORTED`, and focus sends no buffer,
-paste or key input. Runtime-only actions remain unsupported; a live pane does not
+paste or key input. `Tmux::invoker_client` is that resolution alone, read-only,
+and backs `focus --client`. Runtime-only actions remain unsupported; a live pane does not
 establish a running provider session. Known-ended runtimes reject input as offline.
 Missing or conflicting interface evidence masks the reported runtime to unknown
 without rewriting stored evidence. Recorded running processes are rechecked through

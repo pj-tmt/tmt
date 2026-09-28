@@ -10,6 +10,7 @@ describe('focus outside a tmux client', () => {
       for (const args of [
         ['focus', 'auth-fix', '--json'],
         ['focus', '%2', '--json'],
+        ['focus', '--client', '--json'],
       ]) {
         const result = await runCli(sandbox, args);
         expect(result.status, args.join(' ')).toBe(1);
@@ -19,11 +20,16 @@ describe('focus outside a tmux client', () => {
     });
   });
 
-  it('requires exactly one identity or pane target', async () => {
+  it('requires exactly one identity or pane target, or --client alone', async () => {
     await withSandbox(async (sandbox) => {
-      const result = await runCli(sandbox, ['focus', '--json']);
-      expect(result.status).not.toBe(0);
-      expect(JSON.parse(result.stdout).error.code).toBe('USAGE_ERROR');
+      for (const args of [
+        ['focus', '--json'],
+        ['focus', 'auth-fix', '--client', '--json'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status, args.join(' ')).not.toBe(0);
+        expect(JSON.parse(result.stdout).error.code, args.join(' ')).toBe('USAGE_ERROR');
+      }
     });
   });
 });

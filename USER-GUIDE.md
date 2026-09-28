@@ -160,16 +160,21 @@ instructions. Omit `--identity` only from a verified bound pane.
 
 `tmt focus <name>` switches your own tmux client to that identity's pane, even
 in another session, after verifying the binding. It never types into the pane.
-The JSON result records where you were, so you can return:
+The JSON result records where you were and which client moved, so you can
+return:
 
 ```bash
-tmt focus auth-fix --json        # {"focused":{"pane":"%5"},"from":{"pane":"%2"}}
+tmt focus auth-fix --json        # {"focused":{"pane":"%5"},"from":{"pane":"%2"},"client":"/dev/ttys004"}
 tmt focus %2                     # back to the pane you came from
+tmt focus --client --json        # {"client":"/dev/ttys004","pane":"%5"}
 ```
 
-Run it inside tmux, from a pane or a `display-popup`; only the client showing
-that session moves. Outside tmux, or when no client shows your session, it
-fails with `HOST_UNSUPPORTED` and changes nothing.
+Run it inside tmux: from a pane, a `display-popup`, or a key binding's
+`run-shell` (which has no `TMUX_PANE`; `TMUX` names the session). Only the client
+showing that session moves. `--client` takes no target and never switches anything: it
+names the client a focus from here would move and the pane that client shows.
+Outside tmux, or when no client shows your session, both fail with
+`HOST_UNSUPPORTED` and change nothing.
 
 ## Launch a command with an identity
 

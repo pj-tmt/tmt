@@ -6,6 +6,12 @@ import { withE2EFixture, type E2EFixture } from './harness.js';
 interface Focused {
   focused: { pane: string };
   from: { pane: string } | null;
+  client: string;
+}
+
+interface ClientView {
+  client: string;
+  pane: string | null;
 }
 
 function errorCode(result: { json?: unknown }): string | undefined {
@@ -51,15 +57,41 @@ describe.sequential('focus: show a verified pane in the invoking client', () => 
       const jumped = expectJsonResult<Focused>(
         await fixture.runJsonCli(['focus', 'member'], { pane: fixture.pane })
       );
-      expect(jumped).toEqual({ focused: { pane: member }, from: { pane: fixture.pane } });
+      expect(jumped).toEqual({
+        focused: { pane: member },
+        from: { pane: fixture.pane },
+        client: invokerClient,
+      });
       expect(clients(fixture).get(invokerClient)).toBe(`crew/${member}`);
       expect(clients(fixture).get(otherClient)).toBe(otherBefore);
+
+      // From where the user now is, the read-only query names the same client
+      // and the pane it shows, and moves nothing.
+      const before = clients(fixture);
+      const view = expectJsonResult<ClientView>(
+        await fixture.runJsonCli(['focus', '--client'], { pane: member })
+      );
+      expect(view).toEqual({ client: invokerClient, pane: member });
+      expect(clients(fixture)).toEqual(before);
+      // A key-binding job (run-shell, display-popup) has TMUX but no TMUX_PANE:
+      // TMUX's session names the client that pressed the key.
+      const keyJob = expectJsonResult<ClientView>(
+        await fixture.runJsonCli(['focus', '--client'], { pane: member, caller: { pane: null } })
+      );
+      expect(keyJob).toEqual({ client: invokerClient, pane: member });
+      const mixed = await fixture.runJsonCli(['focus', 'member', '--client'], { pane: member });
+      expect(errorCode(mixed)).toBe('USAGE_ERROR');
+      expect(clients(fixture)).toEqual(before);
 
       // Back is invoked from where the user now is (the member's session).
       const back = expectJsonResult<Focused>(
         await fixture.runJsonCli(['focus', jumped.from!.pane], { pane: member })
       );
-      expect(back).toEqual({ focused: { pane: fixture.pane }, from: { pane: member } });
+      expect(back).toEqual({
+        focused: { pane: fixture.pane },
+        from: { pane: member },
+        client: invokerClient,
+      });
       expect(clients(fixture).get(invokerClient)).toBe(`e2e/${fixture.pane}`);
       expect(clients(fixture).get(otherClient)).toBe(otherBefore);
 
@@ -76,6 +108,8 @@ describe.sequential('focus: show a verified pane in the invoking client', () => 
       // No client shows the invoker's session: nothing is guessed.
       const noClient = await fixture.runJsonCli(['focus', 'member'], { pane: fixture.pane });
       expect(errorCode(noClient)).toBe('HOST_UNSUPPORTED');
+      const noView = await fixture.runJsonCli(['focus', '--client'], { pane: fixture.pane });
+      expect(errorCode(noView)).toBe('HOST_UNSUPPORTED');
 
       await fixture.attachSessionClient('e2e');
       const invokerClient = clientIn(fixture, 'e2e');
@@ -86,11 +120,15 @@ describe.sequential('focus: show a verified pane in the invoking client', () => 
       });
       expect(errorCode(missing)).toBe('PANE_NOT_FOUND');
 
-      const noPane = await fixture.runJsonCli(['focus', 'member'], {
+      // Without TMUX_PANE, TMUX's session decides; no client shows crew.
+      const crewJob = await fixture.runJsonCli(['focus', 'member'], {
         pane: fixture.pane,
-        caller: { pane: null },
+        caller: {
+          pane: null,
+          tmux: `${fixture.socketPath},${fixture.serverPid},${fixture.paneSessionId(member)}`,
+        },
       });
-      expect(errorCode(noPane)).toBe('HOST_UNSUPPORTED');
+      expect(errorCode(crewJob)).toBe('HOST_UNSUPPORTED');
 
       // A replaced process in the same pane no longer matches the binding.
       fixture.tmux(['respawn-pane', '-k', '-t', member, 'cat']);
