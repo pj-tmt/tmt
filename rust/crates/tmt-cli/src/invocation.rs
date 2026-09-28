@@ -58,6 +58,7 @@ pub enum Invocation {
     /// Read-only: the invoker's tmux client and the pane it shows.
     FocusClient,
     Config(ConfigRequest),
+    ExtensionHooks(ExtensionHooksRequest),
     Identity(IdentityRequest),
     Room(RoomOperation),
     NotesPath {
@@ -157,6 +158,13 @@ pub struct TalkOptions {
 }
 
 pub use tmt_command_output::ContentInput;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExtensionHooksRequest {
+    Enable(String),
+    Disable(String),
+    List,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigRequest {

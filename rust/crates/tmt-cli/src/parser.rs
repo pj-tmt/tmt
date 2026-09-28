@@ -363,6 +363,13 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 lines: positional.or(flagged),
             }
         }
+        ["extension", "hooks", "enable"] => {
+            Invocation::ExtensionHooks(ExtensionHooksRequest::Enable(required(m, "name")))
+        }
+        ["extension", "hooks", "disable"] => {
+            Invocation::ExtensionHooks(ExtensionHooksRequest::Disable(required(m, "name")))
+        }
+        ["extension", "hooks", "list"] => Invocation::ExtensionHooks(ExtensionHooksRequest::List),
         ["config"] | ["config", "show"] => Invocation::Config(ConfigRequest::Show),
         ["config", "set"] => Invocation::Config(ConfigRequest::Set {
             key: required(m, "key"),

@@ -11,6 +11,7 @@ pub mod delivery;
 pub mod dispatch;
 #[cfg(unix)]
 pub mod extension_command;
+pub mod extension_hooks;
 #[cfg(unix)]
 pub mod file_lock;
 pub mod identity_projection;

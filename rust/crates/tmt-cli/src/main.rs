@@ -11,6 +11,7 @@ use tmt_adapters::delivery;
 mod diagnostics;
 mod exchange_command;
 mod extension_command;
+mod extension_hooks_command;
 mod grammar;
 mod guidance_command;
 mod identity_command;
@@ -61,7 +62,12 @@ fn main() -> ExitCode {
 fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     let inspect_drift = skill_reminder::eligible_for_drift(&parsed);
     let mode = parsed.mode;
-    let code = dispatch(parsed)?;
+    // This process may observe lifecycle changes for enabled extension hooks;
+    // delivery runs after the command's own effects and output.
+    tmt_adapters::extension_hooks::allow_capture();
+    let code = dispatch(parsed);
+    tmt_adapters::extension_hooks::deliver_pending();
+    let code = code?;
     if code == 0 && inspect_drift {
         skill_reminder::present(skill_reminder::Outcome::None, mode, true);
     }
@@ -108,6 +114,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Config(request) => {
             drop(stdout);
             return config_command::execute(request, parsed.mode);
+        }
+        Invocation::ExtensionHooks(request) => {
+            drop(stdout);
+            return extension_hooks_command::execute(request, parsed.mode);
         }
         Invocation::Init => {
             drop(stdout);

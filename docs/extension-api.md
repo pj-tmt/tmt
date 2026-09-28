@@ -91,3 +91,23 @@ Example conditional room write (replace the UUIDs with actual identities):
   }
 }
 ```
+
+## Lifecycle hooks
+
+An extension can receive best-effort observations after core commits, once the
+user runs `tmt extension hooks enable <name>`. Core then invokes the resolved
+`tmt-<name>` executable with `TMT_EXECUTABLE` and `TMT_HOOK_DELIVERY=1` set:
+
+- `__tmt-hooks 1 capabilities`: print `TMT-HOOKS/1`, then one capability token per
+  line (for example `lifecycle_observations_v1`), within one second and 1 KiB.
+- `__tmt-hooks 1 observe`: read `{"version":1,"events":[...]}` from stdin. Events
+  are `identity.created` and `identity.retired`
+  (`identityId`, `lifetime`, `retired`) and `room.created`, `room.updated` and
+  `room.retired` (`roomId`, `revision`, `retired`).
+
+Observations may be dropped, repeated or delivered after later changes; treat
+them as a prompt to reconcile, not as a log. Output is ignored, and the exit
+status never affects the command. All observers of one command share a 500 ms
+deadline. Calls to `tmt` made while `TMT_HOOK_DELIVERY` is set emit no further
+observations. Replacing or re-permissioning the executable suspends delivery
+until it is enabled again.
