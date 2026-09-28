@@ -1,12 +1,12 @@
 //! Post-commit cosmetic projection. Never an input to identity or routing.
 
-use std::time::{Duration, Instant};
-use tmt_adapters::{
+use crate::{
     config::{ConfigFiles, ConfigPaths},
     process::CommandRunner,
     storage::Storage,
     tmux::Tmux,
 };
+use std::time::{Duration, Instant};
 use tmt_core::{binding::Binding, settings::PaneBadge};
 
 pub fn refresh<R: CommandRunner>(
@@ -32,7 +32,7 @@ pub fn refresh<R: CommandRunner>(
         &paths.database,
         &expected.pane_id,
         &expected.server.server_id,
-        tmt_adapters::request_runtime::wall_time_ms(),
+        crate::request_runtime::wall_time_ms(),
     ) else {
         return;
     };

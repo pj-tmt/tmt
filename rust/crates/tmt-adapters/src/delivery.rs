@@ -1,12 +1,12 @@
 //! Shared composition for requests and advisory hints. Drivers own IO policy.
 
-use std::time::{Duration, Instant};
-use tmt_adapters::{
+use crate::{
     process::{SupervisedProbeRunner, runtime::observe_runtime_process},
     runtime::RuntimeRegistry,
     storage::{Storage, StorageError},
     tmux::{ActionError, BindingSession, Tmux},
 };
+use std::time::{Duration, Instant};
 use tmt_core::{
     binding::{
         BindingEntry, BindingRepository,
@@ -27,7 +27,7 @@ pub enum Delivery {
     Offline,
     Uncertain,
     Unavailable,
-    Transport(tmt_adapters::tmux::DeliveryError),
+    Transport(crate::tmux::DeliveryError),
 }
 
 impl Delivery {
@@ -102,7 +102,7 @@ fn recover(
     })?;
     if changed {
         entry.binding.as_mut().expect("verified binding").session = next;
-        if let Ok(paths) = tmt_adapters::config::ConfigPaths::discover() {
+        if let Ok(paths) = crate::config::ConfigPaths::discover() {
             crate::pane_badge::refresh(
                 &paths,
                 &Tmux::default(),
@@ -256,7 +256,7 @@ pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
         Err(_) => WakeState::Unavailable,
     };
     // Failure to settle is an unknown outcome, never a reason to paste again.
-    if RequestService::new(storage, tmt_adapters::request_runtime::wall_time_ms)
+    if RequestService::new(storage, crate::request_runtime::wall_time_ms)
         .settle_hint(hint, outcome)
         .is_err()
     {
@@ -271,9 +271,8 @@ pub fn gone_waiter(
     storage: &mut Storage,
     request_id: &str,
 ) -> Option<tmt_core::request::notification::NotificationPolicy> {
-    let Ok(Some(value)) =
-        RequestService::new(&mut *storage, tmt_adapters::request_runtime::wall_time_ms)
-            .notification(request_id)
+    let Ok(Some(value)) = RequestService::new(&mut *storage, crate::request_runtime::wall_time_ms)
+        .notification(request_id)
     else {
         return None;
     };
@@ -281,7 +280,7 @@ pub fn gone_waiter(
         return None;
     };
     if observe_runtime_process(
-        &tmt_adapters::process::UnixCommandRunner,
+        &crate::process::UnixCommandRunner,
         waiter.pid(),
         Instant::now() + Duration::from_secs(1),
     )

@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { withSandbox } from '../../../test/support/cli-process.js';
 import { withE2EFixture } from '../../../test/e2e/harness.js';
@@ -97,6 +100,79 @@ test('a direct Office request wakes only the verified recipient once while inbox
             agentProcessed: null,
           });
           expect(fixture.events().filter((event) => event.event === 'input')).toEqual(wakeEvents);
+
+          // A live pane whose owned command ended is a shell, not a recipient.
+          const shell = fixture.createShellPane('ended-recipient');
+          const done = path.join(fixture.root, 'ended-run.json');
+          const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+          const command = [
+            'env',
+            `TMUX_TEAM_HOME=${fixture.globalDir}`,
+            fixture.executables.cli.executable,
+            'run',
+            '-s',
+            'Ended',
+            '/bin/true',
+          ]
+            .map(quote)
+            .join(' ');
+          fixture.tmux([
+            'send-keys',
+            '-t',
+            shell.pane,
+            '-l',
+            `${command}; printf done > ${quote(done)}`,
+          ]);
+          fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+          await fixture.waitFor(() => fs.existsSync(done), 5000, 'owned command returned to shell');
+          const ended = await cli<{ identity: { id: string } }>(['identity', 'show', 'Ended']);
+          const readSql = (sql: string) =>
+            JSON.parse(
+              execFileSync(
+                'sqlite3',
+                ['-readonly', '-json', path.join(fixture.globalDir, 'tmux-team.db'), sql],
+                { encoding: 'utf8' }
+              )
+            );
+          expect(
+            readSql(`SELECT runtime_state FROM bindings WHERE identity_id = '${ended.identity.id}'`)
+          ).toEqual([{ runtime_state: 'ended' }]);
+          const endedBody = {
+            operationId: randomUUID(),
+            recipientIds: [ended.identity.id],
+            message: 'Keep this request durable without typing into the ended shell.',
+          };
+          const queued = await post(endedBody);
+          expect(queued.items[0]!.acceptance).toBe('queued');
+          expect(queued.wake).toEqual({
+            status: 'unavailable',
+            paneAttempted: false,
+            agentProcessed: null,
+          });
+          expect(fixture.tmux(['capture-pane', '-p', '-t', shell.pane])).not.toContain(
+            queued.items[0]!.requestId
+          );
+          expect(
+            readSql(
+              `SELECT wake_state FROM request_attempts WHERE request_id = '${queued.items[0]!.requestId}'`
+            )
+          ).toEqual([{ wake_state: 'unavailable' }]);
+          expect((await post(endedBody)).wake).toBeUndefined();
+          expect(fixture.tmux(['capture-pane', '-p', '-t', shell.pane])).not.toContain(
+            queued.items[0]!.requestId
+          );
+          const kept = await cli<{ exchange: { prompt: { message: string } } }>(
+            [
+              'x',
+              'show',
+              queued.items[0]!.requestId,
+              '--incoming',
+              '--identity',
+              ended.identity.id,
+            ],
+            true
+          );
+          expect(kept.exchange.prompt.message).toBe(endedBody.message);
 
           await cli(['office', '--prefix', prefix, 'stop'], true);
           const faulted = await fixture.runJsonCli<{ url: string }>(
