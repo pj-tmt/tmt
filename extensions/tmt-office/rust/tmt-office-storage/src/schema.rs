@@ -1,9 +1,16 @@
-//! Office storage schema v1 and the source-shape check that guards raw copies.
+//! Office storage schema and the source-shape check that guards raw copies.
 
 use rusqlite::Connection;
 
-pub(crate) const VERSION: i64 = 1;
-const SQL: &str = include_str!("schema/001.sql");
+/// Office schema versions in order; staging from an earlier build is upgraded
+/// when it is published.
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("office-storage-v1", include_str!("schema/001.sql")),
+    ("office-activation", include_str!("schema/002.sql")),
+];
+pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;
+/// The Office tables' shape, which the core copy must match.
+const SQL: &str = MIGRATIONS[0].1;
 
 /// Office-owned tables in copy order: parents before children, and retained
 /// legacy blocks before worlds, because the schema 28 trigger rejects block
@@ -30,9 +37,20 @@ pub(crate) const OFFICE_TABLES: &[&str] = &[
 const CORE_REFERENCE: &str = " REFERENCES identities(id)";
 
 pub(crate) fn install(connection: &Connection) -> rusqlite::Result<()> {
-    connection.execute_batch(&format!(
-        "BEGIN IMMEDIATE;\n{SQL}\nINSERT INTO _office_schema (version, name) VALUES ({VERSION}, 'office-storage-v1');\nCOMMIT;"
-    ))
+    upgrade(connection, 0)
+}
+
+/// Applies every migration after `from` in one transaction.
+pub(crate) fn upgrade(connection: &Connection, from: i64) -> rusqlite::Result<()> {
+    let mut batch = "BEGIN IMMEDIATE;\n".to_owned();
+    for (index, (name, sql)) in MIGRATIONS.iter().enumerate().skip(from as usize) {
+        batch.push_str(&format!(
+            "{sql}\nINSERT INTO _office_schema (version, name) VALUES ({}, '{name}');\n",
+            index + 1
+        ));
+    }
+    batch.push_str("COMMIT;");
+    connection.execute_batch(&batch)
 }
 
 type Objects = Vec<(String, String, String)>;
@@ -45,9 +63,25 @@ fn office_objects(connection: &Connection) -> rusqlite::Result<Objects> {
     ))?;
     statement
         .query_map(rusqlite::params_from_iter(OFFICE_TABLES), |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get(2)?))
         })?
+        .filter(|object| {
+            !matches!(object, Ok((kind, name, _)) if kind == "trigger" && is_core_fence(name))
+        })
         .collect()
+}
+
+/// Core schema 36 fences each Office table with these triggers after the
+/// cutover receipt; they belong to core, not to the Office table shape.
+pub(crate) fn core_fences() -> impl Iterator<Item = String> {
+    OFFICE_TABLES.iter().flat_map(|table| {
+        ["insert", "update", "delete"]
+            .map(|operation| format!("{table}_after_office_cutover_{operation}"))
+    })
+}
+
+fn is_core_fence(name: &str) -> bool {
+    core_fences().any(|fence| fence == name)
 }
 
 /// Rejects a source whose Office tables, indexes or triggers differ from the

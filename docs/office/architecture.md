@@ -916,6 +916,27 @@ configuration owner, not a second deployment registry or settings file.
 Literal fixtures verify generator/native-decoder conformance. This metadata does
 not prove world ownership, activate the issuer or complete native pairing.
 
+### Office storage recovery
+
+Switching Office storage keeps a backup in
+`<global>/backups/office-storage-<UTC stamp>/`: `tmux-team.db` is a full copy of
+the tmt database taken before the switch, `config.json` is the global
+configuration and `office/` holds the protected Office files. Keychain entries are
+not copied. Backups are kept until you remove them.
+
+If Office storage reports that it needs recovery, restore the backup it names:
+
+1. Stop Office and every tmt process that uses this configuration root.
+2. Copy the backup's `tmux-team.db` over the tmt database, then remove that
+   database's `-wal` and `-shm` files if they exist.
+3. Remove `<global>/office/office.db` and its `-wal` and `-shm` files.
+4. Copy the backup's `config.json` and `office/` files back to `<global>/`, keeping
+   their permissions.
+5. Start Office again with `tmt office start`.
+
+Restoring discards tmt activity after the backup, because the whole tmt database
+returns to the moment the backup was taken.
+
 ## Frontend stack
 
 - React + Vite SPA with TanStack Router; no Next.js, SSR or TanStack Start.

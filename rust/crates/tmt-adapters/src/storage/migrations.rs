@@ -29,6 +29,8 @@ mod room_tests;
 #[cfg(test)]
 mod session_tests;
 #[cfg(test)]
+mod storage_cutover_tests;
+#[cfg(test)]
 mod test_support;
 #[cfg(test)]
 mod whiteboard_snapshot_tests;
@@ -189,6 +191,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "claim originator reply and detached timeout hints",
         sql: include_str!("schema/035.sql"),
+    },
+    Migration {
+        name: "record extension storage cutovers and fence moved Office rows",
+        sql: include_str!("schema/036.sql"),
     },
 ];
 

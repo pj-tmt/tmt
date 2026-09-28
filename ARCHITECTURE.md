@@ -614,7 +614,8 @@ an `io::Error` value without giving the model an I/O operation.
 `<global>/office/office.db` (#353). Its schema v1 repeats the core schema 35
 definitions of the 14 Office-owned tables, so migration copies raw cells, minus
 the two `identities(id)` references that Office replaces with preflight. It adds
-an Office-local retired-identity marker and a migration record. The crate reaches
+an Office-local retired-identity marker and a migration record; schema v2 adds the
+activation marker written when `office.db` becomes authoritative. The crate reaches
 core only through public owners: `config`, `file_lock`, `Storage::open` and the
 `StorageError` type with its `classify` mapping. It owns the Office repositories
 (worlds and legacy blocks, profiles, prop and avatar catalogs, the discussion board
@@ -647,9 +648,31 @@ without checkpoint-on-close, inside a single read snapshot. `prepare`, `copy` an
 `verify` each hold `office/migration.lock` and commit atomically in a private
 staging database. The copy preserves storage classes, TEXT and BLOB bytes and
 rowids. Verification compares every typed cell against a fresh snapshot; the
-manifest digest only detects a changed source. The source stays authoritative:
-the fence, switch and activation are separate, later slices. Rooms and the
+manifest digest only detects a changed source. Rooms and the
 dispatch ledger remain core-owned even though their tables are named `office_*`.
+
+`migration::switch` makes a verified copy authoritative. Under the migration lock
+it stops the local Office service through a `Quiesce` port and holds the service
+lock, then writes a verified backup: `VACUUM INTO`
+`<global>/backups/office-storage-<UTC stamp>/tmux-team.db` after a free-space check,
+checked for integrity, migration history and the verified Office manifest, plus
+copies of the global `config.json` and the protected top-level `office/` files
+(never `runtime/`, locks or databases). It then opens one immediate core
+transaction, recomputes the Office manifest, publishes staging (upgraded to the
+current Office schema) as `office.db` with file and directory fsyncs, and inserts
+core's `extension_storage_cutovers` receipt. That commit is the single decision
+point, and the receipt is the one sanctioned Office write to the core database,
+confined by the crate guard to `migration/switch.rs` and removed with the
+in-process core link (#355). Core schema 36 triggers then reject every write to the
+14 retained Office tables, including from already-open older connections; core
+reads the receipt through `Storage::extension_storage_cutover`. Activation writes
+the marker and moves `office.db` to WAL. Recovery derives the outcome from the
+receipt and the marker: no receipt renames `office.db` back to staging, a receipt
+without a marker finishes activation, and a receipt with missing, replaced or
+unreadable storage reports `OFFICE_STORAGE_RECOVERY_REQUIRED` naming the newest
+backup. The switch and recovery are reachable only through the hidden
+diagnostic entry until store selection serves `office.db`; the user-facing command
+arrives with it.
 
 The architecture guard freezes the exact remaining adapter consumer paths in
 `office_consumer`; core grammar and parser no longer import the Office model.
@@ -1204,7 +1227,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 35, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 36, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.

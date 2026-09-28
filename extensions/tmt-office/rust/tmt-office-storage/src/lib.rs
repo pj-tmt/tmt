@@ -48,20 +48,27 @@ pub struct StorageLayout {
     pub database: PathBuf,
     pub staging: PathBuf,
     pub lock: PathBuf,
+    /// Global configuration copied into each switch backup.
+    pub config: PathBuf,
+    /// Parent of the per-switch backup directories.
+    pub backups: PathBuf,
 }
 
 impl StorageLayout {
     pub fn new(paths: &ConfigPaths) -> Self {
-        Self::within(&paths.database, &paths.office_directory())
+        Self::within(&paths.database, &paths.global_dir, &paths.global_config)
     }
 
-    fn within(source: &Path, directory: &Path) -> Self {
+    fn within(source: &Path, global: &Path, config: &Path) -> Self {
+        let directory = global.join("office");
         Self {
             source: source.to_path_buf(),
-            directory: directory.to_path_buf(),
             database: directory.join("office.db"),
             staging: directory.join("office.db.staging"),
             lock: directory.join("migration.lock"),
+            directory,
+            config: config.to_path_buf(),
+            backups: global.join("backups"),
         }
     }
 }

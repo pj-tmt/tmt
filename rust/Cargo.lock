@@ -2449,6 +2449,7 @@ name = "tmt-office-storage"
 version = "5.0.0-alpha.7"
 dependencies = [
  "base64 0.22.1",
+ "nix",
  "png",
  "rusqlite",
  "serde",
