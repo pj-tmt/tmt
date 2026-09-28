@@ -178,12 +178,6 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             .cloned()
             .collect::<Vec<_>>()
     };
-    // The board needs a terminal; otherwise it is `status`, text or JSON.
-    let json = matches.get_flag("json");
-    if command == "board" && !json && std::io::stdout().is_terminal() {
-        board::run(core, text("squad").map(str::to_owned))?;
-        return Ok(Value::Null.into());
-    }
     let mut config = Config::load(&core)?;
     if command == "init" {
         let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
@@ -249,9 +243,18 @@ fn main() -> ExitCode {
         }
         _ => {}
     }
+    // The board needs a terminal; otherwise it is `status`, text or JSON.
+    if command == "board" && !json && std::io::stdout().is_terminal() {
+        let squad = sub.get_one::<String>("squad").cloned();
+        return match Core::discover().and_then(|core| board::run(core, squad)) {
+            Ok(signal) => ExitCode::from(board::exit_status(signal)),
+            Err(failure) => {
+                let _ = writeln!(std::io::stderr(), "tmt squad: {failure}");
+                ExitCode::from(1)
+            }
+        };
+    }
     let (body, code) = match run(command, sub) {
-        // The interactive board has already drawn everything it shows.
-        Ok(outcome) if outcome.document.is_null() => (String::new(), 0),
         Ok(outcome) => {
             let rendered = if json {
                 format!("{}\n", outcome.document)

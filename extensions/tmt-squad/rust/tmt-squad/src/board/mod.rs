@@ -28,7 +28,14 @@ fn failed(error: io::Error) -> SquadError {
     )
 }
 
-pub fn run(core: Core, squad: Option<String>) -> Result<(), SquadError> {
+/// Conventional shell status for a signal-ended process, after the terminal
+/// is restored: 143 for TERM, 129 for HUP; 0 when the user quit.
+pub fn exit_status(signal: Option<i32>) -> u8 {
+    signal.map_or(0, |signal| u8::try_from(128 + signal).unwrap_or(1))
+}
+
+/// Returns the signal that ended the board, if any.
+pub fn run(core: Core, squad: Option<String>) -> Result<Option<i32>, SquadError> {
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
     let worker = refresh::Worker::spawn(core);
@@ -43,15 +50,15 @@ pub fn run(core: Core, squad: Option<String>) -> Result<(), SquadError> {
                 app.apply(snapshot);
             }
             screen.draw(|frame| view::render(frame, &app))?;
-            if terminal::stopped(&stop) {
-                return Ok(());
+            if let Some(signal) = terminal::stop_signal(&stop) {
+                return Ok(Some(signal));
             }
             if event::poll(INPUT_WAIT)?
                 && let Event::Key(key) = event::read()?
                 && key.kind == KeyEventKind::Press
             {
                 match app.key(key) {
-                    Effect::Quit => return Ok(()),
+                    Effect::Quit => return Ok(None),
                     Effect::Load(squad) => {
                         worker.request(Some(squad));
                         refreshed = Instant::now();
@@ -65,6 +72,9 @@ pub fn run(core: Core, squad: Option<String>) -> Result<(), SquadError> {
             }
         }
     })();
+    // Restore first, whatever happened; then report the loop's outcome.
     let restored = guard.restore();
-    result.and(restored).map_err(failed)
+    let signal = result.map_err(failed)?;
+    restored.map_err(failed)?;
+    Ok(signal)
 }

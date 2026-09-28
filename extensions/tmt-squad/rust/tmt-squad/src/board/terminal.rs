@@ -11,7 +11,7 @@ use std::{
     io,
     sync::{
         Arc, Once,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -84,18 +84,21 @@ pub fn restore_before_panic_reports() {
     });
 }
 
-/// TERM and HUP set this flag; the board loop exits and restores normally.
-/// Raw mode delivers Ctrl-C as a key, handled by the board itself.
-pub fn stop_requested() -> io::Result<Arc<AtomicBool>> {
-    let flag = Arc::new(AtomicBool::new(false));
+/// TERM and HUP record their signal number; the board loop then exits,
+/// restores the terminal and reports it. Raw mode delivers Ctrl-C as a key.
+pub fn stop_requested() -> io::Result<Arc<AtomicUsize>> {
+    let flag = Arc::new(AtomicUsize::new(0));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGHUP] {
-        signal_hook::flag::register(signal, Arc::clone(&flag))?;
+        signal_hook::flag::register_usize(signal, Arc::clone(&flag), signal as usize)?;
     }
     Ok(flag)
 }
 
-pub fn stopped(flag: &AtomicBool) -> bool {
-    flag.load(Ordering::Relaxed)
+pub fn stop_signal(flag: &AtomicUsize) -> Option<i32> {
+    match flag.load(Ordering::Relaxed) {
+        0 => None,
+        signal => i32::try_from(signal).ok(),
+    }
 }
 
 #[cfg(test)]
@@ -149,5 +152,21 @@ mod tests {
         };
         assert!(Guard::enter(fake.clone()).is_err());
         assert_eq!(*fake.log.borrow(), ["enter", "leave"]);
+    }
+
+    #[test]
+    fn term_and_hup_are_recorded_for_the_exit_status() {
+        let flag = stop_requested().unwrap();
+        assert_eq!(stop_signal(&flag), None);
+        signal_hook::low_level::raise(signal_hook::consts::SIGHUP).unwrap();
+        assert_eq!(stop_signal(&flag), Some(signal_hook::consts::SIGHUP));
+        signal_hook::low_level::raise(signal_hook::consts::SIGTERM).unwrap();
+        assert_eq!(stop_signal(&flag), Some(signal_hook::consts::SIGTERM));
+        assert_eq!(super::super::exit_status(stop_signal(&flag)), 143);
+        assert_eq!(
+            super::super::exit_status(Some(signal_hook::consts::SIGHUP)),
+            129
+        );
+        assert_eq!(super::super::exit_status(None), 0);
     }
 }
