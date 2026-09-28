@@ -12,7 +12,7 @@ use tmt_office_model::{
     office_whiteboard::document::{LOBBY_DOCUMENT, SaveDocument},
 };
 
-const ADA: &str = "11111111-1111-4111-8111-111111111111";
+pub(super) const ADA: &str = "11111111-1111-4111-8111-111111111111";
 const OPERATION: &str = "22222222-2222-4222-8222-222222222222";
 const FENCE: &str = "Office data moved to Office storage";
 
@@ -28,7 +28,7 @@ impl Quiesce for Stopped {
 }
 
 /// A root with one core identity whose Office rows moved to `office.db`.
-fn switched() -> Root {
+pub(super) fn switched() -> Root {
     let root = Root::new();
     root.source()
         .execute(

@@ -2,7 +2,7 @@
 
 use super::{
     AgentCredential, Approval, OfficeError, OfficeInstallation, PairingRecord, Proof,
-    ProtectedEntry, claim_pairing,
+    ProtectedEntry, RetirementFence, claim_pairing, fence::write_authority,
 };
 use crate::{
     config::ConfigPaths,
@@ -30,13 +30,17 @@ struct Request {
     expected_revision: Option<u64>,
 }
 
-pub fn execute(operation: OfficeInvocation, bytes: &[u8]) -> Vec<u8> {
-    let result = run(operation, bytes);
+pub fn execute(operation: OfficeInvocation, bytes: &[u8], fence: &dyn RetirementFence) -> Vec<u8> {
+    let result = run(operation, bytes, fence);
     let value = result.unwrap_or_else(|error| json!({"error":error.code()}));
     serde_json::to_vec(&value).expect("public Office result is JSON data")
 }
 
-fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> {
+fn run(
+    operation: OfficeInvocation,
+    bytes: &[u8],
+    fence: &dyn RetirementFence,
+) -> Result<Value, OfficeError> {
     if bytes.len() > 4096 || operation == OfficeInvocation::Probe {
         return Err(OfficeError::CredentialsInvalid);
     }
@@ -47,7 +51,7 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
         let _: SyncRequest =
             serde_json::from_slice(bytes).map_err(|_| OfficeError::CredentialsInvalid)?;
         let paths = ConfigPaths::discover().map_err(|_| OfficeError::CredentialsUnavailable)?;
-        let report = super::hooks::sync(&paths, Instant::now() + Duration::from_secs(25))?;
+        let report = super::hooks::sync(&paths, Instant::now() + Duration::from_secs(25), fence)?;
         return Ok(
             json!({"completed":report.completed,"failed":report.failed,"pending":report.pending,"failureCode":report.failure.map(|error| error.code())}),
         );
@@ -148,12 +152,12 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
                 let mut record = existing.ok_or(OfficeError::NotPaired)?;
                 if record.refresh_if_needed(&target, now_ms()?, deadline)? {
                     active_identity(&paths, &identity.id)?;
-                    entry.write(&record.encode()?)?;
+                    write_authority(fence, &identity.id, || entry.write(&record.encode()?))?;
                 }
                 active_identity(&paths, &identity.id)?;
                 if record.renew_if_needed(&target, now_ms()?, deadline)? {
                     active_identity(&paths, &identity.id)?;
-                    entry.write(&record.encode()?)?;
+                    write_authority(fence, &identity.id, || entry.write(&record.encode()?))?;
                 }
                 active_identity(&paths, &identity.id)?;
                 if block {
@@ -205,7 +209,7 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
                         let record =
                             PairingRecord::pending(&deployment, approval, proof, now_ms()?)?;
                         active_identity(&paths, &identity.id)?;
-                        entry.write(&record.encode()?)?;
+                        write_authority(fence, &identity.id, || entry.write(&record.encode()?))?;
                         super::hooks::register(&paths, &identity.id, key)?;
                         active_identity(&paths, &identity.id)?;
                         record
@@ -225,7 +229,7 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
                     return Ok(json!({"state":"credential"}));
                 }
                 let proof = record.reserve_claim(now_ms()?)?;
-                entry.write(&record.encode()?)?;
+                write_authority(fence, &identity.id, || entry.write(&record.encode()?))?;
                 active_identity(&paths, &identity.id)?;
                 let deployment = record.deployment(&target)?;
                 let claim =
@@ -239,7 +243,7 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
                 )?;
                 active_identity(&paths, &identity.id)?;
                 record.complete(claim, credential, &target)?;
-                entry.write(&record.encode()?)?;
+                write_authority(fence, &identity.id, || entry.write(&record.encode()?))?;
                 active_identity(&paths, &identity.id)?;
                 Ok(json!({"state":"credential"}))
             }
@@ -309,8 +313,75 @@ mod tests {
         json!({"world":"invalid", "identityId":"identity", "emulator":false, "readOnly":false})
     }
 
+    /// Input validation fails before any fence query.
+    struct Unused;
+
+    impl RetirementFence for Unused {
+        fn is_retired(&self, _: &str) -> Result<bool, OfficeError> {
+            unreachable!("validation precedes the fence")
+        }
+        fn mark_retired(&self, _: &str) -> Result<(), OfficeError> {
+            unreachable!("validation precedes the fence")
+        }
+    }
+
     fn error(operation: OfficeInvocation, value: &Value) -> OfficeError {
-        run(operation, &serde_json::to_vec(value).unwrap()).unwrap_err()
+        run(operation, &serde_json::to_vec(value).unwrap(), &Unused).unwrap_err()
+    }
+
+    /// Every grant or extension of pairing authority goes through the fence;
+    /// only unpair writes the record without it, because revocation reduces
+    /// authority. The protected store is the real OS keychain with no test
+    /// double, so this pins each gated site in the source.
+    #[test]
+    fn every_authority_write_is_fenced_and_only_unpair_is_exempt() {
+        let source = include_str!("invocation.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap();
+        let unpair_start = production.find("OfficeInvocation::Unpair =>").unwrap();
+        let unpair_end = production.find("OfficeInvocation::Inspect").unwrap();
+        let mut gated = Vec::new();
+        let mut exempt = 0;
+        for (offset, _) in production.match_indices("entry.write(") {
+            let line_start = production[..offset].rfind('\n').unwrap() + 1;
+            let line = &production[line_start..offset];
+            if line
+                .trim_start()
+                .starts_with("write_authority(fence, &identity.id, || ")
+            {
+                let arm = [
+                    "refresh_if_needed",
+                    "renew_if_needed",
+                    "PairingRecord::pending",
+                    "reserve_claim",
+                    "record.complete",
+                ]
+                .into_iter()
+                .filter(|marker| {
+                    production[..offset]
+                        .rfind(marker)
+                        .is_some_and(|at| offset - at < 400)
+                })
+                .max_by_key(|marker| production[..offset].rfind(marker))
+                .unwrap_or("unknown");
+                gated.push(arm);
+            } else if (unpair_start..unpair_end).contains(&offset) {
+                exempt += 1;
+            } else {
+                panic!("ungated pairing write: {line}entry.write(");
+            }
+        }
+        gated.sort_unstable();
+        assert_eq!(
+            gated,
+            [
+                "PairingRecord::pending",
+                "record.complete",
+                "refresh_if_needed",
+                "renew_if_needed",
+                "reserve_claim"
+            ]
+        );
+        assert_eq!(exempt, 2);
     }
 
     #[test]
@@ -363,11 +434,11 @@ mod tests {
         );
         let duplicate = br#"{"world":"invalid","identityId":"identity","emulator":false,"readOnly":false,"blockId":null,"layout":{"objects":[],"objects":[]},"expectedRevision":0}"#;
         assert_eq!(
-            run(OfficeInvocation::BlockApply, duplicate),
+            run(OfficeInvocation::BlockApply, duplicate, &Unused),
             Err(OfficeError::CredentialsInvalid)
         );
         assert_eq!(
-            run(OfficeInvocation::BlockShow, &vec![b' '; 4097]),
+            run(OfficeInvocation::BlockShow, &vec![b' '; 4097], &Unused),
             Err(OfficeError::CredentialsInvalid)
         );
     }
