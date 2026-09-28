@@ -6,6 +6,14 @@ function __tmt_candidates
     set -l executable $prior[1]
     set -l result ($executable __complete -- $prior[2..-1] "$decoded" 2>/dev/null)
     switch "$result[1]"
+        case candidates
+            printf '%s\n' $result[2..-1]
+        case files
+            __fish_complete_path "$decoded"
+        case root
+            set -l line (string join ' ' -- __tmt_static (string escape -- $prior[2..-1]))
+            complete -C "$line $current"
+            printf '%s\n' $result[2..-1]
         case identities
             if string match -q -- '--identity=*' "$current"
                 for candidate in $result[2..-1]

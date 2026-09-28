@@ -17,6 +17,13 @@ mod tests;
 mod help_tests;
 
 pub fn parse(argv: &[OsString]) -> Result<Parsed, ParseError> {
+    if let Some(result) = crate::grammar::extensions::candidate(&grammar(), argv) {
+        return result;
+    }
+    parse_core(argv)
+}
+
+pub fn parse_core(argv: &[OsString]) -> Result<Parsed, ParseError> {
     let definition = grammar();
     if let Some((path, mode)) = crate::diagnostics::help_intent(&definition, argv) {
         return help(path, mode);

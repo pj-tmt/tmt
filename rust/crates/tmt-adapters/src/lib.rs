@@ -6,6 +6,8 @@ pub mod config;
 mod content_digest;
 pub mod dispatch;
 #[cfg(unix)]
+pub mod extension_command;
+#[cfg(unix)]
 mod file_lock;
 pub mod identity_status;
 mod indexed_art;

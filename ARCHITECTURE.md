@@ -664,7 +664,43 @@ required operands without interpreting payload data as flags. Public help and
 completion use command-owned options, not inherited placement-only options. The
 public projection preserves command-owned supplemental help instead of adding
 per-command presentation branches. Help
-never enters runtime dispatch or skill-drift inspection; JSON help remains unsupported.
+for core commands never enters runtime dispatch or skill-drift inspection; JSON
+core help remains unsupported.
+
+### External command contract (v1)
+
+An unknown root command named `[a-z0-9][a-z0-9-]*` resolves `tmt-<name>` on
+PATH. The CLI reserves every grammar name and alias, including hidden commands;
+the core always wins a collision. The adapter owns executable lookup and process
+replacement. On Unix it uses `exec`, not the supervised child model used by
+`run`: the extension inherits stdin, stdout, stderr, TTY and signal behavior,
+and its exit status is the command's exit status. Exec failure is a normal error.
+`TMT_EXECUTABLE` is the absolute invoking TMT executable path. There is no registry,
+manifest, daemon, implicit install or extension state in core.
+
+Only arguments after the extension name are passed verbatim, including non-UTF-8
+arguments; TMT does not interpret their options. Root options before an extension
+are rejected with an option-placement hint when the extension exists. A missing
+executable retains the existing unknown-command diagnostic and presentation mode.
+`tmt help <extension>` executes
+`tmt-<extension> --help`. Root help lists discovered extensions and notes executable
+names shadowed by core. PATH directory enumeration happens only for root help,
+root completion and unknown-command suggestions; exact extension dispatch probes
+only the requested filename. Ordinary core commands do not enumerate PATH.
+
+Extensions may ignore completion v1. When offered, TMT calls
+`tmt-<name> __complete -- <words after the name, including the current word>`
+with `TMT_EXECUTABLE`, a one-second deadline and a 64 KiB combined output bound.
+Successful stdout is newline-separated literal UTF-8 candidates, with no tags,
+descriptions or version field. Empty output, nonzero exit, invalid UTF-8/NUL,
+timeout or excess output falls back to file completion. Shell adapters quote the
+literal candidates; they never evaluate them. Extension completion uses the shared
+bounded process owner, not the unbounded interactive exec path.
+
+This generic dispatch does not extract the reserved `office` command; Office
+domain/storage extraction is tracked separately in #328.
+
+### Core command surface
 
 The maintained public surface is:
 

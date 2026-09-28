@@ -1732,7 +1732,13 @@ fn local_missing_values_do_not_swallow_root_presentation_flags() {
             "--nope",
         ][..],
     ] {
-        let error = parse_error(argv);
+        let error = if argv[0] == "no-command" {
+            // A missing external executable falls back to this core diagnostic;
+            // an installed extension owns its entire tail instead.
+            crate::parser::parse_core(&args(argv)).unwrap_err()
+        } else {
+            parse_error(argv)
+        };
         assert_eq!(error.code, "USAGE_ERROR", "{argv:?}");
         assert!(error.mode.json, "{argv:?}: {error:?}");
     }

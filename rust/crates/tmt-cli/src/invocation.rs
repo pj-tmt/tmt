@@ -1,5 +1,11 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Invocation {
+    Extension {
+        name: String,
+        args: Vec<std::ffi::OsString>,
+        help: bool,
+        prefix: Vec<std::ffi::OsString>,
+    },
     Help(Vec<String>),
     Version,
     Completion(Option<String>),
