@@ -9,6 +9,7 @@ use super::{
 use crate::{
     config::{Config, Pane},
     core::Core,
+    requests,
     squad::Squad,
     status,
 };
@@ -76,7 +77,10 @@ fn load(core: &Core, tmux: bool, wanted: Option<String>) -> Snapshot {
         let states = config.states(&squad.name, layout)?;
         let board = config.board(&squad.name, layout)?;
         let sections = config.sections(&squad.name)?;
-        let document = status::document(&squad, layout, &states, &sections, squad.members(core)?);
+        let me = config.me()?.map(str::to_owned);
+        let mut document =
+            status::document(&squad, layout, &states, &sections, squad.members(core)?);
+        requests::overlay(core, &squad, me.as_deref(), &mut document)?;
         let notes = if board.panes.contains(&Pane::Notes) {
             lead_notes(core, &document["squad"]["lead"])
         } else {
@@ -90,6 +94,7 @@ fn load(core: &Core, tmux: bool, wanted: Option<String>) -> Snapshot {
             section_bindings: sections.into_iter().map(|section| section.bind).collect(),
             opener: config.program("opener")?,
             clipboard: config.program("clipboard")?,
+            me,
             board,
             notes,
             document,

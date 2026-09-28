@@ -32,6 +32,8 @@ pub struct View {
     pub section_bindings: Vec<Bindings>,
     pub opener: Option<Vec<String>>,
     pub clipboard: Option<Vec<String>>,
+    /// The user's saved identity, the sender of talk, reply and annotate.
+    pub me: Option<String>,
 }
 
 /// The lead's notebook, already sanitized for display.
@@ -68,6 +70,35 @@ pub enum Request {
         program: Option<Vec<String>>,
     },
     Run(Vec<String>),
+    Talk {
+        me: String,
+        squad: String,
+        to: String,
+        text: String,
+    },
+    Annotate {
+        me: String,
+        squad: String,
+        to: String,
+        row: String,
+        text: String,
+    },
+    Reply {
+        me: String,
+        request: String,
+        from: String,
+        text: String,
+    },
+}
+
+impl Request {
+    /// Sending changes request state, so the view reloads afterwards.
+    pub fn sends(&self) -> bool {
+        matches!(
+            self,
+            Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. }
+        )
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -85,14 +116,46 @@ pub enum Item<'a> {
     Row(&'a Value),
 }
 
-/// The row's action menu: its bindings, by event.
+/// What a menu entry does: run a binding, or reply to one open request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Choice {
+    Action(Action),
+    Reply { request: String, from: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuEntry {
+    /// The key that chooses it directly.
+    pub key: String,
+    pub label: String,
+    pub choice: Choice,
+}
+
+/// The row's action menu, or the choice among a member's open requests.
 pub struct Menu {
     pub title: String,
-    pub entries: Vec<(String, Action)>,
+    pub entries: Vec<MenuEntry>,
     pub selected: usize,
 }
 
-pub const LATER: &str = "That action is available in a later version.";
+/// Where composed text goes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Compose {
+    Talk { to: String },
+    Annotate { to: String, row: String },
+    Reply { request: String, from: String },
+}
+
+/// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
+pub struct Input {
+    pub prompt: String,
+    pub text: String,
+    pub compose: Compose,
+}
+
+/// Longest text the composer accepts, in characters.
+const INPUT_LIMIT: usize = 4000;
+
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 /// A screen line of the rows pane and the visible row it shows.
@@ -117,6 +180,7 @@ pub struct App {
     pub notice: Option<String>,
     pub help: bool,
     pub menu: Option<Menu>,
+    pub input: Option<Input>,
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
     pub notes_scroll: u16,
@@ -313,7 +377,6 @@ impl App {
                 };
             }
             Verb::Back => return Effect::Act(Request::Back),
-            Verb::Talk | Verb::Reply | Verb::Annotate => return self.say(LATER),
             _ => {}
         }
         let Some(row) = self.selected_row().cloned() else {
@@ -321,16 +384,22 @@ impl App {
         };
         let view = self.view.as_ref().expect("a selected row has a view");
         let request = match action.verb {
+            Verb::Talk | Verb::Annotate | Verb::Reply => return self.compose(action, &row),
             Verb::Menu => {
-                let mut entries: Vec<(String, Action)> = self
+                let mut entries: Vec<MenuEntry> = self
                     .bindings()
                     .into_iter()
                     .filter(|(event, action)| {
                         !matches!(event.as_str(), "click" | "double-click")
                             && !matches!(action.verb, Verb::Menu | Verb::NextPane)
                     })
+                    .map(|(key, action)| MenuEntry {
+                        key,
+                        label: action.text.clone(),
+                        choice: Choice::Action(action),
+                    })
                     .collect();
-                entries.sort_by_key(|(event, _)| event.chars().count() > 1);
+                entries.sort_by_key(|entry| entry.key.chars().count() > 1);
                 self.menu = Some(Menu {
                     title: row["name"].as_str().unwrap_or_default().to_owned(),
                     entries,
@@ -366,6 +435,143 @@ impl App {
         }
     }
 
+    fn ask(&mut self, prompt: String, compose: Compose) -> Effect {
+        self.input = Some(Input {
+            prompt,
+            text: String::new(),
+            compose,
+        });
+        Effect::None
+    }
+
+    /// Opens the composer for talk, annotate or reply. Reply needs an open
+    /// request from the member; with several, the user picks one.
+    fn compose(&mut self, action: &Action, row: &Value) -> Effect {
+        let Some(view) = &self.view else {
+            return Effect::None;
+        };
+        if view.me.is_none() {
+            return self.say(
+                "Record which saved identity is you first: tmt squad init <squad> --me <name>.",
+            );
+        }
+        let name = row["name"].as_str().unwrap_or_default().to_owned();
+        match action.verb {
+            Verb::Talk => self.ask(format!("talk {name}"), Compose::Talk { to: name }),
+            Verb::Annotate => {
+                let to = if action.args[0].literal() == Some("member") {
+                    name.clone()
+                } else {
+                    match view.document["squad"]["lead"]["name"].as_str() {
+                        Some(lead) => lead.to_owned(),
+                        None => return self.say("This squad has no lead to annotate for."),
+                    }
+                };
+                self.ask(
+                    format!("note on {name} for {to}"),
+                    Compose::Annotate { to, row: name },
+                )
+            }
+            _ => {
+                let open: Vec<MenuEntry> = row["waitingOnYou"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                    .filter_map(|(index, item)| {
+                        Some(MenuEntry {
+                            key: (index + 1).to_string(),
+                            label: item["preview"].as_str().unwrap_or_default().to_owned(),
+                            choice: Choice::Reply {
+                                request: item["requestId"].as_str()?.to_owned(),
+                                from: name.clone(),
+                            },
+                        })
+                    })
+                    .collect();
+                match open.as_slice() {
+                    [] => self.say(format!("{name} is not waiting on you.")),
+                    [only] => self.choose(only.choice.clone()),
+                    _ => {
+                        self.menu = Some(Menu {
+                            title: format!("reply to {name}"),
+                            entries: open,
+                            selected: 0,
+                        });
+                        Effect::None
+                    }
+                }
+            }
+        }
+    }
+
+    fn choose(&mut self, choice: Choice) -> Effect {
+        match choice {
+            Choice::Action(action) => self.perform(&action),
+            Choice::Reply { request, from } => {
+                self.ask(format!("reply {from}"), Compose::Reply { request, from })
+            }
+        }
+    }
+
+    fn input_key(&mut self, key: KeyEvent) -> Effect {
+        let Some(input) = &mut self.input else {
+            return Effect::None;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.input = None;
+                return self.say("Nothing sent.");
+            }
+            KeyCode::Enter => {}
+            KeyCode::Backspace => {
+                input.text.pop();
+                return Effect::None;
+            }
+            KeyCode::Char(character)
+                if !character.is_control()
+                    && !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && input.text.chars().count() < INPUT_LIMIT =>
+            {
+                input.text.push(character);
+                return Effect::None;
+            }
+            _ => return Effect::None,
+        }
+        let input = self.input.take().expect("composing");
+        let text = input.text.trim().to_owned();
+        let (Some(me), Some(squad)) = (
+            self.view.as_ref().and_then(|view| view.me.clone()),
+            self.current.clone(),
+        ) else {
+            return Effect::None;
+        };
+        if text.is_empty() {
+            return self.say("Nothing sent.");
+        }
+        Effect::Act(match input.compose {
+            Compose::Talk { to } => Request::Talk {
+                me,
+                squad,
+                to,
+                text,
+            },
+            Compose::Annotate { to, row } => Request::Annotate {
+                me,
+                squad,
+                to,
+                row,
+                text,
+            },
+            Compose::Reply { request, from } => Request::Reply {
+                me,
+                request,
+                from,
+                text,
+            },
+        })
+    }
+
     /// Shows how a request ended.
     pub fn finished(&mut self, outcome: Result<String, String>) {
         self.notice = Some(outcome.unwrap_or_else(|error| error));
@@ -385,23 +591,33 @@ impl App {
                 menu.selected = (menu.selected + 1).min(menu.entries.len().saturating_sub(1));
                 return Effect::None;
             }
-            KeyCode::Enter => menu.entries.get(menu.selected).map(|(_, a)| a.clone()),
+            KeyCode::Enter => menu
+                .entries
+                .get(menu.selected)
+                .map(|entry| entry.choice.clone()),
             _ => {
                 let event = event_name(key);
-                match menu.entries.iter().find(|(e, _)| Some(e) == event.as_ref()) {
-                    Some((_, action)) => Some(action.clone()),
+                match menu
+                    .entries
+                    .iter()
+                    .find(|entry| Some(&entry.key) == event.as_ref())
+                {
+                    Some(entry) => Some(entry.choice.clone()),
                     None => return Effect::None,
                 }
             }
         };
         self.menu = None;
-        chosen.map_or(Effect::None, |action| self.perform(&action))
+        chosen.map_or(Effect::None, |choice| self.choose(choice))
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
         self.notice = None;
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
+        }
+        if self.input.is_some() {
+            return self.input_key(key);
         }
         if self.menu.is_some() {
             return self.menu_key(key);
@@ -459,7 +675,10 @@ impl App {
     /// A left click selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
-        if event.kind != MouseEventKind::Down(MouseButton::Left) || self.menu.is_some() {
+        if event.kind != MouseEventKind::Down(MouseButton::Left)
+            || self.menu.is_some()
+            || self.input.is_some()
+        {
             return Effect::None;
         }
         let hit = self.hits.borrow().iter().copied().find(|hit| {
@@ -512,6 +731,7 @@ mod tests {
             section_bindings: Vec::new(),
             opener: None,
             clipboard: None,
+            me: None,
         }
     }
 
@@ -657,10 +877,118 @@ mod tests {
             app.notice
         );
         assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
-        assert_eq!(app.notice.as_deref(), Some(LATER));
+        assert!(
+            app.notice
+                .as_deref()
+                .unwrap()
+                .starts_with("Record which saved identity is you"),
+            "sending needs me"
+        );
         assert_eq!(press(&mut app, KeyCode::Char('x')), Effect::None);
         assert_eq!(app.notice, None, "an unbound key does nothing");
         assert_eq!(press(&mut app, KeyCode::Char('q')), Effect::Quit);
+    }
+
+    fn typed(app: &mut App, text: &str) {
+        for character in text.chars() {
+            press(app, KeyCode::Char(character));
+        }
+    }
+
+    #[test]
+    fn talk_annotate_and_reply_compose_one_line_and_empty_sends_nothing() {
+        let mut app = crew(crate::action::preset(true), Vec::new());
+        {
+            let view = app.view.as_mut().unwrap();
+            view.me = Some("Ben".into());
+            view.document["squad"]["lead"] = json!({"id": "L", "name": "sol"});
+            view.document["sections"][0]["rows"][0]["waitingOnYou"] = json!([
+                {"requestId": "q2", "preview": "approve the plan?"},
+                {"requestId": "q1", "preview": "which database?"}
+            ]);
+            view.document["sections"][1]["rows"][0]["waitingOnYou"] =
+                json!([{"requestId": "q9", "preview": "ok to merge?"}]);
+        }
+        press(&mut app, KeyCode::Char('t'));
+        assert_eq!(app.input.as_ref().unwrap().prompt, "talk auth-fix");
+        typed(&mut app, "q j -rf; $(x)");
+        assert!(app.input.is_some(), "q and j are text while composing");
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Talk {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "auth-fix".into(),
+                text: "q j -rf; $(x)".into()
+            })
+        );
+        assert!(app.input.is_none());
+
+        press(&mut app, KeyCode::Char('t'));
+        typed(&mut app, "   ");
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
+        press(&mut app, KeyCode::Char('t'));
+        typed(&mut app, "draft");
+        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+        assert!(app.input.is_none() && app.notice.as_deref() == Some("Nothing sent."));
+
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            app.input.as_ref().unwrap().prompt,
+            "note on auth-fix for sol"
+        );
+        typed(&mut app, "split the job");
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Annotate {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "sol".into(),
+                row: "auth-fix".into(),
+                text: "split the job".into()
+            })
+        );
+
+        // Two open requests: the user picks; the newest is never assumed.
+        press(&mut app, KeyCode::Char('r'));
+        let menu = app.menu.as_ref().expect("picker");
+        assert_eq!(menu.title, "reply to auth-fix");
+        assert_eq!(menu.entries.len(), 2);
+        press(&mut app, KeyCode::Char('2'));
+        assert_eq!(app.input.as_ref().unwrap().prompt, "reply auth-fix");
+        typed(&mut app, "postgres");
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Reply {
+                me: "Ben".into(),
+                request: "q1".into(),
+                from: "auth-fix".into(),
+                text: "postgres".into()
+            })
+        );
+        // One open request goes straight to the composer.
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Char('r'));
+        assert!(app.menu.is_none());
+        typed(&mut app, "yes");
+        assert!(matches!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Reply { request, .. }) if request == "q9"
+        ));
+        assert!(!Request::Back.sends());
+
+        // Nothing open, or no lead to annotate for, is a notice.
+        app.view.as_mut().unwrap().document["sections"][1]["rows"][0]["waitingOnYou"] = json!([]);
+        app.view.as_mut().unwrap().document["squad"]["lead"] = Value::Null;
+        press(&mut app, KeyCode::Char('r'));
+        assert_eq!(app.notice.as_deref(), Some("docs is not waiting on you."));
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("This squad has no lead to annotate for.")
+        );
+        assert!(app.input.is_none());
     }
 
     #[test]
@@ -715,7 +1043,7 @@ mod tests {
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         let menu = app.menu.as_ref().expect("menu");
         assert_eq!(menu.title, "auth-fix");
-        let events: Vec<&str> = menu.entries.iter().map(|(e, _)| e.as_str()).collect();
+        let events: Vec<&str> = menu.entries.iter().map(|e| e.key.as_str()).collect();
         assert!(events.contains(&"y") && events.contains(&"backspace"));
         assert!(!events.iter().any(|e| ["click", "enter", "tab"].contains(e)));
         assert_eq!(press(&mut app, KeyCode::Char('j')), Effect::None);

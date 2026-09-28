@@ -10,7 +10,9 @@ mod effects;
 mod filter;
 mod member_actions;
 mod membership;
+mod requests;
 mod runner;
+mod send;
 mod squad;
 mod status;
 mod template;
@@ -31,6 +33,13 @@ fn squad_option() -> Arg {
         .long("squad")
         .value_name("NAME")
         .help("Select a squad; optional when exactly one exists")
+}
+
+fn message() -> Arg {
+    Arg::new("text")
+        .required(true)
+        .allow_hyphen_values(true)
+        .help("The message, exactly as sent")
 }
 
 /// The name is fixed, never argv[0]: `tmt-squad` and its `tmt-sq` link print
@@ -105,6 +114,41 @@ fn grammar() -> Command {
             Command::new("jump")
                 .about("Show a member's pane in your tmux client (tmt focus)")
                 .arg(operand("member", "Member or lead to show"))
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("talk")
+                .about("Send a detached request to a member, in the squad room")
+                .arg(operand("member", "Member or lead"))
+                .arg(message())
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("reply")
+                .about("Answer what a member is waiting on you for")
+                .arg(operand("member", "Member or lead"))
+                .arg(message())
+                .arg(
+                    Arg::new("request")
+                        .long("request")
+                        .value_name("ID")
+                        .help("Which open request, when the member waits on several"),
+                )
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("annotate")
+                .about("Send a note about a member's row to the lead (or the member)")
+                .arg(operand("member", "The row the note is about"))
+                .arg(message())
+                .arg(
+                    Arg::new("to")
+                        .long("to")
+                        .value_name("WHOM")
+                        .value_parser(["lead", "member"])
+                        .default_value("lead")
+                        .help("Send to the squad's lead or to the member"),
+                )
                 .arg(squad_option()),
         )
         .subcommand(
@@ -197,6 +241,16 @@ fn human(command: &str, document: &Value) -> String {
                 .as_str()
                 .map_or(String::new(), |warning| format!("Note: {warning}\n"))
         ),
+        "talk" | "annotate" => format!(
+            "Sent to {} ({}).\n",
+            document["to"].as_str().unwrap_or_default(),
+            document["requestId"].as_str().unwrap_or_default()
+        ),
+        "reply" => format!(
+            "Replied to {} ({}).\n",
+            document["from"].as_str().unwrap_or_default(),
+            document["requestId"].as_str().unwrap_or_default()
+        ),
         "back" => match document["back"]["focused"]["pane"].as_str() {
             Some(pane) => format!("Back at {pane}.\n"),
             None => "Nothing to go back to.\n".into(),
@@ -275,11 +329,37 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             text("member").unwrap_or_default(),
             &many("fields"),
         ),
+        "talk" => member_actions::talk(
+            &core,
+            &squad,
+            &config,
+            text("member").unwrap_or_default(),
+            text("text").unwrap_or_default(),
+        ),
+        "reply" => member_actions::answer(
+            &core,
+            &squad,
+            &config,
+            text("member").unwrap_or_default(),
+            text("request"),
+            text("text").unwrap_or_default(),
+        ),
+        "annotate" => member_actions::annotate(
+            &core,
+            &squad,
+            &config,
+            text("member").unwrap_or_default(),
+            text("to") == Some("lead"),
+            text("text").unwrap_or_default(),
+        ),
         _ => {
             let layout = config.layout(&squad.name)?;
             let sections = config.sections(&squad.name)?;
             let states = config.states(&squad.name, layout)?;
-            Ok(status::document(&squad, layout, &states, &sections, squad.members(&core)?).into())
+            let mut document =
+                status::document(&squad, layout, &states, &sections, squad.members(&core)?);
+            requests::overlay(&core, &squad, config.me()?, &mut document)?;
+            Ok(document.into())
         }
     }
 }
@@ -370,8 +450,8 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "back", "board", "copy", "init", "jump", "lead", "open", "remove", "set",
-                "skill", "status"
+                "add", "annotate", "back", "board", "copy", "init", "jump", "lead", "open",
+                "remove", "reply", "set", "skill", "status", "talk"
             ]
         );
         assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);

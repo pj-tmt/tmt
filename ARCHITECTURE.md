@@ -1591,6 +1591,13 @@ disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 Every jump pushes the pane the client left, under the client `tmt focus`
 reports; `back` asks core for the invoker's client with `tmt focus --client`,
 pops its entry and focuses it, so squad still never talks to tmux about clients.
+`send` sends as the user's saved identity through public commands only: detached
+`talk --identity <me> --room squad-<name>` with operands after `--`, annotations
+as a talk tagged `[<squad> · <row>]`, and replies with the receipt that `x show
+--incoming` gives the recipient; nothing acknowledges. `requests` derives each
+row's `annotation` (the user's newest open tagged request) and `waitingOnYou`
+(open requests to the user) per load from `requests.list`, at most four pages
+of 50, and marks the document `olderRequestsNotShown` when a window is cut off.
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.

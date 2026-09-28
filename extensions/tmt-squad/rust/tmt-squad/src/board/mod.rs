@@ -11,7 +11,7 @@ mod view;
 use crate::{
     back,
     core::{Core, SquadError},
-    effects,
+    effects, send,
 };
 use app::{App, Effect, Request, Snapshot};
 use ratatui::{
@@ -88,6 +88,31 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
                 .map(|copied| copied.describe().to_owned())
         }
         Request::Run(argv) => effects::spawn(&argv).map(|()| format!("Started {}.", argv[0])),
+        Request::Talk {
+            me,
+            squad,
+            to,
+            text,
+        } => send::talk(core, &squad, &me, &to, &text)
+            .map(|request| format!("Sent to {to} ({request})."))
+            .map_err(|error| error.message),
+        Request::Annotate {
+            me,
+            squad,
+            to,
+            row,
+            text,
+        } => send::annotate(core, &squad, &me, &to, &row, &text)
+            .map(|request| format!("Note on {row} sent to {to} ({request})."))
+            .map_err(|error| error.message),
+        Request::Reply {
+            me,
+            request,
+            from,
+            text,
+        } => send::answer(core, &me, &request, &text)
+            .map(|()| format!("Replied to {from}."))
+            .map_err(|error| error.message),
     }
 }
 
@@ -129,7 +154,14 @@ fn session(
                 request(app.current.clone());
                 refreshed = Instant::now();
             }
-            Effect::Act(action) => app.finished(act(action)),
+            Effect::Act(action) => {
+                let sends = action.sends();
+                app.finished(act(action));
+                if sends {
+                    request(app.current.clone());
+                    refreshed = Instant::now();
+                }
+            }
             Effect::None => {}
         }
         if refreshed.elapsed() >= REFRESH {

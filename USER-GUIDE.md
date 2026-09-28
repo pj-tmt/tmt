@@ -397,9 +397,9 @@ minimal shows rows only.
 Keys act on the selected row. Inside tmux, Enter jumps to the member's pane and
 Backspace goes back; in a plain terminal, where the board cannot show another
 pane, Enter opens a menu of the row's actions instead. `o` opens the row's link,
-`y` copies it, `n` focuses the notes pane and Tab moves to the next pane; `t`,
-`r` and `a` (talk, reply, annotate) arrive in a later version, and `?` lists
-every key. Rebind keys in `squad.toml`, for all squads or for one section's rows:
+`y` copies it, `t` talks to the member, `r` replies to it, `a` annotates the
+row for the lead, `n` focuses the notes pane and Tab moves to the next pane;
+`?` lists every key. Rebind keys in `squad.toml`, for all squads or for one section's rows:
 
 ```toml
 [bind]                               # over the host preset, for every squad
@@ -454,7 +454,24 @@ tmt squad open auth-fix                     # pr_link, else link, else another *
 tmt squad open auth-fix --link issue_link
 tmt squad copy auth-fix                     # "auth-fix: <task> (<state>)"
 tmt squad copy auth-fix --format '- [{name}]({pr_link})'
+tmt squad talk auth-fix "check the retry path"
+tmt squad annotate auth-fix "split this job"   # to the lead; --to member for the member
+tmt squad reply auth-fix "use postgres"        # --request <id> when it asks several
 ```
+
+Talk, reply and annotate send as your saved identity (`me` in `squad.toml`) and
+never wait: each is a detached request in the squad's room, and its answer
+arrives through TMT as usual. On the board, `t`, `r` and `a` open a one-line
+composer: Enter sends, Esc cancels, and empty text sends nothing. `reply`
+answers what the member is waiting on you for; with several open requests you
+choose one (the board lists them), and the newest is never assumed. Replying
+acknowledges nothing. `annotate` sends `[<squad> · <member>] <text>` to the lead
+(or, with `member`, to the member) and never edits anyone's notes; until it is
+answered, the row shows `✎ sent to <name>: <text>`, rebuilt from request history
+on every refresh. `status --json` reports it as each row's `annotation` and the
+member's open requests to you as `waitingOnYou`. Squad reads at most the newest
+200 requests for these; when older ones exist it says `older requests not
+shown`.
 
 `jump` is `tmt focus` for a squad member or the lead, run inside tmux. Each
 jump, from the board or the command, records where your tmux client came from;
@@ -464,8 +481,10 @@ as `bind B run-shell "tmt squad back"`. A board left behind by its own jump no
 longer shows your client, so its Backspace cannot return it. With nothing
 recorded, `back` says so and changes nothing. The record is disposable, kept per
 tmux server and client under `$XDG_CACHE_HOME/tmt-squad` (or
-`~/.cache/tmt-squad`), at most 32 entries. `open` opens only http and https links, with `open` on macOS and
-`xdg-open` elsewhere. `--format` fills `{field}` placeholders from the row:
+`~/.cache/tmt-squad`), at most 32 entries.
+
+`open` opens only http and https links, with `open` on macOS and `xdg-open`
+elsewhere. `--format` fills `{field}` placeholders from the row:
 `name`, `state`, `pending`, `note`, `presence`, `lifetime`, `activity`, `pane`,
 `target`, `cwd` or any squad field. An empty or missing field refuses the action
 instead of copying a gap. Inside tmux, `copy` loads a buffer on your tmux server

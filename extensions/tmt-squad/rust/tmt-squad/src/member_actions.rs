@@ -1,5 +1,5 @@
-//! `tmt squad jump|open|copy <member>`: the board's row actions for one
-//! member, for scripts and terminals without the board.
+//! `tmt squad jump|back|open|copy|talk|reply|annotate`: the board's row
+//! actions for one member, for scripts and terminals without the board.
 
 use crate::{
     back,
@@ -7,6 +7,7 @@ use crate::{
     core::{Core, SquadError},
     effects,
     membership::Outcome,
+    requests, send,
     squad::Squad,
     status,
     template::{DEFAULT_COPY, Template, field_value},
@@ -21,11 +22,24 @@ fn failed(message: String) -> SquadError {
     SquadError::new("SQUAD_ACTION_FAILED", message)
 }
 
-/// The member's status row (the lead included), exactly as the board sees it.
-fn row(core: &Core, squad: &Squad, config: &Config, name: &str) -> Result<Value, SquadError> {
+fn document(core: &Core, squad: &Squad, config: &Config) -> Result<Value, SquadError> {
     let layout = config.layout(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
-    let mut document = status::document(squad, layout, &states, &[], squad.members(core)?);
+    Ok(status::document(
+        squad,
+        layout,
+        &states,
+        &[],
+        squad.members(core)?,
+    ))
+}
+
+/// The member's status row (the lead included), exactly as the board sees it.
+fn row(core: &Core, squad: &Squad, config: &Config, name: &str) -> Result<Value, SquadError> {
+    find(document(core, squad, config)?, squad, name)
+}
+
+fn find(mut document: Value, squad: &Squad, name: &str) -> Result<Value, SquadError> {
     let lead = document["squad"]["lead"].take();
     document["sections"][0]["rows"]
         .as_array_mut()
@@ -115,4 +129,97 @@ pub fn copy(
         json!({"member": name, "copied": text, "to": copied.name(), "message": copied.describe()})
             .into(),
     )
+}
+
+fn me(config: &Config) -> Result<&str, SquadError> {
+    config.me()?.ok_or_else(|| {
+        SquadError::new(
+            "SQUAD_ME_REQUIRED",
+            "Record which saved identity is you first: tmt squad init <squad> --me <name>.",
+        )
+    })
+}
+
+/// `tmt squad talk <member> <text>`: a detached request in the squad room.
+pub fn talk(
+    core: &Core,
+    squad: &Squad,
+    config: &Config,
+    name: &str,
+    text: &str,
+) -> Result<Outcome, SquadError> {
+    let me = me(config)?;
+    row(core, squad, config, name)?;
+    let request = send::talk(core, &squad.name, me, name, text)?;
+    Ok(
+        json!({"requestId": request, "to": name, "room": crate::squad::room_name(&squad.name)})
+            .into(),
+    )
+}
+
+/// `tmt squad annotate <member> <text> [--to lead|member]`: a note about a
+/// row, sent to the lead (default) or the member; never a notebook write.
+pub fn annotate(
+    core: &Core,
+    squad: &Squad,
+    config: &Config,
+    name: &str,
+    to_lead: bool,
+    text: &str,
+) -> Result<Outcome, SquadError> {
+    let me = me(config)?;
+    let document = document(core, squad, config)?;
+    let lead = document["squad"]["lead"]["name"]
+        .as_str()
+        .map(str::to_owned);
+    find(document, squad, name)?;
+    let to = if to_lead {
+        lead.ok_or_else(|| refused(format!("Squad {} has no lead to annotate for.", squad.name)))?
+    } else {
+        name.to_owned()
+    };
+    let request = send::annotate(core, &squad.name, me, &to, name, text)?;
+    Ok(json!({"requestId": request, "to": to, "row": name, "room": crate::squad::room_name(&squad.name)}).into())
+}
+
+/// `tmt squad reply <member> <text> [--request <id>]`: answers what the
+/// member is waiting on the user for. With several open requests the user
+/// chooses; the newest is never assumed.
+pub fn answer(
+    core: &Core,
+    squad: &Squad,
+    config: &Config,
+    name: &str,
+    request: Option<&str>,
+    text: &str,
+) -> Result<Outcome, SquadError> {
+    let me = me(config)?;
+    let mut document = document(core, squad, config)?;
+    requests::overlay(core, squad, Some(me), &mut document)?;
+    let row = find(document, squad, name)?;
+    let open: Vec<&str> = row["waitingOnYou"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["requestId"].as_str())
+        .collect();
+    let chosen = match (request, open.as_slice()) {
+        (Some(request), _) if open.contains(&request) => request,
+        (Some(request), _) => {
+            return Err(refused(format!(
+                "{request} is not an open request from {name} to you."
+            )));
+        }
+        (None, []) => return Err(refused(format!("{name} is not waiting on you."))),
+        (None, [only]) => only,
+        (None, several) => {
+            return Err(refused(format!(
+                "{name} is waiting on you for {} requests; choose one with --request: {}.",
+                several.len(),
+                several.join(", ")
+            )));
+        }
+    };
+    send::answer(core, me, chosen, text)?;
+    Ok(json!({"requestId": chosen, "from": name, "replied": true}).into())
 }
