@@ -2,6 +2,7 @@
 //! `tmt squad status`, paints from it, and reloads in the background.
 
 mod app;
+mod notes;
 mod refresh;
 mod terminal;
 mod view;

@@ -2,7 +2,7 @@
 //! rendered from the JSON document so the two views cannot disagree.
 
 use crate::{
-    config::{Layout, Section, SortKey},
+    config::{Layout, Section, SortKey, States},
     filter::Row,
     squad::{Member, Squad},
 };
@@ -26,11 +26,11 @@ fn member_value(member: &Member) -> Value {
 
 /// Crew puts rows that owe the user a decision first; then the layout's state
 /// order (unknown states after known ones); then name.
-fn sort(rows: &mut [Member], layout: Layout) {
+fn sort(rows: &mut [Member], layout: Layout, states: &States) {
     let rank = |member: &Member| {
         let pending = layout.pending_first() && !member.fields.contains_key("pending");
         let state = member.fields.get("state").map(String::as_str);
-        let order = state_rank(layout, state);
+        let order = states.rank(state);
         (
             pending,
             order,
@@ -41,21 +41,16 @@ fn sort(rows: &mut [Member], layout: Layout) {
     rows.sort_by_key(rank);
 }
 
-fn state_rank(layout: Layout, state: Option<&str>) -> usize {
-    state
-        .and_then(|state| layout.states().iter().position(|known| *known == state))
-        .unwrap_or(layout.states().len())
-}
-
 /// Missing values sort last in both directions.
-fn compare(key: &SortKey, layout: Layout, a: &Member, b: &Member) -> Ordering {
+fn compare(key: &SortKey, states: &States, a: &Member, b: &Member) -> Ordering {
     let (left, right) = (a.value(&key.field), b.value(&key.field));
     let ordering = match (left, right) {
         (None, None) => return Ordering::Equal,
         (None, Some(_)) => return Ordering::Greater,
         (Some(_), None) => return Ordering::Less,
-        (Some(left), Some(right)) if key.field == "state" => state_rank(layout, Some(left))
-            .cmp(&state_rank(layout, Some(right)))
+        (Some(left), Some(right)) if key.field == "state" => states
+            .rank(Some(left))
+            .cmp(&states.rank(Some(right)))
             .then_with(|| left.cmp(right)),
         (Some(left), Some(right)) => left.cmp(right),
     };
@@ -77,11 +72,12 @@ fn rows(members: &[&Member]) -> Vec<Value> {
 pub fn document(
     squad: &Squad,
     layout: Layout,
+    states: &States,
     sections: &[Section],
     members: Vec<Member>,
 ) -> Value {
     let (leads, mut members): (Vec<_>, Vec<_>) = members.into_iter().partition(Member::is_lead);
-    sort(&mut members, layout);
+    sort(&mut members, layout, states);
     let all: Vec<&Member> = members.iter().collect();
     let sections: Vec<Value> = if sections.is_empty() {
         vec![json!({"title": null, "rows": rows(&all)})]
@@ -98,7 +94,7 @@ pub fn document(
                     section
                         .sort
                         .iter()
-                        .map(|key| compare(key, layout, a, b))
+                        .map(|key| compare(key, states, a, b))
                         .find(|ordering| ordering.is_ne())
                         .unwrap_or(Ordering::Equal)
                 });
@@ -180,6 +176,17 @@ mod tests {
         }
     }
 
+    fn states(layout: Layout) -> States {
+        States {
+            order: layout
+                .states()
+                .iter()
+                .map(|state| (*state).to_owned())
+                .collect(),
+            colors: Default::default(),
+        }
+    }
+
     fn names(document: &Value) -> Vec<&str> {
         document["sections"][0]["rows"]
             .as_array()
@@ -218,7 +225,7 @@ mod tests {
             name: "product".into(),
             room_id: "room".into(),
         };
-        let crew = document(&squad, Layout::Crew, &[], members());
+        let crew = document(&squad, Layout::Crew, &states(Layout::Crew), &[], members());
         assert_eq!(names(&crew), ["bob", "zed", "amy", "kai"]);
         assert_eq!(crew["squad"]["lead"]["name"], "sol");
         assert_eq!(crew["sections"].as_array().unwrap().len(), 1);
@@ -230,7 +237,13 @@ mod tests {
         );
         assert_eq!(crew["sections"][0]["rows"][1]["pending"], Value::Null);
 
-        let minimal = document(&squad, Layout::Minimal, &[], members());
+        let minimal = document(
+            &squad,
+            Layout::Minimal,
+            &states(Layout::Minimal),
+            &[],
+            members(),
+        );
         // No vocabulary: equal states group together, then names.
         assert_eq!(names(&minimal), ["bob", "kai", "amy", "zed"]);
 
@@ -263,7 +276,13 @@ mod tests {
             .sections("product")
             .unwrap();
         let _ = std::fs::remove_file(&path);
-        let document = document(&squad, Layout::Crew, &sections, members());
+        let document = document(
+            &squad,
+            Layout::Crew,
+            &states(Layout::Crew),
+            &sections,
+            members(),
+        );
         let titles: Vec<_> = document["sections"]
             .as_array()
             .unwrap()

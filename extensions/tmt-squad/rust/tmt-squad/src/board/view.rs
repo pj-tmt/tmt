@@ -1,27 +1,32 @@
 //! Drawing only: the board's layout from `App`, with display-width-aware
 //! cells so wide characters never misalign columns.
 
-use super::app::{App, Item};
-use crate::config::Column;
+use super::{
+    app::{App, Item, Notes},
+    notes::wrap,
+};
+use crate::config::{BoardMode, Column, Direction, Pane};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 use serde_json::Value;
 use unicode_width::UnicodeWidthChar;
 
-const HINTS: &str = "⏎ jump  t talk  r reply  o open  y copy  / search  ←→ squad  ? more  q quit";
+const HINTS: &str =
+    "⏎ jump  t talk  r reply  o open  y copy  tab pane  / search  ←→ squad  ? more  q quit";
 const HELP: &[&str] = &[
     "↑ ↓ / j k   select a row",
     "← →         switch squad",
     "/           search; Esc clears",
+    "Tab         next pane (or tab); ↑ ↓ scroll the notes pane",
     "?           this help",
     "q, Esc      close the board",
     "",
-    "Enter, t, r, a, o, y, n and Tab act on rows in a later version.",
+    "Enter, t, r, a, o, y and n act on rows in a later version.",
 ];
 
 fn color(name: &str) -> Style {
@@ -133,7 +138,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     ])
     .areas(frame.area());
     frame.render_widget(Paragraph::new(header_line(app)), top);
-    render_rows(frame, app, body);
+    render_body(frame, app, body);
     let footer_line = if app.searching {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = app.notice {
@@ -157,6 +162,185 @@ pub fn render(frame: &mut Frame, app: &App) {
             area,
         );
     }
+}
+
+/// Split mode tiles the configured panes; tabs mode shows the focused pane
+/// under a tab bar. The focused pane's border is highlighted.
+fn render_body(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(view) = &app.view else {
+        render_rows(frame, app, area);
+        return;
+    };
+    let board = &view.board;
+    let focused = app.focused();
+    let pane_block = |pane: Pane| {
+        let title = match pane {
+            Pane::Notes => format!(
+                " notes · {} ",
+                view.document["squad"]["lead"]["name"]
+                    .as_str()
+                    .unwrap_or("no lead")
+            ),
+            other => format!(" {} ", other.title()),
+        };
+        let style = if pane == focused && board.panes.len() > 1 {
+            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else {
+            color("dim")
+        };
+        Block::new()
+            .borders(Borders::ALL)
+            .border_style(style)
+            .title(title)
+    };
+    match board.mode {
+        BoardMode::Split if board.panes.len() == 1 => render_pane(frame, app, board.panes[0], area),
+        BoardMode::Split => {
+            let constraints = board.sizes.iter().map(|size| Constraint::Percentage(*size));
+            let areas = match board.direction {
+                Direction::LeftRight => Layout::horizontal(constraints).split(area),
+                Direction::TopBottom => Layout::vertical(constraints).split(area),
+            };
+            for (pane, rect) in board.panes.iter().zip(areas.iter()) {
+                let block = pane_block(*pane);
+                let inner = block.inner(*rect);
+                frame.render_widget(block, *rect);
+                render_pane(frame, app, *pane, inner);
+            }
+        }
+        BoardMode::Tabs => {
+            let [bar, rest] =
+                Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
+            let mut spans = Vec::new();
+            for pane in &board.panes {
+                if *pane == focused {
+                    spans.push(Span::styled(
+                        format!("[{}]", pane.title()),
+                        Style::new().add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    spans.push(Span::styled(pane.title(), color("dim")));
+                }
+                spans.push(Span::raw("  "));
+            }
+            frame.render_widget(Paragraph::new(Line::from(spans)), bar);
+            let block = pane_block(focused);
+            let inner = block.inner(rest);
+            frame.render_widget(block, rest);
+            render_pane(frame, app, focused, inner);
+        }
+    }
+}
+
+fn render_pane(frame: &mut Frame, app: &App, pane: Pane, area: Rect) {
+    match pane {
+        Pane::Rows => render_rows(frame, app, area),
+        Pane::Notes => render_notes(frame, app, area),
+        Pane::Detail => render_detail(frame, app, area),
+        Pane::Replies => frame.render_widget(
+            Paragraph::new(Span::styled(
+                "Replies to your requests appear here in a later version.",
+                color("dim"),
+            )),
+            area,
+        ),
+    }
+}
+
+fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(view) = &app.view else { return };
+    let text = match &view.notes {
+        Notes::Text(text) => text.as_str(),
+        Notes::Missing => "(no notes yet)",
+        Notes::NoLead => "(the squad has no lead)",
+        Notes::NotShown => "",
+        Notes::Failed(error) => error.as_str(),
+    };
+    let lines = wrap(text, usize::from(area.width));
+    let limit = lines.len().saturating_sub(usize::from(area.height));
+    let scroll = usize::from(app.notes_scroll).min(limit) as u16;
+    let style = if matches!(view.notes, Notes::Text(_)) {
+        Style::new()
+    } else {
+        color("dim")
+    };
+    let lines: Vec<Line> = lines
+        .into_iter()
+        .map(|line| Line::styled(line, style))
+        .collect();
+    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), area);
+}
+
+/// The selected row: where it is, what it is doing and what it waits on.
+fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(row) = app.selected_row() else {
+        frame.render_widget(
+            Paragraph::new(Span::styled("(no row selected)", color("dim"))),
+            area,
+        );
+        return;
+    };
+    let text = |value: &Value| value.as_str().unwrap_or("–").to_owned();
+    let mut lines = vec![Line::from(Span::styled(
+        text(&row["name"]),
+        Style::new().add_modifier(Modifier::BOLD),
+    ))];
+    if let Some(pending) = row["pending"].as_str() {
+        lines.push(Line::styled(
+            format!("waiting on you: {pending}"),
+            color("amber"),
+        ));
+    }
+    let place = [&row["pane"]["target"], &row["pane"]["cwd"]]
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    lines.push(Line::from(format!(
+        "{} · {}{}",
+        text(&row["presence"]),
+        text(&row["state"]),
+        if place.is_empty() {
+            String::new()
+        } else {
+            format!(" · {place}")
+        }
+    )));
+    for (label, value) in [
+        ("task", &row["fields"]["task"]),
+        ("note", &row["note"]),
+        ("activity", &row["activity"]["activity"]),
+    ] {
+        if let Some(value) = value.as_str() {
+            lines.push(Line::from(format!("{label}: {value}")));
+        }
+    }
+    let links: Vec<String> = row["fields"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| key.as_str() == "link" || key.ends_with("_link"))
+        .filter_map(|(key, value)| Some(format!("{key} {}", value.as_str()?)))
+        .collect();
+    if !links.is_empty() {
+        lines.push(Line::from(format!("links: {}", links.join("  "))));
+    }
+    let width = usize::from(area.width);
+    let lines: Vec<Line> = lines
+        .into_iter()
+        .flat_map(|line| {
+            let style = line.style;
+            let text: String = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect();
+            wrap(&text, width)
+                .into_iter()
+                .map(move |part| Line::styled(part, style))
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
@@ -250,7 +434,9 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::app::{Snapshot, View};
+    use crate::board::app::{Notes, Snapshot, View};
+    use crate::config::{BoardMode, Direction, Pane};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -301,6 +487,13 @@ mod tests {
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
                 columns: columns(),
                 colors: BTreeMap::from([("blocked".into(), "amber".into())]),
+                board: crate::config::Board {
+                mode: crate::config::BoardMode::Split,
+                direction: crate::config::Direction::LeftRight,
+                panes: vec![crate::config::Pane::Rows],
+                sizes: vec![100],
+            },
+            notes: crate::board::app::Notes::NotShown,
             }),
         });
         app
@@ -369,5 +562,147 @@ mod tests {
         let mut failed = App::new(Some("product".into()));
         failed.error = Some("tmt did not finish in time".into());
         assert_eq!(draw(&failed, 40, 4)[3], "tmt did not finish in time");
+    }
+
+    fn paned(board: crate::config::Board, notes: Notes) -> App {
+        let mut app = App::new(Some("product".into()));
+        app.apply(Snapshot {
+            squads: vec!["product".into()],
+            squad: Some("product".into()),
+            view: Ok(View {
+                document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
+                    {"title": null, "rows": [row("auth-fix", "blocked", "rotate tokens", json!({
+                        "pending": "approve the plan", "note": "needs a call", "presence": "active", "state": "blocked",
+                        "pane": {"target": "crew:2.0", "cwd": "/w/app-3"}
+                    }))]}
+                ]}),
+                columns: columns(),
+                colors: BTreeMap::new(),
+                board,
+                notes,
+            }),
+        });
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["fields"]["pr_link"] =
+            json!("https://example.com/pull/412");
+        app
+    }
+
+    fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::config::Board {
+        crate::config::Board {
+            mode: BoardMode::Split,
+            direction,
+            panes,
+            sizes,
+        }
+    }
+
+    #[test]
+    fn split_panes_follow_direction_and_sizes() {
+        let app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![60, 40],
+            ),
+            Notes::Text("## Now\n- tokens: waiting on Ben".into()),
+        );
+        let screen = draw(&app, 100, 10);
+        // 60% of 100 columns: the notes block starts at column 60.
+        let notes_at = screen[1].find("┌ notes · sol").expect("notes block title");
+        assert_eq!(screen[1][..notes_at].chars().count(), 60, "{screen:#?}");
+        assert!(screen[1].starts_with("┌ rows"));
+        assert!(screen.iter().any(|line| line.contains("## Now")));
+        assert!(screen.iter().any(|line| line.contains("◆ auth-fix")));
+
+        let app = paned(
+            split(
+                Direction::TopBottom,
+                vec![Pane::Rows, Pane::Detail],
+                vec![50, 50],
+            ),
+            Notes::NotShown,
+        );
+        let screen = draw(&app, 70, 22);
+        let detail_row = screen
+            .iter()
+            .position(|line| line.starts_with("┌ detail"))
+            .unwrap();
+        assert_eq!(
+            detail_row, 11,
+            "detail starts halfway down the 20-line body"
+        );
+        let detail = screen[detail_row..].join("\n");
+        for expected in [
+            "waiting on you: approve the plan",
+            "active · blocked · crew:2.0 · /w/app-3",
+            "task: rotate tokens",
+            "note: needs a call",
+            "links: pr_link https://example.com/pull/412",
+        ] {
+            assert!(detail.contains(expected), "{expected}\n{detail}");
+        }
+    }
+
+    #[test]
+    fn tabs_show_one_pane_and_tab_moves_focus() {
+        let tabs = crate::config::Board {
+            mode: BoardMode::Tabs,
+            direction: Direction::LeftRight,
+            panes: vec![Pane::Rows, Pane::Replies, Pane::Notes],
+            sizes: Vec::new(),
+        };
+        let mut app = paned(tabs, Notes::Missing);
+        let screen = draw(&app, 70, 10);
+        assert!(
+            screen[1].starts_with("[rows]  replies  notes"),
+            "{screen:#?}"
+        );
+        assert!(screen.iter().any(|line| line.contains("auth-fix")));
+        let tab = |app: &mut App| {
+            app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        };
+        tab(&mut app);
+        let screen = draw(&app, 70, 10);
+        assert!(screen[1].starts_with("rows  [replies]  notes"));
+        assert!(
+            screen
+                .iter()
+                .any(|line| line.contains("appear here in a later version"))
+        );
+        tab(&mut app);
+        assert!(
+            draw(&app, 70, 10)
+                .iter()
+                .any(|line| line.contains("(no notes yet)"))
+        );
+        tab(&mut app);
+        assert_eq!(app.focused(), Pane::Rows, "focus wraps around");
+    }
+
+    #[test]
+    fn focused_notes_scroll_while_rows_keep_their_selection() {
+        let text = (1..=30)
+            .map(|n| format!("line {n:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![50, 50],
+            ),
+            Notes::Text(text),
+        );
+        app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        for _ in 0..5 {
+            app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        }
+        let screen = draw(&app, 60, 10);
+        assert!(
+            screen.iter().any(|line| line.contains("line 06")),
+            "{screen:#?}"
+        );
+        assert!(!screen.iter().any(|line| line.contains("line 01")));
+        assert_eq!(app.selected, 0);
     }
 }

@@ -1,7 +1,7 @@
 //! Board state and key handling, independent of the terminal. Every keypress
 //! works on what is already loaded; loading happens in the refresh worker.
 
-use crate::config::Column;
+use crate::config::{Board, Column, Pane};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -12,6 +12,20 @@ pub struct View {
     pub document: Value,
     pub columns: Vec<Column>,
     pub colors: BTreeMap<String, String>,
+    pub board: Board,
+    pub notes: Notes,
+}
+
+/// The lead's notebook, already sanitized for display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Notes {
+    /// The notes pane is not shown, so nothing was read.
+    NotShown,
+    NoLead,
+    /// The lead has no notebook yet; the board never creates one.
+    Missing,
+    Text(String),
+    Failed(String),
 }
 
 pub struct Snapshot {
@@ -46,6 +60,9 @@ pub struct App {
     pub selected: usize,
     pub notice: Option<&'static str>,
     pub help: bool,
+    /// Index of the focused pane (split) or visible tab (tabs).
+    pub focus: usize,
+    pub notes_scroll: u16,
 }
 
 fn matches(row: &Value, needle: &str) -> bool {
@@ -112,6 +129,7 @@ impl App {
         self.current = snapshot.squad;
         match snapshot.view {
             Ok(view) => {
+                self.focus = self.focus.min(view.board.panes.len().saturating_sub(1));
                 self.view = Some(view);
                 self.error = None;
             }
@@ -137,6 +155,19 @@ impl App {
         self.view = None;
         self.selected = 0;
         Effect::Load(next)
+    }
+
+    pub fn focused(&self) -> Pane {
+        self.view
+            .as_ref()
+            .and_then(|view| view.board.panes.get(self.focus).copied())
+            .unwrap_or(Pane::Rows)
+    }
+
+    fn next_pane(&mut self) {
+        if let Some(view) = &self.view {
+            self.focus = (self.focus + 1) % view.board.panes.len().max(1);
+        }
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
@@ -168,26 +199,30 @@ impl App {
                 self.search.clear();
                 self.clamp();
             }
+            KeyCode::Up | KeyCode::Char('k') if self.focused() == Pane::Notes => {
+                self.notes_scroll = self.notes_scroll.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') if self.focused() == Pane::Notes => {
+                self.notes_scroll = self.notes_scroll.saturating_add(1);
+            }
             KeyCode::Up | KeyCode::Char('k') => self.selected = self.selected.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => {
                 self.selected += 1;
                 self.clamp();
             }
+            KeyCode::Tab => self.next_pane(),
             KeyCode::Left => return self.switch(-1),
             KeyCode::Right => return self.switch(1),
             KeyCode::Char('/') => self.searching = true,
             KeyCode::Char('?') => self.help = !self.help,
             KeyCode::Enter
             | KeyCode::Backspace
-            | KeyCode::Tab
             | KeyCode::Char('t' | 'r' | 'a' | 'o' | 'y' | 'n') => self.notice = Some(LATER),
             _ => {}
         }
         Effect::None
     }
 
-    /// The detail pane (#383 S2b) shows this row; tests use it meanwhile.
-    #[cfg(test)]
     pub fn selected_row(&self) -> Option<&Value> {
         self.items()
             .into_iter()
@@ -213,6 +248,13 @@ mod tests {
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             columns: Vec::new(),
             colors: BTreeMap::new(),
+            board: crate::config::Board {
+                mode: crate::config::BoardMode::Split,
+                direction: crate::config::Direction::LeftRight,
+                panes: vec![crate::config::Pane::Rows],
+                sizes: vec![100],
+            },
+            notes: super::Notes::NotShown,
         }
     }
 
@@ -312,7 +354,7 @@ mod tests {
             KeyCode::Enter,
             KeyCode::Char('t'),
             KeyCode::Char('o'),
-            KeyCode::Tab,
+            KeyCode::Backspace,
         ] {
             assert!(matches!(press(&mut app, code), Effect::None));
             assert_eq!(app.notice, Some(LATER));

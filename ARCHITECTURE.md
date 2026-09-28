@@ -1460,13 +1460,18 @@ mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
 painted data; stale results for a squad the user left are dropped. Without a
-terminal or with `--json`, `board` is `status`. Membership commands are
-sequences of idempotent core commands, not one transaction; each reports what it
-applied, and a re-run converges. `squad.toml`, beside the global config that
-`tmt config show` reports, is the user's file. Squad writes only the top-level
-`me`, with a changed-input check and atomic replacement that preserves the rest
-of the document. `init` settles `me` before creating the room. The `tmt-squad`
-lead skill source lives under
+terminal or with `--json`, `board` is `status`. `[squad.<name>.board]` selects
+split or tabs panes (rows, notes, detail, replies) over a per-layout preset,
+validated before raw mode. The notes pane reads the lead's notebook only through
+`tmt api notes.read` (bounded, never creating a file); `board::notes` removes
+every escape sequence and control character before display, since notes are
+agent-written. State `sort` overrides reorder the vocabulary for both `status`
+and the board. Membership commands are sequences of idempotent core commands,
+not one transaction; each reports what it applied, and a re-run converges.
+`squad.toml`, beside the global config that `tmt config show` reports, is the
+user's file. Squad writes only the top-level `me`, with a changed-input check
+and atomic replacement that preserves the rest of the document. `init` settles
+`me` before creating the room. The `tmt-squad` lead skill source lives under
 `extensions/tmt-squad/skills/` and is embedded only in the squad executable,
 never in the core skill bundle. The release workflow does not distribute squad
 until the generic extension installer (#387).

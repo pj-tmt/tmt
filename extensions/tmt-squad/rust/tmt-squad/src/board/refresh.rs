@@ -2,8 +2,17 @@
 //! on core. Queued requests collapse to the newest, and each load re-reads
 //! squad.toml, so configuration edits appear on the next refresh.
 
-use super::app::{Snapshot, View};
-use crate::{config::Config, core::Core, squad::Squad, status};
+use super::{
+    app::{Notes, Snapshot, View},
+    notes::sanitize,
+};
+use crate::{
+    config::{Config, Pane},
+    core::Core,
+    squad::Squad,
+    status,
+};
+use serde_json::{Value, json};
 use std::sync::mpsc::{self, Receiver, Sender};
 
 pub struct Worker {
@@ -63,15 +72,26 @@ fn load(core: &Core, wanted: Option<String>) -> Snapshot {
     let view = (|| {
         let config = Config::load(core)?;
         let layout = config.layout(&squad.name)?;
+        let states = config.states(&squad.name, layout)?;
+        let board = config.board(&squad.name, layout)?;
+        let document = status::document(
+            &squad,
+            layout,
+            &states,
+            &config.sections(&squad.name)?,
+            squad.members(core)?,
+        );
+        let notes = if board.panes.contains(&Pane::Notes) {
+            lead_notes(core, &document["squad"]["lead"])
+        } else {
+            Notes::NotShown
+        };
         Ok(View {
             columns: config.columns(&squad.name)?,
-            colors: config.state_colors(&squad.name, layout)?,
-            document: status::document(
-                &squad,
-                layout,
-                &config.sections(&squad.name)?,
-                squad.members(core)?,
-            ),
+            colors: states.colors,
+            board,
+            notes,
+            document,
         })
     })()
     .map_err(|error: crate::core::SquadError| error.to_string());
@@ -79,5 +99,18 @@ fn load(core: &Core, wanted: Option<String>) -> Snapshot {
         squads: names,
         squad: Some(squad.name),
         view,
+    }
+}
+
+/// The lead's notebook through `tmt api notes.read`: bounded, read-only, and
+/// never creates a missing notebook.
+fn lead_notes(core: &Core, lead: &Value) -> Notes {
+    let Some(id) = lead["id"].as_str() else {
+        return Notes::NoLead;
+    };
+    match core.api("notes.read", json!({"identityId": id})) {
+        Ok(note) => Notes::Text(sanitize(note["content"].as_str().unwrap_or_default())),
+        Err(error) if error.code == "NOTEBOOK_NOT_FOUND" => Notes::Missing,
+        Err(error) => Notes::Failed(error.to_string()),
     }
 }
