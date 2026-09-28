@@ -1,5 +1,10 @@
 //! Strict local meeting-room wire values; membership remains storage-owned.
 
+use crate::{
+    identity_projection::{identity_value, metadata_value},
+    identity_status::status_value,
+    storage::RoomRoster,
+};
 use serde::{Deserialize, Serialize};
 use tmt_core::room::{MeetingRoom, RoomWrite};
 
@@ -68,6 +73,25 @@ pub fn encode_room(room: &MeetingRoom) -> Vec<u8> {
 pub fn encode_rooms(rooms: &[MeetingRoom]) -> Vec<u8> {
     serde_json::to_vec(&rooms.iter().map(RoomWire::from).collect::<Vec<_>>())
         .expect("serializable room list")
+}
+
+/// Members extend the shared identity projection with metadata and status.
+/// Presence is deliberately absent: it needs host observation, not storage.
+pub fn encode_roster(roster: &RoomRoster, now_ms: u64) -> Vec<u8> {
+    let members: Vec<serde_json::Value> = roster
+        .members
+        .iter()
+        .map(|member| {
+            let mut value = identity_value(&member.identity);
+            value["metadata"] = metadata_value(&member.metadata);
+            value["status"] = status_value(member.status.as_ref(), now_ms);
+            value
+        })
+        .collect();
+    serde_json::to_vec(
+        &serde_json::json!({"room": RoomWire::from(&roster.room), "members": members}),
+    )
+    .expect("serializable room roster")
 }
 
 #[cfg(test)]

@@ -27,6 +27,7 @@ Clients must tolerate additive response fields.
 | `dispatch.show`   | `operationId`                                                     | Immutable acceptance receipt                                            |
 | `dispatch.create` | `operationId`, `recipientIds`, `message`, optional `kind`, `room` | Acceptance receipt; optional independent `wake` on first direct request |
 | `rooms.write`     | `roomId`, `room: {expectedRevision, name, memberIds}`             | Room resource                                                           |
+| `rooms.roster`    | `room` (UUID or unique exact name), optional `metadataPrefix`     | `room` resource and `members` with metadata and status                  |
 | `notes.read`      | `identityId`                                                      | Saved identity's `identityId`, `name`, `content`                        |
 
 IDs are canonical UUIDs, except request IDs, which use TMT's `req_...` format.
@@ -50,6 +51,15 @@ reread. This is not a live change feed. Reads never mark incoming work as read.
 Use `tmt x` and its revision cursor for attention, and the ordinary JSON commands
 for identity, presence, room list/show/retire, reply and result. Notes accepts a
 saved identity UUID, never a caller-selected path, and does not initialize a file.
+
+`rooms.roster` reads an active room's non-retired members in the room's member
+order. Each member is the identity summary from `tmt identity show --json`, plus
+`metadata` (only keys starting with `metadataPrefix`, a literal prefix using the
+metadata key grammar) and `status` as in `tmt identity status show --json`
+(`null` when absent; expired status is returned with `stale: true`). One response
+comes from a single consistent snapshot. It does not include presence: join it
+with `tmt ls --room <roomId> --json`. An unknown or retired room returns
+`ROOM_NOT_FOUND`, and a shared name returns `ROOM_AMBIGUOUS`; select by UUID.
 
 Example conditional room write (replace the UUIDs with actual identities):
 

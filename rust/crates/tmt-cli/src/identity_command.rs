@@ -263,7 +263,8 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
             Report::MetadataList {
                 identity_id,
                 metadata,
-            } => json!({"identityId": identity_id, "metadata": metadata}),
+            } => json!({"identityId": identity_id,
+                "metadata": tmt_adapters::identity_projection::metadata_value(&metadata)}),
             Report::MetadataRemoved {
                 identity_id,
                 key,

@@ -13,6 +13,7 @@ pub mod dispatch;
 pub mod extension_command;
 #[cfg(unix)]
 pub mod file_lock;
+pub mod identity_projection;
 pub mod identity_status;
 #[cfg(unix)]
 pub mod interrupt;

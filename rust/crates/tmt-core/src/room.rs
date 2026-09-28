@@ -79,19 +79,40 @@ pub enum ResolveError<E> {
     Repository(E),
 }
 
+/// Active-room reads needed by selection. Every repository provides them; a
+/// storage adapter may also provide them inside a caller-owned read transaction.
+pub trait ActiveRoomReader {
+    type Error;
+
+    fn active_room(&mut self, id: &str) -> Result<Option<MeetingRoom>, Self::Error>;
+    fn active_rooms(&mut self) -> Result<Vec<MeetingRoom>, Self::Error>;
+}
+
+impl<R: RoomRepository> ActiveRoomReader for R {
+    type Error = R::Error;
+
+    fn active_room(&mut self, id: &str) -> Result<Option<MeetingRoom>, Self::Error> {
+        self.find_meeting_room(id)
+    }
+
+    fn active_rooms(&mut self) -> Result<Vec<MeetingRoom>, Self::Error> {
+        self.list_meeting_rooms()
+    }
+}
+
 /// UUIDs are authoritative; human labels resolve only when the exact name is unique.
-pub fn resolve_room<R: RoomRepository>(
+pub fn resolve_room<R: ActiveRoomReader>(
     repository: &mut R,
     selector: &str,
 ) -> Result<MeetingRoom, ResolveError<R::Error>> {
     if canonical_id(selector) {
         return repository
-            .find_meeting_room(selector)
+            .active_room(selector)
             .map_err(ResolveError::Repository)?
             .ok_or(ResolveError::NotFound);
     }
     let mut matches = repository
-        .list_meeting_rooms()
+        .active_rooms()
         .map_err(ResolveError::Repository)?
         .into_iter()
         .filter(|room| room.name == selector)

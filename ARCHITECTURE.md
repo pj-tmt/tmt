@@ -165,7 +165,9 @@ transaction through `RequestRecords`, backed by the existing room reader. This
 applies to inbox enqueue and pane preparation, before cadence or attention writes;
 CLI preflight alone is not treated as an atomic membership fence.
 Core `room::RoomRepository` is the shared CLI/HTTP roster boundary. Its resolver
-accepts canonical UUIDs or unique exact labels and rejects ambiguous names.
+accepts canonical UUIDs or unique exact labels and rejects ambiguous names. The
+resolver depends only on `ActiveRoomReader`, which every repository provides and
+which storage also provides inside a caller-owned read transaction.
 Adapter `room` owns the wire projection used by both transports; storage table
 names remain unchanged. CLI `room` creation/list/show/join/leave requires no Office
 installation; explicit identity selection does not probe tmux. `ls --room` filters
@@ -782,6 +784,16 @@ a new major. Unsupported majors return `API_VERSION_UNSUPPORTED` with the suppor
 range. Human-shaped identity, presence, room inspection/retirement, reply/result
 and attention operations remain their ordinary JSON commands, not duplicate API
 implementations. This port does not move Office storage or remove its core facade.
+
+`rooms.roster` composes a room's effective members with their prefix-filtered
+metadata and self-reported status from one deferred SQLite read snapshot
+(`storage::room_roster`): selection, membership, metadata and status cannot
+disagree within a response. The read itself performs no writes or acknowledgment;
+opening storage follows the same policy as every other API operation.
+Presence is deliberately excluded because it requires host observation and
+binding reconciliation owned by `ls`; consumers join `ls --room --json`.
+Adapter `identity_projection` owns the identity summary and metadata map shared
+by CLI JSON and this operation, so both transports emit identical bytes.
 
 History reads use the existing `(preparedAtMs, requestId)` keyset, not a frozen
 snapshot or change feed. X attention retains its separate revision cursor.

@@ -28,6 +28,21 @@ function snapshot(sandbox: Sandbox) {
   }
 }
 
+// Independent oracle: every user table's rows, read without the implementation.
+function everyTable(sandbox: Sandbox) {
+  const db = new Database(sandbox.database, { readonly: true });
+  try {
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all() as { name: string }[];
+    return Object.fromEntries(
+      tables.map(({ name }) => [name, db.prepare(`SELECT * FROM "${name}"`).all()])
+    );
+  } finally {
+    db.close();
+  }
+}
+
 describe('public local extension API', () => {
   it('discovers capabilities through a non-Office extension without creating state', async () => {
     await withSandbox(async (sandbox) => {
@@ -201,6 +216,63 @@ describe('public local extension API', () => {
         response: 'Final after first page',
       });
       expect(snapshot(sandbox)).toEqual(before);
+    });
+  });
+
+  it('projects one room roster exactly like the ordinary reads, without mutation', async () => {
+    await withSandbox(async (sandbox) => {
+      const json = async (args: string[]) => {
+        const result = await runCli(sandbox, [...args, '--json']);
+        expect(result.status, args.join(' ')).toBe(0);
+        return JSON.parse(result.stdout);
+      };
+      const alice = await identity(sandbox, 'Alice');
+      const bob = await identity(sandbox, 'Bob');
+      const outsider = await identity(sandbox, 'Carol');
+      await json(['room', 'create', 'Squad']);
+      for (const member of [alice, bob])
+        await json(['room', 'join', 'Squad', '--identity', member]);
+      await json(['identity', 'meta', 'set', 'squad.a.state', 'review', '--identity', alice]);
+      await json(['identity', 'meta', 'set', 'squad.ab.state', 'other', '--identity', alice]);
+      await json(['identity', 'meta', 'set', 'squad.a.state', 'hidden', '--identity', outsider]);
+      await json(['identity', 'status', 'set', 'Reviewing', '--identity', alice]);
+      await json(['identity', 'status', 'set', 'Parked', '--identity', bob, '--for', '1s']);
+      // Bounded poll for the one-second minimum expiry; reads never renew status.
+      const deadline = Date.now() + 5_000;
+      while (!(await json(['identity', 'status', 'show', '--identity', bob])).status.stale) {
+        expect(Date.now()).toBeLessThan(deadline);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      const before = everyTable(sandbox);
+
+      const roster = await api(sandbox, 'rooms.roster', {
+        room: 'Squad',
+        metadataPrefix: 'squad.a.',
+      });
+      expect(roster.status).toBe(0);
+      expect(roster.body.room).toEqual((await json(['room', 'show', 'Squad'])).room);
+      expect(roster.body.members.map((member: { id: string }) => member.id)).toEqual(
+        roster.body.room.memberIds
+      );
+      for (const member of roster.body.members) {
+        const { metadata, status, ...summary } = member;
+        expect(summary).toEqual((await json(['identity', 'show', member.id])).identity);
+        const all = (await json(['identity', 'meta', 'list', '--identity', member.id])).metadata;
+        expect(metadata).toEqual(
+          Object.fromEntries(Object.entries(all).filter(([key]) => key.startsWith('squad.a.')))
+        );
+        expect(status).toEqual(
+          (await json(['identity', 'status', 'show', '--identity', member.id])).status
+        );
+      }
+      const byId = new Map(roster.body.members.map((m: { id: string }) => [m.id, m]));
+      expect(byId.get(alice)).toMatchObject({ metadata: { 'squad.a.state': 'review' } });
+      expect(byId.get(bob)).toMatchObject({ metadata: {}, status: { stale: true } });
+
+      const missing = await api(sandbox, 'rooms.roster', { room: 'Absent' });
+      expect(missing.status).toBe(1);
+      expect(missing.body.error.code).toBe('ROOM_NOT_FOUND');
+      expect(everyTable(sandbox)).toEqual(before);
     });
   });
 
