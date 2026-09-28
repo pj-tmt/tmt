@@ -664,6 +664,13 @@ behavior rather than large DWARF payloads. Keep the existing process deadlines
 and assertions. Both binaries remain in `target/debug`, using the established
 selectors. This does not replace optimized release-archive verification.
 
+The same unification applies to any combined build: `cargo build -p tmt-cli -p
+tmt-squad` (or a workspace build) may compile shared dependencies with features
+that only another package enables, so its `tmt` can differ from the product.
+Product identity proofs are package-scoped, matching per-product release builds:
+compare `cargo build --locked --release -p tmt-cli` alone, at the same checkout
+path, before and after a change.
+
 The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash
@@ -805,8 +812,8 @@ sandbox PATH holding the `tmt-squad` and `tmt-sq` links, with no installed-copy
 fallback. It observes rooms and metadata through an independent SQLite reader.
 A workspace `cargo build --locked` produces the default executable. Squad unit
 tests run with `cargo test --locked -p tmt-squad`. For dependency changes,
-compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` to prove
-the CLI is unchanged.
+compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` and the
+package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged.
 
 ### Provider setup and lifecycle verification
 

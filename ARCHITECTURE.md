@@ -1476,8 +1476,11 @@ Squad writes only the top-level `me`, with a changed-input check and atomic
 replacement that preserves the rest of the document. `init` settles `me` before
 creating the room. The `tmt-squad` lead skill source lives under
 `extensions/tmt-squad/skills/` and is embedded only in the squad executable,
-never in the core skill bundle. The release workflow does not distribute squad
-until the generic extension installer (#387).
+never in the core skill bundle. Squad's dependencies must not change the CLI
+product: the proof is package-scoped (`-p tmt-cli` alone), because combined
+workspace builds may unify shared-dependency features across packages. The
+release workflow does not distribute squad until the generic extension installer
+(#387).
 
 ## Testing and evidence boundaries
 
