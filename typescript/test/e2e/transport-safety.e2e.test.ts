@@ -276,10 +276,11 @@ describe.sequential('TMT-24 safe transport', () => {
         });
         expect(requestAttempts(fixture)).toHaveLength(1);
         expect(requestAttempts(fixture)[0]).toMatchObject({
-          status: 'uncertain',
+          status: 'queued',
+          route_kind: 'inbox',
+          wake_state: 'uncertain',
           wait_active: 0,
-          pane_id: peer.pane,
-          pane_pid: peer.pid,
+          recipient_identity_id: expect.any(String),
         });
       },
       { mode: 'respond' }

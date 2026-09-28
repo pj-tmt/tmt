@@ -22,6 +22,120 @@ fn inbox_input(fixture: &Fixture) -> PrepareRequest {
 }
 
 #[test]
+fn final_before_live_claim_refunds_unused_preamble_without_rewaking() {
+    let mut fixture = Fixture::new();
+    let input = inbox_input(&fixture);
+    let route = input.route.clone();
+    service(&mut fixture)
+        .enqueue(input, "enqueue-attempt".into(), 7)
+        .unwrap();
+    service(&mut fixture)
+        .submit_response(tmt_core::request::SubmitResponse {
+            request_id: "enqueue-request".into(),
+            proof: tmt_core::request::ResponseProof::Compact(
+                tmt_core::request::correlation::response_token(
+                    "enqueue-request",
+                    "enqueue-attempt",
+                    &route,
+                ),
+            ),
+            body: "Read directly from Inbox".into(),
+        })
+        .unwrap();
+    let claim = service(&mut fixture).claim_wake("enqueue-request").unwrap();
+    assert!(!claim.claimed);
+    assert_eq!(claim.state, tmt_core::request::WakeState::Unavailable);
+    assert_eq!(preamble_count(&fixture.database, &fixture.identity_id), 0);
+    assert!(
+        !service(&mut fixture)
+            .claim_wake("enqueue-request")
+            .unwrap()
+            .claimed
+    );
+    assert_eq!(preamble_count(&fixture.database, &fixture.identity_id), 0);
+}
+
+#[test]
+fn full_delivery_settles_only_incoming_attention_and_never_rewakes() {
+    use tmt_core::request::WakeState;
+    for (outcome, incoming, cadence) in [
+        (WakeState::Sent, 0, 1),
+        (WakeState::Unavailable, 1, 0),
+        (WakeState::Uncertain, 1, 1),
+    ] {
+        let mut fixture = Fixture::new();
+        let identity = fixture.identity_id.clone();
+        let input = inbox_input(&fixture);
+        service(&mut fixture)
+            .enqueue(input, "enqueue-attempt".into(), 7)
+            .unwrap();
+        assert!(
+            service(&mut fixture)
+                .claim_wake("enqueue-request")
+                .unwrap()
+                .claimed
+        );
+        service(&mut fixture)
+            .settle_request_delivery("enqueue-request", outcome)
+            .unwrap();
+        assert_eq!(
+            service(&mut fixture)
+                .list_incoming(&identity, None, None, None)
+                .unwrap()
+                .items
+                .len(),
+            incoming
+        );
+        assert_eq!(preamble_count(&fixture.database, &identity), cadence);
+        assert!(
+            !service(&mut fixture)
+                .claim_wake("enqueue-request")
+                .unwrap()
+                .claimed
+        );
+        let oracle = Connection::open(&fixture.database).unwrap();
+        let state: (String, String, i64, i64) = oracle.query_row(
+            "SELECT route_kind, status, attention_revision, attention_acknowledged_revision FROM request_attempts",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        ).unwrap();
+        assert_eq!(state.0, "inbox");
+        assert_eq!(state.1, "queued");
+        assert!(state.2 > 0);
+        assert_eq!(
+            state.3, 0,
+            "delivery never acknowledges originator attention"
+        );
+    }
+}
+
+#[test]
+fn advisory_wake_does_not_consume_queued_request_attention() {
+    let mut fixture = Fixture::new();
+    let identity = fixture.identity_id.clone();
+    let input = inbox_input(&fixture);
+    service(&mut fixture)
+        .enqueue(input, "enqueue-attempt".into(), 7)
+        .unwrap();
+    assert!(
+        service(&mut fixture)
+            .claim_wake("enqueue-request")
+            .unwrap()
+            .claimed
+    );
+    service(&mut fixture)
+        .settle_wake("enqueue-request", tmt_core::request::WakeState::Sent)
+        .unwrap();
+    assert_eq!(
+        service(&mut fixture)
+            .list_incoming(&identity, None, None, None)
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+}
+
+#[test]
 fn enqueue_publishes_exact_prompt_and_both_attention_sides_before_returning() {
     let mut fixture = Fixture::new();
     let input = inbox_input(&fixture);

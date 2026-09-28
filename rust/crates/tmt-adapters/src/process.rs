@@ -2,6 +2,7 @@
 //! The communication primitive multiplexes pipes; this boundary owns deadlines,
 //! per-stream limits, failure classification, and explicit termination/reaping.
 
+pub mod detached;
 pub mod interactive;
 pub mod ps;
 pub mod runtime;

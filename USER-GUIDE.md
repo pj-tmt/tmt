@@ -129,7 +129,8 @@ identities, and bare `preamble show` still lists all stored preambles.
 
 Creation is idempotent for a canonical-equivalent name. Creation alone does not
 bind a pane, authenticate a caller, queue work, or perform delivery. The active
-identity is eligible for a later explicit local `talk --inbox` request.
+identity can receive a later `talk` request in its Inbox while offline;
+`talk --inbox` explicitly queues without attempting live delivery.
 
 Attach exact, searchable descriptive metadata to an active identity:
 
@@ -298,6 +299,10 @@ The receiver must have the skill loaded. TMT gives it a request ID and receipt
 inside the delivered instructions; the receiver submits one complete final
 reply with that receipt. `talk` waits for the durable final by default.
 
+An ended or unbound identified recipient stays queued in Inbox, without pane
+input. A verified pane without runtime hooks retains legacy delivery; agent
+readiness is unverified, and tmux cannot detect provider approval prompts.
+
 For work that should continue after the caller returns:
 
 ```bash
@@ -329,8 +334,15 @@ identity explicitly. The option belongs after `talk`:
 tmt talk reviewer "Review the release notes." --identity coordinator --detach --json
 ```
 
-This is local attribution, not authentication. The recipient still needs a
-live bound pane. To recover requests after timeout, detach, process restart, or
+This is local attribution, not authentication. An offline recipient keeps the
+request in Inbox; TMT reports it immediately and never pastes into an ended
+session or automatically sends again when it returns. Live delivery keeps the
+usual sent/completed output and does not leave duplicate incoming attention.
+Detached or interrupted callers may receive a one-line reply hint at their
+current verified binding; a live blocking waiter gets only the full reply.
+Notification failure never invalidates a stored final. Use `tmt result <id>`
+from a hint, rather than re-sending. Explicit `--inbox` remains queue-only.
+To recover requests after timeout, detach, process restart, or
 pane loss:
 
 ```bash

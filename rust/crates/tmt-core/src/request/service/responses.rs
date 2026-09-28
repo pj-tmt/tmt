@@ -5,6 +5,36 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         &mut self,
         input: SubmitResponse,
     ) -> Result<FinalResponse, RequestError<R::Error>> {
+        self.accept_response(input, None, false)
+            .map(|(response, _)| response)
+    }
+
+    pub fn submit_response_with_hint(
+        &mut self,
+        input: SubmitResponse,
+        gone_waiter: Option<&super::super::notification::NotificationPolicy>,
+    ) -> Result<
+        (
+            FinalResponse,
+            Option<super::super::notification::OriginatorHint>,
+        ),
+        RequestError<R::Error>,
+    > {
+        self.accept_response(input, gone_waiter, true)
+    }
+
+    fn accept_response(
+        &mut self,
+        input: SubmitResponse,
+        gone_waiter: Option<&super::super::notification::NotificationPolicy>,
+        claim_hint: bool,
+    ) -> Result<
+        (
+            FinalResponse,
+            Option<super::super::notification::OriginatorHint>,
+        ),
+        RequestError<R::Error>,
+    > {
         let invalid_proof = match &input.proof {
             ResponseProof::Recorded {
                 attempt_id,
@@ -35,9 +65,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 if input.body != existing.body {
                     return Err(RequestError::Response(ResponseRejection::Conflict));
                 }
-                return Ok(existing);
+                return Ok((existing, None));
             }
-            let attempt = records
+            let mut attempt = records
                 .find_request(&input.request_id)?
                 .ok_or(RequestError::Response(ResponseRejection::RequestNotFound))?;
             validate_proof(
@@ -63,10 +93,22 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             ) {
                 return Err(RequestError::Response(ResponseRejection::StateInvalid));
             }
+            // Only an accepted first final may release a proven-dead waiter.
+            // Bad receipts, conflicting retries and observation reads never mutate it.
+            if attempt.wait_active
+                && let Some(expected) = gone_waiter
+                && expected.waiter.is_some()
+                && records
+                    .notification(&input.request_id)?
+                    .is_some_and(|value| value.policy == *expected)
+            {
+                records.release_wait(&attempt.attempt_id, now)?;
+                attempt.wait_active = false;
+            }
             let response = FinalResponse {
                 request_id: input.request_id,
-                attempt_id: attempt.attempt_id,
-                route: attempt.route,
+                attempt_id: attempt.attempt_id.clone(),
+                route: attempt.route.clone(),
                 body_bytes: input.body.len() as u64,
                 body: input.body,
                 submitted_at_ms: now,
@@ -78,7 +120,17 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 let revision = reserve_revision(records, id)?;
                 records.set_attention_revision(&response.request_id, revision)?;
             }
-            Ok(response)
+            let hint = if claim_hint {
+                notification::claim(
+                    records,
+                    &attempt,
+                    super::super::notification::HintKind::Reply,
+                    now,
+                )?
+            } else {
+                None
+            };
+            Ok((response, hint))
         })
     }
 

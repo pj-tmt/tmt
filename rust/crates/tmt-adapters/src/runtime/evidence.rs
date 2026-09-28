@@ -38,7 +38,54 @@ pub(crate) fn observe_named_in_pane(
     }
 }
 
+/// Recovery is based on a unique new runtime below the verified container,
+/// never the shell PID or a provider name remembered in application state.
+pub(crate) fn observe_replacement(
+    runner: &impl CommandRunner,
+    pane_pid: u64,
+    deadline: Instant,
+    executable: &str,
+) -> Option<RuntimeIncarnation> {
+    let snapshot = query_ps(
+        runner,
+        &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
+        deadline,
+        4 * 1024 * 1024,
+    )
+    .ok()?;
+    let text = std::str::from_utf8(&snapshot.stdout).ok()?;
+    let mut candidates = Vec::new();
+    for line in text.lines() {
+        let (pid, tail) = line.trim().split_once(char::is_whitespace)?;
+        let (_, command) = tail.trim_start().split_once(char::is_whitespace)?;
+        if Path::new(command.trim()).file_name() != Some(std::ffi::OsStr::new(executable)) {
+            continue;
+        }
+        let pid = pid.parse::<u64>().ok()?;
+        if named_ancestor(text, pid, pane_pid, executable, true) == Some(pid) {
+            candidates.push(pid);
+        }
+    }
+    let [pid] = candidates.as_slice() else {
+        return None;
+    };
+    match observe_runtime_process(runner, *pid, deadline).ok()? {
+        ProcessObservation::Live(value) => Some(value),
+        _ => None,
+    }
+}
+
 fn ancestor(text: &str, caller: u64, pane: u64, executable: &str) -> Option<u64> {
+    named_ancestor(text, caller, pane, executable, false)
+}
+
+fn named_ancestor(
+    text: &str,
+    caller: u64,
+    pane: u64,
+    executable: &str,
+    include_caller: bool,
+) -> Option<u64> {
     let mut rows = HashMap::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
         let (pid, tail) = line.trim().split_once(char::is_whitespace)?;
@@ -61,7 +108,7 @@ fn ancestor(text: &str, caller: u64, pane: u64, executable: &str) -> Option<u64>
             return None;
         }
         let (parent, command) = rows.get(&pid)?;
-        if pid != caller
+        if (include_caller || pid != caller)
             && Path::new(command)
                 .file_name()
                 .is_some_and(|name| name == executable)

@@ -4,6 +4,7 @@
 mod attention;
 mod history;
 mod lifecycle;
+mod notification;
 mod responses;
 mod wake;
 

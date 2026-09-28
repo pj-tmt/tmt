@@ -31,7 +31,7 @@ fn whiteboard_upgrade_preserves_prior_content_and_rolls_back_with_history() {
         .unwrap();
     observer.close().unwrap();
     let storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 34);
+    assert_eq!(storage.health().unwrap().schema_version, 35);
     let connection = storage.connection().unwrap();
     assert_eq!(
         connection

@@ -1,4 +1,4 @@
-//! Storage-only public response composition. Wire/input acquisition completes
+//! Durable response composition with independent best-effort reply hints. Input
 //! before storage; all final-response decisions remain in RequestService.
 
 use crate::{
@@ -28,7 +28,7 @@ use tmt_core::{
 
 enum Report {
     NotRequired(String),
-    Submitted(FinalResponse),
+    Submitted(FinalResponse, Option<tmt_core::request::WakeState>),
     Completed(FinalResponse),
 }
 
@@ -120,13 +120,20 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     let mut storage = Storage::open(paths.database).map_err(unavailable)?;
     // Invalid clocks fail closed through the service's safe-integer validation.
     // Sample inside its transaction, not once before acquiring the writer lock.
-    let mut service = RequestService::new(&mut storage, wall_time_ms);
     let pending = match submission {
-        Some(input) => service
-            .submit_response(input)
-            .map(Report::Submitted)
-            .map_err(response_failure),
-        None => service
+        Some(input) => {
+            let gone_waiter = crate::delivery::gone_waiter(&mut storage, &request_id);
+            let accepted = RequestService::new(&mut storage, wall_time_ms)
+                .submit_response_with_hint(input, gone_waiter.as_ref())
+                .map_err(response_failure);
+            accepted.map(|(response, hint)| {
+                let notification = hint
+                    .as_ref()
+                    .map(|hint| crate::delivery::notify(&mut storage, hint));
+                Report::Submitted(response, notification)
+            })
+        }
+        None => RequestService::new(&mut storage, wall_time_ms)
             .get_response(&request_id)
             .map_err(response_failure)
             .and_then(|record| match record {
@@ -165,14 +172,16 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
             stdout,
             "Announcement '{request_id}' does not require a response."
         )?,
-        Report::Submitted(record) if mode.json => writeln!(
-            stdout,
-            "{}",
-            json!({
+        Report::Submitted(record, notification) if mode.json => {
+            let mut value = json!({
                 "status": "submitted", "requestId": record.request_id,
                 "bodyBytes": record.body_bytes, "submittedAtMs": record.submitted_at_ms
-            })
-        )?,
+            });
+            if let Some(notification) = notification {
+                value["notification"] = json!(notification.as_str());
+            }
+            writeln!(stdout, "{value}")?;
+        }
         Report::Completed(record) if mode.json => writeln!(
             stdout,
             "{}",
@@ -181,10 +190,14 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
                 "bodyBytes": record.body_bytes, "submittedAtMs": record.submitted_at_ms
             })
         )?,
-        Report::Submitted(record) => writeln!(
+        Report::Submitted(record, notification) => writeln!(
             stdout,
-            "Submitted response for request '{}' ({} bytes).",
-            record.request_id, record.body_bytes
+            "Submitted response for request '{}' ({} bytes).{}",
+            record.request_id,
+            record.body_bytes,
+            notification
+                .map(|value| format!(" Originator notification: {}.", value.as_str()))
+                .unwrap_or_default()
         )?,
         Report::Completed(record) => writeln!(
             stdout,

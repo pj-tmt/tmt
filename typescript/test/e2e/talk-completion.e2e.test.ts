@@ -462,7 +462,9 @@ describe.sequential('public talk completion and observer lifecycle', () => {
         originator_kind: 'verified',
         inject_preamble: 1,
         wait_active: 0,
-        status: 'sent',
+        status: 'queued',
+        route_kind: 'inbox',
+        wake_state: 'sent',
       });
       const identities = durableState(fixture).identities;
       const callerIdentity = identities.find((identity) => identity.name === 'NativeCaller');

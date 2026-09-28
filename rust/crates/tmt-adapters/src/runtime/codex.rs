@@ -188,6 +188,30 @@ pub fn record_client_exit(
 pub struct CodexLifecycle;
 
 impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
+    fn observe_replacement(
+        &self,
+        pane_pid: u64,
+        deadline: std::time::Instant,
+    ) -> Option<RuntimeIncarnation> {
+        let process = super::evidence::observe_replacement(
+            &crate::process::SupervisedProbeRunner,
+            pane_pid,
+            deadline,
+            "codex",
+        )?;
+        let observed = crate::runtime_caller::codex::CodexCaller::new(
+            &crate::process::SupervisedProbeRunner,
+            crate::runtime_caller::codex::CallerEnvironment {
+                thread_id: None,
+                process_id: u32::try_from(process.pid()).ok()?,
+            },
+        )
+        .observe_host()
+        .ok()??;
+        (observed.0 == tmt_core::driver::caller::HostAttribution::Independent
+            && u64::from(observed.1) == process.pid())
+        .then_some(process)
+    }
     fn decode(&self, payload: &[u8]) -> Option<Box<dyn super::lifecycle::LifecycleObservation>> {
         decode_hook(payload).map(|value| Box::new(value) as _)
     }

@@ -89,6 +89,7 @@ function expectNativeSchema(
       version: 34,
       name: 'retain foreground launch ownership for binding runtime observations',
     },
+    { version: 35, name: 'claim originator reply and detached timeout hints' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -116,6 +117,7 @@ function expectNativeSchema(
       'office_whiteboard_snapshots',
       'office_whiteboard_snapshot_images',
       'request_recipient_attention_identities',
+      'request_notifications',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([

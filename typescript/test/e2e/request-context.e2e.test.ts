@@ -110,7 +110,7 @@ describe.sequential('TMT-55 request context and provenance', () => {
 
         await fixture.waitFor(() =>
           requestAttempts(fixture).some(
-            (row) => row.request_id === request.requestId && row.status === 'sent'
+            (row) => row.request_id === request.requestId && row.wake_state === 'sent'
           )
         );
         const prepared = requestAttempts(fixture)[0];
@@ -123,7 +123,9 @@ describe.sequential('TMT-55 request context and provenance', () => {
           message_bytes: Buffer.byteLength(original),
           inject_preamble: 1,
           wait_active: 1,
-          status: 'sent',
+          status: 'queued',
+          route_kind: 'inbox',
+          wake_state: 'sent',
         });
         expect(prepared.message_expires_at_ms).toBe(prepared.prepared_at_ms + 90 * 86_400_000);
         expect(preambleCounters(fixture)[peerId]).toBe(1);
@@ -207,7 +209,9 @@ describe.sequential('TMT-55 request context and provenance', () => {
           message_text: original,
           inject_preamble: 0,
           wait_active: 0,
-          status: 'sent',
+          status: 'queued',
+          route_kind: 'inbox',
+          wake_state: 'sent',
         });
         expect(preambleCounters(fixture)[peerId]).toBe(1);
 

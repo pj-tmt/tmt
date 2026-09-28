@@ -118,7 +118,9 @@ describe.sequential('exchange attention watermarks and revision fencing', () => 
         );
         expect(acknowledged).toEqual({
           identity: created.identity,
-          acknowledgedThrough: 1,
+          // The same identity owns originator revision 1 and recipient revision
+          // 2. Live delivery settles only the latter, not the eventual final.
+          acknowledgedThrough: 2,
         });
         expect(attentionAttempt(fixture, requestId).attention_acknowledged_revision).toBe(0);
 
@@ -176,14 +178,14 @@ describe.sequential('exchange attention watermarks and revision fencing', () => 
           expect.objectContaining({
             requestId,
             preparedAtMs: expect.any(Number),
-            delivery: 'sent',
+            delivery: 'queued',
             final: {
               status: 'retained',
               submittedAtMs: expect.any(Number),
               bodyBytes: Buffer.byteLength(body),
               expiresAtMs: expect.any(Number),
             },
-            revision: 2,
+            revision: 3,
             acknowledged: false,
             settled: false,
             retentionExpiresAtMs: expect.any(Number),
@@ -193,7 +195,7 @@ describe.sequential('exchange attention watermarks and revision fencing', () => 
         expect(reopened.items[0].final).not.toHaveProperty('response');
         expect(reopened.items[0]).not.toHaveProperty('prompt');
         expect(attentionAttempt(fixture, requestId)).toMatchObject({
-          attention_revision: 2,
+          attention_revision: 3,
           attention_acknowledged_revision: 0,
         });
 
@@ -215,18 +217,18 @@ describe.sequential('exchange attention watermarks and revision fencing', () => 
           changed: boolean;
         }>(
           await fixture.runJsonCli(
-            ['x', 'ack', requestId, '--identity', 'AttentionOwner', '--revision', '2'],
+            ['x', 'ack', requestId, '--identity', 'AttentionOwner', '--revision', '3'],
             { withoutTmux: true }
           )
         );
         expect(current).toEqual({
           identity: created.identity,
           requestId,
-          revision: 2,
+          revision: 3,
           acknowledged: true,
           changed: true,
         });
-        expect(attentionAttempt(fixture, requestId).attention_acknowledged_revision).toBe(2);
+        expect(attentionAttempt(fixture, requestId).attention_acknowledged_revision).toBe(3);
 
         const shown = expectJsonResult<{
           identity: Identity;
@@ -254,7 +256,7 @@ describe.sequential('exchange attention watermarks and revision fencing', () => 
             requestId,
             recipientIdentityId: created.identity.id,
             preparedAtMs: expect.any(Number),
-            delivery: 'sent',
+            delivery: 'queued',
             final: {
               status: 'retained',
               response: body,
@@ -262,7 +264,7 @@ describe.sequential('exchange attention watermarks and revision fencing', () => 
               submittedAtMs: submitted.submittedAtMs,
               expiresAtMs: expect.any(Number),
             },
-            revision: 2,
+            revision: 3,
             acknowledged: true,
             settled: true,
             retentionExpiresAtMs: expect.any(Number),

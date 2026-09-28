@@ -6,6 +6,7 @@
 
 mod attention;
 mod history;
+mod notification;
 mod rows;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -148,6 +149,29 @@ fn checked_now(value: u64, label: &str) -> Result<i64, StorageError> {
 
 impl RequestRecords for RequestRows<'_> {
     type Error = StorageError;
+
+    fn notification(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<tmt_core::request::notification::NotificationRecord>, Self::Error> {
+        notification::read(self.0, request_id)
+    }
+
+    fn create_notification(
+        &mut self,
+        request_id: &str,
+        policy: &tmt_core::request::notification::NotificationPolicy,
+    ) -> Result<(), Self::Error> {
+        notification::insert_notification(self.0, request_id, policy)
+    }
+
+    fn set_notification(
+        &mut self,
+        request_id: &str,
+        value: &tmt_core::request::notification::NotificationRecord,
+    ) -> Result<(), Self::Error> {
+        notification::write(self.0, request_id, value)
+    }
 
     fn list_request_history(
         &self,

@@ -4,6 +4,7 @@
 pub mod attention;
 pub mod correlation;
 pub mod history;
+pub mod notification;
 mod service;
 pub use service::RequestService;
 
@@ -241,6 +242,20 @@ pub struct RequestContext {
 /// is held. Domain decisions remain in RequestService, not in SQL adapters.
 pub trait RequestRecords {
     type Error;
+    fn notification(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<notification::NotificationRecord>, Self::Error>;
+    fn create_notification(
+        &mut self,
+        request_id: &str,
+        policy: &notification::NotificationPolicy,
+    ) -> Result<(), Self::Error>;
+    fn set_notification(
+        &mut self,
+        request_id: &str,
+        value: &notification::NotificationRecord,
+    ) -> Result<(), Self::Error>;
     fn list_request_history(
         &self,
         query: &history::HistoryQuery,

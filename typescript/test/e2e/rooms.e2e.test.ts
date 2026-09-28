@@ -95,7 +95,13 @@ describe.sequential('shared rooms across real tmux and inbox delivery', () => {
           event.pid === member.pid
       );
       expect(requestAttempts(fixture)).toMatchObject([
-        { request_id: completed.requestId, room_id: room.id, status: 'sent' },
+        {
+          request_id: completed.requestId,
+          room_id: room.id,
+          status: 'queued',
+          route_kind: 'inbox',
+          wake_state: 'sent',
+        },
       ]);
       const rejected = await fixture.runJsonCli<{ error: { code: string } }>([
         'talk',

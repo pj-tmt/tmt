@@ -67,6 +67,7 @@ impl ObserverRuntime for FakeRuntime {
 
 fn correlation() -> Correlation {
     Correlation {
+        offline: false,
         request_id: "request-observe".into(),
         target: "worker".into(),
         pane: "%1".into(),

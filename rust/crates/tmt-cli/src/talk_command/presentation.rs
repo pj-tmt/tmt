@@ -23,6 +23,9 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             value["submittedAtMs"] = response.submitted_at_ms.into();
         } else {
             value["status"] = if correlation.inbox { "queued" } else { "sent" }.into();
+            if correlation.offline {
+                value["offline"] = true.into();
+            }
         }
         writeln!(stdout, "{value}")?;
     } else {
@@ -41,7 +44,13 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 )?;
             }
         } else {
-            if correlation.inbox {
+            if correlation.offline {
+                writeln!(
+                    stdout,
+                    "{} is offline; the request is kept in Inbox ({}).",
+                    correlation.target, correlation.request_id
+                )?;
+            } else if correlation.inbox {
                 writeln!(
                     stdout,
                     "Queued request {} for {}.",
