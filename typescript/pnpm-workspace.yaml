@@ -1,6 +1,6 @@
 packages:
-  - apps/*
-  - services/office/functions
+  - ../extensions/tmt-office/typescript/apps/*
+  - ../extensions/tmt-office/typescript/services/office/functions
 
 # Native SQLite is an independent test oracle; esbuild belongs to retained
 # Vitest tooling. No arbitrary dependency lifecycle scripts are authorized.

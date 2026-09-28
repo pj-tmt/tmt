@@ -36,7 +36,7 @@ importers:
         specifier: ^1.2.0
         version: 1.6.1(@types/node@25.0.3)(jsdom@26.1.0)(lightningcss@1.33.0)
 
-  apps/office:
+  ../extensions/tmt-office/typescript/apps/office:
     dependencies:
       '@tanstack/react-router':
         specifier: 1.170.33
@@ -100,7 +100,7 @@ importers:
         specifier: 4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@25.0.3)(jsdom@26.1.0)(vite@8.2.2(@types/node@25.0.3))
 
-  services/office/functions:
+  ../extensions/tmt-office/typescript/services/office/functions:
     dependencies:
       firebase-admin:
         specifier: 14.4.0

@@ -1,7 +1,7 @@
 # Development
 
 The Rust workspace is the shipped CLI runtime. The optional Office SPA foundation
-lives in `typescript/apps/office` and is not required to use the CLI. The nested
+lives in `extensions/tmt-office/typescript/apps/office` and is not required to use the CLI. The nested
 `typescript` pnpm workspace owns private developer tooling for Vitest, fixtures
 and release verification. Nx orchestrates repository tasks without making the
 tooling workspace an npm product or a CLI fallback. Repository policy is
@@ -95,7 +95,7 @@ corepack pnpm office:test
 corepack pnpm office:build
 ```
 
-The dev server binds loopback. Production output is `typescript/apps/office/dist`; preview
+The dev server binds loopback. Production output is `extensions/tmt-office/typescript/apps/office/dist`; preview
 with `pnpm --filter @tmt/office preview`. A deployed SPA host must rewrite app
 routes such as `/setup` to `index.html`; hosting and Firebase setup are not part
 of the scaffold. Tests use jsdom and the real router, not a browser-layout proof.
@@ -133,7 +133,7 @@ the root SQLite oracle nor a native TMT executable. It runs quality, DOM tests
 and a production build with networking disabled:
 
 ```sh
-docker build -f typescript/apps/office/Dockerfile -t tmt-office-check:local .
+docker build -f extensions/tmt-office/typescript/apps/office/Dockerfile -t tmt-office-check:local .
 docker run --rm --init --network none tmt-office-check:local
 docker image rm tmt-office-check:local
 ```
@@ -163,7 +163,7 @@ and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
 For the separate Office Auth/Firestore environment, follow
-[`typescript/services/office/README.md`](typescript/services/office/README.md). It uses Docker-contained
+[`extensions/tmt-office/typescript/services/office/README.md`](extensions/tmt-office/typescript/services/office/README.md). It uses Docker-contained
 Java and Firebase tooling with a demo project; no host Firebase login is required
 for emulator tests. Local real-project mappings and credentials must remain
 ignored by both Git and Docker. Never substitute this bootstrap smoke proof for
@@ -184,13 +184,13 @@ does not inherit the session. Default `office:dev` / `office:build` stays a
 disconnected preview. Login does not create a world or grant access.
 Console-managed tester admission gates direct Firestore world creation/read.
 For explicit real Google sign-in and owner-local configuration, see
-[the limited cloud pilot](typescript/services/office/README.md#limited-cloud-pilot).
+[the limited cloud pilot](extensions/tmt-office/typescript/services/office/README.md#limited-cloud-pilot).
 Do not point automated tests at a real project.
 
 Run the real-browser suite with the same emulator owner:
 
 ```sh
-docker build --target browser-tests -f typescript/services/office/Dockerfile -t tmt-office-browser:local .
+docker build --target browser-tests -f extensions/tmt-office/typescript/services/office/Dockerfile -t tmt-office-browser:local .
 docker run --rm --init --shm-size=256m tmt-office-browser:local
 ```
 
@@ -231,11 +231,11 @@ the partition count alone.
 Capacity diagnostics are preserved as explicit opt-in runs and are not required CI:
 
 ```bash
-docker build --target browser-tests -f typescript/services/office/Dockerfile -t tmt-office-browser:capacity .
+docker build --target browser-tests -f extensions/tmt-office/typescript/services/office/Dockerfile -t tmt-office-browser:capacity .
 docker run --rm --init --shm-size=256m --network none \
   --env TMT_TEST_BROWSER_CHANNEL=chromium \
   tmt-office-browser:capacity \
-  sh /workspace/typescript/services/office/with-test-keyring.sh \
+  sh /workspace/extensions/tmt-office/typescript/services/office/with-test-keyring.sh \
   pnpm --filter @tmt/office test:browser:capacity
 ```
 
@@ -530,7 +530,7 @@ rotated credentials, version drift, dead-child recovery, occupied ports, early
 companion exit and uncertain receipts. Use the shared native Office fixture;
 do not recreate its installer, process sandbox or executable selection in scripts.
 
-`typescript/apps/office/e2e/native-local-discussion.spec.ts` owns spatial presentation checks:
+`extensions/tmt-office/typescript/apps/office/e2e/native-local-discussion.spec.ts` owns spatial presentation checks:
 opening and closing over the same panned canvas, unsent draft retention, explicit
 post/reply persistence without task dispatch, mobile navigation and focus return.
 It uses the shared native Office fixture, not a second service harness.

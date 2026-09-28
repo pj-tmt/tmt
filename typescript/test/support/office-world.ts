@@ -1,7 +1,10 @@
-import { builtinFurniture } from '../../apps/office/src/blocks/block-contract.js';
-import type { WorldSnapshot } from '../../apps/office/src/world-map/world-port.js';
-import type { MapDocument } from '../../apps/office/src/world-map/map-contract.js';
-import type { WorldDocument, WorldObject } from '../../apps/office/src/world-map/world-contract.js';
+import { builtinFurniture } from '../../../extensions/tmt-office/typescript/apps/office/src/blocks/block-contract.js';
+import type { WorldSnapshot } from '../../../extensions/tmt-office/typescript/apps/office/src/world-map/world-port.js';
+import type { MapDocument } from '../../../extensions/tmt-office/typescript/apps/office/src/world-map/map-contract.js';
+import type {
+  WorldDocument,
+  WorldObject,
+} from '../../../extensions/tmt-office/typescript/apps/office/src/world-map/world-contract.js';
 import lobby from '../../../contracts/office/lobby-preset-v1.json' with { type: 'json' };
 import discussion from '../../../contracts/office/discussion-extension-v1.json' with { type: 'json' };
 import whiteboard from '../../../contracts/office/whiteboard-extension-v1.json' with { type: 'json' };
@@ -9,7 +12,7 @@ import broadcaster from '../../../contracts/office/broadcaster-extension-v1.json
 import discussionInstance from '../../../contracts/office/lobby-extension-v1.json' with { type: 'json' };
 import whiteboardInstance from '../../../contracts/office/lobby-whiteboard-v1.json' with { type: 'json' };
 import broadcasterInstance from '../../../contracts/office/lobby-broadcaster-v1.json' with { type: 'json' };
-import { decodeExtensionAttachment } from '../../apps/office/src/extensions/extension-contract.js';
+import { decodeExtensionAttachment } from '../../../extensions/tmt-office/typescript/apps/office/src/extensions/extension-contract.js';
 
 /** Explicit retained-block composition. Tests of older topology must not inherit
  * the changing new-install preset or translate its mounted objects as floor art.

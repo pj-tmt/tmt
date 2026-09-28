@@ -8,8 +8,8 @@
       },
       "inputs": [
         "{projectRoot}/**/*",
-        "{workspaceRoot}/typescript/apps/office/**/*",
-        "{workspaceRoot}/typescript/services/office/**/*",
+        "{workspaceRoot}/extensions/tmt-office/typescript/apps/office/**/*",
+        "{workspaceRoot}/extensions/tmt-office/typescript/services/office/**/*",
         "{workspaceRoot}/typescript/package.json",
         "{workspaceRoot}/typescript/pnpm-lock.yaml",
         "{workspaceRoot}/contracts/**/*",

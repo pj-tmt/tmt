@@ -12,7 +12,10 @@ const { runPackedCommand } = await import(
 describe('CI area selection', () => {
   it('selects Office without the native matrix for app-only changes', () => {
     expect(
-      selectCiAreas(['typescript/apps/office/src/main.tsx', 'docs/office/architecture.md'])
+      selectCiAreas([
+        'extensions/tmt-office/typescript/apps/office/src/main.tsx',
+        'docs/office/architecture.md',
+      ])
     ).toEqual({
       native: false,
       office: true,
@@ -34,14 +37,15 @@ describe('CI area selection', () => {
     'typescript/test/e2e/Dockerfile',
     'contracts/office/request.json',
     'extensions/tmt-office/rust/tmt-office/src/main.rs',
-    'typescript/services/office/firestore.rules',
+    'extensions/tmt-office/typescript/services/office/firestore.rules',
+    'typescript/apps/office/src/main.tsx',
     'new-owner/file.ts',
   ])('fans out shared or unknown input %s', (file) => {
     expect(selectCiAreas([file])).toEqual({ native: true, office: true });
   });
 
   it('does not confuse similar prefixes and fails closed on an empty diff', () => {
-    expect(selectCiAreas(['typescript/apps/office-other/file.ts'])).toEqual({
+    expect(selectCiAreas(['extensions/tmt-office/typescript/apps/office-other/file.ts'])).toEqual({
       native: true,
       office: true,
     });
@@ -49,11 +53,13 @@ describe('CI area selection', () => {
   });
 
   it('unions mixed paths including both sides of a no-renames diff', () => {
-    expect(selectCiAreas(['typescript/apps/office/removed.ts', 'rust/new.rs'])).toEqual({
+    expect(
+      selectCiAreas(['extensions/tmt-office/typescript/apps/office/removed.ts', 'rust/new.rs'])
+    ).toEqual({
       native: true,
       office: true,
     });
-    expect(selectCiAreas(['typescript/apps/office/deleted.ts'])).toEqual({
+    expect(selectCiAreas(['extensions/tmt-office/typescript/apps/office/deleted.ts'])).toEqual({
       native: false,
       office: true,
     });
@@ -93,8 +99,13 @@ describe('CI diff and command integration', () => {
       writeFileSync(historicalSource, 'export const fixture = true;\n');
       const historical = commit();
       expect(readChangedCiAreas(base, historical, root)).toEqual({ native: false, office: true });
-      mkdirSync(path.join(root, 'typescript/apps/office'), { recursive: true });
-      const source = path.join(root, 'typescript/apps/office/name with\nnewline.ts');
+      mkdirSync(path.join(root, 'extensions/tmt-office/typescript/apps/office'), {
+        recursive: true,
+      });
+      const source = path.join(
+        root,
+        'extensions/tmt-office/typescript/apps/office/name with\nnewline.ts'
+      );
       renameSync(historicalSource, source);
       const added = commit();
       expect(readChangedCiAreas(historical, added, root)).toEqual({ native: false, office: true });

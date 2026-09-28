@@ -26,9 +26,9 @@ RUN apt-get update \
 RUN npm install --global pnpm@10.33.0
 WORKDIR /workspace
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
-COPY typescript/apps/office/package.json typescript/apps/office/package.json
+COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
 RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile \
-  && test ! -e apps/office/node_modules/react
+  && test ! -e ../extensions/tmt-office/typescript/apps/office/node_modules/react
 COPY . .
 COPY --from=native-tests /native-artifacts/tmux-probe /opt/tmt-tests/tmux-probe
 COPY --from=native-tests /native-artifacts/codex /opt/tmt-tests/codex
