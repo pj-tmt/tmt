@@ -390,6 +390,37 @@ layout shows rows and notes side by side, pr-queue shows rows over detail, and
 minimal shows rows only. Row actions (Enter, t, r, a, o, y, n) arrive in later
 versions.
 
+Some row actions also work as commands, for scripts and terminals without the
+board:
+
+```sh
+tmt squad jump auth-fix                     # show its pane in your tmux client
+tmt squad open auth-fix                     # pr_link, else link, else another *_link
+tmt squad open auth-fix --link issue_link
+tmt squad copy auth-fix                     # "auth-fix: <task> (<state>)"
+tmt squad copy auth-fix --format '- [{name}]({pr_link})'
+```
+
+`jump` is `tmt focus` for a squad member or the lead: run it inside tmux from a
+pane with an attached client, and return with `tmt focus <from pane>` from where
+you then are. `open` opens only http and https links, with `open` on macOS and
+`xdg-open` elsewhere. `--format` fills `{field}` placeholders from the row:
+`name`, `state`, `pending`, `note`, `presence`, `lifetime`, `activity`, `pane`,
+`target`, `cwd` or any squad field. An empty or missing field refuses the action
+instead of copying a gap. Inside tmux, `copy` loads a buffer on your tmux server
+(`tmux load-buffer -w`, tmux 3.2 or later), which tmux passes on to your
+terminal's clipboard; when the server's `set-clipboard` is `off`, the text stays
+a tmux buffer and the message says so. Outside tmux, the text goes to the
+terminal as OSC 52, which some terminals must be told to allow. A configured
+program replaces either route. It runs directly, never through a shell: the
+opener gets the link as its last argument and the clipboard program gets the
+text on stdin.
+
+```toml
+opener    = ["firefox", "--new-tab"]    # top level of squad.toml
+clipboard = ["pbcopy"]                  # or ["wl-copy"], ["xclip", "-selection", "clipboard"]
+```
+
 The lead's skill is embedded in the extension. Until `tmt extension install
 squad` offers it, copy it into your lead agent's skills directory yourself, for
 example `tmt sq skill show > ~/.claude/skills/tmt-squad/SKILL.md` (create the
