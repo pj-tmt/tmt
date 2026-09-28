@@ -850,6 +850,15 @@ Provider IDs only correlate existing observations and never create identities.
 Codex setup owns `hooks.json` under `CODEX_HOME` (otherwise `~/.codex`), not
 provider trust approvals or unrelated `config.toml` settings.
 
+The runtime registry resolves optional `RuntimeLifecycle` implementations by
+harness ID. Drivers own payload decoding, observation proposals, context encoding,
+host classification, mode and foreground-client exit policy. CLI hook/run owners
+only coordinate provider-neutral evidence, process ownership and storage CAS;
+adding a lifecycle driver does not add provider switches to those coordinators.
+Commands without registered lifecycle policy retain the ordinary owned-child exit
+behavior. Codex currently recognizes only the observed `other` SessionEnd reason;
+unknown reasons do not establish terminal state.
+
 The provider-facing hook entrypoint always exits zero without permission/decision output.
 It supervises a short-lived internal worker through the existing process owner,
 with a two-second work budget and bounded cleanup; provider settings allow three

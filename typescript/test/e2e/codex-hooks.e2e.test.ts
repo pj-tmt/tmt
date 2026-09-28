@@ -41,16 +41,10 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
       ]
         .map(quote)
         .join(' ');
-      // Retain the target pane after the embedded provider process exits.
-      fixture.tmux([
-        'new-window',
-        '-d',
-        '-t',
-        'e2e',
-        '-n',
-        'codex-target',
-        `${command}; exec /bin/sleep 60`,
-      ]);
+      // Retain a real shell for the later exact shared resume and client exit.
+      const targetPane = fixture.createShellPane('codex-target').pane;
+      fixture.tmux(['send-keys', '-t', targetPane, '-l', command]);
+      fixture.tmux(['send-keys', '-t', targetPane, 'Enter']);
       await fixture.waitFor(() => fs.existsSync(report), 15000, 'independent Codex hook report');
       const results = JSON.parse(fs.readFileSync(report, 'utf8'));
       expect(
@@ -139,6 +133,63 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
           );
         }
         expect(read()).toEqual({ ...before, runtime_state: 'running', runtime_mode: 'shared' });
+        await fixture.waitFor(
+          () => {
+            const row = db
+              .prepare('SELECT runtime_pid FROM bindings WHERE identity_id = ?')
+              .get(identity.id) as { runtime_pid: number };
+            try {
+              process.kill(row.runtime_pid, 0);
+              return false;
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+              throw error;
+            }
+          },
+          5000,
+          'shared fixture process exit'
+        );
+
+        const resumed = path.join(fixture.root, 'resumed-client.json');
+        const release = path.join(fixture.root, 'release-client');
+        const status = path.join(fixture.root, 'client-exit.status');
+        fs.writeFileSync(
+          path.join(fixture.wrapperDir, 'codex'),
+          `#!${process.execPath}\nconst fs = require('node:fs');\nfs.writeFileSync(${JSON.stringify(resumed)}, JSON.stringify(process.argv.slice(2)));\nsetInterval(() => { if (fs.existsSync(${JSON.stringify(release)})) process.exit(0); }, 20);\n`,
+          { mode: 0o700 }
+        );
+        const resumeCommand = [
+          fixture.executables.cli.executable,
+          ...fixture.executables.cli.args,
+          'run',
+          '--resume',
+          'Codex Reader',
+        ]
+          .map(quote)
+          .join(' ');
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          targetPane,
+          '-l',
+          `${resumeCommand}; printf '%s' "$?" > ${quote(status)}`,
+        ]);
+        fixture.tmux(['send-keys', '-t', targetPane, 'Enter']);
+        await fixture.waitFor(
+          () => fs.existsSync(resumed) && read().runtime_state === 'running',
+          5000,
+          'owned exact shared resume admitted'
+        );
+        expect(JSON.parse(fs.readFileSync(resumed, 'utf8'))).toEqual(['resume', session]);
+        expect(read()).toEqual({ ...before, runtime_state: 'running', runtime_mode: 'shared' });
+        fs.writeFileSync(release, 'exit');
+        await fixture.waitFor(
+          () => fs.existsSync(status) && fs.readFileSync(status, 'utf8') !== '',
+          5000,
+          'shared client reaped'
+        );
+        expect(fs.readFileSync(status, 'utf8')).toBe('0');
+        expect(read()).toEqual({ ...before, runtime_state: 'unknown', runtime_mode: 'shared' });
       } finally {
         db.close();
       }

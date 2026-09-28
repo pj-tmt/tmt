@@ -1,4 +1,6 @@
 //! Codex lifecycle mapping. Shared server ancestry never selects an identity.
+//! The verified 0.157.1 contract reports SessionEnd reason `other`; unsupported
+//! reasons leave state unchanged rather than guessing that a client ended a thread.
 
 pub use super::hook_protocol::encode_context;
 use serde::Deserialize;
@@ -181,6 +183,116 @@ pub fn record_client_exit(
         next.last_transition = Some(SessionTransition::Resumed);
     }
     Some(next)
+}
+
+pub struct CodexLifecycle;
+
+impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
+    fn decode(&self, payload: &[u8]) -> Option<Box<dyn super::lifecycle::LifecycleObservation>> {
+        decode_hook(payload).map(|value| Box::new(value) as _)
+    }
+
+    fn host_evidence(
+        &self,
+    ) -> Result<super::lifecycle::HostEvidence, super::lifecycle::LifecycleUnavailable> {
+        use super::lifecycle::{HostEvidence, LifecycleUnavailable};
+        use crate::runtime_caller::codex::{CallerEnvironment, CodexCaller};
+        use tmt_core::driver::caller::HostAttribution;
+        Ok(
+            match CodexCaller::new(
+                &crate::process::SupervisedProbeRunner,
+                CallerEnvironment::current(),
+            )
+            .observe_host()
+            .map_err(|_| LifecycleUnavailable)?
+            {
+                Some((HostAttribution::Independent, pid)) => HostEvidence::Independent {
+                    runtime_pid: Some(pid),
+                },
+                Some((HostAttribution::Ambiguous, pid)) => {
+                    HostEvidence::Ambiguous { runtime_pid: pid }
+                }
+                None => HostEvidence::Unsupported,
+            },
+        )
+    }
+
+    fn observe_in_pane(
+        &self,
+        caller: u64,
+        pane: u64,
+        deadline: std::time::Instant,
+    ) -> Option<RuntimeIncarnation> {
+        observe_in_pane(
+            &crate::process::SupervisedProbeRunner,
+            caller,
+            pane,
+            deadline,
+        )
+    }
+
+    fn mode(
+        &self,
+        host: super::lifecycle::HostEvidence,
+    ) -> Option<tmt_core::binding::session::RuntimeMode> {
+        tmt_core::binding::session::RuntimeMode::new(if host.shared() {
+            super::CODEX_MODE_SHARED
+        } else {
+            super::CODEX_MODE_EMBEDDED
+        })
+        .ok()
+    }
+
+    fn permits_owned_resume(
+        &self,
+        preferences: &tmt_core::binding::session::SessionPreferences,
+        session: &ProviderSessionId,
+        host: super::lifecycle::HostEvidence,
+    ) -> bool {
+        host.shared()
+            && preferences.remembered.as_ref().is_some_and(|value| {
+                value.harness.as_str() == "codex"
+                    && value.mode.as_str() == super::CODEX_MODE_SHARED
+                    && &value.provider_session == session
+            })
+    }
+
+    fn client_exit(
+        &self,
+        current: &BindingSessionState,
+        key: ObservedSessionKey,
+        owner: RuntimeIncarnation,
+        preferences: &tmt_core::binding::session::SessionPreferences,
+    ) -> Option<BindingSessionState> {
+        record_client_exit(current, key, owner, preferences)
+    }
+
+    fn disconnected(
+        &self,
+        current: &BindingSessionState,
+        preferences: &tmt_core::binding::session::SessionPreferences,
+    ) -> Option<BindingSessionState> {
+        disconnected(current, preferences)
+    }
+}
+
+impl super::lifecycle::LifecycleObservation for CodexObservation {
+    fn session(&self) -> &ProviderSessionId {
+        &self.session
+    }
+    fn starting(&self) -> bool {
+        self.starting
+    }
+    fn propose(
+        &self,
+        current: &BindingSessionState,
+        process: &RuntimeIncarnation,
+        previous: RuntimeLiveness,
+        host: super::lifecycle::HostEvidence,
+        owned_resume: bool,
+    ) -> Option<BindingSessionState> {
+        self.propose_with_resume(current, process, previous, host.shared(), owned_resume)
+    }
 }
 
 #[cfg(test)]

@@ -18,7 +18,10 @@ use tmt_adapters::{
         interactive::InteractiveChild,
         runtime::{ProcessObservation, observe_runtime_process},
     },
-    runtime::{RuntimeCommand, RuntimeError, RuntimeRegistry},
+    runtime::{
+        RuntimeCommand, RuntimeError, RuntimeRegistry,
+        lifecycle::{NoLifecycle, RuntimeLifecycle},
+    },
     storage::{Storage, StorageError},
     tmux::{BindingSession, CallerEnvironment, Tmux},
 };
@@ -264,6 +267,10 @@ fn run_bound(
     let mut registry = RuntimeRegistry::first_party();
     let launch = select_command(&mut registry, command, resume, &preferences)?;
     let claim = registry.claim(&launch.command.executable);
+    let lifecycle = claim
+        .as_ref()
+        .and_then(|harness| registry.lifecycle(harness))
+        .unwrap_or(&NoLifecycle);
     let bound = binding::bind_identity_with_creation(
         storage,
         &mut BindingSession::new(tmux),
@@ -426,12 +433,7 @@ fn run_bound(
                         .map(|session| session.provider_session.clone()),
                 });
             let next = if already_exited {
-                tmt_adapters::runtime::codex::record_client_exit(
-                    &current.session,
-                    key,
-                    owner.clone(),
-                    &preferences,
-                )
+                lifecycle.client_exit(&current.session, key, owner.clone(), &preferences)
             } else {
                 current.session.admit_launched(
                     key,
@@ -482,7 +484,7 @@ fn run_bound(
         && let (Some(owner), Some(child)) = (&owner, &child_incarnation)
     {
         let recorded = Storage::open(database).and_then(|mut storage| {
-            let recorded = finish(&mut storage, binding, owner, child);
+            let recorded = finish(&mut storage, binding, owner, child, lifecycle);
             if storage.close().is_err() {
                 diagnostic(
                     "tmt: could not close final state cleanly; the recorded exit is unchanged.",
@@ -520,6 +522,7 @@ fn finish(
     binding: &Binding,
     owner: &RuntimeIncarnation,
     child: &RuntimeIncarnation,
+    lifecycle: &dyn RuntimeLifecycle,
 ) -> Result<Finished, StorageError> {
     storage.with_binding_transaction(|records| {
         let Some(current) = records
@@ -531,7 +534,7 @@ fn finish(
         else {
             return Ok(Finished::Replaced);
         };
-        if let Some(next) = tmt_adapters::runtime::codex::disconnected(
+        if let Some(next) = lifecycle.disconnected(
             &current.session,
             &records.session_preferences(&binding.identity_id)?,
         ) {

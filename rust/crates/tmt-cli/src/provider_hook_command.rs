@@ -11,20 +11,15 @@ use tmt_adapters::{
         runtime::observe_runtime_process,
     },
     response_input::read_stdin_bounded,
-    runtime::{CLAUDE_MODE_DEFAULT, CODEX_MODE_EMBEDDED, CODEX_MODE_SHARED, claude, codex},
-    runtime_caller::codex::{CallerEnvironment as CodexEnvironment, CodexCaller},
+    runtime::{RuntimeRegistry, lifecycle::HostEvidence},
     storage::{Storage, StorageError},
     tmux::{CallerEnvironment, OperationOptions, Tmux},
 };
 use tmt_core::{
     binding::{
         BindingEvidence, BindingRepository, evaluate_binding,
-        session::{
-            BindingSessionState, HarnessId, ProviderSessionId, RememberedSession,
-            RuntimeIncarnation, RuntimeLiveness, RuntimeMode,
-        },
+        session::{HarnessId, RememberedSession, RuntimeLiveness},
     },
-    driver::caller::HostAttribution,
     endpoint::EndpointProbe,
 };
 
@@ -79,66 +74,17 @@ pub fn execute(provider: &str, worker: bool) -> io::Result<u8> {
     Ok(u8::from(worker && failed))
 }
 
-enum Observation {
-    Claude(claude::ClaudeObservation),
-    Codex(codex::CodexObservation),
-}
-
-impl Observation {
-    fn encode_context(&self, text: &str) -> Option<String> {
-        match self {
-            Self::Claude(_) => claude::encode_context(text),
-            Self::Codex(_) => codex::encode_context(text),
-        }
-    }
-    fn session(&self) -> &ProviderSessionId {
-        match self {
-            Self::Claude(value) => &value.session,
-            Self::Codex(value) => &value.session,
-        }
-    }
-    fn starting(&self) -> bool {
-        match self {
-            Self::Claude(value) => value.starting,
-            Self::Codex(value) => value.starting,
-        }
-    }
-    fn propose(
-        &self,
-        current: &BindingSessionState,
-        process: &RuntimeIncarnation,
-        previous: RuntimeLiveness,
-        shared: bool,
-        owned_resume: bool,
-    ) -> Option<BindingSessionState> {
-        match self {
-            Self::Claude(value) => value.propose(current, process, previous),
-            Self::Codex(value) => {
-                value.propose_with_resume(current, process, previous, shared, owned_resume)
-            }
-        }
-    }
-}
-
 fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()> {
-    let event = match provider {
-        "claude" => Observation::Claude(claude::decode_hook(input.as_bytes()).map_err(|_| ())?),
-        "codex" => Observation::Codex(codex::decode_hook(input.as_bytes()).ok_or(())?),
-        _ => return Err(()),
-    };
+    let registry = RuntimeRegistry::first_party();
+    let harness = HarnessId::new(provider).map_err(|_| ())?;
+    let lifecycle = registry.lifecycle(&harness).ok_or(())?;
+    let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
     let tmux = Tmux::new(SupervisedProbeRunner);
-    let codex_host = if provider == "codex" {
-        let host = CodexCaller::new(&SupervisedProbeRunner, CodexEnvironment::current())
-            .observe_host()
-            .map_err(|_| ())?;
-        let Some(host) = host else {
-            return Ok(String::new());
-        };
-        Some(host)
-    } else {
-        None
-    };
-    let shared = codex_host.is_some_and(|(host, _)| host == HostAttribution::Ambiguous);
+    let host = lifecycle.host_evidence().map_err(|_| ())?;
+    if matches!(host, HostEvidence::Unsupported) {
+        return Ok(String::new());
+    }
+    let shared = host.shared();
     let paths = ConfigPaths::discover().map_err(|_| ())?;
     let now = tmt_adapters::request_runtime::wall_time_ms();
     let (stored, snapshot, process) = if shared {
@@ -167,7 +113,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         else {
             return Err(());
         };
-        let pid = u64::from(codex_host.ok_or(())?.1);
+        let pid = u64::from(host.runtime_pid().ok_or(())?);
         let tmt_adapters::process::runtime::ProcessObservation::Live(process) =
             observe_runtime_process(&SupervisedProbeRunner, pid, deadline).map_err(|_| ())?
         else {
@@ -196,19 +142,17 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             .iter()
             .find(|item| item.id == pane)
             .ok_or(())?;
-        let observer = if provider == "claude" {
-            claude::observe_in_pane
-        } else {
-            codex::observe_in_pane
-        };
-        let process = observer(
-            &SupervisedProbeRunner,
-            u64::from(std::process::id()),
-            observed_pane.pane_pid,
-            deadline,
-        )
-        .ok_or(())?;
-        if codex_host.is_some_and(|(_, pid)| process.pid() != u64::from(pid)) {
+        let process = lifecycle
+            .observe_in_pane(
+                u64::from(std::process::id()),
+                observed_pane.pane_pid,
+                deadline,
+            )
+            .ok_or(())?;
+        if host
+            .runtime_pid()
+            .is_some_and(|pid| process.pid() != u64::from(pid))
+        {
             return Err(());
         }
         let stored = Storage::context_by_pane(
@@ -226,7 +170,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
                 return Err(());
             }
             return if event.starting() {
-                Ok(event
+                Ok(lifecycle
                     .encode_context(&crate::context_command::unbound_text().map_err(|_| ())?)
                     .unwrap_or_default())
             } else {
@@ -252,22 +196,18 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         }
         None => RuntimeLiveness::Unknown,
     };
-    let owned_resume = shared
-        && stored.preferences.remembered.as_ref().is_some_and(|value| {
-            value.harness.as_str() == "codex"
-                && value.mode.as_str() == CODEX_MODE_SHARED
-                && &value.provider_session == event.session()
-        })
+    let owned_resume = lifecycle.permits_owned_resume(&stored.preferences, event.session(), host)
         && binding.session.launch_owner.as_ref().is_some_and(|owner| {
             observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline)
                 .is_ok_and(|value| value.matches(owner) == RuntimeLiveness::Alive)
         });
     let next = event
-        .propose(&binding.session, &process, previous, shared, owned_resume)
+        .propose(&binding.session, &process, previous, host, owned_resume)
         .ok_or(())?;
     if Instant::now() >= deadline {
         return Err(());
     }
+    let mode = lifecycle.mode(host).ok_or(())?;
     let mut storage = Storage::open_hook(&paths.database).map_err(|_| ())?;
     let changed = storage
         .with_binding_transaction::<_, StorageError>(|records| {
@@ -287,18 +227,10 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             }
             if event.starting() {
                 let mut preferences = records.session_preferences(&binding.identity_id)?;
-                let harness = HarnessId::new(provider).expect("first-party harness");
                 preferences.preferred_harness = Some(harness.clone());
                 preferences.remembered = Some(RememberedSession {
-                    harness,
-                    mode: RuntimeMode::new(if provider == "claude" {
-                        CLAUDE_MODE_DEFAULT
-                    } else if shared {
-                        CODEX_MODE_SHARED
-                    } else {
-                        CODEX_MODE_EMBEDDED
-                    })
-                    .expect("first-party mode"),
+                    harness: harness.clone(),
+                    mode: mode.clone(),
                     provider_session: event.session().clone(),
                 });
                 return records.set_session_preferences(&binding.identity_id, &preferences);
@@ -336,5 +268,5 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         return Err(());
     }
     let context = crate::context_command::render_verified(refreshed, &paths).map_err(|_| ())?;
-    event.encode_context(&context).ok_or(())
+    lifecycle.encode_context(&context).ok_or(())
 }

@@ -152,5 +152,59 @@ pub fn hook_entry(launcher: &str) -> Value {
     super::hook_protocol::command_entry("claude", launcher)
 }
 
+pub struct ClaudeLifecycle;
+
+impl super::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
+    fn decode(&self, payload: &[u8]) -> Option<Box<dyn super::lifecycle::LifecycleObservation>> {
+        decode_hook(payload).ok().map(|value| Box::new(value) as _)
+    }
+
+    fn host_evidence(
+        &self,
+    ) -> Result<super::lifecycle::HostEvidence, super::lifecycle::LifecycleUnavailable> {
+        Ok(super::lifecycle::HostEvidence::Independent { runtime_pid: None })
+    }
+
+    fn observe_in_pane(
+        &self,
+        caller: u64,
+        pane: u64,
+        deadline: std::time::Instant,
+    ) -> Option<RuntimeIncarnation> {
+        observe_in_pane(
+            &crate::process::SupervisedProbeRunner,
+            caller,
+            pane,
+            deadline,
+        )
+    }
+
+    fn mode(
+        &self,
+        _: super::lifecycle::HostEvidence,
+    ) -> Option<tmt_core::binding::session::RuntimeMode> {
+        tmt_core::binding::session::RuntimeMode::new(super::CLAUDE_MODE_DEFAULT).ok()
+    }
+}
+
+impl super::lifecycle::LifecycleObservation for ClaudeObservation {
+    fn session(&self) -> &ProviderSessionId {
+        &self.session
+    }
+    fn starting(&self) -> bool {
+        self.starting
+    }
+    fn propose(
+        &self,
+        current: &BindingSessionState,
+        process: &RuntimeIncarnation,
+        previous: RuntimeLiveness,
+        _: super::lifecycle::HostEvidence,
+        _: bool,
+    ) -> Option<BindingSessionState> {
+        ClaudeObservation::propose(self, current, process, previous)
+    }
+}
+
 #[cfg(test)]
 mod tests;
