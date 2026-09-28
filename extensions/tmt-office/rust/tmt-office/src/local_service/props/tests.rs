@@ -16,7 +16,7 @@ fn request(path: &str, body: serde_json::Value) -> Request {
 
 fn document(label: &str) -> String {
     let mut value: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../../contracts/office/prop-pack-v2-sample.tmtprop.json"
+        "../../../../../../../contracts/office/prop-pack-v2-sample.tmtprop.json"
     ))
     .unwrap();
     value["label"] = json!(label);

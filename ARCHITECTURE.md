@@ -583,7 +583,13 @@ layer edges and shared declaration ownership, and fails closed for unsupported
 module remapping or incomplete discovery. It is a syntactic guard and never
 replaces review of behavior or effects.
 
-The optional `rust/crates/tmt-office` executable is independently versioned and
+The optional `extensions/tmt-office/rust/tmt-office` executable remains a member
+of the `rust/` Cargo workspace, with the same lockfile and `rust/target` output.
+This package owns the companion entry point, embedded SPA and local HTTP service.
+Office domain/adapters and the reserved core `office` command still live in the
+existing core/adapters/CLI crates; their extraction is a separate boundary change,
+not an additional implementation or a storage migration.
+The executable is independently versioned and
 exposes the compatibility probe and typed one-shot pairing/status/inspect/sync operations.
 It depends on core and the existing adapters, not the CLI. Its adapter `office`
 feature owns validated deployment decoding, bounded HTTP, protected pairing

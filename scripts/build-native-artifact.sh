@@ -42,7 +42,11 @@ cd "$repo"
 dist generate --check --target "$target" --tag "$tag" 1>&2
 cd "$repo/rust"
 mkdir -p target/native-notices
-cargo-about generate --manifest-path "crates/tmt-$product/Cargo.toml" \
+product_manifest="crates/tmt-cli/Cargo.toml"
+if [ "$product" = office ]; then
+  product_manifest="../extensions/tmt-office/rust/tmt-office/Cargo.toml"
+fi
+cargo-about generate --manifest-path "$product_manifest" \
   --config about.toml --target "$target" --locked --offline --fail about.hbs \
   --output-file target/native-notices/THIRD-PARTY-NOTICES.txt 1>&2
 if [ "$product" = office ]; then

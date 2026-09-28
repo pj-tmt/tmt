@@ -56,6 +56,7 @@ RUN --network=none pnpm office:check && pnpm office:test \
 FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073 AS native-office
 WORKDIR /workspace
 COPY rust rust
+COPY extensions/tmt-office/rust extensions/tmt-office/rust
 COPY skills skills
 COPY contracts contracts
 COPY --from=browser-tests-base /workspace/target/office-spa /workspace/target/office-spa

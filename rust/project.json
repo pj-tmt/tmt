@@ -8,6 +8,7 @@
       },
       "inputs": [
         "{projectRoot}/**/*",
+        "{workspaceRoot}/extensions/tmt-office/rust/**/*",
         "{workspaceRoot}/contracts/**/*",
         "{workspaceRoot}/skills/**/*"
       ],
@@ -34,6 +35,7 @@
       },
       "inputs": [
         "{projectRoot}/**/*",
+        "{workspaceRoot}/extensions/tmt-office/rust/**/*",
         "{workspaceRoot}/contracts/**/*",
         "{workspaceRoot}/skills/**/*",
         "{workspaceRoot}/target/office-spa/**/*"
