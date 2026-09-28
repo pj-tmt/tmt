@@ -696,6 +696,14 @@ descriptor may select another absolute native executable; it must be
 executable, and neither an installed host command nor Node is an allowed
 fallback. Paths and argv are passed as data, never through shell fragments.
 
+Suites that start the local Office service (such as `office-storage`) need a
+companion built with the embedded SPA, as CI does:
+`(cd typescript && corepack pnpm office:build:local)`, then
+`(cd rust && TMT_OFFICE_SPA_DIR="$PWD/../target/office-spa" cargo build --locked -p tmt-office --features local-service)`.
+A later plain workspace `cargo build` or `cargo test` replaces
+`rust/target/debug/tmt-office` without the service, and those suites then fail
+with `OFFICE_SERVICE_UNAVAILABLE`; rebuild the companion before rerunning them.
+
 Native Rust CI explicitly selects the same-checkout release CLI for process
 contracts, so installed-companion integrity checks run with production compiler
 optimization rather than debug hashing cost. The independent Office companion

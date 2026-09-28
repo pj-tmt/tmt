@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, value::RawValue};
 use tmt_core::{
     dispatch::DispatchInput,
+    identity_hooks::{IdentityHook, IdentityHookState, valid_hook_consumer},
     identity_metadata::MetadataKey,
     request::{Originator, RequestService, history::HistoryQuery},
     room::{RoomRepository, RoomWrite},
@@ -28,6 +29,10 @@ const OPS: &[&str] = &[
     "rooms.write",
     "rooms.roster",
     "notes.read",
+    "identityHooks.register",
+    "identityHooks.pending",
+    "identityHooks.attempt",
+    "identityHooks.ack",
 ];
 
 #[derive(Debug)]
@@ -88,6 +93,36 @@ pub enum Request {
         room: String,
         prefix: Option<String>,
     },
+    /// Identity-retirement hooks, always scoped to the named consumer.
+    HookRegister(IdentityHook),
+    HookPending {
+        consumer: String,
+        limit: usize,
+    },
+    HookAttempt(IdentityHook),
+    HookAck(IdentityHook),
+}
+
+/// Bound on one pending page; matches the Office consumer's batch.
+const HOOK_PAGE_LIMIT: usize = 16;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HookInput {
+    consumer: String,
+    identity_id: String,
+    reference: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HookPendingInput {
+    consumer: String,
+    limit: usize,
+}
+
+fn hook(input: &[u8]) -> Result<IdentityHook, Fault> {
+    let value: HookInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+    IdentityHook::new(&value.consumer, &value.identity_id, &value.reference).map_err(|_| invalid())
 }
 
 #[derive(Deserialize)]
@@ -178,6 +213,21 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
                 prefix: value.metadata_prefix,
             }
         }
+        "identityHooks.register" => Request::HookRegister(hook(input)?),
+        "identityHooks.attempt" => Request::HookAttempt(hook(input)?),
+        "identityHooks.ack" => Request::HookAck(hook(input)?),
+        "identityHooks.pending" => {
+            let value: HookPendingInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+            if !valid_hook_consumer(&value.consumer)
+                || !(1..=HOOK_PAGE_LIMIT).contains(&value.limit)
+            {
+                return Err(invalid());
+            }
+            Request::HookPending {
+                consumer: value.consumer,
+                limit: value.limit,
+            }
+        }
         "notes.read" => {
             let value: IdentityInput = serde_json::from_slice(input).map_err(|_| invalid())?;
             if !tmt_core::dispatch::canonical_id(&value.identity_id) {
@@ -241,6 +291,64 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
                 ),
                 RosterError::Storage(_) => Fault::unavailable(),
             }),
+        Request::HookRegister(hook) => {
+            // Identities are never deleted, so existence checked here holds at
+            // registration; a retired identity registers straight to pending.
+            if storage
+                .find_identity_by_id(hook.identity_id())
+                .map_err(|_| Fault::unavailable())?
+                .is_none()
+            {
+                return Err(Fault::new(
+                    "IDENTITY_NOT_FOUND",
+                    "The hook identity was not found.",
+                ));
+            }
+            let state = storage
+                .register_identity_hook(&hook)
+                .map_err(|_| Fault::unavailable())?;
+            Ok(serde_json::to_vec(&json!({"state": match state {
+                IdentityHookState::Registered => "registered",
+                IdentityHookState::Pending => "pending",
+                IdentityHookState::Delivered => "delivered",
+            }}))
+            .expect("hook state"))
+        }
+        Request::HookPending { consumer, limit } => {
+            let hooks = storage
+                .pending_identity_hooks(&consumer, limit)
+                .map_err(|_| Fault::unavailable())?;
+            let pending = storage
+                .count_pending_identity_hooks(&consumer)
+                .map_err(|_| Fault::unavailable())?;
+            Ok(serde_json::to_vec(&json!({
+                "hooks": hooks.iter().map(|delivery| json!({
+                    "identityId": delivery.hook.identity_id(),
+                    "reference": delivery.hook.reference(),
+                    "attemptCount": delivery.attempt_count,
+                })).collect::<Vec<_>>(),
+                "pending": pending,
+            }))
+            .expect("hook page"))
+        }
+        Request::HookAttempt(hook) => {
+            require_delivery(&storage, &hook)?;
+            storage
+                .record_identity_hook_attempt(&hook)
+                .map(|recorded| {
+                    serde_json::to_vec(&json!({"recorded": recorded})).expect("attempt")
+                })
+                .map_err(|_| Fault::unavailable())
+        }
+        Request::HookAck(hook) => {
+            require_delivery(&storage, &hook)?;
+            storage
+                .acknowledge_identity_hook(&hook)
+                .map(|acknowledged| {
+                    serde_json::to_vec(&json!({"acknowledged": acknowledged})).expect("ack")
+                })
+                .map_err(|_| Fault::unavailable())
+        }
         Request::History(query) => RequestService::new(&mut storage, wall_time_ms)
             .request_history(query)
             .map(|value| request_history::encode_history_page(&value))
@@ -321,6 +429,25 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     }
     Ok(body)
 }
+/// Attempts and acknowledgments apply only to this consumer's hooks that
+/// retirement queued; a delivered hook answers `false` without changing.
+fn require_delivery(storage: &Storage, hook: &IdentityHook) -> Result<(), Fault> {
+    match storage
+        .identity_hook_state(hook)
+        .map_err(|_| Fault::unavailable())?
+    {
+        None => Err(Fault::new(
+            "HOOK_NOT_FOUND",
+            "This consumer has no such identity hook.",
+        )),
+        Some(IdentityHookState::Registered) => Err(Fault::new(
+            "HOOK_NOT_PENDING",
+            "The hook's identity has not retired.",
+        )),
+        Some(IdentityHookState::Pending | IdentityHookState::Delivered) => Ok(()),
+    }
+}
+
 fn request_error(error: tmt_core::request::RequestError<StorageError>) -> Fault {
     match error {
         tmt_core::request::RequestError::Invalid(_) => invalid(),
@@ -360,6 +487,162 @@ mod tests {
             serde_json::from_slice::<serde_json::Value>(&error.encode()).unwrap()["error"]["supported"],
             json!({"min":1,"max":1})
         );
+    }
+
+    #[test]
+    fn identity_hooks_are_scoped_to_their_consumer_and_keep_lifecycle_semantics() {
+        let directory = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
+        let call = |operation: &str,
+                    input: serde_json::Value|
+         -> Result<serde_json::Value, String> {
+            let body = json!({"version": 1, "operation": operation, "input": input}).to_string();
+            let request = decode(&body).map_err(|fault| fault.code.to_owned())?;
+            execute(&paths, request)
+                .map(|bytes| serde_json::from_slice(&bytes).unwrap())
+                .map_err(|fault| fault.code.to_owned())
+        };
+        let active = "11111111-1111-4111-8111-111111111111";
+        let retired = "22222222-2222-4222-8222-222222222222";
+        {
+            Storage::open(&paths.database).unwrap().close().unwrap();
+            rusqlite::Connection::open(&paths.database).unwrap().execute_batch(&format!(
+                "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES ('{active}', 'Ada', 'ada', 't', 't', 'saved'), ('{retired}', 'Old', 'old', 't', 't', 'saved');
+                 UPDATE identities SET retired_at_ms = 5 WHERE id = '{retired}';"
+            )).unwrap();
+        }
+        let hook = |consumer: &str, id: &str| json!({"consumer": consumer, "identityId": id, "reference": "scope-a"});
+        assert_eq!(
+            call("identityHooks.register", hook("tmt-office", active)).unwrap(),
+            json!({"state": "registered"})
+        );
+        // Registration after retirement is pending at once.
+        assert_eq!(
+            call("identityHooks.register", hook("tmt-office", retired)).unwrap(),
+            json!({"state": "pending"})
+        );
+        assert_eq!(
+            call("identityHooks.register", hook("other", retired)).unwrap(),
+            json!({"state": "pending"})
+        );
+        assert_eq!(
+            call(
+                "identityHooks.register",
+                hook("tmt-office", "33333333-3333-4333-8333-333333333333")
+            ),
+            Err("IDENTITY_NOT_FOUND".into())
+        );
+
+        // Each consumer sees and settles only its own hooks.
+        let page = call(
+            "identityHooks.pending",
+            json!({"consumer": "tmt-office", "limit": 16}),
+        )
+        .unwrap();
+        assert_eq!(
+            page,
+            json!({"hooks": [{"identityId": retired, "reference": "scope-a", "attemptCount": 0}], "pending": 1})
+        );
+        assert_eq!(
+            call("identityHooks.attempt", hook("tmt-office", retired)).unwrap(),
+            json!({"recorded": true})
+        );
+        assert_eq!(
+            call("identityHooks.ack", hook("third", retired)),
+            Err("HOOK_NOT_FOUND".into())
+        );
+        assert_eq!(
+            call("identityHooks.attempt", hook("tmt-office", active)),
+            Err("HOOK_NOT_PENDING".into())
+        );
+        assert_eq!(
+            call("identityHooks.ack", hook("tmt-office", retired)).unwrap(),
+            json!({"acknowledged": true})
+        );
+        // Delivered is terminal: repeats change nothing, and re-registration keeps it delivered.
+        assert_eq!(
+            call("identityHooks.ack", hook("tmt-office", retired)).unwrap(),
+            json!({"acknowledged": false})
+        );
+        assert_eq!(
+            call("identityHooks.attempt", hook("tmt-office", retired)).unwrap(),
+            json!({"recorded": false})
+        );
+        assert_eq!(
+            call("identityHooks.register", hook("tmt-office", retired)).unwrap(),
+            json!({"state": "delivered"})
+        );
+        assert_eq!(
+            call(
+                "identityHooks.pending",
+                json!({"consumer": "tmt-office", "limit": 16})
+            )
+            .unwrap(),
+            json!({"hooks": [], "pending": 0})
+        );
+        assert_eq!(
+            call(
+                "identityHooks.pending",
+                json!({"consumer": "other", "limit": 16})
+            )
+            .unwrap()["pending"],
+            1
+        );
+
+        for (operation, input) in [
+            (
+                "identityHooks.pending",
+                json!({"consumer": "tmt-office", "limit": 0}),
+            ),
+            (
+                "identityHooks.pending",
+                json!({"consumer": "tmt-office", "limit": 17}),
+            ),
+            (
+                "identityHooks.pending",
+                json!({"consumer": "Office", "limit": 1}),
+            ),
+            ("identityHooks.pending", json!({"limit": 1})),
+            (
+                "identityHooks.attempt",
+                json!({"consumer": "tmt-office", "identityId": "not-a-uuid", "reference": "r"}),
+            ),
+            (
+                "identityHooks.ack",
+                json!({"consumer": "tmt-office", "identityId": active, "reference": "r", "extra": 1}),
+            ),
+            (
+                "identityHooks.register",
+                json!({"consumer": "", "identityId": active, "reference": "r"}),
+            ),
+        ] {
+            assert_eq!(
+                call(operation, input.clone()),
+                Err("API_INPUT_INVALID".into()),
+                "{operation} {input}"
+            );
+        }
+        // Hook operations are not identity-attributed writes.
+        assert!(decode(&json!({"version": 1, "operation": "identityHooks.ack", "identity": "Ada", "input": hook("tmt-office", active)}).to_string()).is_err());
+        let capabilities: serde_json::Value = serde_json::from_slice(&capabilities()).unwrap();
+        for operation in [
+            "identityHooks.register",
+            "identityHooks.pending",
+            "identityHooks.attempt",
+            "identityHooks.ack",
+        ] {
+            assert!(
+                capabilities["operations"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(operation))
+            );
+        }
     }
 
     #[test]

@@ -646,17 +646,27 @@ Retirement reaches pairing through the `office_pairing::RetirementFence` port,
 implemented by `tmt-office-storage::retirement` and injected by the companion. An
 identity is fenced when Office's `office_retired_identities` marker in `office.db`
 records it or core reports it retired (before the switch only core decides, and
-marking changes nothing). The durable hook consumer settles each delivery under
-the pairing scope lock in order: mark, revoke, then acknowledge the core hook, so
-an interruption leaves the hook pending and a retry repeats only idempotent
-steps. Every write that grants or extends pairing authority (pair-begin,
+marking changes nothing). The durable hook consumer lives in the companion
+(`tmt-office::retirement_consumer`): it reads its pending deliveries, records each
+attempt and acknowledges through the consumer-scoped `tmt api` hook operations,
+and settles each delivery with `office_pairing::settle_scope` under the pairing
+scope lock in order: mark, revoke, then acknowledge, so an interruption leaves the
+hook pending and a retry repeats only idempotent steps; a revoked record stays as
+the secret-free receipt, so a retry repeats no remote work. `office_pairing`
+never opens core storage (a test enforces it): active-identity checks and hook
+registration go through the `PairingCore` port, which the companion implements
+with `tmt --json identity show -- <uuid>` (accepting only the exact UUID) and
+`identityHooks.register`. Core launches one-shot companion operations with
+`TMT_EXECUTABLE` set to itself, so the companion reaches the same `tmt`. Every write that grants or extends pairing authority (pair-begin,
 pair-poll's claim reservation and completion, and the refresh and renewal on
 inspect and block operations) passes the fence under the same lock; only unpair
 and the consumer's own refresh, which reduce authority, are exempt, and a test
-pins those sites. Known debt owned by #355: the in-process `CoreStore` links core
-storage and the hook consumer still lives in `tmt-adapters`, while an
-independently versioned Office binary must eventually own the consumer and reach
-core only through `tmt api`, never opening or migrating the core database itself.
+pins those sites. Known debt owned by #355: the in-process `CoreStore` behind the
+Office repositories' `CoreReferences`, the migration coordinator's direct core
+reads and receipt write, the `office_pairing` module still living in
+`tmt-adapters`, and removing the retained Office rows and fences from core. An
+independently versioned Office binary must eventually reach core only through
+public commands and `tmt api`, never opening or migrating the core database itself.
 
 The migration coordinator is the one Office component that opens the core
 database for its own reads outside the store: query-only,
@@ -862,6 +872,14 @@ Presence is deliberately excluded because it requires host observation and
 binding reconciliation owned by `ls`; consumers join `ls --room --json`.
 Adapter `identity_projection` owns the identity summary and metadata map shared
 by CLI JSON and this operation, so both transports emit identical bytes.
+
+`identityHooks.register|pending|attempt|ack` expose core's durable
+identity-retirement subscriptions to their consumer. Every operation is scoped to
+the named consumer and keeps the storage semantics: registration after retirement
+is pending at once, delivered is terminal, and attempts or acknowledgments on
+another consumer's hooks return `HOOK_NOT_FOUND`. The API layer reads the hook
+state only to report not-found and not-pending distinctly; transitions stay in
+`storage::identity_hooks`.
 
 History reads use the existing `(preparedAtMs, requestId)` keyset, not a frozen
 snapshot or change feed. X attention retains its separate revision cursor.

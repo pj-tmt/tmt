@@ -1,5 +1,6 @@
 //! Native approval/proof codec. Secret-bearing values deliberately have no Debug.
 
+mod core_port;
 mod fence;
 mod hooks;
 mod invocation;
@@ -9,7 +10,9 @@ mod remote;
 mod vault;
 mod wire;
 
+pub use core_port::{PairingCore, PairingIdentity};
 pub use fence::RetirementFence;
+pub use hooks::settle_scope;
 pub use invocation::execute;
 pub use local::OfficeInstallation;
 pub use record::PairingRecord;
