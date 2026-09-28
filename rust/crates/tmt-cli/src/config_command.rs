@@ -5,14 +5,8 @@ use crate::invocation::{ConfigRequest, OutputMode};
 use crate::output::Failure;
 use serde_json::json;
 use std::io::{self, Write};
-use tmt_adapters::config::{ConfigError, ConfigFiles, ConfigPaths, Scope};
+use tmt_adapters::config::{ConfigFiles, ConfigPaths, Scope};
 use tmt_core::settings::{EDITABLE_KEYS, LocalClear, ResolvedSettings, Setting, SettingKey};
-
-impl From<ConfigError> for Failure {
-    fn from(error: ConfigError) -> Self {
-        Self::new(error.code, error.message.clone(), 1).caused_by(error)
-    }
-}
 
 fn invalid_setting(message: String) -> Failure {
     Failure::new("ERROR", message, 1)

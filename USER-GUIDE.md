@@ -122,7 +122,9 @@ tmt identity show coordinator --json
 tmt identity list --json
 ```
 
-`identity show <name>` reads that exact stored identity without tmux. Inside a
+`identity show <name-or-uuid>` reads an active stored identity without tmux.
+An active canonical UUID takes precedence over an identical UUID-shaped display
+name; otherwise selection uses the normalized name. Inside a
 verified bound pane, `identity show` may omit the name to inspect its caller;
 outside that context, supply the name. `identity list` still lists all stored
 identities, and bare `preamble show` still lists all stored preambles.

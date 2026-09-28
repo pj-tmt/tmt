@@ -1,11 +1,11 @@
 //! Local Office board composition through the verified companion.
 
 use crate::{
+    core_access::CoreAccess,
     invocation::{
         BoardActorSelection, BoardCategorySelection, ContentInput, OfficeBoardOperation,
         OfficeOperation, OutputMode,
     },
-    office_core_access::CoreAccess,
     output::Failure,
 };
 use serde_json::{Value, json};
@@ -464,12 +464,11 @@ mod tests {
         write_plain_to,
     };
     use crate::{
-        office_core_access::{CoreAccess, RoomHistory},
+        core_access::{CoreAccess, OfficeIdentity, RoomHistory},
         output::Failure,
     };
     use serde_json::json;
     use std::cell::RefCell;
-    use tmt_core::identity::{Identity, Lifetime};
 
     #[derive(Default)]
     struct CoreFixture {
@@ -478,15 +477,11 @@ mod tests {
     }
 
     impl CoreAccess for CoreFixture {
-        fn identity(&self, selector: Option<&str>) -> Result<Identity, Failure> {
+        fn identity(&self, selector: Option<&str>) -> Result<OfficeIdentity, Failure> {
             self.selected.borrow_mut().push(selector.map(str::to_owned));
-            Ok(Identity {
+            Ok(OfficeIdentity {
                 id: "identity-id".into(),
                 name: "Alice".into(),
-                canonical_name: "alice".into(),
-                lifetime: Lifetime::Saved,
-                created_at: "created".into(),
-                updated_at: "updated".into(),
             })
         }
 
@@ -520,7 +515,7 @@ mod tests {
     struct RejectingCore;
 
     impl CoreAccess for RejectingCore {
-        fn identity(&self, _selector: Option<&str>) -> Result<Identity, Failure> {
+        fn identity(&self, _selector: Option<&str>) -> Result<OfficeIdentity, Failure> {
             Err(Failure::new(
                 "CALLER_IDENTITY_AMBIGUOUS",
                 "Unverified caller.",

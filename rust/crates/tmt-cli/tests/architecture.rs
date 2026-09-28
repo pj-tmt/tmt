@@ -55,7 +55,9 @@ fn workspace_obeys_native_architecture() {
             "tmt-core",
             "tmt-adapters",
             "tmt-cli",
+            "tmt-command-output",
             "tmt-office",
+            "tmt-office-command",
             "tmt-office-model"
         ]),
         "Review native package boundaries when changing workspace members"
@@ -83,7 +85,7 @@ fn workspace_obeys_native_architecture() {
     for (package, file) in [
         ("tmt-core", "names.rs"),
         ("tmt-cli", "invocation.rs"),
-        ("tmt-cli", "output.rs"),
+        ("tmt-command-output", "lib.rs"),
     ] {
         assert!(
             sources

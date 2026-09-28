@@ -402,8 +402,8 @@ Native decoration uses `tmt-office-model::office_block` for pure layout validati
 codec conformance, `tmt-office-model::codec::office_block` for readable JSON, and the existing
 paired companion for authenticated conditional Firestore commits. Browser and
 native implementations share the versioned block contract and literal vectors;
-neither creates a second scene store. The CLI owns grammar and presentation, not
-credentials, grant renewal or Firestore transactions.
+neither creates a second scene store. The Office command library owns Office
+grammar and presentation, not credentials, grant renewal or Firestore transactions.
 The offline local Office path is separate from the Firebase runtime. Both one-shot CLI
 layout commands and the loopback HTTP service call the same whole-world access boundary in
 `tmt-adapters`; neither mirrors state into the SPA. `tmt-office` embeds the Vite local
@@ -575,11 +575,20 @@ jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 
 The Rust crates have deliberately narrow responsibilities:
 
-| Layer             | Owner                           | Responsibility                                                                                                                                                                                                                              |
-| ----------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pure domain       | `rust/crates/tmt-core/src/`     | Identity, names, bindings, profiles, settings, retention, request state and native-install version policy. No filesystem, process, SQLite, tmux, network or CLI framework.                                                                  |
-| Concrete adapters | `rust/crates/tmt-adapters/src/` | Config files, SQLite, bounded files and processes, signals, tmux evidence/transport, response input, HTTP acquisition, native release publication and managed skill files.                                                                  |
-| Application/CLI   | `rust/crates/tmt-cli/src/`      | One Clap grammar, typed invocations, preflight and use-case composition, output/error contracts, completion and the executable entry point. It chooses adapters; it does not duplicate their storage, file, installation or process policy. |
+| Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
+| ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure domain       | `rust/crates/tmt-core/src/`     | Identity, names, bindings, profiles, settings, retention, request state and native-install version policy. No filesystem, process, SQLite, tmux, network or CLI framework.                                      |
+| Concrete adapters | `rust/crates/tmt-adapters/src/` | Config files, SQLite, bounded files and processes, signals, tmux evidence/transport, response input, HTTP acquisition, native release publication and managed skill files.                                      |
+| Application/CLI   | `rust/crates/tmt-cli/src/`      | Core grammar, typed invocations, preflight and use-case composition, completion and the executable entry point. It chooses adapters; it does not duplicate their storage, file, installation or process policy. |
+
+`rust/crates/tmt-command-output` owns shared command output/error values and
+formatting. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
+grammar, typed requests and handlers. Core's reserved `tmt office` facade mounts
+that grammar and calls the same handlers through an in-process `CoreAccess` port.
+`tmt-cli/src/office_facade.rs` is the sole core registration and command-library
+dependency; grammar, translation and invocation types are pure forwards through it;
+direct `tmt-office` uses a bounded process implementation over public core JSON
+commands. Both entry points keep the existing public Office command behavior.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. It follows the actual Rust module tree, checks reviewed
@@ -598,17 +607,21 @@ Codecs own in-memory PNG processing; filesystem reads, publication, storage resp
 projection and process/config access remain adapters. Acquisition errors may retain
 an `io::Error` value without giving the model an I/O operation.
 
-The architecture guard freezes the exact remaining adapter and CLI consumer paths
-in `office_consumer`: storage, pairing/companion/installer-facing operations, the
-repository URL admission consumer, and the reserved Office grammar/commands. New
-consumers, dependency aliases, adapter re-exports and reverse model dependencies
-are rejected. Office runtime adapters and the reserved core `office` command are
-still retained extraction debt, not a second implementation or a storage migration.
-Within that retained command, `office_core_access::CoreAccess` limits Office
-handlers to identity selection and historical room lookup. Its in-process
-implementation delegates verified caller selection and room resolution to the
-existing core CLI owners; handlers do not reopen core storage for those lookups.
-The port does not change the direct companion entry point or public commands.
+The architecture guard freezes the exact remaining adapter consumer paths in
+`office_consumer`; core grammar and parser no longer import the Office model.
+New core-to-Office model consumers, command-library edges outside the facade,
+dependency aliases, adapter re-exports and
+reverse model dependencies are rejected. Office runtime adapters remain retained
+extraction debt, not a second implementation or a storage migration.
+`tmt_office_command::core_access::CoreAccess` limits Office handlers to identity selection
+and historical room lookup. Its in-process implementation delegates verified
+caller selection and room resolution to the existing core CLI owners; its direct
+entry point invokes `whoami --json`, `identity show --json` and `room show --json`
+through the bounded process owner. Handlers do not reopen core storage for these
+lookups or duplicate caller policy. The process port preserves child errors except
+for two exact-code mappings to existing Office semantics: `whoami`'s
+`PANE_NOT_FOUND` becomes `IDENTITY_REQUIRED`, and explicit `identity show`'s
+`INVALID_NAME` becomes `NAME_NOT_FOUND`. Neither mapping retries or changes targets.
 The executable is independently versioned and
 exposes the compatibility probe and typed one-shot pairing/status/inspect/sync operations.
 It depends on core and the existing adapters, not the CLI. Its adapter `office`
@@ -681,9 +694,10 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 
 ## Public command boundary
 
-`rust/crates/tmt-cli/src/grammar.rs` is the single syntax/help/completion
-definition. `parser.rs` turns it into `invocation.rs` values; handlers receive
-typed requests and publish through `output.rs`. Hidden commands are still
+`rust/crates/tmt-cli/src/grammar.rs` owns core syntax/help/completion and mounts
+the Office subtree from `tmt-office-command::grammar`. Each owner's parser turns
+its grammar into typed invocations; both publish through `tmt-command-output`.
+Hidden commands are still
 parsed for controlled internal workflows but are omitted from public help and
 completion.
 
@@ -1159,8 +1173,8 @@ Schema 14 adds the installation-owned local Office discussion board. Pure bounde
 values, actors, receipts and cursor policy live in `tmt-office-model::office_board`;
 `storage::office_board` owns active-UUID and owner-world revalidation, immediate
 transactions, soft deletion, board-local idempotency receipts, the single board
-revision and indexed keyset pages. The CLI crosses the verified `tmt-office`
-one-shot protocol, while the stopped-service-independent companion and authenticated
+revision and indexed keyset pages. The Office command library crosses the verified
+`tmt-office` one-shot protocol, while the stopped-service-independent companion and authenticated
 loopback HTTP adapter call the same repository. Repository categories are
 credential-free Git remote identifiers, not permissions, and category discovery
 is a synthetic-general plus stored-root projection rather than a registry.
@@ -1171,7 +1185,8 @@ threads require an existing room, not room membership; retained threads and exac
 operation replays remain readable after room removal. Room scope is classification,
 not access control. Category discovery uses the same indexed keyset ordering for
 repository and room identifiers; pre-upgrade category cursors require a fresh page.
-CLI `--room` selection reuses the canonical room resolver. The browser discussion
+Office `--room` selection reuses the canonical room resolver through `CoreAccess`.
+The browser discussion
 binding selects General or an explicit room UUID in that same store; placement
 changes cannot retarget it. `local/board-navigation` aggregates form-owned leave
 protection for category, thread and spatial-entry switches. `use-board-mutation`

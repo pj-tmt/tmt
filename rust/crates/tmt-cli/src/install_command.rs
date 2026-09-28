@@ -1,7 +1,6 @@
 //! Native skill installation composition; filesystem policy stays in adapters.
 
 use crate::{invocation::OutputMode, output::Failure};
-use serde_json::{Value, json};
 use std::{
     error::Error,
     io::{self, Write},
@@ -9,56 +8,12 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    skill_installation::{self, InstallReport, InstalledSkill, ProviderEnvironment},
+    skill_installation::{self, InstallReport, ProviderEnvironment},
 };
+use tmt_command_output::guidance::{report_document, write_report_human};
 
 fn failure(error: impl Error + 'static) -> Failure {
     Failure::new("ERROR", error.to_string(), 1).caused_by(error)
-}
-
-pub(crate) fn document(item: &InstalledSkill) -> Value {
-    let mut value = json!({"skill": item.name, "target": item.target, "changed": item.changed});
-    if let Some(agent) = item.agent {
-        value["agent"] = agent.as_str().into();
-    }
-    if let Some(backup) = &item.backup {
-        value["backup"] = json!(backup);
-    }
-    if !item.legacy_backups.is_empty() {
-        value["legacyBackups"] = json!(item.legacy_backups);
-    }
-    value
-}
-
-pub(crate) fn report_document(report: &InstallReport) -> Value {
-    let mut value = json!({"installed": report.installed.iter().map(document).collect::<Vec<_>>()});
-    if !report.warnings.is_empty() {
-        value["warnings"] = json!(report.warnings);
-    }
-    value
-}
-
-pub(crate) fn write_report_human(
-    report: &InstallReport,
-    output: &mut impl Write,
-) -> io::Result<()> {
-    for item in &report.installed {
-        writeln!(
-            output,
-            "{} {} skill '{}' at {}",
-            if item.changed { "Installed" } else { "Current" },
-            item.agent.map_or("shared", |agent| agent.as_str()),
-            item.name,
-            item.target.display()
-        )?;
-        for backup in item.backup.iter().chain(&item.legacy_backups) {
-            writeln!(output, "Recoverable backup: {}", backup.display())?;
-        }
-    }
-    for warning in &report.warnings {
-        writeln!(output, "Warning: {warning}")?;
-    }
-    Ok(())
 }
 
 fn run(

@@ -1,8 +1,8 @@
 //! One-shot Office block composition; all authorization remains in the companion.
 
 use crate::{
+    core_access::CoreAccess,
     invocation::{OfficeBlockOperation, OfficeBlockTarget, OfficeOperation, OutputMode},
-    office_core_access::CoreAccess,
     office_pairing_command::{pairing_error, sync_before_operation},
     output::Failure,
 };

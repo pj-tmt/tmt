@@ -301,7 +301,9 @@ tmt identity list --json
 
 These named and collection commands use only local storage, without tmux or
 unrelated configuration. `tmt identity show` without a name instead inspects
-only a verified bound caller; otherwise use `tmt identity show <name>`. It does
+only a verified bound caller; otherwise use `tmt identity show <name-or-uuid>`.
+An active canonical UUID takes precedence over an identical UUID-shaped display
+name; otherwise selection uses the normalized name. It does
 not select from the working directory, active pane or sole stored identity.
 Create is idempotent for canonical-equivalent names: it preserves the existing
 UUID, original display name, profiles and any pane binding. It never logs in,

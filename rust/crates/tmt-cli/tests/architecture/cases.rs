@@ -31,6 +31,44 @@ fn assert_exact(sources: &[source::Source], expected: &[&str]) {
 }
 
 #[test]
+fn office_command_edges_are_confined_to_the_reserved_facade() {
+    for package in ["tmt-core", "tmt-adapters", "tmt-cli"] {
+        let violations = policy::source_violations(&[syntax(
+            package,
+            "extra.rs",
+            "use tmt_office_command::execute as office;",
+        )]);
+        assert!(violations.iter().any(|v| v.contains("reserved facade")));
+    }
+    assert_exact(
+        &[syntax(
+            "tmt-cli",
+            "office_facade.rs",
+            "use tmt_office_command::execute;",
+        )],
+        &[],
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-cli",
+            "grammar.rs",
+            "use crate::office_facade::grammar::grammar;",
+        )],
+        &[],
+    );
+    let violations = policy::source_violations(&[syntax(
+        "tmt-cli",
+        "parser.rs",
+        "use crate::office_facade::execute;",
+    )]);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.contains("parsing depends on effects"))
+    );
+}
+
+#[test]
 fn core_rejects_grouped_renamed_reexport_and_qualified_io_references() {
     assert_exact(
         &[syntax(
@@ -625,8 +663,13 @@ fn receipt_dependencies_stay_at_their_reviewed_layer() {
 }
 
 #[test]
-fn display_width_dependency_stays_in_cli_presentation() {
-    for (owner, expected) in [("tmt-cli", 0), ("tmt-core", 1), ("tmt-adapters", 1)] {
+fn display_width_dependency_stays_in_shared_command_presentation() {
+    for (owner, expected) in [
+        ("tmt-command-output", 0),
+        ("tmt-cli", 1),
+        ("tmt-core", 1),
+        ("tmt-adapters", 1),
+    ] {
         assert_eq!(
             policy::dependency_violations(&package(
                 owner,

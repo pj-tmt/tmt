@@ -56,6 +56,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-office" => &[
             "tmt-office-model",
+            "tmt-office-command",
             "tmt-core",
             "tmt-adapters",
             "base64",
@@ -66,12 +67,21 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
         ],
         "tmt-cli" => &[
-            "tmt-office-model",
-            "unicode-width",
+            "tmt-office-command",
+            "tmt-command-output",
             "tmt-core",
             "tmt-adapters",
             "clap",
             "clap_complete",
+            "serde_json",
+        ],
+        "tmt-command-output" => &["tmt-core", "tmt-adapters", "serde_json", "unicode-width"],
+        "tmt-office-command" => &[
+            "tmt-core",
+            "tmt-office-model",
+            "tmt-adapters",
+            "tmt-command-output",
+            "clap",
             "serde_json",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
@@ -218,8 +228,8 @@ impl<'ast> Visit<'ast> for Facts {
 fn owns_declarations(source: &Source) -> bool {
     source.package == "tmt-core"
         || (source.package == "tmt-office-model" && source.file.starts_with("office_"))
-        || (source.package == "tmt-cli"
-            && matches!(source.file.as_str(), "invocation.rs" | "output.rs"))
+        || (source.package == "tmt-cli" && source.file == "invocation.rs")
+        || (source.package == "tmt-command-output" && source.file == "lib.rs")
 }
 
 // Retained consumers while Office storage and commands are extracted. These are
@@ -260,20 +270,8 @@ fn office_consumer(source: &Source) -> bool {
             "storage/office_world/layout.rs",
             "storage/office_world/legacy.rs",
         ],
-        "tmt-cli" => &[
-            "grammar.rs",
-            "parser.rs",
-            "office_avatar_command.rs",
-            "office_block_command.rs",
-            "office_board_command.rs",
-            "office_command.rs",
-            "office_extension_command.rs",
-            "office_layout_command.rs",
-            "office_pairing_command.rs",
-            "office_profile_command.rs",
-            "office_prop_command.rs",
-            "office_whiteboard_command.rs",
-        ],
+        "tmt-cli" => &[],
+        "tmt-office-command" => return true,
         _ => &[],
     };
     allowed.contains(&source.file.as_str())
@@ -408,15 +406,29 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
+            if root == "tmt_office_command"
+                && ["tmt-core", "tmt-adapters", "tmt-cli"].contains(&source.package.as_str())
+                && !(source.package == "tmt-cli" && source.file == "office_facade.rs")
+            {
+                violations.push(format!(
+                    "{location}: Office commands must be reached through the reserved facade: {}",
+                    path.join("::")
+                ));
+            }
             if source.package == "tmt-cli" {
                 let grammar_owner =
                     source.file == "grammar.rs" || source.file.starts_with("grammar/");
                 let parsing = grammar_owner
                     || ["parser.rs", "diagnostics.rs", "invocation.rs"]
                         .contains(&source.file.as_str());
+                let office_registration = module == "office_facade"
+                    && path.get(2).is_some_and(|part| {
+                        ["grammar", "parser", "invocation"].contains(&part.as_str())
+                    });
                 if parsing
                     && (root == "tmt_adapters"
                         || (["crate", "super"].contains(&root)
+                            && !office_registration
                             && !["grammar", "parser", "diagnostics", "invocation"]
                                 .contains(&module)))
                 {

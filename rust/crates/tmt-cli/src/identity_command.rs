@@ -131,16 +131,22 @@ fn operation(
                 .map(Report::Created)
                 .map_err(identity_failure)
         }
-        IdentityRequest::Show(Some(name)) => identity::find_by_name(storage, &name)
-            .map_err(identity_failure)?
-            .map(Report::Shown)
-            .ok_or_else(|| {
-                Failure::new(
-                    "NAME_NOT_FOUND",
-                    format!("Identity '{name}' was not found."),
-                    3,
-                )
-            }),
+        IdentityRequest::Show(Some(name)) => {
+            tmt_core::names::validate_name(&name).map_err(|error| {
+                Failure::new("INVALID_NAME", error.to_string(), 1).caused_by(error)
+            })?;
+            storage
+                .resolve_identity(&name)
+                .map_err(unavailable)?
+                .map(Report::Shown)
+                .ok_or_else(|| {
+                    Failure::new(
+                        "NAME_NOT_FOUND",
+                        format!("Identity '{name}' was not found."),
+                        3,
+                    )
+                })
+        }
         IdentityRequest::Show(None) => {
             identity_context::resolve(storage, selector.expect("unnamed show resolved a selector"))
                 .map(Report::Shown)

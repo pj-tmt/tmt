@@ -12,7 +12,6 @@ pub enum Outcome {
     None,
     TemporaryIdentityCreated,
     SavedIdentityCreated,
-    OfficeStarted,
 }
 
 fn optional_hint(outcome: Outcome, mode: OutputMode, enabled: bool) -> Option<&'static str> {
@@ -26,9 +25,6 @@ fn optional_hint(outcome: Outcome, mode: OutputMode, enabled: bool) -> Option<&'
         ),
         Outcome::SavedIdentityCreated => Some(
             "Hint: To receive work for this saved identity, run `tmt x listen --identity <name>`.",
-        ),
-        Outcome::OfficeStarted => Some(
-            "Hint: Open the URL above in your local browser. Its private link belongs to the running service; use `tmt office start` to retrieve it later.",
         ),
     }
 }
@@ -118,7 +114,6 @@ mod tests {
         for transition in [
             Outcome::TemporaryIdentityCreated,
             Outcome::SavedIdentityCreated,
-            Outcome::OfficeStarted,
         ] {
             assert!(optional_hint(transition, human, true).is_some());
             assert!(optional_hint(transition, human, false).is_none());

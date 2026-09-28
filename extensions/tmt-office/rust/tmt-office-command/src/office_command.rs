@@ -1,6 +1,7 @@
 //! Optional Office composition; no application database, implicit service or PATH dispatch.
 
 use crate::{
+    core_access::CoreAccess,
     invocation::{OfficeOperation, OutputMode},
     output::Failure,
 };
@@ -78,6 +79,17 @@ fn service_failure(error: ServiceError) -> Failure {
         ServiceError::Unavailable(_) => "OFFICE_SERVICE_UNAVAILABLE",
     };
     Failure::new(code, error.to_string(), 1).caused_by(error)
+}
+
+fn office_start_hint(mode: OutputMode) {
+    if mode.json || std::env::var("TMT_HINTS").is_ok_and(|value| value.eq_ignore_ascii_case("off"))
+    {
+        return;
+    }
+    let _ = writeln!(
+        io::stderr().lock(),
+        "Hint: Open the URL above in your local browser. Its private link belongs to the running service; use `tmt office start` to retrieve it later."
+    );
 }
 
 fn installed(executable: &Path) -> Result<bool, Failure> {
@@ -265,7 +277,7 @@ fn guidance_document(
     report: &skill_installation::InstallReport,
     pending_backup: Option<&Path>,
 ) -> serde_json::Value {
-    let mut value = crate::install_command::report_document(report);
+    let mut value = tmt_command_output::guidance::report_document(report);
     if let Some(backup) = pending_backup {
         value["pendingBackup"] = json!(backup);
     }
@@ -277,7 +289,7 @@ fn write_guidance_human(
     pending_backup: Option<&Path>,
     output: &mut impl Write,
 ) -> io::Result<()> {
-    crate::install_command::write_report_human(report, output)?;
+    tmt_command_output::guidance::write_report_human(report, output)?;
     if let Some(backup) = pending_backup {
         writeln!(
             output,
@@ -339,8 +351,9 @@ pub fn execute(
     prefix: Option<String>,
     operation: OfficeOperation,
     mode: OutputMode,
+    core_access: &dyn CoreAccess,
 ) -> io::Result<u8> {
-    match run(prefix, operation, mode) {
+    match run(prefix, operation, mode, core_access) {
         Ok(code) => Ok(code),
         Err(error) => error.publish(mode),
     }
@@ -350,8 +363,8 @@ fn run(
     prefix: Option<String>,
     operation: OfficeOperation,
     mode: OutputMode,
+    core_access: &dyn CoreAccess,
 ) -> Result<u8, Failure> {
-    let core_access = crate::office_core_access::InProcessCoreAccess;
     let prefix = prefix
         .map(PathBuf::from)
         .map_or_else(native_install::default_install_prefix, Ok)
@@ -384,11 +397,7 @@ fn run(
             .map_err(|error| failure("OFFICE_IO_ERROR", error))
             .inspect(|_| {
                 if started.changed {
-                    crate::skill_reminder::present(
-                        crate::skill_reminder::Outcome::OfficeStarted,
-                        mode,
-                        false,
-                    );
+                    office_start_hint(mode);
                 }
             })
         }
@@ -415,7 +424,7 @@ fn run(
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
-            crate::office_pairing_command::run(&executable, operation, mode, &core_access)
+            crate::office_pairing_command::run(&executable, operation, mode, core_access)
         }
         OfficeOperation::Layout(operation) => {
             if !installed(&executable)? {
@@ -427,13 +436,13 @@ fn run(
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
-            crate::office_block_command::run(&executable, operation, mode, &core_access)
+            crate::office_block_command::run(&executable, operation, mode, core_access)
         }
         OfficeOperation::Profile { .. } => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
-            crate::office_profile_command::run(&executable, operation, mode, &core_access)
+            crate::office_profile_command::run(&executable, operation, mode, core_access)
         }
         OfficeOperation::Prop(_) => {
             if !installed(&executable)? {
@@ -457,7 +466,7 @@ fn run(
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
-            crate::office_board_command::run(&executable, operation, mode, &core_access)
+            crate::office_board_command::run(&executable, operation, mode, core_access)
         }
         OfficeOperation::WhiteboardSnapshot { reference, output } => {
             if !installed(&executable)? {

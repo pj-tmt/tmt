@@ -53,16 +53,25 @@ describe('explicit identity selector', () => {
         expect(result.status, result.stdout + result.stderr).toBe(0);
         return (parseWholeStdout(result) as { identity: { id: string } }).identity.id;
       };
+      const shown = async (value: string) => {
+        const result = await runCli(sandbox, ['identity', 'show', value, '--json']);
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        return (parseWholeStdout(result) as { identity: { id: string } }).identity.id;
+      };
       const receiver = await create('Reviewer');
       expect(await selected(receiver.id)).toBe(receiver.id);
+      expect(await shown(receiver.id)).toBe(receiver.id);
       expect(await selected('rEvIeWeR')).toBe(receiver.id);
+      expect(await shown('rEvIeWeR')).toBe(receiver.id);
       const collision = await create(receiver.id);
       expect(collision.id).not.toBe(receiver.id);
       expect(await selected(receiver.id)).toBe(receiver.id);
+      expect(await shown(receiver.id)).toBe(receiver.id);
 
       const uuidShapedName = '11111111-1111-4111-8111-111111111111';
       const named = await create(uuidShapedName);
       expect(await selected(uuidShapedName)).toBe(named.id);
+      expect(await shown(uuidShapedName)).toBe(named.id);
       const retired = await create('Retired');
       const removed = await runCli(sandbox, ['rm', 'Retired', '--force', '--json']);
       expect(removed.status).toBe(0);
@@ -70,7 +79,13 @@ describe('explicit identity selector', () => {
         const missing = await runCli(sandbox, ['x', 'list', '--identity', value, '--json']);
         expect(missing.status).toBe(3);
         expectError(missing, 'NAME_NOT_FOUND');
+        const missingShow = await runCli(sandbox, ['identity', 'show', value, '--json']);
+        expect(missingShow.status).toBe(3);
+        expectError(missingShow, 'NAME_NOT_FOUND');
       }
+      const invalidShow = await runCli(sandbox, ['identity', 'show', '   ', '--json']);
+      expect(invalidShow.status).toBe(1);
+      expectError(invalidShow, 'INVALID_NAME');
       expect(readFileSync(tmuxLog, 'utf8')).toBe('\n');
     });
   });
