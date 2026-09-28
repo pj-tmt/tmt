@@ -4,7 +4,7 @@
   "size": [1254, 1254],
   "label": "Directional lounge",
   "credit": "TMT · generated directional furniture artwork",
-  "output": "../../../../contracts/office/directional-lounge-v2.tmtprop.json",
+  "output": "../../../../extensions/tmt-office/contracts/directional-lounge-v2.tmtprop.json",
   "props": [
     {
       "key": "lounge-sofa",

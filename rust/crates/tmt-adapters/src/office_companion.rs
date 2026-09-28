@@ -1454,7 +1454,7 @@ mod pairing_tests {
     #[test]
     fn directional_prop_replies_preserve_the_admitted_shape_and_reject_hostile_summaries() {
         let pack = tmt_office_model::codec::office_prop::validate_pack(include_bytes!(
-            "../../../../contracts/office/prop-pack-v2-sample.tmtprop.json"
+            "../../../../extensions/tmt-office/contracts/prop-pack-v2-sample.tmtprop.json"
         ))
         .unwrap();
         let input = serde_json::to_vec(&tmt_office_model::codec::office_prop::command_pack_input(

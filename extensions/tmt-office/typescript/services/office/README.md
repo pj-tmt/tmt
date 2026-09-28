@@ -6,7 +6,7 @@ creation/read of owner-only worlds. Rules require operator-managed tester
 admission. Cloud deployment, invitations, guest memberships and presence are
 not implied by this implementation. Unspecified paths remain denied.
 
-Rules also enforce [scoped agent grants](../../../../../contracts/office/agent-grant-v1.md)
+Rules also enforce [scoped agent grants](../../../contracts/agent-grant-v1.md)
 for UUID blocks with live expiry, capability and owner-admission checks. The
 trusted issuer is implemented under `functions/` for emulator verification;
 the browser can explicitly approve/revoke, and the native companion pairs and
@@ -16,7 +16,7 @@ to simulate pairing.
 The owner can edit the home block and inspect/edit assigned or retained agent
 blocks through the existing space inventory.
 
-[Pairing v1](../../../../../contracts/office/pairing-v1.md) defines approval, proof claim,
+[Pairing v1](../../../contracts/pairing-v1.md) defines approval, proof claim,
 retry and revocation. Non-emulator activation defaults off. No Functions are
 deployed by building or testing; production IAM, endpoint abuse controls,
 retention and costs require separate review and authorization.

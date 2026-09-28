@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 fn examples() -> Value {
     serde_json::from_str(include_str!(
-        "../../../../../contracts/office/pairing-examples.json"
+        "../../../../../extensions/tmt-office/contracts/pairing-examples.json"
     ))
     .unwrap()
 }

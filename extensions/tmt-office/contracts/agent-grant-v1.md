@@ -89,7 +89,7 @@ have committed before revocation; clients must not assume cancellation.
 These requirements constrain subsequent #209 slices; they are not implemented
 by these Rules:
 
-- Follow the [explicit approval/proof flow](../../docs/office/design.md#invitations-and-pairing).
+- Follow the [explicit approval/proof flow](../../../docs/office/design.md#invitations-and-pairing).
   The owner approves the actual deployment, installation, selected identity,
   resource and capabilities. Only a trusted service issues the principal/custom
   token; no anonymous-provider enablement or browser-minted credentials.

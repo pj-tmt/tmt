@@ -879,9 +879,10 @@ mod tests {
     fn directional_pack_above_legacy_bound_survives_storage_reopen() {
         let directory = TestDirectory::new();
         let database = directory.path.join("state.db");
-        let mut bytes =
-            include_bytes!("../../../../../contracts/office/prop-pack-v2-sample.tmtprop.json")
-                .to_vec();
+        let mut bytes = include_bytes!(
+            "../../../../../extensions/tmt-office/contracts/prop-pack-v2-sample.tmtprop.json"
+        )
+        .to_vec();
         bytes.resize(
             tmt_office_model::codec::office_prop::V1_PACK_INPUT_LIMIT + 1,
             b' ',

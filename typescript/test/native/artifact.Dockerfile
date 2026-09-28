@@ -11,6 +11,7 @@ WORKDIR /workspace
 COPY rust/ rust/
 COPY extensions/tmt-office/rust/ extensions/tmt-office/rust/
 COPY skills/ skills/
+COPY extensions/tmt-office/skills/ extensions/tmt-office/skills/
 COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE ./
 COPY docs/NATIVE-INSTALL.md docs/NATIVE-INSTALL.md
@@ -18,6 +19,7 @@ COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace
 COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
 COPY extensions/tmt-office/typescript/apps/office/ extensions/tmt-office/typescript/apps/office/
 COPY contracts/ contracts/
+COPY extensions/tmt-office/contracts/ extensions/tmt-office/contracts/
 RUN cd rust && cargo fetch --locked
 RUN scripts/build-native-artifact.sh "$TARGET_TRIPLE" "$PRODUCT" > native-manifest.json
 
@@ -37,7 +39,7 @@ COPY scripts/native-bootstrap.sh scripts/native-bootstrap.sh
 COPY skills/tmux-team/SKILL.md expected-skill.md
 COPY skills/tmux-team/SKILL.md skills/tmux-team/SKILL.md
 COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
-COPY skills/tmt-office/SKILL.md skills/tmt-office/SKILL.md
+COPY extensions/tmt-office/skills/tmt-office/SKILL.md extensions/tmt-office/skills/tmt-office/SKILL.md
 COPY --from=build /workspace/native-manifest.json ./
 COPY --from=build /workspace/rust/target/native-notices/THIRD-PARTY-NOTICES.txt expected-notices.txt
 COPY LICENSE expected-license.txt

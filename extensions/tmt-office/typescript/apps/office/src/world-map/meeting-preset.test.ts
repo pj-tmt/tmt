@@ -6,7 +6,7 @@ import { worldHistory, updateWorldMap } from './world-draft.js';
 import { removeArea } from './map-draft.js';
 import { footprint } from '../blocks/block-contract.js';
 import { platformModuleWorld } from './module-upgrade.js';
-import vectors from '../../../../../../../contracts/office/modules-unified-vectors.json';
+import vectors from '../../../../../contracts/modules-unified-vectors.json';
 import { decodeModuleMap } from './module-contract.js';
 import { projectMap } from './map-geometry.js';
 import { placementProblem } from './world-object-placement.js';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/block-v1.vectors.json' with { type: 'json' };
-import propVectors from '../../../../../../../contracts/office/prop-block-vectors.json' with { type: 'json' };
+import vectors from '../../../../../contracts/block-v1.vectors.json' with { type: 'json' };
+import propVectors from '../../../../../contracts/prop-block-vectors.json' with { type: 'json' };
 import {
   footprint,
   sameLayout,

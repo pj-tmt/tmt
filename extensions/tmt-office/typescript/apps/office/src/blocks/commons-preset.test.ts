@@ -1,11 +1,11 @@
 import { expect, it } from 'vitest';
-import document from '../../../../../../../contracts/office/commons-preset-v1.json';
-import discussion from '../../../../../../../contracts/office/discussion-extension-v1.json';
-import discussionInstance from '../../../../../../../contracts/office/lobby-extension-v1.json';
-import whiteboard from '../../../../../../../contracts/office/whiteboard-extension-v1.json';
-import whiteboardInstance from '../../../../../../../contracts/office/lobby-whiteboard-v1.json';
-import broadcaster from '../../../../../../../contracts/office/broadcaster-extension-v1.json';
-import broadcasterInstance from '../../../../../../../contracts/office/lobby-broadcaster-v1.json';
+import document from '../../../../../contracts/commons-preset-v1.json';
+import discussion from '../../../../../contracts/discussion-extension-v1.json';
+import discussionInstance from '../../../../../contracts/lobby-extension-v1.json';
+import whiteboard from '../../../../../contracts/whiteboard-extension-v1.json';
+import whiteboardInstance from '../../../../../contracts/lobby-whiteboard-v1.json';
+import broadcaster from '../../../../../contracts/broadcaster-extension-v1.json';
+import broadcasterInstance from '../../../../../contracts/lobby-broadcaster-v1.json';
 import { defaultCatalog, footprint, validLocalLayout } from './block-contract.js';
 import { COMMONS_FURNITURE } from './commons-preset.js';
 import { resolvePlacedProp } from '../props/prop-contract.js';

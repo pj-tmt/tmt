@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Buffer } from 'node:buffer';
-import vectors from '../../../../../../../contracts/office/pairing-examples.json' with { type: 'json' };
+import vectors from '../../../../../contracts/pairing-examples.json' with { type: 'json' };
 import {
   parseApprovedPairing,
   parsePairingFragment,

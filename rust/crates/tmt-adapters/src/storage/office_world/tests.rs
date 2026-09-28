@@ -905,7 +905,7 @@ fn functional_objects_share_existing_resources_and_removal_never_resets_the_pres
     assert_eq!(count(&storage, "office_board_entries"), 0);
     assert_eq!(count(&storage, "request_attempts"), 0);
     let scene = tmt_office_model::codec::office_whiteboard::decode_scene(include_bytes!(
-        "../../../../../../contracts/office/whiteboard-scene-v1.json"
+        "../../../../../../extensions/tmt-office/contracts/whiteboard-scene-v1.json"
     ))
     .unwrap();
     storage

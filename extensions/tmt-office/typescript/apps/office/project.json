@@ -32,7 +32,7 @@
         "{workspaceRoot}/typescript/package.json",
         "{workspaceRoot}/typescript/pnpm-lock.yaml",
         "{workspaceRoot}/typescript/pnpm-workspace.yaml",
-        "{workspaceRoot}/contracts/office/**/*"
+        "{workspaceRoot}/extensions/tmt-office/contracts/**/*"
       ],
       "outputs": ["{workspaceRoot}/target/office-spa"],
       "cache": false

@@ -317,7 +317,7 @@ mod tests {
 
     fn avatar_pack() -> tmt_office_model::codec::office_avatar::ValidatedAvatarPack {
         tmt_office_model::codec::office_avatar::validate_pack(include_bytes!(
-            "../../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
+            "../../../../../extensions/tmt-office/contracts/avatar-pack-v1-sample.tmtavatar.json"
         ))
         .unwrap()
     }

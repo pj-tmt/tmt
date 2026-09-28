@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/prop-customization-vectors.json';
+import vectors from '../../../../../contracts/prop-customization-vectors.json';
 import { decodePropPack } from './prop-contract.js';
 import { encodeLayout, localLayoutValue, validLocalLayout } from '../blocks/block-contract.js';
 

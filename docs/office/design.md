@@ -4,7 +4,7 @@ Status: local-first M1 semantics plus a separately scoped remote pilot proposal;
 delivered SPA, Rules and pairing boundaries are described in
 [architecture](architecture.md).
 This document owns policy and user-visible semantics; the
-[wire schema](../../contracts/office/v1.schema.json) owns message shapes.
+[wire schema](../../extensions/tmt-office/contracts/v1.schema.json) owns message shapes.
 
 ## Local-first M1
 
@@ -80,14 +80,14 @@ and resource ownership. Client writes to tester grants are always denied.
 Operators edit `{ enabled: true }` in Firebase Console; missing/disabled/malformed
 grants deny world access. Authentication itself is not blocked by this gate.
 
-See [private world document v1](../../contracts/office/private-world.md) for
+See [private world document v1](../../extensions/tmt-office/contracts/private-world.md) for
 the exact create/read and retry contract. Future blocks and messages live in
 world subcollections, not unbounded arrays on the root. Those paths currently
 deny all client access except the owner-only `blocks/home` decoration slice
-specified in [block v1](../../contracts/office/block-v1.md) and scoped UUID blocks
-under [agent grant v1](../../contracts/office/agent-grant-v1.md). Grant enforcement
-is complemented by the local [pairing issuer and browser approval](../../contracts/office/pairing-v1.md)
-and the implemented [native pairing contract](../../contracts/office/native-pairing.md).
+specified in [block v1](../../extensions/tmt-office/contracts/block-v1.md) and scoped UUID blocks
+under [agent grant v1](../../extensions/tmt-office/contracts/agent-grant-v1.md). Grant enforcement
+is complemented by the local [pairing issuer and browser approval](../../extensions/tmt-office/contracts/pairing-v1.md)
+and the implemented [native pairing contract](../../extensions/tmt-office/contracts/native-pairing.md).
 Invitations and device/work operations below remain
 future design; they do not justify a generic backend for ordinary world storage.
 The initial owner-only world does not implement visitor memberships or presence.
@@ -154,7 +154,7 @@ Pairing is a separate authorization from installation and login:
 4. The originating connector proves possession of its secret and claims the
    approval as one logical assignment. Original-proof retries within the same
    window reuse its principal/grant and never renew its deadline; see
-   [pairing v1](../../contracts/office/pairing-v1.md). The service creates a distinct principal for the selected
+   [pairing v1](../../extensions/tmt-office/contracts/pairing-v1.md). The service creates a distinct principal for the selected
    installation/identity/world binding and returns a
    short-lived Firebase custom token; only that device exchanges it for its own
    credentials. Neither the pairing URL nor ordinary output contains bearer or
@@ -352,7 +352,7 @@ These are conservative PoC defaults, not existing CLI settings:
   tombstone deletion a changed deadline cannot be compared with old fields.
   Clients must never reuse an ID or silently turn an expired retry into a new
   submission. An explicit new request uses a fresh random ID and new admission.
-- Blocks: the implemented [home block v1](../../contracts/office/block-v1.md)
+- Blocks: the implemented [home block v1](../../extensions/tmt-office/contracts/block-v1.md)
   accepts 16 curated objects on a 32x32 grid within a 64 KiB ceiling,
   rendered with repository-controlled SVG/CSS. Custom props require the versioned
   sandbox successor; no arbitrary artwork is accepted by the current codec.
@@ -380,7 +380,7 @@ upload a local repository simply because a remote visitor named its URL.
 ## Verification boundary
 
 Schema validation proves structural compatibility only. The scenario vectors in
-`contracts/office/scenarios.json` define required outcomes, not evidence that
+`extensions/tmt-office/contracts/scenarios.json` define required outcomes, not evidence that
 services, rules or connectors enforce them. Their actual implementations require
 causal authorization, crash and revocation tests. Cloud activation and billable
 services require separate operator authorization; this protocol provisions nothing.

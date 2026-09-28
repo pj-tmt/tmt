@@ -22,7 +22,7 @@ fn descriptor() -> Value {
 #[test]
 fn literal_browser_deployments_pin_origin_and_exact_claim_target() {
     let corpus: Value = serde_json::from_str(include_str!(
-        "../../../../contracts/office/deployment-examples.json"
+        "../../../../extensions/tmt-office/contracts/deployment-examples.json"
     ))
     .unwrap();
     let examples = corpus["valid"].as_array().unwrap();

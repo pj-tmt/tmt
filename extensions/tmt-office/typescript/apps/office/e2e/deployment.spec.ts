@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import deployments from '../../../../../../contracts/office/deployment-examples.json' with { type: 'json' };
+import deployments from '../../../../contracts/deployment-examples.json' with { type: 'json' };
 
 test('built emulator serves only the public descriptor; preview and unconfigured cloud do not', async ({
   request,

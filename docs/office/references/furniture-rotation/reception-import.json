@@ -4,7 +4,7 @@
   "size": [1254, 1254],
   "label": "Directional reception",
   "credit": "TMT · generated directional furniture artwork",
-  "output": "../../../../contracts/office/directional-reception-v2.tmtprop.json",
+  "output": "../../../../extensions/tmt-office/contracts/directional-reception-v2.tmtprop.json",
   "props": [
     {
       "key": "reception-armchair",

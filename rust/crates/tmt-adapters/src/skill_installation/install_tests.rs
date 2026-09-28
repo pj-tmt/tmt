@@ -135,7 +135,7 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
         assert_eq!(installed, bundled_skill_named(name).unwrap());
         let guidance = String::from_utf8(installed).unwrap();
         if name == "tmt-prop-create" {
-            assert!(!guidance.contains("contracts/office/"));
+            assert!(!guidance.contains("extensions/tmt-office/contracts/"));
             for required in [
                 "\"formatVersion\": 1",
                 "tmt office prop validate --file",
@@ -152,7 +152,7 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
                 );
             }
         } else if name == "tmt-avatar-create" {
-            assert!(!guidance.contains("contracts/office/"));
+            assert!(!guidance.contains("extensions/tmt-office/contracts/"));
             for required in [
                 "`formatVersion: 1` for 16×24 pixels",
                 "`2` for 32×48 pixels",

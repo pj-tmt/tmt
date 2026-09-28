@@ -11,7 +11,7 @@ import {
   sceneActivity,
   captureWorldScene,
 } from './scene-observation.js';
-import vectors from '../../../../../../contracts/office/modules-central-grid-vectors.json' with { type: 'json' };
+import vectors from '../../../../contracts/modules-central-grid-vectors.json' with { type: 'json' };
 import { decodeModuleMap } from '../src/world-map/module-contract.js';
 import { moduleBounds } from '../src/world-map/module-geometry.js';
 import { workshopStarter } from '../src/blocks/workshop-starter.js';

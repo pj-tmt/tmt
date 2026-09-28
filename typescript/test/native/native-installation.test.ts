@@ -35,15 +35,15 @@ function installPrefix(sandbox: Sandbox): string {
 }
 
 function officeSkill(): Buffer {
-  return readFileSync(path.resolve('../skills/tmt-office/SKILL.md'));
+  return readFileSync(path.resolve('../extensions/tmt-office/skills/tmt-office/SKILL.md'));
 }
 
 function propCreateSkill(): Buffer {
-  return readFileSync(path.resolve('../skills/tmt-prop-create/SKILL.md'));
+  return readFileSync(path.resolve('../extensions/tmt-office/skills/tmt-prop-create/SKILL.md'));
 }
 
 function avatarCreateSkill(): Buffer {
-  return readFileSync(path.resolve('../skills/tmt-avatar-create/SKILL.md'));
+  return readFileSync(path.resolve('../extensions/tmt-office/skills/tmt-avatar-create/SKILL.md'));
 }
 
 async function install(

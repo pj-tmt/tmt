@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 fn preview() -> Value {
     let maps: Value = serde_json::from_str(include_str!(
-        "../../../../../../contracts/office/map-v1-vectors.json"
+        "../../../../../../extensions/tmt-office/contracts/map-v1-vectors.json"
     ))
     .unwrap();
     json!({

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/avatar-pack-vectors.json';
-import detailed from '../../../../../../../contracts/office/avatar-pack-v2-sample.tmtavatar.json';
-import robots from '../../../../../../../contracts/office/modular-robots-v2.tmtavatar.json';
+import vectors from '../../../../../contracts/avatar-pack-vectors.json';
+import detailed from '../../../../../contracts/avatar-pack-v2-sample.tmtavatar.json';
+import robots from '../../../../../contracts/modular-robots-v2.tmtavatar.json';
 import {
   avatarOptions,
   decodeAvatarCatalog,

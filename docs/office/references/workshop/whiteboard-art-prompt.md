@@ -20,7 +20,7 @@ All views use one scale, `60 / 441`, with nearest-neighbor reduction and centere
 placement into 96 × 64 / 64 × 96 / 96 × 64 / 64 × 96 rasters. A shared,
 non-dithered 255-color quantization produces the admitted 247-entry palette;
 alpha below 128 maps to transparent index zero, otherwise opaque. The runtime
-[pack](../../../../contracts/office/whiteboard-props-v2.tmtprop.json) contains
+[pack](../../../../extensions/tmt-office/contracts/whiteboard-props-v2.tmtprop.json) contains
 24,576 cells and 58,319 exact source bytes, not the source PNG. Its 12 × 8 tile
 footprint retains eight source pixels per tile in all directions.
 

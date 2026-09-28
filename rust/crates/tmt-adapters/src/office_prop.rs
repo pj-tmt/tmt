@@ -163,8 +163,9 @@ fn storage_prop_error(error: impl std::error::Error) -> OfficeError {
 mod tests {
     use super::*;
 
-    const DIRECTIONAL_SAMPLE: &[u8] =
-        include_bytes!("../../../../contracts/office/prop-pack-v2-sample.tmtprop.json");
+    const DIRECTIONAL_SAMPLE: &[u8] = include_bytes!(
+        "../../../../extensions/tmt-office/contracts/prop-pack-v2-sample.tmtprop.json"
+    );
 
     #[test]
     fn directional_frames_have_independent_identity_and_summary_dimensions() {
@@ -325,7 +326,7 @@ mod tests {
     #[test]
     fn shared_vectors_cover_values_and_full_capacity() {
         let vectors: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../contracts/office/prop-block-vectors.json"
+            "../../../../extensions/tmt-office/contracts/prop-block-vectors.json"
         ))
         .unwrap();
         for case in vectors["packCases"].as_array().unwrap() {

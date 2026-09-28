@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn shared_projection_vectors_match_and_literal_digest_is_frozen() {
         let vectors: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../contracts/office/avatar-pack-vectors.json"
+            "../../../../extensions/tmt-office/contracts/avatar-pack-vectors.json"
         ))
         .unwrap();
         for case in vectors["packCases"].as_array().unwrap() {
@@ -205,8 +205,9 @@ mod tests {
                 case["name"]
             );
         }
-        let bytes =
-            include_bytes!("../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json");
+        let bytes = include_bytes!(
+            "../../../../extensions/tmt-office/contracts/avatar-pack-v1-sample.tmtavatar.json"
+        );
         let pack = validate_pack(bytes).unwrap();
         assert_eq!(bytes.len(), 948);
         assert_eq!(

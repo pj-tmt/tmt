@@ -10,7 +10,9 @@
         "{projectRoot}/**/*",
         "{workspaceRoot}/extensions/tmt-office/rust/**/*",
         "{workspaceRoot}/contracts/**/*",
-        "{workspaceRoot}/skills/**/*"
+        "{workspaceRoot}/skills/**/*",
+        "{workspaceRoot}/extensions/tmt-office/contracts/**/*",
+        "{workspaceRoot}/extensions/tmt-office/skills/**/*"
       ],
       "cache": false
     },
@@ -38,6 +40,8 @@
         "{workspaceRoot}/extensions/tmt-office/rust/**/*",
         "{workspaceRoot}/contracts/**/*",
         "{workspaceRoot}/skills/**/*",
+        "{workspaceRoot}/extensions/tmt-office/contracts/**/*",
+        "{workspaceRoot}/extensions/tmt-office/skills/**/*",
         "{workspaceRoot}/target/office-spa/**/*"
       ],
       "dependsOn": [

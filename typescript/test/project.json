@@ -14,6 +14,8 @@
         "{workspaceRoot}/typescript/pnpm-lock.yaml",
         "{workspaceRoot}/contracts/**/*",
         "{workspaceRoot}/skills/**/*",
+        "{workspaceRoot}/extensions/tmt-office/contracts/**/*",
+        "{workspaceRoot}/extensions/tmt-office/skills/**/*",
         "{workspaceRoot}/target/office-spa/**/*"
       ],
       "dependsOn": [

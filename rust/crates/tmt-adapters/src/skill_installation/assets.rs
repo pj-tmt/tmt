@@ -11,11 +11,12 @@ use uuid::Uuid;
 
 pub(super) const SKILL: &[u8] = include_bytes!("../../../../../skills/tmux-team/SKILL.md");
 pub(super) const INBOX_SKILL: &[u8] = include_bytes!("../../../../../skills/tmt-inbox/SKILL.md");
-pub(super) const OFFICE_SKILL: &[u8] = include_bytes!("../../../../../skills/tmt-office/SKILL.md");
+pub(super) const OFFICE_SKILL: &[u8] =
+    include_bytes!("../../../../../extensions/tmt-office/skills/tmt-office/SKILL.md");
 pub(super) const PROP_CREATE_SKILL: &[u8] =
-    include_bytes!("../../../../../skills/tmt-prop-create/SKILL.md");
+    include_bytes!("../../../../../extensions/tmt-office/skills/tmt-prop-create/SKILL.md");
 pub(super) const AVATAR_CREATE_SKILL: &[u8] =
-    include_bytes!("../../../../../skills/tmt-avatar-create/SKILL.md");
+    include_bytes!("../../../../../extensions/tmt-office/skills/tmt-avatar-create/SKILL.md");
 
 fn framed_digest(parts: &[&[u8]]) -> String {
     let mut bytes =

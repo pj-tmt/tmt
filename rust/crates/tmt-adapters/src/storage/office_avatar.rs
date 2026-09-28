@@ -555,14 +555,15 @@ mod tests {
 
     fn sample() -> ValidatedAvatarPack {
         validate_pack(include_bytes!(
-            "../../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
+            "../../../../../extensions/tmt-office/contracts/avatar-pack-v1-sample.tmtavatar.json"
         ))
         .unwrap()
     }
 
     fn named(index: usize) -> ValidatedAvatarPack {
-        let source =
-            include_str!("../../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json");
+        let source = include_str!(
+            "../../../../../extensions/tmt-office/contracts/avatar-pack-v1-sample.tmtavatar.json"
+        );
         validate_pack(
             source
                 .replace("Signal bots", &format!("Signal bots {index}"))
@@ -573,7 +574,7 @@ mod tests {
 
     fn multi(index: usize, count: usize) -> ValidatedAvatarPack {
         let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
-            "../../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
+            "../../../../../extensions/tmt-office/contracts/avatar-pack-v1-sample.tmtavatar.json"
         ))
         .unwrap();
         value["label"] = serde_json::json!(format!("Multi {index}"));

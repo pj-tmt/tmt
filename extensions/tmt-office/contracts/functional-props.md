@@ -5,8 +5,8 @@ and local whiteboard editor/persistence are implemented locally. Immutable snaps
 sharing supports explicit identities and revision-fenced meeting rosters through
 the inbox. The broadcaster supports explicit no-reply announcements. Broader host actions remain planned; local implementation
 is not release evidence.
-The [workshop references](../../docs/office/references/workshop/README.md) own
-visual intent; [Office architecture](../../docs/office/architecture.md) records
+The [workshop references](../../../docs/office/references/workshop/README.md) own
+visual intent; [Office architecture](../../../docs/office/architecture.md) records
 current code ownership.
 
 ## Responsibilities

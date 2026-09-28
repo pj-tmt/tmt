@@ -21,7 +21,7 @@ mod tests {
     #[test]
     fn local_customization_values_match_shared_vectors_and_require_v3() {
         let vectors: Value = serde_json::from_str(include_str!(
-            "../../../../contracts/office/prop-customization-vectors.json"
+            "../../../../extensions/tmt-office/contracts/prop-customization-vectors.json"
         ))
         .unwrap();
         for case in vectors["placementCases"].as_array().unwrap() {
@@ -66,7 +66,7 @@ mod tests {
     #[test]
     fn actual_readable_inputs_conform_to_shared_literal_vectors() {
         let vectors: Vec<Value> = serde_json::from_str(include_str!(
-            "../../../../contracts/office/block-v1.vectors.json"
+            "../../../../extensions/tmt-office/contracts/block-v1.vectors.json"
         ))
         .unwrap();
         for vector in vectors {
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn local_v2_inputs_conform_to_shared_prop_vectors() {
         let vectors: Value = serde_json::from_str(include_str!(
-            "../../../../contracts/office/prop-block-vectors.json"
+            "../../../../extensions/tmt-office/contracts/prop-block-vectors.json"
         ))
         .unwrap();
         for case in vectors["layoutCases"].as_array().unwrap() {

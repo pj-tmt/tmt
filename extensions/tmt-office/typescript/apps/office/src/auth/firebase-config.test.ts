@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { officeDeployment, officeFirebaseConfig } from './firebase-config.js';
-import deployments from '../../../../../../../contracts/office/deployment-examples.json';
+import deployments from '../../../../../contracts/deployment-examples.json';
 
 const settings = {
   VITE_FIREBASE_API_KEY: 'public-key',

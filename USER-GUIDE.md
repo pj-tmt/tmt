@@ -6,8 +6,8 @@ URL, then use
 [`skills/README.md`](skills/README.md) for provider-specific installation and
 [`skills/tmux-team/SKILL.md`](skills/tmux-team/SKILL.md) for canonical agent
 guidance. Optional Office workflows have canonical
-[`tmt-office`](skills/tmt-office/SKILL.md) and
-[`tmt-prop-create`](skills/tmt-prop-create/SKILL.md) skills.
+[`tmt-office`](extensions/tmt-office/skills/tmt-office/SKILL.md) and
+[`tmt-prop-create`](extensions/tmt-office/skills/tmt-prop-create/SKILL.md) skills.
 
 ## Install and load the skill
 

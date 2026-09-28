@@ -10,7 +10,7 @@ import { createOfficeRouter } from '../router.js';
 import { OfficeApp } from '../office-app.js';
 import type { ApprovedPairing, PairingRequest, PairingPort } from './pairing-contract.js';
 import type { SpacePort, SpacePage } from '../spaces/space-contract.js';
-import vectors from '../../../../../../../contracts/office/pairing-examples.json' with { type: 'json' };
+import vectors from '../../../../../contracts/pairing-examples.json' with { type: 'json' };
 
 async function fixture(change: Record<string, unknown> = {}, spaces?: SpacePort) {
   const request = { ...vectors.valid[0], ...change } as PairingRequest;

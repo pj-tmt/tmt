@@ -4,7 +4,7 @@
   "size": [1254, 1254],
   "label": "Directional workstation",
   "credit": "TMT · generated directional furniture artwork",
-  "output": "../../../../contracts/office/directional-workstation-v2.tmtprop.json",
+  "output": "../../../../extensions/tmt-office/contracts/directional-workstation-v2.tmtprop.json",
   "props": [
     {
       "key": "workstation-desk",

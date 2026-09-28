@@ -83,7 +83,7 @@ describe('first-time CLI discovery', () => {
       expect(skill.status).toBe(0);
       expect(skill.stderr).toBe('');
       expect(skill.stdout).toBe(
-        readFileSync(path.resolve('../skills/tmt-office/SKILL.md'), 'utf8')
+        readFileSync(path.resolve('../extensions/tmt-office/skills/tmt-office/SKILL.md'), 'utf8')
       );
     });
   });

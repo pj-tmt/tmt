@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { officePopulation } from '../local/office-population.js';
 import { AreaRemovalPreview } from './area-removal-preview.js';
-import vectors from '../../../../../../../contracts/office/modules-v2-vectors.json';
+import vectors from '../../../../../contracts/modules-v2-vectors.json';
 import { decodeModuleMap } from './module-contract.js';
 import { previewModuleRemoval } from './module-authoring.js';
 

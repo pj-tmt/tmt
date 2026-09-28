@@ -94,11 +94,11 @@ draft and reconcile against a fresh read. No running service or identity is need
 `office block --world ...` remains the separate remote Firestore operation.
 
 Extension preflight is read-only and checks the paired data structure, not installed
-artwork or runtime host authority. See the [extension contract](../../contracts/office/extension-v1.md#authoring-preflight).
+artwork or runtime host authority. See the [extension contract](../../extensions/tmt-office/contracts/extension-v1.md#authoring-preflight).
 
 Prop and avatar `validate` also return advisory `warnings`; valid artwork still
 exits successfully. Review those hints and the actual preview rather than treating
-an empty warning list as visual approval. See [avatar authoring warnings](../../contracts/office/avatar-pack-v1.md#authoring-warnings).
+an empty warning list as visual approval. See [avatar authoring warnings](../../extensions/tmt-office/contracts/avatar-pack-v1.md#authoring-warnings).
 
 `start` prints a loopback session URL and never opens a browser. It has no identity
 selector. The service binds only `127.0.0.1`; the fragment token is removed from the
@@ -110,7 +110,7 @@ you explicitly stop and start it. An optional `--port <number>` requests a fixed
 loopback port; it conflicts with a running service on another port.
 
 The UI instructions in this section describe the current local editor. The
-[modular-cell replacement](../../contracts/office/rooms-and-walls.md) is a design
+[modular-cell replacement](../../extensions/tmt-office/contracts/rooms-and-walls.md) is a design
 target, not yet an installed command or UI capability.
 
 Open the full printed URL in your browser. **Directory** lists identities and
@@ -158,7 +158,7 @@ session URL from `office start`; the bearer token is never saved to browser stor
 Local profile commands are also one-shot and do not require the browser service. A missing
 override returns `exists:false`, revision 0 and the deterministic UUID-derived catalog
 default without writing. Apply accepts the exact object documented in
-[`profile-v1.md`](../../contracts/office/profile-v1.md), rejects files above 8 KiB and
+[`profile-v1.md`](../../extensions/tmt-office/contracts/profile-v1.md), rejects files above 8 KiB and
 requires `--local`. An identical apply at the current revision is a no-op; an exact retry
 at the preceding revision returns the committed snapshot. Other stale revisions return
 `OFFICE_REVISION_CONFLICT`. After an uncertain write, reread before retrying.
@@ -172,13 +172,13 @@ Removal does not rewrite profiles, and reinstalling the exact pack restores cust
 without changing the profile revision.
 
 Local prop validation and catalog commands follow the single data-only owner in
-[`prop-pack-v1.md`](../../contracts/office/prop-pack-v1.md). Preview requires the
+[`prop-pack-v1.md`](../../extensions/tmt-office/contracts/prop-pack-v1.md). Preview requires the
 already-running local service and never starts it implicitly. The optional
 `tmt-prop-create` guidance is installed through the existing Office managed-skill
 path; it is not a second installer or executable extension.
 
 Local avatar validation, catalog, expiring preview and profile selection follow
-[`avatar-pack-v1.md`](../../contracts/office/avatar-pack-v1.md) and use a separate
+[`avatar-pack-v1.md`](../../extensions/tmt-office/contracts/avatar-pack-v1.md) and use a separate
 revision/cursor namespace. The optional `tmt-avatar-create` guidance is installed with the
 Office skills and explains the exact validate, preview, install and profile-apply workflow.
 The browser selector
@@ -315,7 +315,7 @@ pane or running `ls` does not itself contact the service. There is no background
 delivery guarantee; resolve the obstacle and retry sync before claiming remote
 cleanup. Revocation retains block contents. Saved identities going offline are
 not retired and do not enqueue this cleanup.
-The [native pairing contract](../../contracts/office/native-pairing.md) owns exact
+The [native pairing contract](../../extensions/tmt-office/contracts/native-pairing.md) owns exact
 scope, output, errors and emulator restrictions.
 
 Source builds also support `tmt office unpair --world <url> --identity <name>`.
@@ -350,7 +350,7 @@ The input file contains only `objects`, for example:
 ```
 
 Use the revision returned by `show`, not a guessed number. Apply replaces the
-complete ordered layout; an empty list clears it. The [block contract](../../contracts/office/block-v1.md)
+complete ordered layout; an empty list clears it. The [block contract](../../extensions/tmt-office/contracts/block-v1.md)
 owns dimensions, layering and bounds. Files larger than 64 KiB or invalid objects
 fail before submission. Plain output is readable JSON; `--json` is compact.
 
@@ -370,7 +370,7 @@ revision and layout. There is no automatic queue or revision rebasing.
 ## Planned connected commands
 
 The following connected behaviors are proposals, not installed instructions.
-The [native pairing contract](../../contracts/office/native-pairing.md) refines
+The [native pairing contract](../../extensions/tmt-office/contracts/native-pairing.md) refines
 the in-progress pair/status/inspect inputs, outputs and deployment trust boundary.
 
 | Command                                                    | Planned behavior                                                                                       |
@@ -398,7 +398,7 @@ provision a Firebase project or deploy a website.
 | `tmt office block apply <block-id> --file <layout.json> --if-revision <revision> --json` | Conditional complete-layout edit, confirmed by the server; stale revisions conflict |
 
 The local prop command surface is implemented above and owned by
-[`prop-pack-v1.md`](../../contracts/office/prop-pack-v1.md); it is not duplicated
+[`prop-pack-v1.md`](../../extensions/tmt-office/contracts/prop-pack-v1.md); it is not duplicated
 as proposed connected grammar here. No remote Rules enumeration or custom-asset
 support is implied by this table.
 The [sandbox design](sandbox.md) owns prop admission, identity/assignment lifetime,
@@ -419,7 +419,7 @@ error mappings must be fixed in the implementation ticket before adding grammar.
 The core Clap grammar owns syntax, help and completions for the maintained Office
 entrypoints. It produces typed invocations and dispatches to the verified extension;
 handlers never slice argv again. The versioned
-[internal handshake](../../contracts/office/native-companion.md) defines the
+[internal handshake](../../extensions/tmt-office/contracts/native-companion.md) defines the
 current executable boundary. Do not create a generic
 plugin platform or move all TMT commands into extensions.
 

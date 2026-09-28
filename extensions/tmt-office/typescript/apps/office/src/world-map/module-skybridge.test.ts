@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { skybridgeCirculation } from './compact-circulation.js';
-import vectors from '../../../../../../../contracts/office/modules-central-grid-vectors.json';
-import bridges from '../../../../../../../contracts/office/modules-skybridge-vectors.json';
+import vectors from '../../../../../contracts/modules-central-grid-vectors.json';
+import bridges from '../../../../../contracts/modules-skybridge-vectors.json';
 import { decodeModuleMap } from './module-contract.js';
 import { moduleSlotBounds, projectModules } from './module-geometry.js';
 import { skybridgeModuleWorld } from './module-upgrade.js';

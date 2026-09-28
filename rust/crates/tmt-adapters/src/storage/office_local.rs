@@ -593,7 +593,7 @@ mod tests {
         let path = directory.path.join("state.db");
         let mut storage = Storage::open(&path).unwrap();
         let vectors: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../contracts/office/prop-customization-vectors.json"
+            "../../../../../extensions/tmt-office/contracts/prop-customization-vectors.json"
         ))
         .unwrap();
         let mut input = vectors["pack"].clone();

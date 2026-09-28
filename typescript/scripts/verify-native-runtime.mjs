@@ -24,7 +24,7 @@ const inboxSkill = fs.readFileSync(
   'utf8'
 );
 const officeSkill = fs.readFileSync(
-  new URL('../../skills/tmt-office/SKILL.md', import.meta.url),
+  new URL('../../extensions/tmt-office/skills/tmt-office/SKILL.md', import.meta.url),
   'utf8'
 );
 await verifyNativeRuntime({

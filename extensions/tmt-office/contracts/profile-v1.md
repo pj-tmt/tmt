@@ -108,7 +108,7 @@ beside `online`; both come from the native identity/presence owner, never from
 the profile description or the existence of a personal area. Individual profile
 snapshots and mutations retain their profile-only shape.
 The directory also requires nullable `selfReportedStatus`, the independent
-[identity status projection](../identity-status-v1.md). It is not part of profile
+[identity status projection](../../../contracts/identity-status-v1.md). It is not part of profile
 storage, the profile revision or mutation input. Directory reads batch statuses;
 an appearance save preserves the latest observed status, and a newer appearance
 revision does not prevent observing a status update or clear.

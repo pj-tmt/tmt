@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WhiteboardCanvas } from './editor-canvas.js';
 import type { WhiteboardTool } from './editor-canvas.js';
 import { decodeWhiteboardScene } from './scene-contract.js';
-import example from '../../../../../../../contracts/office/whiteboard-scene-v1.json';
+import example from '../../../../../contracts/whiteboard-scene-v1.json';
 import { drawStrokeSegment, drawWhiteboard } from './drawing.js';
 
 vi.mock('./drawing.js', () => ({

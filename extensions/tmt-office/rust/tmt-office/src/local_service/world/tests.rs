@@ -26,7 +26,7 @@ fn save(snapshot: &Value) -> Value {
 
 fn source() -> Value {
     let maps: Value = serde_json::from_slice(include_bytes!(
-        "../../../../../../../contracts/office/map-v1-vectors.json"
+        "../../../../../contracts/map-v1-vectors.json"
     ))
     .unwrap();
     json!({"expectedRevision":0,"legacyBasis":"a".repeat(64),"layout":{"version":1,"map":maps["lobby"],"objects":[]}})

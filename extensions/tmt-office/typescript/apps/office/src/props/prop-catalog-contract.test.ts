@@ -15,10 +15,7 @@ it.each([
   ['workshop-furniture-v2.tmtprop.json', WORKSHOP_DIGEST],
 ])('matches the immutable native identity of %s and hashes exact bytes', async (file, digest) => {
   vi.stubGlobal('crypto', webcrypto);
-  const document = readFileSync(
-    path.resolve(process.cwd(), '../../../../../contracts/office', file),
-    'utf8'
-  );
+  const document = readFileSync(path.resolve(process.cwd(), '../../../contracts', file), 'utf8');
   await expect(propDocumentDigest({ expectedRevision: 0, document })).resolves.toBe(digest);
   const changed = `${document}\n`;
   const bytes = Buffer.from(changed);

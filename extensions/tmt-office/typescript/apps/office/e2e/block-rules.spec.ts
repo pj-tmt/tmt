@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { doc, getDocFromServer, setDoc, serverTimestamp, deleteDoc } from 'firebase/firestore';
-import vectors from '../../../../../../contracts/office/block-v1.vectors.json' with { type: 'json' };
+import vectors from '../../../../contracts/block-v1.vectors.json' with { type: 'json' };
 import { createWorldPort } from '../src/worlds/firebase-worlds.js';
 import { createBlockPort } from '../src/blocks/firebase-blocks.js';
 import { builtinFurniture } from '../src/blocks/block-contract.js';

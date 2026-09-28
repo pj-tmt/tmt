@@ -7,7 +7,7 @@ import { runCli, withSandbox } from '../../../../../../typescript/test/support/c
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import { savedWorld } from './native-world-state.js';
 import { openOfficeDirectory } from './office-navigation.js';
-import vectors from '../../../../../../contracts/office/modules-central-grid-vectors.json' with { type: 'json' };
+import vectors from '../../../../contracts/modules-central-grid-vectors.json' with { type: 'json' };
 import { decodeModuleMap } from '../src/world-map/module-contract.js';
 import type { MeetingRoom } from '../src/local/room-contract.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';

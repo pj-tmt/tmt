@@ -233,7 +233,7 @@ fn independent_meetings_do_not_allow_disconnected_personal_offices() {
 
 fn skybridge_samples(key: &str) -> Vec<(i32, i32)> {
     let vectors: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../../../contracts/office/modules-skybridge-vectors.json"
+        "../../../../../contracts/modules-skybridge-vectors.json"
     ))
     .unwrap();
     serde_json::from_value(vectors[key].clone()).unwrap()

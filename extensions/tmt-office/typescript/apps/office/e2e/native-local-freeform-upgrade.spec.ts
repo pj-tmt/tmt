@@ -8,7 +8,7 @@ import {
   officeWorldFixture,
   legacyLobbyObjects,
 } from '../../../../../../typescript/test/support/office-world.js';
-import vectors from '../../../../../../contracts/office/modules-v2-vectors.json' with { type: 'json' };
+import vectors from '../../../../contracts/modules-v2-vectors.json' with { type: 'json' };
 import { decodeModuleMap } from '../src/world-map/module-contract.js';
 import { mapGeometry } from '../src/world-map/map-source.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';

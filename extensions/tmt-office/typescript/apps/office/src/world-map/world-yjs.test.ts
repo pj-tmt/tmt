@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { createWorldYjs } from './world-yjs.js';
 import type { WorldDocument } from './world-contract.js';
-import vectors from '../../../../../../../contracts/office/modules-v2-vectors.json';
+import vectors from '../../../../../contracts/modules-v2-vectors.json';
 import { decodeModuleMap } from './module-contract.js';
 import { compactModuleWorld, skybridgeModuleWorld } from './module-upgrade.js';
 

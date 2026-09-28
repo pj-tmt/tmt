@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import vectors from '../../../../../../../contracts/office/map-v1-vectors.json';
+import vectors from '../../../../../contracts/map-v1-vectors.json';
 import { decodeMapDocument } from './map-contract.js';
 import { canonicalMapDraft, removeArea } from './map-draft.js';
 import { projectMap } from './map-geometry.js';

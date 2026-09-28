@@ -72,7 +72,7 @@ mod tests {
         format!(
             r#"{{"expectedRevision":0,"operationId":"11111111-1111-4111-8111-111111111111","scene":{}}}"#,
             std::str::from_utf8(include_bytes!(
-                "../../../../../../../contracts/office/whiteboard-scene-v1.json"
+                "../../../../../contracts/whiteboard-scene-v1.json"
             ))
             .unwrap()
         )
@@ -128,7 +128,7 @@ mod tests {
     fn maximum_scene_fits_its_envelope_and_output_retains_structured_values() {
         let mut scene = serde_json::to_string(
             &serde_json::from_slice::<Value>(include_bytes!(
-                "../../../../../../../contracts/office/whiteboard-scene-v1.json"
+                "../../../../../contracts/whiteboard-scene-v1.json"
             ))
             .unwrap(),
         )

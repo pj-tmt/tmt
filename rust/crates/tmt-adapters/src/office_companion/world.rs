@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn success_must_confirm_the_requested_revision_and_complete_candidate() {
         let vectors: Value = serde_json::from_slice(include_bytes!(
-            "../../../../../contracts/office/map-v1-vectors.json"
+            "../../../../../extensions/tmt-office/contracts/map-v1-vectors.json"
         ))
         .unwrap();
         let layout = decode_world(

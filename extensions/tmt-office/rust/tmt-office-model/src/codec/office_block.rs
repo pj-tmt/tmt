@@ -28,7 +28,7 @@ pub fn default_local_layout(target: &LocalBlockTarget) -> LocalBlockLayout {
             LOBBY
                 .get_or_init(|| {
                     decode_local_layout(include_bytes!(
-                        "../../../../../../contracts/office/lobby-preset-v1.json"
+                        "../../../../contracts/lobby-preset-v1.json"
                     ))
                     .expect("bundled lobby layout must be admitted")
                 })

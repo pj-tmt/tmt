@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import lobbyPreset from '../../../../../../contracts/office/lobby-preset-v1.json' with { type: 'json' };
+import lobbyPreset from '../../../../contracts/lobby-preset-v1.json' with { type: 'json' };
 import { workshopStarter } from '../src/blocks/workshop-starter.js';
 import { PROFILE_CATALOG } from '../src/profiles/profile-contract.js';
 import type { ProfileProjection } from '../src/profiles/profile-contract.js';
@@ -8,9 +8,9 @@ import {
   WORLD_LOBBY_ID,
 } from '../../../../../../typescript/test/support/office-world.js';
 import type { WorldObject } from '../src/world-map/world-contract.js';
-import definition from '../../../../../../contracts/office/discussion-extension-v1.json' with { type: 'json' };
-import whiteboard from '../../../../../../contracts/office/whiteboard-extension-v1.json' with { type: 'json' };
-import broadcaster from '../../../../../../contracts/office/broadcaster-extension-v1.json' with { type: 'json' };
+import definition from '../../../../contracts/discussion-extension-v1.json' with { type: 'json' };
+import whiteboard from '../../../../contracts/whiteboard-extension-v1.json' with { type: 'json' };
+import broadcaster from '../../../../contracts/broadcaster-extension-v1.json' with { type: 'json' };
 
 /** Isolated HTTP state; router, draft controller and GPU remain real. Not native admission evidence. */
 export async function furnishedOfficeFixture(page: Page) {

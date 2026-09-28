@@ -64,7 +64,7 @@ mod tests {
     #[test]
     fn external_link_conformance_and_byte_limit() {
         let vectors: serde_json::Value = serde_json::from_slice(include_bytes!(
-            "../../../../../contracts/office/external-link-vectors.json"
+            "../../../contracts/external-link-vectors.json"
         ))
         .unwrap();
         for case in vectors.as_array().unwrap() {
