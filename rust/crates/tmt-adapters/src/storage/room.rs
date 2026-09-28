@@ -7,7 +7,7 @@ use super::{
 use rusqlite::{Connection, OptionalExtension, params};
 use tmt_core::{
     dispatch::canonical_id,
-    room::{MeetingRoom, MembershipChange, RoomRepository, RoomWrite},
+    room::{ActiveRoomReader, MeetingRoom, MembershipChange, RoomRepository, RoomWrite},
 };
 
 #[derive(Debug)]
@@ -99,6 +99,43 @@ pub(super) fn read_historical_room(
     }))
 }
 
+fn read_active_rooms(connection: &Connection) -> Result<Vec<MeetingRoom>, RoomStoreError> {
+    let ids = {
+        let mut statement = connection
+            .prepare(
+                "SELECT room_id FROM office_meeting_rooms WHERE retired=0 ORDER BY name,room_id",
+            )
+            .map_err(|error| classify(error, "List meeting rooms"))?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| classify(error, "List meeting rooms"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| classify(error, "List meeting rooms"))?
+    };
+    ids.iter()
+        .map(|id| read_room(connection, id)?.ok_or(RoomStoreError::NotFound))
+        .collect()
+}
+
+/// Active-room selection inside a caller-owned read transaction, so selection
+/// and every later read share one snapshot. It never writes.
+pub(super) struct TransactionRooms<'a>(pub(super) &'a Connection);
+
+impl ActiveRoomReader for TransactionRooms<'_> {
+    type Error = RoomStoreError;
+
+    fn active_room(&mut self, id: &str) -> Result<Option<MeetingRoom>, RoomStoreError> {
+        if !canonical_id(id) {
+            return Err(RoomStoreError::Invalid);
+        }
+        Ok(read_room(self.0, id)?)
+    }
+
+    fn active_rooms(&mut self) -> Result<Vec<MeetingRoom>, RoomStoreError> {
+        read_active_rooms(self.0)
+    }
+}
+
 impl RoomRepository for Storage {
     type Error = RoomStoreError;
 
@@ -132,20 +169,7 @@ impl RoomRepository for Storage {
             .connection_mut()?
             .transaction()
             .map_err(|error| classify(error, "Read meeting rooms"))?;
-        let ids = {
-            let mut statement = transaction
-                .prepare("SELECT room_id FROM office_meeting_rooms WHERE retired=0 ORDER BY name,room_id")
-                .map_err(|error| classify(error, "List meeting rooms"))?;
-            statement
-                .query_map([], |row| row.get::<_, String>(0))
-                .map_err(|error| classify(error, "List meeting rooms"))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| classify(error, "List meeting rooms"))?
-        };
-        let rooms = ids
-            .iter()
-            .map(|id| read_room(&transaction, id)?.ok_or(RoomStoreError::NotFound))
-            .collect::<Result<Vec<_>, _>>()?;
+        let rooms = read_active_rooms(&transaction)?;
         transaction
             .commit()
             .map_err(|error| classify(error, "Finish meeting room read"))?;

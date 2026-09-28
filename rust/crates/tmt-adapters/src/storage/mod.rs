@@ -19,6 +19,7 @@ mod office_world;
 mod profiles;
 mod requests;
 mod room;
+mod room_roster;
 
 #[cfg(test)]
 mod test_support;
@@ -49,6 +50,7 @@ pub use office_prop::{
 pub use office_whiteboard::WhiteboardStoreError;
 pub use office_world::{LocalWorldSnapshot, WorldStoreError};
 pub use room::RoomStoreError;
+pub use room_roster::{RoomRoster, RosterError, RosterMember};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointMode {

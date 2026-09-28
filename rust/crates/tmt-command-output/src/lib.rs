@@ -194,8 +194,7 @@ pub fn identity_missing(name: &str) -> Failure {
 }
 
 pub fn identity_document(identity: &tmt_core::identity::Identity) -> serde_json::Value {
-    serde_json::json!({"id": identity.id, "name": identity.name,
-        "canonicalName": identity.canonical_name, "lifetime": identity.lifetime.as_str()})
+    tmt_adapters::identity_projection::identity_value(identity)
 }
 
 impl fmt::Display for Failure {
