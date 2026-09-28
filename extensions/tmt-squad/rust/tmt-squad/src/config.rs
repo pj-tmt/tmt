@@ -12,6 +12,46 @@ use toml_edit::{DocumentMut, Item, value};
 
 const FILE_LIMIT: u64 = 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    Crew,
+    PrQueue,
+    Minimal,
+}
+
+impl Layout {
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "crew" => Some(Self::Crew),
+            "pr-queue" => Some(Self::PrQueue),
+            "minimal" => Some(Self::Minimal),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Crew => "crew",
+            Self::PrQueue => "pr-queue",
+            Self::Minimal => "minimal",
+        }
+    }
+
+    /// Ordered state vocabulary; `add` starts members in the first state.
+    pub fn states(self) -> &'static [&'static str] {
+        match self {
+            Self::Crew => &["working", "idle", "blocked", "review", "testing", "hold"],
+            Self::PrQueue => &["preparing", "ready", "sent", "merged"],
+            Self::Minimal => &[],
+        }
+    }
+
+    /// Crew sorts rows that owe the user a decision (`pending`) first.
+    pub fn pending_first(self) -> bool {
+        self == Self::Crew
+    }
+}
+
 fn invalid(message: impl Into<String>) -> SquadError {
     SquadError::new("SQUAD_CONFIG_INVALID", message)
 }
@@ -67,6 +107,31 @@ impl Config {
                 .filter(|name| !name.trim().is_empty())
                 .map(Some)
                 .ok_or_else(|| invalid("`me` must be a non-empty identity name.")),
+        }
+    }
+
+    /// `[squad.<name>] layout` selects the preset; crew is the default.
+    pub fn layout(&self, squad: &str) -> Result<Layout, SquadError> {
+        let Some(section) = self.document.get("squad") else {
+            return Ok(Layout::Crew);
+        };
+        let table = section
+            .as_table_like()
+            .ok_or_else(|| invalid("`squad` must be a table of squads."))?;
+        let Some(entry) = table.get(squad) else {
+            return Ok(Layout::Crew);
+        };
+        match entry
+            .as_table_like()
+            .ok_or_else(|| invalid(format!("`squad.{squad}` must be a table.")))?
+            .get("layout")
+        {
+            None => Ok(Layout::Crew),
+            Some(item) => item.as_str().and_then(Layout::parse).ok_or_else(|| {
+                invalid(format!(
+                    "`squad.{squad}.layout` must be crew, pr-queue or minimal."
+                ))
+            }),
         }
     }
 
@@ -158,6 +223,8 @@ mod tests {
         fs::write(&path, original).unwrap();
         let mut config = Config::read(path.clone()).unwrap();
         assert_eq!(config.me().unwrap(), None);
+        assert_eq!(config.layout("product").unwrap(), Layout::PrQueue);
+        assert_eq!(config.layout("other").unwrap(), Layout::Crew);
         config.set_me("Ben").unwrap();
         let written = fs::read_to_string(&path).unwrap();
         assert!(
@@ -181,11 +248,14 @@ mod tests {
     fn invalid_documents_and_values_are_rejected_before_use() {
         let path = temp("invalid");
         assert_eq!(Config::read(path.clone()).unwrap().me().unwrap(), None);
-        for text in ["me = 3\n", "me = \"\"\n", "[squad\n"] {
+        for text in ["me = 3\n", "me = \"\"\n", "[squad\n", "squad = 1\n"] {
             fs::write(&path, text).unwrap();
-            let code = Config::read(path.clone()).err().map(|error| error.code);
-            assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{text}");
+            let result = Config::read(path.clone()).and_then(|config| config.layout("x"));
+            assert_eq!(result.unwrap_err().code, "SQUAD_CONFIG_INVALID", "{text}");
         }
+        fs::write(&path, "[squad.x]\nlayout = \"kanban\"\n").unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert_eq!(config.layout("x").unwrap_err().code, "SQUAD_CONFIG_INVALID");
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 }

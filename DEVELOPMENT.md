@@ -802,7 +802,7 @@ they use explicit Node fixtures, not a product-runtime fallback.
 `typescript/test/native/squad.test.ts` runs `rust/target/debug/tmt-squad`, or an
 absolute path in `TMT_TEST_SQUAD`, through real `tmt` dispatch. It uses a
 sandbox PATH holding the `tmt-squad` and `tmt-sq` links, with no installed-copy
-fallback. It observes core state through an independent SQLite reader.
+fallback. It observes rooms and metadata through an independent SQLite reader.
 A workspace `cargo build --locked` produces the default executable. Squad unit
 tests run with `cargo test --locked -p tmt-squad`. For dependency changes,
 compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` to prove
@@ -940,7 +940,10 @@ core-only preservation, sibling
 managed links, repeat no-op, backup/conflict and partial-failure behavior, lock
 ownership, refresh without resurrection, and no effects on SQLite or tmux.
 Follow `USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do
-not add provider-specific skill copies. Runtime/linkage proof shared by archive
+not add provider-specific skill copies. The squad lead skill
+(`extensions/tmt-squad/skills/tmt-squad/SKILL.md`) is deliberately outside this
+bundle: the squad executable embeds it, and its native test checks the
+documented status row shape against real output. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
 ## Review and evidence

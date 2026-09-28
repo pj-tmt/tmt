@@ -1,7 +1,12 @@
 //! A squad is the core room `squad-<name>`; member fields are the identity
 //! metadata keys `squad.<name>.<field>`. There is no other squad state.
 
-use crate::core::SquadError;
+use crate::core::{Core, SquadError};
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, HashMap};
+
+/// Core metadata keys are at most 64 bytes.
+const KEY_LIMIT: usize = 64;
 
 pub fn valid_name(name: &str) -> bool {
     let bytes = name.as_bytes();
@@ -12,9 +17,168 @@ pub fn valid_name(name: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
 }
 
+fn valid_field(field: &str) -> bool {
+    let bytes = field.as_bytes();
+    !bytes.is_empty()
+        && bytes[0].is_ascii_lowercase()
+        && bytes[1..].iter().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        })
+}
+
+#[derive(Debug, Clone)]
+pub struct Squad {
+    pub name: String,
+    pub room_id: String,
+}
+
 /// The core room that is a squad.
 pub fn room_name(name: &str) -> String {
     format!("squad-{name}")
+}
+
+impl Squad {
+    pub fn prefix(&self) -> String {
+        format!("squad.{}.", self.name)
+    }
+
+    /// The full metadata key for one member field, validated before any write.
+    pub fn key(&self, field: &str) -> Result<String, SquadError> {
+        let key = format!("{}{field}", self.prefix());
+        if !valid_field(field) || key.len() > KEY_LIMIT {
+            return Err(SquadError::new(
+                "SQUAD_FIELD_INVALID",
+                format!(
+                    "Field '{field}' must match [a-z][a-z0-9_-]* and fit a {KEY_LIMIT}-byte key."
+                ),
+            ));
+        }
+        Ok(key)
+    }
+
+    /// An explicit name, or the only active squad room when omitted.
+    pub fn resolve(core: &Core, explicit: Option<&str>) -> Result<Self, SquadError> {
+        if let Some(name) = explicit {
+            if !valid_name(name) {
+                return Err(name_invalid(name));
+            }
+            return match core.json(&["room", "show", &room_name(name)]) {
+                Ok(shown) => Ok(Self {
+                    name: name.into(),
+                    room_id: room_id(&shown["room"])?,
+                }),
+                Err(error) if error.code == "ROOM_NOT_FOUND" => Err(SquadError::new(
+                    "SQUAD_NOT_FOUND",
+                    format!("Squad '{name}' does not exist; run: tmt squad init {name}"),
+                )),
+                Err(error) if error.code == "ROOM_AMBIGUOUS" => Err(SquadError::new(
+                    "SQUAD_AMBIGUOUS",
+                    format!(
+                        "More than one room is named {}; rename one with tmt room.",
+                        room_name(name)
+                    ),
+                )),
+                Err(error) => Err(error),
+            };
+        }
+        let listed = core.json(&["room", "list"])?;
+        let mut squads: Vec<Self> = listed["rooms"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|room| {
+                let name = room["name"].as_str()?.strip_prefix("squad-")?;
+                valid_name(name).then(|| {
+                    Ok(Self {
+                        name: name.into(),
+                        room_id: room_id(room)?,
+                    })
+                })
+            })
+            .collect::<Result<_, SquadError>>()?;
+        match squads.len() {
+            1 => Ok(squads.remove(0)),
+            0 => Err(SquadError::new(
+                "SQUAD_NOT_FOUND",
+                "No squad exists yet; run: tmt squad init <name>",
+            )),
+            _ => Err(SquadError::new(
+                "SQUAD_AMBIGUOUS",
+                format!(
+                    "Several squads exist ({}); choose one with --squad.",
+                    squads
+                        .iter()
+                        .map(|squad| squad.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            )),
+        }
+    }
+
+    /// One roster snapshot joined with presence from `ls`, which owns host
+    /// observation. A member missing from `ls` (joined in between) is unknown.
+    pub fn members(&self, core: &Core) -> Result<Vec<Member>, SquadError> {
+        let roster = core.api(
+            "rooms.roster",
+            json!({"room": self.room_id, "metadataPrefix": self.prefix()}),
+        )?;
+        let listed = core.json(&["ls", "--room", &self.room_id])?;
+        let presence: HashMap<&str, &Value> = listed["identities"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| Some((row["id"].as_str()?, row)))
+            .collect();
+        let prefix = self.prefix();
+        roster["members"]
+            .as_array()
+            .ok_or_else(|| SquadError::new("SQUAD_CORE_UNAVAILABLE", "rooms.roster returned no members."))?
+            .iter()
+            .map(|member| {
+                let id = text(member, "id")?;
+                let seen = presence.get(id.as_str());
+                Ok(Member {
+                    name: text(member, "name")?,
+                    lifetime: text(member, "lifetime")?,
+                    presence: seen
+                        .and_then(|row| row["presence"].as_str())
+                        .unwrap_or("unknown")
+                        .into(),
+                    pane: seen.filter(|row| row["pane"].is_string()).map_or(Value::Null, |row| {
+                        json!({"id": row["pane"], "target": row.get("target"), "cwd": row.get("cwd")})
+                    }),
+                    activity: member["status"].clone(),
+                    fields: member["metadata"]
+                        .as_object()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|(key, value)| {
+                            Some((key.strip_prefix(&prefix)?.to_owned(), value.as_str()?.to_owned()))
+                        })
+                        .collect(),
+                    id,
+                })
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Member {
+    pub id: String,
+    pub name: String,
+    pub lifetime: String,
+    pub presence: String,
+    pub pane: Value,
+    pub activity: Value,
+    pub fields: BTreeMap<String, String>,
+}
+
+impl Member {
+    pub fn is_lead(&self) -> bool {
+        self.fields.get("role").is_some_and(|role| role == "lead")
+    }
 }
 
 pub fn name_invalid(name: &str) -> SquadError {
@@ -24,18 +188,45 @@ pub fn name_invalid(name: &str) -> SquadError {
     )
 }
 
+fn room_id(room: &Value) -> Result<String, SquadError> {
+    text(room, "id")
+}
+
+fn text(value: &Value, key: &str) -> Result<String, SquadError> {
+    value[key]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| SquadError::new("SQUAD_CORE_UNAVAILABLE", format!("tmt returned no {key}.")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn names_fit_core_metadata_keys_and_room_names() {
+    fn names_and_fields_fit_core_metadata_keys() {
         for name in ["a", "product", "pr-queue-2", &"x".repeat(24)] {
             assert!(valid_name(name), "{name}");
         }
         for name in ["", "Product", "1a", "a_b", "a.b", "-a", &"x".repeat(25)] {
             assert!(!valid_name(name), "{name}");
         }
-        assert_eq!(room_name("product"), "squad-product");
+        let squad = Squad {
+            name: "x".repeat(24),
+            room_id: String::new(),
+        };
+        assert_eq!(
+            squad.key("state").unwrap(),
+            format!("squad.{}.state", "x".repeat(24))
+        );
+        // "squad." + 24 + "." leaves 33 bytes for a field.
+        assert!(squad.key(&"f".repeat(33)).is_ok());
+        for field in [&"f".repeat(34), "", "State", "a.b", "a b", "9a"] {
+            assert_eq!(
+                squad.key(field).unwrap_err().code,
+                "SQUAD_FIELD_INVALID",
+                "{field}"
+            );
+        }
     }
 }

@@ -1433,12 +1433,20 @@ both directions for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 `tmt api`, with its own minimal bounded child runner.
 
-Squad keeps no store. A squad is the core room `squad-<name>`. `squad.toml`,
-beside the global config that `tmt config show` reports, is the user's file.
-Squad writes only the top-level `me`, with a changed-input check and atomic
-replacement that preserves the rest of the document. `init` settles `me`
-before creating the room. The release workflow does not distribute squad until
-the generic extension installer exists.
+Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
+identity metadata `squad.<name>.<field>`, so one identity can belong to several
+squads and removal clears exactly one namespace. `status` joins one
+`rooms.roster` snapshot with `ls --room` presence. It always returns one
+`sections` shape: without user-defined sections, a single untitled section.
+Membership commands are sequences of idempotent core commands, not one
+transaction; each reports what it applied, and a re-run converges.
+`squad.toml`, beside the global config that `tmt config show` reports, is the
+user's file. Squad writes only the top-level `me`, with a changed-input check and
+atomic replacement that preserves the rest of the document. `init` settles `me`
+before creating the room. The `tmt-squad` lead skill source lives under
+`extensions/tmt-squad/skills/` and is embedded only in the squad executable,
+never in the core skill bundle. The release workflow does not distribute squad
+until the generic extension installer (#387).
 
 ## Testing and evidence boundaries
 

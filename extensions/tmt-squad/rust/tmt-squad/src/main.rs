@@ -6,8 +6,9 @@ mod core;
 mod membership;
 mod runner;
 mod squad;
+mod status;
 
-use crate::{config::Config, core::Core, core::SquadError, membership::Outcome};
+use crate::{config::Config, core::Core, core::SquadError, membership::Outcome, squad::Squad};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::Value;
 use std::{
@@ -15,6 +16,15 @@ use std::{
     io::{IsTerminal, Write},
     process::ExitCode,
 };
+
+const SKILL: &str = include_str!("../../../skills/tmt-squad/SKILL.md");
+
+fn squad_option() -> Arg {
+    Arg::new("squad")
+        .long("squad")
+        .value_name("NAME")
+        .help("Select a squad; optional when exactly one exists")
+}
 
 /// The name is fixed, never argv[0]: `tmt-squad` and its `tmt-sq` link print
 /// byte-identical help, errors and completion.
@@ -48,6 +58,44 @@ fn grammar() -> Command {
                 ),
         )
         .subcommand(
+            Command::new("lead")
+                .about("Make a saved identity the squad's lead")
+                .arg(operand("name", "Saved identity to lead"))
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("add")
+                .about("Add running agents to the squad")
+                .arg(operand("names", "Identities to add").num_args(1..))
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("remove")
+                .about("Remove a member and clear its squad fields; the agent keeps running")
+                .arg(operand("name", "Member to remove"))
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("set")
+                .about(
+                    "Set member fields such as state, task, pending, note or links (field= clears)",
+                )
+                .arg(operand("member", "Member to update"))
+                .arg(operand("fields", "field=value pairs").num_args(1..))
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("status")
+                .about("Show the squad as text, or JSON with --json")
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("skill")
+                .about("The tmt-squad skill for lead agents")
+                .subcommand_required(true)
+                .subcommand(Command::new("show").about("Print the skill")),
+        )
+        .subcommand(
             Command::new("__complete").hide(true).arg(
                 Arg::new("words")
                     .num_args(0..)
@@ -68,7 +116,7 @@ fn complete(words: &[String]) -> Vec<String> {
     let command = match before {
         [] => &root,
         [name, ..] => match root.find_subcommand(name) {
-            Some(command) if before.len() == 1 => command,
+            Some(command) if before.len() == 1 || name == "skill" => command,
             _ => return Vec::new(),
         },
     };
@@ -93,6 +141,7 @@ fn complete(words: &[String]) -> Vec<String> {
 
 fn human(command: &str, document: &Value) -> String {
     match command {
+        "status" => status::text(document),
         "init" => format!(
             "Squad {} {} (room squad-{}); you are {}.\n",
             document["squad"]["name"].as_str().unwrap_or_default(),
@@ -114,17 +163,41 @@ fn human(command: &str, document: &Value) -> String {
 fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
     let core = Core::discover()?;
     let text = |name: &str| matches.get_one::<String>(name).map(String::as_str);
+    let many = |name: &str| {
+        matches
+            .get_many::<String>(name)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     let mut config = Config::load(&core)?;
-    // Later commands extend this dispatch; the grammar admits only `init`.
-    debug_assert_eq!(command, "init");
-    let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
-    membership::init(
-        &core,
-        &mut config,
-        text("name").unwrap_or_default(),
-        text("me"),
-        interactive,
-    )
+    if command == "init" {
+        let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+        return membership::init(
+            &core,
+            &mut config,
+            text("name").unwrap_or_default(),
+            text("me"),
+            interactive,
+        );
+    }
+    let squad = Squad::resolve(&core, text("squad"))?;
+    match command {
+        "lead" => membership::lead(&core, &squad, text("name").unwrap_or_default()),
+        "add" => membership::add(&core, &squad, config.layout(&squad.name)?, &many("names")),
+        "remove" => membership::remove(&core, &squad, text("name").unwrap_or_default()),
+        "set" => membership::set(
+            &core,
+            &squad,
+            text("member").unwrap_or_default(),
+            &many("fields"),
+        ),
+        _ => {
+            let layout = config.layout(&squad.name)?;
+            Ok(status::document(&squad, layout, squad.members(&core)?).into())
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -143,17 +216,24 @@ fn main() -> ExitCode {
         }
     };
     let (command, sub) = matches.subcommand().expect("subcommand required");
-    if command == "__complete" {
-        let words: Vec<String> = sub
-            .get_many::<String>("words")
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
-        for candidate in complete(&words) {
-            println!("{candidate}");
+    match command {
+        "__complete" => {
+            let words: Vec<String> = sub
+                .get_many::<String>("words")
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect();
+            for candidate in complete(&words) {
+                println!("{candidate}");
+            }
+            return ExitCode::SUCCESS;
         }
-        return ExitCode::SUCCESS;
+        "skill" => {
+            print!("{SKILL}");
+            return ExitCode::SUCCESS;
+        }
+        _ => {}
     }
     let (body, code) = match run(command, sub) {
         Ok(outcome) => {
@@ -191,11 +271,15 @@ mod tests {
 
     #[test]
     fn completion_offers_literal_subcommands_and_options_only() {
-        assert_eq!(complete(&words("-- i")), ["init"]);
-        assert_eq!(complete(&words("-- ")), ["init"]);
-        assert_eq!(complete(&words("-- init --")), ["--json", "--me"]);
+        assert_eq!(complete(&words("-- s")), ["set", "skill", "status"]);
+        assert_eq!(
+            complete(&words("-- ")),
+            ["add", "init", "lead", "remove", "set", "skill", "status"]
+        );
+        assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);
+        assert_eq!(complete(&words("-- skill s")), ["show"]);
         assert!(
-            complete(&words("-- init prod")).is_empty(),
+            complete(&words("-- set auth-fix st")).is_empty(),
             "values fall back to the shell"
         );
         assert!(
