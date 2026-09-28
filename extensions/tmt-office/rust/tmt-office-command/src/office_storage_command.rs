@@ -81,13 +81,20 @@ pub fn pending_hint(executable: &Path, mode: OutputMode) {
         b"{}",
         Duration::from_secs(5),
     )
-    .is_ok_and(|plan| text(&plan, "state") == "pending");
+    .is_ok_and(|plan| hint_due(&plan));
     if pending {
         let _ = writeln!(
             io::stderr().lock(),
             "Office storage migration available: run 'tmt office storage migrate' (the current storage keeps working until you do)."
         );
     }
+}
+
+/// Only a pending migration with user Office data is worth mentioning; a
+/// fresh install holds just the seeded catalogs. An older companion that does
+/// not report `userRows` gets no hint.
+fn hint_due(plan: &Value) -> bool {
+    text(plan, "state") == "pending" && plan["userRows"].as_u64().is_some_and(|rows| rows > 0)
 }
 
 fn invoke(
@@ -315,6 +322,20 @@ mod tests {
         assert!(text.starts_with("This moves Office data into its own database.\n"));
         assert!(text.contains("  Backup size:  3.0 MiB of free space needed\n"));
         assert!(text.ends_with("which also discards any tmt activity after the backup."));
+    }
+
+    #[test]
+    fn the_hint_needs_a_pending_migration_with_user_data() {
+        let mut plan = plan("pending");
+        plan["userRows"] = json!(0);
+        assert!(!hint_due(&plan));
+        plan["userRows"] = json!(1);
+        assert!(hint_due(&plan));
+        plan["state"] = json!("switched");
+        assert!(!hint_due(&plan));
+        let mut older = super::tests::plan("pending");
+        older.as_object_mut().unwrap().remove("userRows");
+        assert!(!hint_due(&older));
     }
 
     #[test]

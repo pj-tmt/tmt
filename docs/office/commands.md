@@ -234,7 +234,8 @@ under `<global>/backups/office-storage-<UTC time>/`, and moves Office data into
 versions cannot write migrated data, and undoing it means restoring the backup
 (see [Office storage recovery](architecture.md#office-storage-recovery)). Start
 the service again afterwards with `tmt office start`. When a migration is
-available, `tmt office status` and `tmt office start` print a one-line hint; set
+available and Office holds your data (a fresh install's seeded catalogs do not
+count), `tmt office status` and `tmt office start` print a one-line hint; set
 `TMT_HINTS=off` to hide it.
 
 ### Local discussion board

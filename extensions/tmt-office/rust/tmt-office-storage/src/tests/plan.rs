@@ -49,6 +49,7 @@ fn the_plan_reports_without_creating_or_changing_anything() {
     let plan = migration::plan(&root.layout, Some(false)).unwrap();
     assert_eq!(plan.state, PlanState::Pending);
     assert!(plan.office_rows > 0 && plan.office_bytes > 0);
+    assert!(plan.user_rows > 0 && plan.user_rows < plan.office_rows);
     assert!(plan.backup_bytes >= fs::metadata(&root.layout.source).unwrap().len());
     assert_eq!(plan.destination, root.layout.database);
     assert_eq!(
@@ -58,6 +59,13 @@ fn the_plan_reports_without_creating_or_changing_anything() {
     assert_eq!(tree(&root.path), files);
     assert_eq!(whole_source(&root.source()), source);
     assert!(!root.layout.directory.exists());
+}
+
+#[test]
+fn a_fresh_install_has_only_seeded_rows_and_no_user_data() {
+    let root = Root::new();
+    let plan = migration::plan(&root.layout, None).unwrap();
+    assert_eq!((plan.office_rows, plan.user_rows), (3, 0));
 }
 
 #[test]
