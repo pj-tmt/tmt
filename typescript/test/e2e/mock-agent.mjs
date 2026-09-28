@@ -303,6 +303,10 @@ let guidancePending = false;
 appendEvent({ event: 'ready', mode, pid: process.pid });
 
 input.on('line', (line) => {
+  if (!frame && !guidancePending && /^\[tmt\] (reply from |no reply yet from )/.test(line)) {
+    appendEvent({ event: 'input', line, mode, pid: process.pid });
+    return;
+  }
   if (mode === 'input-log') {
     appendEvent({ event: 'input', line, mode, pid: process.pid });
     return;

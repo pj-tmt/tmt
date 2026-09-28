@@ -41,7 +41,7 @@ fn request_history_indexes_commit_together_without_rewriting_requests() {
         .execute_batch("DROP TRIGGER reject_history_indexes;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 34);
+    assert_eq!(storage.health().unwrap().schema_version, 35);
     assert_eq!(indexes(), 3);
     assert_eq!(oracle.query_row("SELECT message_text,room_id FROM request_attempts WHERE request_id='history-request'", [],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))).unwrap(), ("old prompt".into(), None));

@@ -155,6 +155,18 @@ pub fn hook_entry(launcher: &str) -> Value {
 pub struct ClaudeLifecycle;
 
 impl super::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
+    fn observe_replacement(
+        &self,
+        pane_pid: u64,
+        deadline: std::time::Instant,
+    ) -> Option<RuntimeIncarnation> {
+        super::evidence::observe_replacement(
+            &crate::process::SupervisedProbeRunner,
+            pane_pid,
+            deadline,
+            "claude",
+        )
+    }
     fn decode(&self, payload: &[u8]) -> Option<Box<dyn super::lifecycle::LifecycleObservation>> {
         decode_hook(payload).ok().map(|value| Box::new(value) as _)
     }

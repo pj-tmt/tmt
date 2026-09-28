@@ -5,6 +5,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     /// A retained claim is an unknown outcome after process loss, never a retry lease.
     pub fn claim_wake(&mut self, request_id: &str) -> Result<WakeClaim, RequestError<R::Error>> {
         nonempty(request_id)?;
+        let clock = &self.clock;
         self.repository.with_request_transaction(|records| {
             let attempt = records
                 .find_request(request_id)?
@@ -46,6 +47,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 if !records.settle_wake(request_id, WakeState::Unavailable)? {
                     return Err(RequestError::StateInvalid);
                 }
+                refund_unsent_preamble(records, &attempt, positive(clock())?)?;
                 return Ok(WakeClaim {
                     state: WakeState::Unavailable,
                     claimed: false,
@@ -106,4 +108,65 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             }
         })
     }
+
+    /// A full request paste, unlike an advisory Office wake, satisfies recipient
+    /// attention. It does not acknowledge the originator's eventual response.
+    pub fn settle_request_delivery(
+        &mut self,
+        request_id: &str,
+        state: WakeState,
+    ) -> Result<(), RequestError<R::Error>> {
+        nonempty(request_id)?;
+        if !matches!(
+            state,
+            WakeState::Sent | WakeState::Unavailable | WakeState::Uncertain
+        ) {
+            return Err(RequestError::StateInvalid);
+        }
+        let clock = &self.clock;
+        self.repository.with_request_transaction(|records| {
+            let attempt = records
+                .find_request(request_id)?
+                .ok_or(RequestError::NotFound)?;
+            let RequestRoute::Inbox {
+                recipient_identity_id,
+            } = &attempt.route
+            else {
+                return Err(RequestError::StateInvalid);
+            };
+            if !records.settle_wake(request_id, state)? {
+                return Err(RequestError::StateInvalid);
+            }
+            if state == WakeState::Sent {
+                let attention = records
+                    .find_recipient_attention(recipient_identity_id, request_id)?
+                    .ok_or(RequestError::StateInvalid)?;
+                records.acknowledge_recipient_revision(
+                    recipient_identity_id,
+                    request_id,
+                    attention.revision,
+                )?;
+            } else if state == WakeState::Unavailable {
+                refund_unsent_preamble(records, &attempt, positive(clock())?)?;
+            }
+            Ok(())
+        })
+    }
+}
+
+fn refund_unsent_preamble<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    attempt: &RequestAttempt,
+    now: u64,
+) -> Result<(), RequestError<E>> {
+    if attempt.cadence_reserved {
+        if !records.update_state(attempt, AttemptStatus::Queued, false, now, None)? {
+            return Err(RequestError::StateInvalid);
+        }
+        if let Some(id) = &attempt.identity_id {
+            let count = records.preamble_count(id)?;
+            records.set_preamble_count(id, count.saturating_sub(1), now)?;
+        }
+    }
+    Ok(())
 }

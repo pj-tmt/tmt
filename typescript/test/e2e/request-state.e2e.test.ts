@@ -54,7 +54,7 @@ describe.sequential('transactional live request bookkeeping', () => {
         expect(firstEvent.requestId).not.toBe(secondEvent.requestId);
         await fixture.waitFor(
           () =>
-            attempts(fixture).filter((row) => row.wait_active === 1 && row.status === 'sent')
+            attempts(fixture).filter((row) => row.wait_active === 1 && row.wake_state === 'sent')
               .length === 2
         );
         const before = attempts(fixture);
@@ -64,14 +64,12 @@ describe.sequential('transactional live request bookkeeping', () => {
         );
         for (const row of before) {
           expect(row).toMatchObject({
-            pane_id: fixture.pane,
-            pane_pid: fixture.panePid,
-            socket_path: fixture.socketPath,
-            server_pid: fixture.serverPid,
-            status: 'sent',
+            route_kind: 'inbox',
+            wake_state: 'sent',
+            status: 'queued',
           });
-          expect(row.server_id).not.toBe('');
-          expect(row.server_start_time).not.toBe('');
+          expect(row.recipient_identity_id).toBeTruthy();
+          expect(row.recipient_identity_id).toBe(row.originator_identity_id);
         }
 
         const timedOut = await first.result;
@@ -93,17 +91,21 @@ describe.sequential('transactional live request bookkeeping', () => {
         const afterFirst = attempts(fixture);
         expect(afterFirst.find((row) => row.request_id === firstEvent.requestId)).toMatchObject({
           wait_active: 0,
-          status: 'sent',
+          status: 'queued',
+          wake_state: 'sent',
         });
         expect(afterFirst.find((row) => row.request_id === secondEvent.requestId)).toMatchObject({
           wait_active: 1,
-          status: 'sent',
+          status: 'queued',
+          wake_state: 'sent',
         });
         second.kill('SIGINT');
         expect((await second.result).code).toBe(1);
         expect(attempts(fixture)).toHaveLength(2);
         expect(
-          attempts(fixture).every((row) => row.wait_active === 0 && row.status === 'sent')
+          attempts(fixture).every(
+            (row) => row.wait_active === 0 && row.status === 'queued' && row.wake_state === 'sent'
+          )
         ).toBe(true);
         expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
       },
@@ -118,12 +120,12 @@ describe.sequential('transactional live request bookkeeping', () => {
         try {
           await secondServer.start({ mode: 'silent' });
           expect(firstServer.pane).toBe(secondServer.pane);
-          expect((await firstServer.runJsonCli(['name', 'First'])).code).toBe(0);
-          expect((await secondServer.runJsonCli(['name', 'Second'])).code).toBe(0);
+          // Unbound direct-pane routes retain endpoint fencing. Identified
+          // requests instead freeze the recipient UUID in their Inbox route.
           const first = firstServer.runCliProcess([
             '--json',
             'talk',
-            'First',
+            firstServer.pane,
             'server one wait',
             '--timeout',
             '20',
@@ -135,7 +137,7 @@ describe.sequential('transactional live request bookkeeping', () => {
           const second = secondServer.runCliProcess([
             '--json',
             'talk',
-            'Second',
+            secondServer.pane,
             'server two wait',
             '--timeout',
             '20',
@@ -185,7 +187,9 @@ describe.sequential('transactional live request bookkeeping', () => {
       expect((await fixture.runJsonCli(['config', 'set', 'preambleEvery', '3'])).code).toBe(0);
       const uncertain = await fixture.runJsonCli<TalkOutput>(
         ['talk', 'RECEIVER', 'uncertain first input', '--timeout', '8'],
-        { transportFault: { stage: 'submit' } }
+        // Keep the trace specific to request transport, not a separate
+        // originator hint after this intentionally interrupted delivery.
+        { transportFault: { stage: 'submit' }, outsideTmux: true }
       );
       expect(uncertain).toMatchObject({
         code: 1,
@@ -199,7 +203,9 @@ describe.sequential('transactional live request bookkeeping', () => {
       expect(firstEvent.pid).toBe(fixture.panePid);
       expect(attempts(fixture)).toHaveLength(1);
       expect(attempts(fixture)[0]).toMatchObject({
-        status: 'uncertain',
+        status: 'queued',
+        route_kind: 'inbox',
+        wake_state: 'uncertain',
         wait_active: 0,
         inject_preamble: 1,
         request_id: firstEvent.requestId,
@@ -223,7 +229,9 @@ describe.sequential('transactional live request bookkeeping', () => {
       expect(cadence(fixture)).toBe(2);
       expect(attempts(fixture).find((row) => row.request_id === nextEvent.requestId)).toMatchObject(
         {
-          status: 'sent',
+          status: 'queued',
+          route_kind: 'inbox',
+          wake_state: 'sent',
           wait_active: 0,
           inject_preamble: 0,
         }

@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{
     fs,
-    io::Write,
+    io::{BufRead, Write},
     process::{Command, Stdio},
 };
 
@@ -20,7 +20,15 @@ fn main() {
     if args.first().is_some_and(|arg| arg == "app-server") {
         args.remove(0);
     }
-    assert_eq!(args.len(), 3, "CLI, scenario and report paths");
+    let listen = args.last().is_some_and(|value| value == "--listen");
+    if listen {
+        args.pop();
+    }
+    assert_eq!(
+        args.len(),
+        3,
+        "CLI, scenario and report paths, optional --listen"
+    );
     let steps: Vec<Step> = serde_json::from_slice(&fs::read(&args[1]).unwrap()).unwrap();
     let mut results = Vec::new();
     for step in steps {
@@ -48,4 +56,20 @@ fn main() {
     let stage = std::path::PathBuf::from(&args[2]).with_extension("pending");
     fs::write(&stage, serde_json::to_vec(&results).unwrap()).unwrap();
     fs::rename(stage, &args[2]).unwrap();
+    if listen {
+        let mut received = Vec::new();
+        for line in std::io::stdin().lock().lines() {
+            let line = line.unwrap();
+            let done = line.starts_with("Submit your response with the command above.");
+            received.push(line);
+            if done {
+                break;
+            }
+        }
+        fs::write(
+            std::path::PathBuf::from(&args[2]).with_extension("input.json"),
+            serde_json::to_vec(&received).unwrap(),
+        )
+        .unwrap();
+    }
 }

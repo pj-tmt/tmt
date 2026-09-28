@@ -35,17 +35,15 @@ describe('first-time CLI discovery', () => {
     });
   });
 
-  it('keeps inbox recovery available with hints disabled and never interpolates the name', async () => {
+  it('keeps offline Inbox acceptance available with hints disabled', async () => {
     await withSandbox(async (sandbox) => {
       const name = "Team's Lead";
       expect((await runCli(sandbox, ['identity', 'create', name])).status).toBe(0);
       sandbox.env.TMT_HINTS = 'off';
-      const failed = await runCli(sandbox, ['talk', name, 'do not deliver']);
-      expect(failed.status).toBe(3);
-      expect(failed.stderr).toContain(`Identity '${name}' is not active.`);
-      expect(failed.stderr).toContain('`tmt talk <identity> <message> --inbox`');
-      expect(failed.stderr).not.toContain('Hint:');
-      expect(failed.stderr.split('`tmt talk')[1]).not.toContain(name);
+      const queued = await runCli(sandbox, ['talk', name, 'do not deliver']);
+      expect(queued.status).toBe(0);
+      expect(queued.stdout).toContain(`${name} is offline; the request is kept in Inbox`);
+      expect(queued.stderr).toBe('');
 
       const unknown = await runCli(sandbox, ['talk', 'Missing', 'do not deliver']);
       expect(unknown.status).toBe(3);

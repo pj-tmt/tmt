@@ -1129,8 +1129,9 @@ Retention is frozen per attempt; bounded lazy housekeeping must respect active
 waiters, preserve the defined acceptance deadline and never resurrect an expired
 submission. The settings owner defines retention defaults and limits.
 
-`RequestRoute` distinguishes verified pane delivery from durable identity inbox
-queueing. Pane attempts retain server/pane evidence; inbox attempts retain only
+`RequestRoute` distinguishes unbound direct-pane delivery from durable identity inbox
+queueing. Identified talk is Inbox-first with one claimed full-payload live wake;
+its public live output remains sent/completed. Pane attempts retain server/pane evidence; inbox attempts retain only
 the resolved active recipient UUID and settle as `queued`, never `sent`.
 `RequestService::enqueue` prepares the attempt, stores its exact prompt and
 publishes recipient attention in one repository transaction. CLI inbox sends use
@@ -1140,6 +1141,11 @@ errors roll back all enqueue writes. A recipient found inactive commits a failed
 non-waiting attempt without recipient attention, matching the prepared queue path.
 Interrupting a sender after publication only releases its wait; it does not
 retract queued recipient work.
+Full request delivery settles the request's recipient attention, not the
+originator's response attention; an advisory Office wake leaves it unread.
+Delivery failure cannot rewrite the receipt-bound route. Runtime return does not
+schedule a second wake. Preamble reservations are prepared once and refunded only
+for proven non-delivery; transport still owns literal-input protection.
 The recipient revision is allocated atomically with the `queued` transition, so
 a merely prepared attempt cannot wake a listener and every newly eligible item
 advances that identity's shared participant sequence. Recipient request attention
@@ -1149,6 +1155,20 @@ written by another participant reuses the originator response attention.
 `exchange_command` owns the monotonic hard deadline and trailing debounce.
 Listener polls perform no tmux inventory, retention cleanup, body scan or held
 transaction, and introduce no daemon or event bus.
+
+Schema 35 adds optional request notification policy and one-shot reply/timeout
+claims under the existing request service transaction. No row means no callback:
+historical, anonymous and explicit queue-only requests are not opted in. First
+final acceptance may reserve a callback only without a live blocking waiter.
+Process evidence is observed outside the transaction and matched against stored
+waiter ownership inside it. Acceptance and notification outcomes remain separate.
+`delivery` composes registered runtime send with verified host fallback through
+the core routing policy; accepted, uncertain, denied and approval-required sends
+never fall through. Drivers own fresh runtime proof and sticky-Ended recovery.
+`process::detached` owns startup acknowledgment and failure cleanup for one
+request deadline observer; `request_observer_command` composes durable reads,
+the timeout claim and delivery outside locks. It has no restart policy, daemon,
+provider-specific branch or permission to re-send a request.
 
 `reply_receipt` is the one maintained receipt codec. `response_command` and
 `talk_command` compose it with the request service; neither adds a repository,

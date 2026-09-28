@@ -807,8 +807,11 @@ describe.sequential('global identity lifecycle', () => {
         'MalformedCurrent',
         'affected-must-not-route',
       ]);
-      expect(affectedTalk.code).toBe(3);
-      expect(json(affectedTalk)).toMatchObject({ error: { code: 'NAME_NOT_FOUND' } });
+      expect(affectedTalk.code).toBe(0);
+      expect(json(affectedTalk)).toMatchObject({ status: 'queued', offline: true });
+      expect(fixture.events().some((event) => event.message === 'affected-must-not-route')).toBe(
+        false
+      );
       await talkToIdentity(
         fixture,
         'HealthyCurrent',

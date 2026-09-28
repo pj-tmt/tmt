@@ -95,11 +95,13 @@ describe.sequential('single JSON command error boundary', () => {
           (item) => item.event === 'silent' && item.requestId === event.requestId,
           5_000
         );
-        await fixture.waitFor(() => requestAttempts(fixture)[0]?.status === 'sent');
+        await fixture.waitFor(() => requestAttempts(fixture)[0]?.wake_state === 'sent');
         fixture.tmux(['kill-pane', '-t', fixture.pane]);
         expect(requestAttempts(fixture)[0]).toMatchObject({
           request_id: event.requestId,
-          status: 'sent',
+          status: 'queued',
+          route_kind: 'inbox',
+          wake_state: 'sent',
           wait_active: 1,
         });
         const bodyPath = path.join(fixture.root, 'late-response.txt');
@@ -119,7 +121,9 @@ describe.sequential('single JSON command error boundary', () => {
         expect(requestAttempts(fixture)).toHaveLength(1);
         expect(requestAttempts(fixture)[0]).toMatchObject({
           request_id: event.requestId,
-          status: 'sent',
+          status: 'queued',
+          route_kind: 'inbox',
+          wake_state: 'sent',
           wait_active: 0,
         });
       },
@@ -147,14 +151,16 @@ describe.sequential('single JSON command error boundary', () => {
           (item) => item.event === 'silent' && item.message === 'interrupt long poll',
           5_000
         );
-        await fixture.waitFor(() => requestAttempts(fixture)[0]?.status === 'sent');
+        await fixture.waitFor(() => requestAttempts(fixture)[0]?.wake_state === 'sent');
         request.kill('SIGINT');
         const result = await request.result;
         expectError(result, 1, 'INTERRUPTED');
         expect(requestAttempts(fixture)).toHaveLength(1);
         expect(requestAttempts(fixture)[0]).toMatchObject({
           request_id: event.requestId,
-          status: 'sent',
+          status: 'queued',
+          route_kind: 'inbox',
+          wake_state: 'sent',
           wait_active: 0,
         });
       },

@@ -21,15 +21,49 @@ pub(super) fn prepare(
         .as_deref()
         .map(|selector| crate::room_command::resolve(storage, selector))
         .transpose()?;
+    let mut offline = false;
+    let automatic = if !input.options.inbox && !tmt_core::names::is_pane_target(&input.target) {
+        let identity = match tmt_core::identity::find_by_name(storage, &input.target) {
+            Ok(value) => value,
+            // Preserve target resolution's existing missing-name boundary.
+            Err(tmt_core::identity::IdentityError::InvalidName(_)) => None,
+            Err(error) => {
+                return Err(Failure::new(
+                    "IDENTITY_ERROR",
+                    "Could not read recipient identity.",
+                    1,
+                )
+                .caused_by(error));
+            }
+        };
+        if let Some(identity) = identity {
+            offline = matches!(
+                crate::delivery::status(storage, tmux, &identity.id).map_err(|error| {
+                    Failure::new(
+                        "DELIVERY_PREPARATION_FAILED",
+                        "Could not read recipient state.",
+                        1,
+                    )
+                    .caused_by(error)
+                })?,
+                crate::delivery::Availability::Offline
+            );
+            Some(identity)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let inbox_identity = if input.options.inbox {
         Some(identity_context::resolve(
             storage,
             identity_context::Selector::Explicit(input.target.clone()),
         )?)
     } else {
-        None
+        automatic
     };
-    let observed = if input.options.inbox {
+    let observed = if input.options.inbox || offline {
         None
     } else {
         Some(target::resolve(storage, tmux, &input.target).map_err(|error| {
@@ -72,7 +106,8 @@ pub(super) fn prepare(
         identity: inbox_identity
             .clone()
             .or_else(|| observed.as_ref().and_then(|value| value.identity.clone())),
-        inbox: input.options.inbox,
+        inbox: input.options.inbox || offline,
+        offline,
     };
     if let Some(room) = &room
         && !correlation
@@ -103,12 +138,13 @@ pub(super) fn prepare(
     if interrupt.is_some_and(Interrupt::is_interrupted) {
         return Err(correlation.interrupted());
     }
-    let preamble = if input.options.no_preamble
+    let preamble = if input.options.inbox
+        || input.options.no_preamble
         || settings.preamble_mode == PreambleMode::Disabled
         || settings.preamble_every == 0
     {
         None
-    } else if let Some(identity) = observed.as_ref().and_then(|value| value.identity.as_ref()) {
+    } else if !offline && let Some(identity) = correlation.identity.as_ref() {
         storage
             .find_profile(&identity.id, ProfileKind::Preamble)
             .map_err(|error| {
@@ -120,7 +156,7 @@ pub(super) fn prepare(
     } else {
         None
     };
-    let route = match (&inbox_identity, &observed) {
+    let route = match (&correlation.identity, &observed) {
         (Some(identity), _) => RequestRoute::Inbox {
             recipient_identity_id: identity.id.clone(),
         },
@@ -141,13 +177,14 @@ pub(super) fn prepare(
                 1,
             )
         })?;
+    let notify_originator = originator.identity_id().is_some() && !input.options.inbox;
     let request = PrepareRequest {
         room_id: room.map(|room| room.id),
         kind: tmt_core::request::RequestKind::Request,
         request_id: correlation.request_id.clone(),
         message: input.message.clone(),
         route: route.clone(),
-        wait: !input.options.detach,
+        wait: !input.options.detach && !offline,
         expires_at_ms,
         originator,
         recipient_identity_id: correlation
@@ -184,6 +221,7 @@ pub(super) fn prepare(
         escape_sender_attribute(&sender),
         correlation.request_id
     );
+    let wake = !input.options.inbox && correlation.identity.is_some();
     Ok(Prepared {
         correlation,
         attempt_id,
@@ -193,6 +231,8 @@ pub(super) fn prepare(
         },
         payload,
         previous_request_id: prepared.previous_request_id,
+        notify_originator,
+        wake,
     })
 }
 

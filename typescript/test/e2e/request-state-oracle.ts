@@ -14,6 +14,8 @@ export interface AttemptRow {
   pane_pid: number;
   wait_active: number;
   status: string;
+  route_kind: 'pane' | 'inbox';
+  wake_state: 'not_attempted' | 'claimed' | 'sent' | 'unavailable' | 'uncertain';
   inject_preamble: number;
   prepared_at_ms: number;
   retention_days: number;

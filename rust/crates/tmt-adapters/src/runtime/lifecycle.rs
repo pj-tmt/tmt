@@ -65,6 +65,14 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    fn observe_replacement(
+        &self,
+        _pane_pid: u64,
+        _deadline: Instant,
+    ) -> Option<RuntimeIncarnation> {
+        None
+    }
+
     fn mode(&self, _host: HostEvidence) -> Option<RuntimeMode> {
         None
     }

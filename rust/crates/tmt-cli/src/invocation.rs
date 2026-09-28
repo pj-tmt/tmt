@@ -87,6 +87,9 @@ pub enum Invocation {
         provider: String,
         worker: bool,
     },
+    RequestObserver {
+        request_id: String,
+    },
     Upgrade {
         channel: Option<tmt_core::native_install::Channel>,
         exact: Option<String>,

@@ -5,6 +5,7 @@ mod check_command;
 mod completion;
 mod config_command;
 mod context_command;
+mod delivery;
 mod diagnostics;
 mod exchange_command;
 mod extension_command;
@@ -32,6 +33,7 @@ mod output;
 mod parser;
 mod profile_command;
 mod provider_hook_command;
+mod request_observer_command;
 mod response_command;
 mod room_command;
 mod run_command;
@@ -145,6 +147,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::ProviderHook { provider, worker } => {
             drop(stdout);
             return provider_hook_command::execute(&provider, worker);
+        }
+        Invocation::RequestObserver { request_id } => {
+            drop(stdout);
+            return request_observer_command::execute(&request_id);
         }
         Invocation::Identity(request) => {
             drop(stdout);

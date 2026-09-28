@@ -3,9 +3,9 @@
 The native CLI stores complete replies in SQLite. `talk` waits for a durable
 reply by default; `--timeout` bounds observation and `--detach` returns after
 sending. Terminal capture and `check` are diagnostics, not authoritative
-completion or full-body retrieval. Explicit `talk --inbox` adds a local durable
-recipient route; it does not imply a provider hook, background daemon, remote
-transport or authentication.
+completion or full-body retrieval. Identified destinations use a durable Inbox
+route with one live-delivery attempt. Explicit `talk --inbox` queues without
+that attempt. Neither implies a daemon, remote transport or authentication.
 
 A cooperating agent submits its complete final body successfully, then may show
 a short truthful summary of work, verification and unresolved items. Submission
@@ -24,7 +24,7 @@ Unicode and oversized input fail before mutation. File/stdin decoding is an
 input-adapter responsibility, not an alternate response store.
 
 One immediate transaction validates the request, attempt and full endpoint and
-accepts only `sending`, `sent` or `uncertain`. A matching retained final is an
+accepts only `sending`, `sent`, `queued` or `uncertain`. A matching retained final is an
 idempotent retry with its original timestamp; different content cannot overwrite
 it. `prepared` and `definitely_failed` cannot submit. If a reply wins the race
 against definitely-failed settlement, settlement remains conservatively uncertain
@@ -117,11 +117,23 @@ human output adds formatting. A missing retained result is `status: unavailable`
 with `RESPONSE_NOT_AVAILABLE` (exit 3), not a claim that a request is unknown,
 cancelled or completed. Input deadline uses exit 4; conflicting final uses exit 5.
 
-Storage-only commands work after pane closure and waiter exit. They reuse the
+Result retrieval and final acceptance work after pane closure and waiter exit. They reuse the
 service and its retention, not another reply store. Agent guidance requires a
 truthful short user summary only after successful submission. Submission means
 the result was delivered, not that the requested task succeeded. Summary failure
 does not undo or justify repeating an accepted final.
+
+First final acceptance also reserves an eligible originator callback in the same
+transaction. A live blocking waiter owns full-response delivery, so no hint is
+claimed alongside it. A proven-dead exact waiter incarnation can be released
+atomically with valid first acceptance; uncertain process evidence cannot release
+it. Detached, timed-out and interrupted callers instead receive one best-effort
+hint at their identity UUID's current verified binding:
+`[tmt] reply from <replier> to <id>: tmt result <id>`.
+Callbacks contain no final body and never acknowledge X. Failed callbacks do not
+reject accepted replies; the reply reports notification outcome separately.
+Identical retries cannot acquire another notification claim. A retained claim
+after process loss is uncertain, never permission to send again.
 
 ## Compact receipts
 
@@ -130,13 +142,17 @@ native emission format.
 
 Native talk uses the shared codec to emit exactly 25 ASCII characters: `v2_` plus
 canonical unpadded base64url of the first 16 SHA-256 digest bytes. The preimage
-starts with ASCII `tmux-team/reply-receipt/v2` and NUL, followed in order by
+for an unbound direct-pane request starts with ASCII
+`tmux-team/reply-receipt/v2` and NUL, followed in order by
 request ID, attempt ID, server ID, socket path, server PID, server start time,
 pane ID and pane PID. Each string is exact UTF-8 prefixed with its unsigned
 64-bit big-endian byte length; PIDs are unsigned 64-bit big-endian integers.
 Independent goldens freeze this protocol, including Unicode byte lengths and
 ambiguous concatenation boundaries. Padding, nonzero trailing bits, unsupported
 versions and partial tokens are rejected.
+
+Identified requests use the Inbox route's tagged UUID preimage defined in the
+Inbox section below; live delivery never rewrites that receipt to a pane route.
 
 The digest binds the whole recorded association without storing another token. Its 128-bit output space is not a promise of
 128-bit collision resistance, secrecy or authorization. Predictable inputs stay
@@ -191,6 +207,31 @@ nonce, endMarker or truncated. Delivery/state uncertainty remains nonzero and
 retains inspection correlation, never automatic resend. Failure during receipt
 construction before beginSend refunds a proven-unsent reservation.
 
+For identified destinations the immutable route is Inbox from preparation,
+including live delivery. One claim gates the full-payload paste; no second
+request or receipt rewrite is made if the runtime ends before input. Confirmed
+full delivery settles recipient attention only, so it does not inflate incoming
+X/listen/context counts. Office's advisory wake does not settle that attention.
+Unavailable or uncertain delivery remains queued; uncertainty still returns
+`DELIVERY_UNCERTAIN`, not permission to resend. Offline recipients produce an
+immediate `queued` result with `offline:true`, without waiting or pasting into a
+shell. Rebinding or coming online never triggers automatic re-wake. Explicit
+`--inbox` and unbound direct-pane behavior remain distinct.
+
+A verified binding with no hook/runtime evidence retains legacy delivery:
+agent readiness is unverified, not proof of a running provider. The tmux driver
+cannot detect provider approval or attention states. A driver that reports
+denial, pending approval, acceptance or uncertainty never permits host fallback.
+
+Eligible detached/offline requests start one bounded timeout observer, detached
+from terminal streams and the caller's session. It holds no database lock while
+waiting, exits on a final or its deadline, and may claim one timeout hint:
+`[tmt] no reply yet from <recipient> to <id> after <timeout>; still pending`.
+The later final has an independent callback. No worker restarts or resends work.
+Anonymous and explicit queue-only requests never push originator hints. Worker
+startup failure warns without undoing acceptance. Its state-directory log holds
+only the observer PID and a bounded failure line, never message bodies/receipts.
+
 `--wait` is rejected; talk rejects `--lines` while check
 retains it. Stored mode/maxCaptureLines values are inert, not automatically
 rewritten; explicit local `config clear mode` deletes only that obsolete key.
@@ -200,7 +241,7 @@ The Docker peer submits through the real public reply CLI, logs causal
 request/submitted/summary or failure events, and retains a full-body oracle.
 Virtualized output exposes only its tail; acceptance requires exact complete
 talk/result equality, not a missing-interior characterization. Same-pane input
-serialization, exactly-once processing, inbox and remote authentication are
+serialization, exactly-once processing and remote authentication are
 still outside scope. User-installed skills teach full submission first, then
 a truthful work/tests/blockers summary; failed submission is never success.
 

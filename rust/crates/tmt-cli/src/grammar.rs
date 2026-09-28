@@ -347,6 +347,8 @@ pub fn grammar() -> Command {
     .subcommand(general("__hook", "Internal bounded provider lifecycle callback").hide(true)
         .arg(operand("provider", true).value_parser(["claude", "codex"]))
         .arg(Arg::new("worker").long("worker").hide(true).action(ArgAction::SetTrue)))
+    .subcommand(general("__request-observer", "Internal bounded request timeout observer").hide(true)
+        .arg(operand("request-id", true)))
     .subcommand(general("completion", "Generate shell completion").arg(operand("shell", false)))
     .subcommand(general("__complete", "Internal shell completion context").hide(true)
         .arg(Arg::new("words").num_args(0..).trailing_var_arg(true)

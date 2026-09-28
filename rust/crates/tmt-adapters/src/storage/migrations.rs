@@ -15,6 +15,8 @@ mod identity_lifetime_tests;
 #[cfg(test)]
 mod local_block_tests;
 #[cfg(test)]
+mod notification_tests;
+#[cfg(test)]
 mod prop_pack_tests;
 #[cfg(test)]
 mod receipt_tests;
@@ -183,6 +185,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "retain foreground launch ownership for binding runtime observations",
         sql: include_str!("schema/034.sql"),
+    },
+    Migration {
+        name: "claim originator reply and detached timeout hints",
+        sql: include_str!("schema/035.sql"),
     },
 ];
 

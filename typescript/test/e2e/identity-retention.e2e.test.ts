@@ -78,8 +78,8 @@ describe.sequential('committed identity retention', () => {
       ]);
       const beforeEvents = fixture.events();
       const inactive = await fixture.runJsonCli(['talk', 'Retained', 'must not be delivered']);
-      expect(inactive.code).toBe(3);
-      expect(inactive.json).toMatchObject({ error: { code: 'NAME_NOT_FOUND' } });
+      expect(inactive.code).toBe(0);
+      expect(inactive.json).toMatchObject({ status: 'queued', offline: true });
       expect(fixture.events()).toEqual(beforeEvents);
 
       const roleText = 'Data-only role; never inject this text.';

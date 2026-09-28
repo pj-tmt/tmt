@@ -6,6 +6,7 @@ mod crash;
 mod enqueue;
 mod history;
 mod lifecycle;
+mod notification;
 mod receipts;
 mod response;
 mod retention;

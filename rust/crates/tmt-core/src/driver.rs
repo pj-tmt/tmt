@@ -6,6 +6,7 @@
 //! decision by the caller. Drivers do not own request storage or retry policy.
 
 pub mod caller;
+pub mod routing;
 
 use crate::binding::session::{
     HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeMode, RuntimeState, SessionTransition,

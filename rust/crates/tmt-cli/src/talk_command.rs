@@ -39,6 +39,7 @@ struct Correlation {
     pane: String,
     identity: Option<Identity>,
     inbox: bool,
+    offline: bool,
 }
 struct Prepared {
     correlation: Correlation,
@@ -46,6 +47,8 @@ struct Prepared {
     endpoint: Option<RequestEndpoint>,
     payload: String,
     previous_request_id: Option<String>,
+    notify_originator: bool,
+    wake: bool,
 }
 struct Report {
     correlation: Correlation,
@@ -101,40 +104,153 @@ impl Correlation {
 fn deliver(
     storage: &mut Storage,
     tmux: &Tmux,
-    prepared: &Prepared,
+    prepared: &mut Prepared,
     input: &Input,
     settings: &Settings,
     interrupt: Option<&Interrupt>,
 ) -> Result<Option<FinalResponse>, Failure> {
-    let correlation = &prepared.correlation;
-    let mut service = RequestService::new(storage, wall_time_ms);
-    let wait = !input.options.detach;
+    let correlation = &mut prepared.correlation;
+    let wait = !input.options.detach && !correlation.offline;
     let timeout = input.options.timeout_seconds.unwrap_or(settings.timeout);
     let deadline = Instant::now() + Duration::from_secs_f64(timeout);
+    if prepared.notify_originator {
+        let waiter = if wait {
+            match tmt_adapters::process::runtime::observe_runtime_process(
+                &tmt_adapters::process::SupervisedProbeRunner,
+                u64::from(std::process::id()),
+                Instant::now() + Duration::from_secs(1),
+            ) {
+                Ok(tmt_adapters::process::runtime::ProcessObservation::Live(value)) => Some(value),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        RequestService::new(&mut *storage, wall_time_ms)
+            .enable_notifications(
+                &correlation.request_id,
+                tmt_core::request::notification::NotificationPolicy {
+                    deadline_ms: wall_time_ms() + (timeout * 1000.0).ceil() as u64,
+                    timeout_ms: (timeout * 1000.0).ceil() as u64,
+                    waiter,
+                },
+            )
+            .map_err(|error| correlation.state_error(error, false))?;
+    }
+    if prepared.wake {
+        RequestService::new(&mut *storage, wall_time_ms)
+            .queue(&prepared.attempt_id)
+            .map_err(|error| correlation.state_error(error, false))?;
+    }
     let pending = (|| {
         if interrupt.is_some_and(Interrupt::is_interrupted) {
             // Inbox publication already committed during preparation. Stopping
             // the sender's wait must not retract a recipient's queued request.
-            if !input.options.inbox {
-                service
+            if prepared.endpoint.is_some() {
+                RequestService::new(&mut *storage, wall_time_ms)
                     .settle(&prepared.attempt_id, Settlement::DefinitelyFailed)
                     .map_err(|error| correlation.state_error(error, false))?;
             }
             return Err(correlation.interrupted());
         }
-        if !input.options.inbox
-            && let Err(primary) = service.begin_send(&prepared.attempt_id)
+        if prepared.endpoint.is_some()
+            && let Err(primary) =
+                RequestService::new(&mut *storage, wall_time_ms).begin_send(&prepared.attempt_id)
         {
             // Settlement is idempotent; the primary failure remains diagnostic.
             let primary = correlation.state_error(primary, false);
             return Err(
-                match service.settle(&prepared.attempt_id, Settlement::DefinitelyFailed) {
+                match RequestService::new(&mut *storage, wall_time_ms)
+                    .settle(&prepared.attempt_id, Settlement::DefinitelyFailed)
+                {
                     Ok(()) => primary,
                     Err(secondary) => primary.with_secondary_error(secondary),
                 },
             );
         }
-        if let Some(endpoint) = &prepared.endpoint {
+        if prepared.wake
+            && let Some(identity) = &correlation.identity
+        {
+            let claim = RequestService::new(&mut *storage, wall_time_ms)
+                .claim_wake(&correlation.request_id)
+                .map_err(|error| correlation.state_error(error, false))?;
+            if !claim.claimed {
+                correlation.inbox = true;
+                return RequestService::new(&mut *storage, wall_time_ms)
+                    .get_response(&correlation.request_id)
+                    .map(|value| match value {
+                        tmt_core::request::ResponseLookup::Available(response) => Some(*response),
+                        _ => None,
+                    })
+                    .map_err(|error| correlation.state_error(error, false));
+            }
+            let eligible = RequestService::new(&mut *storage, wall_time_ms)
+                .wake_recipient_is_eligible(&correlation.request_id, &identity.id)
+                .map_err(|error| correlation.state_error(error, false))?;
+            // An offline acceptance is queue-only for this request, even if
+            // the endpoint comes back during publication. Never re-wake it.
+            let outcome = if correlation.offline {
+                crate::delivery::Delivery::Offline
+            } else if eligible {
+                crate::delivery::send(
+                    storage,
+                    tmux,
+                    &identity.id,
+                    &prepared.payload,
+                    Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
+                )
+                .map_err(|error| {
+                    Failure::new(
+                        "DELIVERY_PREPARATION_FAILED",
+                        "Could not verify delivery state.",
+                        1,
+                    )
+                    .caused_by(error)
+                })?
+            } else {
+                crate::delivery::Delivery::Unavailable
+            };
+            let settlement = outcome.wake_state();
+            RequestService::new(&mut *storage, wall_time_ms)
+                .settle_request_delivery(&correlation.request_id, settlement)
+                .map_err(|error| {
+                    correlation.state_error(
+                        error,
+                        settlement != tmt_core::request::WakeState::Unavailable,
+                    )
+                })?;
+            if matches!(outcome, crate::delivery::Delivery::Offline) {
+                correlation.offline = true;
+                correlation.inbox = true;
+                return Ok(None);
+            }
+            if !matches!(outcome, crate::delivery::Delivery::Sent) {
+                if let crate::delivery::Delivery::Transport(error) = outcome {
+                    return Err(correlation
+                        .error(
+                            if error.uncertain() {
+                                "DELIVERY_UNCERTAIN"
+                            } else {
+                                "DELIVERY_PREPARATION_FAILED"
+                            },
+                            error.to_string(),
+                            1,
+                        )
+                        .at_stage(error.stage.as_str())
+                        .suggestion(correlation.inspection())
+                        .caused_by(error));
+                }
+                return Err(correlation.error(
+                    if matches!(outcome, crate::delivery::Delivery::Uncertain) {
+                        "DELIVERY_UNCERTAIN"
+                    } else {
+                        "DELIVERY_PREPARATION_FAILED"
+                    },
+                    "Recipient delivery did not complete; inspect the retained request.",
+                    1,
+                ));
+            }
+        } else if let Some(endpoint) = &prepared.endpoint {
             let delivered = tmux.send_on(
                 &endpoint.server.socket_path,
                 &endpoint.pane_id,
@@ -142,12 +258,12 @@ fn deliver(
                 Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
             );
             match delivered {
-                Ok(()) => service
+                Ok(()) => RequestService::new(&mut *storage, wall_time_ms)
                     .settle(&prepared.attempt_id, Settlement::Sent)
                     .map_err(|error| correlation.state_error(error, true))?,
                 Err(error) => {
                     let uncertain = error.uncertain();
-                    if let Err(state) = service.settle(
+                    if let Err(state) = RequestService::new(&mut *storage, wall_time_ms).settle(
                         &prepared.attempt_id,
                         if uncertain {
                             Settlement::Uncertain
@@ -180,7 +296,7 @@ fn deliver(
         }
         observation::observe(
             || {
-                service
+                RequestService::new(&mut *storage, wall_time_ms)
                     .get_response(&correlation.request_id)
                     .and_then(|lookup| match lookup {
                         tmt_core::request::ResponseLookup::Available(response) => {
@@ -202,19 +318,22 @@ fn deliver(
         .map(Some)
     })();
     let released = if wait {
-        service
-            .release_wait(&prepared.attempt_id)
+        RequestService::new(&mut *storage, wall_time_ms)
+            .finish_wait(&prepared.attempt_id, matches!(&pending, Ok(Some(_))))
             .map_err(|error| correlation.state_error(error, true))
     } else {
-        Ok(())
+        Ok(None)
     };
+    if let Ok(Some(hint)) = &released {
+        crate::delivery::notify(storage, hint);
+    }
     // Waiter release always runs, including rejected transport and read errors.
     match pending {
         Err(primary) => Err(match released {
-            Ok(()) => primary,
+            Ok(_) => primary,
             Err(secondary) => primary.with_secondary_error(secondary),
         }),
-        Ok(value) => released.map(|()| value),
+        Ok(value) => released.map(|_| value),
     }
 }
 
@@ -225,7 +344,7 @@ fn run(
     interrupt: Option<&Interrupt>,
     mode: OutputMode,
 ) -> Result<Report, Failure> {
-    let mut storage = Storage::open(paths.database).map_err(|error| {
+    let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::new(
             "REQUEST_STATE_ERROR",
             "Could not open request storage; no message was sent.",
@@ -235,12 +354,17 @@ fn run(
     })?;
     let tmux = Tmux::default();
     let mut cleanup_correlation = None;
-    let pending = preparation::prepare(&mut storage, &tmux, &input, &settings, interrupt).and_then(|prepared| {
+    let pending = preparation::prepare(&mut storage, &tmux, &input, &settings, interrupt).and_then(|mut prepared| {
         cleanup_correlation = Some(prepared.correlation.clone());
         if !mode.json && !input.options.detach && !input.options.force && let Some(previous) = &prepared.previous_request_id {
             eprintln!("Another recent request exists for '{}' (id: {previous}). Input processing is not serialized; durable results remain associated by request ID.", input.target);
         }
-        let response = deliver(&mut storage, &tmux, &prepared, &input, &settings, interrupt);
+        let response = deliver(&mut storage, &tmux, &mut prepared, &input, &settings, interrupt);
+        if response.is_ok() && prepared.notify_originator
+            && (input.options.detach || prepared.correlation.offline)
+            && let Err(error) = crate::request_observer_command::start(&paths.database, &prepared.correlation.request_id) {
+            eprintln!("tmt: timeout notification unavailable ({error}); request is retained, do not resend.");
+        }
         let correlation = prepared.correlation;
         response.map(|response| Report { correlation, response })
     });

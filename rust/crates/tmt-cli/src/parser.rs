@@ -203,6 +203,9 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             provider: text(m, "provider").expect("required provider"),
             worker: flag(m, "worker"),
         },
+        ["__request-observer"] => Invocation::RequestObserver {
+            request_id: text(m, "request-id").expect("required request ID"),
+        },
         ["completion"] => Invocation::Completion(text(m, "shell")),
         ["__complete"] => Invocation::Complete(
             m.get_many::<OsString>("words")

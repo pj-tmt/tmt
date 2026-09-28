@@ -779,6 +779,33 @@ exit ${'$'}status
       );
     }
     this.cliProcessResults.clear();
+    // Detached request observers intentionally outlive talk. Only this fixture's
+    // recorded request IDs and matching live argv may be stopped here.
+    const observers = path.join(this.globalDir, 'request-observers');
+    if (fs.existsSync(observers)) {
+      const owned: number[] = [];
+      for (const name of fs.readdirSync(observers)) {
+        if (!/^req_[0-9a-f-]+\.log$/.test(name)) continue;
+        const match = fs
+          .readFileSync(path.join(observers, name), 'utf8')
+          .match(/^observer_pid=(\d+)$/m);
+        if (!match) continue;
+        const pid = Number(match[1]);
+        const request = name.slice(0, -4);
+        try {
+          const args = execFileSync('ps', ['-p', String(pid), '-o', 'args='], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+          });
+          if (args.trim().endsWith(`__request-observer ${request}`)) owned.push(pid);
+        } catch {
+          // Already exited. Never signal a recycled PID with different argv.
+        }
+      }
+      const survivors = await killAndWait(owned, 'request observer');
+      if (survivors.length > 0)
+        cleanupError ??= new Error(`Request observers survived cleanup: ${survivors.join(', ')}`);
+    }
     const attachedClients = this.attachedClients.splice(0);
     await Promise.all(
       attachedClients.map(async (client) => {

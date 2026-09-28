@@ -141,7 +141,7 @@ retrying. Missing visible output is not permission to resend.
 ## Durable replies and results
 
 When TMT supplies an exact receipt, submit the complete result through the
-storage-only adapters:
+durable reply commands:
 
 ```bash
 tmt reply <request-id> --receipt <receipt> --message 'Review complete.'
@@ -169,8 +169,10 @@ request ID and receipt.
 Use exactly one input source and the exact request ID/receipt supplied in the
 received `talk` instruction, including detached requests. Never manufacture a
 receipt, select the latest request, or infer a current pane. Both `reply` and
-`result` are storage-only and work without a live pane on this same local
-TMT database; this is not an inbox, listener, remote transport or authentication.
+`result` work without a live pane on this same local TMT database. Result reads
+are storage-only; first reply acceptance may also attempt an independent
+originator hint. A failed hint does not invalidate the stored reply. This is
+not remote transport or authentication.
 
 Reply input is one exact valid UTF-8 body up to 1 MiB, preserving empty,
 whitespace, BOM, NUL, CR/LF, Unicode, and marker-like text. Stdin is
@@ -222,6 +224,10 @@ one durable final by default. The default is 180 seconds unless
 suffixes, at most 24 hours. Do not combine explicit timeout with detach.
 Pre-send delay accepts zero or a positive finite value, up to 2,147,483,647 ms.
 `--wait` is retired and rejected; `--lines` applies to check, not talk.
+
+Without hook/runtime evidence, a verified pane retains legacy delivery but agent
+readiness is unverified. Tmux cannot identify provider approval prompts. Never
+bypass a driver's denial or pending approval by manually pasting the request.
 Stored wait/polling mode settings are inert; `config clear mode` removes
 only the explicit local obsolete key, without migrating other settings.
 
@@ -236,6 +242,16 @@ tmt check reviewer 200  # diagnostics only
 Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
 completion. Completed talk adds the exact `response`, `bodyBytes` and
 `submittedAtMs` to request/target/pane correlation. Preserve that request ID.
+
+Identified offline recipients instead return queued with an offline notice.
+Their request stays in Inbox; no automatic re-wake occurs when they come online.
+Confirmed live delivery does not leave duplicate incoming attention. Explicit
+`--inbox` remains queue-only. Detached or interrupted originators can receive
+`[tmt] reply from <name> to <id>: tmt result <id>` at their current verified
+binding. Read that result; do not reply to the hint or resend the request.
+A live blocking waiter receives the full response without an extra hint.
+The bounded detached timeout hint means still pending, not failed or cancelled.
+Anonymous and explicit queue-only requests do not push these hints.
 
 Talk/send's command-local `--identity <existing-name>` attributes the originator,
 not the recipient. An explicit existing identity may be offline and overrides
@@ -288,8 +304,8 @@ Create returns `{identity:{id,name,canonicalName,lifetime},created}`; show retur
 `{identity:{id,name,canonicalName,lifetime}}`; list returns `{identities:[...]}` in
 canonical-name order, including unbound identities. It does not report presence.
 Use ordinary `tmt list` for verified active pane destinations. A new identity
-can receive only an explicit `talk --inbox` request until it is bound to a live
-pane with `add`, `name` or `this`.
+receives ordinary talk in Inbox while offline; `--inbox` explicitly suppresses
+live delivery even after binding with `add`, `name` or `this`.
 
 Use shared identity metadata for exact local discovery:
 
@@ -745,7 +761,7 @@ Invalid known fields in a loaded config return `CONFIG_ERROR` (exit 1) before
 talk/check effects, even when another layer would override them. Unknown and
 retired fields remain opaque and are not migrated. A rejected settings update
 leaves the file unchanged. Correct the reported field; do not delete the whole
-configuration as a workaround. Storage-only `reply` and `result` do not load
+configuration as a workaround. Reply acceptance and `result` do not load
 unrelated settings, so malformed config does not prevent durable submission
 or retrieval.
 

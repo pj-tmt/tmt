@@ -82,7 +82,7 @@ fn upgrade_rolls_back_on_history_failure_and_never_materializes_a_layout_on_open
     observer.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 34);
+    assert_eq!(storage.health().unwrap().schema_version, 35);
     assert_eq!(legacy_row(storage.connection().unwrap()), before_row);
     let preview = storage.show_local_world().unwrap();
     assert_eq!(preview.world_id.as_deref(), Some(WORLD));

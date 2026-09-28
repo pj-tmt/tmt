@@ -7,8 +7,9 @@ use std::{
     path::Path,
 };
 use tmt_core::{
+    binding::BindingEntry,
     binding::session::{HarnessId, RememberedSession},
-    driver::{ActionResult, Driver, HarnessResume, HarnessStart},
+    driver::{ActionResult, DeliveryAcceptance, Driver, HarnessResume, HarnessStart, SendFailure},
 };
 
 pub mod claude;
@@ -57,7 +58,8 @@ impl fmt::Display for RuntimeError {
 }
 impl std::error::Error for RuntimeError {}
 
-type RegisteredDriver = dyn Driver<Target = (), Error = RuntimeError, Launch = RuntimeCommand>;
+type RegisteredDriver =
+    dyn Driver<Target = BindingEntry, Error = RuntimeError, Launch = RuntimeCommand>;
 
 struct Registration {
     harness: HarnessId,
@@ -105,7 +107,8 @@ impl RuntimeRegistry {
         harness: HarnessId,
         executable: &str,
         priority: i32,
-        driver: impl Driver<Target = (), Error = RuntimeError, Launch = RuntimeCommand> + 'static,
+        driver: impl Driver<Target = BindingEntry, Error = RuntimeError, Launch = RuntimeCommand>
+        + 'static,
     ) -> Result<(), RuntimeError> {
         if executable.is_empty()
             || executable.contains('/')
@@ -165,6 +168,22 @@ impl RuntimeRegistry {
         })
     }
 
+    pub fn send(
+        &mut self,
+        harness: &HarnessId,
+        target: &BindingEntry,
+        message: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<RuntimeError>> {
+        match self
+            .registrations
+            .iter_mut()
+            .find(|entry| &entry.harness == harness)
+        {
+            Some(entry) => entry.driver.send(target, message),
+            None => ActionResult::Unsupported,
+        }
+    }
+
     /// Relaunch resolves the registered bare executable through PATH, without
     /// replaying any previous arguments or executable path.
     pub fn relaunch(&self, harness: &HarnessId) -> Option<RuntimeCommand> {
@@ -215,7 +234,7 @@ impl FirstParty {
 }
 
 impl Driver for FirstParty {
-    type Target = ();
+    type Target = BindingEntry;
     type Error = RuntimeError;
     type Launch = RuntimeCommand;
 
@@ -373,7 +392,7 @@ mod tests {
     }
 
     impl Driver for Community {
-        type Target = ();
+        type Target = BindingEntry;
         type Error = RuntimeError;
         type Launch = RuntimeCommand;
         fn claims(&self, command: &str) -> Option<HarnessId> {
