@@ -121,11 +121,19 @@ mod tests {
         "UPDATE identities",
         "office_meeting_rooms",
         "office_meeting_members",
+        "extension_storage_cutovers",
     ];
 
     /// Only the migration coordinator compares or copies against the core
     /// schema; every other module reaches core through [`super::CoreReferences`].
-    const MIGRATION_MODULES: &[&str] = &["cells.rs", "migration.rs", "schema.rs"];
+    /// `migration/switch.rs` alone writes core's cutover receipt, inside its
+    /// decision transaction.
+    const MIGRATION_MODULES: &[&str] = &[
+        "cells.rs",
+        "migration.rs",
+        "migration/switch.rs",
+        "schema.rs",
+    ];
 
     fn visit(root: &Path, directory: &Path, found: &mut Vec<String>) {
         for entry in fs::read_dir(directory).unwrap() {

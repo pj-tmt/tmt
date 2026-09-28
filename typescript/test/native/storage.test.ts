@@ -90,11 +90,13 @@ function expectNativeSchema(
       name: 'retain foreground launch ownership for binding runtime observations',
     },
     { version: 35, name: 'claim originator reply and detached timeout hints' },
+    { version: 36, name: 'record extension storage cutovers and fence moved Office rows' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
+      'extension_storage_cutovers',
       'identity_hooks',
       'identity_metadata',
       'identity_status',

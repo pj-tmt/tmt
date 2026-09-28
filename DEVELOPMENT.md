@@ -631,7 +631,7 @@ Office storage migration tests live in `tmt-office-storage`
 (`cargo test --locked -p tmt-office-storage`) and build their source databases
 under temporary roots through the public core storage entry point. For manual
 diagnostics, the companion's hidden
-`tmt-office __tmt-office-storage 1 <status|prepare|copy|verify> --global-dir <absolute directory>`
+`tmt-office __tmt-office-storage 1 <status|prepare|copy|verify|switch|recover> --global-dir <absolute directory>`
 requires an explicit disposable root and never uses configuration discovery.
 Never point it at a real installation. Real migration requires the separately
 consented user path.

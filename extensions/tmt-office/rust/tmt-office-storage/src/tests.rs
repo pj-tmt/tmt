@@ -37,6 +37,67 @@ pub(crate) mod fault {
         }
     }
 
+    thread_local! {
+        static CRASH_AT: Cell<Option<&'static str>> = const { Cell::new(None) };
+        static AVAILABLE: Cell<Option<u64>> = const { Cell::new(None) };
+        static CORRUPT_BACKUP: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Unwinds at a switch boundary like a killed process: open transactions
+    /// roll back and locks are released, but no cleanup code runs.
+    pub fn crash_at_point(point: Option<&'static str>) {
+        CRASH_AT.with(|value| value.set(point));
+    }
+
+    type Action = (&'static str, Box<dyn FnOnce()>);
+
+    thread_local! {
+        static ACTION: std::cell::RefCell<Option<Action>> = const { std::cell::RefCell::new(None) };
+    }
+
+    /// Runs `action` once when the switch reaches `point`.
+    pub fn at_point(point: &'static str, action: impl FnOnce() + 'static) {
+        ACTION.with(|value| *value.borrow_mut() = Some((point, Box::new(action))));
+    }
+
+    pub fn point(point: &str) {
+        let action = ACTION.with(|value| {
+            let mut value = value.borrow_mut();
+            match value.as_ref() {
+                Some((target, _)) if *target == point => value.take().map(|(_, action)| action),
+                _ => None,
+            }
+        });
+        if let Some(action) = action {
+            action();
+        }
+        if CRASH_AT.with(Cell::get) == Some(point) {
+            CRASH_AT.with(|value| value.set(None));
+            std::panic::panic_any(super::Crash(point.to_owned()));
+        }
+    }
+
+    pub fn set_available_bytes(bytes: Option<u64>) {
+        AVAILABLE.with(|value| value.set(bytes));
+    }
+
+    pub fn available_bytes() -> Option<u64> {
+        AVAILABLE.with(Cell::get)
+    }
+
+    pub fn corrupt_backup(enabled: bool) {
+        CORRUPT_BACKUP.with(|value| value.set(enabled));
+    }
+
+    /// Overwrites the first page of the backup after it was written.
+    pub fn after_backup(database: &std::path::Path) {
+        if CORRUPT_BACKUP.with(Cell::get) {
+            let mut bytes = std::fs::read(database).unwrap();
+            bytes[..100].fill(0xA5);
+            std::fs::write(database, bytes).unwrap();
+        }
+    }
+
     pub fn configure_staging(connection: &Connection) {
         if FULL.with(Cell::get) {
             let pages: i64 = connection
@@ -48,6 +109,10 @@ pub(crate) mod fault {
         }
     }
 }
+
+/// Payload of an injected crash.
+#[derive(Debug)]
+pub(crate) struct Crash(pub String);
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -69,7 +134,7 @@ impl Root {
         let source = path.join("tmux-team.db");
         // Public core entry point only: it creates and migrates a real schema.
         drop(tmt_adapters::storage::Storage::open(&source).unwrap());
-        let layout = StorageLayout::within(&source, &path.join("office"));
+        let layout = StorageLayout::within(&source, &path, &path.join("config.json"));
         Self { path, layout }
     }
 
@@ -484,9 +549,10 @@ fn an_unwritable_office_directory_fails_without_state_or_source_changes() {
     let result = migration::prepare(&root.layout);
     fs::set_permissions(&root.layout.directory, fs::Permissions::from_mode(0o700)).unwrap();
     assert!(
-        matches!(result, Err(MigrationError::Destination(_))),
+        matches!(&result, Err(MigrationError::NotWritable(directory)) if *directory == root.layout.directory),
         "{result:?}"
     );
+    assert_eq!(result.unwrap_err().code(), "OFFICE_STORAGE_NOT_WRITABLE");
     assert_eq!(state(&root), State::Absent);
     assert_eq!(whole_source(&root.source()), before);
 }
@@ -499,3 +565,5 @@ fn staging_is_private() {
     assert_eq!(mode(&root.layout.directory), 0o700);
     assert_eq!(mode(&root.layout.staging), 0o600);
 }
+
+mod switch;

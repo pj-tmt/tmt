@@ -11,6 +11,7 @@ mod profiles;
 mod requests;
 mod room;
 mod room_roster;
+mod storage_cutover;
 
 #[cfg(test)]
 mod test_support;
@@ -30,6 +31,7 @@ pub use errors::{StorageError, StorageErrorCode, classify};
 use errors::{classify_io, classify_open, incompatible};
 pub use room::RoomStoreError;
 pub use room_roster::{RoomRoster, RosterError, RosterMember};
+pub use storage_cutover::StorageCutover;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointMode {

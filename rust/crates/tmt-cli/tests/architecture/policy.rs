@@ -87,12 +87,14 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Office-owned storage reaches core only through the public config and
         // file-lock owners; it reads the core database directly only to migrate.
+        // `nix` measures free space before the switch backup.
         "tmt-office-storage" => &[
             "tmt-adapters",
             "tmt-core",
             "tmt-office-model",
             "rusqlite",
             "base64",
+            "nix",
             "serde",
             "sha2",
             "serde_json",

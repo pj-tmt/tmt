@@ -5,20 +5,24 @@
 //! single staging transaction, and `verify` compares every typed cell against a
 //! fresh snapshot. Each transition holds the migration lock and is atomic, so
 //! an interruption leaves the previous state and the source is only read.
-//! The source stays authoritative; publishing and switching belong to a later
-//! owner.
+//! The source stays authoritative until [`switch`] publishes a verified copy.
 
 use crate::{
     StorageLayout,
-    cells::{self, Difference, ManifestBuilder, TableShape},
+    cells::{self, Difference, Manifest, ManifestBuilder, TableShape},
     schema,
 };
+
+mod switch;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, config::DbConfig};
 use std::{
     fmt, fs, io,
     os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt},
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
+};
+pub use switch::{
+    Backup, Held, OfficeService, Quiesce, Quiesced, Recovery, Switched, recover, switch,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +31,10 @@ pub enum State {
     Prepared,
     Copied,
     Verified,
+    /// `office.db` is published but not yet activated; recovery settles it.
+    Switching,
+    /// `office.db` is authoritative.
+    Switched,
 }
 
 impl State {
@@ -36,6 +44,8 @@ impl State {
             Self::Prepared => "prepared",
             Self::Copied => "copied",
             Self::Verified => "verified",
+            Self::Switching => "switching",
+            Self::Switched => "switched",
         }
     }
 
@@ -57,6 +67,8 @@ pub struct Status {
     pub source_schema_version: Option<i64>,
     pub source_manifest: Option<String>,
     pub rows: Vec<(String, u64)>,
+    /// Retained switch backups, oldest first.
+    pub backups: Vec<Backup>,
 }
 
 #[derive(Debug)]
@@ -73,6 +85,18 @@ pub enum MigrationError {
     State(String),
     /// Office storage or its staging area cannot be used.
     Destination(String),
+    /// A directory the migration must write is not writable.
+    NotWritable(PathBuf),
+    /// The Office service could not be stopped and held stopped.
+    Service(String),
+    /// The backup could not be written or verified; nothing was switched.
+    Backup(String),
+    /// The switch was recorded, but Office storage is missing or unusable.
+    RecoveryRequired {
+        database: PathBuf,
+        condition: String,
+        backup: Option<PathBuf>,
+    },
 }
 
 impl fmt::Display for MigrationError {
@@ -82,7 +106,34 @@ impl fmt::Display for MigrationError {
             Self::Source(message)
             | Self::Mismatch(message)
             | Self::State(message)
-            | Self::Destination(message) => formatter.write_str(message),
+            | Self::Destination(message)
+            | Self::Service(message)
+            | Self::Backup(message) => formatter.write_str(message),
+            Self::NotWritable(directory) => write!(
+                formatter,
+                "{} is not writable; check its permissions and try again.",
+                directory.display()
+            ),
+            Self::RecoveryRequired {
+                database,
+                condition,
+                backup,
+            } => {
+                write!(
+                    formatter,
+                    "Office storage needs recovery: the switch was recorded but {} {condition}.",
+                    database.display()
+                )?;
+                match backup {
+                    Some(backup) => {
+                        write!(formatter, " Your last backup is {}.", backup.display())?
+                    }
+                    None => formatter.write_str(" No backup was found.")?,
+                }
+                formatter.write_str(
+                    " Restore steps: see the Office storage recovery section of the Office docs.",
+                )
+            }
             Self::SourceChanged => formatter.write_str(
                 "Office data in the core database changed after the copy; copy it again.",
             ),
@@ -102,6 +153,10 @@ impl MigrationError {
             Self::Mismatch(_) => "OFFICE_STORAGE_MISMATCH",
             Self::State(_) => "OFFICE_STORAGE_STATE",
             Self::Destination(_) => "OFFICE_STORAGE_DESTINATION",
+            Self::NotWritable(_) => "OFFICE_STORAGE_NOT_WRITABLE",
+            Self::Service(_) => "OFFICE_STORAGE_SERVICE",
+            Self::Backup(_) => "OFFICE_STORAGE_BACKUP",
+            Self::RecoveryRequired { .. } => "OFFICE_STORAGE_RECOVERY_REQUIRED",
         }
     }
 }
@@ -119,13 +174,20 @@ fn source_error(context: &str) -> impl Fn(rusqlite::Error) -> MigrationError + '
 /// Reports progress without taking the lock or touching the source.
 pub fn status(layout: &StorageLayout) -> Result<Status> {
     let destination_exists = exists(&layout.database)?;
+    let backups = backups(layout)?;
     if !exists(&layout.staging)? {
+        let state = match destination_exists {
+            false => State::Absent,
+            true if activated(&layout.database)? => State::Switched,
+            true => State::Switching,
+        };
         return Ok(Status {
-            state: State::Absent,
+            state,
             destination_exists,
             source_schema_version: None,
             source_manifest: None,
             rows: Vec::new(),
+            backups,
         });
     }
     let staging = open_staging_read_only(&layout.staging)?;
@@ -140,7 +202,67 @@ pub fn status(layout: &StorageLayout) -> Result<Status> {
         source_schema_version: record.as_ref().map(|record| record.source_schema_version),
         source_manifest: record.and_then(|record| record.source_manifest),
         rows,
+        backups,
     })
+}
+
+const BACKUP_PREFIX: &str = "office-storage-";
+
+fn backups(layout: &StorageLayout) -> Result<Vec<Backup>> {
+    let entries = match fs::read_dir(&layout.backups) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(MigrationError::Destination(format!(
+                "Cannot read {}: {error}",
+                layout.backups.display()
+            )));
+        }
+    };
+    let mut backups: Vec<Backup> = entries
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(BACKUP_PREFIX)
+                && entry.path().join("tmux-team.db").is_file()
+        })
+        .map(|entry| Backup {
+            bytes: switch::directory_size(&entry.path()),
+            directory: entry.path(),
+        })
+        .collect();
+    backups.sort_by(|left, right| left.directory.cmp(&right.directory));
+    Ok(backups)
+}
+
+/// Whether published Office storage records its activation.
+fn activated(database: &Path) -> Result<bool> {
+    let connection = Connection::open_with_flags(
+        database,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(destination("Open Office storage"))?;
+    connection
+        .query_row("SELECT count(*) > 0 FROM _office_activation", [], |row| {
+            row.get(0)
+        })
+        .map_err(destination("Read Office storage activation"))
+}
+
+/// Digest and shapes of every Office table, read inside the caller's snapshot.
+fn office_manifest(connection: &Connection) -> Result<(Manifest, Vec<TableShape>)> {
+    let mut manifest = ManifestBuilder::default();
+    let mut shapes = Vec::new();
+    for table in schema::OFFICE_TABLES {
+        let shape =
+            TableShape::read(connection, table).map_err(source_error("Read source table"))?;
+        cells::digest_table(connection, &shape, &mut manifest)
+            .map_err(source_error("Digest source rows"))?;
+        shapes.push(shape);
+    }
+    Ok((manifest.finish(), shapes))
 }
 
 /// Starts a fresh migration: validates the source and records its identity in
@@ -232,16 +354,8 @@ pub fn verify(layout: &StorageLayout) -> Result<Status> {
     let snapshot = source
         .unchecked_transaction()
         .map_err(source_error("Open source snapshot"))?;
-    let mut manifest = ManifestBuilder::default();
-    let mut shapes = Vec::new();
-    for table in schema::OFFICE_TABLES {
-        let shape =
-            TableShape::read(&snapshot, table).map_err(source_error("Read source table"))?;
-        cells::digest_table(&snapshot, &shape, &mut manifest)
-            .map_err(source_error("Digest source rows"))?;
-        shapes.push(shape);
-    }
-    if Some(manifest.finish().digest) != record.source_manifest {
+    let (manifest, shapes) = office_manifest(&snapshot)?;
+    if Some(manifest.digest) != record.source_manifest {
         return Err(MigrationError::SourceChanged);
     }
     for shape in &shapes {
@@ -390,6 +504,14 @@ fn source_identity(path: &Path) -> Result<SourceIdentity> {
 /// Opens the core database without creating, migrating or writing it: the
 /// connection is query-only and does not checkpoint on close.
 fn open_source(path: &Path) -> Result<Connection> {
+    let connection = open_source_unchecked(path)?;
+    match schema::source_matches(&connection).map_err(source_error("Read the source schema"))? {
+        Ok(()) => Ok(connection),
+        Err(message) => Err(MigrationError::Source(message)),
+    }
+}
+
+fn open_source_unchecked(path: &Path) -> Result<Connection> {
     source_identity(path)?;
     let connection = Connection::open_with_flags(
         path,
@@ -405,10 +527,7 @@ fn open_source(path: &Path) -> Result<Connection> {
     connection
         .busy_timeout(Duration::from_millis(5000))
         .map_err(source_error("Configure the source busy timeout"))?;
-    match schema::source_matches(&connection).map_err(source_error("Read the source schema"))? {
-        Ok(()) => Ok(connection),
-        Err(message) => Err(MigrationError::Source(message)),
-    }
+    Ok(connection)
 }
 
 fn source_schema_version(source: &Connection) -> Result<i64> {
@@ -432,9 +551,7 @@ fn lock(layout: &StorageLayout) -> Result<impl Drop> {
 /// is reported, not repaired.
 fn secure_directory(path: &Path) -> Result<()> {
     if fs::metadata(path).is_ok_and(|metadata| metadata.permissions().mode() & 0o200 == 0) {
-        return Err(MigrationError::Destination(
-            "The Office directory is not writable.".to_owned(),
-        ));
+        return Err(MigrationError::NotWritable(path.to_path_buf()));
     }
     fs::DirBuilder::new()
         .recursive(true)
@@ -520,18 +637,19 @@ fn open_staging_read_only(path: &Path) -> Result<Connection> {
     Ok(connection)
 }
 
-fn require_schema(connection: &Connection) -> Result<()> {
+/// Accepts staging from this or an earlier Office schema; publishing upgrades it.
+fn require_schema(connection: &Connection) -> Result<i64> {
     let version: Option<i64> = connection
         .query_row("SELECT max(version) FROM _office_schema", [], |row| {
             row.get(0)
         })
         .map_err(destination("Read staging schema"))?;
-    if version != Some(schema::VERSION) {
-        return Err(MigrationError::Destination(
+    match version {
+        Some(version) if (1..=schema::VERSION).contains(&version) => Ok(version),
+        _ => Err(MigrationError::Destination(
             "Staging data has an unsupported Office schema; prepare again.".to_owned(),
-        ));
+        )),
     }
-    Ok(())
 }
 
 fn open_existing_staging(layout: &StorageLayout) -> Result<Connection> {
@@ -576,6 +694,30 @@ impl Status {
             "sourceSchemaVersion": self.source_schema_version,
             "sourceManifest": self.source_manifest,
             "rows": self.rows.iter().map(|(table, count)| serde_json::json!({"table": table, "count": count})).collect::<Vec<_>>(),
+            "backups": self.backups.iter().map(Backup::json).collect::<Vec<_>>(),
+        })
+    }
+}
+
+impl Backup {
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({"directory": self.directory, "bytes": self.bytes})
+    }
+}
+
+impl Recovery {
+    pub fn json(self) -> serde_json::Value {
+        serde_json::json!({"recovery": self.as_str()})
+    }
+}
+
+impl Switched {
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "state": State::Switched.as_str(),
+            "database": self.database,
+            "backup": self.backup.json(),
+            "serviceWasRunning": self.service_was_running,
         })
     }
 }

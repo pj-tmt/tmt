@@ -21,6 +21,8 @@ enum Step {
     Prepare,
     Copy,
     Verify,
+    Switch,
+    Recover,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -42,6 +44,8 @@ fn parse(arguments: &[OsString]) -> Option<StorageRequest> {
         "prepare" => Step::Prepare,
         "copy" => Step::Copy,
         "verify" => Step::Verify,
+        "switch" => Step::Switch,
+        "recover" => Step::Recover,
         _ => return None,
     };
     let global_dir = PathBuf::from(directory);
@@ -54,7 +58,7 @@ pub fn run(arguments: &[OsString]) -> ExitCode {
     let Some(invocation) = parse(arguments) else {
         let _ = writeln!(
             io::stderr().lock(),
-            "Usage: tmt-office {PREFIX} 1 <status|prepare|copy|verify> --global-dir <absolute directory>"
+            "Usage: tmt-office {PREFIX} 1 <status|prepare|copy|verify|switch|recover> --global-dir <absolute directory>"
         );
         return ExitCode::from(2);
     };
@@ -64,13 +68,16 @@ pub fn run(arguments: &[OsString]) -> ExitCode {
     let paths = ConfigPaths::resolve(root, root, Some(&invocation.global_dir), None);
     let layout = StorageLayout::new(&paths);
     let result = match invocation.step {
-        Step::Status => migration::status(&layout),
-        Step::Prepare => migration::prepare(&layout),
-        Step::Copy => migration::copy(&layout),
-        Step::Verify => migration::verify(&layout),
+        Step::Status => migration::status(&layout).map(|status| status.json()),
+        Step::Prepare => migration::prepare(&layout).map(|status| status.json()),
+        Step::Copy => migration::copy(&layout).map(|status| status.json()),
+        Step::Verify => migration::verify(&layout).map(|status| status.json()),
+        Step::Switch => migration::switch(&layout, &migration::OfficeService(&paths))
+            .map(|switched| switched.json()),
+        Step::Recover => migration::recover(&layout).map(|recovery| recovery.json()),
     };
     let (document, code) = match result {
-        Ok(status) => (status.json(), ExitCode::SUCCESS),
+        Ok(document) => (document, ExitCode::SUCCESS),
         Err(error) => (error.json(), ExitCode::FAILURE),
     };
     match writeln!(io::stdout().lock(), "{document}") {
@@ -89,6 +96,19 @@ mod tests {
 
     #[test]
     fn requires_the_exact_versioned_grammar_and_an_absolute_root() {
+        for (step, expected) in [("switch", Step::Switch), ("recover", Step::Recover)] {
+            assert_eq!(
+                parse(&arguments(&[
+                    PREFIX,
+                    "1",
+                    step,
+                    "--global-dir",
+                    "/tmp/root"
+                ]))
+                .map(|request| request.step),
+                Some(expected)
+            );
+        }
         assert_eq!(
             parse(&arguments(&[
                 PREFIX,
@@ -105,7 +125,7 @@ mod tests {
         for rejected in [
             &[PREFIX, "1", "verify", "--global-dir", "relative"][..],
             &[PREFIX, "2", "verify", "--global-dir", "/tmp/root"],
-            &[PREFIX, "1", "switch", "--global-dir", "/tmp/root"],
+            &[PREFIX, "1", "migrate", "--global-dir", "/tmp/root"],
             &[PREFIX, "1", "verify"],
             &[PREFIX, "1", "verify", "--global-dir", "/tmp/root", "extra"],
         ] {
