@@ -87,6 +87,7 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
             effects::copy(&text, program.as_deref(), effects::tmux_socket().as_deref())
                 .map(|copied| copied.describe().to_owned())
         }
+        Request::Run(argv) => effects::spawn(&argv).map(|()| format!("Started {}.", argv[0])),
     }
 }
 
@@ -112,6 +113,7 @@ fn session(
         }
         let effect = match input.recv_timeout(INPUT_WAIT) {
             Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => app.key(key),
+            Ok(Event::Mouse(mouse)) => app.mouse(mouse, Instant::now()),
             Ok(_) | Err(RecvTimeoutError::Timeout) => Effect::None,
             Err(RecvTimeoutError::Disconnected) => {
                 return Ok(Some(terminal::stop_signal(stop).unwrap_or(HANGUP)));
