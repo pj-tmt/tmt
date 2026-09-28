@@ -39,10 +39,13 @@ describe.sequential('interactive shell completion', () => {
         const setupFile = path.join(fixture.root, `setup.${shell}`);
         const ready = path.join(fixture.root, `ready-${shell}`);
         const capture = path.join(fixture.root, `capture-${shell}`);
+        const pendingCapture = `${capture}.pending`;
+        // Publish the complete buffer, not the transient empty file after redirection.
+        const publishCapture = `mv ${quote(pendingCapture)} ${quote(capture)}`;
         const forbidden = path.join(fixture.root, `forbidden-${shell}`);
         writeFileSync(completionFile, generated.stdout);
         const common = `source ${quote(completionFile)}\n`;
-        const captureAction = `printf '%s' "$READLINE_LINE" > ${quote(capture)}`;
+        const captureAction = `printf '%s' "$READLINE_LINE" > ${quote(pendingCapture)} && ${publishCapture}`;
         const setup =
           shell === 'bash'
             ? `${common}
@@ -58,7 +61,7 @@ compinit -D
 ${common}
 _fixture_provider() { compadd -- --provider-choice; }
 compdef _fixture_provider fake
-_fixture_capture() { print -rn -- "$BUFFER" > ${quote(capture)}; }
+_fixture_capture() { print -rn -- "$BUFFER" > ${quote(pendingCapture)} && ${publishCapture}; }
 zle -N _fixture_capture
 bindkey '^X' _fixture_capture
 export TMT_E2E_FORBID_TMUX=1 TMT_E2E_FORBIDDEN_TMUX_LOG=${quote(forbidden)}
@@ -66,7 +69,7 @@ printf ready > ${quote(ready)}
 `
               : `${common}
 complete -c fake -f -a --provider-choice
-bind \\cx ${quote(`commandline > ${quote(capture)}`)}
+bind \\cx ${quote(`commandline > ${quote(pendingCapture)}; and ${publishCapture}`)}
 set -gx TMT_E2E_FORBID_TMUX 1
 set -gx TMT_E2E_FORBIDDEN_TMUX_LOG ${quote(forbidden)}
 printf ready > ${quote(ready)}

@@ -17,7 +17,7 @@ interface Queued {
   status: string;
 }
 
-function runtimeSelection(mode: 'app-server' | '--no-daemon'): NodeJS.ProcessEnv {
+function runtimeSelection(mode: 'app-server' | '--no-daemon' | 'orphan'): NodeJS.ProcessEnv {
   const selected = resolveCliExecutables();
   return {
     ...process.env,
@@ -71,15 +71,19 @@ describe.sequential('runtime-owned caller attribution through real process ances
         expect(durableState(fixture)).toEqual(before);
         expect(fixture.paneMetadata()).toBe(metadata);
 
-        const anonymous = expectJsonResult(
-          await fixture.runJsonCli<Queued>([
-            'talk',
-            'Alice',
-            'Anonymous from shared host',
-            '--inbox',
-            '--detach',
-          ])
+        const anonymousResult = await fixture.runJsonCli<Queued>([
+          'talk',
+          'Alice',
+          'Anonymous from shared host',
+          '--inbox',
+          '--detach',
+        ]);
+        expect(anonymousResult.code).toBe(0);
+        expect(anonymousResult.stderr).toBe(
+          'tmt: sender identity not established on a shared runtime host; using anonymous sender. Use --identity <name>.\n'
         );
+        expect(anonymousResult.json).toBeDefined();
+        const anonymous = anonymousResult.json!;
         const explicit = expectJsonResult(
           await fixture.runJsonCli<Queued>([
             'talk',
@@ -115,42 +119,51 @@ describe.sequential('runtime-owned caller attribution through real process ances
     );
   });
 
-  it('keeps independent Codex caller verification and its exact durable originator', async () => {
-    await withE2EFixture(
-      async (fixture) => {
-        const alice = expectJsonResult(await fixture.runJsonCli<Bound>(['name', 'Alice', '-s']));
-        expect(expectJsonResult(await fixture.runJsonCli<Bound>(['whoami']))).toEqual(alice);
-        const receiver = expectJsonResult(
-          await fixture.runJsonCli<{ identity: { id: string } }>(['identity', 'create', 'Receiver'])
-        ).identity;
-        const queued = expectJsonResult(
-          await fixture.runJsonCli<Queued>([
-            'talk',
-            'Receiver',
-            'Independent caller',
-            '--inbox',
-            '--detach',
-          ])
-        );
-        expect(queued.status).toBe('queued');
-        expect(requestAttempts(fixture)).toEqual([
-          expect.objectContaining({
-            request_id: queued.requestId,
-            originator_kind: 'verified',
-            originator_identity_id: alice.id,
-            recipient_identity_id: receiver.id,
-            message_text: 'Independent caller',
-          }),
-        ]);
-        const launch = await fixture.runCli(['run', 'Alice', '/bin/sh', '-c', 'exit 17']);
-        expect(launch.code, launch.stderr).toBe(17);
-        expect(durableState(fixture).identities.find((row) => row.id === alice.id)).toMatchObject({
-          name: 'Alice',
-          lifetime: 'saved',
-          retired_at_ms: null,
-        });
-      },
-      { mode: 'input-log', executableEnv: runtimeSelection('--no-daemon') }
-    );
-  });
+  it.each(['--no-daemon', 'orphan'] as const)(
+    'keeps %s caller verification and its exact durable originator without notices',
+    async (mode) => {
+      await withE2EFixture(
+        async (fixture) => {
+          const alice = expectJsonResult(await fixture.runJsonCli<Bound>(['name', 'Alice', '-s']));
+          expect(expectJsonResult(await fixture.runJsonCli<Bound>(['whoami']))).toEqual(alice);
+          const receiver = expectJsonResult(
+            await fixture.runJsonCli<{ identity: { id: string } }>([
+              'identity',
+              'create',
+              'Receiver',
+            ])
+          ).identity;
+          const queued = expectJsonResult(
+            await fixture.runJsonCli<Queued>([
+              'talk',
+              'Receiver',
+              'Independent caller',
+              '--inbox',
+              '--detach',
+            ])
+          );
+          expect(queued.status).toBe('queued');
+          expect(requestAttempts(fixture)).toEqual([
+            expect.objectContaining({
+              request_id: queued.requestId,
+              originator_kind: 'verified',
+              originator_identity_id: alice.id,
+              recipient_identity_id: receiver.id,
+              message_text: 'Independent caller',
+            }),
+          ]);
+          const launch = await fixture.runCli(['run', 'Alice', '/bin/sh', '-c', 'exit 17']);
+          expect(launch.code, launch.stderr).toBe(17);
+          expect(durableState(fixture).identities.find((row) => row.id === alice.id)).toMatchObject(
+            {
+              name: 'Alice',
+              lifetime: 'saved',
+              retired_at_ms: null,
+            }
+          );
+        },
+        { mode: 'input-log', executableEnv: runtimeSelection(mode) }
+      );
+    }
+  );
 });

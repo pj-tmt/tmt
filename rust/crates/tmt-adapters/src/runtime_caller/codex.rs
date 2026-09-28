@@ -3,9 +3,9 @@
 #[cfg(test)]
 mod tests;
 
-use crate::process::{CommandRequest, CommandRunner};
+use crate::process::{CommandRunner, ps::query_ps};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ffi::OsString,
     path::Path,
     time::{Duration, Instant},
@@ -58,6 +58,27 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
 
     fn observe_host(&self) -> Result<Option<HostAttribution>, ()> {
         let deadline = Instant::now() + Duration::from_secs(3);
+        let output = query_ps(
+            self.runner,
+            &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
+            deadline,
+            4 * 1024 * 1024,
+        )
+        .map_err(|_| ())?;
+        let text = std::str::from_utf8(&output.stdout).map_err(|_| ())?;
+        let mut processes = HashMap::new();
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            let (pid, rest) = line.trim().split_once(char::is_whitespace).ok_or(())?;
+            let (parent, executable) = rest
+                .trim_start()
+                .split_once(char::is_whitespace)
+                .ok_or(())?;
+            let pid = pid.parse::<u32>().map_err(|_| ())?;
+            let parent = parent.parse::<u32>().map_err(|_| ())?;
+            if processes.insert(pid, (parent, executable.trim())).is_some() {
+                return Err(());
+            }
+        }
         let mut pid = self.environment.process_id;
         let mut seen = HashSet::new();
         let mut observed = None;
@@ -68,47 +89,23 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
             if !seen.insert(pid) {
                 return Err(());
             }
-            let output = self
-                .runner
-                .execute(CommandRequest {
-                    program: std::ffi::OsStr::new("/bin/ps"),
-                    args: &[
-                        "-o".into(),
-                        "ppid=,comm=".into(),
-                        "-p".into(),
-                        pid.to_string().into(),
-                    ],
-                    input: &[],
-                    deadline,
-                    max_output_bytes: 4096,
-                })
-                .map_err(|_| ())?;
-            let text = std::str::from_utf8(&output.stdout).map_err(|_| ())?.trim();
-            if text.contains('\n') {
-                return Err(());
-            }
-            let split = text.find(char::is_whitespace).ok_or(())?;
-            let parent = text[..split].parse::<u32>().map_err(|_| ())?;
-            let executable = text[split..].trim();
+            let &(parent, executable) = processes.get(&pid).ok_or(())?;
             if Path::new(executable)
                 .file_name()
                 .is_some_and(|name| name == "codex")
             {
-                let args = self
-                    .runner
-                    .execute(CommandRequest {
-                        program: std::ffi::OsStr::new("/bin/ps"),
-                        args: &[
-                            "-o".into(),
-                            "args=".into(),
-                            "-p".into(),
-                            pid.to_string().into(),
-                        ],
-                        input: &[],
-                        deadline,
-                        max_output_bytes: 16384,
-                    })
-                    .map_err(|_| ())?;
+                let args = query_ps(
+                    self.runner,
+                    &[
+                        "-o".into(),
+                        "args=".into(),
+                        "-p".into(),
+                        pid.to_string().into(),
+                    ],
+                    deadline,
+                    16384,
+                )
+                .map_err(|_| ())?;
                 let args = std::str::from_utf8(&args.stdout).map_err(|_| ())?.trim();
                 let tail = args
                     .strip_prefix(executable)
@@ -126,7 +123,8 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                     })
                     .ok_or(())?;
                 // ps does not preserve argv boundaries. Conservatively fence a
-                // possible app-server even when global options precede it.
+                // possible app-server even when global options precede it. A literal
+                // app-server word inside an exec prompt can conservatively match too.
                 if tail.split_whitespace().any(|word| word == "app-server") {
                     return Ok(Some(HostAttribution::Ambiguous));
                 }
@@ -146,11 +144,14 @@ impl<R: CommandRunner> Driver for CodexCaller<'_, R> {
     fn identify_caller(&mut self) -> ActionResult<RuntimeCaller, Self::Error> {
         let host = match self.observe_host() {
             Ok(observation) => observation,
-            Err(()) => return ActionResult::Failed(CallerObservationUnavailable),
+            Err(()) if self.environment.thread_id.is_some() => {
+                return ActionResult::Failed(CallerObservationUnavailable);
+            }
+            Err(()) => return ActionResult::Unsupported,
         };
-        if self.environment.thread_id.is_none() && host.is_none() {
+        let Some(host) = host else {
             return ActionResult::Unsupported;
-        }
+        };
         let session = self
             .environment
             .thread_id
@@ -158,15 +159,6 @@ impl<R: CommandRunner> Driver for CodexCaller<'_, R> {
             .and_then(|value| value.to_str())
             .filter(|value| uuid::Uuid::parse_str(value).is_ok())
             .and_then(|value| ProviderSessionId::new(value).ok());
-        // Missing or unreadable process evidence is not permission to attribute
-        // a command to the pane inherited by a shared provider host.
-        let host = if self.environment.thread_id.is_some() && session.is_none() {
-            HostAttribution::Ambiguous
-        } else {
-            // An inherited marker can outlive its runtime. Absence of a shared
-            // ancestor is not positive evidence of an independent invocation.
-            host.unwrap_or(HostAttribution::Ambiguous)
-        };
         ActionResult::Completed(RuntimeCaller {
             harness: HarnessId::new("codex").expect("built-in driver ID"),
             session,
