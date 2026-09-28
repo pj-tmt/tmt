@@ -1,11 +1,9 @@
 //! Read-only companion access to the same retained resources served by HTTP.
 
-use crate::{
-    config::ConfigPaths,
-    storage::{Storage, WhiteboardStoreError},
-};
+use crate::{OfficeStore, WhiteboardStoreError};
 use serde::Deserialize;
 use std::path::Path;
+use tmt_adapters::config::ConfigPaths;
 use tmt_office_model::codec::office_whiteboard::snapshot::encode_snapshot;
 use tmt_office_model::office_protocol::OfficeError;
 use tmt_office_model::office_protocol::OfficeInvocation;
@@ -51,7 +49,7 @@ fn storage_error(error: WhiteboardStoreError) -> OfficeError {
 }
 
 fn read(database: &Path, operation: OfficeInvocation, id: &str) -> Result<Vec<u8>, OfficeError> {
-    let mut storage = Storage::open(database).map_err(|_| OfficeError::StorageUnavailable)?;
+    let mut storage = OfficeStore::open(database).map_err(|_| OfficeError::StorageUnavailable)?;
     let result = if operation == OfficeInvocation::WhiteboardSnapshotImage {
         storage
             .show_whiteboard_snapshot_image(id)

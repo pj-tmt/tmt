@@ -2,7 +2,8 @@
 
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
-use super::{Storage, StorageError, StorageErrorCode, errors::classify};
+use crate::OfficeStore;
+use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 use tmt_office_model::codec::office_avatar::PACK_INPUT_LIMIT;
 use tmt_office_model::codec::office_avatar::ValidatedAvatarPack;
 use tmt_office_model::codec::office_avatar::builtin_by_digest;
@@ -104,7 +105,7 @@ impl From<StorageError> for LocalAvatarCatalogError {
     }
 }
 
-impl Storage {
+impl OfficeStore {
     pub fn install_local_avatar_pack(
         &mut self,
         expected_revision: u64,
@@ -354,12 +355,12 @@ struct BoundedRow {
 
 fn read_state(
     transaction: &rusqlite::Transaction<'_>,
-) -> Result<super::catalog_replay::CatalogReplayState, LocalAvatarCatalogError> {
+) -> Result<crate::catalog_replay::CatalogReplayState, LocalAvatarCatalogError> {
     let values = transaction.query_row(
         "SELECT revision, previous_kind, previous_digest, previous_base_revision, previous_result_revision FROM office_avatar_catalog WHERE singleton = 1", [],
         |row| Ok((row.get::<_, i64>(0)?, row.get(1)?, row.get(2)?, row.get::<_, Option<i64>>(3)?, row.get::<_, Option<i64>>(4)?)),
     ).map_err(|error| classify(error, "Read local avatar catalog revision"))?;
-    Ok(super::catalog_replay::CatalogReplayState {
+    Ok(crate::catalog_replay::CatalogReplayState {
         revision: stored_u64(values.0)?,
         previous_kind: values.1,
         previous_digest: values.2,
@@ -508,11 +509,11 @@ fn exclusion_reason(row: &BoundedRow) -> LocalAvatarExcludedReason {
     }
 }
 fn encode_cursor(revision: u64, digest: &str) -> Result<String, LocalAvatarCatalogError> {
-    super::catalog_cursor::encode(CURSOR_DOMAIN, revision, digest)
+    tmt_office_model::codec::catalog_cursor::encode(CURSOR_DOMAIN, revision, digest)
         .ok_or(LocalAvatarCatalogError::CursorInvalid)
 }
 fn decode_cursor(value: &str) -> Result<(u64, String), LocalAvatarCatalogError> {
-    super::catalog_cursor::decode(CURSOR_DOMAIN, value)
+    tmt_office_model::codec::catalog_cursor::decode(CURSOR_DOMAIN, value)
         .ok_or(LocalAvatarCatalogError::CursorInvalid)
 }
 fn stored_u64(value: i64) -> Result<u64, LocalAvatarCatalogError> {
@@ -591,7 +592,7 @@ mod tests {
         validate_pack(&serde_json::to_vec(&value).unwrap()).unwrap()
     }
 
-    fn catalog_state(storage: &Storage) -> CatalogState {
+    fn catalog_state(storage: &OfficeStore) -> CatalogState {
         let connection = storage.connection().unwrap();
         let catalog = connection
             .query_row(
@@ -622,7 +623,7 @@ mod tests {
     #[test]
     fn bundled_robots_resolve_without_seeding_or_advancing_the_catalog() {
         let directory = crate::test_support::TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("avatar.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("avatar.db")).unwrap();
         let before = catalog_state(&storage);
         let pack = &builtin_packs()[0];
         let listed = storage.list_local_avatar_packs(20, None).unwrap();
@@ -659,7 +660,7 @@ mod tests {
     #[test]
     fn install_show_list_remove_and_retries_are_revisioned() {
         let directory = crate::test_support::TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("avatar.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("avatar.db")).unwrap();
         let candidate = sample();
         let installed = storage.install_local_avatar_pack(0, &candidate).unwrap();
         assert!(installed.changed);
@@ -707,7 +708,7 @@ mod tests {
     #[test]
     fn prop_and_avatar_catalog_revisions_and_cursor_domains_are_independent() {
         let directory = crate::test_support::TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("catalogs.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("catalogs.db")).unwrap();
         let avatar = sample();
         storage.install_local_avatar_pack(0, &avatar).unwrap();
         assert_eq!(
@@ -718,7 +719,7 @@ mod tests {
             0
         );
         let avatar_cursor = encode_cursor(1, avatar.digest()).unwrap();
-        assert!(super::super::catalog_cursor::decode(1, &avatar_cursor).is_none());
+        assert!(tmt_office_model::codec::catalog_cursor::decode(1, &avatar_cursor).is_none());
         assert!(matches!(
             storage.show_local_avatar_pack(tmt_office_model::codec::office_prop::BUILTIN_DIGEST),
             Err(LocalAvatarCatalogError::NotFound)
@@ -728,7 +729,7 @@ mod tests {
     #[test]
     fn stale_unrelated_mutations_leave_the_exact_catalog_state_unchanged() {
         let directory = crate::test_support::TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("stale.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("stale.db")).unwrap();
         let installed = sample();
         let unrelated = named(1);
         storage.install_local_avatar_pack(0, &installed).unwrap();
@@ -748,7 +749,7 @@ mod tests {
     #[test]
     fn corrupt_rows_are_bounded_excluded_rejected_by_show_and_removable() {
         let directory = crate::test_support::TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("corrupt.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("corrupt.db")).unwrap();
         let invalid = sample();
         let wrong_digest = named(1);
         let oversized = named(2);
@@ -826,7 +827,7 @@ mod tests {
     #[test]
     fn corrupt_payloads_still_consume_pack_and_avatar_capacity() {
         let pack_directory = crate::test_support::TestDirectory::new();
-        let mut packs = Storage::open(pack_directory.path.join("packs.db")).unwrap();
+        let mut packs = OfficeStore::open(pack_directory.path.join("packs.db")).unwrap();
         let mut pack_revision = 0;
         for index in 0..PACK_QUOTA {
             pack_revision = packs
@@ -848,7 +849,7 @@ mod tests {
         ));
 
         let avatar_directory = crate::test_support::TestDirectory::new();
-        let mut avatars = Storage::open(avatar_directory.path.join("avatars.db")).unwrap();
+        let mut avatars = OfficeStore::open(avatar_directory.path.join("avatars.db")).unwrap();
         let mut avatar_revision = 0;
         for index in 0..16 {
             avatar_revision = avatars
@@ -873,7 +874,7 @@ mod tests {
     #[test]
     fn pack_quota_and_stale_cursor_are_enforced() {
         let directory = crate::test_support::TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("quota.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("quota.db")).unwrap();
         let mut revision = 0;
         for index in 0..PACK_QUOTA {
             let mutation = storage
@@ -900,7 +901,7 @@ mod tests {
     #[test]
     fn avatar_quota_is_independent_from_pack_quota() {
         let directory = crate::test_support::TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("avatar-quota.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("avatar-quota.db")).unwrap();
         let mut revision = 0;
         for index in 0..16 {
             revision = storage

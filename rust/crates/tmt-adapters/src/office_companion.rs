@@ -1457,14 +1457,14 @@ mod pairing_tests {
             "../../../../extensions/tmt-office/contracts/prop-pack-v2-sample.tmtprop.json"
         ))
         .unwrap();
-        let input = serde_json::to_vec(&tmt_office_model::codec::office_prop::command_pack_input(
-            &pack,
-        ))
-        .unwrap();
-        let summary: serde_json::Value = serde_json::from_slice(&crate::office_prop::execute(
-            OfficeInvocation::LocalPropValidate,
-            &input,
-        ))
+        // The companion's validate reply is exactly this model projection; its
+        // storage-backed handler and envelope decoding are tested with the Office store.
+        let summary: serde_json::Value = serde_json::from_slice(
+            &serde_json::to_vec(&tmt_office_model::codec::office_prop::pack_projection(
+                &pack,
+            ))
+            .unwrap(),
+        )
         .unwrap();
         assert!(valid_local_prop_reply(
             OfficeInvocation::LocalPropValidate,

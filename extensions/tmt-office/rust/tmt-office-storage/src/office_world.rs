@@ -6,8 +6,8 @@ mod legacy;
 mod tests;
 pub use layout::{LocalWorldSnapshot, WorldStoreError};
 
-use super::{StorageError, errors::classify};
 use rusqlite::{OptionalExtension, Transaction, params};
+use tmt_adapters::storage::{StorageError, classify};
 
 pub(super) fn ensure_world(
     transaction: &Transaction<'_>,

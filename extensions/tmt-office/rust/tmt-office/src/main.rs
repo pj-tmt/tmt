@@ -93,7 +93,7 @@ fn main() -> ExitCode {
                         operation,
                         OfficeInvocation::LocalWorldShow | OfficeInvocation::LocalWorldApply
                     ) {
-                        tmt_adapters::office_world::access::execute(operation, &input)
+                        tmt_office_storage::access::world::execute(operation, &input)
                     } else if operation == OfficeInvocation::LocalExtensionValidate {
                         tmt_office_model::codec::office_extension::preflight::execute(&input)
                     } else if matches!(
@@ -101,7 +101,7 @@ fn main() -> ExitCode {
                         OfficeInvocation::WhiteboardSnapshotShow
                             | OfficeInvocation::WhiteboardSnapshotImage
                     ) {
-                        tmt_adapters::office_whiteboard::access::execute(operation, &input)
+                        tmt_office_storage::access::whiteboard::execute(operation, &input)
                     } else if matches!(
                         operation,
                         OfficeInvocation::LocalPropValidate
@@ -110,7 +110,7 @@ fn main() -> ExitCode {
                             | OfficeInvocation::LocalPropList
                             | OfficeInvocation::LocalPropShow
                     ) {
-                        tmt_adapters::office_prop::execute(operation, &input)
+                        tmt_office_storage::access::prop::execute(operation, &input)
                     } else if matches!(
                         operation,
                         OfficeInvocation::LocalAvatarValidate
@@ -119,12 +119,12 @@ fn main() -> ExitCode {
                             | OfficeInvocation::LocalAvatarList
                             | OfficeInvocation::LocalAvatarShow
                     ) {
-                        tmt_adapters::office_avatar::execute(operation, &input)
+                        tmt_office_storage::access::avatar::execute(operation, &input)
                     } else if matches!(
                         operation,
                         OfficeInvocation::LocalProfileShow | OfficeInvocation::LocalProfileApply
                     ) {
-                        tmt_adapters::office_profile::execute(operation, &input)
+                        tmt_office_storage::access::profile::execute(operation, &input)
                     } else if matches!(
                         operation,
                         OfficeInvocation::BoardPost
@@ -135,7 +135,7 @@ fn main() -> ExitCode {
                             | OfficeInvocation::BoardDelete
                             | OfficeInvocation::BoardCategories
                     ) {
-                        tmt_adapters::office_board::execute(operation, &input)
+                        tmt_office_storage::access::board::execute(operation, &input)
                     } else {
                         tmt_adapters::office_pairing::execute(operation, &input)
                     };

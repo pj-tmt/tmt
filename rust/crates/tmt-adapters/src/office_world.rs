@@ -1,5 +1,4 @@
 //! Office world filesystem, storage response and runtime access adapters.
-pub mod access;
 mod reply;
 pub use reply::{WorldFailure, WorldFailureCode, decode_reply};
 use serde_json::{Value, json};
@@ -12,7 +11,7 @@ pub fn read_world_file(path: &std::path::Path) -> Result<WorldLayout, WorldCodec
     decode_world(&bytes)
 }
 
-pub fn snapshot_value(snapshot: &crate::storage::LocalWorldSnapshot) -> Value {
+pub fn snapshot_value(snapshot: &tmt_office_model::office_world::LocalWorldSnapshot) -> Value {
     json!({
         "worldId": snapshot.world_id, "revision": snapshot.revision,
         "legacyBasis": snapshot.legacy_basis, "layout": world_value(&snapshot.layout),

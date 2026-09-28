@@ -1,6 +1,4 @@
 mod bindings;
-use tmt_office_model::codec::catalog_cursor;
-mod catalog_replay;
 mod context;
 mod dispatch;
 mod errors;
@@ -9,13 +7,6 @@ mod identity_hooks;
 mod identity_metadata;
 mod identity_status;
 mod migrations;
-mod office_avatar;
-mod office_board;
-mod office_local;
-mod office_profile;
-mod office_prop;
-mod office_whiteboard;
-mod office_world;
 mod profiles;
 mod requests;
 mod room;
@@ -35,20 +26,8 @@ use std::{
 
 pub use context::{ContextRequests, IdentityContextSnapshot};
 pub use dispatch::DispatchError;
-pub use errors::{StorageError, StorageErrorCode};
-use errors::{classify, classify_io, classify_open, incompatible};
-pub use office_avatar::{
-    LocalAvatarCatalogError, LocalAvatarCatalogList, LocalAvatarExcluded,
-    LocalAvatarExcludedReason, LocalAvatarMutation, LocalAvatarSnapshot,
-};
-pub use office_board::local_owner_actor;
-pub use office_local::{LocalBlockSnapshot, LocalOfficeError, LocalPropResolution};
-pub use office_profile::{LocalProfileError, LocalProfileMutation, LocalProfileSnapshot};
-pub use office_prop::{
-    LocalPropCatalogError, LocalPropCatalogList, LocalPropMutation, LocalPropSnapshot,
-};
-pub use office_whiteboard::WhiteboardStoreError;
-pub use office_world::{LocalWorldSnapshot, WorldStoreError};
+pub use errors::{StorageError, StorageErrorCode, classify};
+use errors::{classify_io, classify_open, incompatible};
 pub use room::RoomStoreError;
 pub use room_roster::{RoomRoster, RosterError, RosterMember};
 

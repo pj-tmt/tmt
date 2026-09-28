@@ -87,7 +87,17 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Office-owned storage reaches core only through the public config and
         // file-lock owners; it reads the core database directly only to migrate.
-        "tmt-office-storage" => &["tmt-adapters", "rusqlite", "sha2", "serde_json"],
+        "tmt-office-storage" => &[
+            "tmt-adapters",
+            "tmt-core",
+            "tmt-office-model",
+            "rusqlite",
+            "base64",
+            "serde",
+            "sha2",
+            "serde_json",
+            "uuid",
+        ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
     package["dependencies"]
@@ -256,26 +266,16 @@ fn office_consumer(source: &Source) -> bool {
             "office_profile.rs",
             "office_prop.rs",
             "office_service.rs",
-            "office_whiteboard/access.rs",
             "office_whiteboard/export.rs",
             "office_world.rs",
-            "office_world/access.rs",
             "office_world/reply.rs",
             "repository_remote.rs",
-            "storage/mod.rs",
-            "storage/office_avatar.rs",
-            "storage/office_board/mod.rs",
-            "storage/office_local.rs",
-            "storage/office_profile.rs",
-            "storage/office_prop.rs",
-            "storage/office_whiteboard/mod.rs",
-            "storage/office_whiteboard/snapshot.rs",
-            "storage/office_whiteboard/snapshot/image.rs",
-            "storage/office_world/layout.rs",
-            "storage/office_world/legacy.rs",
+            "storage/errors.rs",
         ],
         "tmt-cli" => &[],
         "tmt-office-command" => return true,
+        // Office-owned storage and its companion operations.
+        "tmt-office-storage" => return true,
         _ => &[],
     };
     allowed.contains(&source.file.as_str())

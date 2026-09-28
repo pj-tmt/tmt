@@ -9,26 +9,18 @@ use tmt_office_model::office_board::{
     REPLY_LIMIT, ReplyRequest, ShowRequest, ShowResult, ThreadSummary,
 };
 
-use super::{
-    Storage, StorageError, StorageErrorCode, errors::classify,
-    identities::with_immediate_transaction,
-};
+use crate::{OfficeStore, store::with_immediate_transaction};
+use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 
-impl From<StorageError> for BoardError<StorageError> {
-    fn from(error: StorageError) -> Self {
-        Self::storage(error)
-    }
-}
-
-pub fn local_owner_actor(storage: &mut Storage) -> Result<Actor, StorageError> {
+pub fn local_owner_actor(storage: &mut OfficeStore) -> Result<Actor, StorageError> {
     with_immediate_transaction(storage, "local Office owner", |transaction| {
         Ok(Actor::Owner {
-            world_id: super::office_world::ensure_world(transaction, timestamp)?,
+            world_id: crate::office_world::ensure_world(transaction, timestamp)?,
         })
     })
 }
 
-impl OfficeBoardRepository for Storage {
+impl OfficeBoardRepository for OfficeStore {
     type Error = StorageError;
 
     fn post(&mut self, request: &PostRequest) -> Result<CreateReceipt, BoardError<Self::Error>> {
@@ -48,7 +40,7 @@ impl OfficeBoardRepository for Storage {
             // Classify new threads under a real room; membership is not an ACL.
             // Replays and existing content remain usable after room/area changes.
             if let Category::Room(id) = &request.category
-                && super::room::read_room(tx, id)?.is_none()
+                && crate::core_lookup::read_room(tx, id)?.is_none()
             {
                 return Err(BoardError::policy(BoardErrorCode::Invalid));
             }
@@ -585,14 +577,17 @@ fn timestamp() -> Result<i64, StorageError> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| {
-            StorageError::new(super::StorageErrorCode::Unknown, "Read system clock failed")
-                .caused_by(e)
+            StorageError::new(
+                tmt_adapters::storage::StorageErrorCode::Unknown,
+                "Read system clock failed",
+            )
+            .caused_by(e)
         })?
         .as_millis()
         .try_into()
         .map_err(|e| {
             StorageError::new(
-                super::StorageErrorCode::Unknown,
+                tmt_adapters::storage::StorageErrorCode::Unknown,
                 "System timestamp is too large",
             )
             .caused_by(e)

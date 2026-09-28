@@ -7,12 +7,12 @@ use tmt_office_model::office_block::{
 
 use tmt_office_model::codec::office_prop::parse_prop_reference;
 
-use super::{
-    Storage, StorageError, StorageErrorCode,
-    errors::classify,
-    identities::with_immediate_transaction,
+use crate::{
+    OfficeStore,
     office_prop::{LocalPropCatalogError, LocalPropResolver},
+    store::with_immediate_transaction,
 };
+use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalBlockSnapshot {
@@ -80,7 +80,7 @@ impl From<StorageError> for LocalOfficeError {
     }
 }
 
-impl Storage {
+impl OfficeStore {
     pub fn show_local_block(
         &mut self,
         target: &LocalBlockTarget,
@@ -184,7 +184,7 @@ impl Storage {
             let (block_id, revision, updated_at_ms, changed) = match current {
                 None if expected_revision == 0 => {
                     validate_mutation(None, layout, &mut resolver)?;
-                    super::office_world::ensure_world(transaction, || {
+                    crate::office_world::ensure_world(transaction, || {
                         Ok(i64::try_from(now).expect("current timestamp fits SQLite"))
                     })?;
                     let block_id = uuid::Uuid::new_v4().to_string();
@@ -467,7 +467,7 @@ mod tests {
     use tmt_office_model::codec::office_prop::validate_pack;
     use tmt_office_model::office_block::{Furniture, FurnitureAsset};
 
-    fn insert_identity(storage: &Storage, id: &str, name: &str, lifetime: &str) {
+    fn insert_identity(storage: &OfficeStore, id: &str, name: &str, lifetime: &str) {
         storage
             .connection()
             .unwrap()
@@ -483,7 +483,7 @@ mod tests {
     fn lobby_defaults_are_read_only_and_an_empty_override_survives_restart() {
         let directory = TestDirectory::new();
         let path = directory.path.join("state.db");
-        let mut storage = Storage::open(&path).unwrap();
+        let mut storage = OfficeStore::open(&path).unwrap();
         let target = LocalBlockTarget::Lobby;
         let initial = storage.show_local_block(&target).unwrap();
         assert!(!initial.exists());
@@ -534,7 +534,7 @@ mod tests {
         assert_eq!(cleared.revision, 2);
         assert_eq!(cleared.block_id, saved.block_id);
         storage.close().unwrap();
-        let mut reopened = Storage::open(&path).unwrap();
+        let mut reopened = OfficeStore::open(&path).unwrap();
         let restored = reopened.show_local_block(&target).unwrap();
         assert!(restored.exists());
         assert_eq!(restored.revision, 2);
@@ -552,7 +552,7 @@ mod tests {
     #[test]
     fn invalid_lobby_prop_does_not_create_a_world_or_override() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         let layout = LocalBlockLayout::new(vec![PropPlacement {
             prop: format!("sha256:{}/missing", "a".repeat(64)),
             footprint_width: 1,
@@ -591,7 +591,7 @@ mod tests {
         use tmt_office_model::office_block::PropCustomization;
         let directory = TestDirectory::new();
         let path = directory.path.join("state.db");
-        let mut storage = Storage::open(&path).unwrap();
+        let mut storage = OfficeStore::open(&path).unwrap();
         let vectors: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../../extensions/tmt-office/contracts/prop-customization-vectors.json"
         ))
@@ -635,7 +635,7 @@ mod tests {
                 .changed
         );
         storage.close().unwrap();
-        let mut storage = Storage::open(&path).unwrap();
+        let mut storage = OfficeStore::open(&path).unwrap();
         assert_eq!(storage.show_local_block(&target).unwrap().layout, layout);
         storage.remove_local_prop_pack(1, pack.digest()).unwrap();
         let missing = storage.show_local_block(&target).unwrap();
@@ -676,7 +676,7 @@ mod tests {
     #[test]
     fn a_prop_without_declared_capabilities_cannot_receive_custom_values() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         let mut layout = LocalBlockLayout::from_legacy(
             &BlockLayout::new(vec![Furniture {
                 asset: FurnitureAsset::Rug,
@@ -712,7 +712,7 @@ mod tests {
     #[test]
     fn one_snapshot_resolves_repeated_digest_once_across_validation_and_projection() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         let pack = validate_pack(br##"{"formatVersion":1,"label":"Cache","credit":"Test","license":"MIT","palette":["#00000000","#ffffffff"],"props":[{"key":"lamp","label":"Lamp","footprint":{"width":1,"height":1},"pixels":["1"]}]}"##).unwrap();
         storage.install_local_prop_pack(0, &pack).unwrap();
         let layout = LocalBlockLayout::new(vec![
@@ -755,7 +755,7 @@ mod tests {
     #[test]
     fn local_blocks_use_identity_uuid_cas_and_active_projection() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         let first = "11111111-1111-4111-8111-111111111111";
         let first_target = LocalBlockTarget::Identity(first.into());
         insert_identity(&storage, first, "Alice", "temporary");

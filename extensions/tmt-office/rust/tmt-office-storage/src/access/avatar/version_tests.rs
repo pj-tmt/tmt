@@ -1,14 +1,13 @@
 use super::*;
 
-const SAMPLE: &[u8] = include_bytes!(
-    "../../../../../extensions/tmt-office/contracts/avatar-pack-v2-sample.tmtavatar.json"
-);
+const SAMPLE: &[u8] =
+    include_bytes!("../../../../../contracts/avatar-pack-v2-sample.tmtavatar.json");
 
 #[test]
 fn v2_literal_sample_vectors_and_projection_match() {
     let sample: Value = serde_json::from_slice(SAMPLE).unwrap();
     let vectors: Value = serde_json::from_str(include_str!(
-        "../../../../../extensions/tmt-office/contracts/avatar-pack-v2-vectors.json"
+        "../../../../../contracts/avatar-pack-v2-vectors.json"
     ))
     .unwrap();
     for case in vectors["cases"].as_array().unwrap() {

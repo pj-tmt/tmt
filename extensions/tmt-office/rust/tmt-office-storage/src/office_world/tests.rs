@@ -1,5 +1,5 @@
 use super::*;
-use crate::storage::Storage;
+use crate::OfficeStore;
 use crate::test_support::TestDirectory;
 use rusqlite::params;
 use tmt_office_model::codec::office_block::local_layout_value;
@@ -20,7 +20,7 @@ const RETIRED: &str = "10000000-0000-4000-8000-000000000003";
 const UNUSED: &str = "10000000-0000-4000-8000-000000000004";
 const ROOM: &str = "20000000-0000-4000-8000-000000000001";
 
-fn identity(storage: &Storage, id: &str, lifetime: &str) {
+fn identity(storage: &OfficeStore, id: &str, lifetime: &str) {
     storage.connection().unwrap().execute(
         "INSERT INTO identities(id,name,canonical_name,lifetime,created_at,updated_at) VALUES(?,?,?,?, 'now','now')",
         params![id,id,id,lifetime],
@@ -45,13 +45,13 @@ fn layout() -> LocalBlockLayout {
         .unwrap(),
     )
 }
-fn seed(storage: &mut Storage, id: &str, lifetime: &str) {
+fn seed(storage: &mut OfficeStore, id: &str, lifetime: &str) {
     identity(storage, id, lifetime);
     storage
         .apply_local_block(&LocalBlockTarget::Identity(id.into()), 0, &layout())
         .unwrap();
 }
-fn count(storage: &Storage, table: &str) -> i64 {
+fn count(storage: &OfficeStore, table: &str) -> i64 {
     storage
         .connection()
         .unwrap()
@@ -61,7 +61,7 @@ fn count(storage: &Storage, table: &str) -> i64 {
         .unwrap()
 }
 fn save(
-    storage: &mut Storage,
+    storage: &mut OfficeStore,
     before: &LocalWorldSnapshot,
     layout: &WorldLayout,
     time: u64,
@@ -83,7 +83,7 @@ fn moved(world: &WorldLayout) -> WorldLayout {
 fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_writes() {
     let directory = TestDirectory::new();
     let path = directory.path.join("starter.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     identity(&storage, ALICE, "saved");
     identity(&storage, TEMP, "temporary");
     let initial = storage.show_local_world().unwrap();
@@ -291,7 +291,7 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
         initial.legacy_basis
     );
     drop(storage);
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     assert_eq!(
         world_value(&storage.show_local_world().unwrap().layout),
         value
@@ -302,7 +302,7 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
     let empty = WorldLayout::new(saved.layout.map().clone(), vec![]).unwrap();
     let cleared = save(&mut storage, &saved, &empty, 20).unwrap();
     drop(storage);
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     assert_eq!(
         world_value(&storage.show_local_world().unwrap().layout),
         world_value(&cleared.layout)
@@ -321,7 +321,7 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
 fn compact_default_does_not_replace_a_saved_central_grid_world() {
     let directory = TestDirectory::new();
     let path = directory.path.join("retained-central-grid.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     let initial = storage.show_local_world().unwrap();
     let mut retained = world_value(&initial.layout);
     retained["map"]["version"] = serde_json::json!(4);
@@ -332,7 +332,7 @@ fn compact_default_does_not_replace_a_saved_central_grid_world() {
     save(&mut storage, &initial, &layout, 10).unwrap();
     drop(storage);
 
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     let reopened = storage.show_local_world().unwrap();
     assert_eq!(world_value(&reopened.layout), retained);
     assert_eq!(reopened.revision, 1);
@@ -343,7 +343,7 @@ fn module_source_survives_storage_reopen_and_material_edits_preserve_objects() {
     use tmt_office_model::office_map::modules::{Material, Module, ModuleDraft, Slot};
     let directory = TestDirectory::new();
     let path = directory.path.join("modules.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     // This scenario covers the retained short-link source, not the new v4 preset.
     storage
         .apply_local_block(
@@ -387,7 +387,7 @@ fn module_source_survives_storage_reopen_and_material_edits_preserve_objects() {
     assert!(persisted["map"].get("floor").is_none());
     assert!(persisted["map"].get("doors").is_none());
     drop(storage);
-    let mut storage = Storage::open(path).unwrap();
+    let mut storage = OfficeStore::open(path).unwrap();
     let reopened = storage.show_local_world().unwrap();
     assert_eq!(reopened.layout.map().modules(), Some(&modules));
     assert_eq!(world_value(&reopened.layout), world_value(&saved.layout));
@@ -417,7 +417,7 @@ fn module_source_survives_storage_reopen_and_material_edits_preserve_objects() {
 fn observation_is_stable_read_only_and_new_identities_do_not_build_rooms() {
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     let first = storage.show_local_world().unwrap();
     identity(&storage, UNUSED, "saved");
     let second = storage.show_local_world().unwrap();
@@ -433,7 +433,7 @@ fn observation_is_stable_read_only_and_new_identities_do_not_build_rooms() {
     assert!(saved.changed);
     assert!(saved.legacy_basis.is_none());
     drop(storage);
-    let mut storage = Storage::open(path).unwrap();
+    let mut storage = OfficeStore::open(path).unwrap();
     let restored = storage.show_local_world().unwrap();
     assert_eq!(restored.world_id, saved.world_id);
     assert_eq!(world_value(&restored.layout), world_value(&first.layout));
@@ -450,7 +450,7 @@ fn observation_is_stable_read_only_and_new_identities_do_not_build_rooms() {
 #[test]
 fn migration_preserves_all_saved_temporary_retired_layouts_and_empty_lobby_override() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     seed(&mut storage, ALICE, "saved");
     seed(&mut storage, TEMP, "temporary");
     seed(&mut storage, RETIRED, "saved");
@@ -515,8 +515,8 @@ fn migration_preserves_all_saved_temporary_retired_layouts_and_empty_lobby_overr
 fn concurrent_legacy_edits_and_world_edits_are_fenced_without_rebasing() {
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
-    let mut a = Storage::open(&path).unwrap();
-    let mut b = Storage::open(&path).unwrap();
+    let mut a = OfficeStore::open(&path).unwrap();
+    let mut b = OfficeStore::open(&path).unwrap();
     let draft = a.show_local_world().unwrap();
     b.apply_local_block(
         &LocalBlockTarget::Lobby,
@@ -556,7 +556,7 @@ fn concurrent_legacy_edits_and_world_edits_are_fenced_without_rebasing() {
 #[test]
 fn failure_after_world_update_rolls_back_layout_revision_and_retired_rows_together() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     seed(&mut storage, ALICE, "saved");
     let before = storage.show_local_world().unwrap();
     storage.connection().unwrap().execute_batch("CREATE TRIGGER fail_cutover BEFORE DELETE ON office_local_blocks BEGIN SELECT RAISE(ABORT,'test cutover failure'); END;").unwrap();
@@ -580,7 +580,7 @@ fn failure_after_world_update_rolls_back_layout_revision_and_retired_rows_togeth
 #[test]
 fn eligibility_is_checked_inside_save_and_retirement_never_grants_a_new_assignment() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     seed(&mut storage, TEMP, "temporary");
     identity(&storage, ALICE, "saved");
     let before = storage.show_local_world().unwrap();
@@ -645,7 +645,7 @@ fn eligibility_is_checked_inside_save_and_retirement_never_grants_a_new_assignme
 #[test]
 fn lost_artwork_is_retained_and_moveable_but_cannot_be_duplicated_or_forged() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     seed(&mut storage, ALICE, "saved");
     let mut value = local_layout_value(&layout());
     value["objects"][0]["prop"] = serde_json::json!(format!("sha256:{}/missing", "a".repeat(64)));
@@ -683,7 +683,8 @@ fn lost_artwork_is_retained_and_moveable_but_cannot_be_duplicated_or_forged() {
 #[test]
 fn spatial_area_removal_keeps_core_meeting_roster_and_floor_furniture() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let database = directory.path.join("state.db");
+    let mut storage = OfficeStore::open(&database).unwrap();
     seed(&mut storage, ALICE, "saved");
     storage
         .connection()
@@ -721,7 +722,10 @@ fn spatial_area_removal_keeps_core_meeting_roster_and_floor_furniture() {
     // Retiring communication does not rewrite a map or prevent editing retained
     // geometry. A different area cannot acquire the retired UUID as a new binding.
     use tmt_core::room::RoomRepository;
-    storage.retire_meeting_room(ROOM, 1).unwrap();
+    // Rooms are core-owned; retire through the core store on the same file.
+    let mut core = tmt_adapters::storage::Storage::open(&database).unwrap();
+    core.retire_meeting_room(ROOM, 1).unwrap();
+    core.close().unwrap();
     assert_eq!(
         world_value(&storage.show_local_world().unwrap().layout),
         world_value(&saved.layout)
@@ -791,7 +795,7 @@ fn spatial_area_removal_keeps_core_meeting_roster_and_floor_furniture() {
 #[test]
 fn compact_legacy_tokens_are_read_without_reseeding_or_erasing_their_objects() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     seed(&mut storage, ALICE, "saved");
     storage
         .connection()
@@ -810,7 +814,7 @@ fn compact_legacy_tokens_are_read_without_reseeding_or_erasing_their_objects() {
 #[test]
 fn invalid_legacy_payload_is_not_replaced_by_a_default_world() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     seed(&mut storage, ALICE, "saved");
     let valid = storage.show_local_world().unwrap();
     storage
@@ -849,7 +853,7 @@ fn invalid_legacy_payload_is_not_replaced_by_a_default_world() {
 #[test]
 fn oversized_legacy_inventory_fails_without_truncating_the_source() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let preview = storage.show_local_world().unwrap();
     let count = tmt_office_model::office_map::MAX_AREAS + 1;
     let transaction = storage.connection_mut().unwrap().transaction().unwrap();
@@ -897,7 +901,7 @@ fn functional_objects_share_existing_resources_and_removal_never_resets_the_pres
     use tmt_office_model::office_whiteboard::document::SaveDocument;
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     let preview = storage.show_local_world().unwrap();
     assert_eq!(count(&storage, "office_whiteboards"), 0);
     let initial = save(&mut storage, &preview, &preview.layout, 100).unwrap();
@@ -953,7 +957,7 @@ fn functional_objects_share_existing_resources_and_removal_never_resets_the_pres
     assert_eq!(removed.layout.objects().len(), 43);
     assert_eq!(storage.show_whiteboard("lobby").unwrap(), resource);
     drop(storage);
-    let mut reopened = Storage::open(path).unwrap();
+    let mut reopened = OfficeStore::open(path).unwrap();
     assert_eq!(
         world_value(&reopened.show_local_world().unwrap().layout),
         world_value(&removed.layout)
@@ -967,7 +971,7 @@ fn functional_objects_share_existing_resources_and_removal_never_resets_the_pres
 fn save_rejects_known_binding_mismatch_without_materializing_resources() {
     use tmt_office_model::office_extension::ResourceBinding;
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let preview = storage.show_local_world().unwrap();
     let initial = save(&mut storage, &preview, &preview.layout, 100).unwrap();
     let mut objects = initial.layout.objects().to_vec();
@@ -1002,7 +1006,7 @@ fn external_link_is_layout_data_and_survives_reopen_without_creating_resources()
     use tmt_office_model::office_extension::{ExtensionAttachment, ResourceBinding};
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     let preview = storage.show_local_world().unwrap();
     let mut objects = preview.layout.objects().to_vec();
     objects[0].extension = Some(ExtensionAttachment {
@@ -1018,7 +1022,7 @@ fn external_link_is_layout_data_and_survives_reopen_without_creating_resources()
     };
     assert!(WorldLayout::new(preview.layout.map().clone(), objects).is_err());
     drop(storage);
-    let mut reopened = Storage::open(path).unwrap();
+    let mut reopened = OfficeStore::open(path).unwrap();
     let current = reopened.show_local_world().unwrap();
     assert_eq!(current.revision, saved.revision);
     assert_eq!(world_value(&current.layout), world_value(&layout));
@@ -1035,7 +1039,7 @@ fn wall_catalog_objects_persist_with_native_mount_rules_without_a_second_store()
     use tmt_office_model::codec::office_world::decode_world;
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     // Fixed legacy geometry isolates catalog/mount admission from starter design.
     storage
         .apply_local_block(
@@ -1077,11 +1081,97 @@ fn wall_catalog_objects_persist_with_native_mount_rules_without_a_second_store()
     invalid["objects"][index]["surface"] = json!({ "type": "floor" });
     assert!(decode_world(&serde_json::to_vec(&invalid).unwrap()).is_err());
     drop(storage);
-    let mut reopened = Storage::open(path).unwrap();
+    let mut reopened = OfficeStore::open(path).unwrap();
     let current = reopened.show_local_world().unwrap();
     assert_eq!(current.revision, saved.revision);
     assert_eq!(world_value(&current.layout), document);
     assert_eq!(count(&reopened, "office_whiteboards"), 0);
     assert_eq!(count(&reopened, "office_board_entries"), 0);
     assert_eq!(count(&reopened, "request_attempts"), 0);
+}
+
+/// Ported from the core schema-28 upgrade test: after the upgrade, reading a
+/// retained lobby block projects an unsaved world without materializing it,
+/// and the first explicit save retires the legacy row.
+#[test]
+fn upgraded_legacy_lobby_is_projected_unsaved_and_retired_by_the_first_save() {
+    const WORLD: &str = "11111111-1111-4111-8111-111111111111";
+    const LOBBY: &str = "22222222-2222-4222-8222-222222222222";
+    let directory = TestDirectory::new();
+    let path = directory.path.join("upgraded.db");
+    let mut storage = OfficeStore::open(&path).unwrap();
+    // Whitespace is intentional: reading must not re-encode old layouts.
+    let layout = "  {\"version\":2,\"objects\":[]}  ";
+    storage
+        .connection()
+        .unwrap()
+        .execute_batch(&format!(
+            "INSERT INTO office_local_worlds(singleton,id,created_at_ms) VALUES(1,'{WORLD}',100);"
+        ))
+        .unwrap();
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO office_local_blocks VALUES(?,'lobby',NULL,7,?,123)",
+            params![LOBBY, layout],
+        )
+        .unwrap();
+    let legacy = |storage: &OfficeStore| -> (String, i64, Vec<u8>, i64) {
+        storage
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT block_id,revision,CAST(layout AS BLOB),updated_at_ms FROM office_local_blocks",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap()
+    };
+    let before = legacy(&storage);
+    let preview = storage.show_local_world().unwrap();
+    assert_eq!(preview.world_id.as_deref(), Some(WORLD));
+    assert_eq!(preview.revision, 0);
+    assert_eq!(preview.layout.map().draft().primary_lobby_id, LOBBY);
+    assert_eq!(preview.layout.objects().len(), 3);
+    assert!(
+        preview
+            .layout
+            .objects()
+            .iter()
+            .all(|object| object.extension.is_some())
+    );
+    assert_eq!(legacy(&storage), before);
+    let unmaterialized: (i64, Option<String>, i64) = storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT layout_revision,layout_json,layout_updated_at_ms FROM office_local_worlds",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(unmaterialized, (0, None, 0));
+    let saved = storage
+        .apply_local_world(0, preview.legacy_basis.as_deref(), &preview.layout, 200)
+        .unwrap();
+    assert_eq!(saved.world_id.as_deref(), Some(WORLD));
+    assert_eq!(saved.revision, 1);
+    storage.close().unwrap();
+
+    let mut reopened = OfficeStore::open(&path).unwrap();
+    let restored = reopened.show_local_world().unwrap();
+    assert_eq!(restored.world_id, saved.world_id);
+    assert_eq!(restored.revision, 1);
+    assert_eq!(restored.updated_at_ms, 200);
+    assert_eq!(restored.layout.objects(), saved.layout.objects());
+    assert_eq!(
+        reopened
+            .connection()
+            .unwrap()
+            .query_row("SELECT count(*) FROM office_local_blocks", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
 }

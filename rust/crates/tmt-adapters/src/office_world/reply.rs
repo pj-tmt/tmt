@@ -1,7 +1,5 @@
 //! Shared public diagnostics and strict companion response admission.
 
-use crate::storage::LocalWorldSnapshot;
-use crate::storage::WorldStoreError;
 use serde::{Deserialize, Serialize};
 use tmt_core::dispatch::canonical_id;
 use tmt_core::limits::MAX_JS_SAFE_INTEGER;
@@ -9,6 +7,7 @@ use tmt_office_model::codec::office_world::{
     WORLD_REPLY_LIMIT, WorldCodecError, WorldDocument, admit_world,
 };
 use tmt_office_model::json_integer::whole;
+use tmt_office_model::office_world::LocalWorldSnapshot;
 use tmt_office_model::office_world::PlacementError;
 use tmt_office_model::office_world::WorldError;
 
@@ -130,33 +129,6 @@ impl From<WorldCodecError> for WorldFailure {
             code: WorldFailureCode::WorldInvalid,
             message: Some(error.to_string()),
             issues: Some(issues),
-        }
-    }
-}
-impl From<WorldStoreError> for WorldFailure {
-    fn from(error: WorldStoreError) -> Self {
-        let code = match error {
-            WorldStoreError::Storage(_)
-            | WorldStoreError::Prop(crate::storage::LocalOfficeError::Storage(_)) => {
-                WorldFailureCode::StorageUnavailable
-            }
-            WorldStoreError::StoredInvalid => WorldFailureCode::WorldStoredInvalid,
-            WorldStoreError::MigrationInvalid => WorldFailureCode::WorldMigrationInvalid,
-            WorldStoreError::RevisionConflict => WorldFailureCode::WorldRevisionConflict,
-            WorldStoreError::RevisionExhausted => WorldFailureCode::WorldRevisionExhausted,
-            WorldStoreError::IdentityIneligible => WorldFailureCode::WorldIdentityIneligible,
-            WorldStoreError::RoomMissing => WorldFailureCode::WorldRoomMissing,
-            WorldStoreError::Prop(_) | WorldStoreError::PropUnavailable => {
-                WorldFailureCode::WorldPropUnavailable
-            }
-            WorldStoreError::Extension(_) | WorldStoreError::InvalidInput => {
-                WorldFailureCode::WorldInvalid
-            }
-        };
-        Self {
-            code,
-            message: None,
-            issues: None,
         }
     }
 }

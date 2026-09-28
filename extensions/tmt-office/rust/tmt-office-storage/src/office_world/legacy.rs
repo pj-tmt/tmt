@@ -1,9 +1,9 @@
 //! One-time projection of retained blocks; identities without stored blocks create no rooms.
 
-use super::super::errors::classify;
 use super::layout::WorldStoreError;
 use rusqlite::Connection;
 use serde_json::{Value, json};
+use tmt_adapters::storage::classify;
 use tmt_core::content_digest::framed_sha256;
 use tmt_office_model::codec::office_block::default_local_layout;
 use tmt_office_model::codec::office_world::lobby_objects;
@@ -82,7 +82,7 @@ pub(super) fn project(
         source.push(json!([
             id, target, identity, revision, encoded, timestamp, lifetime, retired
         ]));
-        let layout = super::super::office_local::decode_layout(&encoded)
+        let layout = crate::office_local::decode_layout(&encoded)
             .map_err(|_| WorldStoreError::StoredInvalid)?;
         blocks.push(Block {
             id,

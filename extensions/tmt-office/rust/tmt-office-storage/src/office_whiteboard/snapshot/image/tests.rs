@@ -1,14 +1,14 @@
 use super::super::tests::{CAPTURE, MISSING, counts, document, input};
 use super::*;
-use crate::office_whiteboard::image_tests::test_support;
 use crate::test_support::TestDirectory;
+use crate::test_support::whiteboard_png as test_support;
 use tmt_office_model::codec::office_whiteboard::image::decode_snapshot_image;
 
 fn image(pixel: [u8; 4]) -> ValidatedSnapshotImage {
     decode_snapshot_image(&test_support::solid(pixel)).unwrap()
 }
 
-fn image_count(storage: &Storage) -> i64 {
+fn image_count(storage: &OfficeStore) -> i64 {
     storage
         .connection()
         .unwrap()
@@ -24,7 +24,7 @@ fn image_count(storage: &Storage) -> i64 {
 fn attach_is_immutable_and_replay_survives_live_content_removal_and_reopen() {
     let directory = TestDirectory::new();
     let path = directory.path.join("image.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     storage.save_whiteboard(&document(), 100).unwrap();
     let snapshot = storage.capture_whiteboard(&input(), 200).unwrap();
     let original = image([24, 98, 81, 255]);
@@ -58,7 +58,7 @@ fn attach_is_immutable_and_replay_survives_live_content_removal_and_reopen() {
             .is_empty()
     );
     storage.close().unwrap();
-    let mut storage = Storage::open(path).unwrap();
+    let mut storage = OfficeStore::open(path).unwrap();
     assert_eq!(storage.show_whiteboard_snapshot(CAPTURE).unwrap(), snapshot);
     assert_eq!(
         storage.show_whiteboard_snapshot_image(CAPTURE).unwrap(),
@@ -97,7 +97,7 @@ fn attach_is_immutable_and_replay_survives_live_content_removal_and_reopen() {
 #[test]
 fn absent_capture_and_failed_insert_leave_no_image_and_retry_uses_same_capture() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("image.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("image.db")).unwrap();
     let original = image([24, 98, 81, 255]);
     assert_eq!(
         storage
@@ -162,7 +162,7 @@ fn absent_capture_and_failed_insert_leave_no_image_and_retry_uses_same_capture()
 #[test]
 fn corrupt_image_is_not_returned_or_silently_replaced_by_retry() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("image.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("image.db")).unwrap();
     storage.save_whiteboard(&document(), 100).unwrap();
     storage.capture_whiteboard(&input(), 200).unwrap();
     let original = image([24, 98, 81, 255]);
@@ -206,12 +206,12 @@ fn corrupt_image_is_not_returned_or_silently_replaced_by_retry() {
 fn concurrent_different_images_have_one_winner_without_overwriting_it() {
     let directory = TestDirectory::new();
     let path = directory.path.join("image.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     storage.save_whiteboard(&document(), 100).unwrap();
     storage.capture_whiteboard(&input(), 200).unwrap();
     storage.close().unwrap();
     let candidates = [image([24, 98, 81, 255]), image([25, 98, 81, 255])];
-    let stores: Vec<_> = (0..2).map(|_| Storage::open(&path).unwrap()).collect();
+    let stores: Vec<_> = (0..2).map(|_| OfficeStore::open(&path).unwrap()).collect();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
     let handles: Vec<_> = stores
         .into_iter()
@@ -238,7 +238,7 @@ fn concurrent_different_images_have_one_winner_without_overwriting_it() {
         "WHITEBOARD_IDEMPOTENCY_CONFLICT"
     );
     let winner = results.into_iter().find_map(Result::ok).unwrap();
-    let storage = Storage::open(path).unwrap();
+    let storage = OfficeStore::open(path).unwrap();
     assert_eq!(
         storage.show_whiteboard_snapshot_image(CAPTURE).unwrap(),
         winner
