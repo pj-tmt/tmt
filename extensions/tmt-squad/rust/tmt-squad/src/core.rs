@@ -77,6 +77,19 @@ impl Core {
         self.call(&argv, b"")
     }
 
+    /// Like [`Core::json`], with operands after `--` so text that starts with
+    /// `-` is never read as an option.
+    pub fn json_with_operands(
+        &self,
+        args: &[&str],
+        operands: &[&str],
+    ) -> Result<Value, SquadError> {
+        let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();
+        argv.extend(["--json".into(), "--".into()]);
+        argv.extend(operands.iter().map(OsString::from));
+        self.call(&argv, b"")
+    }
+
     /// One versioned `tmt api` request.
     pub fn api(&self, operation: &str, input: Value) -> Result<Value, SquadError> {
         let request = json!({"version": 1, "operation": operation, "input": input});

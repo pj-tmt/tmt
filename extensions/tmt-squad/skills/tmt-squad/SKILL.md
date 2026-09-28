@@ -23,7 +23,9 @@ tmt squad status --json [--squad <name>]
   one section with `title: null` containing every member except the lead.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
-  `pending`, `note`, and `fields` (every `squad.<name>.*` value, by field name).
+  `pending`, `note`, `fields` (every `squad.<name>.*` value, by field name),
+  `annotation` (the user's open note about this row, or null) and `waitingOnYou`
+  (open requests from this member to the user).
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
   layout lists it first.
 - States come from the layout: crew uses `working idle blocked review testing
@@ -31,6 +33,10 @@ tmt squad status --json [--squad <name>]
 
 `presence` is observed by TMT, not reported by the member. `activity` is what
 the member reported about itself.
+
+A request tagged `[<squad> · <member>]` from the user is an annotation: a note
+about that row for you to act on. Answer it with `tmt reply` as usual; the
+user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Keep it current
 

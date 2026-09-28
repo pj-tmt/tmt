@@ -152,7 +152,16 @@ pub fn text(document: &Value) -> String {
             if let Some(note) = row["note"].as_str() {
                 output.push_str(&format!("    note: {note}\n"));
             }
+            if let Some(text) = row["annotation"]["text"].as_str() {
+                output.push_str(&format!(
+                    "    ✎ sent to {}: {text}\n",
+                    cell(&row["annotation"]["to"])
+                ));
+            }
         }
+    }
+    if document["olderRequestsNotShown"] == true {
+        output.push_str("\n(older requests not shown)\n");
     }
     output
 }

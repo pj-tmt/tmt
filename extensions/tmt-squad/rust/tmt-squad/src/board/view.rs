@@ -146,6 +146,9 @@ fn header_line(app: &App) -> Line<'_> {
             format!("  {lead} · {count} members"),
             color("dim"),
         ));
+        if view.document["olderRequestsNotShown"] == true {
+            spans.push(Span::styled(" · older requests not shown", color("dim")));
+        }
     }
     Line::from(spans)
 }
@@ -160,7 +163,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     .areas(frame.area());
     frame.render_widget(Paragraph::new(header_line(app)), top);
     render_body(frame, app, body);
-    let footer_line = if app.searching {
+    let footer_line = if let Some(input) = &app.input {
+        Line::from(format!("{} › {}▏", input.prompt, input.text))
+    } else if app.searching {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = &app.notice {
         Line::from(Span::styled(notice.as_str(), color("amber")))
@@ -193,9 +198,9 @@ pub fn render(frame: &mut Frame, app: &App) {
             .entries
             .iter()
             .enumerate()
-            .map(|(index, (event, action))| {
+            .map(|(index, entry)| {
                 let line = Line::from(fit(
-                    &format!(" {event:<9} {}", action.text),
+                    &format!(" {:<9} {}", entry.key, entry.label),
                     usize::from(width.saturating_sub(2)),
                 ));
                 if index == menu.selected {
@@ -469,6 +474,17 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     )));
                     row_lines.push((lines.len() - 1, row_index));
                 }
+                if let Some(text) = row["annotation"]["text"].as_str() {
+                    let to = row["annotation"]["to"].as_str().unwrap_or_default();
+                    lines.push(Line::from(Span::styled(
+                        fit(
+                            &format!("    ✎ sent to {to}: {text}"),
+                            usize::from(area.width),
+                        ),
+                        color("dim"),
+                    )));
+                    row_lines.push((lines.len() - 1, row_index));
+                }
                 row_index += 1;
             }
         }
@@ -568,6 +584,7 @@ mod tests {
                 section_bindings: Vec::new(),
                 opener: None,
                 clipboard: None,
+                me: None,
             }),
         });
         app
@@ -697,6 +714,7 @@ mod tests {
                 section_bindings: Vec::new(),
                 opener: None,
                 clipboard: None,
+                me: None,
             }),
         });
         app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["fields"]["pr_link"] =

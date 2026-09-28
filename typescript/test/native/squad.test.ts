@@ -222,7 +222,7 @@ describe('squad extension', () => {
         skill.indexOf('- Each row has'),
         skill.indexOf('- A row with')
       );
-      const documentedFields = [...documented.matchAll(/`([a-z]+)`/g)]
+      const documentedFields = [...documented.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
       expect(documentedFields.sort()).toEqual(Object.keys(rows[0]).sort());
@@ -461,6 +461,153 @@ sort = ["-name"]
       expect((await runCli(sandbox, ['sq', 'copy', 'auth-fix'])).stdout).toBe(
         'Copied with the configured clipboard program.\n'
       );
+    });
+  });
+
+  it('talks, annotates and replies as the user through core requests only', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const ids: Record<string, string> = {};
+      for (const name of ['Ben', 'Sol', 'auth-fix', 'docs'])
+        ids[name] = await identity(sandbox, name);
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['lead', 'Sol']);
+      await squad(sandbox, ['add', 'auth-fix', 'docs']);
+      const api = async (operation: string, input: object) => {
+        const result = await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({ version: 1, operation, input }),
+        });
+        return JSON.parse(result.stdout);
+      };
+      const room = (await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])).stdout;
+      const roomId = JSON.parse(room).room.id as string;
+      const roomRequests = async () =>
+        (await api('requests.list', { roomId, limit: 50 })).items as {
+          requestId: string;
+        }[];
+      const prompt = async (requestId: string) => api('requests.show', { requestId });
+      const notebook = async () => (await api('notes.read', { identityId: ids.Sol })).error?.code;
+      expect(await notebook()).toBe('NOTEBOOK_NOT_FOUND');
+
+      // talk: detached, untagged, in the squad room, from the user.
+      const text = '-rf; $(touch pwned) "quoted"';
+      const talk = await squad(sandbox, ['talk', 'auth-fix', text]);
+      expect(talk.status).toBe(0);
+      const talked = await prompt(talk.body.requestId);
+      expect(talked).toMatchObject({
+        roomId,
+        recipientId: ids['auth-fix'],
+        sender: { identityId: ids.Ben },
+        kind: 'request',
+        final: { status: 'not_submitted' },
+        prompt: { message: text },
+      });
+      const before = (await roomRequests()).length;
+      for (const args of [
+        ['talk', 'auth-fix', '   '],
+        ['annotate', 'auth-fix', ''],
+      ]) {
+        const empty = await squad(sandbox, args);
+        expect(empty.body.error.code, args.join(' ')).toBe('SQUAD_ACTION_REFUSED');
+      }
+      expect((await roomRequests()).length, 'empty input sends nothing').toBe(before);
+
+      // annotate: tagged, to the lead by default or to the member.
+      const toLead = await squad(sandbox, ['annotate', 'auth-fix', 'split the job']);
+      expect(toLead.body).toMatchObject({ to: 'Sol', row: 'auth-fix' });
+      expect(await prompt(toLead.body.requestId)).toMatchObject({
+        recipientId: ids.Sol,
+        roomId,
+        prompt: { message: '[product · auth-fix] split the job' },
+      });
+      const toMember = await squad(sandbox, ['annotate', 'docs', 'add examples', '--to', 'member']);
+      expect(await prompt(toMember.body.requestId)).toMatchObject({
+        recipientId: ids.docs,
+        prompt: { message: '[product · docs] add examples' },
+      });
+
+      // The marker is derived from request state on every read.
+      const marker = async () => {
+        const rows = (await squad(sandbox, ['status'])).body.sections[0].rows;
+        return Object.fromEntries(
+          rows.map((row: { name: string; annotation: unknown }) => [row.name, row.annotation])
+        );
+      };
+      expect(await marker()).toEqual({
+        'auth-fix': { requestId: toLead.body.requestId, to: 'Sol', text: 'split the job' },
+        docs: { requestId: toMember.body.requestId, to: 'docs', text: 'add examples' },
+      });
+      expect((await runCli(sandbox, ['sq', 'status'])).stdout).toContain(
+        '    ✎ sent to Sol: split the job'
+      );
+      const incoming = async (who: string, requestId: string) =>
+        JSON.parse(
+          (
+            await runCli(sandbox, [
+              'x',
+              'show',
+              requestId,
+              '--incoming',
+              '--identity',
+              who,
+              '--json',
+            ])
+          ).stdout
+        ).exchange;
+      const leadView = await incoming('Sol', toLead.body.requestId);
+      const answered = await runCli(sandbox, [
+        'reply',
+        toLead.body.requestId,
+        '--receipt',
+        leadView.reply.receipt,
+        '--message',
+        'done',
+        '--json',
+      ]);
+      expect(answered.status).toBe(0);
+      expect((await marker())['auth-fix'], 'gone after the final').toBeNull();
+      expect((await marker()).docs).not.toBeNull();
+
+      // reply: the user chooses among open requests; nothing is acknowledged.
+      const asks: string[] = [];
+      for (const question of ['approve the plan?', 'which database?']) {
+        const asked = await runCli(sandbox, [
+          'talk',
+          'Ben',
+          question,
+          '--identity',
+          'auth-fix',
+          '--inbox',
+          '--detach',
+          '--json',
+        ]);
+        asks.push(JSON.parse(asked.stdout).requestId);
+      }
+      const waiting = (await squad(sandbox, ['status'])).body.sections[0].rows[0].waitingOnYou;
+      expect(waiting.map((item: { requestId: string }) => item.requestId).sort()).toEqual(
+        [...asks].sort()
+      );
+      const ambiguous = await squad(sandbox, ['reply', 'auth-fix', 'postgres']);
+      expect(ambiguous.body.error.code).toBe('SQUAD_ACTION_REFUSED');
+      for (const ask of asks) expect(ambiguous.body.error.message).toContain(ask);
+      const stranger = await squad(sandbox, ['reply', 'docs', 'x', '--request', asks[0]]);
+      expect(stranger.body.error.code).toBe('SQUAD_ACTION_REFUSED');
+
+      const chosen = await squad(sandbox, ['reply', 'auth-fix', '-postgres', '--request', asks[0]]);
+      expect(chosen.body).toEqual({ requestId: asks[0], from: 'auth-fix', replied: true });
+      const result = JSON.parse((await runCli(sandbox, ['result', asks[0], '--json'])).stdout);
+      expect(JSON.stringify(result)).toContain('-postgres');
+      const only = await squad(sandbox, ['reply', 'auth-fix', 'yes']);
+      expect(only.body.requestId, 'one open request needs no choice').toBe(asks[1]);
+      for (const ask of asks) {
+        expect((await incoming('Ben', ask)).acknowledged, 'reply never acknowledges').toBe(false);
+      }
+      expect((await squad(sandbox, ['reply', 'auth-fix', 'more'])).body.error.message).toBe(
+        'auth-fix is not waiting on you.'
+      );
+
+      expect(await notebook(), 'no notebook was created or written').toBe('NOTEBOOK_NOT_FOUND');
+      expect(existsSync(path.join(sandbox.root, 'pwned'))).toBe(false);
     });
   });
 });
