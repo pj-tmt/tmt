@@ -440,7 +440,7 @@ not worked around by deleting the file.
 
 ### Optional pane badge
 
-TMT never changes `pane_title`, `pane-border-format`, border position, or colors.
+TMT never changes `pane_title`, `pane-border-format`, border position, or theme options.
 The badge is **off by default**. To opt in:
 
 ```bash
@@ -448,7 +448,15 @@ tmt config set ui.paneBadge on --global
 tmt name alice
 ```
 
-This publishes `alice (tmt)` in the pane-local `@tmux-team.badge` option.
+This publishes a label in the pane-local `@tmux-team.badge` option:
+
+- Recorded running session: `● alice (tmt)`, with a green dot.
+- Recorded ended session: `○ alice (tmt)`, with the whole badge dimmed.
+- Unknown session: `alice (tmt)`, with no dot or added styling.
+
+The dot reports recorded session state, not activity, readiness or permission to
+send input. Without a lifecycle event, a stale observation can remain visible;
+the badge never polls or controls routing.
 It does not display anything until you explicitly insert this fragment at the
 desired position in your own tmux `pane-border-format`:
 
@@ -465,18 +473,19 @@ this fragment. The result is conceptually:
 ---10.0 [alice (tmt)]----------------------------repo/branch---
 ```
 
-Your theme controls color, alignment, and narrow-pane behavior. TMT does not
-reserve space or move the existing right-hand segment. For black text on a light
-blue background, hidden below 80 columns, an optional fragment is:
+Your theme controls alignment, background and narrow-pane behavior. TMT does not
+reserve space or move the existing right-hand segment. To hide the badge below
+80 columns, use:
 
 ```text
-#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}},#[push-default]#[fg=black bg=colour153] #{@tmux-team.badge} #[default]#[pop-default],}
+#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}
 ```
 
 Adjust the width threshold for your theme; it is not an automatic fit calculation.
-The style save/restore assumes your surrounding theme does not already use
+Running and ended labels use `push-default`/`default`/`pop-default` to restore
+the surrounding colors and attributes. Do not wrap the badge in another
 `push-default`: tmux only supports one saved default, not nested style stacks.
-If it does, integrate the colors using that theme's own restoration mechanism.
+Place it outside any such span and use the theme's explicit restoration after it.
 See the [tmux styles reference](https://man.openbsd.org/tmux#STYLES).
 
 Display labels replace
@@ -484,7 +493,8 @@ Display labels replace
 48 Unicode code points; the stored identity name remains unchanged.
 
 Configuration changes do not scan or rewrite panes. They apply on the next
-successful `name`, `this`, `add`, or `marked` for that pane. To disable the
+successful binding, recorded launch/exit, provider lifecycle hook or recovered
+session for that pane. Cosmetic failures leave durable state unchanged. To disable the
 current badge:
 
 ```bash

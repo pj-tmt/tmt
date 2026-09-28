@@ -243,6 +243,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         return Err(());
     }
     if !event.starting() {
+        crate::pane_badge::refresh(&paths, &tmux, binding, deadline);
         return Ok(String::new());
     }
     // Re-read the bounded projection after acknowledgment. Do not inject a
@@ -268,5 +269,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         return Err(());
     }
     let context = crate::context_command::render_verified(refreshed, &paths).map_err(|_| ())?;
-    lifecycle.encode_context(&context).ok_or(())
+    let encoded = lifecycle.encode_context(&context).ok_or(())?;
+    crate::pane_badge::refresh(&paths, &tmux, binding, deadline);
+    Ok(encoded)
 }

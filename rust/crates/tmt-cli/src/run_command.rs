@@ -221,7 +221,7 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     let mut storage = Storage::open(&paths.database).map_err(storage_failure)?;
     let pending = run_bound(
         &mut storage,
-        &paths.database,
+        &paths,
         &tmux,
         &pane,
         request,
@@ -240,7 +240,7 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
 
 fn run_bound(
     storage: &mut Storage,
-    database: &std::path::Path,
+    paths: &ConfigPaths,
     tmux: &Tmux,
     pane: &str,
     request: RunRequest<'_>,
@@ -466,6 +466,12 @@ fn run_bound(
             "tmt: could not close launch state before waiting; the command will not be restarted.",
         );
     }
+    crate::pane_badge::refresh(
+        paths,
+        tmux,
+        binding,
+        Instant::now() + Duration::from_secs(1),
+    );
     // Only committed observations reach hooks, with SQLite closed before any
     // subscriber runs. A fast exit emits both events without persisting Running.
     observe_admission(
@@ -483,7 +489,7 @@ fn run_bound(
         && !already_exited
         && let (Some(owner), Some(child)) = (&owner, &child_incarnation)
     {
-        let recorded = Storage::open(database).and_then(|mut storage| {
+        let recorded = Storage::open(&paths.database).and_then(|mut storage| {
             let recorded = finish(&mut storage, binding, owner, child, lifecycle);
             if storage.close().is_err() {
                 diagnostic(
@@ -506,6 +512,12 @@ fn run_bound(
                 "tmt: command exited, but its final state could not be stored; no command was retried.",
             ),
         }
+        crate::pane_badge::refresh(
+            paths,
+            tmux,
+            binding,
+            Instant::now() + Duration::from_secs(1),
+        );
     }
     Ok(u8::try_from(status).unwrap_or(1))
 }

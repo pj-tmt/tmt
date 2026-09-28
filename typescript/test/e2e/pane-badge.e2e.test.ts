@@ -8,8 +8,8 @@ import { durableIdentity, durableState } from './identity-state-oracle.js';
 const BADGE_OPTION = '@tmux-team.badge';
 const USER_FORMAT = '#[align=left]#{window_index}.#{pane_index}#[align=right]repo/branch';
 const BADGE_FRAGMENT = '#{?@tmux-team.badge, [#{@tmux-team.badge}],}';
-const COLORED_BADGE_FRAGMENT =
-  '#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}},#[push-default]#[fg=black bg=colour153] #{@tmux-team.badge} #[default]#[pop-default],}';
+const NARROW_BADGE_FRAGMENT =
+  '#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}}, [#{@tmux-team.badge}],}';
 
 function badge(fixture: E2EFixture): string {
   // The minimal Docker image has no UTF-8 locale. Request UTF-8 output so tmux
@@ -34,6 +34,66 @@ function configureUserAppearance(fixture: E2EFixture): void {
 }
 
 describe.sequential('non-invasive pane badge presentation', () => {
+  it('updates recorded run state without changing the theme and clears on the next transition when off', async () => {
+    await withE2EFixture(async (fixture) => {
+      const pane = fixture.createShellPane('badge-run').pane;
+      const readBadge = () =>
+        fixture.tmux(['-u', 'show-options', '-p', '-qv', '-t', pane, BADGE_OPTION]).trim();
+      const format = `left ${BADGE_FRAGMENT} right`;
+      fixture.tmux(['set-option', '-w', '-t', pane, 'pane-border-format', format]);
+      expectJsonResult(
+        await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'])
+      );
+      expectJsonResult(await fixture.runJsonCli(['add', pane, 'State', '-s']));
+      expect(readBadge()).toBe('State (tmt)');
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const run = async (suffix: string, disable: boolean) => {
+        const done = path.join(fixture.root, `badge-${suffix}.done`);
+        const command = [
+          fixture.executables.cli.executable,
+          ...fixture.executables.cli.args,
+          'run',
+          'State',
+          '/bin/sleep',
+          '300',
+        ]
+          .map(quote)
+          .join(' ');
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `${command}; printf '%s' "$?" > ${quote(done)}`,
+        ]);
+        fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+        await fixture.waitFor(
+          () => readBadge() === '#[push-default]#[fg=green]●#[default]#[pop-default] State (tmt)',
+          5000,
+          'running badge'
+        );
+        if (disable)
+          expectJsonResult(
+            await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'off', '--global'])
+          );
+        fixture.tmux(['send-keys', '-t', pane, 'C-c']);
+        await fixture.waitFor(() => fs.existsSync(done), 5000, 'run completed');
+        expect(fs.readFileSync(done, 'utf8')).toBe('130');
+        expect(readBadge()).toBe(
+          disable ? '' : '#[push-default]#[dim]○ State (tmt)#[default]#[pop-default]'
+        );
+        expect(
+          durableState(fixture).bindings.find((row) => row.pane_id === pane)?.runtime_state
+        ).toBe('ended');
+        expect(
+          fixture.tmux(['show-options', '-w', '-v', '-t', pane, 'pane-border-format']).trim()
+        ).toBe(format);
+      };
+      await run('ended', false);
+      await run('off', true);
+    });
+  });
+
   it('preserves titles and shared window layout with the default-off badge', async () => {
     await withE2EFixture(async (fixture) => {
       configureUserAppearance(fixture);
@@ -132,7 +192,7 @@ describe.sequential('non-invasive pane badge presentation', () => {
     });
   });
 
-  it('expands the documented colored fragment only for a bound, wide pane', async () => {
+  it('expands the documented width-limited fragment only for a bound, wide pane', async () => {
     await withE2EFixture(async (fixture) => {
       configureUserAppearance(fixture);
       const before = appearance(fixture);
@@ -141,11 +201,9 @@ describe.sequential('non-invasive pane badge presentation', () => {
       );
       expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
       const rendered = () =>
-        fixture.tmux(['display-message', '-p', '-t', fixture.pane, COLORED_BADGE_FRAGMENT]).trim();
+        fixture.tmux(['display-message', '-p', '-t', fixture.pane, NARROW_BADGE_FRAGMENT]).trim();
       fixture.tmux(['resize-window', '-t', fixture.pane, '-x', '120']);
-      expect(rendered()).toBe(
-        '#[push-default]#[fg=black bg=colour153] alice (tmt) #[default]#[pop-default]'
-      );
+      expect(rendered()).toBe('[alice (tmt)]');
       fixture.tmux(['resize-window', '-t', fixture.pane, '-x', '60']);
       expect(rendered()).toBe('');
       fixture.tmux(['resize-window', '-t', fixture.pane, '-x', '120']);
