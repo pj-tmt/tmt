@@ -348,8 +348,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                     if path.get(1) == Some(&"whiteboard") && path.get(2) == Some(&"snapshot") =>
                 {
                     let reference = required(m, "snapshot-reference");
-                    if tmt_core::office_whiteboard::snapshot::resolve_snapshot_reference(&reference)
-                        .is_none()
+                    if tmt_office_model::office_whiteboard::snapshot::resolve_snapshot_reference(
+                        &reference,
+                    )
+                    .is_none()
                     {
                         return Err("Expected a canonical snapshot UUID or tmt:whiteboard:snapshot:<uuid> reference.".into());
                     }

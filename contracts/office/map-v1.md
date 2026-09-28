@@ -43,8 +43,8 @@ identities must not gain personal workspaces through a map write.
 
 ## Admission and projection
 
-`tmt-core::office_map` owns native topology validation and derived geometry.
-`tmt-adapters::office_map` owns strict versioned JSON; unknown fields, duplicate
+`tmt-office-model::office_map` owns native topology validation and derived geometry.
+`tmt-office-model::codec::office_map` owns strict versioned JSON; unknown fields, duplicate
 JSON members and invalid number types reject. Whole JSON number values such as
 `1`, `1.0` and `1e0` are equivalent, using the same narrow numeric decoder as
 whiteboard documents; fractions and out-of-range values reject. The document has a 2 MiB

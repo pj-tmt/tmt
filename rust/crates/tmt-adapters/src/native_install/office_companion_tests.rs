@@ -25,7 +25,7 @@ esac
     fs::remove_file(&calls).unwrap();
     let value = invoke_office_board(
         &report.executable,
-        tmt_core::office_protocol::OfficeInvocation::BoardPost,
+        tmt_office_model::office_protocol::OfficeInvocation::BoardPost,
         b"{}",
         std::time::Instant::now() + std::time::Duration::from_secs(3),
     )
@@ -59,7 +59,7 @@ esac
         let marker = prefix.join("board-calls");
         let error = invoke_office_board(
             &report.executable,
-            tmt_core::office_protocol::OfficeInvocation::BoardPost,
+            tmt_office_model::office_protocol::OfficeInvocation::BoardPost,
             b"{}",
             std::time::Instant::now() + std::time::Duration::from_secs(3),
         )
@@ -94,7 +94,7 @@ esac
         let invocation = scope.spawn(|| {
             invoke_office_board(
                 &report.executable,
-                tmt_core::office_protocol::OfficeInvocation::BoardPost,
+                tmt_office_model::office_protocol::OfficeInvocation::BoardPost,
                 b"{}",
                 std::time::Instant::now() + std::time::Duration::from_secs(5),
             )
@@ -143,7 +143,7 @@ esac
         let invocation = scope.spawn(|| {
             invoke_office_board(
                 &old_report.executable,
-                tmt_core::office_protocol::OfficeInvocation::BoardPost,
+                tmt_office_model::office_protocol::OfficeInvocation::BoardPost,
                 b"{}",
                 std::time::Instant::now() + std::time::Duration::from_secs(5),
             )

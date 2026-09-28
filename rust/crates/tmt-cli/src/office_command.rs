@@ -515,7 +515,7 @@ fn run(
             } else {
                 human
             };
-            report(json!({"installed": true, "version": version, "protocolVersion": tmt_core::office_protocol::OFFICE_PROTOCOL_VERSION, "executable": executable, "service":service_value}), &human, mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
+            report(json!({"installed": true, "version": version, "protocolVersion": tmt_office_model::office_protocol::OFFICE_PROTOCOL_VERSION, "executable": executable, "service":service_value}), &human, mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
         }
         OfficeOperation::Install {
             yes,

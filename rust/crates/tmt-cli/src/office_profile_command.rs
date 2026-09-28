@@ -9,7 +9,7 @@ use tmt_adapters::{
     interrupt::Interrupt, office_companion::invoke_local_office_profile,
     office_profile::read_profile_file,
 };
-use tmt_core::office_protocol::OfficeError;
+use tmt_office_model::office_protocol::OfficeError;
 
 use crate::{
     invocation::{OfficeOperation, OfficeProfileOperation, OutputMode},

@@ -3,10 +3,12 @@
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
-use crate::office_avatar::{
-    PACK_INPUT_LIMIT, ValidatedAvatarPack, builtin_by_digest, builtin_packs, parse_pack_digest,
-    validate_pack,
-};
+use tmt_office_model::codec::office_avatar::PACK_INPUT_LIMIT;
+use tmt_office_model::codec::office_avatar::ValidatedAvatarPack;
+use tmt_office_model::codec::office_avatar::builtin_by_digest;
+use tmt_office_model::codec::office_avatar::builtin_packs;
+use tmt_office_model::codec::office_avatar::parse_pack_digest;
+use tmt_office_model::codec::office_avatar::validate_pack;
 
 const PACK_QUOTA: u64 = 64;
 const AVATAR_QUOTA: u64 = 256;
@@ -447,7 +449,8 @@ pub(super) fn reference_available(
     connection: &rusqlite::Connection,
     value: &str,
 ) -> Result<bool, StorageError> {
-    let Some((digest, key)) = tmt_core::office_art_reference::parse_office_art_reference(value)
+    let Some((digest, key)) =
+        tmt_office_model::office_art_reference::parse_office_art_reference(value)
     else {
         return Ok(false);
     };
@@ -716,7 +719,7 @@ mod tests {
         let avatar_cursor = encode_cursor(1, avatar.digest()).unwrap();
         assert!(super::super::catalog_cursor::decode(1, &avatar_cursor).is_none());
         assert!(matches!(
-            storage.show_local_avatar_pack(crate::office_prop::BUILTIN_DIGEST),
+            storage.show_local_avatar_pack(tmt_office_model::codec::office_prop::BUILTIN_DIGEST),
             Err(LocalAvatarCatalogError::NotFound)
         ));
     }

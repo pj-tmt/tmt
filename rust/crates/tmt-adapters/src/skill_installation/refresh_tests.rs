@@ -1,9 +1,10 @@
 use super::{bundled_skill, files, refresh, registry};
-use crate::{content_digest::sha256, test_support::TestDirectory};
+use crate::test_support::TestDirectory;
 use std::{
     fs, io,
     path::{Path, PathBuf},
 };
+use tmt_core::content_digest::sha256;
 
 fn fixture() -> (TestDirectory, PathBuf) {
     let directory = TestDirectory::new();

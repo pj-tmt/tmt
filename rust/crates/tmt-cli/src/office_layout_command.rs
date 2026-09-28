@@ -9,11 +9,12 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    interrupt::Interrupt,
-    office_companion::invoke_office_world,
-    office_world::{SaveWorld, WorldFailure, read_world_file, snapshot_value},
-};
+use tmt_adapters::interrupt::Interrupt;
+use tmt_adapters::office_companion::invoke_office_world;
+use tmt_adapters::office_world::WorldFailure;
+use tmt_adapters::office_world::read_world_file;
+use tmt_adapters::office_world::snapshot_value;
+use tmt_office_model::codec::office_world::SaveWorld;
 
 pub fn run(
     executable: &Path,

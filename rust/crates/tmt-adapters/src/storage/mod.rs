@@ -1,5 +1,5 @@
 mod bindings;
-pub(crate) mod catalog_cursor;
+use tmt_office_model::codec::catalog_cursor;
 mod catalog_replay;
 mod context;
 mod dispatch;

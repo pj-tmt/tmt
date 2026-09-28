@@ -1,8 +1,9 @@
 use super::OfficeError;
-use crate::content_digest::{is_sha256, sha256};
 use crate::office_deployment::WorldTarget;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
+use tmt_core::content_digest::is_sha256;
+use tmt_core::content_digest::sha256;
 
 const APPROVAL_LIMIT: usize = 2048;
 pub(super) const RESPONSE_LIMIT: usize = 16 * 1024;

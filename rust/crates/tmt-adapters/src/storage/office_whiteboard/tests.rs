@@ -1,6 +1,6 @@
 use super::*;
 use crate::test_support::TestDirectory;
-use tmt_core::office_whiteboard::document::LOBBY_DOCUMENT;
+use tmt_office_model::office_whiteboard::document::LOBBY_DOCUMENT;
 
 const OP: &str = "11111111-1111-4111-8111-111111111111";
 const OP2: &str = "22222222-2222-4222-8222-222222222222";
@@ -11,7 +11,7 @@ fn request() -> SaveDocument {
         document_id: LOBBY_DOCUMENT.into(),
         expected_revision: 0,
         operation_id: OP.into(),
-        scene: crate::office_whiteboard::decode_scene(include_bytes!(
+        scene: tmt_office_model::codec::office_whiteboard::decode_scene(include_bytes!(
             "../../../../../../contracts/office/whiteboard-scene-v1.json"
         ))
         .unwrap(),

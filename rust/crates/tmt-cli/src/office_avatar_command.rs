@@ -10,11 +10,12 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    office_avatar::{AvatarPackError, command_pack_input, quality_warnings, read_pack_file},
-    office_companion::invoke_local_office_avatar,
-};
-use tmt_core::office_protocol::{OfficeError, OfficeInvocation};
+use tmt_adapters::office_avatar::read_pack_file;
+use tmt_adapters::office_companion::invoke_local_office_avatar;
+use tmt_office_model::codec::office_avatar::AvatarPackError;
+use tmt_office_model::codec::office_avatar::command_pack_input;
+use tmt_office_model::codec::office_avatar::quality_warnings;
+use tmt_office_model::office_protocol::{OfficeError, OfficeInvocation};
 
 pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> Result<u8, Failure> {
     let OfficeOperation::Avatar(operation) = operation else {

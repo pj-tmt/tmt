@@ -1,11 +1,12 @@
 //! Scoped Firestore block reads and conditional single-document commits.
 
 use super::{AgentCredential, DeploymentMode, OfficeDeployment, OfficeError, valid_token};
-use crate::{office_block::BlockSnapshot, office_http};
+use crate::office_http;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::time::Instant;
-use tmt_core::office_block::{BlockLayout, MAX_REVISION};
+use tmt_office_model::codec::office_block::BlockSnapshot;
+use tmt_office_model::office_block::{BlockLayout, MAX_REVISION};
 
 const DOCUMENT_LIMIT: usize = 8192;
 

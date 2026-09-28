@@ -1,10 +1,10 @@
 //! Canonical GitHub release discovery, separate from cargo-dist archive policy.
 
 use super::{OFFICIAL_REPOSITORY, artifact, invalid, receipt::GitHubProvenance};
-use crate::content_digest::sha256;
 use semver::Version;
 use serde_json::Value;
 use std::{io, time::Instant};
+use tmt_core::content_digest::sha256;
 use tmt_core::native_install::{Channel, latest_in_channel};
 
 const METADATA_LIMIT: usize = 2 * 1024 * 1024;
@@ -201,7 +201,7 @@ fn asset(release: &Value, name: &str, maximum: usize) -> io::Result<Asset> {
     let digest = value["digest"]
         .as_str()
         .and_then(|digest| digest.strip_prefix("sha256:"))
-        .filter(|hash| crate::content_digest::is_sha256(hash))
+        .filter(|hash| tmt_core::content_digest::is_sha256(hash))
         .ok_or_else(|| invalid("Native release asset has no valid GitHub SHA-256 digest."))?
         .into();
     Ok(Asset { id, size, digest })

@@ -140,7 +140,7 @@ fn room_modes_are_strict_and_scope_changes_the_intent_digest() {
     let previous = br#"{"operationId":"11111111-1111-4111-8111-111111111111","recipientIds":["22222222-2222-4222-8222-222222222222"],"message":"Review this."}"#;
     assert_eq!(
         intent_digest(&input),
-        crate::content_digest::framed_sha256(b"tmt:office:dispatch:v1\0", previous)
+        tmt_core::content_digest::framed_sha256(b"tmt:office:dispatch:v1\0", previous)
     );
     let mut wire = valid();
     wire["room"] =

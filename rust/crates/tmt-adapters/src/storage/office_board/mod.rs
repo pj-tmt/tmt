@@ -2,7 +2,7 @@
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
-use tmt_core::office_board::{
+use tmt_office_model::office_board::{
     Actor, AuthorFilter, BoardError, BoardErrorCode, Category, CategoryListRequest,
     CategoryListResult, CreateReceipt, Cursor, DeleteReceipt, DeleteRequest, EditReceipt,
     EditRequest, Entry, ListRequest, ListResult, ListView, OfficeBoardRepository, PostRequest,
@@ -32,7 +32,7 @@ impl OfficeBoardRepository for Storage {
     type Error = StorageError;
 
     fn post(&mut self, request: &PostRequest) -> Result<CreateReceipt, BoardError<Self::Error>> {
-        tmt_core::office_board::validate_post(request)?;
+        tmt_office_model::office_board::validate_post(request)?;
         with_immediate_transaction(self, "Office board post", |tx| {
             let actor = active_actor(tx, &request.actor)?;
             let digest = intent(&[
@@ -74,7 +74,7 @@ impl OfficeBoardRepository for Storage {
     }
 
     fn reply(&mut self, request: &ReplyRequest) -> Result<CreateReceipt, BoardError<Self::Error>> {
-        tmt_core::office_board::validate_reply(request)?;
+        tmt_office_model::office_board::validate_reply(request)?;
         with_immediate_transaction(self, "Office board reply", |tx| {
             let actor = active_actor(tx, &request.actor)?;
             let digest = intent(&["reply", &request.thread_id, &request.body]);
@@ -120,7 +120,7 @@ impl OfficeBoardRepository for Storage {
     }
 
     fn edit(&mut self, request: &EditRequest) -> Result<EditReceipt, BoardError<Self::Error>> {
-        tmt_core::office_board::validate_edit(request)?;
+        tmt_office_model::office_board::validate_edit(request)?;
         with_immediate_transaction(self, "Office board edit", |tx| {
             let actor = active_actor(tx, &request.actor)?;
             let digest = edit_intent(request);
@@ -139,10 +139,9 @@ impl OfficeBoardRepository for Storage {
                 return Err(BoardError::policy(BoardErrorCode::Invalid));
             }
             if !row.is_root
-                && request
-                    .body
-                    .as_ref()
-                    .is_some_and(|body| body.len() > tmt_core::office_board::REPLY_BODY_MAX_BYTES)
+                && request.body.as_ref().is_some_and(|body| {
+                    body.len() > tmt_office_model::office_board::REPLY_BODY_MAX_BYTES
+                })
             {
                 return Err(BoardError::policy(BoardErrorCode::Invalid));
             }
@@ -178,7 +177,7 @@ impl OfficeBoardRepository for Storage {
         &mut self,
         request: &DeleteRequest,
     ) -> Result<DeleteReceipt, BoardError<Self::Error>> {
-        tmt_core::office_board::validate_delete(request)?;
+        tmt_office_model::office_board::validate_delete(request)?;
         with_immediate_transaction(self, "Office board delete", |tx| {
             let actor = active_actor(tx, &request.actor)?;
             let digest = intent(&[
@@ -229,7 +228,7 @@ impl OfficeBoardRepository for Storage {
     }
 
     fn list(&self, request: &ListRequest) -> Result<ListResult, BoardError<Self::Error>> {
-        tmt_core::office_board::validate_list(request)?;
+        tmt_office_model::office_board::validate_list(request)?;
         let tx = self
             .connection()
             .map_err(BoardError::storage)?
@@ -321,7 +320,7 @@ impl OfficeBoardRepository for Storage {
     }
 
     fn show(&self, request: &ShowRequest) -> Result<ShowResult, BoardError<Self::Error>> {
-        tmt_core::office_board::validate_show(request)?;
+        tmt_office_model::office_board::validate_show(request)?;
         let tx = self
             .connection()
             .map_err(BoardError::storage)?
@@ -389,7 +388,7 @@ impl OfficeBoardRepository for Storage {
         &self,
         request: &CategoryListRequest,
     ) -> Result<CategoryListResult, BoardError<Self::Error>> {
-        tmt_core::office_board::validate_category_list(request)?;
+        tmt_office_model::office_board::validate_category_list(request)?;
         let tx = self
             .connection()
             .map_err(BoardError::storage)?
@@ -663,7 +662,7 @@ fn parse_cursor(
     let c = Cursor::parse(value).map_err(|e| BoardError::policy(e.code))?;
     if c.operation != op
         || c.page_size != limit
-        || c.binding != tmt_core::office_board::binding_fingerprint(binding)
+        || c.binding != tmt_office_model::office_board::binding_fingerprint(binding)
     {
         return Err(BoardError::policy(BoardErrorCode::CursorInvalid));
     }

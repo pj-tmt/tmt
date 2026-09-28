@@ -1,6 +1,7 @@
 //! Schema-17 upgrade preserves exact catalog content and rolls back atomically.
 use super::*;
-use crate::{office_prop, storage::Storage, test_support::TestDirectory};
+use crate::{storage::Storage, test_support::TestDirectory};
+use tmt_office_model::codec::office_prop;
 
 #[test]
 fn prop_bound_upgrade_preserves_content_and_rolls_back_on_history_failure() {

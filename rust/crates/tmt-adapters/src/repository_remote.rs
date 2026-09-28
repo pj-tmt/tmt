@@ -118,7 +118,7 @@ pub fn canonicalize(raw: &str) -> io::Result<String> {
         port.map_or(String::new(), |p| format!(":{p}")),
         path
     );
-    if !tmt_core::office_board::valid_repository_id(&canonical) {
+    if !tmt_office_model::office_board::valid_repository_id(&canonical) {
         return Err(invalid());
     }
     Ok(canonical)

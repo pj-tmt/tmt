@@ -206,7 +206,7 @@ fn mutations_replay_without_activity_and_soft_delete_without_body_receipts() {
             entry_id: reply.entry_id.clone(),
             actor: actor.clone(),
             title: None,
-            body: Some("x".repeat(tmt_core::office_board::REPLY_BODY_MAX_BYTES + 1)),
+            body: Some("x".repeat(tmt_office_model::office_board::REPLY_BODY_MAX_BYTES + 1)),
             expected_revision: 1,
             operation_id: "55555555-5555-4555-8555-555555555555".into(),
         })
@@ -450,7 +450,7 @@ fn maximum_repository_and_filters_emit_reusable_compact_cursors() {
     };
     let first = storage.list(&request).unwrap();
     let cursor = first.next_cursor.unwrap();
-    assert!(cursor.len() < tmt_core::office_board::CURSOR_MAX_BYTES);
+    assert!(cursor.len() < tmt_office_model::office_board::CURSOR_MAX_BYTES);
     assert_eq!(
         storage
             .list(&ListRequest {
@@ -490,7 +490,7 @@ fn maximum_repository_and_filters_emit_reusable_compact_cursors() {
         })
         .unwrap();
     let category_cursor = first_repository.next_cursor.unwrap();
-    assert!(category_cursor.len() < tmt_core::office_board::CURSOR_MAX_BYTES);
+    assert!(category_cursor.len() < tmt_office_model::office_board::CURSOR_MAX_BYTES);
     assert_eq!(
         storage
             .categories(&CategoryListRequest {

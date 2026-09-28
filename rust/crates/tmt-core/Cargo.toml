@@ -16,7 +16,6 @@ icu_normalizer.workspace = true
 icu_casemap.workspace = true
 icu_locale_core.workspace = true
 sha2.workspace = true
-url.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

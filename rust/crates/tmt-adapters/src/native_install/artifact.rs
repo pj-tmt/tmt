@@ -4,7 +4,6 @@
 
 use super::{Product, invalid};
 use crate::bounded_file;
-pub(super) use crate::content_digest::sha256 as digest;
 use flate2::read::MultiGzDecoder;
 use semver::Version;
 use serde_json::Value;
@@ -13,6 +12,7 @@ use std::{
     io::{self, Read},
     path::Path,
 };
+pub(super) use tmt_core::content_digest::sha256 as digest;
 
 pub(super) const COMPRESSED_LIMIT: usize = 64 * 1024 * 1024;
 pub(super) const MANIFEST_LIMIT: usize = 4 * 1024 * 1024;
@@ -177,7 +177,7 @@ fn metadata(
     }
     let sha256 = metadata["checksums"]["sha256"]
         .as_str()
-        .filter(|hash| crate::content_digest::is_sha256(hash))
+        .filter(|hash| tmt_core::content_digest::is_sha256(hash))
         .ok_or_else(|| invalid("Native archive requires a SHA-256 checksum."))?;
     let mut inventory = metadata["assets"]
         .as_array()

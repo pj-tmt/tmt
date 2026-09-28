@@ -1,19 +1,18 @@
 //! Nonsecret stable installation identity. Binding/secret state belongs to the vault.
 
 use super::{OfficeError, wire::valid_uuid};
-use crate::{
-    bounded_file::{self, FileReadError},
-    config::ConfigPaths,
-    content_digest::sha256,
-    file_lock,
-    office_deployment::WorldTarget,
-};
+use crate::bounded_file;
+use crate::bounded_file::FileReadError;
+use crate::config::ConfigPaths;
+use crate::file_lock;
+use crate::office_deployment::WorldTarget;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::PathBuf,
 };
+use tmt_core::content_digest::sha256;
 
 pub struct OfficeInstallation {
     directory: PathBuf,
@@ -97,7 +96,7 @@ impl OfficeInstallation {
         key: &str,
         operation: impl FnOnce() -> Result<T, OfficeError>,
     ) -> Result<T, OfficeError> {
-        if !crate::content_digest::is_sha256(key) {
+        if !tmt_core::content_digest::is_sha256(key) {
             return Err(OfficeError::CredentialsInvalid);
         }
         let _lock = file_lock::exclusive(&self.directory.join(format!("{key}.lock")))

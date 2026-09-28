@@ -389,6 +389,108 @@ fn package(name: &str, dependencies: Vec<Value>) -> Value {
 }
 
 #[test]
+fn office_model_direction_and_dependency_aliases_are_guarded() {
+    for (owner, dependency_name, alias) in [
+        ("tmt-core", "tmt-office-model", None),
+        ("tmt-office-model", "tmt-adapters", None),
+        ("tmt-office-model", "rusqlite", None),
+        ("tmt-office-model", "tmt-core", Some("hidden")),
+        ("tmt-adapters", "tmt-office-model", Some("hidden")),
+    ] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency(dependency_name, "normal", None, alias)]
+            ))
+            .len(),
+            1
+        );
+    }
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-office-model",
+            vec![dependency("tmt-core", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+}
+
+#[test]
+fn office_consumers_cannot_expand_or_hide_behind_reexports() {
+    let import = "use tmt_office_model::office_world::WorldLayout as Layout;";
+    assert_exact(
+        &[syntax(
+            "tmt-adapters",
+            "storage/office_world/layout.rs",
+            import,
+        )],
+        &[],
+    );
+    assert_exact(
+        &[syntax("tmt-adapters", "storage/new_office.rs", import)],
+        &[
+            "tmt-adapters/storage/new_office.rs: unreviewed Office dependency tmt_office_model::office_world::WorldLayout",
+        ],
+    );
+    assert_exact(
+        &[syntax("tmt-core", "lib.rs", import)],
+        &[
+            "tmt-core/lib.rs: unreviewed Office dependency tmt_office_model::office_world::WorldLayout",
+        ],
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-adapters",
+            "office_world.rs",
+            "pub use tmt_office_model::office_world::WorldLayout as Layout;",
+        )],
+        &[
+            "tmt-adapters/office_world.rs: import the Office owner directly; do not re-export tmt_office_model::office_world::WorldLayout",
+        ],
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-cli",
+            "new_command.rs",
+            "fn run() { let _: Option<tmt_office_model::office_world::WorldLayout> = None; }",
+        )],
+        &[
+            "tmt-cli/new_command.rs: unreviewed Office dependency tmt_office_model::office_world::WorldLayout",
+        ],
+    );
+}
+
+#[test]
+fn office_model_allows_memory_codecs_not_runtime_effects() {
+    assert_exact(
+        &[syntax(
+            "tmt-office-model",
+            "codec/image.rs",
+            "use std::{io::{Cursor, Error}, sync::OnceLock};",
+        )],
+        &[],
+    );
+    for text in [
+        "use std::fs::File as Hidden;",
+        "pub use std::process::Command;",
+        "fn run() { std::env::var(\"HOME\"); }",
+    ] {
+        assert!(
+            !policy::source_violations(&[syntax("tmt-office-model", "codec/image.rs", text)])
+                .is_empty()
+        );
+    }
+    assert!(
+        !policy::source_violations(&[syntax(
+            "tmt-office-model",
+            "codec/new.rs",
+            "use tmt_core::request::RequestService;"
+        )])
+        .is_empty()
+    );
+}
+
+#[test]
 fn dependency_policy_handles_normal_build_target_renamed_and_dev_entries() {
     assert_eq!(
         policy::dependency_violations(&package(
@@ -480,17 +582,17 @@ fn companion_uses_only_reviewed_local_service_dependencies() {
 }
 
 #[test]
-fn core_may_parse_link_values_but_cannot_fetch_them() {
+fn office_model_may_parse_link_values_but_cannot_fetch_them() {
     assert!(
         policy::dependency_violations(&package(
-            "tmt-core",
+            "tmt-office-model",
             vec![dependency("url", "normal", None, None)]
         ))
         .is_empty()
     );
     assert!(
         !policy::dependency_violations(&package(
-            "tmt-core",
+            "tmt-office-model",
             vec![dependency("ureq", "normal", None, None)]
         ))
         .is_empty()
@@ -537,9 +639,10 @@ fn display_width_dependency_stays_in_cli_presentation() {
 }
 
 #[test]
-fn png_runtime_dependency_stays_in_the_image_adapter() {
+fn png_runtime_dependency_stays_in_the_office_model() {
     for (owner, expected) in [
-        ("tmt-adapters", 0),
+        ("tmt-office-model", 0),
+        ("tmt-adapters", 1),
         ("tmt-core", 1),
         ("tmt-cli", 1),
         ("tmt-office", 1),

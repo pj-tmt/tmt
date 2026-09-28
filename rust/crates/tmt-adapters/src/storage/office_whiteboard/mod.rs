@@ -3,7 +3,7 @@
 mod snapshot;
 
 use rusqlite::{Connection, OptionalExtension, params};
-use tmt_core::office_whiteboard::document::{
+use tmt_office_model::office_whiteboard::document::{
     DocumentError, SaveDocument, SaveReceipt, WhiteboardDocument, empty_document, plan_save,
     valid_document_id, validate_save,
 };
@@ -12,10 +12,9 @@ use super::{
     Storage, StorageError, StorageErrorCode, errors::classify,
     identities::with_immediate_transaction,
 };
-use crate::{
-    content_digest::framed_sha256,
-    office_whiteboard::{decode_scene, encode_scene},
-};
+use tmt_core::content_digest::framed_sha256;
+use tmt_office_model::codec::office_whiteboard::decode_scene;
+use tmt_office_model::codec::office_whiteboard::encode_scene;
 
 #[derive(Debug)]
 pub enum WhiteboardStoreError {

@@ -636,7 +636,7 @@ copying their resources. The production editor now consumes this world; no
 independent browser placement policy authorizes a save.
 
 Presentation profiles follow the same local-only composition without joining the block
-model. `tmt-core::office_profile` owns the exact catalog, safe-text bounds and UUID-byte
+model. `tmt-office-model::office_profile` owns the exact catalog, safe-text bounds and UUID-byte
 default. Schema 15 stores one optional canonical override per immutable identity UUID;
 reads do not materialize defaults. Immediate transactions implement create, no-op,
 exact-retry and conflict semantics. The optional immutable avatar reference is admitted
@@ -662,9 +662,9 @@ The #238 source implementation adds schema 16 and the installation-owned local p
 quotas; installed exact bytes use one revisioned SQLite owner and request-scoped validation.
 This source capability is not evidence that a separately installed companion release
 contains it; use the verified release and native installation records for availability.
-`tmt-adapters::office_prop` owns the one byte/JSON/semantic validation path used by
+`tmt-office-model::codec::office_prop` owns the one byte/JSON/semantic validation path used by
 CLI, SQLite revalidation, and preview; reusable placement, reference, footprint,
-rotation, and room-bound rules remain in `tmt-core::office_block` without adding a
+rotation, and room-bound rules remain in `tmt-office-model::office_block` without adding a
 second codec or generic extension framework.
 Local v2 block child requests and replies share the core-owned 64 KiB transport
 ceiling; remote v1 and unrelated 4 KiB envelopes do not inherit it. Prop catalog
@@ -780,7 +780,7 @@ before the browser's concurrent resource reads; unusable storage fails startup
 instead of advertising a ready service with failing resource endpoints.
 
 The board's storage and transport follow their existing ownership independently of
-the block model. `tmt-core::office_board` owns its bounded values, actors,
+the block model. `tmt-office-model::office_board` owns its bounded values, actors,
 receipts and cursor policy; `storage::office_board` owns the single
 board revision, exact-UUID/owner revalidation, soft deletion, retry receipts and
 indexed pagination. CLI calls use the verified companion one-shot protocol and
@@ -804,7 +804,7 @@ The independently versioned native `tmt-office` companion currently implements
 the [typed local protocol](../../contracts/office/native-companion.md), including
 pairing, local status, an authorized assigned-block existence check and
 revision-safe block show/apply. Pure native scene validation lives in
-`tmt-core::office_block`; readable JSON belongs to `tmt-adapters::office_block`.
+`tmt-office-model::office_block`; readable JSON belongs to `tmt-office-model::codec::office_block`.
 The companion's scoped remote adapter reads one block and commits with its
 server update-time precondition (or nonexistence for creation), then rereads
 canonical state. It shares pairing refresh/renewal and scope locks, not a generic
