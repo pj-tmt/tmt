@@ -37,7 +37,7 @@ pub struct StorageError {
 }
 
 impl StorageError {
-    pub(crate) fn new(code: StorageErrorCode, message: impl Into<String>) -> Self {
+    pub fn new(code: StorageErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -47,7 +47,7 @@ impl StorageError {
         }
     }
 
-    pub(crate) fn caused_by(mut self, cause: impl Error + Send + Sync + 'static) -> Self {
+    pub fn caused_by(mut self, cause: impl Error + Send + Sync + 'static) -> Self {
         self.cause = Some(Box::new(cause));
         self
     }
@@ -83,7 +83,7 @@ impl Error for StorageError {
     }
 }
 
-pub(crate) fn classify(error: rusqlite::Error, operation: &str) -> StorageError {
+pub fn classify(error: rusqlite::Error, operation: &str) -> StorageError {
     use rusqlite::ErrorCode;
     let code = match error.sqlite_error_code() {
         Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) => StorageErrorCode::Busy,
@@ -153,4 +153,12 @@ fn wal_permission_failure(error: &rusqlite::Error) -> bool {
 
 pub(crate) fn incompatible(message: impl Into<String>) -> StorageError {
     StorageError::new(StorageErrorCode::IncompatibleSchema, message)
+}
+
+// Office board repositories propagate storage failures with `?`; the orphan
+// rule places this conversion with the storage error type.
+impl From<StorageError> for tmt_office_model::office_board::BoardError<StorageError> {
+    fn from(error: StorageError) -> Self {
+        Self::storage(error)
+    }
 }

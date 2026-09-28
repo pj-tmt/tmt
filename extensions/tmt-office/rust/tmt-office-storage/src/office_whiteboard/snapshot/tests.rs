@@ -35,7 +35,7 @@ pub(super) fn input() -> CaptureWhiteboard {
     }
 }
 
-pub(super) fn counts(storage: &Storage) -> (i64, i64, i64, i64) {
+pub(super) fn counts(storage: &OfficeStore) -> (i64, i64, i64, i64) {
     storage.connection().unwrap().query_row(
         "SELECT (SELECT count(*) FROM office_local_worlds), (SELECT count(*) FROM office_whiteboard_snapshots), (SELECT count(*) FROM office_whiteboard_operations), (SELECT count(*) FROM request_attempts)", [],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -46,7 +46,7 @@ pub(super) fn counts(storage: &Storage) -> (i64, i64, i64, i64) {
 fn snapshot_retains_original_content_and_replays_after_live_edits_and_reopen() {
     let directory = TestDirectory::new();
     let path = directory.path.join("snapshot.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     let mut save = document();
     storage.save_whiteboard(&save, 100).unwrap();
     let request = input();
@@ -77,7 +77,7 @@ fn snapshot_retains_original_content_and_replays_after_live_edits_and_reopen() {
             .is_empty()
     );
     storage.close().unwrap();
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     assert_eq!(storage.show_whiteboard_snapshot(CAPTURE).unwrap(), snapshot);
     assert_eq!(storage.capture_whiteboard(&request, 400).unwrap(), snapshot);
     assert_eq!(counts(&storage), (1, 1, 2, 0));
@@ -131,7 +131,7 @@ fn capture_never_creates_a_world_saves_a_draft_or_falls_back_to_latest() {
             .all(|element| element.id != MISSING)
     );
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("snapshot.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("snapshot.db")).unwrap();
     assert_eq!(
         storage
             .capture_whiteboard(&input(), 100)
@@ -196,7 +196,7 @@ fn capture_never_creates_a_world_saves_a_draft_or_falls_back_to_latest() {
 #[test]
 fn failed_insert_is_retryable_and_malformed_retained_content_is_not_returned() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("snapshot.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("snapshot.db")).unwrap();
     storage.save_whiteboard(&document(), 100).unwrap();
     storage.connection().unwrap().execute_batch("CREATE TRIGGER reject_capture BEFORE INSERT ON office_whiteboard_snapshots BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
     assert!(matches!(
@@ -232,12 +232,12 @@ fn failed_insert_is_retryable_and_malformed_retained_content_is_not_returned() {
 fn concurrent_retries_share_one_immutable_resource() {
     let directory = TestDirectory::new();
     let path = directory.path.join("snapshot.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     storage.save_whiteboard(&document(), 100).unwrap();
     storage.close().unwrap();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
     // Open before either worker enters the barrier; an open failure must not strand its peer.
-    let stores: Vec<_> = (0..2).map(|_| Storage::open(&path).unwrap()).collect();
+    let stores: Vec<_> = (0..2).map(|_| OfficeStore::open(&path).unwrap()).collect();
     let handles: Vec<_> = stores
         .into_iter()
         .enumerate()
@@ -256,6 +256,6 @@ fn concurrent_retries_share_one_immutable_resource() {
         .map(|handle| handle.join().unwrap())
         .collect();
     assert_eq!(results[0], results[1]);
-    let storage = Storage::open(path).unwrap();
+    let storage = OfficeStore::open(path).unwrap();
     assert_eq!(counts(&storage), (1, 1, 1, 0));
 }

@@ -1944,10 +1944,16 @@ dependencies = [
 name = "tmt-office-storage"
 version = "5.0.0-alpha.7"
 dependencies = [
+ "base64 0.22.1",
+ "png",
  "rusqlite",
+ "serde",
  "serde_json",
  "sha2",
  "tmt-adapters",
+ "tmt-core",
+ "tmt-office-model",
+ "uuid",
 ]
 
 [[package]]

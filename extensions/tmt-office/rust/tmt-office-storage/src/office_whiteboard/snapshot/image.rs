@@ -1,13 +1,13 @@
 //! One normalized image per retained capture, with pixel-equivalent retries.
 
 use super::{
-    Connection, DocumentError, OptionalExtension, Storage, StorageError, StorageErrorCode,
+    Connection, DocumentError, OfficeStore, OptionalExtension, StorageError, StorageErrorCode,
     WhiteboardStoreError, classify, params, read_snapshot, valid_snapshot_id,
     with_immediate_transaction,
 };
 use tmt_office_model::codec::office_whiteboard::image::ValidatedSnapshotImage;
 
-impl Storage {
+impl OfficeStore {
     pub fn attach_whiteboard_snapshot_image(
         &mut self,
         id: &str,

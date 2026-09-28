@@ -3,7 +3,7 @@
 mod image;
 
 use super::{
-    DocumentError, Storage, StorageError, StorageErrorCode, WhiteboardStoreError, classify,
+    DocumentError, OfficeStore, StorageError, StorageErrorCode, WhiteboardStoreError, classify,
     decode_scene, encode_scene, framed_sha256, params, read_document, stored_positive,
     with_immediate_transaction,
 };
@@ -16,7 +16,7 @@ use tmt_office_model::office_whiteboard::snapshot::valid_snapshot_id;
 use tmt_office_model::office_whiteboard::snapshot::validate_capture;
 use tmt_office_model::office_whiteboard::snapshot::validate_snapshot;
 
-impl Storage {
+impl OfficeStore {
     pub fn capture_whiteboard(
         &mut self,
         input: &CaptureWhiteboard,

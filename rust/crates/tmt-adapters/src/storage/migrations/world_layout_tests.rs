@@ -1,4 +1,4 @@
-//! Schema upgrade is separate from the user's explicit whole-world layout save.
+//! Schema upgrade never rewrites retained legacy layouts; saving a world is Office-owned.
 use super::*;
 use crate::{storage::Storage, test_support::TestDirectory};
 
@@ -84,49 +84,7 @@ fn upgrade_rolls_back_on_history_failure_and_never_materializes_a_layout_on_open
     let mut storage = Storage::open(&path).unwrap();
     assert_eq!(storage.health().unwrap().schema_version, 35);
     assert_eq!(legacy_row(storage.connection().unwrap()), before_row);
-    let preview = storage.show_local_world().unwrap();
-    assert_eq!(preview.world_id.as_deref(), Some(WORLD));
-    assert_eq!(preview.revision, 0);
-    assert_eq!(preview.layout.map().draft().primary_lobby_id, LOBBY);
-    assert_eq!(preview.layout.objects().len(), 3);
-    assert!(
-        preview
-            .layout
-            .objects()
-            .iter()
-            .all(|object| object.extension.is_some())
-    );
-    assert_eq!(legacy_row(storage.connection().unwrap()), before_row);
-    let unmaterialized: (i64, Option<String>, i64) = storage
-        .connection()
-        .unwrap()
-        .query_row(
-            "SELECT layout_revision,layout_json,layout_updated_at_ms FROM office_local_worlds",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
-    assert_eq!(unmaterialized, (0, None, 0));
-    let saved = storage
-        .apply_local_world(0, preview.legacy_basis.as_deref(), &preview.layout, 200)
-        .unwrap();
-    assert_eq!(saved.world_id.as_deref(), Some(WORLD));
-    assert_eq!(saved.revision, 1);
+    // Reading and saving the retained layout is the Office store's contract;
+    // see tmt-office-storage's legacy world tests.
     storage.close().unwrap();
-
-    let mut reopened = Storage::open(&path).unwrap();
-    let restored = reopened.show_local_world().unwrap();
-    assert_eq!(restored.world_id, saved.world_id);
-    assert_eq!(restored.revision, 1);
-    assert_eq!(restored.updated_at_ms, 200);
-    assert_eq!(restored.layout.objects(), saved.layout.objects());
-    assert_eq!(
-        reopened
-            .connection()
-            .unwrap()
-            .query_row("SELECT count(*) FROM office_local_blocks", [], |row| row
-                .get::<_, i64>(0),)
-            .unwrap(),
-        0
-    );
 }

@@ -60,10 +60,10 @@ to `tmt-office-model::codec::office_whiteboard`, and the matching browser projec
 `whiteboard/scene-contract.ts`; literal vectors cover both projections.
 Document revision policy lives in its core `document` module, envelope admission
 in the adapter, and atomic document/operation persistence in
-`storage/office_whiteboard`. The local HTTP adapter and browser document port
+`tmt-office-storage::office_whiteboard`. The local HTTP adapter and browser document port
 reuse the existing session transport; neither owns editor history or request
 delivery. World singleton creation is shared by world layout, board ownership
-and document persistence through `storage/office_world` inside caller transactions.
+and document persistence through `tmt-office-storage::office_world` inside caller transactions.
 Whiteboard `snapshot` policy captures a specific saved revision and validates its
 selection/annotation. Its adapter owns metadata admission; the storage child module
 appends an immutable scene copy using the capture operation as its replay receipt.
@@ -76,7 +76,7 @@ routing shared with body-budget selection; image writes reuse the existing Origi
 policy with a PNG content type. The browser snapshot state owns capture/image retry,
 reusing the document painter and the local runtime's shared request lifetime;
 the view owns only form state and disposable preview URLs. Native snapshot access
-uses the same repository through `office_whiteboard::access` in the verified
+uses the same repository through `tmt-office-storage::access::whiteboard` in the verified
 companion, with exact per-operation JSON/PNG limits. `office_companion::whiteboard`
 validates replies over its parent's existing bounded process owner. The CLI owns
 the explicit export path, while `office_whiteboard::export` publishes a private,
@@ -324,13 +324,13 @@ stable placement IDs. `tmt-office-model::office_world` validates floor/wall supp
 door clearance and window exclusions over the map index. Shared prop appearance
 admission is independent of the legacy 32x32 bounds; signed positions support
 world coordinates without loosening legacy block validity. The world adapter
-composes the existing typed map and prop codecs. `storage/office_world` persists
+composes the existing typed map and prop codecs. `tmt-office-storage::office_world` persists
 the all-or-error candidate in the existing world row (schema 28), checking revision,
 identity/room eligibility and artwork within one immediate transaction. Before
 explicit cutover, retained blocks have a read-only deterministic projection fenced
 by a source fingerprint. First Save retires those rows atomically; schema triggers
 prevent renewed block writes. `office layout show/apply` and the world HTTP route
-share `office_world::access` for storage execution and public diagnostics; strict
+share `tmt-office-storage::access::world` for storage execution and public diagnostics; strict
 companion decoding and bounded file acquisition remain adapter responsibilities.
 The CLI has no local block alias. Old local block HTTP/private companion operations
 and browser port are removed; legacy native/browser scenario fixtures still need
@@ -615,8 +615,24 @@ an `io::Error` value without giving the model an I/O operation.
 definitions of the 14 Office-owned tables, so migration copies raw cells, minus
 the two `identities(id)` references that Office replaces with preflight. It adds
 an Office-local retired-identity marker and a migration record. The crate reaches
-core only through the public `config` and `file_lock` owners. Its migration
-coordinator is the one Office component that reads the core database: query-only,
+core only through public owners: `config`, `file_lock`, `Storage::open` and the
+`StorageError` type with its `classify` mapping. It owns the Office repositories
+(worlds and legacy blocks, profiles, prop and avatar catalogs, the discussion board
+and whiteboards) on `OfficeStore`, and the `access` operations shared by the
+one-shot companion protocol and the local HTTP service. Until the storage switch,
+`OfficeStore` opens the shared core database file through `Storage::open`, so
+creation and migration are unchanged. The CLI side keeps only file readers, reply
+decoders and wire limits in `tmt-adapters`; the core `tmt office` facade still
+reaches storage only by invoking the installed companion.
+
+Retained transitional debt: `tmt-office-storage::core_lookup` holds verbatim copies
+of core identity and room reads, and five repository files still read core tables
+inside Office transactions. A crate test freezes those exact sites. The next #353
+slice replaces them with CoreAccess preflight and deletes the module; no storage
+switch may start while it exists.
+
+The migration coordinator is the one Office component that opens the core
+database for its own reads outside the store: query-only,
 without checkpoint-on-close, inside a single read snapshot. `prepare`, `copy` and
 `verify` each hold `office/migration.lock` and commit atomically in a private
 staging database. The copy preserves storage classes, TEXT and BLOB bytes and
@@ -1199,7 +1215,7 @@ content removal deletes it, while a same-name replacement receives a new UUID
 and inherits nothing.
 Schema 14 adds the installation-owned local Office discussion board. Pure bounded
 values, actors, receipts and cursor policy live in `tmt-office-model::office_board`;
-`storage::office_board` owns active-UUID and owner-world revalidation, immediate
+`tmt-office-storage::office_board` owns active-UUID and owner-world revalidation, immediate
 transactions, soft deletion, board-local idempotency receipts, the single board
 revision and indexed keyset pages. The Office command library crosses the verified
 `tmt-office` one-shot protocol, while the stopped-service-independent companion and authenticated

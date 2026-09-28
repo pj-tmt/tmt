@@ -203,3 +203,16 @@ impl WorldLayout {
         &self.objects
     }
 }
+
+/// One observed local world: the reply shared by the Office store and the
+/// CLI-side decoder.
+#[derive(Debug, Clone)]
+pub struct LocalWorldSnapshot {
+    pub world_id: Option<String>,
+    pub revision: u64,
+    /// Required only for the unsaved projection; fences concurrent legacy edits.
+    pub legacy_basis: Option<String>,
+    pub layout: WorldLayout,
+    pub updated_at_ms: u64,
+    pub changed: bool,
+}

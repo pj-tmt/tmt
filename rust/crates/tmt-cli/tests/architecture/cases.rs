@@ -457,9 +457,24 @@ fn office_model_direction_and_dependency_aliases_are_guarded() {
 fn office_consumers_cannot_expand_or_hide_behind_reexports() {
     let import = "use tmt_office_model::office_world::WorldLayout as Layout;";
     assert_exact(
+        &[syntax("tmt-adapters", "office_world/reply.rs", import)],
+        &[],
+    );
+    // Office repositories moved to tmt-office-storage; core cannot regrow them.
+    assert_exact(
         &[syntax(
             "tmt-adapters",
             "storage/office_world/layout.rs",
+            import,
+        )],
+        &[
+            "tmt-adapters/storage/office_world/layout.rs: unreviewed Office dependency tmt_office_model::office_world::WorldLayout",
+        ],
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-office-storage",
+            "office_world/layout.rs",
             import,
         )],
         &[],

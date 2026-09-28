@@ -11,7 +11,8 @@ use tmt_office_model::codec::office_prop::builtin_packs;
 use tmt_office_model::codec::office_prop::parse_pack_digest;
 use tmt_office_model::codec::office_prop::validate_pack;
 
-use super::{Storage, StorageError, StorageErrorCode, errors::classify};
+use crate::OfficeStore;
+use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 
 const PACK_QUOTA: u64 = 64;
 const PROP_QUOTA: u64 = 256;
@@ -189,7 +190,7 @@ impl From<StorageError> for LocalPropCatalogError {
     }
 }
 
-impl Storage {
+impl OfficeStore {
     pub fn install_local_prop_pack(
         &mut self,
         expected_revision: u64,
@@ -520,7 +521,7 @@ struct BoundedRow {
 
 fn read_state(
     transaction: &rusqlite::Transaction<'_>,
-) -> Result<super::catalog_replay::CatalogReplayState, LocalPropCatalogError> {
+) -> Result<crate::catalog_replay::CatalogReplayState, LocalPropCatalogError> {
     let (revision, previous_kind, previous_digest, previous_base_revision, previous_result_revision) = transaction
         .query_row(
             "SELECT revision, previous_kind, previous_digest, previous_base_revision, previous_result_revision FROM office_prop_catalog WHERE singleton = 1",
@@ -528,7 +529,7 @@ fn read_state(
             |row| Ok((row.get::<_, i64>(0)?, row.get(1)?, row.get(2)?, row.get::<_, Option<i64>>(3)?, row.get::<_, Option<i64>>(4)?)),
         )
         .map_err(|error| classify(error, "Read local prop catalog revision"))?;
-    Ok(super::catalog_replay::CatalogReplayState {
+    Ok(crate::catalog_replay::CatalogReplayState {
         revision: stored_u64(revision)?,
         previous_kind,
         previous_digest,
@@ -684,11 +685,13 @@ fn builtin_snapshot(revision: u64, pack: &ValidatedPropPack) -> LocalPropSnapsho
 }
 
 fn encode_cursor(revision: u64, digest: &str) -> Result<String, LocalPropCatalogError> {
-    super::catalog_cursor::encode(1, revision, digest).ok_or(LocalPropCatalogError::CursorInvalid)
+    tmt_office_model::codec::catalog_cursor::encode(1, revision, digest)
+        .ok_or(LocalPropCatalogError::CursorInvalid)
 }
 
 fn decode_cursor(value: &str) -> Result<(u64, String), LocalPropCatalogError> {
-    super::catalog_cursor::decode(1, value).ok_or(LocalPropCatalogError::CursorInvalid)
+    tmt_office_model::codec::catalog_cursor::decode(1, value)
+        .ok_or(LocalPropCatalogError::CursorInvalid)
 }
 
 fn stored_u64(value: i64) -> Result<u64, LocalPropCatalogError> {
@@ -764,7 +767,7 @@ mod tests {
         .unwrap()
     }
 
-    fn stored_rows(storage: &Storage) -> Vec<(String, Vec<u8>, i64, i64, i64)> {
+    fn stored_rows(storage: &OfficeStore) -> Vec<(String, Vec<u8>, i64, i64, i64)> {
         storage
             .connection()
             .unwrap()
@@ -789,7 +792,7 @@ mod tests {
     #[test]
     fn install_list_show_remove_and_exact_retries_share_one_revision() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         let pack = custom("First");
         let installed = storage.install_local_prop_pack(0, &pack).unwrap();
         assert!(installed.changed);
@@ -830,7 +833,7 @@ mod tests {
     #[test]
     fn prop_quota_accepts_256_and_rejects_overflow_without_mutation() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         for revision in 0..16 {
             let candidate = custom_with_props(&format!("Pack {revision}"), 16);
             let installed = storage
@@ -888,11 +891,11 @@ mod tests {
             b' ',
         );
         let pack = tmt_office_model::codec::office_prop::validate_pack(&bytes).unwrap();
-        let mut storage = Storage::open(&database).unwrap();
+        let mut storage = OfficeStore::open(&database).unwrap();
         let mutation = storage.install_local_prop_pack(0, &pack).unwrap();
         assert!(mutation.changed);
         storage.close().unwrap();
-        let mut reopened = Storage::open(&database).unwrap();
+        let mut reopened = OfficeStore::open(&database).unwrap();
         let saved = reopened.show_local_prop_pack(pack.digest()).unwrap();
         assert_eq!(saved.pack.bytes(), bytes);
         assert_eq!(saved.pack.pack().format_version, 2);
@@ -903,7 +906,7 @@ mod tests {
     #[test]
     fn v1_rows_above_their_format_limit_are_excluded_as_oversized() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         let pack = custom("Oversized v1");
         storage.install_local_prop_pack(0, &pack).unwrap();
         let mut bytes = pack.bytes().to_vec();
@@ -932,7 +935,7 @@ mod tests {
         let oversized = vec![b' '; PACK_INPUT_LIMIT + 1];
 
         let current_directory = TestDirectory::new();
-        let mut current = Storage::open(current_directory.path.join("state.db")).unwrap();
+        let mut current = OfficeStore::open(current_directory.path.join("state.db")).unwrap();
         let pack = custom("Current");
         current
             .connection()
@@ -967,7 +970,7 @@ mod tests {
         );
 
         let retry_directory = TestDirectory::new();
-        let mut retry = Storage::open(retry_directory.path.join("state.db")).unwrap();
+        let mut retry = OfficeStore::open(retry_directory.path.join("state.db")).unwrap();
         let pack = custom("Retry");
         retry.install_local_prop_pack(0, &pack).unwrap();
         retry
@@ -1006,7 +1009,7 @@ mod tests {
     #[test]
     fn builtin_is_discoverable_install_noop_and_remove_protected() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         for builtin in builtin_packs() {
             let mut resolver = LocalPropResolver::new(storage.connection().unwrap());
             assert_eq!(
@@ -1070,7 +1073,7 @@ mod tests {
     #[test]
     fn next_observation_detects_same_revision_byte_tampering_and_remove_recovers() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         let pack = custom("Tamper");
         storage.install_local_prop_pack(0, &pack).unwrap();
         storage
@@ -1099,7 +1102,7 @@ mod tests {
     #[test]
     fn pagination_advances_past_an_all_corrupt_page_and_rejects_stale_cursors() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
         let candidates = [custom("A"), custom("B")];
         let [first, second] = if candidates[0].digest() < candidates[1].digest() {
             candidates

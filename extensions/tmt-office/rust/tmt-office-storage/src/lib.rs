@@ -1,13 +1,41 @@
 //! Office-owned storage: `<global>/office/office.db`, its schema and the
 //! resumable migration of Office rows out of the shared core database.
 //!
-//! This crate depends on core only through the public configuration and file
-//! lock owners. It never reuses core storage internals; the migration reads the
-//! core database directly, read-only, inside one snapshot.
+//! This crate depends on core only through public owners: configuration, file
+//! locks, the core storage entry point and its error type. It never reuses core
+//! storage internals; the migration reads the core database directly, read-only,
+//! inside one snapshot.
 
+pub mod access;
+mod catalog_replay;
 mod cells;
+mod core_lookup;
 pub mod migration;
+mod office_avatar;
+mod office_board;
+mod office_local;
+mod office_profile;
+mod office_prop;
+mod office_whiteboard;
+mod office_world;
 mod schema;
+mod store;
+#[cfg(test)]
+mod test_support;
+
+pub use office_avatar::{
+    LocalAvatarCatalogError, LocalAvatarCatalogList, LocalAvatarExcluded,
+    LocalAvatarExcludedReason, LocalAvatarMutation, LocalAvatarSnapshot,
+};
+pub use office_board::local_owner_actor;
+pub use office_local::{LocalBlockSnapshot, LocalOfficeError, LocalPropResolution};
+pub use office_profile::{LocalProfileError, LocalProfileMutation, LocalProfileSnapshot};
+pub use office_prop::{
+    LocalPropCatalogError, LocalPropCatalogList, LocalPropMutation, LocalPropSnapshot,
+};
+pub use office_whiteboard::WhiteboardStoreError;
+pub use office_world::{LocalWorldSnapshot, WorldStoreError};
+pub use store::OfficeStore;
 
 use std::path::{Path, PathBuf};
 use tmt_adapters::config::ConfigPaths;

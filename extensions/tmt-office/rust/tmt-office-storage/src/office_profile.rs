@@ -3,10 +3,8 @@
 use rusqlite::{OptionalExtension, params};
 use tmt_office_model::office_profile::{LocalProfile, MAX_REVISION, deterministic_default};
 
-use super::{
-    Storage, StorageError, StorageErrorCode, errors::classify,
-    identities::with_immediate_transaction,
-};
+use crate::{OfficeStore, store::with_immediate_transaction};
+use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalProfileSnapshot {
@@ -56,7 +54,7 @@ impl std::fmt::Display for LocalProfileError {
 }
 impl std::error::Error for LocalProfileError {}
 
-impl Storage {
+impl OfficeStore {
     pub fn show_local_profile(
         &self,
         identity_id: &str,
@@ -236,7 +234,7 @@ fn admit_avatar_reference(
         return Ok(());
     }
     if let Some(value) = candidate
-        && !super::office_avatar::reference_available(transaction, value)?
+        && !crate::office_avatar::reference_available(transaction, value)?
     {
         return Err(LocalProfileError::AvatarUnavailable);
     }
@@ -308,7 +306,7 @@ mod tests {
     use super::*;
     use crate::test_support::TestDirectory;
 
-    fn identity(storage: &Storage, id: &str, name: &str) {
+    fn identity(storage: &OfficeStore, id: &str, name: &str) {
         storage.connection().unwrap().execute(
             "INSERT INTO identities (id, name, canonical_name, lifetime, created_at, updated_at) VALUES (?, ?, lower(?), 'saved', 'now', 'now')",
             params![id, name, name],
@@ -329,7 +327,7 @@ mod tests {
     #[test]
     fn default_is_virtual_and_cas_preserves_noop_and_exact_retry_timestamp() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("profile.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("profile.db")).unwrap();
         let id = "01020304-1111-4111-8111-111111111111";
         identity(&storage, id, "Alice");
         storage.connection().unwrap().execute(
@@ -430,7 +428,7 @@ mod tests {
     #[test]
     fn retirement_hides_but_retains_profile_and_same_name_replacement_inherits_nothing() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("retirement.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("retirement.db")).unwrap();
         let old = "11111111-1111-4111-8111-111111111111";
         identity(&storage, old, "Alice");
         let default = storage.show_local_profile(old).unwrap().profile;
@@ -479,7 +477,7 @@ mod tests {
     #[test]
     fn avatar_admission_retention_removal_and_reinstall_are_atomic_with_profile_cas() {
         let directory = TestDirectory::new();
-        let mut storage = Storage::open(directory.path.join("avatar-profile.db")).unwrap();
+        let mut storage = OfficeStore::open(directory.path.join("avatar-profile.db")).unwrap();
         let id = "33333333-3333-4333-8333-333333333333";
         identity(&storage, id, "Signal");
         let mut candidate = storage.show_local_profile(id).unwrap().profile;
@@ -563,7 +561,7 @@ mod tests {
         for (case, explicit_null) in [("omitted", false), ("null", true)] {
             let directory = TestDirectory::new();
             let mut storage =
-                Storage::open(directory.path.join(format!("reset-{case}.db"))).unwrap();
+                OfficeStore::open(directory.path.join(format!("reset-{case}.db"))).unwrap();
             let id = "44444444-4444-4444-8444-444444444444";
             identity(&storage, id, "Resettable");
             let avatar = avatar_pack();
@@ -595,8 +593,8 @@ mod tests {
     fn catalog_removal_and_profile_adoption_have_one_ordered_transaction_boundary() {
         let directory = TestDirectory::new();
         let database = directory.path.join("avatar-profile-ordering.db");
-        let mut catalog = Storage::open(&database).unwrap();
-        let mut profiles = Storage::open(&database).unwrap();
+        let mut catalog = OfficeStore::open(&database).unwrap();
+        let mut profiles = OfficeStore::open(&database).unwrap();
         let id = "55555555-5555-4555-8555-555555555555";
         identity(&catalog, id, "Ordered");
         let avatar = avatar_pack();
@@ -649,7 +647,7 @@ mod tests {
     #[test]
     fn legacy_stored_profile_decodes_without_rewriting_bytes_revision_or_timestamp() {
         let directory = TestDirectory::new();
-        let storage = Storage::open(directory.path.join("legacy-profile.db")).unwrap();
+        let storage = OfficeStore::open(directory.path.join("legacy-profile.db")).unwrap();
         let id = "44444444-4444-4444-8444-444444444444";
         identity(&storage, id, "Legacy");
         let encoded = r#"{"displayLabel":"","description":"","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":""}}"#;

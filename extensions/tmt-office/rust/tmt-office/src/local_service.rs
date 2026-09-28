@@ -13,11 +13,8 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::config::ConfigPaths;
-use tmt_adapters::office_profile::mutation_value as local_profile_mutation;
-use tmt_adapters::office_profile::snapshot_value as local_profile_snapshot;
 use tmt_adapters::office_service;
 use tmt_adapters::office_service::ServiceReceipt;
-use tmt_adapters::storage::LocalProfileError;
 use tmt_adapters::storage::Storage;
 use tmt_adapters::tmux::BindingSession;
 use tmt_adapters::tmux::CallerEnvironment;
@@ -30,6 +27,9 @@ use tmt_office_model::codec::office_prop::PACK_INPUT_LIMIT;
 use tmt_office_model::codec::office_prop::ValidatedPropPack;
 use tmt_office_model::codec::office_prop::validate_pack as validate_prop_pack;
 use tmt_office_model::office_protocol::OfficeInvocation;
+use tmt_office_storage::access::profile::mutation_value as local_profile_mutation;
+use tmt_office_storage::access::profile::snapshot_value as local_profile_snapshot;
+use tmt_office_storage::{LocalProfileError, OfficeStore};
 
 use crate::local_assets;
 
@@ -537,7 +537,7 @@ fn api(
                 br#"{"error":"OFFICE_PROP_INVALID"}"#,
             );
         }
-        let mut storage = match Storage::open(&paths.database) {
+        let mut storage = match OfficeStore::open(&paths.database) {
             Ok(storage) => storage,
             Err(_) => {
                 return response(
@@ -619,7 +619,7 @@ fn api(
 }
 
 fn avatar_catalog_api(stream: &mut TcpStream, paths: &ConfigPaths) -> io::Result<()> {
-    let mut storage = match Storage::open(&paths.database) {
+    let mut storage = match OfficeStore::open(&paths.database) {
         Ok(storage) => storage,
         Err(_) => {
             return response(
@@ -726,17 +726,24 @@ fn profile_api(
                 );
             }
         };
-        let profiles = match storage.list_active_local_profiles() {
-            Ok(profiles) => profiles,
-            Err(_) => {
-                return response(
-                    stream,
-                    500,
-                    "application/json",
-                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-                );
-            }
-        };
+        let profiles =
+            match OfficeStore::open(&paths.database)
+                .map_err(|_| ())
+                .and_then(|mut office| {
+                    let profiles = office.list_active_local_profiles().map_err(|_| ());
+                    office.close().map_err(|_| ())?;
+                    profiles
+                }) {
+                Ok(profiles) => profiles,
+                Err(_) => {
+                    return response(
+                        stream,
+                        500,
+                        "application/json",
+                        br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                    );
+                }
+            };
         let statuses = match storage.list_active_identity_statuses() {
             Ok(statuses) => statuses,
             Err(_) => {
@@ -854,7 +861,7 @@ fn profile_api(
     } else {
         None
     };
-    let mut storage = match Storage::open(&paths.database) {
+    let mut storage = match OfficeStore::open(&paths.database) {
         Ok(storage) => storage,
         Err(_) => {
             return response(
@@ -908,7 +915,7 @@ fn board_api(
         Ok(value) => value,
         Err((status, body)) => return response(stream, status, "application/json", body),
     };
-    let body = tmt_adapters::office_board::execute_at(
+    let body = tmt_office_storage::access::board::execute_at(
         operation,
         &serde_json::to_vec(&value)?,
         &paths.database,
@@ -1586,7 +1593,9 @@ mod tests {
             "../../../contracts/avatar-pack-v1-sample.tmtavatar.json"
         ))
         .unwrap();
-        storage.install_local_avatar_pack(0, &avatar).unwrap();
+        let mut office = OfficeStore::open(&paths.database).unwrap();
+        office.install_local_avatar_pack(0, &avatar).unwrap();
+        office.close().unwrap();
         let avatar_ref = format!("{}/{}", avatar.digest(), avatar.pack().avatars[0].key);
         let identity_status = tmt_core::identity_status::set_identity_status(
             &mut storage,

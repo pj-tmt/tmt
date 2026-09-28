@@ -521,7 +521,7 @@ snapshot capture and request delivery retain separate state owners.
 [Whiteboard v1](../../extensions/tmt-office/contracts/whiteboard-v1.md) owns
 document fields, work budgets, resource behavior and the immutable reference contract.
 Native `office_whiteboard::snapshot` now owns capture metadata and exact saved-revision
-policy; `storage/office_whiteboard/snapshot` appends the retained scene, selected IDs
+policy; `tmt-office-storage::office_whiteboard::snapshot` appends the retained scene, selected IDs
 and annotation. The capture ID doubles as its operation receipt, so replay needs no
 second operation table. It reads and validates independently from the live document
 after capture. Its `snapshot/image` storage child attaches one normalized PNG using
@@ -536,7 +536,7 @@ edits. `snapshot-review` displays the returned stored PNG with a mount-owned URL
 The local runtime shares one fetch/deadline/disposal owner for JSON and PNG;
 `transport/response-body` owns bounded byte acquisition reused by pairing and PNG
 transport, while MIME checks and error mapping stay with each protocol.
-Native `office_whiteboard::access` exposes read-only snapshots through the existing
+Native `tmt-office-storage::access::whiteboard` exposes read-only snapshots through the existing
 companion protocol, calling the same retained repository as HTTP. Its parent-side
 `office_companion::whiteboard` decoder validates target/shape or PNG pixels over the
 shared bounded process owner. CLI file export stays outside the companion and uses
@@ -618,7 +618,7 @@ values, projects draft geometry and applies module or retained-area edits. It mu
 not authorize commits or silently repair invalidated placements. Whiteboard and pixel
 drafts retain `editor/snapshot-history`; the production layout uses `world-yjs`. Production
 UI and `office layout show/apply` use the whole-world API. Their HTTP and private
-companion entrypoints share `office_world::access` and its close-before-publication
+companion entrypoints share `tmt-office-storage::access::world` and its close-before-publication
 storage operation. The CLI requires an explicit revision and the read fingerprint
 at revision zero; it never selects an identity or starts the service implicitly.
 Legacy native/browser scenario fixture conversion is unfinished; production
@@ -626,7 +626,7 @@ local block transport has been removed.
 The native [whole-world value](../../extensions/tmt-office/contracts/world-v1.md) now composes
 map and prop admission, retaining ordered placements and reporting invalidated
 object IDs. Wall/window/door rules are core-owned. Schema 28 and
-`storage/office_world` now provide atomic revisioned saves and explicit legacy
+`tmt-office-storage::office_world` now provide atomic revisioned saves and explicit legacy
 cutover, including transaction-time identity, room and artwork checks. The
 world contract owns those semantics. `local_service/world` and `LocalRuntime.world`
 now expose protected whole-candidate reads/saves and preserve placement diagnostics.
@@ -782,7 +782,7 @@ instead of advertising a ready service with failing resource endpoints.
 
 The board's storage and transport follow their existing ownership independently of
 the block model. `tmt-office-model::office_board` owns its bounded values, actors,
-receipts and cursor policy; `storage::office_board` owns the single
+receipts and cursor policy; `tmt-office-storage::office_board` owns the single
 board revision, exact-UUID/owner revalidation, soft deletion, retry receipts and
 indexed pagination. CLI calls use the verified companion one-shot protocol and
 remain independent of the running web service. Authenticated loopback routes use

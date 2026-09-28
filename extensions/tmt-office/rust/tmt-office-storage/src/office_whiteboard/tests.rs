@@ -18,7 +18,7 @@ fn request() -> SaveDocument {
     }
 }
 
-fn counts(storage: &Storage) -> (i64, i64, i64, i64) {
+fn counts(storage: &OfficeStore) -> (i64, i64, i64, i64) {
     storage.connection().unwrap().query_row(
         "SELECT (SELECT count(*) FROM office_local_worlds), (SELECT count(*) FROM office_whiteboards), (SELECT count(*) FROM office_whiteboard_operations), (SELECT count(*) FROM request_attempts)", [],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -28,7 +28,7 @@ fn counts(storage: &Storage) -> (i64, i64, i64, i64) {
 #[test]
 fn observation_is_virtual_and_invalid_writes_do_not_create_resources() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     assert_eq!(
         storage.show_whiteboard(LOBBY_DOCUMENT).unwrap(),
         empty_document(LOBBY_DOCUMENT)
@@ -53,7 +53,7 @@ fn observation_is_virtual_and_invalid_writes_do_not_create_resources() {
 fn receipts_replay_original_outcomes_after_newer_edits_and_restart() {
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     let original = request();
     let first = storage.save_whiteboard(&original, 100).unwrap();
     assert_eq!(
@@ -79,7 +79,7 @@ fn receipts_replay_original_outcomes_after_newer_edits_and_restart() {
     assert_eq!(second.revision, 2);
     storage.close().unwrap();
 
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     assert_eq!(storage.save_whiteboard(&original, 400).unwrap(), first);
     assert_eq!(storage.save_whiteboard(&noop, 400).unwrap(), unchanged);
     assert_eq!(
@@ -110,7 +110,7 @@ fn receipts_replay_original_outcomes_after_newer_edits_and_restart() {
 #[test]
 fn failed_receipt_insert_rolls_back_document_and_world_then_same_intent_can_retry() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     storage.connection().unwrap().execute_batch(
         "CREATE TRIGGER reject_whiteboard_receipt BEFORE INSERT ON office_whiteboard_operations BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;"
     ).unwrap();
@@ -139,7 +139,7 @@ fn failed_receipt_insert_rolls_back_document_and_world_then_same_intent_can_retr
 fn concurrent_editors_cannot_overwrite_the_same_revision() {
     let directory = TestDirectory::new();
     let path = directory.path.join("state.db");
-    let mut storage = Storage::open(&path).unwrap();
+    let mut storage = OfficeStore::open(&path).unwrap();
     storage.save_whiteboard(&request(), 100).unwrap();
     storage.close().unwrap();
     let barrier = std::sync::Barrier::new(2);
@@ -150,7 +150,7 @@ fn concurrent_editors_cannot_overwrite_the_same_revision() {
                 let path = &path;
                 let barrier = &barrier;
                 scope.spawn(move || {
-                    let mut storage = Storage::open(path).unwrap();
+                    let mut storage = OfficeStore::open(path).unwrap();
                     let mut request = request();
                     request.expected_revision = 1;
                     request.operation_id = operation_id.into();
@@ -175,7 +175,7 @@ fn concurrent_editors_cannot_overwrite_the_same_revision() {
             .code(),
         "WHITEBOARD_REVISION_CONFLICT"
     );
-    let storage = Storage::open(&path).unwrap();
+    let storage = OfficeStore::open(&path).unwrap();
     assert_eq!(storage.show_whiteboard(LOBBY_DOCUMENT).unwrap().revision, 2);
     assert_eq!(counts(&storage), (1, 1, 2, 0));
 }
@@ -183,7 +183,7 @@ fn concurrent_editors_cannot_overwrite_the_same_revision() {
 #[test]
 fn empty_saved_documents_survive_and_exhausted_revisions_do_not_wrap() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let mut empty = request();
     empty.scene.elements.clear();
     assert!(storage.save_whiteboard(&empty, 100).unwrap().changed);

@@ -3,7 +3,6 @@
 use super::invoke_bytes_bounded;
 use crate::office_world::WorldFailure;
 use crate::office_world::decode_reply;
-use crate::storage::LocalWorldSnapshot;
 use std::{io, path::Path, time::Instant};
 use tmt_office_model::codec::office_world::SaveWorld;
 use tmt_office_model::codec::office_world::WORLD_ENVELOPE_LIMIT;
@@ -12,6 +11,7 @@ use tmt_office_model::codec::office_world::decode_save;
 use tmt_office_model::codec::office_world::save_value;
 use tmt_office_model::codec::office_world::world_value;
 use tmt_office_model::office_protocol::OfficeInvocation;
+use tmt_office_model::office_world::LocalWorldSnapshot;
 
 pub fn invoke_office_world(
     executable: &Path,

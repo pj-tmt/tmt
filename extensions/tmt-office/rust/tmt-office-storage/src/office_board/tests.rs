@@ -1,10 +1,10 @@
 use super::*;
 use crate::test_support::TestDirectory;
 
-fn insert_identity(storage: &Storage, id: &str, name: &str) {
+fn insert_identity(storage: &OfficeStore, id: &str, name: &str) {
     storage.connection().unwrap().execute("INSERT INTO identities (id,name,canonical_name,lifetime,created_at,updated_at) VALUES (?,?,?,'temporary','now','now')",params![id,name,name]).unwrap();
 }
-fn post(storage: &mut Storage, actor: Actor, operation_id: &str) -> CreateReceipt {
+fn post(storage: &mut OfficeStore, actor: Actor, operation_id: &str) -> CreateReceipt {
     storage
         .post(&PostRequest {
             category: Category::General,
@@ -26,7 +26,7 @@ fn room_categories_share_storage_without_leaking_threads_or_gating_on_membership
 fn check_retained_room_discussion(retire: bool) {
     let directory = TestDirectory::new();
     let database = directory.path.join("state.db");
-    let mut storage = Storage::open(&database).unwrap();
+    let mut storage = OfficeStore::open(&database).unwrap();
     let identity_id = "11111111-1111-4111-8111-111111111111";
     insert_identity(&storage, identity_id, "alice");
     let room_a = "22222222-2222-4222-8222-222222222222";
@@ -120,7 +120,10 @@ fn check_retained_room_discussion(retire: bool) {
     // Missing or retired rooms keep discussion history and exact receipt replay.
     if retire {
         use tmt_core::room::RoomRepository;
-        storage.retire_meeting_room(room_a, 1).unwrap();
+        // Rooms are core-owned; retire through the core store on the same file.
+        let mut core = tmt_adapters::storage::Storage::open(&database).unwrap();
+        core.retire_meeting_room(room_a, 1).unwrap();
+        core.close().unwrap();
     } else {
         storage
             .connection()
@@ -157,7 +160,7 @@ fn check_retained_room_discussion(retire: bool) {
         .unwrap();
     assert_eq!(before, after);
     storage.close().unwrap();
-    let reopened = Storage::open(&database).unwrap();
+    let reopened = OfficeStore::open(&database).unwrap();
     assert_eq!(
         reopened.list(&list(categories[2].clone())).unwrap().threads[0]
             .entry
@@ -175,7 +178,7 @@ fn check_retained_room_discussion(retire: bool) {
 #[test]
 fn mutations_replay_without_activity_and_soft_delete_without_body_receipts() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let identity_id = "11111111-1111-4111-8111-111111111111";
     insert_identity(&storage, identity_id, "alice");
     let actor = Actor::Identity {
@@ -331,7 +334,7 @@ fn mutations_replay_without_activity_and_soft_delete_without_body_receipts() {
 fn cursors_go_stale_and_category_pages_are_bounded() {
     let directory = TestDirectory::new();
     let database = directory.path.join("state.db");
-    let mut storage = Storage::open(&database).unwrap();
+    let mut storage = OfficeStore::open(&database).unwrap();
     let owner = local_owner_actor(&mut storage).unwrap();
     for index in 0..55 {
         storage
@@ -376,7 +379,7 @@ fn cursors_go_stale_and_category_pages_are_bounded() {
         .unwrap_err();
     assert_eq!(stale.code, BoardErrorCode::CursorStale);
     storage.close().unwrap();
-    let mut reopened = Storage::open(database).unwrap();
+    let mut reopened = OfficeStore::open(database).unwrap();
     let general = reopened
         .categories(&CategoryListRequest {
             limit: 1,
@@ -410,7 +413,7 @@ fn cursors_go_stale_and_category_pages_are_bounded() {
 #[test]
 fn maximum_repository_and_filters_emit_reusable_compact_cursors() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let identity_id = "11111111-1111-4111-8111-111111111111";
     insert_identity(&storage, identity_id, "alice");
     let actor = Actor::Identity {
@@ -507,7 +510,7 @@ fn maximum_repository_and_filters_emit_reusable_compact_cursors() {
 #[test]
 fn owner_moderation_is_explicit_and_never_grants_editing() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let id = "11111111-1111-4111-8111-111111111111";
     insert_identity(&storage, id, "alice");
     let entry = post(
@@ -562,7 +565,7 @@ fn owner_moderation_is_explicit_and_never_grants_editing() {
 #[test]
 fn reply_limit_is_exact_and_rejection_has_no_partial_write() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let owner = local_owner_actor(&mut storage).unwrap();
     let root = post(
         &mut storage,
@@ -601,7 +604,7 @@ fn reply_limit_is_exact_and_rejection_has_no_partial_write() {
 #[test]
 fn corrupted_create_edit_and_delete_receipts_fail_closed_without_panic() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let owner = local_owner_actor(&mut storage).unwrap();
     let op = "11111111-1111-4111-8111-111111111111";
     let created = post(&mut storage, owner.clone(), op);
@@ -685,7 +688,7 @@ fn corrupted_create_edit_and_delete_receipts_fail_closed_without_panic() {
 #[test]
 fn list_and_reply_cursors_continue_then_stale_only_after_changed_mutation() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let owner = local_owner_actor(&mut storage).unwrap();
     let mut roots = Vec::new();
     for _ in 0..3 {
@@ -813,7 +816,7 @@ fn list_and_reply_cursors_continue_then_stale_only_after_changed_mutation() {
 #[test]
 fn stale_revision_and_lost_response_replays_preserve_state_and_side_effect_tables() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     let owner = local_owner_actor(&mut storage).unwrap();
     let op = "11111111-1111-4111-8111-111111111111";
     let original = post(&mut storage, owner.clone(), op);
@@ -886,7 +889,7 @@ fn stale_revision_and_lost_response_replays_preserve_state_and_side_effect_table
 #[test]
 fn board_query_plans_use_recent_updated_and_reply_indexes() {
     let directory = TestDirectory::new();
-    let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+    let mut storage = OfficeStore::open(directory.path.join("state.db")).unwrap();
     for (view, index) in [
         (ListView::Recent, "office_board_recent"),
         (ListView::Updated, "office_board_updated"),
@@ -944,7 +947,7 @@ fn board_query_plans_use_recent_updated_and_reply_indexes() {
 fn independently_committed_replies_have_exact_count_and_monotonic_revision() {
     let directory = TestDirectory::new();
     let database = directory.path.join("state.db");
-    let mut first = Storage::open(&database).unwrap();
+    let mut first = OfficeStore::open(&database).unwrap();
     let owner = local_owner_actor(&mut first).unwrap();
     let root = post(
         &mut first,
@@ -952,7 +955,7 @@ fn independently_committed_replies_have_exact_count_and_monotonic_revision() {
         "11111111-1111-4111-8111-111111111111",
     );
     first.close().unwrap();
-    let mut second = Storage::open(&database).unwrap();
+    let mut second = OfficeStore::open(&database).unwrap();
     second
         .reply(&ReplyRequest {
             thread_id: root.thread_id.clone(),
@@ -967,7 +970,7 @@ fn independently_committed_replies_have_exact_count_and_monotonic_revision() {
         .query_row("SELECT revision FROM office_board_state", [], |r| r.get(0))
         .unwrap();
     second.close().unwrap();
-    let mut third = Storage::open(&database).unwrap();
+    let mut third = OfficeStore::open(&database).unwrap();
     third
         .reply(&ReplyRequest {
             thread_id: root.thread_id,
@@ -1001,7 +1004,7 @@ fn concurrent_reply_limit_and_stale_edit_are_serialized_without_lost_updates() {
     use std::sync::{Arc, Barrier};
     let directory = TestDirectory::new();
     let database = directory.path.join("state.db");
-    let mut setup = Storage::open(&database).unwrap();
+    let mut setup = OfficeStore::open(&database).unwrap();
     let owner = local_owner_actor(&mut setup).unwrap();
     let root = post(
         &mut setup,
@@ -1032,7 +1035,7 @@ fn concurrent_reply_limit_and_stale_edit_are_serialized_without_lost_updates() {
         let actor = owner.clone();
         let thread = root.thread_id.clone();
         handles.push(std::thread::spawn(move || {
-            let mut storage = Storage::open(db).unwrap();
+            let mut storage = OfficeStore::open(db).unwrap();
             gate.wait();
             storage
                 .reply(&ReplyRequest {
@@ -1058,7 +1061,7 @@ fn concurrent_reply_limit_and_stale_edit_are_serialized_without_lost_updates() {
             .count(),
         1
     );
-    let mut storage = Storage::open(&database).unwrap();
+    let mut storage = OfficeStore::open(&database).unwrap();
     let state:(i64,i64)=storage.connection().unwrap().query_row("SELECT (SELECT count(*) FROM office_board_entries WHERE is_root=0),revision FROM office_board_state",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
     assert_eq!(state, (REPLY_LIMIT as i64, before + 1));
     let edit_root = post(
@@ -1075,7 +1078,7 @@ fn concurrent_reply_limit_and_stale_edit_are_serialized_without_lost_updates() {
         let actor = owner.clone();
         let entry = edit_root.entry_id.clone();
         handles.push(std::thread::spawn(move || {
-            let mut storage = Storage::open(db).unwrap();
+            let mut storage = OfficeStore::open(db).unwrap();
             gate.wait();
             storage
                 .edit(&EditRequest {
@@ -1103,7 +1106,7 @@ fn concurrent_reply_limit_and_stale_edit_are_serialized_without_lost_updates() {
             .count(),
         1
     );
-    let mut storage = Storage::open(database).unwrap();
+    let mut storage = OfficeStore::open(database).unwrap();
     let shown = storage
         .show(&ShowRequest {
             thread_id: edit_root.thread_id,

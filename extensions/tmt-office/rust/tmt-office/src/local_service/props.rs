@@ -6,10 +6,9 @@ use serde_json::json;
 use std::{io, net::TcpStream};
 use tmt_adapters::config::ConfigPaths;
 use tmt_adapters::office_service::ServiceReceipt;
-use tmt_adapters::storage::LocalPropCatalogError;
-use tmt_adapters::storage::Storage;
 use tmt_office_model::codec::office_prop;
 use tmt_office_model::codec::office_prop::ValidatedPropPack;
+use tmt_office_storage::{LocalPropCatalogError, OfficeStore};
 
 const LIST: &str = "/api/v1/local/props/list";
 const INSTALL: &str = "/api/v1/local/props/install";
@@ -105,7 +104,7 @@ pub(super) fn api(
             br#"{"error":"OFFICE_PROP_INVALID"}"#,
         );
     };
-    let mut storage = match Storage::open(&paths.database) {
+    let mut storage = match OfficeStore::open(&paths.database) {
         Ok(storage) => storage,
         Err(_) => {
             return response(
@@ -153,7 +152,7 @@ pub(super) fn api(
                 status,
                 "application/json",
                 &serde_json::to_vec(
-                    &json!({"error":tmt_adapters::office_prop::catalog_error(error).code()}),
+                    &json!({"error":tmt_office_storage::access::prop::catalog_error(error).code()}),
                 )?,
             )
         }

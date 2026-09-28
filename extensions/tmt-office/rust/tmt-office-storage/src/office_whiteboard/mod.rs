@@ -8,10 +8,8 @@ use tmt_office_model::office_whiteboard::document::{
     valid_document_id, validate_save,
 };
 
-use super::{
-    Storage, StorageError, StorageErrorCode, errors::classify,
-    identities::with_immediate_transaction,
-};
+use crate::{OfficeStore, store::with_immediate_transaction};
+use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 use tmt_core::content_digest::framed_sha256;
 use tmt_office_model::codec::office_whiteboard::decode_scene;
 use tmt_office_model::codec::office_whiteboard::encode_scene;
@@ -58,7 +56,7 @@ impl From<DocumentError> for WhiteboardStoreError {
     }
 }
 
-impl Storage {
+impl OfficeStore {
     pub fn show_whiteboard(&self, id: &str) -> Result<WhiteboardDocument, WhiteboardStoreError> {
         if !valid_document_id(id) {
             return Err(DocumentError::Invalid.into());
@@ -88,7 +86,7 @@ impl Storage {
             .as_bytes(),
         );
         with_immediate_transaction(self, "whiteboard save", |transaction| {
-            let world_id = super::office_world::ensure_world(transaction, || {
+            let world_id = crate::office_world::ensure_world(transaction, || {
                 Ok(i64::try_from(now_ms).expect("validated timestamp"))
             })?;
             let replay = transaction.query_row(
