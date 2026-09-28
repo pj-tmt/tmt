@@ -1,6 +1,7 @@
 //! `tmt squad` (alias `tmt sq`): an optional extension reached through TMT's
 //! external command dispatch. It keeps no state of its own.
 
+mod board;
 mod config;
 mod core;
 mod filter;
@@ -91,6 +92,11 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
+            Command::new("board")
+                .about("Open the terminal board (prints status without a terminal)")
+                .arg(squad_option()),
+        )
+        .subcommand(
             Command::new("skill")
                 .about("The tmt-squad skill for lead agents")
                 .subcommand_required(true)
@@ -142,7 +148,7 @@ fn complete(words: &[String]) -> Vec<String> {
 
 fn human(command: &str, document: &Value) -> String {
     match command {
-        "status" => status::text(document),
+        "status" | "board" => status::text(document),
         "init" => format!(
             "Squad {} {} (room squad-{}); you are {}.\n",
             document["squad"]["name"].as_str().unwrap_or_default(),
@@ -237,6 +243,17 @@ fn main() -> ExitCode {
         }
         _ => {}
     }
+    // The board needs a terminal; otherwise it is `status`, text or JSON.
+    if command == "board" && !json && std::io::stdout().is_terminal() {
+        let squad = sub.get_one::<String>("squad").cloned();
+        return match Core::discover().and_then(|core| board::run(core, squad)) {
+            Ok(signal) => ExitCode::from(board::exit_status(signal)),
+            Err(failure) => {
+                let _ = writeln!(std::io::stderr(), "tmt squad: {failure}");
+                ExitCode::from(1)
+            }
+        };
+    }
     let (body, code) = match run(command, sub) {
         Ok(outcome) => {
             let rendered = if json {
@@ -276,7 +293,9 @@ mod tests {
         assert_eq!(complete(&words("-- s")), ["set", "skill", "status"]);
         assert_eq!(
             complete(&words("-- ")),
-            ["add", "init", "lead", "remove", "set", "skill", "status"]
+            [
+                "add", "board", "init", "lead", "remove", "set", "skill", "status"
+            ]
         );
         assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);
         assert_eq!(complete(&words("-- skill s")), ["show"]);

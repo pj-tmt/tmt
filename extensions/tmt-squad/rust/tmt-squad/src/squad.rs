@@ -84,21 +84,7 @@ impl Squad {
                 Err(error) => Err(error),
             };
         }
-        let listed = core.json(&["room", "list"])?;
-        let mut squads: Vec<Self> = listed["rooms"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|room| {
-                let name = room["name"].as_str()?.strip_prefix("squad-")?;
-                valid_name(name).then(|| {
-                    Ok(Self {
-                        name: name.into(),
-                        room_id: room_id(room)?,
-                    })
-                })
-            })
-            .collect::<Result<_, SquadError>>()?;
+        let mut squads = Self::list(core)?;
         match squads.len() {
             1 => Ok(squads.remove(0)),
             0 => Err(SquadError::new(
@@ -117,6 +103,25 @@ impl Squad {
                 ),
             )),
         }
+    }
+
+    /// Every active squad room, in core's room order (by name).
+    pub fn list(core: &Core) -> Result<Vec<Self>, SquadError> {
+        let listed = core.json(&["room", "list"])?;
+        listed["rooms"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|room| {
+                let name = room["name"].as_str()?.strip_prefix("squad-")?;
+                valid_name(name).then(|| {
+                    Ok(Self {
+                        name: name.into(),
+                        room_id: room_id(room)?,
+                    })
+                })
+            })
+            .collect()
     }
 
     /// One roster snapshot joined with presence from `ls`, which owns host

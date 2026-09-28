@@ -4,6 +4,7 @@
 use crate::core::{Core, SquadError};
 use crate::filter::{Filter, Row};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{self, Read, Write},
     os::unix::fs::OpenOptionsExt,
@@ -147,10 +148,68 @@ impl Layout {
         }
     }
 
+    /// Default state colors; `squad.<name>.states` overrides them.
+    fn state_colors(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Self::Crew => &[
+                ("working", "green"),
+                ("idle", "dim"),
+                ("blocked", "amber"),
+                ("review", "cyan"),
+                ("testing", "blue"),
+                ("hold", "dim"),
+            ],
+            Self::PrQueue => &[
+                ("preparing", "dim"),
+                ("ready", "green"),
+                ("sent", "cyan"),
+                ("merged", "dim"),
+            ],
+            Self::Minimal => &[],
+        }
+    }
+
     /// Crew sorts rows that owe the user a decision (`pending`) first.
     pub fn pending_first(self) -> bool {
         self == Self::Crew
     }
+}
+
+/// Colors a user may name; the board maps them onto terminal colors.
+pub const COLORS: &[&str] = &[
+    "default", "dim", "red", "amber", "green", "cyan", "blue", "magenta",
+];
+
+/// One board column: a row field (`member` is the name), its title and width.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Column {
+    pub field: String,
+    pub title: String,
+    /// Display cells; None shares the remaining width.
+    pub width: Option<u16>,
+}
+
+fn default_columns() -> Vec<Column> {
+    [
+        ("member", "MEMBER", Some(14)),
+        ("state", "STATE", Some(10)),
+        ("task", "TASK", None),
+        ("pr_link", "PR", Some(12)),
+    ]
+    .into_iter()
+    .map(|(field, title, width)| Column {
+        field: field.into(),
+        title: title.into(),
+        width,
+    })
+    .collect()
+}
+
+fn field_name(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
 fn invalid(message: impl Into<String>) -> SquadError {
@@ -268,6 +327,150 @@ impl Config {
             .enumerate()
             .map(|(index, table)| Section::read(table, &format!("{place}[{index}]")))
             .collect()
+    }
+
+    /// `[squad.<name>.columns]`: `show` lists fields in order; a table named
+    /// after a field sets its `title` and `width`.
+    pub fn columns(&self, squad: &str) -> Result<Vec<Column>, SquadError> {
+        let place = format!("squad.{squad}.columns");
+        let Some(item) = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("columns"))
+        else {
+            return Ok(default_columns());
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+        let defaults = default_columns();
+        let show: Vec<String> = match table.get("show") {
+            None => defaults.iter().map(|column| column.field.clone()).collect(),
+            Some(show) => show
+                .as_array()
+                .filter(|fields| (1..=12).contains(&fields.len()))
+                .ok_or_else(|| invalid(format!("`{place}.show` must list 1-12 fields.")))?
+                .iter()
+                .map(|field| {
+                    field
+                        .as_str()
+                        .filter(|field| field_name(field))
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid(format!("`{place}.show` entries are field names.")))
+                })
+                .collect::<Result<_, _>>()?,
+        };
+        for (key, _) in table.iter() {
+            if key != "show" && !show.iter().any(|field| field == key) {
+                return Err(invalid(format!(
+                    "`{place}.{key}` configures a column that is not shown."
+                )));
+            }
+        }
+        show.into_iter()
+            .map(|field| {
+                let default = defaults.iter().find(|column| column.field == field);
+                let mut column = Column {
+                    title: default
+                        .map_or_else(|| field.to_uppercase(), |column| column.title.clone()),
+                    width: default.and_then(|column| column.width),
+                    field,
+                };
+                if let Some(settings) = table.get(&column.field) {
+                    let settings = settings.as_table_like().ok_or_else(|| {
+                        invalid(format!("`{place}.{}` must be a table.", column.field))
+                    })?;
+                    for (key, value) in settings.iter() {
+                        match key {
+                            "title" => {
+                                column.title = value
+                                    .as_str()
+                                    .filter(|title| {
+                                        title.len() <= 40 && !title.chars().any(char::is_control)
+                                    })
+                                    .ok_or_else(|| {
+                                        invalid(format!(
+                                            "`{place}.{}.title` must be one short line.",
+                                            column.field
+                                        ))
+                                    })?
+                                    .into();
+                            }
+                            "width" => {
+                                column.width = Some(
+                                    value
+                                        .as_integer()
+                                        .and_then(|width| u16::try_from(width).ok())
+                                        .filter(|width| (1..=200).contains(width))
+                                        .ok_or_else(|| {
+                                            invalid(format!(
+                                                "`{place}.{}.width` must be 1-200.",
+                                                column.field
+                                            ))
+                                        })?,
+                                );
+                            }
+                            other => {
+                                return Err(invalid(format!(
+                                    "`{place}.{}.{other}` is not a column setting.",
+                                    column.field
+                                )));
+                            }
+                        }
+                    }
+                }
+                Ok(column)
+            })
+            .collect()
+    }
+
+    /// State colors: the layout's defaults, overridden by
+    /// `[squad.<name>.states] <state> = { color = "..." }`.
+    pub fn state_colors(
+        &self,
+        squad: &str,
+        layout: Layout,
+    ) -> Result<BTreeMap<String, String>, SquadError> {
+        let mut colors: BTreeMap<String, String> = layout
+            .state_colors()
+            .iter()
+            .map(|(state, color)| ((*state).into(), (*color).into()))
+            .collect();
+        let place = format!("squad.{squad}.states");
+        let Some(item) = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("states"))
+        else {
+            return Ok(colors);
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid(format!("`{place}` must be a table of states.")))?;
+        for (state, settings) in table.iter() {
+            let settings = settings
+                .as_table_like()
+                .filter(|_| field_name(state))
+                .ok_or_else(|| invalid(format!("`{place}.{state}` must be a table.")))?;
+            for (key, value) in settings.iter() {
+                let color = value.as_str().filter(|color| COLORS.contains(color));
+                match (key, color) {
+                    ("color", Some(color)) => {
+                        colors.insert(state.into(), color.into());
+                    }
+                    ("color", None) => {
+                        return Err(invalid(format!(
+                            "`{place}.{state}.color` must be one of {}.",
+                            COLORS.join(", ")
+                        )));
+                    }
+                    (other, _) => {
+                        return Err(invalid(format!(
+                            "`{place}.{state}.{other}` is not supported yet; use color."
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(colors)
     }
 
     /// Writes `me` by replacing the file atomically. Refuses if another editor
@@ -448,6 +651,65 @@ sort = ["state", "-name"]
             fs::write(&path, body).unwrap();
             let code = Config::read(path.clone())
                 .and_then(|config| config.sections("x"))
+                .err()
+                .map(|error| error.code);
+            assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn columns_and_state_colors_default_by_layout_and_override_strictly() {
+        let path = temp("board");
+        fs::write(
+            &path,
+            "[squad.product.columns]\nshow = [\"member\", \"state\", \"note\"]\nnote = { title = \"WHY\", width = 30 }\n\
+             [squad.product.states]\nblocked = { color = \"red\" }\nparked = { color = \"dim\" }\n",
+        )
+        .unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        let defaults = config.columns("other").unwrap();
+        assert_eq!(
+            defaults
+                .iter()
+                .map(|c| c.field.as_str())
+                .collect::<Vec<_>>(),
+            ["member", "state", "task", "pr_link"]
+        );
+        let columns = config.columns("product").unwrap();
+        assert_eq!(
+            columns[2],
+            Column {
+                field: "note".into(),
+                title: "WHY".into(),
+                width: Some(30)
+            }
+        );
+        assert_eq!(columns[0].title, "MEMBER");
+        let colors = config.state_colors("product", Layout::Crew).unwrap();
+        assert_eq!(colors["blocked"], "red");
+        assert_eq!(colors["parked"], "dim");
+        assert_eq!(colors["working"], "green", "layout defaults remain");
+        assert!(
+            config
+                .state_colors("other", Layout::Minimal)
+                .unwrap()
+                .is_empty()
+        );
+        for body in [
+            "[squad.x.columns]\nshow = []\n",
+            "[squad.x.columns]\nshow = [\"Bad\"]\n",
+            "[squad.x.columns]\ntask = { width = 5 }\nshow = [\"member\"]\n",
+            "[squad.x.columns]\nmember = { width = 0 }\n",
+            "[squad.x.columns]\nmember = { align = \"left\" }\n",
+            "[squad.x.states]\nworking = { color = \"teal\" }\n",
+            "[squad.x.states]\nworking = { sort = 1 }\n",
+        ] {
+            fs::write(&path, body).unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            let code = config
+                .columns("x")
+                .and_then(|_| config.state_colors("x", Layout::Crew))
                 .err()
                 .map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
