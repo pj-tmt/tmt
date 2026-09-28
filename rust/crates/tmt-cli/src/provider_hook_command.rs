@@ -73,10 +73,18 @@ pub fn execute(worker: bool) -> io::Result<u8> {
 fn observe(input: &str, deadline: Instant) -> Result<String, ()> {
     let event = claude::decode_hook(input.as_bytes()).map_err(|_| ())?;
     let tmux = Tmux::new(SupervisedProbeRunner);
-    let pane = tmux
+    let Some(pane) = tmux
         .caller_pane(&CallerEnvironment::current())
         .map_err(|_| ())?
-        .ok_or(())?;
+    else {
+        // Global hooks also run outside tmux. Absence is normal, not a
+        // context failure; never suggest creating an identity in that case.
+        return if Instant::now() < deadline {
+            Ok(String::new())
+        } else {
+            Err(())
+        };
+    };
     let snapshot = tmux
         .observe_snapshot(OperationOptions {
             deadline: Some(deadline),

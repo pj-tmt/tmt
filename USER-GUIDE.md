@@ -98,7 +98,7 @@ its lifetime, a short role summary, an existing saved notes path, and counts wit
 inspect commands for unacknowledged originated and incoming X items. It does not
 include request bodies or IDs, read notebook contents, bind an identity, create
 files, renew retention or mark messages read. A verified empty pane gets the hint
-`This pane has no TMT identity; run: tmt name <name> (-s to save)`.
+`TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).`
 Unavailable or ambiguous evidence instead returns empty human output (JSON
 `status: "unavailable"`) successfully; it does not guess an identity.
 

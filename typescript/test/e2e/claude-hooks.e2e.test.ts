@@ -63,7 +63,7 @@ describe.sequential('Claude hooks with a real pane and verified runtime ancestry
         expect(results.every((item) => item.code === 0)).toBe(true);
         expect(results[0].stderr).toBe('');
         expect(JSON.parse(results[0].stdout).hookSpecificOutput.additionalContext).toBe(
-          'This pane has no TMT identity; run: tmt name <name> (-s to save)\n'
+          'TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).\n'
         );
         const identity = JSON.parse(results[1].stdout);
         for (const index of [2, 5, 9]) {

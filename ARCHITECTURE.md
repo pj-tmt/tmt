@@ -846,7 +846,10 @@ group. A failed worker terminates its own group before exiting; the supervisor
 owns deadline termination and reaping, so nested probes cannot escape cleanup.
 Hooks open only existing compatible storage, use a short lock wait, and never
 migrate it. Timeout/error emits no context and at most
-one fixed stderr line. Successful starts reuse the read-only context formatter;
+one fixed stderr line. No resolvable caller pane is a normal silent outcome,
+without context or diagnostics. A verified empty pane receives only user-facing
+information, never an instruction for an agent to bind itself.
+Successful starts reuse the read-only context formatter;
 ends emit no stdout. Provider configuration is changed only by consented setup,
 not by a hook, ordinary command, or skill installation.
 

@@ -5,7 +5,7 @@ use std::io;
 use tmt_adapters::storage::IdentityContextSnapshot;
 
 pub(super) const OUTPUT_LIMIT: usize = 4096;
-const UNBOUND_HINT: &str = "This pane has no TMT identity; run: tmt name <name> (-s to save)";
+const UNBOUND_HINT: &str = "TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).";
 
 pub(super) fn unbound() -> Value {
     json!({"bound": false, "status": "unbound", "hint": UNBOUND_HINT})

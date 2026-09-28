@@ -17,7 +17,8 @@ describe.sequential('read-only identity context through verified callers', () =>
       expect(context).toMatchObject({
         code: 0,
         stderr: '',
-        stdout: 'This pane has no TMT identity; run: tmt name <name> (-s to save)\n',
+        stdout:
+          'TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).\n',
       });
       expect(await fixture.runJsonCli(['whoami', '--context'])).toMatchObject({
         code: 0,

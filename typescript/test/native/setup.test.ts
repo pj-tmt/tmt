@@ -68,6 +68,27 @@ describe('consented Claude setup and bounded hook boundary', () => {
     });
   });
 
+  it('silently ignores a valid hook with no resolvable caller pane', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = path.join(sandbox.root, 'no-pane');
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, 'tmux'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+      const before = fileSnapshot(sandbox.root);
+      for (const event of [
+        { hook_event_name: 'SessionStart', source: 'startup' },
+        { hook_event_name: 'SessionEnd', reason: 'prompt_input_exit' },
+      ]) {
+        const result = await runCli(sandbox, ['__hook', 'claude'], {
+          stdin: JSON.stringify({ ...event, session_id: 'outside-tmux' }),
+        });
+        expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' });
+      }
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
   it('fails open without context or storage on malformed, excessive or incomplete hook input', async () => {
     await withSandbox(async (sandbox) => {
       const before = fileSnapshot(sandbox.root);

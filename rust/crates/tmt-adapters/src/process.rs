@@ -125,7 +125,20 @@ impl SupervisedProbeRunner {
 
 impl CommandRunner for SupervisedProbeRunner {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
-        start_command(request, false)?.wait()
+        let result = start_command(request, false)?.wait();
+        if result.as_ref().is_err_and(|error| {
+            error.cleanup_failed()
+                || matches!(
+                    error.kind,
+                    CommandFailure::Timeout | CommandFailure::OutputLimit | CommandFailure::Io
+                )
+        }) {
+            // Observation adapters may map unavailable evidence to None. A
+            // failed bounded probe is not absence: abort while the worker owns
+            // its group so that such mapping cannot leave descendants alive.
+            let _ = Self::abort_worker_group();
+        }
+        result
     }
 }
 
