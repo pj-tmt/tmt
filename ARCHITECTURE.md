@@ -912,6 +912,41 @@ recover immutable acceptance; replay never wakes again. Clients must recover a
 receipt or current room revision after interrupted writes, not invent a new
 operation ID and resend. See [extension API usage](docs/extension-api.md).
 
+### Extension hooks (v1)
+
+`tmt-adapters::extension_hooks` owns consented, best-effort lifecycle
+observations. PATH discovery alone never runs a hook: `tmt extension hooks
+enable <name>` resolves `tmt-<name>`, requires a regular executable owned by the
+current user with neither the file nor its directory writable by others, probes
+`tmt-<name> __tmt-hooks 1 capabilities` (a `TMT-HOOKS/1` header and a token set,
+1 s, 1 KiB), and records the canonical path, SHA-256 digest, a metadata
+fingerprint and the capabilities in `<global>/extension-hooks.json` (0600,
+replaced atomically). Before each delivery core re-checks ownership and the
+fingerprint; any change skips the extension until it is enabled again. The
+grammar stays composable under `tmt extension` for installation commands.
+
+Capture is per connection and transactional. When the process allows capture
+(only the `tmt` CLI does) and an enabled extension offers
+`lifecycle_observations_v1`, `Storage::open` installs temporary triggers that
+record typed evidence in a temporary table: `identity.created` and
+`identity.retired` (UUID, lifetime, retired) and `room.created`, `room.updated`
+and `room.retired` (UUID, revision, retired), never names, messages or payloads.
+Temporary tables take part in the transaction, so rolled-back changes leave no
+evidence and nothing is persisted. Storage drains the table on close or drop;
+after the command the CLI runs `tmt-<name> __tmt-hooks 1 observe` for each
+still-verified observer with the events on stdin, through the supervised process
+owner under one aggregate 500 ms deadline and 4 KiB output budget. Output is
+discarded, and no exit status, timeout or failure changes the command's result;
+consumers must converge through their own reconciliation. Every hook call
+carries `TMT_HOOK_DELIVERY=1`, and a `tmt` process that sees it captures
+nothing, so an extension calling `tmt` cannot cause nested delivery.
+
+With no consent file or no enabled observer, a command performs at most one read
+attempt of the consent file, on its first storage open, and spawns nothing;
+commands that never open storage do no hook work at all. Office implements the
+protocol by running its full reconciliation on `observe`, and stays inactive
+until the user enables it.
+
 ### Core command surface
 
 The maintained public surface is:

@@ -8,6 +8,7 @@ use tmt_office_model::office_protocol::{
     OfficeInvocation, encode_office_capabilities, encode_office_probe,
 };
 
+mod hooks_command;
 #[cfg(feature = "local-service")]
 mod local_assets;
 #[cfg(feature = "local-service")]
@@ -46,6 +47,12 @@ fn main() -> ExitCode {
         .is_some_and(|argument| argument == storage_command::PREFIX)
     {
         return storage_command::run(&arguments);
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == hooks_command::PREFIX)
+    {
+        return hooks_command::run(&arguments);
     }
     if !arguments
         .first()

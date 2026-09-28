@@ -56,6 +56,9 @@ pub struct StorageHealth {
 pub struct Storage {
     path: PathBuf,
     connection: Option<Connection>,
+    /// Whether this connection records lifecycle evidence for enabled
+    /// extension hooks (see `extension_hooks`).
+    capturing: bool,
 }
 
 impl Storage {
@@ -76,6 +79,7 @@ impl Storage {
         Ok(Self {
             path: path.to_path_buf(),
             connection: Some(connection),
+            capturing: false,
         })
     }
 
@@ -111,9 +115,16 @@ impl Storage {
             let _ = connection.close();
             return Err(primary);
         }
+        // Observation is best-effort: a capture that cannot be installed is
+        // skipped rather than failing storage.
+        let capturing = crate::extension_hooks::should_capture(&path)
+            && connection
+                .execute_batch(crate::extension_hooks::CAPTURE_SQL)
+                .is_ok();
         Ok(Self {
             path,
             connection: Some(connection),
+            capturing,
         })
     }
 
@@ -154,6 +165,9 @@ impl Storage {
         let Some(connection) = self.connection.take() else {
             return Ok(());
         };
+        if self.capturing {
+            crate::extension_hooks::drain(&connection);
+        }
         let checkpoint_result = checkpoint(&connection, &self.path, CheckpointMode::Passive);
         let close_result = connection
             .close()
@@ -172,6 +186,16 @@ impl Storage {
         self.connection
             .as_mut()
             .ok_or_else(|| StorageError::new(StorageErrorCode::Closed, "Storage is already closed"))
+    }
+}
+
+impl Drop for Storage {
+    fn drop(&mut self) {
+        if self.capturing
+            && let Some(connection) = &self.connection
+        {
+            crate::extension_hooks::drain(connection);
+        }
     }
 }
 

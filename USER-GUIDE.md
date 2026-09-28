@@ -308,6 +308,23 @@ Reload the agent before using the new skills. See
 contract; the installed skill owns agent safety, selective notes, decoration,
 pairing, and board behavior.
 
+## Extension hooks
+
+Extensions found on `PATH` run only when you invoke them. To let an extension
+react to identity and room changes, enable its hooks explicitly:
+
+```sh
+tmt extension hooks enable office   # trust tmt-office on PATH
+tmt extension hooks list
+tmt extension hooks disable office
+```
+
+Enabling requires an executable you own that no one else can modify, and records
+exactly that file; after an upgrade or any change, enable it again. Hooks receive
+only UUIDs and states, never names or messages, and cannot block or change a
+command. For Office, enabling hooks keeps retired identities and rooms marked
+without waiting for the next Office command.
+
 ## Optional squad extension
 
 Squad organizes agents into squads: a lead that dispatches work and keeps the

@@ -194,6 +194,26 @@ pub fn grammar() -> Command {
         "Detach this pane; retire temporary identity",
     ))
     .subcommand(
+        general("extension", "Manage consented extension integrations")
+            .subcommand_required(true)
+            .subcommand(
+                general("hooks", "Manage lifecycle hooks for trusted extensions")
+                    .subcommand_required(true)
+                    .subcommand(
+                        general(
+                            "enable",
+                            "Trust tmt-<name> on PATH to receive lifecycle observations",
+                        )
+                        .arg(operand("name", true)),
+                    )
+                    .subcommand(
+                        general("disable", "Stop delivering hooks to an extension")
+                            .arg(operand("name", true)),
+                    )
+                    .subcommand(general("list", "List extensions with enabled hooks")),
+            ),
+    )
+    .subcommand(
         general("config", "View or modify settings")
             .subcommand(general("show", "Show settings"))
             .subcommand(
