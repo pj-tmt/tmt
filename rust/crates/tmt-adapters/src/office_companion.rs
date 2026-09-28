@@ -1063,11 +1063,11 @@ fn invoke_bytes_bounded(
     deadline: Instant,
     max_output_bytes: usize,
 ) -> io::Result<Vec<u8>> {
-    let args = operation.arguments().map(OsString::from);
     let running = native_install::with_active_product(Product::Office, executable, |installed| {
+        let args = companion_arguments(&installed.active_executable, operation)?;
         UnixCommandRunner
             .start(CommandRequest {
-                program: installed.active_executable.as_os_str(),
+                program: std::ffi::OsStr::new(ENV),
                 args: &args,
                 input,
                 deadline,
@@ -1082,6 +1082,24 @@ fn invoke_bytes_bounded(
     Ok(output.stdout)
 }
 
+const ENV: &str = "/usr/bin/env";
+
+/// `env` arguments that run one companion operation with `TMT_EXECUTABLE` set
+/// to this `tmt`, so the companion reaches core through the same executable
+/// (public commands and `tmt api`), never whichever `tmt` is first on PATH.
+/// `env` sets only the child's variable, as extension dispatch does.
+fn companion_arguments(
+    executable: &Path,
+    operation: OfficeInvocation,
+) -> io::Result<Vec<OsString>> {
+    let mut selector = OsString::from("TMT_EXECUTABLE=");
+    selector.push(std::env::current_exe()?);
+    Ok([selector, executable.as_os_str().to_owned()]
+        .into_iter()
+        .chain(operation.arguments().map(OsString::from))
+        .collect())
+}
+
 fn start_selected(
     executable: &Path,
     operation: OfficeInvocation,
@@ -1089,10 +1107,10 @@ fn start_selected(
     deadline: Instant,
     max_output_bytes: usize,
 ) -> io::Result<RunningCommand> {
-    let args = operation.arguments().map(OsString::from);
+    let args = companion_arguments(executable, operation)?;
     UnixCommandRunner
         .start(CommandRequest {
-            program: executable.as_os_str(),
+            program: std::ffi::OsStr::new(ENV),
             args: &args,
             input,
             deadline,

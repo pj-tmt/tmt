@@ -12,6 +12,7 @@ use tmt_office_model::office_protocol::{
 mod local_assets;
 #[cfg(feature = "local-service")]
 mod local_service;
+mod retirement_consumer;
 mod storage_command;
 
 fn main() -> ExitCode {
@@ -142,11 +143,7 @@ fn main() -> ExitCode {
                     ) {
                         tmt_office_storage::access::board::execute(operation, &input)
                     } else {
-                        tmt_adapters::office_pairing::execute(
-                            operation,
-                            &input,
-                            &tmt_office_storage::retirement::OfficeRetirementFence::discover(),
-                        )
+                        pairing(operation, &input)
                     };
                     io::stdout().lock().write_all(&output)
                 }
@@ -161,6 +158,25 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,
+    }
+}
+
+/// Pairing operations reach core through the invoking `tmt`; retirement
+/// delivery runs in this companion's consumer.
+fn pairing(operation: OfficeInvocation, input: &[u8]) -> Vec<u8> {
+    if operation == OfficeInvocation::Sync {
+        return retirement_consumer::execute(input);
+    }
+    match retirement_consumer::CoreApi::discover() {
+        Ok(core) => tmt_adapters::office_pairing::execute(
+            operation,
+            input,
+            &core,
+            &tmt_office_storage::retirement::OfficeRetirementFence::discover(),
+        ),
+        Err(error) => {
+            serde_json::to_vec(&serde_json::json!({"error": error.code()})).expect("static error")
+        }
     }
 }
 

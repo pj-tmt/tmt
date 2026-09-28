@@ -48,6 +48,23 @@ pub(super) fn enqueue_retirement(
 }
 
 impl Storage {
+    /// This consumer's hook state, or `None` when it has no such hook.
+    pub fn identity_hook_state(
+        &self,
+        hook: &IdentityHook,
+    ) -> Result<Option<IdentityHookState>, StorageError> {
+        let value: Option<String> = self
+            .connection()?
+            .query_row(
+                "SELECT state FROM identity_hooks WHERE consumer = ? AND identity_id = ? AND reference = ?",
+                params![hook.consumer(), hook.identity_id(), hook.reference()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| classify(error, "Read identity hook state"))?;
+        value.as_deref().map(state).transpose()
+    }
+
     pub fn register_identity_hook(
         &mut self,
         hook: &IdentityHook,

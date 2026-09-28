@@ -67,14 +67,44 @@ impl ProcessCoreAccess {
         })
     }
 
+    /// One versioned `tmt api` request; core's structured error is preserved.
+    pub fn api(
+        &self,
+        operation: &str,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, Failure> {
+        let request = serde_json::json!({"version": 1, "operation": operation, "input": input});
+        self.run(&[OsString::from("api")], request.to_string().as_bytes())
+    }
+
+    /// The active identity with exactly this UUID, or `None` when it is
+    /// missing or retired. The public selector also matches names, so a
+    /// different identity named like the UUID is not this identity.
+    pub fn active_identity_by_id(&self, id: &str) -> Result<Option<OfficeIdentity>, Failure> {
+        match self.invoke(&["identity", "show", "--", id]) {
+            Ok(value) => {
+                let identity = identity(&value, true)?;
+                Ok((identity.id == id).then_some(identity))
+            }
+            Err(error) if matches!(error.code.as_str(), "NAME_NOT_FOUND" | "INVALID_NAME") => {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     fn invoke(&self, arguments: &[&str]) -> Result<serde_json::Value, Failure> {
         let args: Vec<OsString> = std::iter::once(OsString::from("--json"))
             .chain(arguments.iter().map(OsString::from))
             .collect();
+        self.run(&args, b"")
+    }
+
+    fn run(&self, args: &[OsString], input: &[u8]) -> Result<serde_json::Value, Failure> {
         let result = UnixCommandRunner.execute(CommandRequest {
             program: self.executable.as_os_str(),
-            args: &args,
-            input: b"",
+            args,
+            input,
             deadline: Instant::now() + CORE_DEADLINE,
             max_output_bytes: CORE_OUTPUT_LIMIT,
         });

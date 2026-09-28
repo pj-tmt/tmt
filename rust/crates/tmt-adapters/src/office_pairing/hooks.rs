@@ -1,100 +1,49 @@
 //! Office consumes committed lifecycle notifications; it never owns retirement.
+//!
+//! The companion's consumer reads pending deliveries and records attempts
+//! through `tmt api`; this owner settles one pairing scope.
 
 use super::{
     OfficeError, OfficeInstallation, PairingRecord, ProtectedEntry, RetirementFence,
     fence::settle_retirement,
 };
-use crate::{config::ConfigPaths, storage::Storage};
-use std::{io, time::Instant};
-use tmt_core::identity_hooks::IdentityHook;
-use tmt_office_model::office_protocol::OFFICE_HOOK_BATCH_LIMIT;
-use tmt_office_model::office_protocol::OfficeSyncReport;
+use std::time::Instant;
 
-const CONSUMER: &str = "tmt-office";
-
-pub(super) fn register(paths: &ConfigPaths, identity: &str, key: &str) -> Result<(), OfficeError> {
-    let hook =
-        IdentityHook::new(CONSUMER, identity, key).map_err(|_| OfficeError::CredentialsInvalid)?;
-    let mut storage = Storage::open(&paths.database).map_err(unavailable)?;
-    storage.register_identity_hook(&hook).map_err(unavailable)?;
-    storage.close().map_err(unavailable)
-}
-
-pub(super) fn sync(
-    paths: &ConfigPaths,
-    deadline: Instant,
-    fence: &dyn RetirementFence,
-) -> Result<OfficeSyncReport, OfficeError> {
-    // No prior local identity database means there can be no registered hooks.
-    match std::fs::symlink_metadata(&paths.database) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Ok(OfficeSyncReport::default());
-        }
-        Err(_) => return Err(OfficeError::CredentialsUnavailable),
-        Ok(_) => {}
-    }
-    let mut storage = Storage::open(&paths.database).map_err(unavailable)?;
-    let pending = storage
-        .pending_identity_hooks(CONSUMER, OFFICE_HOOK_BATCH_LIMIT)
-        .map_err(unavailable)?;
-    let mut report = OfficeSyncReport::default();
-    if !pending.is_empty() {
-        let installation =
-            OfficeInstallation::open(paths, false)?.ok_or(OfficeError::CredentialsUnavailable)?;
-        for delivery in pending {
-            if Instant::now() >= deadline {
-                break;
-            }
-            let hook = delivery.hook;
-            // Record the attempt before external effects. Contended/failed work
-            // rotates behind less-attempted items instead of starving the queue.
-            if !storage
-                .record_identity_hook_attempt(&hook)
-                .map_err(unavailable)?
-            {
-                continue;
-            }
-            let result = installation.with_key(hook.reference(), || {
-                settle_retirement(
-                    fence,
-                    hook.identity_id(),
-                    || deliver(&installation, &hook, deadline),
-                    || {
-                        storage
-                            .acknowledge_identity_hook(&hook)
-                            .map_err(unavailable)
-                    },
-                )
-            });
-            match result {
-                Ok(true) => report.completed += 1,
-                Ok(false) => {}
-                Err(error) => {
-                    report.failed += 1;
-                    report.failure.get_or_insert(error);
-                }
-            }
-        }
-    }
-    report.pending = storage
-        .count_pending_identity_hooks(CONSUMER)
-        .map_err(unavailable)?;
-    storage.close().map_err(unavailable)?;
-    Ok(report)
-}
-
-fn deliver(
+/// Settles one retirement delivery under the scope lock: mark the identity,
+/// revoke the scope, then `acknowledge`. A revoked record stays as the
+/// secret-free receipt, so a retry after an interrupted acknowledgment repeats
+/// no remote work.
+pub fn settle_scope<T>(
     installation: &OfficeInstallation,
-    hook: &IdentityHook,
+    identity_id: &str,
+    reference: &str,
+    fence: &dyn RetirementFence,
+    deadline: Instant,
+    acknowledge: impl FnOnce() -> Result<T, OfficeError>,
+) -> Result<T, OfficeError> {
+    installation.with_key(reference, || {
+        settle_retirement(
+            fence,
+            identity_id,
+            || revoke(installation, identity_id, reference, deadline),
+            acknowledge,
+        )
+    })
+}
+
+fn revoke(
+    installation: &OfficeInstallation,
+    identity_id: &str,
+    reference: &str,
     deadline: Instant,
 ) -> Result<(), OfficeError> {
-    let entry = ProtectedEntry::open(hook.reference())?;
+    let entry = ProtectedEntry::open(reference)?;
     let bytes = entry.read()?.ok_or(OfficeError::CredentialsUnavailable)?;
     let target = PairingRecord::hook_target(&bytes)?;
-    if installation.scope_key(&target, hook.identity_id())? != hook.reference() {
+    if installation.scope_key(&target, identity_id)? != reference {
         return Err(OfficeError::CredentialsInvalid);
     }
-    let mut record = PairingRecord::decode(&bytes, &target, installation.id(), hook.identity_id())?;
+    let mut record = PairingRecord::decode(&bytes, &target, installation.id(), identity_id)?;
     if record.has_credentials()
         && record.refresh_if_needed(&target, super::invocation::now_ms()?, deadline)?
     {
@@ -105,8 +54,4 @@ fn deliver(
     record.revoke(&target, deadline)?;
     entry.write(&record.encode()?)?;
     Ok(())
-}
-
-fn unavailable(_: impl std::error::Error) -> OfficeError {
-    OfficeError::CredentialsUnavailable
 }

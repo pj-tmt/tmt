@@ -276,6 +276,51 @@ describe('public local extension API', () => {
     });
   });
 
+  it('scopes identity-retirement hooks to their consumer through the public API', async () => {
+    await withSandbox(async (sandbox) => {
+      const ada = await identity(sandbox, 'Ada');
+      const hook = (consumer: string) => ({ consumer, identityId: ada, reference: 'scope-a' });
+      expect((await api(sandbox, 'identityHooks.register', hook('tmt-office'))).body).toEqual({
+        state: 'registered',
+      });
+      expect(
+        (await api(sandbox, 'identityHooks.pending', { consumer: 'tmt-office', limit: 16 })).body
+      ).toEqual({ hooks: [], pending: 0 });
+      const early = await api(sandbox, 'identityHooks.attempt', hook('tmt-office'));
+      expect(early.status).toBe(1);
+      expect(early.body.error.code).toBe('HOOK_NOT_PENDING');
+
+      const retire = await runCli(sandbox, ['rm', 'Ada', '--force', '--json']);
+      expect(retire.status, retire.stdout + retire.stderr).toBe(0);
+      // Registration after retirement is pending at once.
+      expect((await api(sandbox, 'identityHooks.register', hook('other'))).body).toEqual({
+        state: 'pending',
+      });
+      const page = await api(sandbox, 'identityHooks.pending', {
+        consumer: 'tmt-office',
+        limit: 16,
+      });
+      expect(page.body).toEqual({
+        hooks: [{ identityId: ada, reference: 'scope-a', attemptCount: 0 }],
+        pending: 1,
+      });
+      const foreign = await api(sandbox, 'identityHooks.ack', hook('third'));
+      expect(foreign.body.error.code).toBe('HOOK_NOT_FOUND');
+      expect((await api(sandbox, 'identityHooks.attempt', hook('tmt-office'))).body).toEqual({
+        recorded: true,
+      });
+      expect((await api(sandbox, 'identityHooks.ack', hook('tmt-office'))).body).toEqual({
+        acknowledged: true,
+      });
+      expect((await api(sandbox, 'identityHooks.ack', hook('tmt-office'))).body).toEqual({
+        acknowledged: false,
+      });
+      expect(
+        (await api(sandbox, 'identityHooks.pending', { consumer: 'other', limit: 16 })).body.pending
+      ).toBe(1);
+    });
+  });
+
   it('reads only saved-identity notebooks without creating missing files', async () => {
     await withSandbox(async (sandbox) => {
       const owner = await identity(sandbox, 'Writer');

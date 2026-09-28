@@ -19,16 +19,20 @@ Every request has `version`, `operation` and `input`. Writes additionally requir
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
 Clients must tolerate additive response fields.
 
-| Operation         | Input                                                             | Result                                                                  |
-| ----------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `capabilities`    | `{}`                                                              | Protocol range, operations, byte limits and ordinary commands           |
-| `requests.list`   | `recipientId` and/or `roomId`, optional `limit` and `before`      | `items`, `nextBefore`                                                   |
-| `requests.show`   | `requestId`                                                       | Request detail including retained prompt/final state                    |
-| `dispatch.show`   | `operationId`                                                     | Immutable acceptance receipt                                            |
-| `dispatch.create` | `operationId`, `recipientIds`, `message`, optional `kind`, `room` | Acceptance receipt; optional independent `wake` on first direct request |
-| `rooms.write`     | `roomId`, `room: {expectedRevision, name, memberIds}`             | Room resource                                                           |
-| `rooms.roster`    | `room` (UUID or unique exact name), optional `metadataPrefix`     | `room` resource and `members` with metadata and status                  |
-| `notes.read`      | `identityId`                                                      | Saved identity's `identityId`, `name`, `content`                        |
+| Operation                | Input                                                             | Result                                                                                  |
+| ------------------------ | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `capabilities`           | `{}`                                                              | Protocol range, operations, byte limits and ordinary commands                           |
+| `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`      | `items`, `nextBefore`                                                                   |
+| `requests.show`          | `requestId`                                                       | Request detail including retained prompt/final state                                    |
+| `dispatch.show`          | `operationId`                                                     | Immutable acceptance receipt                                                            |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room` | Acceptance receipt; optional independent `wake` on first direct request                 |
+| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`             | Room resource                                                                           |
+| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`     | `room` resource and `members` with metadata and status                                  |
+| `notes.read`             | `identityId`                                                      | Saved identity's `identityId`, `name`, `content`                                        |
+| `identityHooks.register` | `consumer`, `identityId`, `reference`                             | `state`: `registered`, `pending` or `delivered`                                         |
+| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                        | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count |
+| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                             | `recorded`                                                                              |
+| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                             | `acknowledged`                                                                          |
 
 IDs are canonical UUIDs, except request IDs, which use TMT's `req_...` format.
 `dispatch.create.kind` defaults to `request`; `announcement` does not expect a
@@ -51,6 +55,19 @@ reread. This is not a live change feed. Reads never mark incoming work as read.
 Use `tmt x` and its revision cursor for attention, and the ordinary JSON commands
 for identity, presence, room list/show/retire, reply and result. Notes accepts a
 saved identity UUID, never a caller-selected path, and does not initialize a file.
+
+Identity hooks are durable identity-retirement subscriptions. A consumer
+(lowercase letters, digits, `-` or `_`, starting with a letter, at most 64 bytes)
+registers an opaque `reference` for one identity UUID; registering after
+retirement is pending at once, and repeating a registration returns the current
+state. Every operation is scoped to the named consumer: pages, attempts and
+acknowledgments never see another consumer's hooks, and an unknown hook returns
+`HOOK_NOT_FOUND`. Record an attempt before acting, act idempotently, and
+acknowledge only after the action is durable; a failure leaves the hook pending.
+`HOOK_NOT_PENDING` means the identity has not retired. Delivered is terminal:
+repeated attempts and acknowledgments return `false`. These operations are not
+identity-attributed writes and take no `identity`. An unknown identity UUID on
+registration returns `IDENTITY_NOT_FOUND`.
 
 `rooms.roster` reads an active room's non-retired members in the room's member
 order. Each member is the identity summary from `tmt identity show --json`, plus
