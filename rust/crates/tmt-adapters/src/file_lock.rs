@@ -8,7 +8,7 @@ use std::{
     path::Path,
 };
 
-pub(crate) fn exclusive(path: &Path) -> io::Result<Flock<File>> {
+pub fn exclusive(path: &Path) -> io::Result<Flock<File>> {
     // Never unlink: replacing the inode would split concurrent lock domains.
     let file = OpenOptions::new()
         .read(true)

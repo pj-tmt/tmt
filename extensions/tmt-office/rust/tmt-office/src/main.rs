@@ -12,6 +12,7 @@ use tmt_office_model::office_protocol::{
 mod local_assets;
 #[cfg(feature = "local-service")]
 mod local_service;
+mod storage_command;
 
 fn main() -> ExitCode {
     let arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
@@ -38,6 +39,12 @@ fn main() -> ExitCode {
             "This Office build has no valid embedded local UI."
         );
         return ExitCode::FAILURE;
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == storage_command::PREFIX)
+    {
+        return storage_command::run(&arguments);
     }
     if !arguments
         .first()

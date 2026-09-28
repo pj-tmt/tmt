@@ -608,6 +608,21 @@ Codecs own in-memory PNG processing; filesystem reads, publication, storage resp
 projection and process/config access remain adapters. Acquisition errors may retain
 an `io::Error` value without giving the model an I/O operation.
 
+`extensions/tmt-office/rust/tmt-office-storage` owns Office storage at
+`<global>/office/office.db` (#353). Its schema v1 repeats the core schema 35
+definitions of the 14 Office-owned tables, so migration copies raw cells, minus
+the two `identities(id)` references that Office replaces with preflight. It adds
+an Office-local retired-identity marker and a migration record. The crate reaches
+core only through the public `config` and `file_lock` owners. Its migration
+coordinator is the one Office component that reads the core database: query-only,
+without checkpoint-on-close, inside a single read snapshot. `prepare`, `copy` and
+`verify` each hold `office/migration.lock` and commit atomically in a private
+staging database. The copy preserves storage classes, TEXT and BLOB bytes and
+rowids. Verification compares every typed cell against a fresh snapshot; the
+manifest digest only detects a changed source. The source stays authoritative:
+the fence, switch and activation are separate, later slices. Rooms and the
+dispatch ledger remain core-owned even though their tables are named `office_*`.
+
 The architecture guard freezes the exact remaining adapter consumer paths in
 `office_consumer`; core grammar and parser no longer import the Office model.
 New core-to-Office model consumers, command-library edges outside the facade,
