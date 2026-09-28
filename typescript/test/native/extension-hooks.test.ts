@@ -6,6 +6,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -119,7 +120,7 @@ describe('consented extension hooks', () => {
         capabilities: ['lifecycle_observations_v1'],
       });
       const settings = path.join(sandbox.globalDir, 'extension-hooks.json');
-      expect(Number(execFileSync('stat', ['-f', '%Lp', settings]).toString().trim())).toBe(600);
+      expect(statSync(settings).mode & 0o777).toBe(0o600);
 
       const created = await room(sandbox, 'Private design');
       const identity = (
