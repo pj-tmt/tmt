@@ -73,6 +73,12 @@ describe.sequential('focus: show a verified pane in the invoking client', () => 
       );
       expect(view).toEqual({ client: invokerClient, pane: member });
       expect(clients(fixture)).toEqual(before);
+      // A key-binding job (run-shell, display-popup) has TMUX but no TMUX_PANE:
+      // TMUX's session names the client that pressed the key.
+      const keyJob = expectJsonResult<ClientView>(
+        await fixture.runJsonCli(['focus', '--client'], { pane: member, caller: { pane: null } })
+      );
+      expect(keyJob).toEqual({ client: invokerClient, pane: member });
       const mixed = await fixture.runJsonCli(['focus', 'member', '--client'], { pane: member });
       expect(errorCode(mixed)).toBe('USAGE_ERROR');
       expect(clients(fixture)).toEqual(before);
@@ -114,11 +120,15 @@ describe.sequential('focus: show a verified pane in the invoking client', () => 
       });
       expect(errorCode(missing)).toBe('PANE_NOT_FOUND');
 
-      const noPane = await fixture.runJsonCli(['focus', 'member'], {
+      // Without TMUX_PANE, TMUX's session decides; no client shows crew.
+      const crewJob = await fixture.runJsonCli(['focus', 'member'], {
         pane: fixture.pane,
-        caller: { pane: null },
+        caller: {
+          pane: null,
+          tmux: `${fixture.socketPath},${fixture.serverPid},${fixture.paneSessionId(member)}`,
+        },
       });
-      expect(errorCode(noPane)).toBe('HOST_UNSUPPORTED');
+      expect(errorCode(crewJob)).toBe('HOST_UNSUPPORTED');
 
       // A replaced process in the same pane no longer matches the binding.
       fixture.tmux(['respawn-pane', '-k', '-t', member, 'cat']);

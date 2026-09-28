@@ -169,8 +169,9 @@ tmt focus %2                     # back to the pane you came from
 tmt focus --client --json        # {"client":"/dev/ttys004","pane":"%5"}
 ```
 
-Run it inside tmux, from a pane or a `display-popup`; only the client showing
-that session moves. `--client` takes no target and never switches anything: it
+Run it inside tmux: from a pane, a `display-popup`, or a key binding's
+`run-shell` (which has no `TMUX_PANE`; `TMUX` names the session). Only the client
+showing that session moves. `--client` takes no target and never switches anything: it
 names the client a focus from here would move and the pane that client shows.
 Outside tmux, or when no client shows your session, both fail with
 `HOST_UNSUPPORTED` and change nothing.

@@ -1124,8 +1124,9 @@ transport's preparation-versus-uncertain failure distinction. `focus` (a
 default-`Unsupported` driver action returning the shown and previous interface IDs
 and the host's name for the view that moved)
 requires the same present evidence but no running agent, then switches only the
-invoker's client: the client showing the session of `TMUX_PANE`, or, for a
-display-popup whose own pane has no session, the session named in `TMUX`, choosing
+invoker's client: the client showing the session of `TMUX_PANE`, or, without
+`TMUX_PANE` (key-binding jobs) or for a display-popup whose own pane has no
+session, the session named in `TMUX`, choosing
 the most recently active such client. A bare tmux "current client" is never used, a
 foreign or unidentifiable client is `HOST_UNSUPPORTED`, and focus sends no buffer,
 paste or key input. `Tmux::invoker_client` is that resolution alone, read-only,

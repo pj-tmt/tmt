@@ -34,6 +34,7 @@ fn pane_missing(pane: &str) -> Failure {
 }
 
 /// The invoker is only what its own environment reports; no client is guessed.
+/// Key-binding jobs have `TMUX` but no `TMUX_PANE`; `TMUX`'s session serves.
 fn invoker() -> Result<Invoker, Failure> {
     let environment = CallerEnvironment::current();
     let socket = environment
@@ -46,11 +47,15 @@ fn invoker() -> Result<Invoker, Failure> {
         .as_ref()
         .and_then(|pane| pane.to_str())
         .filter(|pane| !pane.is_empty())
-        .ok_or_else(host_unsupported)?;
+        .map(str::to_owned);
+    let session = environment.selected_session();
+    if pane.is_none() && session.is_none() {
+        return Err(host_unsupported());
+    }
     Ok(Invoker {
         socket: socket.to_owned(),
-        pane: pane.to_owned(),
-        session: environment.selected_session(),
+        pane,
+        session,
     })
 }
 
@@ -122,7 +127,7 @@ pub fn client(mode: OutputMode) -> io::Result<u8> {
     let view = match invoker().and_then(|invoker| {
         Tmux::default()
             .invoker_client(&invoker, OperationOptions::default())
-            .map_err(|error| pane_failure(error, &invoker.pane))
+            .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
     }) {
         Ok(view) => view,
         Err(error) => return error.publish(mode),

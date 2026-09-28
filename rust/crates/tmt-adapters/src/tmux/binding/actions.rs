@@ -558,7 +558,7 @@ mod tests {
     fn invoker(socket: &str) -> crate::tmux::Invoker {
         crate::tmux::Invoker {
             socket: socket.into(),
-            pane: "%2".into(),
+            pane: Some("%2".into()),
             session: None,
         }
     }
