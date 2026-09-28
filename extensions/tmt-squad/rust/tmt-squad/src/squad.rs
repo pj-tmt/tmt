@@ -1,7 +1,10 @@
 //! A squad is the core room `squad-<name>`; member fields are the identity
 //! metadata keys `squad.<name>.<field>`. There is no other squad state.
 
-use crate::core::{Core, SquadError};
+use crate::{
+    core::{Core, SquadError},
+    filter::Row,
+};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 
@@ -173,6 +176,20 @@ pub struct Member {
     pub pane: Value,
     pub activity: Value,
     pub fields: BTreeMap<String, String>,
+}
+
+/// Filterable values: identity basics, self-reported activity and every
+/// `squad.<name>.*` field.
+impl Row for Member {
+    fn value(&self, field: &str) -> Option<&str> {
+        match field {
+            "name" => Some(&self.name),
+            "presence" => Some(&self.presence),
+            "lifetime" => Some(&self.lifetime),
+            "activity" => self.activity["activity"].as_str(),
+            _ => self.fields.get(field).map(String::as_str),
+        }
+    }
 }
 
 impl Member {

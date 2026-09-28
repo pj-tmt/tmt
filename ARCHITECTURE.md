@@ -1452,7 +1452,10 @@ identity metadata `squad.<name>.<field>`, so one identity can belong to several
 squads and removal clears exactly one namespace. `status` joins one
 `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
-Membership commands are sequences of idempotent core commands, not one
+User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
+the single list; `filter` owns a bounded boolean language over a row's text
+fields, and every section is validated before output. Membership commands are
+sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges.
 `squad.toml`, beside the global config that `tmt config show` reports, is the
 user's file. Squad writes only the top-level `me`, with a changed-input check and

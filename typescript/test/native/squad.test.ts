@@ -269,4 +269,56 @@ describe('squad extension', () => {
       });
     });
   });
+  it('renders user-defined sections from squad.toml and rejects invalid filters', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'Sol', 'auth-fix', 'docs-sweep', 'perf-cache']) {
+        await identity(sandbox, name);
+      }
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['lead', 'Sol']);
+      await squad(sandbox, ['add', 'auth-fix', 'docs-sweep', 'perf-cache']);
+      await squad(sandbox, ['set', 'auth-fix', 'state=blocked', 'pending=approve the plan']);
+      await squad(sandbox, ['set', 'docs-sweep', 'state=review']);
+      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const base = readFileSync(squadToml, 'utf8');
+      writeFileSync(
+        squadToml,
+        `${base}
+[[squad.product.section]]
+title = "Needs me"
+filter = "pending or state = blocked"
+
+[[squad.product.section]]
+title = "Everyone"
+sort = ["-name"]
+`
+      );
+      const status = await squad(sandbox, ['status']);
+      expect(status.status).toBe(0);
+      const sections = status.body.sections.map(
+        (section: { title: string; rows: { name: string }[] }) => [
+          section.title,
+          section.rows.map((row) => row.name),
+        ]
+      );
+      expect(sections).toEqual([
+        ['Needs me', ['auth-fix']],
+        ['Everyone', ['perf-cache', 'docs-sweep', 'auth-fix']],
+      ]);
+      const text = await runCli(sandbox, ['sq', 'status']);
+      expect(text.stdout).toContain('\nNeeds me\n◆ auth-fix');
+
+      writeFileSync(
+        squadToml,
+        `${base}\n[[squad.product.section]]\ntitle = "Bad"\nfilter = "state ="\n`
+      );
+      const refused = await squad(sandbox, ['status']);
+      expect(refused).toMatchObject({
+        status: 1,
+        body: { error: { code: 'SQUAD_CONFIG_INVALID' } },
+      });
+      expect(refused.body.error.message).toContain('squad.product.section[0].filter');
+    });
+  });
 });
