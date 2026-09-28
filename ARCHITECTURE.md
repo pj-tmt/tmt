@@ -1308,9 +1308,13 @@ waiter ownership inside it. Acceptance and notification outcomes remain separate
 the core routing policy; accepted, uncertain, denied and approval-required sends
 never fall through. Drivers own fresh runtime proof and sticky-Ended recovery.
 `process::detached` owns startup acknowledgment and failure cleanup for one
-request deadline observer; `request_observer_command` composes durable reads,
-the timeout claim and delivery outside locks. It has no restart policy, daemon,
-provider-specific branch or permission to re-send a request.
+request deadline observer, and the observer's removal of its own stderr log
+after a clean exit, only when the path still names that same file (device and
+inode). Failed and crashed observers keep their log as bounded diagnostics;
+there is no sweeper. `request_observer_command` owns the per-request log path
+and composes durable reads, the timeout claim and delivery outside locks. It has
+no restart policy, daemon, provider-specific branch or permission to re-send a
+request.
 
 `reply_receipt` is the one maintained receipt codec. `response_command` and
 `talk_command` compose it with the request service; neither adds a repository,
