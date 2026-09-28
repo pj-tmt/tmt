@@ -85,3 +85,16 @@ pub(crate) mod whiteboard_png {
         )
     }
 }
+
+/// Applies `sql` with `id` at the next preflight boundary through a separate
+/// connection, as core retirement does, inside the accepted preflight window.
+pub(crate) fn at_next_preflight_execute(path: &std::path::Path, sql: &'static str, id: &str) {
+    let path = path.to_path_buf();
+    let id = id.to_owned();
+    crate::store::tests::at_next_preflight(move || {
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute(sql, [id])
+            .unwrap();
+    });
+}

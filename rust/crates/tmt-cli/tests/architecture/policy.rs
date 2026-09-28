@@ -273,7 +273,6 @@ fn office_consumer(source: &Source) -> bool {
             "office_world.rs",
             "office_world/reply.rs",
             "repository_remote.rs",
-            "storage/errors.rs",
         ],
         "tmt-cli" => &[],
         "tmt-office-command" => return true,

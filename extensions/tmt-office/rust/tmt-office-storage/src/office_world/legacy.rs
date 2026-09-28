@@ -1,6 +1,7 @@
 //! One-time projection of retained blocks; identities without stored blocks create no rooms.
 
 use super::layout::WorldStoreError;
+use crate::core_references::CoreReferences;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use tmt_adapters::storage::classify;
@@ -33,12 +34,15 @@ struct Block {
 
 pub(super) fn project(
     connection: &Connection,
+    references: &dyn CoreReferences,
     world_id: Option<&str>,
 ) -> Result<(WorldLayout, String), WorldStoreError> {
-    let mut query = connection.prepare(
-        "SELECT b.block_id,b.target_kind,b.identity_id,b.revision,b.layout,b.updated_at_ms,i.lifetime,i.retired_at_ms \
-         FROM office_local_blocks b LEFT JOIN identities i ON i.id=b.identity_id ORDER BY b.block_id LIMIT ?"
-    ).map_err(|error| classify(error, "Read retained Office layouts"))?;
+    let mut query = connection
+        .prepare(
+            "SELECT block_id,target_kind,identity_id,revision,layout,updated_at_ms \
+         FROM office_local_blocks ORDER BY block_id LIMIT ?",
+        )
+        .map_err(|error| classify(error, "Read retained Office layouts"))?;
     let rows = query
         .query_map(
             [tmt_office_model::office_map::MAX_AREAS as i64 + 1],
@@ -50,8 +54,6 @@ pub(super) fn project(
                     row.get::<_, i64>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, i64>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<i64>>(7)?,
                 ))
             },
         )
@@ -70,12 +72,22 @@ pub(super) fn project(
     }
     let mut source = Vec::<Value>::new();
     let mut blocks = Vec::new();
-    for (id, target, identity, revision, encoded, timestamp, lifetime, retired) in rows {
+    for (id, target, identity, revision, encoded, timestamp) in rows {
+        // Core owns identity lifetime and retirement; the fence digest carries the
+        // retired state rather than its timestamp, which Office does not read.
+        let (lifetime, retired) = match identity.as_deref() {
+            Some(identity_id) => references
+                .identity(identity_id)?
+                .map_or((None, None), |identity| {
+                    (Some(identity.lifetime.as_str()), Some(identity.retired))
+                }),
+            None => (None, None),
+        };
         let lobby = target == "lobby";
         if !(lobby && identity.is_none()
             || target == "identity"
                 && identity.is_some()
-                && matches!(lifetime.as_deref(), Some("saved" | "temporary")))
+                && matches!(lifetime, Some("saved" | "temporary")))
         {
             return Err(WorldStoreError::StoredInvalid);
         }
@@ -88,7 +100,7 @@ pub(super) fn project(
             id,
             lobby,
             identity,
-            eligible: lifetime.as_deref() == Some("saved") && retired.is_none(),
+            eligible: lifetime == Some("saved") && retired == Some(false),
             layout,
         });
     }

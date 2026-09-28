@@ -9,7 +9,10 @@ use tmt_office_model::office_board::{
     REPLY_LIMIT, ReplyRequest, ShowRequest, ShowResult, ThreadSummary,
 };
 
-use crate::{OfficeStore, store::with_immediate_transaction};
+use crate::{
+    OfficeStore,
+    store::{preflight_complete, with_immediate_transaction, with_immediate_transaction_mapped},
+};
 use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 
 pub fn local_owner_actor(storage: &mut OfficeStore) -> Result<Actor, StorageError> {
@@ -25,8 +28,20 @@ impl OfficeBoardRepository for OfficeStore {
 
     fn post(&mut self, request: &PostRequest) -> Result<CreateReceipt, BoardError<Self::Error>> {
         tmt_office_model::office_board::validate_post(request)?;
-        with_immediate_transaction(self, "Office board post", |tx| {
-            let actor = active_actor(tx, &request.actor)?;
+        let actor = preflight_actor(self, &request.actor)?;
+        // Classify new threads under a real room; membership is not an ACL.
+        // Replays and existing content remain usable after room/area changes.
+        let room_active = match &request.category {
+            Category::Room(id) => self
+                .references()
+                .room(id)
+                .map_err(BoardError::storage)?
+                .is_some_and(|room| !room.retired),
+            _ => true,
+        };
+        preflight_complete();
+        with_immediate_transaction_mapped(self, "Office board post", BoardError::storage, |tx| {
+            let actor = active_actor(tx, &actor)?;
             let digest = intent(&[
                 "post",
                 &category_key(&request.category),
@@ -37,16 +52,12 @@ impl OfficeBoardRepository for OfficeStore {
             {
                 return Ok(receipt);
             }
-            // Classify new threads under a real room; membership is not an ACL.
-            // Replays and existing content remain usable after room/area changes.
-            if let Category::Room(id) = &request.category
-                && crate::core_lookup::read_room(tx, id)?.is_none()
-            {
+            if !room_active {
                 return Err(BoardError::policy(BoardErrorCode::Invalid));
             }
             let sequence = next_sequence(tx)?;
             let id = uuid::Uuid::new_v4().to_string();
-            let now = timestamp()?;
+            let now = timestamp().map_err(BoardError::storage)?;
             let (category_kind, category_id) = category_columns(&request.category);
             let (author_kind, author_id, author_name) = actor_columns(&actor);
             tx.execute("INSERT INTO office_board_entries (id,thread_id,is_root,category_kind,category_id,author_kind,author_id,author_name,revision,deleted,created_sequence,activity_sequence,created_at_ms,updated_at_ms,title,body) VALUES (?,?,1,?,?,?,?,?,1,0,?,?,?,?,?,?)",
@@ -67,8 +78,10 @@ impl OfficeBoardRepository for OfficeStore {
 
     fn reply(&mut self, request: &ReplyRequest) -> Result<CreateReceipt, BoardError<Self::Error>> {
         tmt_office_model::office_board::validate_reply(request)?;
-        with_immediate_transaction(self, "Office board reply", |tx| {
-            let actor = active_actor(tx, &request.actor)?;
+        let actor = preflight_actor(self, &request.actor)?;
+        preflight_complete();
+        with_immediate_transaction_mapped(self, "Office board reply", BoardError::storage, |tx| {
+            let actor = active_actor(tx, &actor)?;
             let digest = intent(&["reply", &request.thread_id, &request.body]);
             if let Some(receipt) = replay_create(tx, &actor.key(), &request.operation_id, &digest)?
             {
@@ -90,7 +103,7 @@ impl OfficeBoardRepository for OfficeStore {
             }
             let sequence = next_sequence(tx)?;
             let id = uuid::Uuid::new_v4().to_string();
-            let now = timestamp()?;
+            let now = timestamp().map_err(BoardError::storage)?;
             let (author_kind, author_id, author_name) = actor_columns(&actor);
             tx.execute("INSERT INTO office_board_entries (id,thread_id,is_root,category_kind,category_id,author_kind,author_id,author_name,revision,deleted,created_sequence,activity_sequence,created_at_ms,updated_at_ms,title,body) VALUES (?,?,0,?,?,?,?,?,1,0,?,?,?,?,NULL,?)", params![id,request.thread_id,root.0,root.1,author_kind,author_id,author_name,sequence as i64,sequence as i64,now,now,request.body]).map_err(|e| BoardError::storage(classify(e,"Create Office board reply")))?;
             tx.execute(
@@ -113,8 +126,10 @@ impl OfficeBoardRepository for OfficeStore {
 
     fn edit(&mut self, request: &EditRequest) -> Result<EditReceipt, BoardError<Self::Error>> {
         tmt_office_model::office_board::validate_edit(request)?;
-        with_immediate_transaction(self, "Office board edit", |tx| {
-            let actor = active_actor(tx, &request.actor)?;
+        let actor = preflight_actor(self, &request.actor)?;
+        preflight_complete();
+        with_immediate_transaction_mapped(self, "Office board edit", BoardError::storage, |tx| {
+            let actor = active_actor(tx, &actor)?;
             let digest = edit_intent(request);
             if let Some(value) = replay_edit(tx, &actor.key(), &request.operation_id, &digest)? {
                 return Ok(value);
@@ -146,7 +161,7 @@ impl OfficeBoardRepository for OfficeStore {
             let revision = if changed {
                 let sequence = next_sequence(tx)?;
                 let revision = row.revision + 1;
-                let now = timestamp()?;
+                let now = timestamp().map_err(BoardError::storage)?;
                 tx.execute("UPDATE office_board_entries SET title=?,body=?,revision=?,updated_at_ms=? WHERE id=?",params![title,body,revision as i64,now,request.entry_id]).map_err(|e|BoardError::storage(classify(e,"Edit Office board entry")))?;
                 tx.execute("UPDATE office_board_entries SET activity_sequence=?,updated_at_ms=? WHERE id=?",params![sequence as i64,now,row.thread_id]).map_err(|e|BoardError::storage(classify(e,"Update Office board activity")))?;
                 advance_board(tx)?;
@@ -170,8 +185,10 @@ impl OfficeBoardRepository for OfficeStore {
         request: &DeleteRequest,
     ) -> Result<DeleteReceipt, BoardError<Self::Error>> {
         tmt_office_model::office_board::validate_delete(request)?;
-        with_immediate_transaction(self, "Office board delete", |tx| {
-            let actor = active_actor(tx, &request.actor)?;
+        let actor = preflight_actor(self, &request.actor)?;
+        preflight_complete();
+        with_immediate_transaction_mapped(self, "Office board delete", BoardError::storage, |tx| {
+            let actor = active_actor(tx, &actor)?;
             let digest = intent(&[
                 "delete",
                 &request.entry_id,
@@ -198,7 +215,7 @@ impl OfficeBoardRepository for OfficeStore {
             let revision = if changed {
                 let sequence = next_sequence(tx)?;
                 let revision = row.revision + 1;
-                let now = timestamp()?;
+                let now = timestamp().map_err(BoardError::storage)?;
                 tx.execute("UPDATE office_board_entries SET deleted=1,title=NULL,body=NULL,revision=?,updated_at_ms=? WHERE id=?",params![revision as i64,now,request.entry_id]).map_err(|e|BoardError::storage(classify(e,"Delete Office board entry")))?;
                 tx.execute("UPDATE office_board_entries SET activity_sequence=?,updated_at_ms=? WHERE id=?",params![sequence as i64,now,row.thread_id]).map_err(|e|BoardError::storage(classify(e,"Update Office board activity")))?;
                 advance_board(tx)?;
@@ -513,21 +530,28 @@ fn entry_edit_row(
     .optional()
     .map_err(|e| BoardError::storage(classify(e, "Read Office board entry")))
 }
+/// Preflight: identity actors must be active; the recorded name comes from core.
+fn preflight_actor(store: &OfficeStore, actor: &Actor) -> Result<Actor, BoardError<StorageError>> {
+    match actor {
+        Actor::Identity { identity_id, .. } => match store
+            .references()
+            .identity(identity_id)
+            .map_err(BoardError::storage)?
+        {
+            Some(identity) if !identity.retired => Ok(Actor::Identity {
+                identity_id: identity_id.clone(),
+                name: identity.name,
+            }),
+            _ => Err(BoardError::policy(BoardErrorCode::Forbidden)),
+        },
+        Actor::Owner { .. } => Ok(actor.clone()),
+    }
+}
+
+/// Office-owned actor checks inside the transaction; identities were preflighted.
 fn active_actor(tx: &Transaction<'_>, actor: &Actor) -> Result<Actor, BoardError<StorageError>> {
     match actor {
-        Actor::Identity { identity_id, .. } => tx
-            .query_row(
-                "SELECT name FROM identities WHERE id=? AND retired_at_ms IS NULL",
-                [identity_id],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|e| BoardError::storage(classify(e, "Revalidate Office board identity")))?
-            .map(|name| Actor::Identity {
-                identity_id: identity_id.clone(),
-                name,
-            })
-            .ok_or_else(|| BoardError::policy(BoardErrorCode::Forbidden)),
+        Actor::Identity { .. } => Ok(actor.clone()),
         Actor::Owner { world_id } => {
             let matches: bool = tx
                 .query_row(

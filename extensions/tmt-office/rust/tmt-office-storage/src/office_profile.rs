@@ -3,7 +3,10 @@
 use rusqlite::{OptionalExtension, params};
 use tmt_office_model::office_profile::{LocalProfile, MAX_REVISION, deterministic_default};
 
-use crate::{OfficeStore, store::with_immediate_transaction};
+use crate::{
+    OfficeStore,
+    store::{preflight_complete, with_immediate_transaction},
+};
 use tmt_adapters::storage::{StorageError, StorageErrorCode, classify};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,16 +62,8 @@ impl OfficeStore {
         &self,
         identity_id: &str,
     ) -> Result<LocalProfileSnapshot, LocalProfileError> {
+        let identity_name = active_identity_name(self, identity_id)?;
         let connection = self.connection()?;
-        let identity_name = connection
-            .query_row(
-                "SELECT name FROM identities WHERE id = ? AND retired_at_ms IS NULL",
-                [identity_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| classify(error, "Read local Office profile identity"))?
-            .ok_or(LocalProfileError::IdentityInactive)?;
         let stored = connection.query_row(
             "SELECT revision, profile, updated_at_ms FROM office_local_profiles WHERE identity_id = ?",
             [identity_id], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
@@ -79,38 +74,32 @@ impl OfficeStore {
     pub fn list_active_local_profiles(
         &self,
     ) -> Result<Vec<LocalProfileSnapshot>, LocalProfileError> {
+        // Core owns the active roster and its order; Office joins its own rows.
+        let identities = self.references().active_identities()?;
         let connection = self.connection()?;
         let mut statement = connection
             .prepare(
-                "SELECT i.id, i.name, p.revision, p.profile, p.updated_at_ms FROM identities i \
-             LEFT JOIN office_local_profiles p ON p.identity_id = i.id \
-             WHERE i.retired_at_ms IS NULL ORDER BY i.canonical_name COLLATE BINARY",
+                "SELECT identity_id, revision, profile, updated_at_ms FROM office_local_profiles",
             )
             .map_err(|error| classify(error, "Prepare active local Office profiles"))?;
-        let rows = statement
+        let mut stored = statement
             .query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<i64>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<i64>>(4)?,
+                    (
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ),
                 ))
             })
-            .map_err(|error| classify(error, "List active local Office profiles"))?;
-        rows.map(|row| {
-            let (id, name, revision, profile, updated) =
-                row.map_err(|error| classify(error, "Read active local Office profile"))?;
-            snapshot(
-                &id,
-                name,
-                revision
-                    .zip(profile)
-                    .zip(updated)
-                    .map(|((r, p), u)| (r, p, u)),
-            )
-        })
-        .collect()
+            .map_err(|error| classify(error, "List active local Office profiles"))?
+            .collect::<Result<std::collections::HashMap<_, _>, _>>()
+            .map_err(|error| classify(error, "Read active local Office profile"))?;
+        identities
+            .into_iter()
+            .map(|identity| snapshot(&identity.id, identity.name, stored.remove(&identity.id)))
+            .collect()
     }
 
     pub fn apply_local_profile(
@@ -124,16 +113,9 @@ impl OfficeStore {
             .map_err(|_| LocalProfileError::ProfileInvalid)?;
         let encoded =
             tmt_office_model::codec::office_profile_wire::encode_value(profile).to_string();
+        let identity_name = active_identity_name(self, identity_id)?;
+        preflight_complete();
         with_immediate_transaction(self, "local Office profile", |transaction| {
-            let identity_name = transaction
-                .query_row(
-                    "SELECT name FROM identities WHERE id = ? AND retired_at_ms IS NULL",
-                    [identity_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-                .map_err(|error| classify(error, "Revalidate local Office profile identity"))?
-                .ok_or(LocalProfileError::IdentityInactive)?;
             let current = transaction.query_row(
                 "SELECT revision, profile, updated_at_ms FROM office_local_profiles WHERE identity_id = ?", [identity_id],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
@@ -204,8 +186,8 @@ impl OfficeStore {
                     let revision = stored_u64(revision)?;
                     let next = revision + 1;
                     transaction.execute(
-                        "UPDATE office_local_profiles SET revision = ?, profile = ?, updated_at_ms = ? WHERE identity_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM identities WHERE id = ? AND retired_at_ms IS NULL)",
-                        params![i64::try_from(next).unwrap(), encoded, i64::try_from(now).unwrap(), identity_id, i64::try_from(revision).unwrap(), identity_id],
+                        "UPDATE office_local_profiles SET revision = ?, profile = ?, updated_at_ms = ? WHERE identity_id = ? AND revision = ?",
+                        params![i64::try_from(next).unwrap(), encoded, i64::try_from(now).unwrap(), identity_id, i64::try_from(revision).unwrap()],
                     ).map_err(|error| classify(error, "Update local Office profile"))?;
                     Ok(LocalProfileMutation {
                         snapshot: LocalProfileSnapshot {
@@ -222,6 +204,17 @@ impl OfficeStore {
                 Some(_) => Err(LocalProfileError::RevisionExhausted),
             }
         })
+    }
+}
+
+/// Preflight: profiles are readable and writable only for active identities.
+fn active_identity_name(
+    store: &OfficeStore,
+    identity_id: &str,
+) -> Result<String, LocalProfileError> {
+    match store.references().identity(identity_id)? {
+        Some(identity) if !identity.retired => Ok(identity.name),
+        _ => Err(LocalProfileError::IdentityInactive),
     }
 }
 
@@ -668,5 +661,52 @@ mod tests {
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
         ).unwrap();
         assert_eq!(after, before);
+    }
+    #[test]
+    fn identity_retired_inside_the_preflight_window_commits_like_apply_then_retire() {
+        let directory = TestDirectory::new();
+        let path = directory.path.join("race.db");
+        let mut storage = OfficeStore::open(&path).unwrap();
+        let id = "31313131-1111-4111-8111-111111111111";
+        identity(&storage, id, "Alice");
+        let profile = storage.show_local_profile(id).unwrap().profile;
+        crate::test_support::at_next_preflight_execute(
+            &path,
+            "UPDATE identities SET retired_at_ms = 1 WHERE id = ?",
+            id,
+        );
+        let mutation = storage.apply_local_profile(id, 0, &profile).unwrap();
+        assert!(mutation.changed);
+        // Serial equivalent: the profile row is retained and the identity hidden.
+        let rows: i64 = storage
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM office_local_profiles WHERE identity_id = ?",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 1);
+        assert!(matches!(
+            storage.show_local_profile(id),
+            Err(LocalProfileError::IdentityInactive)
+        ));
+        assert!(storage.list_active_local_profiles().unwrap().is_empty());
+        // Already retired at preflight: the same error and no write.
+        assert!(matches!(
+            storage.apply_local_profile(id, 1, &profile),
+            Err(LocalProfileError::IdentityInactive)
+        ));
+        let revision: i64 = storage
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT revision FROM office_local_profiles WHERE identity_id = ?",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(revision, 1);
     }
 }

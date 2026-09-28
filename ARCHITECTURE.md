@@ -325,8 +325,8 @@ door clearance and window exclusions over the map index. Shared prop appearance
 admission is independent of the legacy 32x32 bounds; signed positions support
 world coordinates without loosening legacy block validity. The world adapter
 composes the existing typed map and prop codecs. `tmt-office-storage::office_world` persists
-the all-or-error candidate in the existing world row (schema 28), checking revision,
-identity/room eligibility and artwork within one immediate transaction. Before
+the all-or-error candidate in the existing world row (schema 28), checking revision
+and artwork within one immediate transaction after preflighting identity/room eligibility. Before
 explicit cutover, retained blocks have a read-only deterministic projection fenced
 by a source fingerprint. First Save retires those rows atomically; schema triggers
 prevent renewed block writes. `office layout show/apply` and the world HTTP route
@@ -625,11 +625,21 @@ creation and migration are unchanged. The CLI side keeps only file readers, repl
 decoders and wire limits in `tmt-adapters`; the core `tmt office` facade still
 reaches storage only by invoking the installed companion.
 
-Retained transitional debt: `tmt-office-storage::core_lookup` holds verbatim copies
-of core identity and room reads, and five repository files still read core tables
-inside Office transactions. A crate test freezes those exact sites. The next #353
-slice replaces them with CoreAccess preflight and deletes the module; no storage
-switch may start while it exists.
+Office reads core-owned identities and rooms only through the UUID-keyed
+`tmt-office-storage::core_references::CoreReferences` port (`identity`,
+`active_identities`, `room`), separate from the CLI selector port `CoreAccess`.
+Each write preflights its references and then commits in its own Office
+transaction; no Office SQL names a core table outside the migration modules, and a
+crate test enforces that. This accepts a window: a reference retired between
+preflight and commit leaves exactly the state of the legal serial order "Office
+commit, then retirement", because identities are never deleted, rooms are retired
+rather than removed, and core retirement never changes Office rows. References
+that are already retired or missing at preflight keep their existing errors. The
+retired-identity marker fence for pairing grants and the durable retirement
+consumer arrive in the reconciliation slice. Known debt owned by #355: the
+in-process `CoreStore` links core storage, while an independently versioned
+Office binary must eventually reach core only through `tmt api` and never open
+or migrate the core database itself.
 
 The migration coordinator is the one Office component that opens the core
 database for its own reads outside the store: query-only,
@@ -1215,7 +1225,7 @@ content removal deletes it, while a same-name replacement receives a new UUID
 and inherits nothing.
 Schema 14 adds the installation-owned local Office discussion board. Pure bounded
 values, actors, receipts and cursor policy live in `tmt-office-model::office_board`;
-`tmt-office-storage::office_board` owns active-UUID and owner-world revalidation, immediate
+`tmt-office-storage::office_board` owns active-UUID preflight, owner-world revalidation, immediate
 transactions, soft deletion, board-local idempotency receipts, the single board
 revision and indexed keyset pages. The Office command library crosses the verified
 `tmt-office` one-shot protocol, while the stopped-service-independent companion and authenticated

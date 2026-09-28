@@ -1175,3 +1175,66 @@ fn upgraded_legacy_lobby_is_projected_unsaved_and_retired_by_the_first_save() {
         0
     );
 }
+
+#[test]
+fn references_retired_inside_the_preflight_window_commit_like_save_then_retire() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("race.db");
+    let mut storage = OfficeStore::open(&path).unwrap();
+    identity(&storage, ALICE, "saved");
+    let before = storage.show_local_world().unwrap();
+    let mut map = before.layout.map().draft().clone();
+    map.areas
+        .iter_mut()
+        .find(|area| matches!(area.kind, AreaKind::Personal { .. }))
+        .unwrap()
+        .kind = AreaKind::Personal {
+        identity_id: Some(ALICE.into()),
+    };
+    let assigned = WorldLayout::new(
+        OfficeMap::new(map).unwrap(),
+        before.layout.objects().to_vec(),
+    )
+    .unwrap();
+    crate::test_support::at_next_preflight_execute(
+        &path,
+        "UPDATE identities SET retired_at_ms=5 WHERE id=?",
+        ALICE,
+    );
+    let saved = save(&mut storage, &before, &assigned, 100).unwrap();
+    // Serial equivalent: the assignment is retained and stays editable.
+    let reread = storage.show_local_world().unwrap();
+    assert_eq!(reread.layout.map().draft(), saved.layout.map().draft());
+    let retained = save(&mut storage, &saved, &moved(&saved.layout), 101).unwrap();
+
+    // A room retired inside the window: the new meeting area commits and is retained.
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO office_meeting_rooms(room_id,name,revision) VALUES(?,'Review',1)",
+            [ROOM],
+        )
+        .unwrap();
+    let mut map = retained.layout.map().draft().clone();
+    let meeting = map
+        .areas
+        .iter_mut()
+        .find(|area| matches!(area.kind, AreaKind::Personal { identity_id: None }))
+        .unwrap();
+    meeting.kind = AreaKind::Meeting {
+        room_id: ROOM.into(),
+    };
+    let with_meeting = WorldLayout::new(
+        OfficeMap::new(map).unwrap(),
+        retained.layout.objects().to_vec(),
+    )
+    .unwrap();
+    crate::test_support::at_next_preflight_execute(
+        &path,
+        "UPDATE office_meeting_rooms SET retired=1,revision=revision+1 WHERE room_id=?",
+        ROOM,
+    );
+    let met = save(&mut storage, &retained, &with_meeting, 102).unwrap();
+    save(&mut storage, &met, &moved(&met.layout), 103).unwrap();
+}
