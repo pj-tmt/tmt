@@ -3,9 +3,10 @@
 
 use super::{
     app::{App, Item, Notes},
+    markdown,
     notes::wrap,
 };
-use crate::config::{BoardMode, Column, Direction, Pane};
+use crate::config::{BoardMode, Column, Direction, NotesRender, Pane};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -256,18 +257,19 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
         Notes::NotShown => "",
         Notes::Failed(error) => error.as_str(),
     };
-    let lines = wrap(text, usize::from(area.width));
+    let width = usize::from(area.width);
+    let lines: Vec<Line> = match (&view.notes, view.render) {
+        (Notes::Text(text), NotesRender::Markdown) => markdown::render(text, width),
+        (Notes::Text(text), NotesRender::Plain) => {
+            wrap(text, width).into_iter().map(Line::from).collect()
+        }
+        _ => wrap(text, width)
+            .into_iter()
+            .map(|line| Line::styled(line, color("dim")))
+            .collect(),
+    };
     let limit = lines.len().saturating_sub(usize::from(area.height));
     let scroll = usize::from(app.notes_scroll).min(limit) as u16;
-    let style = if matches!(view.notes, Notes::Text(_)) {
-        Style::new()
-    } else {
-        color("dim")
-    };
-    let lines: Vec<Line> = lines
-        .into_iter()
-        .map(|line| Line::styled(line, style))
-        .collect();
     frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), area);
 }
 
@@ -494,6 +496,7 @@ mod tests {
                 sizes: vec![100],
             },
             notes: crate::board::app::Notes::NotShown,
+                render: crate::config::NotesRender::Markdown,
             }),
         });
         app
@@ -580,6 +583,7 @@ mod tests {
                 colors: BTreeMap::new(),
                 board,
                 notes,
+                render: NotesRender::Markdown,
             }),
         });
         app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["fields"]["pr_link"] =
@@ -611,7 +615,10 @@ mod tests {
         let notes_at = screen[1].find("┌ notes · sol").expect("notes block title");
         assert_eq!(screen[1][..notes_at].chars().count(), 60, "{screen:#?}");
         assert!(screen[1].starts_with("┌ rows"));
-        assert!(screen.iter().any(|line| line.contains("## Now")));
+        assert!(
+            screen.iter().any(|line| line.contains("│Now")),
+            "markdown heading"
+        );
         assert!(screen.iter().any(|line| line.contains("◆ auth-fix")));
 
         let app = paned(
@@ -693,6 +700,8 @@ mod tests {
             ),
             Notes::Text(text),
         );
+        // Plain rendering keeps one note line per display line to scroll by.
+        app.view.as_mut().unwrap().render = NotesRender::Plain;
         app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         for _ in 0..5 {
             app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));

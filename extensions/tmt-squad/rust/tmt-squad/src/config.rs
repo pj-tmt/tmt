@@ -257,6 +257,13 @@ impl Board {
     }
 }
 
+/// How the notes pane shows the lead's notebook.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotesRender {
+    Markdown,
+    Plain,
+}
+
 /// A squad's state vocabulary after overrides: display order and colors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct States {
@@ -620,6 +627,30 @@ impl Config {
             board.panes.push(Pane::Notes);
         }
         Ok(board)
+    }
+
+    /// `[squad.<name>.notes] render = "markdown" | "plain"`; markdown by default.
+    pub fn notes_render(&self, squad: &str) -> Result<NotesRender, SquadError> {
+        let place = format!("squad.{squad}.notes");
+        let Some(item) = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("notes"))
+        else {
+            return Ok(NotesRender::Markdown);
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+        if let Some((key, _)) = table.iter().find(|(key, _)| *key != "render") {
+            return Err(invalid(format!("`{place}.{key}` is not a notes setting.")));
+        }
+        match table.get("render").map(|value| value.as_str()) {
+            None | Some(Some("markdown")) => Ok(NotesRender::Markdown),
+            Some(Some("plain")) => Ok(NotesRender::Plain),
+            Some(_) => Err(invalid(format!(
+                "`{place}.render` must be markdown or plain."
+            ))),
+        }
     }
 
     /// The state vocabulary: the layout's order and colors, overridden by
@@ -1018,6 +1049,32 @@ sort = ["state", "-name"]
         );
         assert_eq!(states.rank(Some("blocked")), 0);
         assert_eq!(states.rank(Some("unknown")), states.order.len());
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn notes_render_defaults_to_markdown_and_accepts_plain() {
+        let path = temp("notes");
+        let read = |body: &str| {
+            fs::write(&path, body).unwrap();
+            Config::read(path.clone()).unwrap().notes_render("x")
+        };
+        assert_eq!(read("").unwrap(), NotesRender::Markdown);
+        assert_eq!(
+            read("[squad.x.notes]\nrender = \"plain\"\n").unwrap(),
+            NotesRender::Plain
+        );
+        for body in [
+            "[squad.x.notes]\nrender = \"html\"\n",
+            "[squad.x.notes]\nwrap = false\n",
+            "[squad.x]\nnotes = \"plain\"\n",
+        ] {
+            assert_eq!(
+                read(body).err().map(|e| e.code).as_deref(),
+                Some("SQUAD_CONFIG_INVALID"),
+                "{body}"
+            );
+        }
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 }
