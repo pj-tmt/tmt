@@ -1421,6 +1421,25 @@ The generated curl bootstrap is release tooling around this same native
 installer. It derives archive facts from cargo-dist metadata and does not own a
 second target catalog, archive parser, package manager, or production manifest.
 
+## Squad extension
+
+`extensions/tmt-squad/rust/tmt-squad` builds the optional `tmt-squad` executable,
+reached through the external command contract as `tmt squad` and, through a
+`tmt-sq` link to the same file, `tmt sq`. Its command name is fixed, never taken
+from argv[0], so both spellings share one help text, error set and completion.
+It is a workspace member for the shared lockfile and toolchain only. It depends
+on no TMT crate, and no TMT crate depends on it; the architecture guard enforces
+both directions for Cargo dependencies and source references. Squad reaches TMT
+through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
+`tmt api`, with its own minimal bounded child runner.
+
+Squad keeps no store. A squad is the core room `squad-<name>`. `squad.toml`,
+beside the global config that `tmt config show` reports, is the user's file.
+Squad writes only the top-level `me`, with a changed-input check and atomic
+replacement that preserves the rest of the document. `init` settles `me`
+before creating the room. The release workflow does not distribute squad until
+the generic extension installer exists.
+
 ## Testing and evidence boundaries
 
 Office's opt-in `playwright.visual.config.ts` reuses the local HTTP fixture and

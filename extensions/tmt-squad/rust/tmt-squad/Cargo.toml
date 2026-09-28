@@ -1,0 +1,26 @@
+[package]
+workspace = "../../../../rust"
+name = "tmt-squad"
+version = "0.1.0-alpha.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# Distribution arrives with the generic extension installer (#387).
+[package.metadata.dist]
+dist = false
+
+# Squad reaches core only through public commands and `tmt api`; the
+# architecture guard rejects any TMT crate dependency in either direction.
+[dependencies]
+clap.workspace = true
+serde_json.workspace = true
+toml_edit.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+subprocess.workspace = true
+
+[lints]
+workspace = true

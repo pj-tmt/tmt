@@ -28,6 +28,19 @@ describe('CI area selection', () => {
     );
   });
 
+  it('treats the squad extension as native-only, not a prefix look-alike', () => {
+    expect(
+      selectCiAreas([
+        'extensions/tmt-squad/rust/tmt-squad/src/main.rs',
+        'extensions/tmt-squad/skills/tmt-squad/SKILL.md',
+      ])
+    ).toEqual({ native: true, office: false });
+    expect(selectCiAreas(['extensions/tmt-squad-other/file.rs'])).toEqual({
+      native: true,
+      office: true,
+    });
+  });
+
   it.each([
     'typescript/pnpm-lock.yaml',
     'typescript/pnpm-workspace.yaml',
