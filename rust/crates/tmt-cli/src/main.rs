@@ -5,6 +5,7 @@ mod completion;
 mod config_command;
 mod diagnostics;
 mod exchange_command;
+mod extension_command;
 mod grammar;
 mod guidance_command;
 mod identity_command;
@@ -70,6 +71,15 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
 fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
     let mut stdout = io::stdout().lock();
     match parsed.invocation {
+        Invocation::Extension {
+            name,
+            args,
+            help,
+            prefix,
+        } => {
+            drop(stdout);
+            return extension_command::execute(&name, &args, help, &prefix);
+        }
         Invocation::Help(path) => {
             if path.is_empty() {
                 writeln!(
@@ -82,6 +92,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 .map_err(io::Error::other)?
                 .write_help(&mut stdout)?;
             writeln!(stdout)?;
+            if path.is_empty() {
+                extension_command::write_discovered(&mut stdout)?;
+            }
         }
         Invocation::Version => writeln!(stdout, "{}", env!("CARGO_PKG_VERSION"))?,
         Invocation::Complete(words) => completion::query(&words, &mut stdout)?,

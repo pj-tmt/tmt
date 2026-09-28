@@ -30,12 +30,21 @@ _tmt() {
         "${query_words[0]}" __complete -- "${query_words[@]:1:query_cword}" 2>/dev/null
     )
     case "${result[0]}" in
-        identities)
+        root) _tmt_static "$@"; COMPREPLY+=("${result[@]:1}") ;;
+        files)
+            COMPREPLY=()
+            while IFS= read -r line; do
+                printf -v quoted '%q' "$line"
+                if [[ -n $open_quote ]]; then quoted=$line; fi
+                COMPREPLY+=("$quoted")
+            done < <(compgen -f -- "${query_words[query_cword]}")
+            ;;
+        identities|candidates)
             COMPREPLY=()
             for line in "${result[@]:1}"; do
                 printf -v quoted '%q' "$line"
                 if [[ -n $open_quote ]]; then quoted=$line; fi
-                if [[ ${COMP_WORDS[COMP_CWORD]} == --identity=* ]]; then
+                if [[ ${result[0]} == identities && ${COMP_WORDS[COMP_CWORD]} == --identity=* ]]; then
                     quoted="--identity=$quoted"
                 fi
                 COMPREPLY+=("$quoted")

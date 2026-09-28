@@ -24,6 +24,11 @@ describe.sequential('interactive shell completion', () => {
           '#!/bin/sh\nexit 98\n',
           { mode: 0o700 }
         );
+        writeFileSync(
+          path.join(fixture.wrapperDir, 'tmt-vault'),
+          '#!/bin/sh\n[ "$1" = __complete ] && [ "$2" = -- ] || exit 99\ncase "$3" in --cho*) printf "%s\\n" --choice ;; lit*) printf "%s\\n" "literal value" ;; esac\n',
+          { mode: 0o700 }
+        );
         const created = await fixture.runCli(['identity', 'create', 'Alice Example', '--json'], {
           withoutTmux: true,
         });
@@ -88,6 +93,10 @@ printf ready > ${quote(ready)}
           ['tmt talk Bob message --identity=Al', 'tmt talk Bob message --identity=Alice\\ Example'],
           ['tmt run Nobody tmt-fixture-c', 'tmt run Nobody tmt-fixture-command'],
           ['tmt run Nobody fake --prov', 'tmt run Nobody fake --provider-choice'],
+          ['tmt vaul', 'tmt vault'],
+          ['tmt help vaul', 'tmt help vault'],
+          ['tmt vault --cho', 'tmt vault --choice'],
+          ['tmt vault lit', 'tmt vault literal\\ value'],
           ["tmt run 'Alice Example' fake --prov", "tmt run 'Alice Example' fake --provider-choice"],
           ...(shell === 'bash'
             ? [

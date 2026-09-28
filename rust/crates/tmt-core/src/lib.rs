@@ -5,6 +5,7 @@ pub mod dispatch;
 pub mod driver;
 pub mod endpoint;
 pub mod exact_text;
+pub mod extension_command;
 pub mod identity;
 pub mod identity_hooks;
 pub mod identity_metadata;

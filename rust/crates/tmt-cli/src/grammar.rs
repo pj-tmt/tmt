@@ -1,6 +1,7 @@
 use clap::{Arg, ArgAction, Command};
 
 pub mod completion;
+pub mod extensions;
 
 // This tree owns recognition, help, completion and allowed-option validation.
 // Root-recognized options are inherited for placement, not universal permission.

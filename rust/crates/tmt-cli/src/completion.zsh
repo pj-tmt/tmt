@@ -4,6 +4,12 @@ _tmt() {
     local offset
     result=("${(@f)$("${(Q)words[1]}" __complete -- "${(@Q)words[2,CURRENT]}" 2>/dev/null)}")
     case $result[1] in
+        root)
+            _tmt_static "$@"
+            compadd -V extensions -- "${(@)result[2,-1]}"
+            ;;
+        candidates) compadd -V extensions -- "${(@)result[2,-1]}" ;;
+        files) _files ;;
         identities)
             compset -P '--identity='
             compadd -V identities -- "${(@)result[2,-1]}"

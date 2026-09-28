@@ -54,7 +54,18 @@ fn help_uses_public_ownership_and_resolves_aliases() {
     );
     assert!(grammar::help_command(&["__native-install".into()]).is_err());
     assert!(parse(&arguments(&["help", "office", "not-a-command"])).is_err());
-    assert!(parse(&arguments(&["not-a-command", "--help"])).is_err());
+    assert!(crate::parser::parse_core(&arguments(&["not-a-command", "--help"])).is_err());
+    assert_eq!(
+        parse(&arguments(&["not-a-command", "--help"]))
+            .unwrap()
+            .invocation,
+        Invocation::Extension {
+            name: "not-a-command".into(),
+            args: vec!["--help".into()],
+            help: false,
+            prefix: vec![]
+        }
+    );
 }
 
 #[test]
