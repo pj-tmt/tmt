@@ -1,3 +1,4 @@
+mod api_command;
 mod binding_command;
 mod binding_error;
 mod caller_context;
@@ -78,6 +79,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
 fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
     let mut stdout = io::stdout().lock();
     match parsed.invocation {
+        Invocation::Api => {
+            drop(stdout);
+            return api_command::execute();
+        }
         Invocation::Extension {
             name,
             args,

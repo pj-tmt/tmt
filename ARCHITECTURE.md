@@ -703,6 +703,37 @@ bounded process owner, not the unbounded interactive exec path.
 This generic dispatch does not extract the reserved `office` command; Office
 domain/storage extraction is tracked separately in #328.
 
+### Local extension API (v1)
+
+`tmt api` is the public, same-user process port for machine-shaped gaps in the
+ordinary CLI. One invocation reads one versioned JSON request from stdin and
+returns one JSON resource or structured error on stdout. It is neither an
+authentication boundary nor a daemon, batch processor or streaming connection.
+Extensions use `TMT_EXECUTABLE` rather than assuming an installed binary path.
+
+The CLI owns bounded stdin acquisition (EOF within five seconds), JSON publication
+and exit status. `tmt-adapters::api` owns envelope admission and composition;
+identity, room, request history, dispatch and notes retain their existing domain,
+transaction and resource encoders. The same one-shot delivery helper serves
+Office and API dispatch. Explicit identity selects write attribution, not privilege.
+Capabilities and unsupported-version discovery never open application storage.
+Input and output bounds are advertised in capabilities; canonical content limits
+still apply independently of JSON escaping.
+
+Protocol major 1 accepts additive operations and response fields; clients ignore
+unknown response fields. Removing operations or incompatible semantics requires
+a new major. Unsupported majors return `API_VERSION_UNSUPPORTED` with the supported
+range. Human-shaped identity, presence, room inspection/retirement, reply/result
+and attention operations remain their ordinary JSON commands, not duplicate API
+implementations. This port does not move Office storage or remove its core facade.
+
+History reads use the existing `(preparedAtMs, requestId)` keyset, not a frozen
+snapshot or change feed. X attention retains its separate revision cursor.
+Inspection does not acknowledge work or renew retention. Dispatch operation IDs
+recover immutable acceptance; replay never wakes again. Clients must recover a
+receipt or current room revision after interrupted writes, not invent a new
+operation ID and resend. See [extension API usage](docs/extension-api.md).
+
 ### Core command surface
 
 The maintained public surface is:
@@ -713,6 +744,7 @@ The maintained public surface is:
   set/get/list/remove with exact filters, `list`/`ls`, `add`, `name`/`this`,
   `whoami`, `unbind`, `rm`/`remove`;
 - saved-identity notes through `notes path`;
+- the versioned local extension interface through `api`;
 - profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
   `reply`, `result`, `talk`/`send`, `check`/`read`;
 - managed native updates through `upgrade`/`update`, with the hidden

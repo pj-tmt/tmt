@@ -27,21 +27,17 @@ pub(super) fn api(stream: &mut TcpStream, request: Request, paths: &ConfigPaths)
         );
     }
     let (status, body) = match notes::read(paths, id) {
-        Ok(notebook) => (
-            200,
-            json!({ "identityId": notebook.identity_id, "name": notebook.name, "content": notebook.content }),
-        ),
+        Ok(notebook) => (200, notes::value(&notebook)),
         Err(error) => {
-            let (status, code) = match error {
-                NotebookError::InvalidIdentity => (400, "NOTEBOOK_INVALID_IDENTITY"),
-                NotebookError::IdentityNotFound => (404, "NOTEBOOK_IDENTITY_NOT_FOUND"),
-                NotebookError::SavedIdentityRequired => (403, "NOTEBOOK_SAVED_IDENTITY_REQUIRED"),
-                NotebookError::Missing => (404, "NOTEBOOK_NOT_FOUND"),
-                NotebookError::TooLarge => (413, "NOTEBOOK_TOO_LARGE"),
-                NotebookError::InvalidText => (422, "NOTEBOOK_INVALID_TEXT"),
-                NotebookError::Unavailable => (500, "NOTEBOOK_UNAVAILABLE"),
+            let status = match error {
+                NotebookError::InvalidIdentity => 400,
+                NotebookError::IdentityNotFound | NotebookError::Missing => 404,
+                NotebookError::SavedIdentityRequired => 403,
+                NotebookError::TooLarge => 413,
+                NotebookError::InvalidText => 422,
+                NotebookError::Unavailable => 500,
             };
-            (status, json!({ "error": code }))
+            (status, json!({ "error": error.code() }))
         }
     };
     response(

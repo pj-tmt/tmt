@@ -187,6 +187,7 @@ fn texts(matches: &ArgMatches, id: &str) -> Vec<String> {
 
 fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
     Ok(match path {
+        ["api"] => Invocation::Api,
         [] if flag(m, "version") => Invocation::Version,
         [] | ["team"] => Invocation::Help(Vec::new()),
         ["help"] => {

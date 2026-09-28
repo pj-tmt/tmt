@@ -47,6 +47,43 @@ pub enum Availability {
     Unavailable,
 }
 
+/// Claim once before attempting input. A lost settlement remains claimed and
+/// must never cause a second paste; the durable request remains recoverable.
+pub fn wake_request(
+    storage: &mut Storage,
+    request_id: &str,
+    recipient_id: &str,
+    notification: &str,
+    delay: Duration,
+) -> WakeState {
+    use crate::request_runtime::wall_time_ms;
+    let claim = match RequestService::new(storage, wall_time_ms).claim_wake(request_id) {
+        Ok(claim) => claim,
+        Err(_) => return WakeState::Claimed,
+    };
+    if !claim.claimed {
+        return claim.state;
+    }
+    let eligible = RequestService::new(storage, wall_time_ms)
+        .wake_recipient_is_eligible(request_id, recipient_id)
+        .unwrap_or(false);
+    let state = if eligible {
+        send(storage, &Tmux::default(), recipient_id, notification, delay)
+            .map(|outcome| outcome.wake_state())
+            .unwrap_or(WakeState::Unavailable)
+    } else {
+        WakeState::Unavailable
+    };
+    if RequestService::new(storage, wall_time_ms)
+        .settle_wake(request_id, state)
+        .is_err()
+    {
+        WakeState::Claimed
+    } else {
+        state
+    }
+}
+
 pub fn current(
     storage: &mut Storage,
     identity: &str,

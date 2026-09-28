@@ -10,6 +10,30 @@ use std::{
 };
 
 #[test]
+fn bounded_wire_input_keeps_its_own_cap_and_restores_flags() {
+    let directory = TestDirectory::new();
+    let file = directory.path.join("wire");
+    let bytes = vec![b'x'; MAX_EXCHANGE_TEXT_BYTES + 1];
+    fs::write(&file, &bytes).unwrap();
+    let stream = File::open(&file).unwrap();
+    let flags = fcntl(&stream, FcntlArg::F_GETFL).unwrap();
+    assert_eq!(
+        read_stream_bounded(&stream, Duration::from_secs(2), bytes.len())
+            .unwrap()
+            .as_bytes(),
+        bytes
+    );
+    assert_eq!(fcntl(&stream, FcntlArg::F_GETFL).unwrap(), flags);
+    let stream = File::open(&file).unwrap();
+    assert_eq!(
+        read_stream_bounded(&stream, Duration::from_secs(2), bytes.len() - 1)
+            .unwrap_err()
+            .kind,
+        ResponseInputFailure::TooLarge
+    );
+}
+
+#[test]
 fn regular_files_preserve_exact_text_and_follow_explicit_symlinks() {
     let directory = TestDirectory::new();
     let file = directory.path.join("body");

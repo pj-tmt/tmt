@@ -126,7 +126,7 @@ pub fn read_stdin() -> Result<String, ResponseInputError> {
     read_stream(&io::stdin(), STDIN_TIMEOUT)
 }
 
-/// Reuse descriptor restoration and bounded EOF acquisition for native hooks.
+/// Reuse descriptor restoration and bounded EOF acquisition for wire envelopes.
 /// The caller owns wire validation and maps errors without exposing payloads.
 pub fn read_stdin_bounded(timeout: Duration, maximum: usize) -> Result<String, ResponseInputError> {
     read_stream_bounded(&io::stdin(), timeout, maximum)
@@ -199,7 +199,7 @@ fn read_stream_bounded(
         }
         Err(cause) => return Err(ResponseInputError::io(ResponseInputFailure::Invalid, cause)),
     };
-    if timeout.is_zero() || terminal || maximum == 0 || maximum > MAX_EXCHANGE_TEXT_BYTES {
+    if timeout.is_zero() || terminal || maximum == 0 || maximum.checked_add(1).is_none() {
         return Err(ResponseInputFailure::Invalid.into());
     }
     let mut flags = StreamFlags::acquire(stream)?;
@@ -258,7 +258,9 @@ fn read_until_eof(
             return Err(ResponseInputFailure::Timeout.into());
         }
         if count == 0 {
-            return decode(&bytes);
+            // The caller owns the wire limit; an escaped JSON envelope can be
+            // larger than its separately validated canonical message body.
+            return String::from_utf8(bytes).map_err(|_| ResponseInputFailure::Invalid.into());
         }
         bytes.extend_from_slice(&chunk[..count]);
         if bytes.len() > maximum {

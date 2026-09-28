@@ -48,6 +48,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
         && !matches!(
             parsed.invocation,
             Invocation::Extension { .. }
+                | Invocation::Api
                 | Invocation::Help(_)
                 | Invocation::Version
                 | Invocation::Completion(_)
