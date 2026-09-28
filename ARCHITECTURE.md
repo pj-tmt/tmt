@@ -773,7 +773,8 @@ implementations. This port does not move Office storage or remove its core facad
 `rooms.roster` composes a room's effective members with their prefix-filtered
 metadata and self-reported status from one deferred SQLite read snapshot
 (`storage::room_roster`): selection, membership, metadata and status cannot
-disagree within a response. It performs no writes, migration or acknowledgment.
+disagree within a response. The read itself performs no writes or acknowledgment;
+opening storage follows the same policy as every other API operation.
 Presence is deliberately excluded because it requires host observation and
 binding reconciliation owned by `ls`; consumers join `ls --room --json`.
 Adapter `identity_projection` owns the identity summary and metadata map shared
