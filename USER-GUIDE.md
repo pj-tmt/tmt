@@ -290,21 +290,38 @@ pairing, and board behavior.
 
 ## Optional squad extension
 
-Squad will organize agents into squads: a lead that dispatches work and keeps a
-board current, and members that do the work. It adds no daemon and no store; a
-squad is the TMT room `squad-<name>`. It is not distributed yet: build it from
-source and put it on PATH together with its `tmt-sq` alias link.
+Squad organizes agents into squads: a lead that dispatches work and keeps the
+board current, and members that do the work. It adds no daemon and no store. A
+squad is the TMT room `squad-<name>`, and member fields are identity metadata
+`squad.<name>.<field>`. It is not distributed yet: build it from source and put
+it on PATH together with its `tmt-sq` alias link.
 
 ```bash
 (cd rust && cargo build --locked -p tmt-squad)
 ln -s "$PWD/rust/target/debug/tmt-squad" ~/.local/bin/tmt-squad
 ln -s tmt-squad ~/.local/bin/tmt-sq
-tmt squad init product --me <your saved identity>   # creates room squad-product
+```
+
+```bash
+tmt squad init product --me <your saved identity>   # room squad-product
+tmt squad lead sol                                  # a saved identity
+tmt squad add auth-fix docs-sweep                   # agents already running
+tmt squad set auth-fix state=blocked pending="approve the plan" note="needs a call"
+tmt squad status                                    # --json for scripts
+tmt squad remove auth-fix                           # the agent keeps running
 ```
 
 `me` (your saved identity) is recorded in `squad.toml`, next to TMT's global
-`config.json`. The first interactive `init` asks for it; non-interactive use
-requires `--me`. Re-running `init` changes nothing.
+`config.json`; the first interactive `init` asks for it, and non-interactive use
+requires `--me`. Re-running `init` changes nothing. With one squad, commands
+select it; with several, pass `--squad <name>`. `status` lists members with ◆ on
+rows that wait on you (`pending`). `set field=` clears a field. `remove` clears
+only that squad's fields.
+
+The lead's skill is embedded in the extension. Until `tmt extension install
+squad` offers it, copy it into your lead agent's skills directory yourself, for
+example `tmt sq skill show > ~/.claude/skills/tmt-squad/SKILL.md` (create the
+directory first). A manually copied skill is not drift-checked or upgraded.
 
 ## Talk and receive a complete reply
 

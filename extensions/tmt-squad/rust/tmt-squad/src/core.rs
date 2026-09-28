@@ -1,5 +1,5 @@
-//! The only door to TMT: public `--json` commands (and, for reads, `tmt api`),
-//! run through the invoking executable. Squad never opens TMT storage itself.
+//! The only door to TMT: public `--json` commands and `tmt api`, run through the
+//! invoking executable. Squad never opens TMT storage or configuration itself.
 
 use crate::runner::{self, RunError};
 use serde_json::{Value, json};
@@ -74,6 +74,12 @@ impl Core {
         let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();
         argv.push("--json".into());
         self.call(&argv, b"")
+    }
+
+    /// One versioned `tmt api` request.
+    pub fn api(&self, operation: &str, input: Value) -> Result<Value, SquadError> {
+        let request = json!({"version": 1, "operation": operation, "input": input});
+        self.call(&["api".into()], request.to_string().as_bytes())
     }
 
     fn call(&self, argv: &[OsString], input: &[u8]) -> Result<Value, SquadError> {
