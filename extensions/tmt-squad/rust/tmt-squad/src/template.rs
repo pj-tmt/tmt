@@ -25,6 +25,14 @@ fn field_name(name: &str) -> bool {
 }
 
 impl Template {
+    /// The text of a template without placeholders.
+    pub fn literal(&self) -> Option<&str> {
+        match self.0.as_slice() {
+            [Part::Text(text)] => Some(text),
+            _ => None,
+        }
+    }
+
     pub fn parse(text: &str) -> Result<Self, String> {
         let mut parts = Vec::new();
         let mut rest = text;
@@ -121,6 +129,8 @@ mod tests {
             fill("{worktree}").unwrap_err(),
             "worktree is empty for this row"
         );
+        assert_eq!(Template::parse("code").unwrap().literal(), Some("code"));
+        assert_eq!(Template::parse("{name}").unwrap().literal(), None);
         for bad in ["{Bad}", "{two words}", "{unclosed", "close}", "{}", "a}{b"] {
             assert!(Template::parse(bad).is_err(), "{bad}");
         }

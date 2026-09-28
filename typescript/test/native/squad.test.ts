@@ -337,6 +337,9 @@ sort = ["-name"]
         ['o = "launch {name}"', 'squad.product.section[0].bind.o'],
         ['q = "refresh"', 'squad.product.section[0].bind.q'],
         ['o = "open {pr link}"', 'squad.product.section[0].bind.o'],
+        ['o = "run ./script {name}"', 'squad.product.section[0].bind.o'],
+        ['o = "run {program} x"', 'squad.product.section[0].bind.o'],
+        ['hold = "jump"', 'squad.product.section[0].bind.hold'],
       ]) {
         writeFileSync(
           squadToml,
@@ -346,6 +349,12 @@ sort = ["-name"]
         expect(invalid.body.error.code, bind).toBe('SQUAD_CONFIG_INVALID');
         expect(invalid.body.error.message, bind).toContain(place);
       }
+      writeFileSync(
+        squadToml,
+        `${base}\n[[squad.product.section]]\ntitle = "Mine"\n[squad.product.section.bind]\n` +
+          `double-click = "run code -- {cwd}"\nclick = "notes"\n`
+      );
+      expect((await squad(sandbox, ['status'])).status).toBe(0);
     });
   });
   it('orders status by the configured state sort before the layout default', async () => {

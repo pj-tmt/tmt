@@ -1579,9 +1579,13 @@ focus`; squad has no focus logic of its own.
 `action` parses `[bind]` and `[squad.<name>.section.bind]` once per load into
 events and actions whose arguments are templates; bad events, actions or field
 syntax are configuration errors. The board resolves the selected row's section
-binding, then `[bind]`, then the host preset (tmux: Enter jumps; a plain
-terminal: Enter opens the row's action menu) into a fully filled request before
-anything runs; a missing value is a notice, not a partial action. `back` keeps a
+binding, then `[bind]`, then the host preset (tmux: Enter and double-click jump;
+a plain terminal: they open the row's action menu) into a fully filled request
+before anything runs; a missing value is a notice, not a partial action. Mouse
+capture is part of the terminal state the `Screen` guard restores; each draw
+records which screen lines show which row, so a click selects exactly the row
+drawn there. `run` fills one argv element per template and starts it like the
+opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).
 Every jump pushes the pane the client left, under the client `tmt focus`

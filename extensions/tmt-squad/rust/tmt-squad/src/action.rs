@@ -3,6 +3,7 @@
 //! exactly one argument and is never re-split, re-quoted or shell-parsed.
 
 use crate::template::{DEFAULT_COPY, Template};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +14,7 @@ pub enum Verb {
     Copy,
     Notes,
     Refresh,
+    Run,
     NextPane,
     /// The row's action menu (the plain host's Enter).
     Menu,
@@ -30,6 +32,7 @@ impl Verb {
             "copy" => Self::Copy,
             "notes" => Self::Notes,
             "refresh" => Self::Refresh,
+            "run" => Self::Run,
             "next-pane" => Self::NextPane,
             "menu" => Self::Menu,
             "talk" => Self::Talk,
@@ -47,6 +50,7 @@ impl Verb {
             Self::Copy => "copy",
             Self::Notes => "notes",
             Self::Refresh => "refresh",
+            Self::Run => "run",
             Self::NextPane => "next-pane",
             Self::Menu => "menu",
             Self::Talk => "talk",
@@ -124,13 +128,25 @@ impl Action {
                 "member" => vec![Template::parse("member")?],
                 other => return Err(format!("annotate takes lead or member, not '{other}'")),
             },
-            Verb::Open => {
+            Verb::Open | Verb::Run => {
                 let args = tokens(rest)?
                     .iter()
                     .map(|token| Template::parse(token))
                     .collect::<Result<Vec<_>, _>>()?;
-                if args.len() > 1 {
+                if verb == Verb::Open && args.len() > 1 {
                     return Err("open takes one link, for example open {pr_link}".into());
+                }
+                if verb == Verb::Run {
+                    let program = args.first().ok_or("run needs a program")?;
+                    match program.literal() {
+                        Some(name) if name.starts_with('/') || !name.contains('/') => {}
+                        _ => {
+                            return Err(
+                                "run's program must be a literal name on PATH or an absolute path"
+                                    .into(),
+                            );
+                        }
+                    }
                 }
                 args
             }
@@ -143,12 +159,17 @@ impl Action {
             text: line.to_owned(),
         })
     }
+
+    /// `run`: the complete argv. Each template becomes exactly one element.
+    pub fn argv(&self, row: &Value) -> Result<Vec<String>, String> {
+        self.args.iter().map(|arg| arg.fill(row)).collect()
+    }
 }
 
 /// Board keys no binding may take: quit, select, search and help.
 const RESERVED: &[&str] = &["q", "j", "k", "/", "?"];
 
-/// Keys a binding may name. Ctrl-C always quits.
+/// Key and mouse events a binding may name. Ctrl-C always quits.
 pub fn valid_event(event: &str) -> bool {
     if RESERVED.contains(&event) {
         return false;
@@ -163,6 +184,8 @@ pub fn valid_event(event: &str) -> bool {
         "end",
         "pageup",
         "pagedown",
+        "click",
+        "double-click",
     ];
     let mut chars = event.chars();
     let single = matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_graphic());
@@ -186,7 +209,9 @@ pub fn parse_bindings<'a>(
     entries
         .map(|(event, line)| {
             if !valid_event(event) {
-                return Err(format!("`{place}.{event}` is not a bindable key"));
+                return Err(format!(
+                    "`{place}.{event}` is not a bindable key or mouse event"
+                ));
             }
             let line = line.ok_or_else(|| format!("`{place}.{event}` must be an action string"))?;
             let action =
@@ -196,12 +221,14 @@ pub fn parse_bindings<'a>(
         .collect()
 }
 
-/// Host presets. The tmux host jumps; a plain terminal cannot, so Enter
-/// opens the row's action menu instead.
+/// Host presets. The tmux host jumps; a plain terminal cannot, so Enter and
+/// double-click open the row's action menu instead. A single click only
+/// selects, so pointing at a row never leaves the board.
 pub fn preset(tmux: bool) -> Bindings {
     let enter = if tmux { "jump" } else { "menu" };
     [
         ("enter", enter),
+        ("double-click", enter),
         ("backspace", "back"),
         ("t", "talk"),
         ("r", "reply"),
@@ -224,7 +251,7 @@ pub fn preset(tmux: bool) -> Bindings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{Value, json};
+    use serde_json::json;
 
     fn row() -> Value {
         json!({
@@ -236,6 +263,30 @@ mod tests {
                 "pr_link": "https://example.com/pull/412",
             }
         })
+    }
+
+    #[test]
+    fn run_fills_each_field_into_exactly_one_argument() {
+        let action =
+            Action::parse(r#"run code --wait {worktree} "{cwd} (lead)" --task={task}"#).unwrap();
+        assert_eq!(action.verb, Verb::Run);
+        assert_eq!(
+            action.argv(&row()).unwrap(),
+            [
+                "code",
+                "--wait",
+                "-rf /",
+                "/w/app 3 (lead)",
+                "--task=rotate; $(rm -rf ~) `id` \"quoted\" *.rs",
+            ]
+        );
+        assert_eq!(
+            Action::parse("run code {pending}")
+                .unwrap()
+                .argv(&row())
+                .unwrap_err(),
+            "pending is empty for this row"
+        );
     }
 
     #[test]
@@ -280,7 +331,16 @@ mod tests {
         ] {
             assert!(Action::parse(line).is_err(), "{line}");
         }
-        for event in ["enter", "o", "Y", "x", "f5", "ctrl-r"] {
+        for event in [
+            "enter",
+            "o",
+            "Y",
+            "x",
+            "f5",
+            "ctrl-r",
+            "click",
+            "double-click",
+        ] {
             assert!(valid_event(event), "{event}");
         }
         for event in [
@@ -295,6 +355,9 @@ mod tests {
         let (tmux, plain) = (preset(true), preset(false));
         assert_eq!(tmux["enter"].verb, Verb::Jump);
         assert_eq!(plain["enter"].verb, Verb::Menu);
+        assert_eq!(plain["double-click"].verb, Verb::Menu);
+        assert_eq!(tmux["double-click"].verb, Verb::Jump);
+        assert!(!tmux.contains_key("click") && !plain.contains_key("click"));
         assert_eq!(tmux["o"], plain["o"]);
     }
 }

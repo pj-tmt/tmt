@@ -2,7 +2,7 @@
 //! cells so wide characters never misalign columns.
 
 use super::{
-    app::{App, Item, Notes},
+    app::{App, Hit, Item, Notes},
     markdown,
     notes::wrap,
 };
@@ -151,6 +151,7 @@ fn header_line(app: &App) -> Line<'_> {
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
+    app.hits.borrow_mut().clear();
     let [top, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(1),
@@ -423,6 +424,8 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     ))];
     let mut selected_line = 0;
     let mut row_index = 0;
+    // The screen lines of each row, for mouse events.
+    let mut row_lines = Vec::new();
     for item in app.items() {
         match item {
             Item::Header(title) => lines.push(Line::from(Span::styled(
@@ -457,12 +460,14 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 } else {
                     Style::new()
                 };
+                row_lines.push((lines.len(), row_index));
                 lines.push(Line::from(spans).style(style));
                 if let Some(note) = row["note"].as_str().filter(|_| !note_column) {
                     lines.push(Line::from(Span::styled(
                         fit(&format!("    note {note}"), usize::from(area.width)),
                         color("dim"),
                     )));
+                    row_lines.push((lines.len() - 1, row_index));
                 }
                 row_index += 1;
             }
@@ -481,6 +486,17 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     // Keep the selected row visible; the column header scrolls with the list.
     let height = usize::from(area.height);
     let offset = selected_line.saturating_sub(height.saturating_sub(1));
+    app.hits.borrow_mut().extend(
+        row_lines
+            .into_iter()
+            .filter(|(line, _)| (offset..offset + height).contains(line))
+            .map(|(line, row)| Hit {
+                y: area.y + (line - offset) as u16,
+                x: area.x,
+                width: area.width,
+                row,
+            }),
+    );
     frame.render_widget(Paragraph::new(lines).scroll((offset as u16, 0)), area);
 }
 
@@ -583,12 +599,24 @@ mod tests {
     }
 
     #[test]
-    fn the_menu_and_help_show_the_selected_rows_bindings() {
+    fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
         let mut app = board(json!([
             {"title": "Needs me", "rows": [row("auth-fix", "blocked", "rotate", json!({"note": "needs a call"}))]},
             {"title": "Everyone", "rows": [row("docs", "working", "guide", json!({}))]}
         ]));
+        draw(&app, 48, 9);
+        let lines: Vec<(u16, usize)> = app.hits.borrow().iter().map(|h| (h.y, h.row)).collect();
+        assert_eq!(
+            lines,
+            [(3, 0), (4, 0), (6, 1)],
+            "a row's note line clicks the row"
+        );
+        // Scrolled: only visible lines are clickable, at their screen rows.
         app.selected = 1;
+        draw(&app, 48, 5);
+        let lines: Vec<(u16, usize)> = app.hits.borrow().iter().map(|h| (h.y, h.row)).collect();
+        assert_eq!(lines, [(1, 0), (3, 1)]);
+
         app.view.as_mut().unwrap().bindings = crate::action::preset(false);
         app.help = true;
         let help = draw(&app, 60, 24);

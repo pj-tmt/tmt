@@ -416,12 +416,33 @@ enter = "copy {name}: {pending}"
 
 A binding is `event = "action [argument]"`. Events are `enter`, `backspace`,
 `tab`, `space`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1`–`f12`,
-`ctrl-<letter>` (except `ctrl-c`) or one printable character other than the
-board's own `q`, `j`, `k`, `/` and `?`. Actions are `jump`, `back`,
-`open [{field}]`, `copy [template]`, `notes`, `refresh`, `next-pane`, `menu`,
-`talk`, `reply` and `annotate [lead|member]`. An unknown action, event or field
-syntax makes the board report the configuration error; a field that is empty
-for the selected row refuses the action with a notice and runs nothing.
+`ctrl-<letter>` (except `ctrl-c`), `click`, `double-click` or one printable
+character other than the board's own `q`, `j`, `k`, `/` and `?`. Actions are
+`jump`, `back`, `open [{field}]`, `copy [template]`, `run <program> [arguments]`,
+`notes`, `refresh`, `next-pane`, `menu`, `talk`, `reply` and
+`annotate [lead|member]`. An unknown action, event or field syntax makes the
+board report the configuration error; a field that is empty for the selected
+row refuses the action with a notice and runs nothing.
+
+A click selects the row under the pointer, and a double-click runs Enter's
+action; bind `click` to act on a single click. While the board is open it
+captures the mouse, so select terminal text with your terminal's override
+(usually Shift or Option while dragging).
+
+`run` starts a program for the selected row without a shell, with no terminal
+input or output, in its own process group so it outlives the board:
+
+```toml
+[bind]
+e = "run code --reuse-window -- {cwd}"
+```
+
+The program is a name on `PATH` or an absolute path, written literally. Each
+argument is split once when `squad.toml` loads (double quotes group words), and
+a `{field}` value fills exactly one argument however it is spelled, so it never
+becomes several words or shell syntax. A value can still begin with `-`; when
+the program accepts it, put `--` before field arguments, as above, so such a
+value is read as a file or name rather than an option.
 
 Some row actions also work as commands, for scripts, tmux key bindings and
 terminals without the board:

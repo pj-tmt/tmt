@@ -7,9 +7,15 @@ use crate::{
     config::{Board, Column, NotesRender, Pane},
     effects,
 };
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::{
+    cell::RefCell,
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 /// What the refresh worker loaded for one squad.
 pub struct View {
@@ -61,6 +67,7 @@ pub enum Request {
         text: String,
         program: Option<Vec<String>>,
     },
+    Run(Vec<String>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -86,6 +93,16 @@ pub struct Menu {
 }
 
 pub const LATER: &str = "That action is available in a later version.";
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+
+/// A screen line of the rows pane and the visible row it shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Hit {
+    pub y: u16,
+    pub x: u16,
+    pub width: u16,
+    pub row: usize,
+}
 
 #[derive(Default)]
 pub struct App {
@@ -103,6 +120,9 @@ pub struct App {
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
     pub notes_scroll: u16,
+    last_click: Option<(usize, Instant)>,
+    /// Where rows were last drawn, for mouse events.
+    pub hits: RefCell<Vec<Hit>>,
 }
 
 fn matches(row: &Value, needle: &str) -> bool {
@@ -305,7 +325,10 @@ impl App {
                 let mut entries: Vec<(String, Action)> = self
                     .bindings()
                     .into_iter()
-                    .filter(|(_, action)| !matches!(action.verb, Verb::Menu | Verb::NextPane))
+                    .filter(|(event, action)| {
+                        !matches!(event.as_str(), "click" | "double-click")
+                            && !matches!(action.verb, Verb::Menu | Verb::NextPane)
+                    })
                     .collect();
                 entries.sort_by_key(|(event, _)| event.chars().count() > 1);
                 self.menu = Some(Menu {
@@ -334,6 +357,7 @@ impl App {
                 text,
                 program: view.clipboard.clone(),
             }),
+            Verb::Run => action.argv(&row).map(Request::Run),
             _ => unreachable!("handled above"),
         };
         match request {
@@ -430,6 +454,31 @@ impl App {
             }
         }
         Effect::None
+    }
+
+    /// A left click selects the row under it, then runs its `click` binding;
+    /// a second click on the same row soon after runs `double-click`.
+    pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
+        if event.kind != MouseEventKind::Down(MouseButton::Left) || self.menu.is_some() {
+            return Effect::None;
+        }
+        let hit = self.hits.borrow().iter().copied().find(|hit| {
+            hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
+        });
+        let Some(hit) = hit else {
+            return Effect::None;
+        };
+        self.notice = None;
+        self.selected = hit.row;
+        let double = self
+            .last_click
+            .is_some_and(|(row, at)| row == hit.row && now.duration_since(at) <= DOUBLE_CLICK);
+        self.last_click = (!double).then_some((hit.row, now));
+        let event = if double { "double-click" } else { "click" };
+        match self.bindings().remove(event) {
+            Some(action) => self.perform(&action),
+            None => Effect::None,
+        }
     }
 
     pub fn selected_row(&self) -> Option<&Value> {
@@ -631,7 +680,10 @@ mod tests {
     fn section_bindings_win_over_bind_which_wins_over_the_preset() {
         let mut global = crate::action::preset(true);
         global.extend(bind(&[("o", "open {pr_link}"), ("f5", "refresh")]));
-        let sections = vec![Bindings::new(), bind(&[("o", "copy {name} ({task})")])];
+        let sections = vec![
+            Bindings::new(),
+            bind(&[("o", "run code {name} --task={task}")]),
+        ];
         let mut app = crew(global, sections);
         assert_eq!(press(&mut app, KeyCode::F(5)), Effect::Refresh);
         assert!(matches!(
@@ -641,10 +693,11 @@ mod tests {
         press(&mut app, KeyCode::Down);
         assert_eq!(
             press(&mut app, KeyCode::Char('o')),
-            Effect::Act(Request::Copy {
-                text: "docs (guide)".into(),
-                program: Some(vec!["pbcopy".into()])
-            })
+            Effect::Act(Request::Run(vec![
+                "code".into(),
+                "docs".into(),
+                "--task=guide".into()
+            ]))
         );
         // A missing field refuses rather than running with a gap.
         let mut app = crew(bind(&[("o", "open {pr_link}")]), Vec::new());
@@ -664,7 +717,7 @@ mod tests {
         assert_eq!(menu.title, "auth-fix");
         let events: Vec<&str> = menu.entries.iter().map(|(e, _)| e.as_str()).collect();
         assert!(events.contains(&"y") && events.contains(&"backspace"));
-        assert!(!events.iter().any(|e| ["enter", "tab"].contains(e)));
+        assert!(!events.iter().any(|e| ["click", "enter", "tab"].contains(e)));
         assert_eq!(press(&mut app, KeyCode::Char('j')), Effect::None);
         assert!(app.menu.is_some(), "j moves inside the menu");
         assert!(matches!(
@@ -675,6 +728,59 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.menu.is_none(), "Esc closes the menu, not the board");
+    }
+
+    #[test]
+    fn clicks_select_rows_and_run_click_or_double_click_bindings() {
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let mut global = crate::action::preset(true);
+        global.extend(bind(&[("click", "notes"), ("double-click", "jump")]));
+        let mut app = crew(global, Vec::new());
+        *app.hits.borrow_mut() = vec![
+            Hit {
+                y: 3,
+                x: 0,
+                width: 40,
+                row: 0,
+            },
+            Hit {
+                y: 5,
+                x: 0,
+                width: 40,
+                row: 1,
+            },
+        ];
+        let click = |row, column| MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        };
+        let start = Instant::now();
+        assert_eq!(app.mouse(click(5, 3), start), Effect::None);
+        assert_eq!(app.selected, 1);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("The notes pane is not on this board; add it to panes.")
+        );
+        assert_eq!(
+            app.mouse(click(5, 3), start + Duration::from_millis(200)),
+            Effect::Act(Request::Jump("docs".into()))
+        );
+        assert_eq!(
+            app.mouse(click(3, 3), start + Duration::from_millis(300)),
+            Effect::None,
+            "a click on another row is a new single click"
+        );
+        assert_eq!(app.selected, 0);
+        assert_eq!(
+            app.mouse(click(3, 3), start + Duration::from_secs(2)),
+            Effect::None,
+            "too slow for a double click"
+        );
+        assert_eq!(app.mouse(click(9, 3), start), Effect::None);
+        assert_eq!(app.mouse(click(3, 45), start), Effect::None);
+        assert_eq!(app.selected, 0, "clicks outside rows change nothing");
     }
 
     #[test]

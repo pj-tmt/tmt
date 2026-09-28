@@ -1,9 +1,10 @@
-//! Terminal lifecycle: the board owns raw mode and the alternate screen only
-//! between `Guard::enter` and restore, which also runs on error, panic and
-//! TERM/HUP. A terminal left in raw mode is a defect, not a cosmetic issue.
+//! Terminal lifecycle: the board owns raw mode, mouse capture and the
+//! alternate screen only between `Guard::enter` and restore, which also runs
+//! on error, panic and TERM/HUP. A terminal left in raw mode is a defect, not a cosmetic issue.
 
 use ratatui::crossterm::{
     cursor::{Hide, Show},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -26,12 +27,17 @@ pub struct Crossterm;
 impl Screen for Crossterm {
     fn enter(&mut self) -> io::Result<()> {
         enable_raw_mode()?;
-        execute!(io::stdout(), EnterAlternateScreen, Hide)
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture, Hide)
     }
 
     fn leave(&mut self) -> io::Result<()> {
         // Try every step even if one fails; report the first failure.
-        let screen = execute!(io::stdout(), LeaveAlternateScreen, Show);
+        let screen = execute!(
+            io::stdout(),
+            DisableMouseCapture,
+            LeaveAlternateScreen,
+            Show
+        );
         let raw = disable_raw_mode();
         screen.and(raw)
     }

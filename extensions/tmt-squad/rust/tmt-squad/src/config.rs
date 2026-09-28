@@ -1019,7 +1019,7 @@ sort = ["state", "-name"]
         fs::write(&path, "").unwrap();
         let config = Config::read(path.clone()).unwrap();
         assert_eq!(
-            config.bindings(false).unwrap()["enter"].verb,
+            config.bindings(false).unwrap()["double-click"].verb,
             crate::action::Verb::Menu
         );
         for body in [
