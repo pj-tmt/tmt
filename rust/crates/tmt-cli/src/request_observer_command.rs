@@ -5,7 +5,7 @@ use std::{
     fs::{self, OpenOptions},
     io,
     os::unix::fs::OpenOptionsExt,
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use tmt_adapters::{
@@ -13,17 +13,23 @@ use tmt_adapters::{
 };
 use tmt_core::request::{RequestService, ResponseLookup};
 
-pub fn start(database: &Path, request_id: &str) -> io::Result<()> {
-    let directory = database
+/// Per-request diagnostics beside the database; one owner for both processes.
+fn log_path(database: &Path, request_id: &str) -> io::Result<PathBuf> {
+    Ok(database
         .parent()
         .ok_or_else(|| io::Error::other("No state directory"))?
-        .join("request-observers");
-    fs::create_dir_all(&directory)?;
+        .join("request-observers")
+        .join(format!("{request_id}.log")))
+}
+
+pub fn start(database: &Path, request_id: &str) -> io::Result<()> {
+    let path = log_path(database, request_id)?;
+    fs::create_dir_all(path.parent().expect("log directory"))?;
     let log = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(directory.join(format!("{request_id}.log")))?;
+        .open(path)?;
     detached::start(
         std::env::current_exe()?.as_os_str(),
         &["__request-observer".into(), request_id.into()],
@@ -32,10 +38,10 @@ pub fn start(database: &Path, request_id: &str) -> io::Result<()> {
 }
 
 pub fn execute(request_id: &str) -> io::Result<u8> {
-    let result = (|| {
+    let result = (|| -> io::Result<PathBuf> {
         detached::enter()?;
         let paths = ConfigPaths::discover().map_err(io::Error::other)?;
-        let mut storage = Storage::open(paths.database).map_err(io::Error::other)?;
+        let mut storage = Storage::open(&paths.database).map_err(io::Error::other)?;
         let policy = RequestService::new(&mut storage, wall_time_ms)
             .notification(request_id)
             .map_err(io::Error::other)?
@@ -76,10 +82,23 @@ pub fn execute(request_id: &str) -> io::Result<u8> {
                 Duration::from_millis(250).min(deadline.saturating_duration_since(Instant::now())),
             );
         }
-        storage.close().map_err(io::Error::other)
+        storage.close().map_err(io::Error::other)?;
+        Ok(paths.database)
     })();
-    if result.is_err() {
-        eprintln!("tmt: request timeout observer unavailable; inspect the retained request.");
+    match result {
+        // A clean exit leaves nothing behind; a failure keeps its log as the
+        // bounded diagnostic (PID line plus this message), as does a crash.
+        Ok(database) => {
+            if let Err(error) =
+                log_path(&database, request_id).and_then(|path| detached::discard_own_log(&path))
+            {
+                eprintln!("tmt: could not remove the observer log: {error}");
+            }
+            Ok(0)
+        }
+        Err(_) => {
+            eprintln!("tmt: request timeout observer unavailable; inspect the retained request.");
+            Ok(1)
+        }
     }
-    Ok(u8::from(result.is_err()))
 }

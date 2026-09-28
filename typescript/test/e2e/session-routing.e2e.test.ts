@@ -6,11 +6,13 @@ import { describe, expect, it } from 'vitest';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { expectJsonResult } from './cli-assertions.js';
 
+function observerLog(fixture: E2EFixture, id: string): string {
+  return path.join(fixture.globalDir, 'request-observers', `${id}.log`);
+}
+
+// Read while the observer is alive: a clean exit removes its own log.
 function observerPid(fixture: E2EFixture, id: string): number {
-  const log = fs.readFileSync(
-    path.join(fixture.globalDir, 'request-observers', `${id}.log`),
-    'utf8'
-  );
+  const log = fs.readFileSync(observerLog(fixture, id), 'utf8');
   const pid = Number(log.match(/^observer_pid=(\d+)$/m)?.[1]);
   expect(Number.isSafeInteger(pid) && pid > 1).toBe(true);
   return pid;
@@ -81,6 +83,8 @@ describe.sequential('session-aware durable routing', () => {
         expect(Number(group)).toBe(pid);
         process.kill(-pid, 'SIGKILL');
         await observerGone(fixture, pid);
+        // A crashed observer never reaches cleanup; its log remains evidence.
+        expect(fs.readFileSync(observerLog(fixture, id), 'utf8')).toMatch(/^observer_pid=/m);
         fixture.releaseReplyGate(id);
         await fixture.waitForEvent(
           (event) =>
@@ -117,6 +121,7 @@ describe.sequential('session-aware durable routing', () => {
             })
           );
           const id = String(sent.requestId);
+          const observer = observerPid(fixture, id);
           await fixture.waitForEvent(
             (event) => event.event === 'request' && event.requestId === id
           );
@@ -152,6 +157,9 @@ describe.sequential('session-aware durable routing', () => {
             status: 'completed',
             response: 'mock-agent response: held reply',
           });
+          // The reply ends the observer cleanly, and it removes only its own log.
+          await observerGone(fixture, observer);
+          expect(fs.existsSync(observerLog(fixture, id))).toBe(false);
         },
         { replyGate: true }
       );
@@ -172,13 +180,16 @@ describe.sequential('session-aware durable routing', () => {
           await fixture.runJsonCli(['talk', 'receiver', 'late', '--detach'], { pane: sender.pane })
         );
         const id = String(sent.requestId);
+        const observer = observerPid(fixture, id);
         await fixture.waitForEvent(
           (event) =>
             event.event === 'input' &&
             event.line?.startsWith(`[tmt] no reply yet from receiver to ${id}`) === true
         );
         expect((await fixture.runJsonCli(['result', id])).code).toBe(3);
-        await observerGone(fixture, observerPid(fixture, id));
+        await observerGone(fixture, observer);
+        // A deadline exit is clean too: no log is left behind.
+        expect(fs.existsSync(observerLog(fixture, id))).toBe(false);
         fixture.releaseReplyGate(id);
         await fixture.waitForEvent(
           (event) =>
@@ -319,6 +330,7 @@ describe.sequential('session-aware durable routing', () => {
         );
         expect(sent).toMatchObject({ status: 'sent', target: 'receiver', pane: fixture.pane });
         const id = String(sent.requestId);
+        const observer = observerPid(fixture, id);
         const request = await fixture.waitForEvent(
           (event) => event.event === 'request' && event.requestId === id
         );
@@ -348,7 +360,8 @@ describe.sequential('session-aware durable routing', () => {
           fixture.events().filter((event) => event.event === 'input' && event.line === hint)
         ).toHaveLength(1);
         expect(fixture.events().filter((event) => event.event === 'request')).toHaveLength(1);
-        await observerGone(fixture, observerPid(fixture, id));
+        await observerGone(fixture, observer);
+        expect(fs.existsSync(observerLog(fixture, id))).toBe(false);
       },
       { replyGate: true }
     );

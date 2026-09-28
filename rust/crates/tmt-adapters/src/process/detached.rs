@@ -3,9 +3,10 @@
 use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 use std::{
     ffi::{OsStr, OsString},
-    fs::File,
+    fs::{self, File},
     io::{self, Read, Write},
-    os::fd::AsFd,
+    os::{fd::AsFd, unix::fs::MetadataExt},
+    path::Path,
     time::{Duration, Instant},
 };
 use subprocess::{Exec, JobExt, Redirection};
@@ -19,6 +20,28 @@ pub fn enter() -> io::Result<()> {
 pub fn ready() -> io::Result<()> {
     io::stdout().lock().write_all(b"R")?;
     io::stdout().lock().flush()
+}
+
+/// After a clean exit the worker removes its own diagnostics, the file that
+/// `start` attached as its stderr. The path must still name that exact file
+/// (same device and inode): a replaced or foreign file is never deleted.
+/// Failed or crashed workers never reach this, so their logs remain evidence.
+pub fn discard_own_log(path: &Path) -> io::Result<bool> {
+    let stderr = File::from(io::stderr().as_fd().try_clone_to_owned()?);
+    remove_if_same_file(path, &stderr)
+}
+
+fn remove_if_same_file(path: &Path, open: &File) -> io::Result<bool> {
+    let expected = open.metadata()?;
+    let current = match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        result => result?,
+    };
+    if !current.is_file() || (current.dev(), current.ino()) != (expected.dev(), expected.ino()) {
+        return Ok(false);
+    }
+    fs::remove_file(path)?;
+    Ok(true)
 }
 
 /// The child must call enter, initialize its bounded work, then ready. Until
@@ -85,6 +108,38 @@ pub fn start(program: &OsStr, args: &[OsString], log: File) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::test_support::TestDirectory;
+
+    #[test]
+    fn only_the_attached_log_file_itself_is_removed() {
+        let directory = TestDirectory::new();
+        let own = directory.path.join("req_own.log");
+        let attached = File::create(&own).unwrap();
+        assert!(remove_if_same_file(&own, &attached).unwrap());
+        assert!(!own.exists());
+        assert!(
+            !remove_if_same_file(&own, &attached).unwrap(),
+            "already gone"
+        );
+
+        // A same-named replacement is a different file: never deleted.
+        let replaced = directory.path.join("req_replaced.log");
+        let attached = File::create(&replaced).unwrap();
+        fs::remove_file(&replaced).unwrap();
+        fs::write(&replaced, "another writer").unwrap();
+        assert!(!remove_if_same_file(&replaced, &attached).unwrap());
+        assert_eq!(fs::read_to_string(&replaced).unwrap(), "another writer");
+
+        // Another request's log, or a link to ours, is not our file either.
+        let other = directory.path.join("req_other.log");
+        fs::write(&other, "other request").unwrap();
+        let mine = directory.path.join("req_mine.log");
+        let attached = File::create(&mine).unwrap();
+        assert!(!remove_if_same_file(&other, &attached).unwrap());
+        let link = directory.path.join("req_link.log");
+        std::os::unix::fs::symlink(&mine, &link).unwrap();
+        assert!(!remove_if_same_file(&link, &attached).unwrap());
+        assert!(other.exists() && mine.exists() && link.exists());
+    }
 
     #[test]
     fn rejected_startup_is_reaped_before_returning_ownership() {

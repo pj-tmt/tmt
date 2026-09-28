@@ -229,8 +229,10 @@ waiting, exits on a final or its deadline, and may claim one timeout hint:
 `[tmt] no reply yet from <recipient> to <id> after <timeout>; still pending`.
 The later final has an independent callback. No worker restarts or resends work.
 Anonymous and explicit queue-only requests never push originator hints. Worker
-startup failure warns without undoing acceptance. Its state-directory log holds
-only the observer PID and a bounded failure line, never message bodies/receipts.
+startup failure warns without undoing acceptance. Its state-directory log,
+`request-observers/<request-id>.log`, holds only the observer PID and a bounded
+failure line, never message bodies/receipts. A clean exit (final or deadline)
+removes that log; a failed or killed observer leaves it for diagnosis.
 
 `--wait` is rejected; talk rejects `--lines` while check
 retains it. Stored mode/maxCaptureLines values are inert, not automatically
