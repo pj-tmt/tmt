@@ -60,6 +60,8 @@ pub mod room;
 #[cfg(unix)]
 pub mod runtime;
 #[cfg(unix)]
+pub mod runtime_caller;
+#[cfg(unix)]
 pub mod skill_installation;
 pub mod storage;
 #[cfg(unix)]

@@ -3,6 +3,7 @@
 //! per-stream limits, failure classification, and explicit termination/reaping.
 
 pub mod interactive;
+pub mod ps;
 pub mod runtime;
 
 use nix::{

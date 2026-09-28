@@ -1,11 +1,8 @@
 //! Bounded process-start observations. These do not establish interface ownership.
 
-use super::{CommandError, CommandFailure, CommandRequest, CommandRunner};
+use super::{CommandError, CommandRunner, ps::query_ps};
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
-use std::{
-    ffi::{OsStr, OsString},
-    time::Instant,
-};
+use std::{ffi::OsString, time::Instant};
 use tmt_core::binding::session::{RuntimeIncarnation, RuntimeLiveness};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,43 +66,14 @@ fn observe_process<R: CommandRunner>(
     if raw_pid <= 0 {
         return Ok(ProcessObservation::Unknown);
     }
-    for program in ["/bin/ps", "/usr/bin/ps"] {
-        let args: Vec<OsString> = [
-            "LC_ALL=C",
-            "TZ=UTC",
-            program,
-            "-p",
-            &pid.to_string(),
-            "-o",
-            "lstart=",
-            "-o",
-            "stat=",
-        ]
+    let args: Vec<OsString> = ["-p", &pid.to_string(), "-o", "lstart=", "-o", "stat="]
         .into_iter()
-        .map(OsString::from)
+        .map(Into::into)
         .collect();
-        match runner.execute(CommandRequest {
-            program: OsStr::new("/usr/bin/env"),
-            args: &args,
-            input: &[],
-            deadline,
-            max_output_bytes: 512,
-        }) {
-            Ok(output) => return Ok(parse_process_observation(pid, &output.stdout)),
-            Err(error) if error.cleanup_failed() => return Err(error),
-            // env returns 127 when the fixed executable cannot be found. Do not
-            // retry timeouts, parse failures or permission errors through a new path.
-            Err(error)
-                if error.kind
-                    == (CommandFailure::Exit {
-                        code: Some(127),
-                        signal: None,
-                    }) =>
-            {
-                continue;
-            }
-            Err(_) => break,
-        }
+    match query_ps(runner, &args, deadline, 512) {
+        Ok(output) => return Ok(parse_process_observation(pid, &output.stdout)),
+        Err(error) if error.cleanup_failed() => return Err(error),
+        Err(_) => {}
     }
     Ok(if kill(Pid::from_raw(raw_pid), None) == Err(Errno::ESRCH) {
         ProcessObservation::Gone
@@ -163,7 +131,7 @@ fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObservation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::process::{CommandOutput, UnixCommandRunner};
+    use crate::process::{CommandFailure, CommandOutput, CommandRequest, UnixCommandRunner};
     use std::time::Duration;
 
     #[test]

@@ -195,6 +195,7 @@ pub fn execute(name: &str, command: &[OsString], resume: bool, save: bool) -> io
 }
 
 fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
+    crate::caller_context::require_independent_host()?;
     let tmux = Tmux::default();
     let pane = tmux
         .caller_pane(&CallerEnvironment::current())

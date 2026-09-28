@@ -45,6 +45,17 @@ a remembered version number.
 
 ## Delivery safety
 
+### Caller identity
+
+When running through a shared runtime host, pass your confirmed identity with
+`--identity <name-or-UUID>` on `talk`, `x`, `role` and other commands supporting
+that option. An inherited pane or session environment variable is not proof of
+which conversation invoked a tool. Do not bind yourself to that pane to silence
+`CALLER_IDENTITY_AMBIGUOUS`; choose the intended pane explicitly when binding.
+Without a confirmed sender, `talk` can still send anonymously, but its request
+will not belong to your identity's originated-request history. Receipt-based
+`reply` uses the supplied request and receipt, not an `--identity` option.
+
 ### Shared rooms
 
 Rooms group the same global identities; one identity may join several rooms.
