@@ -6,6 +6,7 @@ mod check_command;
 mod completion;
 mod config_command;
 mod context_command;
+mod focus_command;
 use tmt_adapters::delivery;
 mod diagnostics;
 mod exchange_command;
@@ -179,6 +180,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Check { target, lines } => {
             drop(stdout);
             return check_command::execute(target, lines, parsed.mode);
+        }
+        Invocation::Focus { target } => {
+            drop(stdout);
+            return focus_command::execute(target, parsed.mode);
         }
         request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
             drop(stdout);

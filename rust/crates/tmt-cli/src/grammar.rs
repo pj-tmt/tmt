@@ -173,6 +173,10 @@ pub fn grammar() -> Command {
         .arg(operand("capture-lines", false)),
     )
     .subcommand(
+        general("focus", "Show an identity's or pane's view in your tmux client")
+            .arg(operand("target", true)),
+    )
+    .subcommand(
         general("whoami", "Show this pane's verified identity").arg(
             Arg::new("context").long("context").action(ArgAction::SetTrue)
                 .help("Read bounded identity and pending-work context without changing state"),

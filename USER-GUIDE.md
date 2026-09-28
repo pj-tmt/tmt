@@ -156,6 +156,21 @@ Metadata does not save a temporary identity and is not authentication,
 authorization, live presence, a capability grant, or a safe place for secrets or
 instructions. Omit `--identity` only from a verified bound pane.
 
+### Show an agent's pane
+
+`tmt focus <name>` switches your own tmux client to that identity's pane, even
+in another session, after verifying the binding. It never types into the pane.
+The JSON result records where you were, so you can return:
+
+```bash
+tmt focus auth-fix --json        # {"focused":{"pane":"%5"},"from":{"pane":"%2"}}
+tmt focus %2                     # back to the pane you came from
+```
+
+Run it inside tmux, from a pane or a `display-popup`; only the client showing
+that session moves. Outside tmux, or when no client shows your session, it
+fails with `HOST_UNSUPPORTED` and changes nothing.
+
 ## Launch a command with an identity
 
 Inside a tmux pane, use `run` to bind an identity and start a foreground command:

@@ -40,6 +40,13 @@ impl CallerEnvironment {
             .ok_or_else(unavailable)
     }
 
+    /// The session ID (`$N`) that tmux wrote into `TMUX` for this process.
+    /// In a display-popup this is the popup client's session, while
+    /// `TMUX_PANE` names the popup's own pane, which belongs to no session.
+    pub fn selected_session(&self) -> Option<String> {
+        context(self.tmux.as_ref()?.to_str()?).map(|context| format!("${}", context.session))
+    }
+
     pub fn current() -> Self {
         Self {
             tmux: std::env::var_os("TMUX"),
@@ -52,6 +59,7 @@ impl CallerEnvironment {
 struct Context<'a> {
     socket: &'a str,
     server_pid: u64,
+    session: &'a str,
 }
 
 fn context(text: &str) -> Option<Context<'_>> {
@@ -67,6 +75,7 @@ fn context(text: &str) -> Option<Context<'_>> {
     Some(Context {
         socket,
         server_pid: number(pid).filter(|pid| *pid > 0)?,
+        session,
     })
 }
 

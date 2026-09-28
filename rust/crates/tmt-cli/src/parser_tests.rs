@@ -2228,3 +2228,16 @@ fn nested_exchange_and_role_options_stay_at_their_own_boundaries() {
         assert_usage_error(argv, text, OutputMode::default());
     }
 }
+
+#[test]
+fn focus_takes_one_identity_or_pane_target() {
+    for target in ["auth-fix", "%2"] {
+        assert_eq!(
+            parsed(&["focus", target, "--json"]).invocation,
+            Invocation::Focus {
+                target: target.into()
+            }
+        );
+    }
+    assert_eq!(parse_error(&["focus"]).code, "USAGE_ERROR");
+}
