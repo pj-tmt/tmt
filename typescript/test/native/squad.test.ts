@@ -1,8 +1,16 @@
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 
 // Scenario-local selector: the built squad extension, never an installed copy.
@@ -346,6 +354,88 @@ sort = ["-name"]
       expect(await order()).toEqual(['b-review', 'c-parked', 'a-work']);
       writeFileSync(squadToml, 'me = "Ben"\n[squad.product.states]\nreview = { sort = -1 }\n');
       expect((await squad(sandbox, ['status'])).body.error.code).toBe('SQUAD_CONFIG_INVALID');
+    });
+  });
+
+  it('opens and copies a member through configured argv programs, never a shell', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = installSquad(sandbox);
+      for (const name of ['Ben', 'Sol', 'auth-fix', 'Rin']) await identity(sandbox, name);
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['lead', 'Sol']);
+      await squad(sandbox, ['add', 'auth-fix']);
+      const task = 'rotate; $(touch pwned) `id` "quoted" *.rs';
+      await squad(sandbox, [
+        'set',
+        'auth-fix',
+        `task=${task}`,
+        'pr_link=https://example.com/pull/412?x=1&y=2',
+        'issue_link=https://example.com/issues/9',
+        'doc_link=file:///etc/passwd',
+      ]);
+      // Recorders: one argument per line, or stdin verbatim.
+      const opened = path.join(sandbox.root, 'opened');
+      const copied = path.join(sandbox.root, 'copied');
+      const opener = path.join(bin, 'record-open');
+      const clipboard = path.join(bin, 'record-copy');
+      writeFileSync(
+        opener,
+        `#!/bin/sh\nprintf '%s\\n' "$@" > '${opened}.tmp'\nmv '${opened}.tmp' '${opened}'\n`
+      );
+      writeFileSync(clipboard, `#!/bin/sh\ncat > '${copied}'\n`);
+      chmodSync(opener, 0o755);
+      chmodSync(clipboard, 0o755);
+      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        squadToml,
+        `${readFileSync(squadToml, 'utf8')}\nopener = ["record-open", "--new-tab"]\nclipboard = ["${clipboard}"]\n`
+      );
+      const waitForOpened = () =>
+        vi.waitFor(() => readFileSync(opened, 'utf8'), { timeout: 5000, interval: 25 });
+
+      const open = await squad(sandbox, ['open', 'auth-fix']);
+      expect(open).toMatchObject({
+        status: 0,
+        body: { member: 'auth-fix', opened: 'https://example.com/pull/412?x=1&y=2' },
+      });
+      expect(await waitForOpened()).toBe('--new-tab\nhttps://example.com/pull/412?x=1&y=2\n');
+      await squad(sandbox, ['open', 'auth-fix', '--link', 'issue_link']);
+      await vi.waitFor(() => expect(readFileSync(opened, 'utf8')).toContain('/issues/9'), {
+        timeout: 5000,
+        interval: 25,
+      });
+
+      for (const [args, code] of [
+        [['open', 'auth-fix', '--link', 'doc_link'], 'SQUAD_ACTION_REFUSED'],
+        [['open', 'Sol'], 'SQUAD_ACTION_REFUSED'],
+        [['open', 'Rin'], 'SQUAD_NOT_MEMBER'],
+        [['copy', 'auth-fix', '--format', '{pending}'], 'SQUAD_ACTION_REFUSED'],
+        [['copy', 'auth-fix', '--format', '{bad field}'], 'SQUAD_ACTION_REFUSED'],
+        // Outside tmux there is no client to show; core's refusal passes through.
+        [['jump', 'auth-fix'], 'HOST_UNSUPPORTED'],
+        [['jump', 'Rin'], 'SQUAD_NOT_MEMBER'],
+      ] as const) {
+        const refused = await squad(sandbox, [...args]);
+        expect(refused.status, args.join(' ')).toBe(1);
+        expect(refused.body.error.code, args.join(' ')).toBe(code);
+      }
+      expect(readFileSync(opened, 'utf8')).toContain('/issues/9');
+      expect(existsSync(copied)).toBe(false);
+
+      const copy = await squad(sandbox, ['copy', 'auth-fix']);
+      expect(copy).toMatchObject({
+        status: 0,
+        body: { copied: `auth-fix: ${task} (working)`, to: 'program' },
+      });
+      expect(readFileSync(copied, 'utf8')).toBe(`auth-fix: ${task} (working)`);
+      expect(
+        (await squad(sandbox, ['copy', 'Sol', '--format', '- [{name}]({member})'])).body
+      ).toMatchObject({ member: 'Sol' });
+      expect(readFileSync(copied, 'utf8')).toBe('- [Sol](Sol)');
+      expect(existsSync(path.join(sandbox.root, 'pwned'))).toBe(false);
+      expect((await runCli(sandbox, ['sq', 'copy', 'auth-fix'])).stdout).toBe(
+        'Copied with the configured clipboard program.\n'
+      );
     });
   });
 });

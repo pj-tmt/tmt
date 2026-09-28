@@ -312,6 +312,30 @@ fn field_name(value: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
+/// A program as argv: a non-empty array of strings, the first a bare name on
+/// PATH or an absolute path. It never passes through a shell.
+fn program(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
+    let malformed = || {
+        invalid(format!(
+            "`{place}` must be a program argv, for example [\"pbcopy\"]."
+        ))
+    };
+    let argv: Vec<String> = item
+        .as_array()
+        .ok_or_else(malformed)?
+        .iter()
+        .map(|value| value.as_str().map(str::to_owned))
+        .collect::<Option<_>>()
+        .ok_or_else(malformed)?;
+    let runnable = argv
+        .first()
+        .is_some_and(|name| !name.is_empty() && (name.starts_with('/') || !name.contains('/')));
+    if !runnable || argv.iter().any(|arg| arg.chars().any(char::is_control)) {
+        return Err(malformed());
+    }
+    Ok(argv)
+}
+
 fn invalid(message: impl Into<String>) -> SquadError {
     SquadError::new("SQUAD_CONFIG_INVALID", message)
 }
@@ -356,6 +380,15 @@ impl Config {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Top-level `opener` and `clipboard`: programs that replace the system
+    /// opener and the built-in clipboard route.
+    pub fn program(&self, key: &str) -> Result<Option<Vec<String>>, SquadError> {
+        self.document
+            .get(key)
+            .map(|item| program(item, key))
+            .transpose()
     }
 
     /// Top-level `me`: the saved identity that is the user. Never guessed.
@@ -905,6 +938,43 @@ sort = ["state", "-name"]
                 .err()
                 .map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn programs_are_argv_arrays_that_never_need_a_shell() {
+        let path = temp("programs");
+        fs::write(
+            &path,
+            "opener = [\"firefox\", \"--new-tab\"]\nclipboard = [\"/usr/bin/xclip\", \"-selection\", \"clipboard\"]\n",
+        )
+        .unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert_eq!(
+            config.program("opener").unwrap().unwrap(),
+            ["firefox", "--new-tab"]
+        );
+        assert_eq!(
+            config.program("clipboard").unwrap().unwrap()[0],
+            "/usr/bin/xclip"
+        );
+        fs::write(&path, "").unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert_eq!(config.program("opener").unwrap(), None);
+        for body in [
+            "opener = \"open\"\n",
+            "opener = []\n",
+            "opener = [\"bin/open\"]\n",
+            "opener = [\"open\", 1]\n",
+            "opener = [\"\"]\n",
+            "opener = [\"open\", \"a\\u001bb\"]\n",
+        ] {
+            fs::write(&path, body).unwrap();
+            let error = Config::read(path.clone())
+                .and_then(|config| config.program("opener"))
+                .unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }

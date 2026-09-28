@@ -1500,6 +1500,16 @@ display, since notes are agent-written. `board::markdown` is a thin
 pulldown-cmark view over that sanitized text: it styles headings, lists,
 emphasis, inline code and links, and shows every other construct as its source.
 State `sort` overrides reorder the vocabulary for both `status` and the board.
+`effects` holds the row actions behind the plain `jump`, `open` and `copy`
+commands. `template` fills `{field}` placeholders into one value and refuses
+empty values. Programs run as argv, never through a shell: the configured
+top-level `opener` and `clipboard` arrays, or the system opener. An opener
+starts in its own process group with null stdio, and a thread reaps it. Copy
+prefers the configured program, then, inside tmux, `tmux -S <invoker socket>
+load-buffer -w -`: `-V` must report 3.2 or later, and `show -sv set-clipboard`
+decides whether the text reached the clipboard or only a buffer. Otherwise copy
+writes OSC 52 to `/dev/tty`. `jump` checks membership and then calls `tmt
+focus`; squad has no focus logic of its own.
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.

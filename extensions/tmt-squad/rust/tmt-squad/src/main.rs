@@ -4,11 +4,14 @@
 mod board;
 mod config;
 mod core;
+mod effects;
 mod filter;
+mod member_actions;
 mod membership;
 mod runner;
 mod squad;
 mod status;
+mod template;
 
 use crate::{config::Config, core::Core, core::SquadError, membership::Outcome, squad::Squad};
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -97,6 +100,37 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
+            Command::new("jump")
+                .about("Show a member's pane in your tmux client (tmt focus)")
+                .arg(operand("member", "Member or lead to show"))
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("open")
+                .about("Open a member's http(s) link: pr_link, link or another *_link field")
+                .arg(operand("member", "Member or lead"))
+                .arg(
+                    Arg::new("link")
+                        .long("link")
+                        .value_name("FIELD")
+                        .help("The field holding the link"),
+                )
+                .arg(squad_option()),
+        )
+        .subcommand(
+            Command::new("copy")
+                .about("Copy a member's summary to the clipboard")
+                .arg(operand("member", "Member or lead"))
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .value_name("TEMPLATE")
+                        .allow_hyphen_values(true)
+                        .help("Text with {field} placeholders [default: \"{name}: {task} ({state})\"]"),
+                )
+                .arg(squad_option()),
+        )
+        .subcommand(
             Command::new("skill")
                 .about("The tmt-squad skill for lead agents")
                 .subcommand_required(true)
@@ -149,6 +183,16 @@ fn complete(words: &[String]) -> Vec<String> {
 fn human(command: &str, document: &Value) -> String {
     match command {
         "status" | "board" => status::text(document),
+        "jump" => format!(
+            "Showing {} ({}).\n",
+            document["member"].as_str().unwrap_or_default(),
+            document["focused"]["pane"].as_str().unwrap_or_default()
+        ),
+        "open" => format!(
+            "Opened {}\n",
+            document["opened"].as_str().unwrap_or_default()
+        ),
+        "copy" => format!("{}\n", document["message"].as_str().unwrap_or_default()),
         "init" => format!(
             "Squad {} {} (room squad-{}); you are {}.\n",
             document["squad"]["name"].as_str().unwrap_or_default(),
@@ -194,6 +238,21 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
         "lead" => membership::lead(&core, &squad, text("name").unwrap_or_default()),
         "add" => membership::add(&core, &squad, config.layout(&squad.name)?, &many("names")),
         "remove" => membership::remove(&core, &squad, text("name").unwrap_or_default()),
+        "jump" => member_actions::jump(&core, &squad, &config, text("member").unwrap_or_default()),
+        "open" => member_actions::open(
+            &core,
+            &squad,
+            &config,
+            text("member").unwrap_or_default(),
+            text("link"),
+        ),
+        "copy" => member_actions::copy(
+            &core,
+            &squad,
+            &config,
+            text("member").unwrap_or_default(),
+            text("format"),
+        ),
         "set" => membership::set(
             &core,
             &squad,
@@ -295,7 +354,8 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "board", "init", "lead", "remove", "set", "skill", "status"
+                "add", "board", "copy", "init", "jump", "lead", "open", "remove", "set", "skill",
+                "status"
             ]
         );
         assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);
