@@ -605,6 +605,11 @@ protection, and a live-agent demo does not replace deterministic regression test
 
 ## Rust checks
 
+The companion package lives at `extensions/tmt-office/rust/tmt-office`, but remains
+in the `rust/Cargo.toml` workspace. Run the same package commands from `rust/`;
+the shared lockfile, toolchain and `rust/target` artifact paths are unchanged.
+Docker build contexts must include both `rust/` and `extensions/tmt-office/rust/`.
+
 Run from `rust/` for a normal native change:
 
 ```bash
@@ -651,7 +656,8 @@ I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
 
 The maintained JavaScript suites live under `typescript/test/native/`, `typescript/test/e2e/`,
 `typescript/test/tooling/` and `typescript/test/support/`. Rust tests stay beside the owner in
-`rust/crates/*`. The native process selector resolves the repository build at
+`rust/crates/*` or the companion package under `extensions/tmt-office/rust/`.
+The native process selector resolves the repository build at
 `rust/target/debug/tmt` by default and fails if it is absent. An explicit
 descriptor may select another absolute native executable; it must be
 executable, and neither an installed host command nor Node is an allowed

@@ -33,6 +33,7 @@ describe('CI area selection', () => {
     'typescript/scripts/ci-scope.mjs',
     'typescript/test/e2e/Dockerfile',
     'contracts/office/request.json',
+    'extensions/tmt-office/rust/tmt-office/src/main.rs',
     'typescript/services/office/firestore.rules',
     'new-owner/file.ts',
   ])('fans out shared or unknown input %s', (file) => {

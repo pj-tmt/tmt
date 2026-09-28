@@ -11,7 +11,7 @@ const NEXT_OPERATION: &str = "22222222-2222-4222-8222-222222222222";
 
 fn scene() -> Value {
     serde_json::from_slice(include_bytes!(
-        "../../../../../../contracts/office/whiteboard-scene-v1.json"
+        "../../../../../../../contracts/office/whiteboard-scene-v1.json"
     ))
     .unwrap()
 }

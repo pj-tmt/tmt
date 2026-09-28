@@ -1,4 +1,5 @@
 [package]
+workspace = "../../../../rust"
 name = "tmt-office"
 version = "0.1.0-alpha.4"
 edition.workspace = true
