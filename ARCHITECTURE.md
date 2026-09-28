@@ -867,6 +867,8 @@ ancestry inspection; tmux continues to own server, pane and marker verification.
 A shared app-server's inherited pane is not evidence of the invoking conversation.
 Shared, malformed or unavailable runtime evidence rejects required implicit
 attribution before binding/configuration effects; optional senders remain anonymous.
+`run_command` applies this same guard before caller resolution or launch state
+access; a rejected caller cannot bind an identity or start the supplied command.
 Explicit identity or pane selectors bypass
 that inference, not their normal validation. A thread ID is only a correlation
 hint: the current selector does not derive identity from remembered session

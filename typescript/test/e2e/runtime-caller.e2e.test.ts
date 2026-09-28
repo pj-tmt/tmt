@@ -62,6 +62,15 @@ describe.sequential('runtime-owned caller attribution through real process ances
           expect(fixture.paneMetadata()).toBe(metadata);
         }
 
+        // run is deliberately not a JSON command. Its implicit caller must be
+        // fenced before it can bind or execute the supplied child.
+        const launch = await fixture.runCli(['run', 'Wrong', '/bin/sh', '-c', 'exit 77']);
+        expect(launch.code).toBe(1);
+        expect(launch.stderr).toContain('The runtime host does not establish');
+        expect(launch.stderr).toContain('--identity');
+        expect(durableState(fixture)).toEqual(before);
+        expect(fixture.paneMetadata()).toBe(metadata);
+
         const anonymous = expectJsonResult(
           await fixture.runJsonCli<Queued>([
             'talk',
@@ -133,6 +142,13 @@ describe.sequential('runtime-owned caller attribution through real process ances
             message_text: 'Independent caller',
           }),
         ]);
+        const launch = await fixture.runCli(['run', 'Alice', '/bin/sh', '-c', 'exit 17']);
+        expect(launch.code, launch.stderr).toBe(17);
+        expect(durableState(fixture).identities.find((row) => row.id === alice.id)).toMatchObject({
+          name: 'Alice',
+          lifetime: 'saved',
+          retired_at_ms: null,
+        });
       },
       { mode: 'input-log', executableEnv: runtimeSelection('--no-daemon') }
     );
