@@ -1,4 +1,11 @@
-import { existsSync, readdirSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
@@ -153,6 +160,63 @@ it(
       } finally {
         await office(['stop']);
       }
+    });
+  }
+);
+
+it(
+  'hands the invoking core to one-shot operations and the service even under the tmux-team name',
+  { timeout: 180_000 },
+  async () => {
+    await withSandbox(async (sandbox) => {
+      // A different `tmt` earlier on PATH must never be used to reach core.
+      const decoyDirectory = path.join(sandbox.root, 'decoy');
+      const marker = path.join(sandbox.root, 'decoy-used');
+      mkdirSync(decoyDirectory);
+      writeFileSync(
+        path.join(decoyDirectory, 'tmt'),
+        `#!/bin/sh\necho used >> '${marker}'\nexit 1\n`
+      );
+      chmodSync(path.join(decoyDirectory, 'tmt'), 0o755);
+      const linkDirectory = path.join(sandbox.root, 'link');
+      mkdirSync(linkDirectory);
+      const link = path.join(linkDirectory, 'tmux-team');
+      copyFileSync(sandbox.cli.executable, link);
+      const named = {
+        ...sandbox,
+        cli: { ...sandbox.cli, executable: link },
+        env: { ...sandbox.env, PATH: `${decoyDirectory}:${sandbox.env.PATH ?? ''}` },
+      };
+      const prefix = path.join(sandbox.root, 'isolated office');
+      const run = (args: string[]) => runCli(named, ['office', '--prefix', prefix, ...args]);
+      const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
+      const installed = await run([
+        'install',
+        '--yes',
+        '--archive',
+        artifact.archive,
+        '--manifest',
+        artifact.manifest,
+        '--json',
+      ]);
+      expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+      const posted = await run([
+        'board',
+        'post',
+        '--general',
+        '--owner',
+        '--title',
+        'Named',
+        '--body',
+        'Through tmux-team',
+        '--json',
+      ]);
+      expect(posted.status, posted.stdout + posted.stderr).toBe(0);
+      const started = await run(['start', '--json']);
+      expect(started.status, started.stdout + started.stderr).toBe(0);
+      const stopped = await run(['stop', '--json']);
+      expect(stopped.status, stopped.stdout + stopped.stderr).toBe(0);
+      expect(existsSync(marker), 'the PATH tmt was used to reach core').toBe(false);
     });
   }
 );

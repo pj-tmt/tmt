@@ -1093,24 +1093,11 @@ fn companion_arguments(
     operation: OfficeInvocation,
 ) -> io::Result<Vec<OsString>> {
     let mut selector = OsString::from("TMT_EXECUTABLE=");
-    selector.push(core_executable()?);
+    selector.push(crate::core_executable::selected()?);
     Ok([selector, executable.as_os_str().to_owned()]
         .into_iter()
         .chain(operation.arguments().map(OsString::from))
         .collect())
-}
-
-/// This `tmt`, or, when the embedding process is not `tmt` itself (the companion's
-/// direct mode is a test stand-in for core), the `tmt` that launched it.
-fn core_executable() -> io::Result<std::path::PathBuf> {
-    let current = std::env::current_exe()?;
-    if current.file_name().is_some_and(|name| name == "tmt") {
-        return Ok(current);
-    }
-    Ok(std::env::var_os("TMT_EXECUTABLE")
-        .map(std::path::PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .unwrap_or(current))
 }
 
 fn start_selected(

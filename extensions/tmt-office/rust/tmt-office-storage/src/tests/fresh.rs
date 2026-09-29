@@ -158,3 +158,19 @@ fn concurrent_first_opens_switch_once_and_both_use_office_storage() {
         State::Switched
     );
 }
+
+#[test]
+fn a_recorded_switch_with_missing_office_db_fails_open_and_never_uses_the_legacy_store() {
+    let root = Root::new();
+    drop(OfficeStore::open_configured(&root.layout).unwrap());
+    assert!(receipt(&root));
+    std::fs::remove_file(&root.layout.database).unwrap();
+    let error = OfficeStore::open_configured(&root.layout)
+        .map(|_| ())
+        .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("is missing"), "{message}");
+    assert!(message.contains("Office storage recovery"), "{message}");
+    // Nothing was recreated, and the fenced shared tables were not reused.
+    assert!(!root.layout.database.exists());
+}

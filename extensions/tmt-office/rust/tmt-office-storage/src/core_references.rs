@@ -174,6 +174,8 @@ impl CoreReferences for ProcessReferences {
         Ok(self.resolve(&[id.to_owned()], &[])?.0.pop().flatten())
     }
 
+    // Core's contract: `identity list` returns only non-retired identities (pinned by
+    // the native identity test that retires one and lists the replacement alone).
     fn active_identities(&self) -> Result<Vec<CoreIdentity>, StorageError> {
         let args: Vec<OsString> = ["--json", "identity", "list"].map(OsString::from).to_vec();
         let value = self.run(&args, b"")?;

@@ -7,6 +7,8 @@ pub mod api;
 pub mod bounded_file;
 pub mod config;
 #[cfg(unix)]
+pub mod core_executable;
+#[cfg(unix)]
 pub mod delivery;
 pub mod dispatch;
 #[cfg(unix)]
@@ -28,7 +30,6 @@ pub mod office_avatar;
 #[cfg(unix)]
 pub mod office_block;
 pub mod office_board;
-#[cfg(unix)]
 pub mod office_companion;
 #[cfg(feature = "office")]
 pub mod office_deployment;
