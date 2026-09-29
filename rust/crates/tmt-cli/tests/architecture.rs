@@ -2,6 +2,8 @@
 mod cases;
 #[path = "architecture/driver_names.rs"]
 mod driver_names;
+#[path = "architecture/extension_host.rs"]
+mod extension_host;
 #[path = "architecture/host_names.rs"]
 mod host_names;
 #[path = "architecture/output.rs"]
@@ -125,6 +127,15 @@ fn workspace_obeys_native_architecture() {
         &sources,
         &tmt_core::host::HostKind::ALL.map(|host| host.as_str()),
     ));
+    let extensions =
+        extension_host::sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../extensions"));
+    assert!(
+        extensions
+            .iter()
+            .any(|(file, _)| file.ends_with("local_service/core/in_process.rs")),
+        "the extension guard reads test sources"
+    );
+    violations.extend(extension_host::violations(&extensions));
     violations.extend(skill_lists::violations(
         &sources,
         &tmt_core::skill_catalog::BUNDLED

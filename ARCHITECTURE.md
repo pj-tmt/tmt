@@ -1674,8 +1674,11 @@ cleanup guarantee. The CLI `run` owner uses this adapter for foreground commands
 `interrupt::Interrupt` owns invocation-local signal callbacks and descriptor
 cleanup.
 
-The CLI, the `delivery` and `pane_badge` adapters and Office's in-process core
-reach the terminal host only through `tmt-adapters::host::Host`. It holds the
+The CLI and the `delivery` and `pane_badge` adapters reach the terminal host
+only through `tmt-adapters::host::Host`. Extensions never do: they read presence
+from `tmt list --json` and the caller from `tmt whoami`, and the architecture
+guard rejects any extension source, test code included, that names the host
+port, the tmux module or core's `binding`, `endpoint` or `host` model. It holds the
 binding session (the core `BindingEndpoint` and `Driver` ports), caller and
 target resolution, snapshots, capture, send, focus and pane cosmetics. tmux is
 its only host today: `Host` forwards to `tmt-adapters::tmux` and re-exports
