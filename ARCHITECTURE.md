@@ -1187,7 +1187,7 @@ transaction. The selected PATH launcher remains an unresolved stable symlink,
 never a resolved release path. Re-running setup repairs an obsolete owned path.
 
 Claude SessionStart/SessionEnd decoding, context encoding and runtime ancestry
-belong to `runtime::claude`. A hook supplies observation only: an existing binding
+belong to `drivers::claude`. A hook supplies observation only: an existing binding
 must match fresh tmux server/pane/marker evidence, and a live Claude ancestor must
 belong to that pane's process chain. Payload session IDs never create bindings or
 move identities. The CLI coordinator commits the existing session CAS and exact
@@ -1282,7 +1282,7 @@ interfaces remain the existing tmux binding records; the session interface kind
 is reserved, not a shipped session-only binding store. Current
 public messaging still uses its existing tmux transport and request lifecycle.
 Implicit caller selection first consults the runtime driver's `identify_caller`
-action. `runtime_caller::codex` owns Codex thread markers and bounded process
+action. `drivers::codex::caller` owns Codex thread markers and bounded process
 ancestry inspection. It takes one PID/parent/command snapshot and walks it in
 memory, reading arguments only for Codex ancestors. Both caller and runtime-start
 observations share the fixed-path/locale `process::ps` runner and its missing-only
@@ -1609,6 +1609,27 @@ nonblocking behavior and restoration of inherited descriptor flags. The public
 CLI owns stdin during acquisition. These adapters do not invent background
 threads or a second process runner.
 
+### Agent drivers
+
+Each agent driver is one declarative descriptor plus one adapter module:
+
+- `tmt-core/src/driver/descriptor.rs` holds every `DriverDescriptor` and
+  `tmt_core::driver::ALL`. A descriptor lists the name, executables, hook format
+  and display hue. It is pure data, so parsing, completion and style read it
+  without the adapters.
+- `tmt-adapters/src/drivers/<name>.rs` holds the behavior keyed by that
+  descriptor: `locate` (the configuration directories, skills root, legacy
+  guidance and hook settings file, resolved against one captured
+  `ProviderEnvironment`), and the runtime (claim, resume, lifecycle and caller
+  recognition) when the driver has one.
+- `drivers::Registry` joins the two in descriptor order. Setup, detection,
+  skill targets, `run`, the runtime registry and caller recognition iterate it.
+  A test requires exactly one adapter module per descriptor.
+
+Only those two places spell a driver's name. The tmt-cli architecture test
+fails on a production string literal equal to a driver name anywhere else.
+Stored harness IDs are the descriptor names, so storage is unchanged.
+
 ## Managed skills and native installation
 
 Managed agent guidance is a separate filesystem concern. The canonical
@@ -1620,8 +1641,8 @@ drift and lock handling live under
 `tmux-team` and `tmt-inbox`. Explicit Office install or upgrade exposes
 `tmt-office` in detected provider roots and any custom root that still contains
 an owned core skill. CLI upgrades refresh recorded Office links without creating
-missing integrations. Core's `skill_provider::Provider` is the only provider
-inventory. Skill installation does not open application configuration, SQLite
+missing integrations. The driver descriptors (see Agent drivers) are the only
+provider inventory. Skill installation does not open application configuration, SQLite
 or tmux, and never silently replaces an unmanaged path.
 
 Extension-owned skills arrive as bytes through the local API

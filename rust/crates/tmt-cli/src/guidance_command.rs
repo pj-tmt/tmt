@@ -1,7 +1,7 @@
 //! Exact canonical skill viewing and a deliberately short native quick start.
 
 use std::io::{self, Write};
-use tmt_core::skill_provider::Provider;
+use tmt_adapters::drivers::Registry;
 
 pub fn execute(skill: Option<&str>) -> io::Result<u8> {
     let mut output = io::stdout().lock();
@@ -26,7 +26,7 @@ pub fn execute(skill: Option<&str>) -> io::Result<u8> {
         writeln!(
             output,
             "Providers: {}. Use install all or install --dir <skills-root>.",
-            Provider::ALL.map(Provider::as_str).join(", ")
+            Registry::builtin().names().join(", ")
         )?;
         writeln!(
             output,

@@ -1,5 +1,5 @@
 use super::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 fn event(starting: bool, transition: SessionTransition, session: &str) -> ClaudeObservation {
     ClaudeObservation {
@@ -308,7 +308,7 @@ fn context_is_bounded_structured_data_without_decision_fields() {
 
 #[test]
 fn hook_command_quotes_stable_launcher_without_resolving_it() {
-    let entry = hook_entry("/tmp/Ben's tools/tmt");
+    let entry = crate::runtime::hook_protocol::command_entry(NAME, "/tmp/Ben's tools/tmt");
     assert_eq!(
         entry,
         json!({"hooks":[{

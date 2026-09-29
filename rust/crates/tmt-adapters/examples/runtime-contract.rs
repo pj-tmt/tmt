@@ -7,8 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::{
+    drivers::{claude, codex},
     process::{CommandRequest, CommandRunner, UnixCommandRunner},
-    runtime::{CLAUDE_MODE_DEFAULT, CODEX_MODE_EMBEDDED, CODEX_MODE_SHARED, RuntimeRegistry},
+    runtime::RuntimeRegistry,
 };
 use tmt_core::{
     binding::session::{HarnessId, ProviderSessionId, RememberedSession, RuntimeMode},
@@ -43,14 +44,14 @@ fn check() -> Result<(), String> {
             &executables[0],
             "claude",
             "2.1.283 (Claude Code)",
-            &[CLAUDE_MODE_DEFAULT][..],
+            &[claude::MODE_DEFAULT][..],
             "--resume",
         ),
         (
             &executables[1],
             "codex",
             "codex-cli 0.157.1",
-            &[CODEX_MODE_SHARED, CODEX_MODE_EMBEDDED][..],
+            &[codex::MODE_SHARED, codex::MODE_EMBEDDED][..],
             "[SESSION_ID]",
         ),
     ] {

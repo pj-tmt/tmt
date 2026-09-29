@@ -7,6 +7,7 @@
 
 use super::{ProviderEnvironment, assets::SkillAssets, files, managed_link, optional_roots};
 use crate::bounded_file;
+use crate::drivers::{DriverDefinition, Registry};
 use serde_json::{Map, Value, json};
 use std::{
     collections::BTreeMap,
@@ -15,7 +16,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
 };
-use tmt_core::{content_digest::sha256, skill_provider::Provider};
+use tmt_core::content_digest::sha256;
 use uuid::Uuid;
 
 /// Names core itself installs; no extension can claim them.
@@ -399,7 +400,7 @@ fn materialize(assets: &SkillAssets, owner: &str, skill: &OwnedSkill) -> io::Res
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedTarget {
     pub name: String,
-    pub agent: Option<Provider>,
+    pub agent: Option<&'static DriverDefinition>,
     pub target: PathBuf,
     pub changed: bool,
     pub backup: Option<PathBuf>,
@@ -632,7 +633,7 @@ pub(super) fn owned_drift(env: &ProviderEnvironment, global: &Path) -> io::Resul
     let mut drift = Vec::new();
     for (name, entry) in &owners.skills {
         let expected = source(&assets, &entry.owner, &entry.digest, name);
-        for provider in Provider::ALL {
+        for provider in Registry::builtin().iter() {
             let target = env
                 .target(provider)
                 .parent()

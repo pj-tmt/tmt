@@ -464,7 +464,7 @@ fn skills_install(
         "owner": owner,
         "published": report.published.iter().map(|item| json!({
             "name": item.name,
-            "agent": item.agent.map(|agent| agent.as_str()),
+            "agent": item.agent.map(|agent| agent.name()),
             "target": item.target,
             "changed": item.changed,
             "backup": item.backup,

@@ -149,11 +149,18 @@ pub(super) fn parse_snapshot(
     })
 }
 
-fn suggested_name(command: &str) -> Option<String> {
+/// A registered driver's name when it is a whole word of the pane's command,
+/// such as `codex` in `/usr/local/bin/codex`. Whole words keep a short name
+/// from matching inside another command.
+pub(super) fn suggested_name(command: &str) -> Option<String> {
     let command = command.to_lowercase();
-    ["claude", "codex", "gemini", "aider", "cursor"]
+    let words: Vec<&str> = command
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .collect();
+    crate::drivers::Registry::builtin()
+        .names()
         .into_iter()
-        .find(|name| command.contains(name))
+        .find(|name| words.contains(name))
         .map(str::to_owned)
 }
 

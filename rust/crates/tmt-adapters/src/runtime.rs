@@ -12,18 +12,10 @@ use tmt_core::{
     driver::{ActionResult, DeliveryAcceptance, Driver, HarnessResume, HarnessStart, SendFailure},
 };
 
-pub mod claude;
-pub mod codex;
-mod evidence;
+pub(crate) mod evidence;
 pub mod hook_protocol;
 pub mod lifecycle;
 pub mod model_state;
-
-/// Tokens shared with first-party hook mappings; mode belongs to the runtime,
-/// not the host interface. Codex embedded mode is selected by `--no-daemon`.
-pub const CLAUDE_MODE_DEFAULT: &str = "default";
-pub const CODEX_MODE_SHARED: &str = "shared";
-pub const CODEX_MODE_EMBEDDED: &str = "embedded";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeCommand {
@@ -81,24 +73,26 @@ pub struct RuntimeRegistry {
 }
 
 impl RuntimeRegistry {
+    /// The runtimes of the built-in drivers.
     pub fn first_party() -> Self {
+        Self::from_drivers(&crate::drivers::Registry::builtin())
+    }
+
+    /// One registration per driver with a runtime, run by its first executable.
+    pub fn from_drivers(drivers: &crate::drivers::Registry) -> Self {
         let mut registry = Self::default();
-        for (name, driver) in [("claude", FirstParty::Claude), ("codex", FirstParty::Codex)] {
-            registry
-                .register(
-                    HarnessId::new(name).expect("built-in harness ID"),
-                    name,
-                    0,
-                    driver,
-                )
-                .expect("unique built-in runtime registration");
-            let lifecycle: Box<dyn lifecycle::RuntimeLifecycle> = match driver {
-                FirstParty::Claude => Box::new(claude::ClaudeLifecycle),
-                FirstParty::Codex => Box::new(codex::CodexLifecycle),
+        for driver in drivers.iter() {
+            let Some(runtime) = &driver.runtime else {
+                continue;
             };
+            let harness = HarnessId::new(driver.name()).expect("valid driver name");
+            let executable = driver.descriptor.executables[0];
             registry
-                .register_lifecycle(&HarnessId::new(name).unwrap(), lifecycle)
-                .expect("registered first-party lifecycle");
+                .register_boxed(harness.clone(), executable, 0, (runtime.driver)())
+                .expect("unique built-in runtime registration");
+            registry
+                .register_lifecycle(&harness, (runtime.lifecycle)())
+                .expect("registered driver lifecycle");
         }
         registry
     }
@@ -110,6 +104,16 @@ impl RuntimeRegistry {
         priority: i32,
         driver: impl Driver<Target = BindingEntry, Error = RuntimeError, Launch = RuntimeCommand>
         + 'static,
+    ) -> Result<(), RuntimeError> {
+        self.register_boxed(harness, executable, priority, Box::new(driver))
+    }
+
+    fn register_boxed(
+        &mut self,
+        harness: HarnessId,
+        executable: &str,
+        priority: i32,
+        driver: Box<RegisteredDriver>,
     ) -> Result<(), RuntimeError> {
         if executable.is_empty()
             || executable.contains('/')
@@ -125,7 +129,7 @@ impl RuntimeRegistry {
             harness,
             executable: executable.into(),
             priority,
-            driver: Box::new(driver),
+            driver,
             lifecycle: None,
         });
         self.registrations.sort_by(|a, b| {
@@ -272,80 +276,41 @@ impl RuntimeRegistry {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum FirstParty {
-    Claude,
-    Codex,
+/// A first-party driver claims a command whose file name is its own name.
+pub(crate) fn claim_named(command: &str, name: &str) -> Option<HarnessId> {
+    (Path::new(command).file_name() == Some(OsStr::new(name)))
+        .then(|| HarnessId::new(name).expect("valid driver name"))
 }
 
-impl FirstParty {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-        }
+/// The checks every first-party resume shares: its own harness, no injected
+/// context, one of its modes and a UUID session. Completes with the model to
+/// replay, if the driver recorded one it can read.
+pub(crate) fn first_party_resume(
+    resume: &HarnessResume<'_>,
+    name: &str,
+    modes: &[&str],
+) -> ActionResult<Option<String>, RuntimeError> {
+    if resume.start.harness.as_str() != name
+        || resume.start.context.is_some()
+        || !modes.contains(&resume.mode.as_str())
+    {
+        return ActionResult::Unsupported;
     }
-}
-
-impl Driver for FirstParty {
-    type Target = BindingEntry;
-    type Error = RuntimeError;
-    type Launch = RuntimeCommand;
-
-    fn claims(&self, command: &str) -> Option<HarnessId> {
-        (Path::new(command).file_name() == Some(OsStr::new(self.name())))
-            .then(|| HarnessId::new(self.name()).expect("built-in harness ID"))
+    // The first-party versions verified in #321 expose UUID session IDs.
+    // Community drivers retain their own opaque-ID contract.
+    if uuid::Uuid::parse_str(resume.session.as_str()).is_err() {
+        return ActionResult::Failed(RuntimeError::InvalidSession);
     }
-
-    fn resume(&mut self, resume: HarnessResume<'_>) -> ActionResult<Self::Launch, Self::Error> {
-        if resume.start.harness.as_str() != self.name() || resume.start.context.is_some() {
-            return ActionResult::Unsupported;
-        }
-        let mode = resume.mode.as_str();
-        if !matches!(
-            (*self, mode),
-            (Self::Claude, CLAUDE_MODE_DEFAULT)
-                | (Self::Codex, CODEX_MODE_SHARED | CODEX_MODE_EMBEDDED)
-        ) {
-            return ActionResult::Unsupported;
-        }
-        // The first-party versions verified in #321 expose UUID session IDs.
-        // Community drivers retain their own opaque-ID contract.
-        if uuid::Uuid::parse_str(resume.session.as_str()).is_err() {
-            return ActionResult::Failed(RuntimeError::InvalidSession);
-        }
-        // Only a model the provider reported is replayed; unreadable state
-        // resumes with the provider's default rather than a guess. Placement
-        // follows each CLI's recorded usage (runtime/fixtures/README.md).
-        let model = resume.state.and_then(model_state::state_model);
-        let session = OsString::from(resume.session.as_str());
-        let mut args = match self {
-            Self::Claude => vec![OsString::from("--resume"), session],
-            Self::Codex => vec![OsString::from("resume")],
-        };
-        if let Some(model) = model {
-            args.push(match self {
-                Self::Claude => "--model".into(),
-                Self::Codex => "-m".into(),
-            });
-            args.push(model.into());
-        }
-        if let Self::Codex = self {
-            args.push(OsString::from(resume.session.as_str()));
-        }
-        if mode == CODEX_MODE_EMBEDDED {
-            args.push("--no-daemon".into());
-        }
-        ActionResult::Completed(RuntimeCommand {
-            executable: self.name().into(),
-            args,
-        })
-    }
+    // Only a model the provider reported is replayed; unreadable state
+    // resumes with the provider's default rather than a guess. Placement
+    // follows each CLI's recorded usage (runtime/fixtures/README.md).
+    ActionResult::Completed(resume.state.and_then(model_state::state_model))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drivers::{claude, codex};
     use std::os::unix::ffi::OsStringExt;
     use tmt_core::binding::session::{ProviderSessionId, RuntimeMode};
 
@@ -509,17 +474,17 @@ mod tests {
         for (harness, mode, expected) in [
             (
                 "claude",
-                CLAUDE_MODE_DEFAULT,
+                claude::MODE_DEFAULT,
                 vec!["--resume", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
             ),
             (
                 "codex",
-                CODEX_MODE_SHARED,
+                codex::MODE_SHARED,
                 vec!["resume", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
             ),
             (
                 "codex",
-                CODEX_MODE_EMBEDDED,
+                codex::MODE_EMBEDDED,
                 vec![
                     "resume",
                     "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",

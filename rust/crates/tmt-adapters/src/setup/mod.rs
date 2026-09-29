@@ -7,8 +7,8 @@ mod publication;
 pub use environment::{SetupEnvironment, provider_settings};
 pub use publication::{apply, read_settings};
 
+use crate::drivers::{DriverDefinition, HookFormat};
 use std::path::PathBuf;
-pub use tmt_core::skill_provider::Provider;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileChange {
@@ -56,20 +56,20 @@ impl std::error::Error for PlanError {}
 
 pub const SETTINGS_LIMIT: usize = 1024 * 1024;
 
-pub const SUPPORTED_PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Codex];
-
-fn hook_entry(provider: Provider, launcher: &str) -> Result<serde_json::Value, PlanError> {
-    match provider {
-        Provider::Claude => Ok(crate::runtime::claude::hook_entry(launcher)),
-        Provider::Codex => Ok(crate::runtime::codex::hook_entry(launcher)),
-        _ => Err(PlanError::UnsupportedProvider),
+fn hook_entry(provider: &DriverDefinition, launcher: &str) -> Result<serde_json::Value, PlanError> {
+    match provider.descriptor.hooks {
+        Some(HookFormat::SessionHooksJson) => Ok(crate::runtime::hook_protocol::command_entry(
+            provider.name(),
+            launcher,
+        )),
+        None => Err(PlanError::UnsupportedProvider),
     }
 }
 
 /// Whether the provider's TMT SessionStart hook is installed in its user
 /// settings. Read-only and bounded; an unreadable or invalid file counts as
 /// not installed.
-pub fn start_hook_installed(provider: Provider) -> bool {
+pub fn start_hook_installed(provider: &DriverDefinition) -> bool {
     provider_settings(provider)
         .and_then(|path| read_settings(&path))
         .ok()
@@ -77,17 +77,8 @@ pub fn start_hook_installed(provider: Provider) -> bool {
         .is_some_and(|text| document::has_owned_start_hook(provider, &text))
 }
 
-pub fn claude_plan(
-    path: PathBuf,
-    before: Option<String>,
-    launcher: PathBuf,
-    removing: bool,
-) -> Result<SetupPlan, PlanError> {
-    plan(Provider::Claude, path, before, launcher, removing)
-}
-
 pub fn plan(
-    provider: Provider,
+    provider: &DriverDefinition,
     path: PathBuf,
     before: Option<String>,
     launcher: PathBuf,
@@ -104,7 +95,7 @@ pub fn plan(
         removing,
     )?;
     Ok(SetupPlan {
-        provider: provider.as_str(),
+        provider: provider.name(),
         launcher,
         removing,
         change: FileChange {

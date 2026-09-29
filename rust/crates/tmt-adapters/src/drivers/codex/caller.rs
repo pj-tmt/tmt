@@ -101,7 +101,7 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
             let &(parent, executable) = processes.get(&pid).ok_or(())?;
             if Path::new(executable)
                 .file_name()
-                .is_some_and(|name| name == "codex")
+                .is_some_and(|name| name == super::NAME)
             {
                 let args = query_ps(
                     self.runner,
@@ -120,14 +120,14 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                     .strip_prefix(executable)
                     .filter(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
                     .or_else(|| {
-                        args.strip_prefix("codex")
+                        args.strip_prefix(super::NAME)
                             .filter(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
                     })
                     .or_else(|| {
                         // Linux comm is normally a basename while argv[0] may
                         // be absolute. Darwin commonly supplies the full path.
                         let split = args.find(char::is_whitespace).unwrap_or(args.len());
-                        (Path::new(&args[..split]).file_name()? == "codex")
+                        (Path::new(&args[..split]).file_name()? == super::NAME)
                             .then_some(&args[split..])
                     })
                     .ok_or(())?;
@@ -169,7 +169,7 @@ impl<R: CommandRunner> Driver for CodexCaller<'_, R> {
             .filter(|value| uuid::Uuid::parse_str(value).is_ok())
             .and_then(|value| ProviderSessionId::new(value).ok());
         ActionResult::Completed(RuntimeCaller {
-            harness: HarnessId::new("codex").expect("built-in driver ID"),
+            harness: HarnessId::new(super::NAME).expect("built-in driver ID"),
             session,
             host,
         })

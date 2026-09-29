@@ -1,18 +1,14 @@
 //! Compose runtime evidence before allowing implicit host attribution.
 
 use crate::output::Failure;
-use tmt_adapters::{
-    process::UnixCommandRunner,
-    runtime_caller::codex::{CallerEnvironment, CodexCaller},
-};
-use tmt_core::driver::{ActionResult, Driver, caller::RuntimeCaller};
+use tmt_adapters::drivers::Registry;
+use tmt_core::driver::{ActionResult, caller::RuntimeCaller};
 
 /// Explicit identity and endpoint selectors do not use implicit host evidence.
 /// A shared runtime's inherited pane cannot authorize either a sender or a
 /// binding mutation. Session correlation is not replaced by remembered history.
 pub fn require_independent_host() -> Result<(), Failure> {
-    let mut runtime = CodexCaller::new(&UnixCommandRunner, CallerEnvironment::current());
-    allow_host(runtime.identify_caller())
+    allow_host(Registry::builtin().identify_caller())
 }
 
 fn allow_host<E>(result: ActionResult<RuntimeCaller, E>) -> Result<(), Failure> {

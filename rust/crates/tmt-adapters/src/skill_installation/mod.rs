@@ -22,7 +22,7 @@ pub(crate) use owned::{
 };
 #[cfg(test)]
 mod owned_tests;
-pub use providers::ProviderEnvironment;
+pub use providers::{ProviderEnvironment, SKILL_NAME};
 #[cfg(test)]
 mod assets_tests;
 #[cfg(test)]
@@ -47,18 +47,18 @@ pub fn bundled_skill_named(name: &str) -> Option<&'static [u8]> {
     }
 }
 
+use crate::drivers::{DriverDefinition, Registry};
 use std::{
     collections::BTreeMap,
     error::Error,
     fmt, fs, io,
     path::{Path, PathBuf},
 };
-use tmt_core::skill_provider::Provider;
 
 #[derive(Debug)]
 pub struct InstalledSkill {
     pub name: &'static str,
-    pub agent: Option<Provider>,
+    pub agent: Option<&'static DriverDefinition>,
     pub target: PathBuf,
     pub changed: bool,
     pub backup: Option<PathBuf>,
@@ -107,7 +107,7 @@ fn selected(
     env: &ProviderEnvironment,
     provider: Option<&str>,
     directory: Option<&Path>,
-) -> io::Result<Vec<(Option<Provider>, PathBuf)>> {
+) -> io::Result<Vec<(Option<&'static DriverDefinition>, PathBuf)>> {
     if let Some(directory) = directory {
         if provider.is_some() || directory.as_os_str().is_empty() {
             return Err(io::Error::new(
@@ -119,8 +119,8 @@ fn selected(
     }
     let providers = match provider {
         None => env.detect(),
-        Some(value) if value.eq_ignore_ascii_case("all") => Provider::ALL.to_vec(),
-        Some(value) => vec![Provider::parse(value).ok_or_else(|| {
+        Some(value) if value.eq_ignore_ascii_case("all") => Registry::builtin().iter().collect(),
+        Some(value) => vec![Registry::builtin().find(value).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("Unknown agent: {value}"),
@@ -161,7 +161,7 @@ fn publish_managed_target(
     target: &Path,
     source: &Path,
     name: &'static str,
-    agent: Option<Provider>,
+    agent: Option<&'static DriverDefinition>,
     publish: &mut impl FnMut(&Path, &Path) -> io::Result<()>,
 ) -> io::Result<()> {
     let prior = managed_link(target, context.assets)?;
@@ -219,8 +219,8 @@ fn optional_roots(
     env: &ProviderEnvironment,
     global: &Path,
     assets: &assets::SkillAssets,
-) -> io::Result<BTreeMap<PathBuf, Option<Provider>>> {
-    let mut roots = BTreeMap::<PathBuf, Option<Provider>>::new();
+) -> io::Result<BTreeMap<PathBuf, Option<&'static DriverDefinition>>> {
+    let mut roots = BTreeMap::<PathBuf, Option<&'static DriverDefinition>>::new();
     for (agent, main) in selected(env, None, None)? {
         roots.insert(
             main.parent().expect("skill target parent").to_path_buf(),
@@ -257,7 +257,7 @@ fn install_office_with_publisher(
         let assets = assets::SkillAssets::new(&global);
         registry::read(&global)?;
         files::with_lock(&global, || {
-            let mut targets = BTreeMap::<PathBuf, Option<Provider>>::new();
+            let mut targets = BTreeMap::<PathBuf, Option<&'static DriverDefinition>>::new();
             // Once an owner holds a name (Office adopted through the owner
             // door), core's bundle no longer publishes it.
             let owned = owned::owned_names(&global)?;
@@ -367,7 +367,7 @@ fn install_with_publisher(
                                 .legacy_backups
                                 .push(backup);
                         } else {
-                            context.report.warnings.push(format!("Legacy {} guidance found at {}; keeping it. Inspect before running tmt install {} --force.", agent.as_str(), legacy.display(), agent.as_str()));
+                            context.report.warnings.push(format!("Legacy {} guidance found at {}; keeping it. Inspect before running tmt install {} --force.", agent.name(), legacy.display(), agent.name()));
                         }
                     }
                 }

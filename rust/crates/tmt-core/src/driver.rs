@@ -6,7 +6,10 @@
 //! decision by the caller. Drivers do not own request storage or retry policy.
 
 pub mod caller;
+pub mod descriptor;
 pub mod routing;
+
+pub use descriptor::ALL;
 
 use crate::binding::session::{
     DriverState, HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeMode, RuntimeState,

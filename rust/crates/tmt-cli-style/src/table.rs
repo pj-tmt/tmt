@@ -266,7 +266,7 @@ fn styled(cell: &Cell) -> comfy_table::Cell {
         rendered = rendered.fg(color);
     }
     match token {
-        Token::Dim | Token::OtherDriver => rendered.add_attribute(Attribute::Dim),
+        Token::Dim | Token::Driver(None) => rendered.add_attribute(Attribute::Dim),
         Token::Title | Token::Literal => rendered.add_attribute(Attribute::Bold),
         _ => rendered,
     }
