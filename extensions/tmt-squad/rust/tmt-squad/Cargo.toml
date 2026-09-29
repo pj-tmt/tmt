@@ -26,5 +26,9 @@ unicode-width.workspace = true
 subprocess.workspace = true
 signal-hook.workspace = true
 
+# The #436 help guard; Squad's output moves onto it in PR 2b.
+[dev-dependencies]
+tmt-cli-style.workspace = true
+
 [lints]
 workspace = true

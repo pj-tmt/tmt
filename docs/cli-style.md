@@ -98,8 +98,9 @@ examples, output modes (`Human`, `Json`, `HumanAndJson`, where the last adds
 `--json`). Registration panics without a summary, or with fewer than one or more
 than three examples.
 
-- Sections, in order: summary, `Usage`, `Arguments`, `Options`, `Commands`, any
-  discovered sections (such as the root's `Extensions`), then `Examples`.
+- Sections, in order: summary, `Usage`, `Commands`, `Arguments`, `Options` (the
+  order clap renders them), any discovered sections (such as the root's
+  `Extensions`), then `Examples`.
 - `-h`, `--help` and `tmt help <command>` print the same text (`help_text`).
 - Each example is a comment line naming what it does, followed by the full
   command. Show the common use first. Examples must parse through the real
@@ -116,9 +117,53 @@ Examples:
 - There is no color when stdout is not a terminal, when `NO_COLOR` is set or
   `CLICOLOR=0`, or with `--json`. `CLICOLOR_FORCE` forces color. The decision is
   made once per stream (`Terminal::stdout`, `Terminal::stderr`).
+- Commands write through `stream::stdout(json)` and `stream::stderr()`. Each
+  returns a locked `Stream` that implements `Write` and carries its decision
+  (`Stream::terminal`), so a renderer gets both from one place:
+
+  ```rust
+  let mut out = tmt_cli_style::stream::stdout(mode.json);
+  let terminal = out.terminal();
+  section.write(&mut out, terminal)?;
+  ```
+
 - On a terminal whose width is known, rows never wrap. Detail columns (paths,
   previews) are truncated with `…` first, then names. Marks and fixed columns
   never truncate. Piped output is never truncated.
 - Control and line-separator characters in user data are shown escaped
   (`table::escape`). This is a trust boundary: user data never reaches the terminal
   as control sequences.
+
+## Enforcement
+
+Two tests enforce this document. Each keeps a migration list of what does not
+follow it yet. A list must equal what still fails: a command or file that now
+follows the style fails the test until its entry is removed, and anything new
+that breaks a rule fails at once. Migrating a command means deleting its
+entries. Both lists are empty when #436 closes.
+
+- **Grammar walk** (`tmt_cli_style::audit`). For every visible command,
+  extension trees included, it checks that the command:
+  - has a summary;
+  - prints the same text for `-h`, `--help` and `help <command>`;
+  - follows the section order above;
+  - has one to three examples.
+
+  It reads the examples back from the help a user sees (`help::examples`, the
+  inverse of what `command` writes). Each example must invoke its own command
+  and parse through the CLI's real parser without running. Core's walk and its
+  list are in `rust/crates/tmt-cli/src/cli_style_{tests,allowlist}.rs`;
+  Squad's are the same files in `extensions/tmt-squad/rust/tmt-squad/src/`.
+
+- **Output guard** (the architecture test). In `tmt-cli`, `tmt-office-command`
+  and `tmt-squad`, production code may not:
+  - call `print!`, `println!`, `eprint!` or `eprintln!`;
+  - reach `std::io::stdout` or `std::io::stderr` in any form, including an
+    import;
+  - write an escape character in a literal.
+
+  It writes through `stream` instead. A function whose output is an exact byte
+  stream or a terminal protocol (`tmt api`, `tmt learn`, provider hooks, the
+  Squad board) is exempt by name, with a reason. The rest of its file is still
+  checked. The lists are in
+  `rust/crates/tmt-cli/tests/architecture/output_allowlist.rs`.

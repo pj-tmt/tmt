@@ -600,7 +600,10 @@ commands. Both entry points keep the existing public Office command behavior.
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. It follows the actual Rust module tree, checks reviewed
 layer edges and shared declaration ownership, and fails closed for unsupported
-module remapping or incomplete discovery. It is a syntactic guard and never
+module remapping or incomplete discovery. It also checks that the CLI crates
+reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
+each CLI checks every command's help against the style
+([enforcement](docs/cli-style.md#enforcement)). It is a syntactic guard and never
 replaces review of behavior or effects.
 
 The optional `extensions/tmt-office/rust/tmt-office` executable remains a member

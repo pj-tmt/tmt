@@ -24,8 +24,12 @@ clap_complete.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# The #436 help guard; production output moves onto it in PR 2a.
+tmt-cli-style.workspace = true
 tmt-office-model.workspace = true
 syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
+# Macro arguments are token streams; the output guard scans them.
+proc-macro2 = { version = "=1.0.107", default-features = false }
 
 [lints]
 workspace = true

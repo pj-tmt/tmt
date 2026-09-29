@@ -6,15 +6,18 @@
 //! the same code. Rendering never decides policy: callers pass a [`Terminal`]
 //! that was decided once per stream.
 
+pub mod audit;
 pub mod help;
 pub mod list;
 pub mod mark;
 pub mod message;
 pub mod palette;
+pub mod stream;
 pub mod table;
 pub mod value;
 
 pub use help::{
-    CommandSpec, Example, HelpSection, OutputModes, command, command_with_sections, help_text,
+    CommandSpec, Example, HelpSection, OutputModes, ShownExample, command, command_with_sections,
+    examples, help_text,
 };
 pub use palette::{Terminal, Token};
