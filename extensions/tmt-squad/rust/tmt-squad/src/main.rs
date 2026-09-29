@@ -544,11 +544,145 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
             document["me"].as_str().unwrap_or("unset"),
             name = text(&document["squad"]["name"]),
         ),
-        _ => format!(
-            "{}\n",
-            serde_json::to_string_pretty(document).unwrap_or_default()
-        ),
+        "lead" => {
+            let replaced = names(&document["replaced"]);
+            done(
+                terminal,
+                &format!(
+                    "{} leads squad {}{}",
+                    text(&document["lead"]["name"]),
+                    text(&document["squad"]),
+                    if replaced.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" (replaces {replaced})")
+                    }
+                ),
+            )
+        }
+        "add" => document["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|result| result.get("error").is_none())
+            .map(|result| {
+                let state = match result["stateSet"].as_str() {
+                    Some(state) => format!(" (state {state})"),
+                    None => String::new(),
+                };
+                done(
+                    terminal,
+                    &format!(
+                        "Added {} to squad {}{state}",
+                        text(&result["name"]),
+                        text(&document["squad"])
+                    ),
+                )
+            })
+            .collect(),
+        "remove" => {
+            let cleared = fields(&document["cleared"]);
+            done(
+                terminal,
+                &format!(
+                    "Removed {} from squad {}{}",
+                    text(&document["removed"]["name"]),
+                    text(&document["squad"]),
+                    if cleared.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; cleared {cleared}")
+                    }
+                ),
+            )
+        }
+        "set" => {
+            let applied = fields(&document["applied"]);
+            if applied.is_empty() {
+                String::new()
+            } else {
+                done(
+                    terminal,
+                    &format!("Set {applied} on {}", text(&document["member"])),
+                )
+            }
+        }
+        _ => unreachable!("tmt squad {command} has no human output"),
     }
+}
+
+/// Partial failures of a multi-step command, as `error:` lines for stderr.
+fn human_failures(command: &str, document: &Value) -> Vec<(String, Option<String>)> {
+    let text = |value: &Value| value["message"].as_str().unwrap_or_default().to_owned();
+    match command {
+        "add" => document["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|result| result.get("error").is_some())
+            .map(|result| {
+                (
+                    format!(
+                        "Could not add {}: {}",
+                        result["name"].as_str().unwrap_or_default(),
+                        text(&result["error"])
+                    ),
+                    None,
+                )
+            })
+            .collect(),
+        "set" if document.get("failed").is_some() => {
+            let skipped = document["notAttempted"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ");
+            vec![(
+                format!(
+                    "Could not set {} on {}: {}",
+                    field(document["failed"]["key"].as_str().unwrap_or_default()),
+                    document["member"].as_str().unwrap_or_default(),
+                    text(&document["failed"]["error"])
+                ),
+                (!skipped.is_empty()).then(|| {
+                    format!(
+                        "tmt squad set {} {skipped}",
+                        document["member"].as_str().unwrap_or_default()
+                    )
+                }),
+            )]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A member field's name, from its full `squad.<name>.<field>` key.
+fn field(key: &str) -> &str {
+    key.rsplit_once('.').map_or(key, |(_, field)| field)
+}
+
+/// Field keys as their names, comma separated.
+fn fields(keys: &Value) -> String {
+    keys.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(field)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Identity names, comma separated.
+fn names(values: &Value) -> String {
+    values
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// `playbook`: `list` and `show` are pure; `install` and `remove` reach core
@@ -747,10 +881,15 @@ fn main() -> ExitCode {
             }
             let mut stdout = tmt_cli_style::stream::stdout(false);
             let body = human(command, &outcome.document, stdout.terminal());
-            match stdout
+            let written = stdout
                 .write_all(body.as_bytes())
-                .and_then(|()| stdout.flush())
-            {
+                .and_then(|()| stdout.flush());
+            let mut stderr = tmt_cli_style::stream::stderr();
+            let terminal = stderr.terminal();
+            for (what, hint) in human_failures(command, &outcome.document) {
+                let _ = message::error(&mut stderr, terminal, &what, hint.as_deref());
+            }
+            match written {
                 Ok(()) => ExitCode::from(code),
                 Err(_) => ExitCode::FAILURE,
             }
@@ -813,6 +952,48 @@ mod cli_style_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_command_has_human_output() {
+        // `skill show` prints the embedded skill before reaching `human`;
+        // hidden commands are protocols, not user commands.
+        let grammar = grammar();
+        for command in grammar
+            .get_subcommands()
+            .filter(|command| !command.is_hide_set())
+            .map(Command::get_name)
+        {
+            if command == "skill" {
+                continue;
+            }
+            let output = std::panic::catch_unwind(|| {
+                human(command, &serde_json::json!({}), Terminal::PLAIN)
+            });
+            assert!(output.is_ok(), "tmt squad {command} has no human output");
+        }
+    }
+
+    #[test]
+    fn set_reports_applied_fields_and_the_one_that_failed() {
+        let document = serde_json::json!({
+            "squad": "product", "member": "coder",
+            "applied": ["squad.product.state"],
+            "failed": {"key": "squad.product.note",
+                       "error": {"code": "STORAGE_UNAVAILABLE", "message": "Disk full."}},
+            "notAttempted": ["task=ship", "pending="],
+        });
+        assert_eq!(
+            human("set", &document, Terminal::PLAIN),
+            "✓ Set state on coder\n"
+        );
+        assert_eq!(
+            human_failures("set", &document),
+            [(
+                "Could not set note on coder: Disk full.".to_owned(),
+                Some("tmt squad set coder task=ship pending=".to_owned())
+            )]
+        );
+    }
 
     #[test]
     fn replies_preview_one_line_and_point_at_the_whole_body() {

@@ -373,6 +373,47 @@ describe('squad extension', () => {
     });
   });
 
+  it('reports lead, add, set and remove as text without --json', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'Sol', 'Rin', 'coder', 'outsider']) await identity(sandbox, name);
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      const text = (args: string[]) => runCli(sandbox, ['sq', ...args]);
+
+      expect(await text(['lead', 'Sol'])).toMatchObject({
+        status: 0,
+        stdout: '✓ Sol leads squad product\n',
+        stderr: '',
+      });
+      expect(await text(['lead', 'Rin'])).toMatchObject({
+        status: 0,
+        stdout: '✓ Rin leads squad product (replaces Sol)\n',
+      });
+      // A partial add keeps its successes on stdout and each failure on stderr.
+      expect(await text(['add', 'coder', 'ghost'])).toMatchObject({
+        status: 1,
+        stdout: '✓ Added coder to squad product (state working)\n',
+        stderr: "error: Could not add ghost: Identity 'ghost' was not found\n",
+      });
+      expect((await text(['add', 'coder'])).stdout).toBe('✓ Added coder to squad product\n');
+      expect(await text(['set', 'coder', 'state=blocked', 'note=needs review'])).toMatchObject({
+        status: 0,
+        stdout: '✓ Set state, note on coder\n',
+        stderr: '',
+      });
+      expect(await text(['set', 'outsider', 'state=working'])).toMatchObject({
+        status: 1,
+        stdout: '',
+        stderr: "error: 'outsider' is not in squad product; add it first\n",
+      });
+      expect(await text(['remove', 'coder'])).toMatchObject({
+        status: 0,
+        stdout: '✓ Removed coder from squad product; cleared note, state\n',
+        stderr: '',
+      });
+    });
+  });
+
   it('keeps several squads apart and requires a choice when ambiguous', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
