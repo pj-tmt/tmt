@@ -193,6 +193,7 @@ fn show_text(
             title: "settings",
             count: None,
             rows: table,
+            note: None,
             hint: Some(
                 "CLI numeric writes use unsigned decimal integers; config clear removes local overrides only",
             ),

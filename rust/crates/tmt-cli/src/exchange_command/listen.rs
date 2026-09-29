@@ -314,6 +314,7 @@ pub(super) fn execute(
                 title: "incoming",
                 count: Some(page.items.len()),
                 rows,
+                note: None,
                 hint: None,
             }],
         )?;

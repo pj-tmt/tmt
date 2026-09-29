@@ -163,6 +163,7 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                         title: "exchanges",
                         count: Some(page.items.len()),
                         rows,
+                        note: None,
                         hint: next.as_deref(),
                     }],
                 )?;

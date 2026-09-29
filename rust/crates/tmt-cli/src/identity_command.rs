@@ -275,6 +275,7 @@ fn write_list(
             title,
             count: Some(matching.len()),
             rows,
+            note: None,
             hint: None,
         })
     })

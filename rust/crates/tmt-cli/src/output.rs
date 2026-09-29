@@ -20,7 +20,3 @@ pub fn resume_document(
         })
     })
 }
-
-pub mod table {
-    pub use tmt_command_output::table::write;
-}

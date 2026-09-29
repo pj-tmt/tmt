@@ -166,6 +166,7 @@ pub(super) fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<
                 title: "recipients",
                 count: Some(receipt.items.len()),
                 rows,
+                note: None,
                 hint: Some("queued is not completed; inspect each with tmt result <request-id>"),
             }],
         )?;
