@@ -58,23 +58,25 @@ fn preview(item: &OpenRequest) -> String {
 
 fn answer_failure(error: RequestError<StorageError>, from: &str, paths: &ConfigPaths) -> Failure {
     match error {
-        RequestError::Answer(AnswerRejection::NotWaiting) => Failure::new(
-            "ANSWER_NOT_WAITING",
-            format!("{from} is not waiting on you for a response."),
-            3,
-        )
-        .suggestion("tmt inbox".into()),
-        RequestError::Answer(AnswerRejection::Ambiguous(items)) => {
-            let mut text = format!(
-                "{from} is waiting on you for {} requests; nothing was sent.",
-                items.len()
-            );
-            for item in &items {
-                text.push_str(&format!("\n  {}  {}", item.request_id, preview(item)));
+        RequestError::Answer(reason) => match &reason {
+            AnswerRejection::NotWaiting => Failure::new(
+                reason.code(),
+                format!("{from} is not waiting on you for a response."),
+                3,
+            )
+            .suggestion("tmt inbox".into()),
+            AnswerRejection::Ambiguous(items) => {
+                let mut text = format!(
+                    "{from} is waiting on you for {} requests; nothing was sent.",
+                    items.len()
+                );
+                for item in items {
+                    text.push_str(&format!("\n  {}  {}", item.request_id, preview(item)));
+                }
+                Failure::new(reason.code(), text, 1)
+                    .suggestion("choose one with --request <request-id>".into())
             }
-            Failure::new("ANSWER_AMBIGUOUS", text, 1)
-                .suggestion("choose one with --request <request-id>".into())
-        }
+        },
         RequestError::Attention(AttentionRejection::NotFound) => Failure::new(
             "X_NOT_FOUND",
             format!("That request is not one {from} sent you."),

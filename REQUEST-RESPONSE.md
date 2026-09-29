@@ -165,7 +165,8 @@ There is no dismiss or decline.
 once the prompt is no longer retained) and `roomId` when scoped. `more` means
 newer open requests exist beyond the limit.
 
-`answer <from>` answers the request `<from>` is waiting on you for. With one
+`answer <from>` answers the request `<from>` is waiting on you for. Requests from
+an anonymous originator are listed but cannot be selected by name. With one
 open request it answers that one. With several it sends nothing and fails with
 `ANSWER_AMBIGUOUS` (exit 1), listing each request ID and preview; choose one
 with `--request`. With none it fails with `ANSWER_NOT_WAITING` (exit 3), which
