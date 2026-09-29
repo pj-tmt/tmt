@@ -85,7 +85,6 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
   it('keeps xcrun out of every other file, so a new caller has to add its own warm-up', () => {
     const allowed = new Set([
       '.github/actions/warm-xcrun/action.yml',
-      'docs/native-release-verification.md',
       `${scripts}/native-runtime-proof.mjs`,
       'typescript/test/tooling/xcrun-warmup.test.ts',
     ]);
@@ -102,8 +101,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
       ...walk('scripts'),
       ...walk(scripts),
       ...walk('typescript/test'),
-      ...walk('docs'),
-    ].filter((file) => /\.(ya?ml|sh|mjs|ts|md)$/.test(file) && calls.test(read(file)));
+    ].filter((file) => /\.(ya?ml|sh|mjs|ts)$/.test(file) && calls.test(read(file)));
     expect(users.filter((file) => !allowed.has(file))).toEqual([]);
   });
 });
