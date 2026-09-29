@@ -1813,7 +1813,17 @@ Squad writes only the top-level `me`, with a changed-input check and atomic
 replacement that preserves the rest of the document. `init` settles `me` before
 creating the room. The `tmt-squad` lead skill source lives under
 `extensions/tmt-squad/skills/` and is embedded only in the squad executable,
-never in the core skill bundle. Squad's dependencies must not change the CLI
+never in the core skill bundle. Optional playbooks (`tmt squad playbook
+list|show|install|remove`, first `tmux-squad`) live beside it in
+`extensions/tmt-squad/playbooks/`, deliberately not under `skills/`: the release
+archive ships and the extension installer offers every skill under `skills/`,
+while a playbook is installed only on request, and a test pins that no playbook is
+in that tree. `playbook.rs` holds the one catalog of embedded sources. `show`
+prints the exact bytes; `install` asks (the same `consent` helper as `hotkeys`),
+then calls `skills.install` as owner `squad`, and `remove` calls `skills.remove`
+with the playbook's name, so the lead skill and `tmt extension uninstall squad`
+are unaffected. Squad never writes a provider directory and never executes a
+playbook. Squad's dependencies must not change the CLI
 product: the proof is package-scoped (`-p tmt-cli` alone), because combined
 workspace builds may unify shared-dependency features across packages. The
 release workflow does not distribute squad until the generic extension installer

@@ -593,6 +593,27 @@ squad` offers it, copy it into your lead agent's skills directory yourself, for
 example `tmt sq skill show > ~/.claude/skills/tmt-squad/SKILL.md` (create the
 directory first). A manually copied skill is not drift-checked or upgraded.
 
+Playbooks are optional guidance your lead agent can follow to lay a squad out on a
+host. The first, `tmux-squad`, suggests a `leads` session, a `crew` session with one
+window and git worktree per member, and the board on its hotkey. Squad never runs a
+playbook; the agent proposes the commands and you decide. A playbook is a skill that
+is not installed with the extension:
+
+```sh
+tmt squad playbook list                       # names and descriptions
+tmt squad playbook show tmux-squad            # the exact text, nothing installed
+tmt squad playbook install tmux-squad --print # the plan; changes nothing
+tmt squad playbook install tmux-squad         # shows the plan, asks, then publishes
+tmt squad playbook remove tmux-squad          # removes only this playbook's skill
+```
+
+Installing publishes the skill into your agents' skill directories through TMT's
+managed skill installation, owned by `squad`, and only with your OK (`--yes` when
+there is no terminal). A skill of that name that TMT does not manage is never
+replaced: the install is refused unless you pass `--force`, which keeps a backup.
+Removing takes out only the playbook; the `tmt-squad` skill stays, and a copy you
+replaced or edited is kept.
+
 ## Talk and receive a complete reply
 
 Send a request by global name or direct pane target:

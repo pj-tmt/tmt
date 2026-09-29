@@ -688,6 +688,111 @@ sort = ["-name"]
     });
   });
 
+  it('lists, shows, installs and removes playbooks through core only, with consent', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const source = readFileSync(
+        fileURLToPath(
+          new URL('../../../extensions/tmt-squad/playbooks/tmux-squad/SKILL.md', import.meta.url)
+        ),
+        'utf8'
+      );
+      // Claude keeps skills under .claude and Codex under .agents; core also
+      // publishes optional skills into its other provider roots.
+      mkdirSync(path.join(sandbox.home, '.claude'));
+      mkdirSync(path.join(sandbox.home, '.codex'));
+      const playbook = (args: string[]) => squad(sandbox, ['playbook', ...args]);
+      const snapshotState = () =>
+        existsSync(sandbox.database) ? readFileSync(sandbox.database) : null;
+
+      const listed = await playbook(['list']);
+      expect(listed.body.playbooks).toEqual([
+        { name: 'tmux-squad', description: expect.stringContaining('Propose a tmux layout') },
+      ]);
+      const shown = await runCli(sandbox, ['sq', 'playbook', 'show', 'tmux-squad']);
+      expect(shown.stdout, 'the exact embedded bytes').toBe(source);
+      expect((await playbook(['show', 'tmux-squad'])).body.content).toBe(source);
+      expect((await playbook(['show', 'nope'])).body.error.code).toBe('SQUAD_PLAYBOOK_UNKNOWN');
+
+      const claudeSkill = path.join(sandbox.home, '.claude/skills/tmux-squad');
+      const agentsSkill = path.join(sandbox.home, '.agents/skills/tmux-squad');
+      const before = snapshotState();
+      const printed = await playbook(['install', 'tmux-squad', '--print']);
+      expect(printed.body).toMatchObject({ name: 'tmux-squad', owner: 'squad' });
+      const refused = await playbook(['install', 'tmux-squad']);
+      expect(refused.body.error.code, 'no terminal and no --yes').toBe('SQUAD_CONSENT_REQUIRED');
+      expect(existsSync(claudeSkill) || existsSync(agentsSkill)).toBe(false);
+      expect(snapshotState()).toEqual(before);
+
+      // A user skill of the same name that tmt does not manage is never replaced.
+      mkdirSync(claudeSkill, { recursive: true });
+      writeFileSync(path.join(claudeSkill, 'SKILL.md'), 'my own playbook');
+      const conflict = await playbook(['install', 'tmux-squad', '--yes']);
+      expect(conflict.body.error.code).toBe('SKILL_CONFLICT');
+      expect(conflict.body.error.message).toContain('--force');
+      expect(readFileSync(path.join(claudeSkill, 'SKILL.md'), 'utf8')).toBe('my own playbook');
+      expect(existsSync(agentsSkill), 'nothing is published after a conflict').toBe(false);
+
+      const forced = await playbook(['install', 'tmux-squad', '--yes', '--force']);
+      expect(forced.body).toMatchObject({ name: 'tmux-squad', owner: 'squad', changed: true });
+      const backups = forced.body.published.filter(
+        (item: { backup: string | null }) => item.backup
+      );
+      expect(backups).toHaveLength(1);
+      expect(readFileSync(path.join(backups[0].backup, 'SKILL.md'), 'utf8')).toBe(
+        'my own playbook'
+      );
+      for (const target of [claudeSkill, agentsSkill]) {
+        expect(lstatSync(target).isSymbolicLink()).toBe(true);
+        expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe(source);
+      }
+      const again = await playbook(['install', 'tmux-squad', '--yes']);
+      expect(again.body.changed, 'a repeat is a no-op').toBe(false);
+      expect(
+        (await runCli(sandbox, ['sq', 'playbook', 'install', 'tmux-squad', '--yes'])).stdout
+      ).toBe('Already installed; nothing changed.\n');
+
+      // The lead skill shares the owner; removing the playbook must not touch it.
+      const lead = await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({
+          version: 1,
+          operation: 'skills.install',
+          input: {
+            owner: 'squad',
+            consent: true,
+            skills: [{ name: 'tmt-squad', files: [{ path: 'SKILL.md', content: 'lead skill' }] }],
+          },
+        }),
+      });
+      expect(JSON.parse(lead.stdout).owner).toBe('squad');
+      const userSkill = path.join(sandbox.home, '.claude/skills/mine');
+      mkdirSync(userSkill);
+      writeFileSync(path.join(userSkill, 'SKILL.md'), 'user skill');
+
+      expect((await playbook(['remove', 'tmux-squad'])).body.error.code).toBe(
+        'SQUAD_CONSENT_REQUIRED'
+      );
+      expect(existsSync(claudeSkill)).toBe(true);
+      const removed = await playbook(['remove', 'tmux-squad', '--yes']);
+      expect(removed.body).toMatchObject({ name: 'tmux-squad', changed: true, kept: [] });
+      const published: string[] = forced.body.published.map(
+        (item: { target: string }) => item.target
+      );
+      expect(published).toEqual(expect.arrayContaining([claudeSkill, agentsSkill]));
+      expect(removed.body.removed.sort()).toEqual([...published].sort());
+      expect(published.some((target) => existsSync(target))).toBe(false);
+      for (const target of ['.claude/skills/tmt-squad', '.agents/skills/tmt-squad']) {
+        expect(readFileSync(path.join(sandbox.home, target, 'SKILL.md'), 'utf8')).toBe(
+          'lead skill'
+        );
+      }
+      expect(readFileSync(path.join(userSkill, 'SKILL.md'), 'utf8')).toBe('user skill');
+      expect((await playbook(['remove', 'tmux-squad', '--yes'])).body.changed).toBe(false);
+      // Playbooks never touch identity storage or tmux.
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
   it('installs tmux hotkeys only with consent, through the stable launcher, and removes only its line', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

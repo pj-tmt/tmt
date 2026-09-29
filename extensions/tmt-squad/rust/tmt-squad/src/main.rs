@@ -5,12 +5,14 @@ mod action;
 mod back;
 mod board;
 mod config;
+mod consent;
 mod core;
 mod effects;
 mod filter;
 mod hotkeys;
 mod member_actions;
 mod membership;
+mod playbook;
 mod requests;
 mod runner;
 mod send;
@@ -34,6 +36,12 @@ fn squad_option() -> Arg {
         .long("squad")
         .value_name("NAME")
         .help("Select a squad; optional when exactly one exists")
+}
+
+fn playbook_name() -> Arg {
+    Arg::new("playbook")
+        .required(true)
+        .help("Playbook name (see `playbook list`)")
 }
 
 fn message() -> Arg {
@@ -231,6 +239,51 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
+            Command::new("playbook")
+                .about("Optional layouts for lead agents to propose (squad never runs them)")
+                .subcommand_required(true)
+                .subcommand(Command::new("list").about("List the playbooks"))
+                .subcommand(
+                    Command::new("show")
+                        .about("Print a playbook exactly as embedded")
+                        .arg(playbook_name()),
+                )
+                .subcommand(
+                    Command::new("install")
+                        .about("Show the plan, ask, then publish the playbook as an agent skill")
+                        .arg(playbook_name())
+                        .arg(
+                            Arg::new("print")
+                                .long("print")
+                                .action(ArgAction::SetTrue)
+                                .help("Print the plan; change nothing"),
+                        )
+                        .arg(
+                            Arg::new("yes")
+                                .long("yes")
+                                .action(ArgAction::SetTrue)
+                                .help("Consent without a prompt"),
+                        )
+                        .arg(
+                            Arg::new("force")
+                                .long("force")
+                                .action(ArgAction::SetTrue)
+                                .help("Back up and replace a skill of that name tmt does not manage"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("remove")
+                        .about("Remove only this playbook's skill")
+                        .arg(playbook_name())
+                        .arg(
+                            Arg::new("yes")
+                                .long("yes")
+                                .action(ArgAction::SetTrue)
+                                .help("Consent without a prompt"),
+                        ),
+                ),
+        )
+        .subcommand(
             Command::new("skill")
                 .about("The tmt-squad skill for lead agents")
                 .subcommand_required(true)
@@ -373,6 +426,7 @@ fn human(command: &str, document: &Value) -> String {
     match command {
         "status" | "board" => status::text(document),
         "hotkeys" => hotkeys_text(document),
+        "playbook" => playbook::text(document),
         "jump" => format!(
             "Showing {} ({}).\n{}",
             document["member"].as_str().unwrap_or_default(),
@@ -419,7 +473,36 @@ fn human(command: &str, document: &Value) -> String {
     }
 }
 
+/// `playbook`: `list` and `show` are pure; `install` and `remove` reach core
+/// only through the extension-skill door, never the provider directories.
+fn playbook_command(matches: &ArgMatches) -> Result<Outcome, SquadError> {
+    let (action, flags) = matches.subcommand().expect("subcommand required");
+    let flag = |name: &str| flags.try_get_one::<bool>(name).ok().flatten() == Some(&true);
+    let name = flags
+        .try_get_one::<String>("playbook")
+        .ok()
+        .flatten()
+        .map(String::as_str)
+        .unwrap_or_default();
+    match action {
+        "list" => Ok(playbook::catalog()),
+        "show" => playbook::embedded(name),
+        "install" => playbook::install(
+            &Core::discover()?,
+            name,
+            flag("print"),
+            flag("yes"),
+            flag("force"),
+        ),
+        _ => playbook::remove(&Core::discover()?, name, flag("yes")),
+    }
+    .map(Outcome::from)
+}
+
 fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
+    if command == "playbook" {
+        return playbook_command(matches);
+    }
     let core = Core::discover()?;
     let text = |name: &str| matches.get_one::<String>(name).map(String::as_str);
     let many = |name: &str| {
@@ -612,11 +695,19 @@ mod tests {
             complete(&words("-- ")),
             [
                 "add", "annotate", "back", "board", "copy", "hotkeys", "init", "jump", "lead",
-                "open", "remove", "replies", "reply", "set", "skill", "status", "talk"
+                "open", "playbook", "remove", "replies", "reply", "set", "skill", "status", "talk"
             ]
         );
         assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);
         assert_eq!(complete(&words("-- skill s")), ["show"]);
+        assert_eq!(
+            complete(&words("-- playbook ")),
+            ["install", "list", "remove", "show"]
+        );
+        assert_eq!(
+            complete(&words("-- playbook install --")),
+            ["--force", "--json", "--print", "--yes"]
+        );
         assert_eq!(
             complete(&words("-- hotkeys ")),
             ["install", "remove", "show"]
