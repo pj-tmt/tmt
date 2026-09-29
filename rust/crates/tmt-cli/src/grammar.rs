@@ -453,7 +453,13 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
                 )))
                     .arg(channel_option())
                     .arg(Arg::new("archive").long("archive").requires("manifest"))
-                    .arg(Arg::new("manifest").long("manifest").requires("archive")),
+                    .arg(Arg::new("manifest").long("manifest").requires("archive"))
+                    .arg(
+                        Arg::new("skills")
+                            .long("skills")
+                            .action(ArgAction::SetTrue)
+                            .help("Also publish the agent skills the extension bundles"),
+                    ),
             )
             .subcommand(
                 extension_target(general(spec!(

@@ -107,6 +107,7 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
             code: "SETUP_CONSENT_REQUIRED",
             refusal: "Review setup interactively, or pass --yes to approve the requested provider changes.",
             question: "Apply this plan",
+            declined: "No changes made.",
         },
         failure,
     )? {

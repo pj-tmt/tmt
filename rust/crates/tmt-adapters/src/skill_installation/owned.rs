@@ -656,6 +656,24 @@ pub(super) fn owned_names(global: &Path) -> io::Result<std::collections::BTreeSe
     Ok(read_owners(global)?.skills.into_keys().collect())
 }
 
+/// Every provider root an owner's skills are published into, the same roots
+/// `install_owned` uses. Read-only: for consent before any effect.
+pub fn owned_roots(env: &ProviderEnvironment, global: &Path) -> io::Result<Vec<PathBuf>> {
+    let global = files::resolved(global)?;
+    let assets = SkillAssets::new(&global);
+    Ok(optional_roots(env, &global, &assets)?.into_keys().collect())
+}
+
+/// The skills an owner holds and each one's recorded targets.
+pub fn owned_by(global: &Path, owner: &str) -> io::Result<BTreeMap<String, Vec<PathBuf>>> {
+    Ok(read_owners(&files::resolved(global)?)?
+        .skills
+        .into_iter()
+        .filter(|(_, entry)| entry.owner == owner)
+        .map(|(name, entry)| (name, entry.targets))
+        .collect())
+}
+
 /// Owner of each recorded skill name, for status output.
 pub fn owners(global: &Path) -> io::Result<BTreeMap<String, String>> {
     Ok(read_owners(&files::resolved(global)?)?

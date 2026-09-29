@@ -1724,7 +1724,7 @@ and the hidden `__native-install --product office`) borrow it through the
 facade's `release_verifier` until PR B of #355.
 Removal (`uninstall_extension`, for any extension product) validates ownership
 of every command link, refuses a foreign same-named command, and deactivates the
-links without deleting releases, skills or application data. It is recoverable, not a multi-file atomic deletion:
+links without deleting releases or application data. It is recoverable, not a multi-file atomic deletion:
 a missing command link with a retained activation is reported as invalid and
 explicit uninstall can finish that state.
 
@@ -1739,6 +1739,18 @@ reports those that resolve elsewhere, without executing them. Root help groups
 discovered extension names that resolve to the same file (`squad (also: sq)`).
 `tmt office install|upgrade|status|uninstall` keeps its own Office-specific
 flow for now.
+
+An extension's agent skills belong to one owner named after it (`squad`,
+`office`) in the owned-skill registry (`skill_installation::owned`). After
+activation, `native_install::release_skills` re-reads the release's skills tree
+under the installation lock and checks every byte against the receipt; a damaged
+tree publishes nothing. `install --skills` publishes the whole tree; a terminal
+install without it asks once; any other run names the skills and how to publish
+them. Install and upgrade refresh the tree skills the owner already holds and
+remove, by name, those the new release dropped, so other skills the owner holds
+(such as playbooks) are untouched. `uninstall` removes every skill the owner
+holds, from every target, because a skill that points at a removed command is
+broken guidance; its single consent prompt names the skills and targets.
 
 An extension release (never the CLI) may carry a bounded agent-skills tree,
 `skills/<name>/<path>` (`native_install::skills_tree`). It has the binaries'

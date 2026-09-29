@@ -8,7 +8,8 @@ pub use remove::uninstall_extension;
 pub use tmt_core::native_install::Product;
 mod managed;
 pub use managed::{
-    ManagedInstallation, inspect, inspect_product, with_active_product, with_active_release,
+    ManagedInstallation, inspect, inspect_product, release_skill_names, release_skills,
+    with_active_product, with_active_release,
 };
 #[cfg(test)]
 mod artifact_tests;

@@ -36,7 +36,9 @@ export async function createArtifact(
   version: string,
   executableSuffix: Uint8Array = new Uint8Array(),
   product: 'cli' | 'office' | 'squad' = 'cli',
-  companionExecutable = path.resolve('../rust/target/debug/tmt-office')
+  companionExecutable = path.resolve('../rust/target/debug/tmt-office'),
+  /** An extension's agent-skills tree, by path under `skills/`. */
+  skills: Record<string, string> = {}
 ): Promise<ArtifactFixture> {
   const target = nativeTarget();
   const name = `${product}-${version}-${target}.tar.gz`;
@@ -63,6 +65,10 @@ export async function createArtifact(
   writeFileSync(path.join(root, 'LICENSE'), 'MIT\n');
   writeFileSync(path.join(root, 'NATIVE-INSTALL.md'), 'Native local installation fixture.\n');
   writeFileSync(path.join(root, 'THIRD-PARTY-NOTICES.txt'), 'Synthetic test notice fixture.\n');
+  for (const [file, content] of Object.entries(skills)) {
+    mkdirSync(path.dirname(path.join(root, 'skills', file)), { recursive: true });
+    writeFileSync(path.join(root, 'skills', file), content);
+  }
   await tar.c({ cwd: tree, file: archive, gzip: true }, [path.basename(root)]);
   const checksum = createHash('sha256').update(readFileSync(archive)).digest('hex');
   writeFileSync(
@@ -74,7 +80,11 @@ export async function createArtifact(
           name,
           target_triples: [target],
           checksums: { sha256: checksum },
-          assets: REQUIRED_FILES.map((file) => ({ path: file === 'tmt' ? executableName : file })),
+          // cargo-dist declares an included directory as one asset.
+          assets: [
+            ...REQUIRED_FILES.map((file) => (file === 'tmt' ? executableName : file)),
+            ...(Object.keys(skills).length > 0 ? ['skills'] : []),
+          ].map((file) => ({ path: file })),
         },
       },
       releases: [
