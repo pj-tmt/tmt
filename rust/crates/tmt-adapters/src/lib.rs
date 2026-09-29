@@ -26,22 +26,6 @@ pub mod native_install;
 #[cfg(unix)]
 pub mod notes;
 #[cfg(unix)]
-pub mod office_avatar;
-#[cfg(unix)]
-pub mod office_block;
-pub mod office_board;
-#[cfg(unix)]
-pub mod office_companion;
-#[cfg(unix)]
-pub mod office_profile;
-#[cfg(unix)]
-pub mod office_prop;
-#[cfg(unix)]
-pub mod office_service;
-pub mod office_whiteboard;
-#[cfg(unix)]
-pub mod office_world;
-#[cfg(unix)]
 pub mod pane_badge;
 #[cfg(unix)]
 pub mod process;

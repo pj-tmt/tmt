@@ -5,12 +5,12 @@ use super::{Request, require_json_origin, response};
 use serde_json::json;
 use std::{io, net::TcpStream};
 use tmt_adapters::config::ConfigPaths;
-use tmt_adapters::office_service::ServiceReceipt;
-use tmt_adapters::office_world::WorldFailure;
-use tmt_adapters::office_world::snapshot_value;
 use tmt_adapters::request_runtime::wall_time_ms;
 use tmt_office_model::codec::office_world::WORLD_ENVELOPE_LIMIT;
 use tmt_office_model::codec::office_world::decode_save;
+use tmt_office_model::codec::office_world::reply::WorldFailure;
+use tmt_office_model::codec::office_world::snapshot_value;
+use tmt_office_service::ServiceReceipt;
 use tmt_office_storage::access::world as access;
 
 pub(super) const PATH: &str = "/api/v1/local/world";

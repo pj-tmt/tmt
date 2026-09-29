@@ -11,11 +11,10 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    interrupt::Interrupt,
-    office_block::read_layout_file,
-    office_companion::{PairingCall, invoke_office_block},
-};
+use tmt_adapters::interrupt::Interrupt;
+
+use crate::office_block::read_layout_file;
+use crate::office_companion::{PairingCall, invoke_office_block};
 
 pub fn run(
     executable: &Path,

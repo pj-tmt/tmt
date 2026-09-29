@@ -1,5 +1,7 @@
 //! Bounded local avatar-pack commands through the verified Office companion.
 
+use crate::office_avatar::read_pack_file;
+use crate::office_companion::invoke_local_office_avatar;
 use crate::{
     invocation::{OfficeAvatarOperation, OfficeOperation, OutputMode},
     output::Failure,
@@ -10,8 +12,6 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::office_avatar::read_pack_file;
-use tmt_adapters::office_companion::invoke_local_office_avatar;
 use tmt_office_model::codec::office_avatar::AvatarPackError;
 use tmt_office_model::codec::office_avatar::command_pack_input;
 use tmt_office_model::codec::office_avatar::quality_warnings;
@@ -88,14 +88,13 @@ fn preview(
         unreachable!()
     };
     let pack = read_pack_file(Path::new(&file)).map_err(avatar_file_error)?;
-    let version =
-        tmt_adapters::office_companion::probe_office_companion(executable).map_err(|error| {
-            Failure::new("OFFICE_INCOMPATIBLE", error.to_string(), 1).caused_by(error)
-        })?;
+    let version = crate::office_companion::probe_office_companion(executable).map_err(|error| {
+        Failure::new("OFFICE_INCOMPATIBLE", error.to_string(), 1).caused_by(error)
+    })?;
     let paths = tmt_adapters::config::ConfigPaths::discover().map_err(|error| {
         Failure::new("OFFICE_LOCATION_INVALID", error.to_string(), 1).caused_by(error)
     })?;
-    let value = tmt_adapters::office_service::preview_avatar(&paths, &version.to_string(), &pack)
+    let value = tmt_office_service::preview_avatar(&paths, &version.to_string(), &pack)
         .map_err(preview_error)?;
     publish(value, mode)
 }
@@ -127,8 +126,8 @@ fn unavailable(error: impl std::error::Error + 'static, mutating: bool) -> Failu
         1,
     ).caused_by(error)
 }
-fn preview_error(error: tmt_adapters::office_service::PreviewError) -> Failure {
-    use tmt_adapters::office_service::PreviewError;
+fn preview_error(error: tmt_office_service::PreviewError) -> Failure {
+    use tmt_office_service::PreviewError;
     let code = match error {
         PreviewError::NotRunning | PreviewError::RestartRequired => "OFFICE_SERVICE_NOT_RUNNING",
         PreviewError::Limit => "OFFICE_AVATAR_PREVIEW_LIMIT",

@@ -1,10 +1,9 @@
 //! CLI companion and HTTP share one close-before-publication storage operation.
 
 use crate::{LocalOfficeError, LocalWorldSnapshot, OfficeStore, StorageLayout, WorldStoreError};
-use tmt_adapters::{
-    config::ConfigPaths,
-    office_world::{WorldFailure, WorldFailureCode, snapshot_value},
-};
+use tmt_adapters::config::ConfigPaths;
+use tmt_office_model::codec::office_world::reply::{WorldFailure, WorldFailureCode};
+use tmt_office_model::codec::office_world::snapshot_value;
 use tmt_office_model::codec::office_world::{SaveWorld, WorldCodecError, decode_save};
 use tmt_office_model::office_protocol::OfficeInvocation;
 

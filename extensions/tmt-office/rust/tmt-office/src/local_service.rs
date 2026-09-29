@@ -13,8 +13,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::config::ConfigPaths;
-use tmt_adapters::office_service;
-use tmt_adapters::office_service::ServiceReceipt;
 use tmt_office_model::codec::office_avatar::ValidatedAvatarPack;
 use tmt_office_model::codec::office_avatar::validate_pack as validate_avatar_pack;
 use tmt_office_model::codec::office_profile_wire;
@@ -22,6 +20,7 @@ use tmt_office_model::codec::office_prop::PACK_INPUT_LIMIT;
 use tmt_office_model::codec::office_prop::ValidatedPropPack;
 use tmt_office_model::codec::office_prop::validate_pack as validate_prop_pack;
 use tmt_office_model::office_protocol::OfficeInvocation;
+use tmt_office_service::ServiceReceipt;
 use tmt_office_storage::access::profile::mutation_value as local_profile_mutation;
 use tmt_office_storage::access::profile::snapshot_value as local_profile_snapshot;
 use tmt_office_storage::{LocalProfileError, OfficeStore};
@@ -171,7 +170,7 @@ fn reconcile(paths: &ConfigPaths) {
 
 fn serve() -> Result<(), ServeError> {
     let paths = ConfigPaths::discover().map_err(io::Error::other)?;
-    let _service_lock = office_service::service_lock(&paths)?;
+    let _service_lock = tmt_office_service::service_lock(&paths)?;
     let requested = std::env::var("TMT_OFFICE_SERVICE_PORT")
         .map_err(io::Error::other)?
         .parse::<u16>()
@@ -204,7 +203,7 @@ fn serve() -> Result<(), ServeError> {
         control_token: secret()?,
         running_version: env!("CARGO_PKG_VERSION").to_owned(),
     };
-    office_service::write_receipt(&paths, &receipt)?;
+    tmt_office_service::write_receipt(&paths, &receipt)?;
     writeln!(io::stdout().lock(), "TMT-OFFICE-SERVICE/1 READY")?;
     io::stdout().lock().flush()?;
     let stopping = Arc::new(AtomicBool::new(false));
@@ -262,7 +261,7 @@ fn serve() -> Result<(), ServeError> {
     for worker in workers {
         let _ = worker.join();
     }
-    office_service::remove_matching_receipt(&paths, &receipt)
+    tmt_office_service::remove_matching_receipt(&paths, &receipt)
         .map_err(io::Error::other)
         .map_err(ServeError::Other)
 }

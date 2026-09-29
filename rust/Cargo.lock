@@ -2429,7 +2429,6 @@ dependencies = [
  "base64 0.22.1",
  "flate2",
  "nix",
- "png",
  "rcgen",
  "rusqlite",
  "rustls",
@@ -2515,6 +2514,7 @@ dependencies = [
  "tmt-office-command",
  "tmt-office-model",
  "tmt-office-pairing",
+ "tmt-office-service",
  "tmt-office-storage",
  "uuid",
 ]
@@ -2524,11 +2524,18 @@ name = "tmt-office-command"
 version = "0.1.0-alpha.4"
 dependencies = [
  "clap",
+ "flate2",
+ "png",
+ "semver",
+ "serde",
  "serde_json",
+ "tar",
  "tmt-adapters",
  "tmt-command-output",
  "tmt-core",
  "tmt-office-model",
+ "tmt-office-service",
+ "uuid",
 ]
 
 [[package]]
@@ -2566,6 +2573,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-office-service"
+version = "5.0.0-alpha.7"
+dependencies = [
+ "nix",
+ "serde",
+ "serde_json",
+ "tmt-adapters",
+ "tmt-office-model",
+ "uuid",
+]
+
+[[package]]
 name = "tmt-office-storage"
 version = "5.0.0-alpha.7"
 dependencies = [
@@ -2580,6 +2599,7 @@ dependencies = [
  "tmt-core",
  "tmt-office-model",
  "tmt-office-pairing",
+ "tmt-office-service",
  "uuid",
 ]
 

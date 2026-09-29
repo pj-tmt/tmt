@@ -1,13 +1,13 @@
 //! Whole-world stdin/stdout boundary; no HTTP server or identity binding required.
 
 use super::invoke_bytes_bounded;
-use crate::office_world::WorldFailure;
-use crate::office_world::decode_reply;
 use std::{io, path::Path, time::Instant};
 use tmt_office_model::codec::office_world::SaveWorld;
 use tmt_office_model::codec::office_world::WORLD_ENVELOPE_LIMIT;
 use tmt_office_model::codec::office_world::WORLD_REPLY_LIMIT;
 use tmt_office_model::codec::office_world::decode_save;
+use tmt_office_model::codec::office_world::reply::WorldFailure;
+use tmt_office_model::codec::office_world::reply::decode_reply;
 use tmt_office_model::codec::office_world::save_value;
 use tmt_office_model::codec::office_world::world_value;
 use tmt_office_model::office_protocol::OfficeInvocation;
@@ -68,10 +68,9 @@ mod tests {
 
     #[test]
     fn success_must_confirm_the_requested_revision_and_complete_candidate() {
-        let vectors: Value = serde_json::from_slice(include_bytes!(
-            "../../../../../extensions/tmt-office/contracts/map-v1-vectors.json"
-        ))
-        .unwrap();
+        let vectors: Value =
+            serde_json::from_slice(include_bytes!("../../../../contracts/map-v1-vectors.json"))
+                .unwrap();
         let layout = decode_world(
             &serde_json::to_vec(&json!({
                 "version": 1, "map": vectors["lobby"], "objects": [],

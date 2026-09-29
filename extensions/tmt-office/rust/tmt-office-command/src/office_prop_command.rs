@@ -1,13 +1,13 @@
 //! Bounded local prop-pack commands through the verified Office companion.
 
+use crate::office_companion::invoke_local_office_prop;
+use crate::office_prop::read_pack_file;
 use serde_json::json;
 use std::{
     io::{self, Write},
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::office_companion::invoke_local_office_prop;
-use tmt_adapters::office_prop::read_pack_file;
 use tmt_office_model::codec::office_prop::PropPackError;
 use tmt_office_model::codec::office_prop::command_pack_input;
 use tmt_office_model::codec::office_prop::quality_warnings;
@@ -89,15 +89,14 @@ fn preview(
         unreachable!()
     };
     let pack = read_pack_file(Path::new(&file)).map_err(prop_file_error)?;
-    let version =
-        tmt_adapters::office_companion::probe_office_companion(executable).map_err(|error| {
-            Failure::new("OFFICE_INCOMPATIBLE", error.to_string(), 1).caused_by(error)
-        })?;
+    let version = crate::office_companion::probe_office_companion(executable).map_err(|error| {
+        Failure::new("OFFICE_INCOMPATIBLE", error.to_string(), 1).caused_by(error)
+    })?;
     let paths = tmt_adapters::config::ConfigPaths::discover().map_err(|error| {
         Failure::new("OFFICE_LOCATION_INVALID", error.to_string(), 1).caused_by(error)
     })?;
-    let value = tmt_adapters::office_service::preview(&paths, &version.to_string(), &pack)
-        .map_err(preview_error)?;
+    let value =
+        tmt_office_service::preview(&paths, &version.to_string(), &pack).map_err(preview_error)?;
     publish(value, mode)
 }
 
@@ -140,8 +139,8 @@ fn unavailable(error: impl std::error::Error + 'static, mutating: bool) -> Failu
     .caused_by(error)
 }
 
-fn preview_error(error: tmt_adapters::office_service::PreviewError) -> Failure {
-    use tmt_adapters::office_service::PreviewError;
+fn preview_error(error: tmt_office_service::PreviewError) -> Failure {
+    use tmt_office_service::PreviewError;
     let code = match error {
         PreviewError::NotRunning | PreviewError::RestartRequired => "OFFICE_SERVICE_NOT_RUNNING",
         PreviewError::Limit => "OFFICE_PROP_PREVIEW_LIMIT",

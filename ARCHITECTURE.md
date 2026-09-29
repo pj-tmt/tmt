@@ -596,6 +596,13 @@ that grammar and calls the same handlers through an in-process `CoreAccess` port
 dependency; grammar, translation and invocation types are pure forwards through it;
 direct `tmt-office` uses a bounded process implementation over public core JSON
 commands. Both entry points keep the existing public Office command behavior.
+The command crate also owns the companion invocation boundary (`office_companion`),
+the CLI's bounded Office file readers and snapshot export, and `verify_release`,
+the Office release verifier it hands to native installation.
+`extensions/tmt-office/rust/tmt-office-service` owns the loopback service
+lifecycle and its private receipt, shared by the Office commands, Office storage's
+switch and the companion. No core crate declares an `office_*` module except the
+facade, which PR B of #355 removes.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. It follows the actual Rust module tree, checks reviewed
@@ -613,8 +620,9 @@ This package owns the companion entry point, embedded SPA and local HTTP service
 codecs, immutable catalogs and data-only admission. It depends on core identity
 syntax, numeric limits and content digests, never on Storage or runtime adapters.
 Retained Storage imports that owner directly; there are no core Office re-exports.
-Codecs own in-memory PNG processing; filesystem reads, publication, storage response
-projection and process/config access remain adapters. Acquisition errors may retain
+Codecs own in-memory PNG processing, the companion's world reply admission and
+snapshot projection, and the board wire limits; filesystem reads, publication and
+process/config access remain adapters. Acquisition errors may retain
 an `io::Error` value without giving the model an I/O operation.
 
 `extensions/tmt-office/rust/tmt-office-storage` owns Office storage at
@@ -789,7 +797,7 @@ so the CLI never links the credential-store backends. Serde derives reject dupli
 Standard library matches browser URL interpretation instead of introducing a
 handwritten parser. Neither dependency enters core. The probe acquires no
 credentials or network data. `tmt-office-model::office_protocol` owns the fixed typed
-handshake; `tmt-adapters::office_companion` verifies active installation ownership
+handshake; `tmt-office-command::office_companion` verifies active installation ownership
 and starts the existing bounded subprocess under the installer lock, then waits
 outside that lock and validates the version selected at launch.
 Its contract is [native companion handshake](extensions/tmt-office/contracts/native-companion.md).
@@ -1458,7 +1466,8 @@ transactions, soft deletion, board-local idempotency receipts, the single board
 revision and indexed keyset pages. The Office command library crosses the verified
 `tmt-office` one-shot protocol, while the stopped-service-independent companion and authenticated
 loopback HTTP adapter call the same repository. Repository categories are
-credential-free Git remote identifiers, not permissions, and category discovery
+credential-free Git remote identifiers, not permissions; `tmt-core::repository_id`
+owns their canonical grammar for both remote resolution and the board. Category discovery
 is a synthetic-general plus stored-root projection rather than a registry.
 Schema 30 generalizes the stored category identifier and adds canonical room UUID
 categories to this same board store. It transactionally preserves existing roots,
@@ -1644,8 +1653,13 @@ owned installation. Public distribution and pairing remain separate gates.
 GitHub selection filters CLI `v`, Office `tmt-office-v` and Squad `tmt-squad-v`
 tags independently.
 Downloaded bytes feed the same bounded artifact verifier directly; there is no
-extra download-to-disk/read-back stage. Before activating Office, publication
-executes the bounded versioned probe and rejects incompatible candidates.
+extra download-to-disk/read-back stage. Publication runs the caller's release
+verifier on the written candidate before its receipt, so a rejection keeps the
+previous release current. A product whose row requires a verifier (Office) is
+refused without one before anything is written. Office callers pass the bounded
+versioned probe from `tmt-office-command`; core's installers (`tmt extension`
+and the hidden `__native-install --product office`) borrow it through the
+facade's `release_verifier` until PR B of #355.
 Removal (`uninstall_extension`, for any extension product) validates ownership
 of every command link, refuses a foreign same-named command, and deactivates the
 links without deleting releases, skills or application data. It is recoverable, not a multi-file atomic deletion:

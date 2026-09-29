@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 fn preview() -> Value {
     let maps: Value = serde_json::from_str(include_str!(
-        "../../../../../../extensions/tmt-office/contracts/map-v1-vectors.json"
+        "../../../../../../contracts/map-v1-vectors.json"
     ))
     .unwrap();
     json!({
@@ -22,7 +22,10 @@ fn preview_and_saved_replies_share_the_same_world_codec() {
     let source = preview();
     let snapshot = decode(&source).unwrap().unwrap();
     assert!(snapshot.world_id.is_none());
-    assert_eq!(crate::office_world::snapshot_value(&snapshot), source);
+    assert_eq!(
+        crate::codec::office_world::snapshot_value(&snapshot),
+        source
+    );
 
     let mut saved = source;
     saved["worldId"] = json!("10000000-0000-4000-8000-000000000001");
@@ -31,7 +34,7 @@ fn preview_and_saved_replies_share_the_same_world_codec() {
     saved["updatedAtMs"] = json!(1234);
     saved["changed"] = json!(true);
     let snapshot = decode(&saved).unwrap().unwrap();
-    assert_eq!(crate::office_world::snapshot_value(&snapshot), saved);
+    assert_eq!(crate::codec::office_world::snapshot_value(&snapshot), saved);
 }
 
 #[test]
@@ -108,7 +111,7 @@ fn public_diagnostics_are_closed_and_bounded_not_arbitrary_companion_output() {
         json!({"error": "WORLD_INVALID", "issues": [{"objectId": "not-an-id", "reason": "outsideFloor"}]}),
         json!({"error": "WORLD_INVALID", "issues": [{"objectId": null, "reason": "invented"}]}),
         json!({"error": "WORLD_INVALID", "issues": [{"objectId": null, "reason": "outsideFloor", "extra": true}]}),
-        json!({"error": "WORLD_INVALID", "issues": vec![json!({"objectId": null, "reason": "invalidId"}); tmt_office_model::office_world::MAX_OBJECTS + 1]}),
+        json!({"error": "WORLD_INVALID", "issues": vec![json!({"objectId": null, "reason": "invalidId"}); crate::office_world::MAX_OBJECTS + 1]}),
     ] {
         assert!(decode(&invalid).is_err());
     }

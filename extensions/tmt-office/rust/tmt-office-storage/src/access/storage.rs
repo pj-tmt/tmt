@@ -4,7 +4,7 @@
 
 use crate::{StorageLayout, migration};
 use serde::Deserialize;
-use tmt_adapters::{config::ConfigPaths, office_service};
+use tmt_adapters::config::ConfigPaths;
 use tmt_office_model::office_protocol::OfficeInvocation;
 
 #[derive(Deserialize)]
@@ -28,7 +28,7 @@ pub fn execute_at(
 ) -> serde_json::Value {
     let layout = StorageLayout::new(paths);
     // Reading the service receipt and health changes nothing.
-    let running = office_service::status(paths, "")
+    let running = tmt_office_service::status(paths, "")
         .ok()
         .map(|status| status.running);
     let result = match operation {

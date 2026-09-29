@@ -5,9 +5,9 @@ use std::{io, net::TcpStream};
 use tmt_adapters::{
     config::ConfigPaths,
     dispatch::decode_dispatch_lookup,
-    office_service::ServiceReceipt,
     request_history::{decode_history_query, decode_history_request},
 };
+use tmt_office_service::ServiceReceipt;
 
 const LIST: &str = "/api/v1/local/requests/list";
 const SHOW: &str = "/api/v1/local/requests/show";

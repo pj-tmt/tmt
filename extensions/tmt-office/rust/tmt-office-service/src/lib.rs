@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{bounded_file, config::ConfigPaths, file_lock};
+use tmt_adapters::{bounded_file, config::ConfigPaths, file_lock};
 
 const RECEIPT_LIMIT: usize = 4096;
 const SERVICE_PROTOCOL: u32 = 1;
@@ -181,7 +181,7 @@ pub fn start(
     // the one that launched the companion; never a PATH lookup.
     command.env(
         "TMT_EXECUTABLE",
-        crate::core_executable::selected().map_err(ServiceError::Unavailable)?,
+        tmt_adapters::core_executable::selected().map_err(ServiceError::Unavailable)?,
     );
     let mut child = command.spawn().map_err(ServiceError::Unavailable)?;
     let stdout = child.stdout.take().ok_or_else(|| {
@@ -623,7 +623,7 @@ mod tests {
             ));
         }
         let directional = tmt_office_model::codec::office_prop::validate_pack(include_bytes!(
-            "../../../../extensions/tmt-office/contracts/prop-pack-v2-sample.tmtprop.json"
+            "../../../contracts/prop-pack-v2-sample.tmtprop.json"
         ))
         .unwrap();
         let mut directional_reply = valid.clone();

@@ -32,9 +32,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
             "semver",
         ],
-        // `tmt-office-model` is retained core-to-Office coupling that #355 removes.
         "tmt-adapters" => &[
-            "tmt-office-model",
             "serde",
             "ureq",
             "semver",
@@ -54,6 +52,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-office-model",
             "tmt-office-command",
             "tmt-office-pairing",
+            "tmt-office-service",
             "tmt-office-storage",
             "tmt-core",
             "tmt-adapters",
@@ -84,13 +83,19 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "shlex",
             "unicode-width",
         ],
+        // The command crate also owns the companion invocation boundary and the
+        // Office release verifier it hands to native installation.
         "tmt-office-command" => &[
             "tmt-core",
             "tmt-office-model",
             "tmt-adapters",
+            "tmt-office-service",
             "tmt-command-output",
             "clap",
+            "semver",
+            "serde",
             "serde_json",
+            "uuid",
         ],
         // Office-owned storage reaches core only through the public config and
         // file-lock owners; it reads the core database directly only to migrate.
@@ -98,6 +103,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         "tmt-office-storage" => &[
             "tmt-adapters",
             "tmt-office-pairing",
+            "tmt-office-service",
             "tmt-core",
             "tmt-office-model",
             "rusqlite",
@@ -105,6 +111,16 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "nix",
             "serde",
             "sha2",
+            "serde_json",
+            "uuid",
+        ],
+        // The loopback service lifecycle and receipt, shared by the commands,
+        // Office storage and the companion; no credential store.
+        "tmt-office-service" => &[
+            "tmt-adapters",
+            "tmt-office-model",
+            "nix",
+            "serde",
             "serde_json",
             "uuid",
         ],
@@ -287,49 +303,21 @@ fn owns_declarations(source: &Source) -> bool {
         || (source.package == "tmt-command-output" && source.file == "lib.rs")
 }
 
-// Retained consumers while Office storage and commands are extracted. These are
-// exact production paths, not permission for new core-to-Office coupling.
+// Office extension crates consume the Office model; core crates never do.
 fn office_consumer(source: &Source) -> bool {
-    let allowed: &[&str] = match source.package.as_str() {
-        "tmt-adapters" => &[
-            "office_avatar.rs",
-            "office_block.rs",
-            "office_board.rs",
-            "office_companion.rs",
-            "office_companion/extension.rs",
-            "office_companion/whiteboard.rs",
-            "office_companion/world.rs",
-            "office_profile.rs",
-            "office_prop.rs",
-            "office_service.rs",
-            "office_whiteboard/export.rs",
-            "office_world.rs",
-            "office_world/reply.rs",
-            "repository_remote.rs",
-        ],
-        "tmt-cli" => &[],
-        "tmt-office-command" => return true,
-        // Office-owned storage, pairing and their companion operations.
-        "tmt-office-storage" | "tmt-office-pairing" => return true,
-        _ => &[],
-    };
-    allowed.contains(&source.file.as_str())
+    matches!(
+        source.package.as_str(),
+        "tmt-office-command" | "tmt-office-storage" | "tmt-office-pairing" | "tmt-office-service"
+    )
 }
 
 /// Office modules still declared in core crates while #355 extracts them. The
 /// list only shrinks: a core crate may not add an `office_*` module.
 const CORE_OFFICE_MODULES: &[&str] = &[
-    "office_avatar",
-    "office_block",
-    "office_board",
-    "office_companion",
-    // tmt-cli: the `tmt office` facade, removed with PR B.
+    // tmt-cli: the `tmt office` facade and the Office release verifier it
+    // lends core's installers (`tmt extension`, `__native-install`), removed
+    // with PR B.
     "office_facade",
-    "office_profile",
-    "office_prop",
-    "office_service",
-    "office_whiteboard",
-    "office_world",
 ];
 
 /// Core crates never own Office modules beyond the retained list above.
@@ -462,7 +450,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             }
             if model
                 && root == "tmt_core"
-                && !["dispatch", "limits", "content_digest"].contains(&module)
+                && !["dispatch", "limits", "content_digest", "repository_id"].contains(&module)
             {
                 violations.push(format!(
                     "{location}: Office model cannot acquire core runtime responsibilities via {}",

@@ -2,7 +2,8 @@
 
 use super::{Request, require_json_origin, response};
 use std::{io, net::TcpStream};
-use tmt_adapters::{config::ConfigPaths, dispatch::decode_input, office_service::ServiceReceipt};
+use tmt_adapters::{config::ConfigPaths, dispatch::decode_input};
+use tmt_office_service::ServiceReceipt;
 use tmt_office_storage::core_client::WriteOriginator;
 
 pub(super) const PATH: &str = "/api/v1/local/dispatch";

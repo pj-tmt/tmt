@@ -19,7 +19,7 @@ pub struct ManagedInstallation {
 }
 
 impl ManagedInstallation {
-    pub(crate) fn release_id(&self) -> Uuid {
+    pub fn release_id(&self) -> Uuid {
         self.id
     }
 }

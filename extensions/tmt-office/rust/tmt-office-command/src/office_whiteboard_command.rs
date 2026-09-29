@@ -1,14 +1,14 @@
 //! Snapshot presentation and explicit file export; no database or browser token access.
 
+use crate::office_companion::SnapshotResource;
+use crate::office_companion::read_office_snapshot;
+use crate::office_whiteboard::export::export_snapshot_image;
 use crate::{invocation::OutputMode, output::Failure};
 use std::{
     io::{self, Write},
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::office_companion::SnapshotResource;
-use tmt_adapters::office_companion::read_office_snapshot;
-use tmt_adapters::office_whiteboard::export::export_snapshot_image;
 use tmt_office_model::codec::office_whiteboard::snapshot::encode_snapshot;
 
 pub fn run(

@@ -9,12 +9,12 @@ use tmt_office_model::codec::office_prop::*;
 
 pub fn read_pack_file(path: &Path) -> Result<ValidatedPropPack, PropPackError> {
     let bytes =
-        crate::bounded_file::read_no_follow(path, PACK_INPUT_LIMIT).map_err(
-            |error| match error {
-                crate::bounded_file::FileReadError::TooLarge => PropPackError::TooLarge,
-                crate::bounded_file::FileReadError::Io(error) => PropPackError::Io(error),
-            },
-        )?;
+        tmt_adapters::bounded_file::read_no_follow(path, PACK_INPUT_LIMIT).map_err(|error| {
+            match error {
+                tmt_adapters::bounded_file::FileReadError::TooLarge => PropPackError::TooLarge,
+                tmt_adapters::bounded_file::FileReadError::Io(error) => PropPackError::Io(error),
+            }
+        })?;
     validate_pack(&bytes)
 }
 
@@ -22,9 +22,8 @@ pub fn read_pack_file(path: &Path) -> Result<ValidatedPropPack, PropPackError> {
 mod tests {
     use super::*;
 
-    const DIRECTIONAL_SAMPLE: &[u8] = include_bytes!(
-        "../../../../extensions/tmt-office/contracts/prop-pack-v2-sample.tmtprop.json"
-    );
+    const DIRECTIONAL_SAMPLE: &[u8] =
+        include_bytes!("../../../contracts/prop-pack-v2-sample.tmtprop.json");
 
     #[test]
     fn directional_frames_have_independent_identity_and_summary_dimensions() {
@@ -167,10 +166,9 @@ mod tests {
 
     #[test]
     fn shared_vectors_cover_values_and_full_capacity() {
-        let vectors: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../extensions/tmt-office/contracts/prop-block-vectors.json"
-        ))
-        .unwrap();
+        let vectors: serde_json::Value =
+            serde_json::from_str(include_str!("../../../contracts/prop-block-vectors.json"))
+                .unwrap();
         for case in vectors["packCases"].as_array().unwrap() {
             let bytes = serde_json::to_vec(&case["value"]).unwrap();
             assert_eq!(

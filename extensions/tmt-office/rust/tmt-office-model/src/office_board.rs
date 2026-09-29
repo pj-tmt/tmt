@@ -5,6 +5,8 @@ use std::{error::Error, fmt};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+pub use tmt_core::repository_id::valid_repository_id;
+
 pub const TITLE_MAX_BYTES: usize = 160;
 pub const ROOT_BODY_MAX_BYTES: usize = 16_384;
 pub const REPLY_BODY_MAX_BYTES: usize = 8_192;
@@ -15,6 +17,9 @@ pub const CURSOR_MAX_BYTES: usize = 4_096;
 /// Covers the largest legal show page after conservative JSON escaping and
 /// envelope overhead while retaining the domain's existing content/page caps.
 pub const SERIALIZED_RESPONSE_MAX_BYTES: usize = 2 * 1024 * 1024;
+/// Board wire limits shared by the CLI and the companion.
+pub const BOARD_WIRE_LIMIT: usize = 65_536;
+pub const BOARD_OUTPUT_LIMIT: usize = SERIALIZED_RESPONSE_MAX_BYTES;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Category {
@@ -615,39 +620,6 @@ fn validate_category<E>(category: &Category) -> Result<(), BoardError<E>> {
     }
 }
 
-pub fn valid_repository_id(value: &str) -> bool {
-    if value.is_empty()
-        || value.len() > 2048
-        || value.contains(['?', '#', '\\', '%', '@'])
-        || value.ends_with('/')
-        || value.chars().any(char::is_control)
-    {
-        return false;
-    }
-    let Some((host_port, path)) = value.split_once('/') else {
-        return false;
-    };
-    if host_port.is_empty()
-        || host_port != host_port.to_ascii_lowercase()
-        || host_port.starts_with(['.', '-'])
-        || host_port.ends_with(['.', '-'])
-        || host_port.contains("..")
-        || path
-            .split('/')
-            .any(|part| part.is_empty() || matches!(part, "." | ".."))
-    {
-        return false;
-    }
-    let (host, port) = match host_port.rsplit_once(':') {
-        Some((host, port)) => (host, Some(port)),
-        None => (host_port, None),
-    };
-    !host.is_empty()
-        && host.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-')
-        })
-        && port.is_none_or(|port| port.parse::<u16>().ok().is_some_and(|value| value > 0))
-}
 fn validate_actor<E>(actor: &Actor) -> Result<(), BoardError<E>> {
     match actor {
         Actor::Owner { world_id } => validate_uuid(world_id),
@@ -757,23 +729,6 @@ mod tests {
         assert_eq!(parsed.operation, "categories-é");
         assert_eq!(parsed.key, maximum_repository);
         assert!(Cursor::parse(&"x".repeat(CURSOR_MAX_BYTES + 1)).is_err());
-    }
-
-    #[test]
-    fn repository_ids_are_canonical_credential_free_values() {
-        for value in ["github.com/Org/Repo", "git.example:8443/Team/R.git"] {
-            assert!(valid_repository_id(value));
-        }
-        for value in [
-            "GitHub.com/Org/Repo",
-            "user@github.com/Org/Repo",
-            "github.com/Org/../Repo",
-            "github.com/Org/%2e%2e/Repo",
-            "github.com/Org/Repo?token=x",
-            "/Org/Repo",
-        ] {
-            assert!(!valid_repository_id(value), "accepted {value}");
-        }
     }
 
     #[test]

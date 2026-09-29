@@ -4,7 +4,7 @@ mod artifact;
 mod online;
 mod remove;
 pub use online::{default_install_prefix, install_release, latest_release_version};
-pub use remove::{uninstall_extension, uninstall_office};
+pub use remove::uninstall_extension;
 pub use tmt_core::native_install::Product;
 mod managed;
 pub use managed::{
@@ -57,6 +57,12 @@ impl std::error::Error for ActivatedInstallation {
     }
 }
 
+/// A product owner's check of a written release candidate, given its executable
+/// and the release version. It runs before the receipt is written, so a failure
+/// leaves the previous release current. Products whose row requires one cannot
+/// be published without it.
+pub type ReleaseVerifier<'a> = &'a dyn Fn(&Path, &semver::Version) -> io::Result<()>;
+
 /// Offline installation. Application data and provider skills are separate owners.
 pub struct InstallRequest<'a> {
     pub archive: &'a Path,
@@ -79,9 +85,10 @@ pub fn install(
 pub fn install_product(
     product: Product,
     request: InstallRequest<'_>,
+    verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
-    install_product_observed(product, request, None, None, checkpoint)
+    install_product_observed(product, request, None, None, verifier, checkpoint)
 }
 
 fn install_observed(
@@ -90,7 +97,14 @@ fn install_observed(
     provenance: Option<receipt::GitHubProvenance>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
-    install_product_observed(Product::Cli, request, expected, provenance, checkpoint)
+    install_product_observed(
+        Product::Cli,
+        request,
+        expected,
+        provenance,
+        None,
+        checkpoint,
+    )
 }
 
 fn install_product_observed(
@@ -98,6 +112,7 @@ fn install_product_observed(
     request: InstallRequest<'_>,
     expected: Option<uuid::Uuid>,
     provenance: Option<receipt::GitHubProvenance>,
+    verifier: Option<ReleaseVerifier<'_>>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
     checkpoint()?;
@@ -111,6 +126,7 @@ fn install_product_observed(
             pin: request.pin,
             expected,
             provenance,
+            verifier,
         },
         &artifact,
         checkpoint,
@@ -124,6 +140,7 @@ struct ActivationRequest<'a> {
     pin: tmt_core::native_install::PinAction,
     expected: Option<uuid::Uuid>,
     provenance: Option<receipt::GitHubProvenance>,
+    verifier: Option<ReleaseVerifier<'a>>,
 }
 
 fn activate(
@@ -131,6 +148,12 @@ fn activate(
     artifact: &artifact::Artifact,
     mut checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
+    if request.product.requires_release_verifier() && request.verifier.is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "This product's releases require a verifier; refusing publication.",
+        ));
+    }
     plan_version(None, &artifact.version, request.channel, request.pin)
         .map_err(io::Error::other)?;
     checkpoint()?;
@@ -170,6 +193,7 @@ fn activate(
             artifact,
             &receipt,
             current.as_ref().map(|receipt| receipt.id),
+            request.verifier,
             &mut checkpoint,
         ) {
             return Err(

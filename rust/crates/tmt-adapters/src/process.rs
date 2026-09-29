@@ -151,10 +151,7 @@ impl CommandRunner for UnixCommandRunner {
 
 impl UnixCommandRunner {
     /// Spawn under a caller's short-lived ownership guard, then wait outside it.
-    pub(crate) fn start(
-        &self,
-        request: CommandRequest<'_>,
-    ) -> Result<RunningCommand, CommandError> {
+    pub fn start(&self, request: CommandRequest<'_>) -> Result<RunningCommand, CommandError> {
         start_command(request, true)
     }
 }
@@ -187,7 +184,7 @@ fn start_command(
 }
 
 /// Owns the same bounded child from successful spawn through wait or abandonment.
-pub(crate) struct RunningCommand {
+pub struct RunningCommand {
     job: Job,
     finished: bool,
     deadline: Instant,
@@ -196,7 +193,7 @@ pub(crate) struct RunningCommand {
 }
 
 impl RunningCommand {
-    pub(crate) fn wait(mut self) -> Result<CommandOutput, CommandError> {
+    pub fn wait(mut self) -> Result<CommandOutput, CommandError> {
         match communicate(&mut self.job, self.deadline, self.max_output_bytes) {
             Ok(output) => {
                 self.finished = true;

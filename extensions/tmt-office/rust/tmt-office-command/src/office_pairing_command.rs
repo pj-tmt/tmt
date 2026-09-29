@@ -10,9 +10,10 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    interrupt::Interrupt,
-    office_companion::{PairingCall, PairingReply, invoke_office_pairing, invoke_office_sync},
+use tmt_adapters::interrupt::Interrupt;
+
+use crate::office_companion::{
+    PairingCall, PairingReply, invoke_office_pairing, invoke_office_sync,
 };
 use tmt_office_model::office_protocol::{OfficeError, OfficeInvocation};
 

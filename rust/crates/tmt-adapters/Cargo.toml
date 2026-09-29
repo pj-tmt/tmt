@@ -10,7 +10,6 @@ publish.workspace = true
 serde.workspace = true
 ureq.workspace = true
 tmt-core.workspace = true
-tmt-office-model.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 base64.workspace = true
@@ -26,7 +25,8 @@ nix.workspace = true
 signal-hook.workspace = true
 
 [dev-dependencies]
-png.workspace = true
+# Only the legacy prop-pack migration test decodes Office packs.
+tmt-office-model.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 rustls.workspace = true

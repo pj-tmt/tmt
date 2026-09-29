@@ -7,15 +7,15 @@ pub use extension::validate_office_extension;
 mod world;
 pub use world::invoke_office_world;
 
-use crate::{
-    native_install::{self, Product},
-    process::{CommandRequest, RunningCommand, UnixCommandRunner},
-};
 use std::{
     ffi::OsString,
     io,
     path::Path,
     time::{Duration, Instant},
+};
+use tmt_adapters::{
+    native_install::{self, Product},
+    process::{CommandRequest, RunningCommand, UnixCommandRunner},
 };
 use tmt_office_model::office_protocol::{
     OFFICE_HOOK_BATCH_LIMIT, OFFICE_PROTOCOL_OUTPUT_LIMIT, OfficeError, OfficeInvocation,
@@ -617,7 +617,7 @@ pub fn invoke_office_board(
             | OfficeInvocation::BoardEdit
             | OfficeInvocation::BoardDelete
             | OfficeInvocation::BoardCategories
-    ) || input.len() > crate::office_board::BOARD_WIRE_LIMIT
+    ) || input.len() > tmt_office_model::office_board::BOARD_WIRE_LIMIT
     {
         return Err(invalid_pairing());
     }
@@ -652,7 +652,7 @@ pub fn invoke_office_board(
                 operation,
                 input,
                 deadline,
-                crate::office_board::BOARD_OUTPUT_LIMIT,
+                tmt_office_model::office_board::BOARD_OUTPUT_LIMIT,
             )
         },
     )
@@ -1093,7 +1093,7 @@ fn companion_arguments(
     operation: OfficeInvocation,
 ) -> io::Result<Vec<OsString>> {
     let mut selector = OsString::from("TMT_EXECUTABLE=");
-    selector.push(crate::core_executable::selected()?);
+    selector.push(tmt_adapters::core_executable::selected()?);
     Ok([selector, executable.as_os_str().to_owned()]
         .into_iter()
         .chain(operation.arguments().map(OsString::from))
@@ -1222,11 +1222,10 @@ pub fn probe_office_companion(executable: &Path) -> io::Result<String> {
     finish_probe(running, &version)
 }
 
-pub(crate) fn probe_candidate(
-    executable: &Path,
-    expected_version: &semver::Version,
-) -> io::Result<String> {
-    finish_probe(start_probe(executable)?, expected_version)
+/// Native installation's release verifier for Office: the written candidate
+/// must complete the handshake at exactly the release version.
+pub fn verify_release(executable: &Path, version: &semver::Version) -> io::Result<()> {
+    finish_probe(start_probe(executable)?, version).map(drop)
 }
 
 fn start_probe(executable: &Path) -> io::Result<RunningCommand> {
@@ -1260,6 +1259,9 @@ fn finish_probe(running: RunningCommand, expected_version: &semver::Version) -> 
     }
     Ok(version.to_string())
 }
+
+#[cfg(test)]
+mod native_install_tests;
 
 #[cfg(test)]
 mod pairing_tests {
@@ -1546,7 +1548,7 @@ mod pairing_tests {
     #[test]
     fn directional_prop_replies_preserve_the_admitted_shape_and_reject_hostile_summaries() {
         let pack = tmt_office_model::codec::office_prop::validate_pack(include_bytes!(
-            "../../../../extensions/tmt-office/contracts/prop-pack-v2-sample.tmtprop.json"
+            "../../../contracts/prop-pack-v2-sample.tmtprop.json"
         ))
         .unwrap();
         // The companion's validate reply is exactly this model projection; its

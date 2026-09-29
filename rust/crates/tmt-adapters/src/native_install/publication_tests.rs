@@ -221,6 +221,7 @@ fn preactivation_checkpoint_failures_cleanup_owned_state_and_preserve_current() 
                 &next_artifact,
                 &next_receipt,
                 Some(first.id),
+                None,
                 &mut checkpoint,
             )
             .unwrap_err();
@@ -294,6 +295,7 @@ fn current_change_at_activation_checkpoint_preserves_unexpected_release() {
             &next_artifact,
             &next_receipt,
             Some(first.id),
+            None,
             &mut checkpoint,
         )
         .unwrap_err();
@@ -336,6 +338,7 @@ fn command_link_change_at_activation_checkpoint_is_preserved() {
             &next_artifact,
             &next_receipt,
             Some(first.id),
+            None,
             &mut checkpoint,
         )
         .unwrap_err();
@@ -415,6 +418,7 @@ fn preexisting_activation_pointer_file_or_directory_is_preserved() {
                 &next_artifact,
                 &next_receipt,
                 Some(first.id),
+                None,
                 &mut checkpoint,
             )
             .unwrap_err();
@@ -474,7 +478,7 @@ fn finalization_failure_reports_activation_and_retry_repairs_first_install() {
     let artifact = synthetic_artifact(VERSION, b"complete staged payload");
     let receipt = Receipt::new(&artifact, state(VERSION, None));
     let error = layout
-        .publish_with_finalization(&artifact, &receipt, None, &mut || Ok(()), || {
+        .publish_with_finalization(&artifact, &receipt, None, None, &mut || Ok(()), || {
             Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "injected command-link failure",

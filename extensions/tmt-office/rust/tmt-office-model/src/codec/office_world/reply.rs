@@ -1,15 +1,13 @@
 //! Shared public diagnostics and strict companion response admission.
 
+use crate::codec::office_world::{WORLD_REPLY_LIMIT, WorldCodecError, WorldDocument, admit_world};
+use crate::json_integer::whole;
+use crate::office_world::LocalWorldSnapshot;
+use crate::office_world::PlacementError;
+use crate::office_world::WorldError;
 use serde::{Deserialize, Serialize};
 use tmt_core::dispatch::canonical_id;
 use tmt_core::limits::MAX_JS_SAFE_INTEGER;
-use tmt_office_model::codec::office_world::{
-    WORLD_REPLY_LIMIT, WorldCodecError, WorldDocument, admit_world,
-};
-use tmt_office_model::json_integer::whole;
-use tmt_office_model::office_world::LocalWorldSnapshot;
-use tmt_office_model::office_world::PlacementError;
-use tmt_office_model::office_world::WorldError;
 
 #[cfg(test)]
 mod tests;
@@ -156,7 +154,7 @@ pub fn decode_reply(
     if let Ok(error) = serde_json::from_slice::<WorldFailure>(bytes) {
         if error.message.as_ref().is_some_and(|text| text.len() > 1024)
             || error.issues.as_ref().is_some_and(|issues| {
-                issues.len() > tmt_office_model::office_world::MAX_OBJECTS
+                issues.len() > crate::office_world::MAX_OBJECTS
                     || issues
                         .iter()
                         .any(|issue| issue.object_id.as_ref().is_some_and(|id| !canonical_id(id)))

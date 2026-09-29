@@ -5,9 +5,9 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{io, net::TcpStream};
 use tmt_adapters::config::ConfigPaths;
-use tmt_adapters::office_service::ServiceReceipt;
 use tmt_office_model::codec::office_prop;
 use tmt_office_model::codec::office_prop::ValidatedPropPack;
+use tmt_office_service::ServiceReceipt;
 use tmt_office_storage::{LocalPropCatalogError, OfficeStore};
 
 const LIST: &str = "/api/v1/local/props/list";

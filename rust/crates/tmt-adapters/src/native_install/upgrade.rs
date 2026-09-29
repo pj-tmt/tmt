@@ -1,6 +1,9 @@
 //! Public update orchestration. Network acquisition never holds the install lock.
 
-use super::{ActivatedInstallation, ActivationRequest, InstallReport, activate, artifact, release};
+use super::{
+    ActivatedInstallation, ActivationRequest, InstallReport, ReleaseVerifier, activate, artifact,
+    release,
+};
 use std::{
     io,
     path::Path,
@@ -59,18 +62,20 @@ pub fn upgrade(
     request: UpgradeRequest<'_>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
-    upgrade_product(super::Product::Cli, request, checkpoint)
+    upgrade_product(super::Product::Cli, request, None, checkpoint)
 }
 
 pub fn upgrade_product(
     product: super::Product,
     request: UpgradeRequest<'_>,
+    verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
     let client = crate::release_http::Https::new();
     upgrade_product_with(
         product,
         request,
+        verifier,
         checkpoint,
         |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
     )
@@ -82,12 +87,13 @@ fn upgrade_with(
     checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
-    upgrade_product_with(super::Product::Cli, request, checkpoint, get)
+    upgrade_product_with(super::Product::Cli, request, None, checkpoint, get)
 }
 
 fn upgrade_product_with(
     product: super::Product,
     request: UpgradeRequest<'_>,
+    verifier: Option<ReleaseVerifier<'_>>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
@@ -143,6 +149,7 @@ fn upgrade_product_with(
             pin,
             expected: Some(current.id),
             provenance: Some(downloaded.provenance),
+            verifier,
         },
         &artifact,
         &mut checkpoint,

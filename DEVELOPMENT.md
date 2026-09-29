@@ -86,8 +86,9 @@ Office native data contracts and codecs are in
 Use `cargo test --manifest-path rust/Cargo.toml -p tmt-office-model` for pure
 admission/vector checks, and the affected adapter tests for file/storage behavior.
 After changing these boundaries, run `cargo test --manifest-path rust/Cargo.toml
--p tmt-cli --test architecture`; the guard checks actual workspace dependencies
-and the retained Office consumer inventory. Full isolated verification still
+-p tmt-cli --test architecture`; the guard checks actual workspace dependencies,
+that only Office crates consume the Office model, and that core crates declare
+no Office modules beyond the retained facade. Full isolated verification still
 covers the runtime consumers; pure model tests do not replace it.
 
 The optional app uses React, Vite, TanStack Router and Jotai. Read

@@ -5,12 +5,12 @@ use tmt_office_model::codec::office_avatar::*;
 
 pub fn read_pack_file(path: &Path) -> Result<ValidatedAvatarPack, AvatarPackError> {
     let bytes =
-        crate::bounded_file::read_no_follow(path, PACK_INPUT_LIMIT).map_err(
-            |error| match error {
-                crate::bounded_file::FileReadError::TooLarge => AvatarPackError::TooLarge,
-                crate::bounded_file::FileReadError::Io(error) => AvatarPackError::Io(error),
-            },
-        )?;
+        tmt_adapters::bounded_file::read_no_follow(path, PACK_INPUT_LIMIT).map_err(|error| {
+            match error {
+                tmt_adapters::bounded_file::FileReadError::TooLarge => AvatarPackError::TooLarge,
+                tmt_adapters::bounded_file::FileReadError::Io(error) => AvatarPackError::Io(error),
+            }
+        })?;
     validate_pack(&bytes)
 }
 

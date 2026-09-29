@@ -68,6 +68,15 @@ impl Product {
         format!("../{}/current/{}", self.namespace(), self.executable())
     }
 
+    /// Releases whose executable must pass the owner's post-write check before
+    /// publication. Native installation refuses such a product without one.
+    pub const fn requires_release_verifier(self) -> bool {
+        match self {
+            Self::Cli | Self::Squad => false,
+            Self::Office => true,
+        }
+    }
+
     pub const fn files(self) -> [&'static str; 4] {
         [
             self.executable(),

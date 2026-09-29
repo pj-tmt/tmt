@@ -24,7 +24,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tmt_adapters::{config::ConfigPaths, office_service};
+use tmt_adapters::config::ConfigPaths;
 
 const EXTENSION: &str = "office";
 
@@ -47,10 +47,10 @@ pub struct OfficeService<'a>(pub &'a ConfigPaths);
 
 impl Quiesce for OfficeService<'_> {
     fn quiesce(&self) -> std::result::Result<Quiesced<'_>, String> {
-        let was_running = office_service::stop(self.0).map_err(|error| {
+        let was_running = tmt_office_service::stop(self.0).map_err(|error| {
             format!("The Office service could not be stopped: {error} Stop it and try again.")
         })?;
-        let guard = office_service::service_lock(self.0).map_err(|error| {
+        let guard = tmt_office_service::service_lock(self.0).map_err(|error| {
             if error.kind() == io::ErrorKind::WouldBlock {
                 "The Office service started again during the migration; stop it and try again."
                     .to_owned()
