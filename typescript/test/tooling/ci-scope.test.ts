@@ -16,12 +16,15 @@ import {
   ciGatePasses,
   explainCiSelection,
   globToRegExp,
+  nativeGatePasses,
   ownerOf,
   parseComponentMap,
   readChangedCiAreas,
   renderSelectionEvidence,
   runCiScope,
+  scopedChecks,
   selectCiAreas,
+  selectNativeScope,
 } from '../../scripts/ci-scope.mjs';
 
 const { runPackedCommand } = await import(
@@ -422,6 +425,100 @@ describe('component map', () => {
     expect(bounded).toContain('30 more path(s) not listed: prose 30.');
   });
 
+  it.each([
+    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs'], 'squad'],
+    [['extensions/tmt-squad/skills/tmt-squad/SKILL.md', 'ARCHITECTURE.md'], 'squad'],
+    [['typescript/test/e2e/squad.e2e.test.ts', 'typescript/test/native/squad.test.ts'], 'squad'],
+    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'rust/Cargo.lock'], 'full'],
+    [
+      ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'rust/crates/tmt-cli-style/src/lib.rs'],
+      'full',
+    ],
+    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'docs/cli-style.md'], 'full'],
+    [
+      ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'typescript/test/native/api.test.ts'],
+      'full',
+    ],
+    [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'new-owner/file.ts'], 'full'],
+    [['extensions/tmt-squad-other/file.rs'], 'full'],
+    [['rust/crates/tmt-core/src/lib.rs'], 'full'],
+    [['extensions/tmt-office/rust/tmt-office/src/main.rs'], 'full'],
+    [['ARCHITECTURE.md', 'DEVELOPMENT.md'], 'none'],
+    [['extensions/tmt-office/typescript/apps/office/src/main.tsx'], 'none'],
+    [[], 'full'],
+  ] as const)('selects the native scope for %j: %s', (paths, scope) => {
+    expect(selectNativeScope([...paths], map)).toBe(scope);
+  });
+
+  it('names the checks a scoped component runs and none for the other scopes', () => {
+    expect(scopedChecks('squad', map)).toEqual({
+      nativeTests: ['squad.test.ts', 'extension-install.test.ts'],
+      e2eFiles: ['squad.e2e.test.ts'],
+    });
+    expect(scopedChecks('full', map)).toEqual({ nativeTests: [], e2eFiles: [] });
+    expect(scopedChecks('none', map)).toEqual({ nativeTests: [], e2eFiles: [] });
+    expect(scopedChecks('office', map)).toEqual({ nativeTests: [], e2eFiles: [] });
+  });
+
+  it('rejects scoped checks that are not plain file names', () => {
+    for (const bad of ['../squad.test.ts', 'a b.test.ts', 'squad.test.ts;rm', '$HOME']) {
+      expect(invalid((value) => (value.components.squad.scopedChecks.nativeTests = [bad]))).toThrow(
+        'plain file names'
+      );
+    }
+    expect(invalid((value) => (value.components.squad.scopedChecks.e2eFiles = []))).toThrow(
+      'non-empty list'
+    );
+    expect(invalid((value) => delete value.components.squad.scopedChecks.nativeTests)).toThrow(
+      'non-empty list'
+    );
+  });
+
+  it('lists every test that runs the Squad binary or reads Squad, so the scoped run cannot miss one', () => {
+    const files = tracked();
+    const checks = scopedChecks('squad', map);
+    for (const file of checks.nativeTests) {
+      expect(files, file).toContain(`typescript/test/native/${file}`);
+    }
+    for (const file of checks.e2eFiles) {
+      expect(files, file).toContain(`typescript/test/e2e/${file}`);
+    }
+    // Tests that name Squad without exercising its executable or sources.
+    const namesOnly: Record<string, string> = {
+      'typescript/test/native/api.test.ts': 'a room named Squad and squad.* metadata keys',
+      'typescript/test/native/setup-guided.test.ts': 'the install hint text',
+    };
+    const mention = /squad/i;
+    const undeclared = files.filter(
+      (file) =>
+        /^typescript\/test\/(native\/[^/]+\.test\.ts|e2e\/[^/]+\.e2e\.test\.ts)$/.test(file) &&
+        mention.test(readFileSync(path.join(repository, file), 'utf8')) &&
+        !checks.nativeTests.includes(path.basename(file)) &&
+        !checks.e2eFiles.includes(path.basename(file)) &&
+        !(file in namesOnly)
+    );
+    expect(
+      undeclared,
+      'these tests mention Squad: add them to scopedChecks or to the names-only list'
+    ).toEqual([]);
+  });
+
+  it('keeps the tooling tests, which the Squad scope skips, from reading Squad sources', () => {
+    const files = tracked().filter((file) =>
+      /^typescript\/test\/(tooling|support)\/[^/]+\.ts$/.test(file)
+    );
+    const readers = files.filter(
+      (file) =>
+        file !== 'typescript/test/tooling/ci-scope.test.ts' &&
+        /extensions\/tmt-squad|rust\/target\/debug\/tmt-squad/.test(
+          readFileSync(path.join(repository, file), 'utf8')
+        )
+    );
+    // support/native-artifact.ts packages the built Squad binary for the native tests
+    // (not run by Unit tests); it is not a tooling test.
+    expect(readers.filter((file) => file.startsWith('typescript/test/tooling/'))).toEqual([]);
+  });
+
   it('every rule and selectedBy glob still matches a tracked file', () => {
     const files = tracked();
     expect(files.length).toBeGreaterThan(100);
@@ -629,12 +726,16 @@ describe('CI diff and command integration', () => {
       writeFileSync(path.join(root, 'rust/fixture.rs'), '// fixture\n');
       writeFileSync(path.join(root, 'ARCHITECTURE.md'), 'changed\n');
       const head = commit();
-      const summaryFile = path.join(root, 'summary.md');
+      // Outside the fixture repository, which commits everything it finds.
+      const summaryFile = `${root}-summary.md`;
       const stdout = capture();
       const stderr = capture();
       runCiScope([base, head], { cwd: root, stdout, stderr, summaryFile });
-      expect(stdout.text()).toBe('native=true\noffice=false\nnative_office=true\n');
+      expect(stdout.text()).toBe(
+        'native=true\noffice=false\nnative_office=true\nnative_scope=full\nscoped_native_tests=\nscoped_e2e_files=\n'
+      );
       expect(stderr.text()).toContain('### CI selection');
+      expect(stderr.text()).toContain('native scope full.');
       expect(stderr.text()).toContain(
         '| `rust/fixture.rs` | cli | native-source | native, native_office |'
       );
@@ -646,6 +747,18 @@ describe('CI diff and command integration', () => {
       expect(quiet.text()).toBe(stderr.text());
       runCiScope([base, head], { cwd: root, stdout: capture(), stderr: capture(), summaryFile });
       expect(readFileSync(summaryFile, 'utf8')).toBe(stderr.text() + stderr.text());
+      // A Squad-only change is scoped and names the checks its component runs.
+      mkdirSync(path.join(root, 'extensions/tmt-squad/rust/tmt-squad/src'), { recursive: true });
+      writeFileSync(path.join(root, 'extensions/tmt-squad/rust/tmt-squad/src/main.rs'), '// x\n');
+      const squadHead = commit();
+      const scoped = capture();
+      const scopedLog = capture();
+      runCiScope([head, squadHead], { cwd: root, stdout: scoped, stderr: scopedLog });
+      expect(scoped.text()).toBe(
+        'native=true\noffice=false\nnative_office=false\nnative_scope=squad\n' +
+          'scoped_native_tests=squad.test.ts extension-install.test.ts\nscoped_e2e_files=squad.e2e.test.ts\n'
+      );
+      expect(scopedLog.text()).toContain('native scope squad.');
       expect(() => runCiScope(['only-one'], { cwd: root, stdout, stderr })).toThrow(
         'exact base and head'
       );
@@ -655,6 +768,7 @@ describe('CI diff and command integration', () => {
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
+      rmSync(`${root}-summary.md`, { force: true });
     }
   }, 5000);
 
@@ -716,6 +830,75 @@ describe('required CI gate', () => {
     expect(ciGatePasses(native[0], [...native[1]])).toBe(true);
   });
 
+  const results = (
+    nativeRust: string,
+    unitTests: string,
+    dockerE2e: string,
+    runtimeBuild: string,
+    packedInstall: string
+  ) => ({
+    nativeRust,
+    unitTests,
+    dockerE2e,
+    runtimeBuild,
+    packedInstall,
+  });
+
+  it.each([
+    ['full', results('success', 'success', 'success', 'success', 'success')],
+    ['squad', results('success', 'skipped', 'success', 'skipped', 'skipped')],
+    ['none', results('skipped', 'skipped', 'skipped', 'skipped', 'skipped')],
+  ])('accepts exactly the %s native results', (scope, expected) => {
+    expect(nativeGatePasses(scope, expected)).toBe(true);
+  });
+
+  it.each([
+    [
+      'full',
+      results('success', 'skipped', 'success', 'success', 'success'),
+      'a skipped job that must run',
+    ],
+    ['full', results('success', 'success', 'success', 'success', 'failure'), 'a failed job'],
+    ['full', results('success', 'success', 'success', 'success', 'cancelled'), 'a cancelled job'],
+    [
+      'squad',
+      results('success', 'success', 'success', 'skipped', 'skipped'),
+      'unit tests that must be skipped',
+    ],
+    ['squad', results('success', 'skipped', 'skipped', 'skipped', 'skipped'), 'a skipped E2E run'],
+    [
+      'squad',
+      results('skipped', 'skipped', 'success', 'skipped', 'skipped'),
+      'a skipped native contract',
+    ],
+    [
+      'squad',
+      results('success', 'skipped', 'success', 'success', 'skipped'),
+      'a runtime build that must be skipped',
+    ],
+    ['squad', results('success', 'skipped', 'failure', 'skipped', 'skipped'), 'a failed E2E run'],
+    [
+      'none',
+      results('success', 'skipped', 'skipped', 'skipped', 'skipped'),
+      'work when nothing was selected',
+    ],
+    ['unknown', results('success', 'success', 'success', 'success', 'success'), 'an unknown scope'],
+    ['', results('skipped', 'skipped', 'skipped', 'skipped', 'skipped'), 'an empty scope'],
+    [
+      'office',
+      results('success', 'skipped', 'success', 'skipped', 'skipped'),
+      'a component without scoped checks',
+    ],
+    ['squad', results('success', 'skipped', 'success', 'skipped', ''), 'an empty result'],
+  ])('rejects %s with %o (%s)', (scope, actual) => {
+    expect(nativeGatePasses(scope, actual)).toBe(false);
+  });
+
+  it('rejects missing native results rather than claiming a pass', () => {
+    expect(nativeGatePasses('full', {} as never)).toBe(false);
+    expect(nativeGatePasses('none', undefined as never)).toBe(false);
+  });
+
   it('fails both stable aggregates when selector output is unavailable', () => {
     expect(ciGatePasses('', ['skipped'])).toBe(false);
     expect(ciGatePasses('', ['skipped', 'skipped', 'skipped', 'skipped', 'skipped'])).toBe(false);
@@ -773,6 +956,98 @@ describe('required CI gate', () => {
     expect(ciGatePasses('true', ['failure', 'success', 'success', 'success', 'success'])).toBe(
       false
     );
+  });
+
+  it('gives every native step and job an explicit scope, and gates on exactly those results', () => {
+    const workflow = readFileSync(
+      fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
+      'utf8'
+    );
+    const job = (name: string) => {
+      const start = workflow.indexOf(`\n  ${name}:\n`);
+      const next = workflow.slice(start + 1).search(/\n {2}[a-z-]+:\n/);
+      return workflow.slice(start, next < 0 ? undefined : start + 1 + next);
+    };
+    const steps = (body: string) =>
+      body
+        .split('\n      - ')
+        .slice(1)
+        .map((step) => ({
+          name: /^name: (.*)$/m.exec(step)?.[1] ?? '',
+          scope: /^ {8}if: (.*)$/m.exec(step)?.[1],
+        }));
+
+    const changes = job('changes');
+    for (const output of ['scoped_native_tests', 'scoped_e2e_files']) {
+      expect(changes).toContain(`${output}: \${{ steps.scope.outputs.${output} }}`);
+    }
+    // A seeding run (no pull request, no diff) builds the whole workspace, so it is the full scope.
+    expect(changes).toContain(
+      'native_scope: ${{ steps.scope.outputs.native_scope || steps.seed.outputs.native_scope }}'
+    );
+    expect(changes).toContain("printf 'native=true\\noffice=false\\nnative_scope=full\\n'");
+    // Jobs about the CLI runtime and tooling run only for the full scope; the runtime build also
+    // runs for the seeding runs, whose scope is full, and the other two only for pull requests.
+    expect(job('native-runtime-build')).toContain(
+      "if: needs.changes.outputs.native_scope == 'full'"
+    );
+    for (const name of ['unit-tests', 'packed-native-install']) {
+      expect(job(name), name).toContain(
+        "if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'"
+      );
+    }
+    // The Rust job runs for every native scope, the E2E job for every native scope of a pull request.
+    expect(job('native-rust')).toContain("if: needs.changes.outputs.native == 'true'");
+    expect(job('docker-e2e')).toContain(
+      "if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'"
+    );
+    expect(job('docker-e2e')).toContain(
+      'TMT_E2E_FILES: ${{ needs.changes.outputs.scoped_e2e_files }}'
+    );
+    // Every step of the Rust job either is shared or declares the scope it runs for.
+    const shared = [
+      'Check out repository',
+      'Install pinned Rust toolchains',
+      'Cache Rust dependencies',
+      'Set up Node.js and pnpm test tooling',
+      'Install shell test dependency',
+      'Install test dependencies',
+    ];
+    for (const { name, scope } of steps(job('native-rust'))) {
+      if (shared.includes(name)) expect(scope, name).toBeUndefined();
+      else expect(scope, `${name} needs an explicit native scope`).toMatch(/native_scope/);
+    }
+    const scoped = (scope: string) =>
+      steps(job('native-rust'))
+        .filter((step) => step.scope === `needs.changes.outputs.native_scope == '${scope}'`)
+        .map((step) => step.name);
+    expect(scoped('full')).toEqual([
+      'Verify native quality and locked builds',
+      'Build independent native process fixtures',
+      'Verify embedded local Office companion',
+      'Verify native process and shared parser contracts',
+    ]);
+    expect(scoped('squad')).toEqual([
+      'Verify Squad quality and locked builds',
+      'Build Squad process fixtures',
+      'Verify Squad native contracts',
+    ]);
+    expect(job('native-rust')).toContain('Reject an unknown native scope');
+    // The gate names the same five jobs, in the order nativeGatePasses expects.
+    const gate = job('native-install-gate');
+    expect(gate).toContain('NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}');
+    expect(gate).toContain(
+      'ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"'
+    );
+    for (const [variable, jobName] of [
+      ['CONTRACT_RESULT', 'native-rust'],
+      ['UNIT_RESULT', 'unit-tests'],
+      ['DOCKER_RESULT', 'docker-e2e'],
+      ['BUILD_RESULT', 'native-runtime-build'],
+      ['MATRIX_RESULT', 'packed-native-install'],
+    ]) {
+      expect(gate).toContain(`${variable}: \${{ needs.${jobName}.result }}`);
+    }
   });
 
   it('runs the advisory browser partitions in their own workflow from one shared image', () => {

@@ -27,7 +27,10 @@ use tmt_cli_style::{
 use unicode_width::UnicodeWidthStr;
 
 const KEYS: &[&str] = &[
-    "↑ ↓ / j k   select a row (↑ ↓ scroll a focused notes pane)",
+    "↑ ↓ / j k   select a row; in a focused notes, detail or replies pane, scroll it",
+    "PgUp PgDn   page the focused pane; Home End go to its top and bottom",
+    "wheel       scroll the pane under the pointer",
+    "Shift-drag  select text to copy (Option-drag in some terminals)",
     "← →         switch squad",
     "/           search; Esc clears",
     "?           this help",
@@ -181,23 +184,43 @@ fn grid_line(
     (first || shown_any).then_some(spans)
 }
 
+/// Shown only when a switch takes long enough to notice.
+const SPINNER_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// One tab, the same width selected or not, so switching never moves the
+/// tabs beside it: the selected one is bracketed, the others padded.
+fn tab(name: &str, selected: bool) -> Span<'static> {
+    if selected {
+        Span::styled(
+            format!("[{name}]"),
+            Style::new().add_modifier(Modifier::BOLD),
+        )
+    } else {
+        Span::styled(format!(" {name} "), color("dim"))
+    }
+}
+
 fn header_line(app: &App) -> Line<'_> {
     let mut spans = vec![Span::styled(
         "squad  ",
         Style::new().add_modifier(Modifier::BOLD),
     )];
     for squad in &app.squads {
-        if Some(squad) == app.current.as_ref() {
-            spans.push(Span::styled(
-                format!("[{squad}]"),
-                Style::new().add_modifier(Modifier::BOLD),
-            ));
-        } else {
-            spans.push(Span::styled(squad.clone(), color("dim")));
-        }
-        spans.push(Span::raw("  "));
+        let selected = Some(squad) == app.current.as_ref();
+        spans.push(tab(squad, selected));
+        spans.push(Span::raw(" "));
     }
-    if let Some(view) = &app.view {
+    if let Some(started) = app.loading_since
+        && started.elapsed() >= SPINNER_DELAY
+    {
+        let frame = (started.elapsed().as_millis() / 100) as usize % SPINNER.len();
+        spans.push(Span::styled(
+            format!("{} loading", SPINNER[frame]),
+            color("dim"),
+        ));
+    }
+    if let Some(view) = app.view.as_ref().filter(|_| !app.stale()) {
         let lead = view.document["squad"]["lead"]["name"]
             .as_str()
             .unwrap_or("no lead");
@@ -223,6 +246,7 @@ fn header_line(app: &App) -> Line<'_> {
 
 pub fn render(frame: &mut Frame, app: &App) {
     app.hits.borrow_mut().clear();
+    app.scrolls.begin_frame();
     let [top, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(1),
@@ -339,15 +363,8 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
                 Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
             let mut spans = Vec::new();
             for pane in &board.panes {
-                if *pane == focused {
-                    spans.push(Span::styled(
-                        format!("[{}]", pane.title()),
-                        Style::new().add_modifier(Modifier::BOLD),
-                    ));
-                } else {
-                    spans.push(Span::styled(pane.title(), color("dim")));
-                }
-                spans.push(Span::raw("  "));
+                spans.push(tab(pane.title(), *pane == focused));
+                spans.push(Span::raw(" "));
             }
             frame.render_widget(Paragraph::new(Line::from(spans)), bar);
             let block = pane_block(focused);
@@ -387,9 +404,8 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             .map(|line| Line::styled(line, color("dim")))
             .collect(),
     };
-    let limit = lines.len().saturating_sub(usize::from(area.height));
-    let scroll = usize::from(app.notes_scroll).min(limit) as u16;
-    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), area);
+    app.scrolls
+        .show(frame, Pane::Notes, area, lines, color("dim"));
 }
 
 /// Lines of one reply body shown before it is cut.
@@ -455,9 +471,8 @@ fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
             .map_or(0, |elapsed| elapsed.as_millis() as u64);
         reply_lines(&view.replies, usize::from(area.width), now)
     };
-    let limit = lines.len().saturating_sub(usize::from(area.height));
-    let scroll = usize::from(app.replies_scroll).min(limit) as u16;
-    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), area);
+    app.scrolls
+        .show(frame, Pane::Replies, area, lines, color("dim"));
 }
 
 /// The selected row: where it is, what it is doing and what it waits on.
@@ -529,7 +544,8 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
                 .map(move |part| Line::styled(part, style))
         })
         .collect();
-    frame.render_widget(Paragraph::new(lines), area);
+    app.scrolls
+        .show(frame, Pane::Detail, area, lines, color("dim"));
 }
 
 fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
@@ -653,13 +669,19 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             color("dim"),
         )));
     }
-    // Keep the selected row visible; the column header scrolls with the list.
-    let height = usize::from(area.height);
-    let offset = selected_line.saturating_sub(height.saturating_sub(1));
+    // The selection stays on screen until the wheel moves the rows away from
+    // it; the column header scrolls with the list.
+    if app.follow {
+        app.scrolls
+            .reveal(Pane::Rows, selected_line, area, lines.len());
+    }
+    let (offset, viewport) = app
+        .scrolls
+        .show(frame, Pane::Rows, area, lines, color("dim"));
     app.hits.borrow_mut().extend(
         row_lines
             .into_iter()
-            .filter(|(line, _)| (offset..offset + height).contains(line))
+            .filter(|(line, _)| (offset..offset + viewport).contains(line))
             .map(|(line, row)| Hit {
                 y: area.y + (line - offset) as u16,
                 x: area.x,
@@ -667,7 +689,6 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 row,
             }),
     );
-    frame.render_widget(Paragraph::new(lines).scroll((offset as u16, 0)), area);
 }
 
 #[cfg(test)]
@@ -936,7 +957,9 @@ lines = [
         app.selected = 1;
         draw(&app, 48, 5);
         let lines: Vec<(u16, usize)> = app.hits.borrow().iter().map(|h| (h.y, h.row)).collect();
-        assert_eq!(lines, [(1, 0), (3, 1)]);
+        // An overflowing pane keeps its last line for the indicator, so two of
+        // the three lines show rows.
+        assert_eq!(lines, [(2, 1)]);
 
         app.view.as_mut().unwrap().bindings = crate::action::preset(false);
         app.help = true;
@@ -1132,6 +1155,59 @@ lines = [
     }
 
     #[test]
+    fn every_row_is_one_line_cut_by_display_width_at_any_width() {
+        let long = "rotate session tokens without logging everyone out of every device";
+        let mut app = board(json!([{"title": null, "rows": [
+            row("ascii-member-with-a-long-name", "blocked", long, json!({
+                "fields": {"state": "blocked", "task": long, "pr_link": "https://github.com/wkh237/tmt/pull/4242"}
+            })),
+            row("文件整理小组成员", "进行中", "整理安装指南和常见问题并补充截图说明", json!({})),
+            row("mix-混合-🚀", "review", "修 bug in 登录 flow 🚀 then ship", json!({})),
+        ]}]));
+        app.view.as_mut().unwrap().rows = crate::rows::Rows::preset();
+        for width in [30u16, 44, 60, 100] {
+            let screen = draw(&app, width, 8);
+            // Header, three rows, blank, blank, footer: nothing wrapped.
+            for (line, name) in screen[2..5].iter().zip(["ascii-", "文件", "mix-"]) {
+                assert!(line.contains(name), "at {width}: {screen:#?}");
+            }
+            assert_eq!(screen[5], "", "at {width}: a row spilled: {screen:#?}");
+            for line in &screen[1..5] {
+                assert!(line.width() <= usize::from(width), "at {width}: {line:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
+        let mut app = board(json!([
+            {"title": null, "rows": [row("auth-fix", "blocked", "rotate", json!({}))]}
+        ]));
+        let before = draw(&app, 60, 6);
+        let place = |line: &str, name: &str| line.find(name).unwrap();
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.loading_since = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
+        let during = draw(&app, 60, 6);
+        for name in ["product", "reviews"] {
+            assert_eq!(
+                place(&before[0], name),
+                place(&during[0], name),
+                "{name} moved: {before:?} / {during:?}"
+            );
+        }
+        assert!(during[0].contains("[reviews]"), "{during:?}");
+        assert!(
+            during[0].contains("loading"),
+            "a slow switch shows a spinner"
+        );
+        assert!(
+            during.iter().any(|line| line.contains("auth-fix")),
+            "the previous frame stays: {during:?}"
+        );
+        assert!(!during.iter().any(|line| line.contains("Loading…")));
+    }
+
+    #[test]
     fn tabs_show_one_pane_and_tab_moves_focus() {
         let tabs = crate::config::Board {
             mode: BoardMode::Tabs,
@@ -1142,7 +1218,7 @@ lines = [
         let mut app = paned(tabs, Notes::Missing);
         let screen = draw(&app, 70, 10);
         assert!(
-            screen[1].starts_with("[rows]  replies  notes"),
+            screen[1].starts_with("[rows]  replies   notes"),
             "{screen:#?}"
         );
         assert!(screen.iter().any(|line| line.contains("auth-fix")));
@@ -1151,7 +1227,11 @@ lines = [
         };
         tab(&mut app);
         let screen = draw(&app, 70, 10);
-        assert!(screen[1].starts_with("rows  [replies]  notes"));
+        // Same columns as before the switch: only the brackets move.
+        assert!(
+            screen[1].starts_with(" rows  [replies]  notes"),
+            "{screen:#?}"
+        );
         assert!(
             screen
                 .iter()
@@ -1165,6 +1245,114 @@ lines = [
         );
         tab(&mut app);
         assert_eq!(app.focused(), Pane::Rows, "focus wraps around");
+    }
+
+    fn wheel(app: &mut App, column: u16, row: u16, down: bool) {
+        use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+        app.mouse(
+            MouseEvent {
+                kind: if down {
+                    MouseEventKind::ScrollDown
+                } else {
+                    MouseEventKind::ScrollUp
+                },
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_pane_under_the_pointer_whichever_is_focused() {
+        let text = (1..=30)
+            .map(|n| format!("line {n:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![50, 50],
+            ),
+            Notes::Text(text),
+        );
+        app.view.as_mut().unwrap().render = NotesRender::Plain;
+        let before = draw(&app, 60, 10);
+        assert!(before.iter().any(|line| line.contains("line 01")));
+        assert!(
+            before.iter().any(|line| line.contains("↓ 25")),
+            "an overflowing pane says how much is below: {before:#?}"
+        );
+        // Rows is focused; the wheel over the notes (right half) moves them.
+        wheel(&mut app, 45, 5, true);
+        wheel(&mut app, 45, 5, true);
+        let after = draw(&app, 60, 10);
+        assert!(
+            !after.iter().any(|line| line.contains("line 06")),
+            "{after:#?}"
+        );
+        assert!(after.iter().any(|line| line.contains("line 07")));
+        assert!(after.iter().any(|line| line.contains("↑ 6  ↓ 19")));
+        wheel(&mut app, 45, 5, false);
+        assert!(
+            draw(&app, 60, 10)
+                .iter()
+                .any(|line| line.contains("line 04"))
+        );
+        assert_eq!(app.selected, 0, "the rows' selection never moves");
+    }
+
+    #[test]
+    fn the_wheel_scrolls_rows_away_from_the_selection_until_a_key_brings_it_back() {
+        let rows: Vec<Value> = (0..20)
+            .map(|i| row(&format!("m{i:02}"), "working", "", json!({})))
+            .collect();
+        let mut app = board(json!([{"title": null, "rows": rows}]));
+        draw(&app, 40, 8);
+        for _ in 0..3 {
+            wheel(&mut app, 5, 4, true);
+        }
+        let screen = draw(&app, 40, 8);
+        assert!(
+            !screen.iter().any(|line| line.contains("m00")),
+            "{screen:#?}"
+        );
+        assert!(screen.iter().any(|line| line.contains("m09")));
+        assert_eq!(app.selected, 0);
+        // Only visible rows take clicks, at their screen lines.
+        assert!(app.hits.borrow().iter().all(|hit| hit.row >= 8));
+        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let screen = draw(&app, 40, 8);
+        assert!(
+            screen.iter().any(|line| line.contains("m01")),
+            "{screen:#?}"
+        );
+        // PgDn and End page the selection when they are not bound.
+        app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(app.selected, 19);
+        assert!(draw(&app, 40, 8).iter().any(|line| line.contains("m19")));
+        app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn a_bound_paging_key_runs_its_binding_instead_of_scrolling() {
+        let rows: Vec<Value> = (0..20)
+            .map(|i| row(&format!("m{i:02}"), "working", "", json!({})))
+            .collect();
+        let mut app = board(json!([{"title": null, "rows": rows}]));
+        app.view.as_mut().unwrap().bindings =
+            crate::action::parse_bindings([("pagedown", Some("copy {name}"))].into_iter(), "bind")
+                .unwrap();
+        draw(&app, 40, 8);
+        let effect = app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(app.selected, 0, "no paging");
+        assert!(
+            matches!(effect, crate::board::app::Effect::Act(_)),
+            "{effect:?}"
+        );
     }
 
     #[test]

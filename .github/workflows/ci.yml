@@ -2,13 +2,29 @@ name: CI
 
 on:
   pull_request:
+  # Cache seeding: the Rust caches are written only outside pull requests (see
+  # `save-if` below), so `main` runs the two cache-writing jobs when the inputs
+  # that key the caches change, weekly (GitHub evicts caches unused for 7 days)
+  # and on demand. A pull request restores them and never writes.
+  push:
+    branches: [main]
+    paths:
+      - rust/Cargo.lock
+      - rust/Cargo.toml
+      - rust/rust-toolchain.toml
+      - .github/workflows/ci.yml
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # A newer push replaces an older pull request run. A seed run is never
+  # cancelled, because a cancelled run writes no cache.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -16,8 +32,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      native: ${{ steps.scope.outputs.native }}
-      office: ${{ steps.scope.outputs.office }}
+      native: ${{ steps.scope.outputs.native || steps.seed.outputs.native }}
+      office: ${{ steps.scope.outputs.office || steps.seed.outputs.office }}
+      native_scope: ${{ steps.scope.outputs.native_scope || steps.seed.outputs.native_scope }}
+      scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests }}
+      scoped_e2e_files: ${{ steps.scope.outputs.scoped_e2e_files }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +45,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
+      - name: Select the cache-seeding jobs
+        if: github.event_name != 'pull_request'
+        id: seed
+        # A seeding run builds the whole workspace, so its scope is the full one.
+        run: printf 'native=true\noffice=false\nnative_scope=full\n' >> "$GITHUB_OUTPUT"
       - name: Select consumers from both sides of the diff
+        if: github.event_name == 'pull_request'
         id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -49,7 +74,7 @@ jobs:
   code-quality:
     name: Code quality
     needs: [changes, office]
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -88,7 +113,36 @@ jobs:
         run: |
           rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
           rustup toolchain install 1.88.0 --profile minimal
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: ${{ github.event_name != 'pull_request' }}
+      - name: Verify Squad quality and locked builds
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: rust
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
+          cargo test --locked -p tmt-squad
+          cargo test --locked -p tmt-cli --test architecture
+          cargo +1.88.0 build --locked -p tmt-squad
+      - name: Build Squad process fixtures
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: rust
+        env:
+          CARGO_PROFILE_DEV_DEBUG: 0
+        run: |
+          cargo build --locked -p tmt-squad
+          cargo build --locked --release -p tmt-cli
+      - name: Reject an unknown native scope
+        if: needs.changes.outputs.native_scope != 'full' && needs.changes.outputs.native_scope != 'squad'
+        run: |
+          echo "No native checks are defined for scope '${{ needs.changes.outputs.native_scope }}'." >&2
+          exit 1
       - name: Verify native quality and locked builds
+        if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
           cargo fmt --all --check
@@ -98,6 +152,7 @@ jobs:
           cargo build --locked
           cargo build --locked --example storage-probe
       - name: Build independent native process fixtures
+        if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         env:
           CARGO_PROFILE_DEV_DEBUG: 0
@@ -114,6 +169,7 @@ jobs:
         working-directory: typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify embedded local Office companion
+        if: needs.changes.outputs.native_scope == 'full'
         working-directory: typescript
         env:
           # This rebuild replaces the companion used by native process fixtures.
@@ -126,17 +182,28 @@ jobs:
           TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
           TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
       - name: Verify native process and shared parser contracts
+        if: needs.changes.outputs.native_scope == 'full'
         working-directory: typescript
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
           TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
         run: |
           pnpm test:native --reporter=verbose
+      - name: Verify Squad native contracts
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: typescript
+        env:
+          TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
+          # Plain file names from the component map, validated when it is parsed.
+          SCOPED_NATIVE_TESTS: ${{ needs.changes.outputs.scoped_native_tests }}
+        run: |
+          # shellcheck disable=SC2086
+          pnpm test:native --reporter=verbose $SCOPED_NATIVE_TESTS
 
   unit-tests:
     name: Unit tests
     needs: [changes, native-runtime-build]
-    if: needs.changes.outputs.native == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -169,7 +236,7 @@ jobs:
   docker-e2e:
     name: Docker E2E
     needs: changes
-    if: needs.changes.outputs.native == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -184,12 +251,15 @@ jobs:
         run: pnpm --filter tmux-team install --frozen-lockfile
       - name: Run Docker end-to-end tests
         working-directory: typescript
+        env:
+          # Empty for the full suite; plain file names from the component map for a scoped run.
+          TMT_E2E_FILES: ${{ needs.changes.outputs.scoped_e2e_files }}
         run: pnpm test:e2e
 
   native-runtime-build:
     name: Build native runtime (${{ matrix.target }})
     needs: changes
-    if: needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
       # Runner allocation for the four targets owned by dist-workspace.toml.
@@ -217,14 +287,12 @@ jobs:
           packages: musl-tools
       - name: Install pinned Rust
         run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
-      - name: Cache locked native compilation
-        uses: actions/cache@v4
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            rust/target
-          key: runtime-${{ matrix.target }}-rust1.97-${{ hashFiles('rust/Cargo.lock') }}
+          workspaces: rust
+          shared-key: runtime-${{ matrix.target }}
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Build the reviewed native runtime
         working-directory: rust
         env:
@@ -249,7 +317,7 @@ jobs:
     # product. Each row now executes native linkage/skill/SQLite runtime proof.
     name: Packed install (${{ matrix.label }})
     needs: [changes, native-runtime-build]
-    if: needs.changes.outputs.native == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
       matrix:
@@ -301,6 +369,9 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           packages: binutils
+      - name: Warm the macOS toolchain lookup
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/warm-xcrun
       - name: Verify native runtime on matching host
         if: ${{ !matrix.container }}
         run: |
@@ -325,7 +396,7 @@ jobs:
 
   native-install-gate:
     name: Native package matrix
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name == 'pull_request' }}
     needs:
       [changes, native-rust, unit-tests, docker-e2e, native-runtime-build, packed-native-install]
     runs-on: ubuntu-latest
@@ -338,11 +409,11 @@ jobs:
           node-version: 22.23.2
       - name: Require every selected native gate
         env:
-          NATIVE_SELECTED: ${{ needs.changes.outputs.native }}
+          NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
           CONTRACT_RESULT: ${{ needs.native-rust.result }}
           UNIT_RESULT: ${{ needs.unit-tests.result }}
           DOCKER_RESULT: ${{ needs.docker-e2e.result }}
           BUILD_RESULT: ${{ needs.native-runtime-build.result }}
           MATRIX_RESULT: ${{ needs.packed-native-install.result }}
         run: |
-          node typescript/scripts/ci-scope.mjs gate "$NATIVE_SELECTED" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
+          node typescript/scripts/ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"

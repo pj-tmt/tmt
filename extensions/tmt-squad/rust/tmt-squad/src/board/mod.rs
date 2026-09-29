@@ -5,6 +5,7 @@ mod app;
 mod markdown;
 pub(crate) mod notes;
 mod refresh;
+mod scroll;
 mod terminal;
 mod view;
 

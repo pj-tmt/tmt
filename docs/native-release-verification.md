@@ -118,7 +118,12 @@ binaries. The verifier bounds inputs (64 MiB compressed, 128 MiB expanded),
 requires exactly the four runtime files, and removes its private staging after
 success or failure. It runs the extracted executable with no Node/Rust/tmux on
 PATH and verifies native SQLite persistence through public commands. macOS
-requires system `otool`; Linux requires `readelf` for static-musl linkage checks.
+requires system `otool`, which it finds once through `xcrun` under a 10 s bound;
+the first `xcrun` call on a fresh hosted runner can exceed that, so every workflow
+job that runs the verifier on macOS first runs `.github/actions/warm-xcrun`
+(bounded retry, logs the duration). A new macOS verifier job must do the same, and
+a guard test fails when one does not. Linux requires `readelf` for static-musl
+linkage checks.
 
 `typescript/test/native/artifact.Dockerfile` provides a local matching-architecture Linux
 musl build and verifier. Set `TARGET_TRIPLE` from the selected generator target,

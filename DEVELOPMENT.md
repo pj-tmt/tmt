@@ -244,7 +244,10 @@ diff selector, driven by the component map `.github/components.json`, skips expe
 native jobs only for Office-only paths, and skips Office for native-source/skill-only
 paths, Office's Rust crates, core-only test suites and E2E scenario files. Prose that
 no job reads selects nothing beyond Code quality, and the run summary lists every
-changed path with its owner, rule and selection. Shared/unknown paths run both. Code
+changed path with its owner, rule and selection. A change confined to the Squad extension
+runs a Squad scope under the same job names (its Cargo checks and the architecture guard,
+its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
+`Native package matrix` expects exactly the scoped results. Shared/unknown paths run both. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
 failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser
@@ -1010,6 +1013,9 @@ transport, identity, talk, or cleanup changes:
 (cd typescript && corepack pnpm test:e2e)
 (cd typescript && corepack pnpm test:e2e)
 ```
+
+`TMT_E2E_FILES="squad.e2e.test.ts"` (space-separated plain file names) limits the run to those
+E2E files and skips the adapter tests; CI sets it only for the Squad scope.
 
 The harness builds its pinned image, uses `--network none`, private tmux
 sockets and deterministic mock agents, and selects the Docker-built native
