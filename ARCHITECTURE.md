@@ -2020,7 +2020,12 @@ a plain terminal: they open the row's action menu) into a fully filled request
 before anything runs; a missing value is a notice, not a partial action. Mouse
 capture is part of the terminal state the `Screen` guard restores; each draw
 records which screen lines show which row, so a click selects exactly the row
-drawn there. `run` fills one argv element per template and starts it like the
+drawn there. `board::scroll` is the one scroll owner: every pane hands its
+lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
+content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
+overflows, and records where the pane was drawn so the wheel scrolls the pane
+under the pointer. Panes keep no scroll state of their own; the rows pane only
+asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).

@@ -2,6 +2,7 @@
 //! works on what is already loaded; loading happens in the refresh worker,
 //! and actions leave as fully resolved requests.
 
+use super::scroll::{Scrolls, Step, WHEEL_LINES};
 use crate::{
     action::{Action, Bindings, Verb},
     config::{Board, NotesRender, Pane},
@@ -185,13 +186,24 @@ pub struct App {
     pub input: Option<Input>,
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
-    pub notes_scroll: u16,
-    pub replies_scroll: u16,
+    /// Every pane's scroll position, from one owner.
+    pub scrolls: Scrolls,
+    /// The rows pane keeps the selection on screen until the wheel moves it.
+    pub follow: bool,
     /// Opened as a tmux popup: a successful jump closes the board.
     pub popup: bool,
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
+}
+
+fn page_step(code: KeyCode) -> Step {
+    match code {
+        KeyCode::PageUp => Step::Pages(-1),
+        KeyCode::PageDown => Step::Pages(1),
+        KeyCode::Home => Step::Top,
+        _ => Step::Bottom,
+    }
 }
 
 fn matches(row: &Value, needle: &str) -> bool {
@@ -234,6 +246,7 @@ impl App {
     pub fn new(squad: Option<String>) -> Self {
         Self {
             current: squad,
+            follow: true,
             ..Self::default()
         }
     }
@@ -318,6 +331,8 @@ impl App {
         self.view = None;
         self.menu = None;
         self.selected = 0;
+        self.scrolls = Scrolls::default();
+        self.follow = true;
         Effect::Load(next)
     }
 
@@ -651,23 +666,28 @@ impl App {
                 self.search.clear();
                 self.clamp();
             }
-            KeyCode::Up | KeyCode::Char('k') if self.focused() == Pane::Notes => {
-                self.notes_scroll = self.notes_scroll.saturating_sub(1);
+            // Any pane but rows scrolls its text; rows moves the selection.
+            KeyCode::Up | KeyCode::Char('k') if self.focused() != Pane::Rows => {
+                self.scrolls.scroll(self.focused(), Step::Lines(-1));
             }
-            KeyCode::Down | KeyCode::Char('j') if self.focused() == Pane::Notes => {
-                self.notes_scroll = self.notes_scroll.saturating_add(1);
+            KeyCode::Down | KeyCode::Char('j') if self.focused() != Pane::Rows => {
+                self.scrolls.scroll(self.focused(), Step::Lines(1));
             }
-            KeyCode::Up | KeyCode::Char('k') if self.focused() == Pane::Replies => {
-                self.replies_scroll = self.replies_scroll.saturating_sub(1);
+            // Paging keys scroll unless the user bound them (then the
+            // binding runs, below).
+            KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
+                if self.focused() != Pane::Rows && !self.bound(key) =>
+            {
+                self.scrolls.scroll(self.focused(), page_step(key.code));
             }
-            KeyCode::Down | KeyCode::Char('j') if self.focused() == Pane::Replies => {
-                self.replies_scroll = self.replies_scroll.saturating_add(1);
+            KeyCode::Up | KeyCode::Char('k') => self.select(self.selected.saturating_sub(1)),
+            KeyCode::Down | KeyCode::Char('j') => self.select(self.selected + 1),
+            KeyCode::PageUp if !self.bound(key) => {
+                self.select(self.selected.saturating_sub(self.rows_page()));
             }
-            KeyCode::Up | KeyCode::Char('k') => self.selected = self.selected.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.selected += 1;
-                self.clamp();
-            }
+            KeyCode::PageDown if !self.bound(key) => self.select(self.selected + self.rows_page()),
+            KeyCode::Home if !self.bound(key) => self.select(0),
+            KeyCode::End if !self.bound(key) => self.select(usize::MAX),
             KeyCode::Left => return self.switch(-1),
             KeyCode::Right => return self.switch(1),
             KeyCode::Char('/') => self.searching = true,
@@ -683,13 +703,44 @@ impl App {
         Effect::None
     }
 
+    fn bound(&self, key: KeyEvent) -> bool {
+        event_name(key).is_some_and(|event| self.bindings().contains_key(&event))
+    }
+
+    /// Selects a row and keeps it on screen.
+    fn select(&mut self, row: usize) {
+        self.selected = row;
+        self.clamp();
+        self.follow = true;
+    }
+
+    /// Rows one page moves: the rows pane's last viewport, less one.
+    fn rows_page(&self) -> usize {
+        self.scrolls.page_lines(Pane::Rows)
+    }
+
+    /// The wheel scrolls the pane under the pointer, whichever is focused.
     /// A left click selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
-        if event.kind != MouseEventKind::Down(MouseButton::Left)
-            || self.menu.is_some()
-            || self.input.is_some()
-        {
+        if self.menu.is_some() || self.input.is_some() || self.help {
+            return Effect::None;
+        }
+        let lines = match event.kind {
+            MouseEventKind::ScrollUp => Some(-(WHEEL_LINES as isize)),
+            MouseEventKind::ScrollDown => Some(WHEEL_LINES as isize),
+            _ => None,
+        };
+        if let Some(lines) = lines {
+            if let Some(pane) = self.scrolls.pane_at(event.column, event.row) {
+                self.scrolls.scroll(pane, Step::Lines(lines));
+                if pane == Pane::Rows {
+                    self.follow = false;
+                }
+            }
+            return Effect::None;
+        }
+        if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;
         }
         let hit = self.hits.borrow().iter().copied().find(|hit| {
@@ -699,7 +750,7 @@ impl App {
             return Effect::None;
         };
         self.notice = None;
-        self.selected = hit.row;
+        self.select(hit.row);
         let double = self
             .last_click
             .is_some_and(|(row, at)| row == hit.row && now.duration_since(at) <= DOUBLE_CLICK);

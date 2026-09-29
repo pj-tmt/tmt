@@ -488,7 +488,16 @@ panes     = ["rows", "notes"]  # also detail, replies; rows is required
 sizes     = [60, 40]           # split only: one percentage per pane, total 100
 ```
 
-Tab moves between panes (or tabs); ↑/↓ scroll the notes pane when it has focus.
+Tab moves between panes (or tabs). Every pane scrolls the same way: the mouse
+wheel scrolls the pane under the pointer, whichever has focus; ↑/↓ (or j/k)
+scroll a focused notes, detail or replies pane, and move the selection in the
+rows pane; PgUp/PgDn page the focused pane and Home/End go to its top and
+bottom, unless you bound those keys. A pane with more than fits keeps its last
+line for `↑ n  ↓ m`, what is hidden above and below. Scrolling the rows away
+from the selection leaves the selection where it was; the next selection key
+brings it back into view. With tmux `set -g mouse on`, the wheel reaches the
+board rather than starting copy mode, because the board asks for mouse events
+while it runs.
 In tabs mode the lead's notes always get their own tab. Notes render as light
 Markdown: headings, lists, bold, italic, inline code and links (shown as text);
 tables, HTML, images, code blocks and quotes appear as written. Terminal
