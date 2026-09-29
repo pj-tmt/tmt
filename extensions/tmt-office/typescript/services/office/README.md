@@ -60,11 +60,16 @@ cached image. Rebuild deliberately to update pinned tools, not on every test.
 ## Verify without cloud access
 
 ```sh
-docker build -f services/office/Dockerfile -t tmt-office-emulators:local .
-docker run --rm --init --network none tmt-office-emulators:local \
+docker build -f services/office/Dockerfile -t "tmt-office-emulators:$worktree" .
+docker run --rm --init --network none "tmt-office-emulators:$worktree" \
   firebase emulators:exec --only auth,firestore --project demo-tmt-office \
   --config firebase.json --non-interactive 'node verify-office-emulators.mjs'
+docker image rm "tmt-office-emulators:$worktree"
 ```
+
+`$worktree` is the per-worktree image tag defined in
+[DEVELOPMENT.md](../../../../../DEVELOPMENT.md#keep-local-development-from-filling-the-disk),
+so a rerun replaces the image instead of adding one.
 
 The Firebase runner waits for readiness and shuts emulators down after the
 script, propagating failure. The proof uses actual Auth creation/lookup/deletion,

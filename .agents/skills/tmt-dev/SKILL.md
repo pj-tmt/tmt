@@ -29,7 +29,10 @@ Read the repository guidance before planning work:
    ownership, transitions, retries, partial failure and cleanup must agree.
    Consolidate confirmed duplicate responsibility; do not create a generic
    framework merely to centralize code.
-4. Verify the changed layers using DEVELOPMENT and CONVENTIONS. Record the
+4. Before a Docker suite, run `scripts/dev-disk-check.sh`, and use the
+   per-worktree image tag and cleanup in DEVELOPMENT's
+   [disk section](../../../DEVELOPMENT.md#keep-local-development-from-filling-the-disk).
+   Verify the changed layers using DEVELOPMENT and CONVENTIONS. Record the
    reviewed revision, findings, dispositions and exact verification evidence.
    When replacing implementations, map behavioral assertions, not test counts:
    returned-error rollback is not crash recovery. Preserve resource cleanup
@@ -40,7 +43,11 @@ Read the repository guidance before planning work:
    correctness/security blockers and confirmed duplicate responsibilities in
    scope are resolved, and deferred risks are explicit. A broad audit is not a
    demand to find nothing else to improve. Follow AGENTS for authorized merge,
-   tracker updates and safe cleanup.
+   tracker updates and safe cleanup: when the PR merges, remove its worktree
+   with `scripts/dev-worktree-remove.sh` and then that worktree's Docker images
+   in the same turn (the DEVELOPMENT disk section has the exact steps; if the
+   script refuses, stop and ask), and start the next task in a clean existing
+   worktree rather than a new one.
 
 ## Architecture maintenance
 
