@@ -394,6 +394,7 @@ tmt squad add auth-fix docs-sweep                   # agents already running
 tmt squad set auth-fix state=blocked pending="approve the plan" note="needs a call"
 tmt squad status                                    # --json for scripts
 tmt squad remove auth-fix                           # the agent keeps running
+tmt squad help set                                  # or `set -h`: help with examples, for every command
 ```
 
 `me` (your saved identity) is recorded in `squad.toml`, next to TMT's global
