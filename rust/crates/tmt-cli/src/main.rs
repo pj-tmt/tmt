@@ -1,3 +1,4 @@
+mod answer_command;
 mod api_command;
 mod binding_command;
 mod binding_error;
@@ -221,6 +222,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
             return response_command::execute(request, parsed.mode);
+        }
+        request @ (Invocation::Inbox { .. } | Invocation::Answer { .. }) => {
+            return answer_command::execute(request, parsed.mode);
         }
         Invocation::WhoamiContext => {
             return context_command::execute(parsed.mode);

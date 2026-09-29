@@ -44,23 +44,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Set up Node.js for embedded Office assets
+      - name: Set up Node.js and pnpm for embedded Office assets
         if: inputs.product == 'office'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
+        uses: ./.github/actions/setup-tooling
       - name: Install embedded Office build dependencies
         if: inputs.product == 'office'
         working-directory: typescript
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.33.0 --activate
-          pnpm install --frozen-lockfile --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install native build dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y musl-tools
+        uses: ./.github/actions/apt-install
+        with:
+          packages: musl-tools
       - name: Install pinned Rust
         run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
       - name: Cache packaging tools
@@ -105,9 +100,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
+      - name: Set up Node.js and pnpm
+        uses: ./.github/actions/setup-tooling
       - name: Install pinned Rust
         run: rustup toolchain install 1.97.0 --profile minimal
       - uses: actions/cache/restore@v4
@@ -117,10 +111,7 @@ jobs:
           fail-on-cache-miss: true
       - name: Install verification dependencies
         working-directory: typescript
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.33.0 --activate
-          pnpm install --frozen-lockfile --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
           pattern: native-${{ inputs.product }}-*
@@ -180,15 +171,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
+      - name: Set up Node.js and pnpm
+        uses: ./.github/actions/setup-tooling
       - name: Install verification dependencies
         working-directory: typescript
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.33.0 --activate
-          pnpm install --frozen-lockfile --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
           name: native-release-${{ inputs.product }}-bundle

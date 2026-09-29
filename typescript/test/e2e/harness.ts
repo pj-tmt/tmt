@@ -117,6 +117,9 @@ export interface E2EFixtureOptions {
   metadataBarrier?: MetadataBarrierOptions;
 }
 
+/** Time for the CLI to reach a metadata barrier on a loaded host; only a hung CLI exceeds it. */
+const METADATA_BARRIER_TIMEOUT_MS = 10_000;
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -697,15 +700,32 @@ exit ${'$'}status
     throw new Error(`Timed out waiting for ${description}.`);
   }
 
+  /**
+   * Wait for the CLI to reach the barrier. This is a readiness wait: reaching it
+   * takes as long as the CLI needs on a loaded host, so the bound is generous and
+   * exists only to end a hung CLI. Pass the CLI process to fail at once, with its
+   * exit status and output, when it exits before reaching the barrier.
+   */
   async waitForMetadataBarrier(
     signal: 'entered' | 'applied' = 'entered',
-    timeoutMs = 900
+    options: { child?: CliProcess<unknown>; timeoutMs?: number } = {}
   ): Promise<void> {
+    const barrier = path.join(this.metadataBarrierDirectory, signal);
+    let exited = undefined as CliResult<unknown> | undefined;
+    void options.child?.result.then((result) => {
+      exited = result;
+    });
     await this.waitFor(
-      () => fs.existsSync(path.join(this.metadataBarrierDirectory, signal)),
-      timeoutMs,
+      () => fs.existsSync(barrier) || exited !== undefined,
+      options.timeoutMs ?? METADATA_BARRIER_TIMEOUT_MS,
       `metadata barrier '${signal}'`
     );
+    if (!fs.existsSync(barrier) && exited) {
+      throw new Error(
+        `The CLI exited with code ${exited.code} before metadata barrier '${signal}'.\n` +
+          `stdout: ${exited.stdout.trim()}\nstderr: ${exited.stderr.trim()}`
+      );
+    }
   }
 
   releaseMetadataBarrier(): void {

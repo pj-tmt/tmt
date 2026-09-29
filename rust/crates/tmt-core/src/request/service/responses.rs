@@ -76,22 +76,8 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 &attempt.route,
                 &input.proof,
             )?;
-            if attempt.kind == RequestKind::Announcement {
-                return Err(RequestError::Response(ResponseRejection::NotRequired));
-            }
-            if attempt.response_submitted_at_ms.is_some()
-                || response_deadline_passed(now, attempt.prepared_at_ms, attempt.expires_at_ms)
-            {
-                return Err(RequestError::Response(ResponseRejection::Expired));
-            }
-            if !matches!(
-                attempt.status,
-                AttemptStatus::Sending
-                    | AttemptStatus::Sent
-                    | AttemptStatus::Queued
-                    | AttemptStatus::Uncertain
-            ) {
-                return Err(RequestError::Response(ResponseRejection::StateInvalid));
+            if let Some(refusal) = first_final_refusal(&attempt, now) {
+                return Err(RequestError::Response(refusal));
             }
             // Only an accepted first final may release a proven-dead waiter.
             // Bad receipts, conflicting retries and observation reads never mutate it.
@@ -156,6 +142,24 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             Ok(ResponseLookup::Unavailable)
         })
     }
+}
+
+/// Why `attempt` cannot take a first final at `now`, if it cannot. Final
+/// acceptance and the open-request read share this one rule, so the inbox
+/// never offers a request that an answer would refuse.
+pub(super) fn first_final_refusal(attempt: &RequestAttempt, now: u64) -> Option<ResponseRejection> {
+    if attempt.kind == RequestKind::Announcement {
+        return Some(ResponseRejection::NotRequired);
+    }
+    if attempt.response_submitted_at_ms.is_some()
+        || response_deadline_passed(now, attempt.prepared_at_ms, attempt.expires_at_ms)
+    {
+        return Some(ResponseRejection::Expired);
+    }
+    if !crate::request::inbox::ANSWERABLE.contains(&attempt.status) {
+        return Some(ResponseRejection::StateInvalid);
+    }
+    None
 }
 
 fn validate_proof<E>(
