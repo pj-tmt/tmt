@@ -121,6 +121,15 @@ fn the_preset_and_the_older_columns_table_read_as_the_same_model() {
         "known fields keep their preset width"
     );
     assert_eq!(legacy.fields(), ["member", "note"]);
+    // A legacy table that shows the link keeps the preset's step-aside
+    // priority, also with its own width.
+    let link =
+        parse("[p.columns]\nshow = [\"member\", \"pr_link\"]\npr_link = { width = 20 }\n").unwrap();
+    assert_eq!(
+        (link.columns[1].width, link.columns[1].priority),
+        (Some(20), Some(1))
+    );
+    assert_eq!(link.columns[0].priority, None);
     let tables = parse(
         "[[p.rows.columns]]\nname = \"member\"\n[[p.rows.columns]]\nname = \"task\"\ngrow = 2\n",
     )

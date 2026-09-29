@@ -2002,7 +2002,11 @@ the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data; stale results for a squad the user left are dropped. `board`
+painted data. A switch never clears the view: `App` keeps the view of each
+visited squad, shows a cached one at once, and otherwise keeps the current
+frame (marked stale, so row actions refuse) until the new squad's snapshot
+swaps in whole; a result for a squad the user left only refreshes that cache.
+Tabs are the same width selected or not. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
