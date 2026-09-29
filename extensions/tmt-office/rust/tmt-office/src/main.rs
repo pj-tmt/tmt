@@ -175,7 +175,7 @@ fn pairing(operation: OfficeInvocation, input: &[u8]) -> Vec<u8> {
         return retirement_consumer::execute(input);
     }
     match retirement_consumer::CoreApi::discover() {
-        Ok(core) => tmt_adapters::office_pairing::execute(
+        Ok(core) => tmt_office_pairing::office_pairing::execute(
             operation,
             input,
             &core,

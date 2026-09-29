@@ -1,0 +1,33 @@
+[package]
+workspace = "../../../../rust"
+name = "tmt-office-pairing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# Office pairing, its HTTP transport and deployment targets, with the OS
+# credential store. Core crates never depend on this crate.
+[dependencies]
+tmt-adapters.workspace = true
+tmt-core.workspace = true
+tmt-office-model.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+keyring-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+url.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store.workspace = true
+
+[lints]
+workspace = true

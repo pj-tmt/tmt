@@ -8,12 +8,12 @@
 
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
-use tmt_adapters::{
-    config::ConfigPaths,
-    office_pairing::{OfficeInstallation, PairingCore, PairingIdentity, settle_scope},
-};
+use tmt_adapters::config::ConfigPaths;
 use tmt_office_command::process_core_access::ProcessCoreAccess;
 use tmt_office_model::office_protocol::{OFFICE_HOOK_BATCH_LIMIT, OfficeError, OfficeSyncReport};
+use tmt_office_pairing::office_pairing::{
+    OfficeInstallation, PairingCore, PairingIdentity, settle_scope,
+};
 use tmt_office_storage::retirement::OfficeRetirementFence;
 
 /// This consumer's name in core's hook subscriptions.

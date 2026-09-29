@@ -32,12 +32,6 @@ pub mod office_block;
 pub mod office_board;
 #[cfg(unix)]
 pub mod office_companion;
-#[cfg(feature = "office")]
-pub mod office_deployment;
-#[cfg(feature = "office")]
-mod office_http;
-#[cfg(feature = "office")]
-pub mod office_pairing;
 #[cfg(unix)]
 pub mod office_profile;
 #[cfg(unix)]

@@ -3,10 +3,7 @@ use crate::office_deployment::DeploymentMode;
 use serde_json::{Value, json};
 
 fn examples() -> Value {
-    serde_json::from_str(include_str!(
-        "../../../../../extensions/tmt-office/contracts/pairing-examples.json"
-    ))
-    .unwrap()
+    serde_json::from_str(include_str!("../../../../contracts/pairing-examples.json")).unwrap()
 }
 
 fn expected() -> Approval {

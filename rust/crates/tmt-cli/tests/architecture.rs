@@ -59,6 +59,7 @@ fn workspace_obeys_native_architecture() {
             "tmt-office",
             "tmt-office-command",
             "tmt-office-model",
+            "tmt-office-pairing",
             "tmt-office-storage",
             "tmt-squad"
         ]),

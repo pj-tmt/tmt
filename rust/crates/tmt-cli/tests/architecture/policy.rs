@@ -32,14 +32,10 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
             "semver",
         ],
+        // `tmt-office-model` is retained core-to-Office coupling that #355 removes.
         "tmt-adapters" => &[
             "tmt-office-model",
-            "getrandom",
-            "keyring-core",
-            "zbus-secret-service-keyring-store",
-            "apple-native-keyring-store",
             "serde",
-            "url",
             "ureq",
             "semver",
             "tar",
@@ -57,6 +53,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         "tmt-office" => &[
             "tmt-office-model",
             "tmt-office-command",
+            "tmt-office-pairing",
             "tmt-office-storage",
             "tmt-core",
             "tmt-adapters",
@@ -90,6 +87,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // `nix` measures free space before the switch backup.
         "tmt-office-storage" => &[
             "tmt-adapters",
+            "tmt-office-pairing",
             "tmt-core",
             "tmt-office-model",
             "rusqlite",
@@ -98,6 +96,23 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "serde",
             "sha2",
             "serde_json",
+            "uuid",
+        ],
+        // Pairing owns the OS credential vault and the paired-service HTTP
+        // transport; no core crate depends on it.
+        "tmt-office-pairing" => &[
+            "tmt-adapters",
+            "tmt-core",
+            "tmt-office-model",
+            "base64",
+            "getrandom",
+            "keyring-core",
+            "zbus-secret-service-keyring-store",
+            "apple-native-keyring-store",
+            "serde",
+            "serde_json",
+            "ureq",
+            "url",
             "uuid",
         ],
         // Squad is a public-interface consumer: it reaches TMT only through
@@ -272,11 +287,6 @@ fn office_consumer(source: &Source) -> bool {
             "office_companion/extension.rs",
             "office_companion/whiteboard.rs",
             "office_companion/world.rs",
-            "office_pairing.rs",
-            "office_pairing/hooks.rs",
-            "office_pairing/invocation.rs",
-            "office_pairing/record.rs",
-            "office_pairing/remote/blocks.rs",
             "office_profile.rs",
             "office_prop.rs",
             "office_service.rs",
@@ -287,11 +297,43 @@ fn office_consumer(source: &Source) -> bool {
         ],
         "tmt-cli" => &[],
         "tmt-office-command" => return true,
-        // Office-owned storage and its companion operations.
-        "tmt-office-storage" => return true,
+        // Office-owned storage, pairing and their companion operations.
+        "tmt-office-storage" | "tmt-office-pairing" => return true,
         _ => &[],
     };
     allowed.contains(&source.file.as_str())
+}
+
+/// Office modules still declared in core crates while #355 extracts them. The
+/// list only shrinks: a core crate may not add an `office_*` module.
+const CORE_OFFICE_MODULES: &[&str] = &[
+    "office_avatar",
+    "office_block",
+    "office_board",
+    "office_companion",
+    // tmt-cli: the `tmt office` facade, removed with PR B.
+    "office_facade",
+    "office_profile",
+    "office_prop",
+    "office_service",
+    "office_whiteboard",
+    "office_world",
+];
+
+/// Core crates never own Office modules beyond the retained list above.
+fn core_office_module(source: &Source) -> Option<String> {
+    if !["tmt-core", "tmt-adapters", "tmt-cli", "tmt-command-output"]
+        .contains(&source.package.as_str())
+    {
+        return None;
+    }
+    let module = source.file.split(['/', '.']).next()?;
+    (module.starts_with("office_") && !CORE_OFFICE_MODULES.contains(&module)).then(|| {
+        format!(
+            "{}/{}: core crates cannot declare Office module {module}",
+            source.package, source.file
+        )
+    })
 }
 
 pub fn source_violations(sources: &[Source]) -> Vec<String> {
@@ -333,6 +375,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             }
         }
     }
+    violations.extend(sources.iter().filter_map(core_office_module));
     for (source, facts) in sources.iter().zip(&facts) {
         let location = format!("{}/{}", source.package, source.file);
         if ["tmt-core", "tmt-adapters", "tmt-cli"].contains(&source.package.as_str()) {
