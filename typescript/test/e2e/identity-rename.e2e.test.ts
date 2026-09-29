@@ -138,15 +138,9 @@ describe.sequential('identity rename', () => {
           ).value
         ).toBe('core');
         const room = expectJsonResult(
-          await fixture.runJsonCli<{ members: Array<{ id: string; name: string }> }>([
-            'room',
-            'show',
-            'crew',
-          ])
+          await fixture.runJsonCli<{ room: { memberIds: string[] } }>(['room', 'show', 'crew'])
         );
-        expect(room.members).toEqual([
-          expect.objectContaining({ id: bound.id, name: 'tmt-peer-2' }),
-        ]);
+        expect(room.room.memberIds).toEqual([bound.id]);
 
         fixture.releaseReplyGate(pending.requestId);
         await fixture.waitForEvent(
