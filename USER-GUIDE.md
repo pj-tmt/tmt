@@ -492,6 +492,21 @@ panes     = ["rows", "notes"]  # also detail, replies; rows is required
 sizes     = [60, 40]           # split only: one percentage per pane, total 100
 ```
 
+Those keys are the simple form of a split. For panes within panes, give the
+split itself as `layout` instead (not together with `direction`, `panes` or
+`sizes`): a split is a row or column of panes, each a pane name or another
+split, up to three levels deep. `sizes` gives each child a percentage, or a
+`{ grow = n }` share of what the percentages leave; without `sizes` the
+children share the split equally. Tab moves through the panes in reading order.
+
+```toml
+[squad.product.board]
+layout = { direction = "left-right", sizes = [60, 40], panes = [
+  "rows",
+  { direction = "top-bottom", sizes = [40, { grow = 1 }], panes = ["detail", "notes"] },
+] }
+```
+
 Tab moves between panes (or tabs). Every pane scrolls the same way: the mouse
 wheel scrolls the pane under the pointer, whichever has focus; ↑/↓ (or j/k)
 scroll a focused notes, detail or replies pane, and move the selection in the

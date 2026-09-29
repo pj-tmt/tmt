@@ -837,12 +837,12 @@ pub(crate) mod tests {
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
             colors: BTreeMap::new(),
-            board: crate::config::Board {
-                mode: crate::config::BoardMode::Split,
-                direction: crate::config::Direction::LeftRight,
-                panes: vec![crate::config::Pane::Rows],
-                sizes: vec![100],
-            },
+            board: crate::config::Board::simple(
+                crate::config::BoardMode::Split,
+                crate::config::Direction::LeftRight,
+                vec![crate::config::Pane::Rows],
+                &[100],
+            ),
             notes: super::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
             bindings: crate::action::preset(true),
