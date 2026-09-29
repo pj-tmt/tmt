@@ -2,6 +2,20 @@
 
 pub use tmt_command_output::{Failure, after_cleanup, identity_document, identity_missing};
 
+/// One shell word for a command a hint prints: plain when safe, otherwise
+/// single-quoted, so a name or ID pastes back exactly.
+pub fn shell_word(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
+    {
+        value.into()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
 /// The remembered session projection shared by `identity show` and
 /// `ls --json`. It is additive: the `resume` key appears only while a session
 /// is remembered. The model comes from the session's own driver; core never
@@ -19,4 +33,16 @@ pub fn resume_document(
             "staleAtMs": session.stale_at_ms,
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shell_word;
+
+    #[test]
+    fn shell_words_preserve_exact_opaque_values() {
+        assert_eq!(shell_word("request-id"), "request-id");
+        assert_eq!(shell_word("identity with space"), "'identity with space'");
+        assert_eq!(shell_word("owner's"), "'owner'\\''s'");
+    }
 }

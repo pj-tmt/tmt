@@ -84,6 +84,16 @@ fn renaming_to_the_current_name_changes_nothing() {
     assert_eq!(document(&report)["renamed"], false);
     assert_eq!(
         human(&report),
-        ("✓ Ada already has this name\n".into(), String::new())
+        ("Ada already has this name\n".into(), String::new())
+    );
+}
+
+#[test]
+fn the_refresh_hint_quotes_a_name_the_shell_would_split() {
+    let report = renamed("Alice", "Code Reviewer", Some(("%3", PaneRefresh::Failed)));
+    assert!(
+        human(&report)
+            .1
+            .ends_with("hint: In pane %3, run: tmt this 'Code Reviewer'\n")
     );
 }

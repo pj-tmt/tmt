@@ -92,21 +92,9 @@ fn participant_document(
     }
 }
 
-pub(super) fn shell_word(value: &str) -> String {
-    if !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
-    {
-        value.into()
-    } else {
-        format!("'{}'", value.replace('\'', "'\\''"))
-    }
-}
-
 fn follow_up_commands(item: &IncomingItem, identity: &Identity) -> (String, String) {
-    let request = shell_word(&item.exchange.request_id);
-    let selector = shell_word(&identity.canonical_name);
+    let request = crate::output::shell_word(&item.exchange.request_id);
+    let selector = crate::output::shell_word(&identity.canonical_name);
     let qualifier = match item.kind {
         tmt_core::request::attention::IncomingKind::Request
         | tmt_core::request::attention::IncomingKind::Announcement => " --incoming",
@@ -332,7 +320,7 @@ pub(super) fn execute(
 
 #[cfg(test)]
 mod tests {
-    use super::{Step, Timing, shell_word};
+    use super::{Step, Timing};
     use std::time::Duration;
 
     fn seconds(value: u64) -> Duration {
@@ -387,12 +375,5 @@ mod tests {
         assert!(matches!(cleared.step(seconds(5), 0), Step::Wait(_)));
         assert!(matches!(cleared.step(seconds(6), 4), Step::Wait(_)));
         assert_eq!(cleared.step(seconds(16), 4), Step::Finish);
-    }
-
-    #[test]
-    fn follow_up_shell_words_preserve_exact_opaque_values() {
-        assert_eq!(shell_word("request-id"), "request-id");
-        assert_eq!(shell_word("identity with space"), "'identity with space'");
-        assert_eq!(shell_word("owner's"), "'owner'\\''s'");
     }
 }

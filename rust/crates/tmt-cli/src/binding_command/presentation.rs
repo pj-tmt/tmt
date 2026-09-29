@@ -383,10 +383,10 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                 result.previous.name, result.identity.name
             ),
         ),
-        Report::Renamed { result, .. } => message::success(
+        Report::Renamed { result, .. } => writeln!(
             output,
-            terminal,
-            &format!("{} already has this name", result.identity.name),
+            "{} already has this name",
+            tmt_cli_style::table::escape(&result.identity.name)
         ),
         Report::Bound(result) => message::success(
             output,
@@ -505,7 +505,7 @@ pub(super) fn warnings(
             ),
             Some(&format!(
                 "In pane {pane}, run: tmt this {}",
-                result.identity.name
+                crate::output::shell_word(&result.identity.name)
             )),
         ),
         _ => Ok(()),
