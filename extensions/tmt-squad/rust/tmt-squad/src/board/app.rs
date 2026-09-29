@@ -457,7 +457,7 @@ impl App {
         };
         if view.me.is_none() {
             return self.say(
-                "Record which saved identity is you first: tmt squad init <squad> --me <name>.",
+                "Who is sending? Record yourself with tmt squad me <name>, or open the board from your named pane.",
             );
         }
         let name = row["name"].as_str().unwrap_or_default().to_owned();
@@ -893,7 +893,7 @@ pub(crate) mod tests {
             app.notice
                 .as_deref()
                 .unwrap()
-                .starts_with("Record which saved identity is you"),
+                .starts_with("Who is sending? Record yourself with tmt squad me"),
             "sending needs me"
         );
         assert_eq!(press(&mut app, KeyCode::Char('x')), Effect::None);

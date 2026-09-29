@@ -210,8 +210,15 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
         })
         .collect();
     let _ = list::write(&mut output, terminal, &list);
+    if document.get("you").is_some_and(Value::is_null) {
+        let _ = writeln!(output, "\n{}", terminal.paint(Token::Dim, UNKNOWN_YOU));
+    }
     String::from_utf8(output).unwrap_or_default()
 }
+
+/// Shown when no one is "you": ◆ for requests needs a recorded identity or a
+/// saved identity bound to the calling pane.
+pub const UNKNOWN_YOU: &str = "◆ needs to know who you are: tmt squad me <name>";
 
 #[cfg(test)]
 mod tests {

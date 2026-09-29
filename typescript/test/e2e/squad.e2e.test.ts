@@ -97,6 +97,30 @@ describe.sequential('squad on a private tmux server', () => {
     });
   });
 
+  it('acts as the calling pane’s identity, and as the recorded user from an unnamed pane', async () => {
+    await withE2EFixture(async (fixture) => {
+      await squadWithMember(fixture);
+      const lead = fixture.createShellPane('lead');
+      expectJsonResult(await fixture.runJsonCli(['add', '--save', lead.pane, 'Sol']));
+      const unnamed = fixture.createShellPane('unnamed');
+      const talk = async (pane: string, file: string) => {
+        const out = path.join(fixture.root, file);
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          pane,
+          `tmt squad talk auth-fix 'rebase first' --json > '${out}'; echo TALK_EXIT=$?`,
+          'Enter',
+        ]);
+        await fixture.waitForCapture((screen) => screen.includes('TALK_EXIT=0'), pane);
+        return JSON.parse(fs.readFileSync(out, 'utf8')) as { as: string };
+      };
+      // me is Ben, yet the lead's own pane speaks as the lead.
+      expect((await talk(lead.pane, 'lead.json')).as).toBe('Sol');
+      expect((await talk(unnamed.pane, 'unnamed.json')).as).toBe('Ben');
+    });
+  });
+
   it('closes a --popup board after its jump and keeps the pane board open', async () => {
     await withE2EFixture(async (fixture) => {
       const member = await squadWithMember(fixture);

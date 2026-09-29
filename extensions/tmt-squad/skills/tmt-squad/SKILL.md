@@ -62,6 +62,8 @@ tmt squad remove <name>                       # leaves the squad; the agent keep
   failure, re-run it with the same pairs.
 - Removing a member clears its fields for this squad only. Its requests and
   notes keep the history.
+- `tmt squad talk`, `annotate`, `reply` and `replies` act as you: the identity
+  of the pane you run in (or `--identity <name>`), never as the user.
 
 ## Annotations from the user
 
@@ -73,9 +75,9 @@ to it, because that is how the user sees you handled it.
 ## Configuration belongs to the user
 
 `squad.toml` sits in TMT's global configuration directory, next to
-`config.json` (`tmt config show` prints that path). It holds `me` (the user's
-saved identity) and `me_id` (its UUID, which lets `me` follow a rename; squad
-maintains it), each squad's `layout`, the board panes, sections, columns,
+`config.json` (`tmt config show` prints that path). It may hold `me` (the
+user's saved identity, recorded with `tmt squad me <name>`) and `me_id` (its
+UUID, which lets `me` follow a rename; squad maintains it), each squad's `layout`, the board panes, sections, columns,
 states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
 apply them.

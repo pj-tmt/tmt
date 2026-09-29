@@ -7,7 +7,6 @@ use crate::{
     squad::{self, Squad, name_invalid, valid_name},
 };
 use serde_json::{Value, json};
-use std::io::{BufRead, Write};
 
 /// A command result plus whether every requested change was applied.
 pub struct Outcome {
@@ -71,73 +70,18 @@ fn fields(core: &Core, squad: &Squad, id: &str) -> Result<Vec<String>, SquadErro
         .collect())
 }
 
-/// Asks which saved identity is the user; only on an interactive terminal.
-fn prompt_me(core: &Core) -> Result<String, SquadError> {
-    let listed = core.json(&["identity", "list"])?;
-    let saved: Vec<&str> = listed["identities"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|identity| identity["lifetime"] == "saved")
-        .filter_map(|identity| identity["name"].as_str())
-        .collect();
-    let mut stderr = tmt_cli_style::stream::stderr();
-    let _ = writeln!(
-        stderr,
-        "Which saved identity is you? It receives what members need from you."
-    );
-    let _ = writeln!(
-        stderr,
-        "Saved identities: {}",
-        if saved.is_empty() {
-            "(none yet)".into()
-        } else {
-            saved.join(", ")
-        }
-    );
-    let _ = write!(stderr, "me = ");
-    let _ = stderr.flush();
-    drop(stderr);
-    let mut line = String::new();
-    std::io::stdin()
-        .lock()
-        .read_line(&mut line)
-        .map_err(|_| SquadError::new("SQUAD_ME_REQUIRED", "No answer was read."))?;
-    let answer = line.trim();
-    if answer.is_empty() {
-        return Err(SquadError::new(
-            "SQUAD_ME_REQUIRED",
-            "No identity was chosen.",
-        ));
-    }
-    Ok(answer.into())
-}
-
+/// Creates the squad's room and nothing else; it never asks. `--me` (for
+/// scripts) is checked before any effect, so a bad name changes nothing.
 pub fn init(
     core: &Core,
     config: &mut Config,
     name: &str,
     me: Option<&str>,
-    interactive: bool,
 ) -> Result<Outcome, SquadError> {
     if !valid_name(name) {
         return Err(name_invalid(name));
     }
-    // Settle `me` before any effect: an unanswerable question changes nothing.
-    let chosen = match (me, config.me()?) {
-        (Some(requested), _) => Some(saved(core, requested)?),
-        (None, Some(_)) => None,
-        (None, None) if interactive => Some(saved(core, &prompt_me(core)?)?),
-        (None, None) => {
-            return Err(SquadError::new(
-                "SQUAD_ME_REQUIRED",
-                format!(
-                    "Set the user's saved identity: tmt squad init {name} --me <name> (recorded in {}).",
-                    config.path().display()
-                ),
-            ));
-        }
-    };
+    let chosen = me.map(|requested| saved(core, requested)).transpose()?;
     let room = squad::room_name(name);
     let (shown, created) = match core.json(&["room", "show", &room]) {
         Ok(shown) => (shown, false),

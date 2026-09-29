@@ -93,6 +93,12 @@ impl Core {
             })
     }
 
+    /// A given executable, for tests that stand a script in for tmt.
+    #[cfg(test)]
+    pub fn at(executable: PathBuf) -> Self {
+        Self { executable }
+    }
+
     /// The tmt this invocation reaches, as extension dispatch supplied it.
     pub fn executable(&self) -> &Path {
         &self.executable

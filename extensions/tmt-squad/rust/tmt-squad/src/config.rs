@@ -871,6 +871,15 @@ impl Config {
     /// atomically. Refuses if another editor changed the file since it was
     /// read, rather than overwriting their edit.
     pub fn set_me(&mut self, name: &str, id: &str) -> Result<(), SquadError> {
+        self.write_me(Some((name, id)))
+    }
+
+    /// Removes `me` and `me_id` the same way; the rest of the file is kept.
+    pub fn clear_me(&mut self) -> Result<(), SquadError> {
+        self.write_me(None)
+    }
+
+    fn write_me(&mut self, me: Option<(&str, &str)>) -> Result<(), SquadError> {
         let current = read_bounded(&self.path).map_err(|error| write_failed(&self.path, error))?;
         if current != self.original {
             return Err(SquadError::new(
@@ -881,14 +890,22 @@ impl Config {
                 ),
             ));
         }
-        self.document.insert(
-            "me",
-            Item::Value(value(name).into_value().expect("string value")),
-        );
-        self.document.insert(
-            "me_id",
-            Item::Value(value(id).into_value().expect("string value")),
-        );
+        match me {
+            Some((name, id)) => {
+                self.document.insert(
+                    "me",
+                    Item::Value(value(name).into_value().expect("string value")),
+                );
+                self.document.insert(
+                    "me_id",
+                    Item::Value(value(id).into_value().expect("string value")),
+                );
+            }
+            None => {
+                self.document.remove("me");
+                self.document.remove("me_id");
+            }
+        }
         let bytes = self.document.to_string().into_bytes();
         publish(&self.path, &bytes).map_err(|error| write_failed(&self.path, error))?;
         self.original = Some(bytes);
@@ -997,6 +1014,27 @@ mod tests {
             "SQUAD_CONFIG_CHANGED"
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), "me = \"Someone\"\n");
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn clearing_me_removes_only_me_and_its_id() {
+        let path = temp("clear-me");
+        let user = "# my board\n[squad.product]\nlayout = \"pr-queue\" # queue\n";
+        fs::write(
+            &path,
+            format!("me = \"ada\"\nme_id = \"7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f\"\n{user}"),
+        )
+        .unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        config.clear_me().unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), user);
+        let reread = Config::read(path.clone()).unwrap();
+        assert_eq!(
+            (reread.me().unwrap(), reread.me_id().unwrap()),
+            (None, None)
+        );
+        assert_eq!(reread.layout("product").unwrap(), Layout::PrQueue);
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 

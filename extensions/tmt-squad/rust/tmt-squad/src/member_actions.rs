@@ -131,19 +131,21 @@ pub fn copy(
     )
 }
 
-/// `tmt squad talk <member> <text>`: a detached request in the squad room.
+/// `tmt squad talk <member> <text>`: a detached request in the squad room,
+/// sent as the resolved sender (`--identity`, the caller, then the user).
 pub fn talk(
     core: &Core,
     squad: &Squad,
     config: &mut Config,
+    identity: Option<&str>,
     name: &str,
     text: &str,
 ) -> Result<Outcome, SquadError> {
-    let me = crate::me::required(core, config)?;
+    let me = crate::me::resolve_sender(core, config, identity)?;
     row(core, squad, config, name)?;
     let request = send::talk(core, &squad.name, &me.name, name, text)?;
     Ok(
-        json!({"requestId": request, "to": name, "room": crate::squad::room_name(&squad.name)})
+        json!({"requestId": request, "to": name, "as": me.name, "room": crate::squad::room_name(&squad.name)})
             .into(),
     )
 }
@@ -154,11 +156,12 @@ pub fn annotate(
     core: &Core,
     squad: &Squad,
     config: &mut Config,
+    identity: Option<&str>,
     name: &str,
     to_lead: bool,
     text: &str,
 ) -> Result<Outcome, SquadError> {
-    let me = crate::me::required(core, config)?;
+    let me = crate::me::resolve_sender(core, config, identity)?;
     let document = document(core, squad, config)?;
     let lead = document["squad"]["lead"]["name"]
         .as_str()
@@ -170,13 +173,18 @@ pub fn annotate(
         name.to_owned()
     };
     let request = send::annotate(core, &squad.name, &me.name, &to, name, text)?;
-    Ok(json!({"requestId": request, "to": to, "row": name, "room": crate::squad::room_name(&squad.name)}).into())
+    Ok(json!({"requestId": request, "to": to, "as": me.name, "row": name, "room": crate::squad::room_name(&squad.name)}).into())
 }
 
-/// `tmt squad replies`: finals to the user's requests in the squad room,
+/// `tmt squad replies`: finals to the sender's requests in the squad room,
 /// newest first, with bodies for the newest few. Reading acknowledges nothing.
-pub fn replies(core: &Core, squad: &Squad, config: &mut Config) -> Result<Outcome, SquadError> {
-    let me = crate::me::required(core, config)?;
+pub fn replies(
+    core: &Core,
+    squad: &Squad,
+    config: &mut Config,
+    identity: Option<&str>,
+) -> Result<Outcome, SquadError> {
+    let me = crate::me::resolve_sender(core, config, identity)?;
     let mut document = document(core, squad, config)?;
     let sent = requests::overlay(core, squad, Some(&me), &mut document)?.expect("me is set");
     let mut replies = requests::replies(&sent, &document);
@@ -195,17 +203,18 @@ pub fn replies(core: &Core, squad: &Squad, config: &mut Config) -> Result<Outcom
 }
 
 /// `tmt squad reply <member> <text> [--request <id>]`: answers what the
-/// member is waiting on the user for. With several open requests the user
-/// chooses; the newest is never assumed.
+/// member is waiting on the sender for. With several open requests the
+/// sender chooses; the newest is never assumed.
 pub fn answer(
     core: &Core,
     squad: &Squad,
     config: &mut Config,
+    identity: Option<&str>,
     name: &str,
     request: Option<&str>,
     text: &str,
 ) -> Result<Outcome, SquadError> {
-    let me = crate::me::required(core, config)?;
+    let me = crate::me::resolve_sender(core, config, identity)?;
     let mut document = document(core, squad, config)?;
     requests::overlay(core, squad, Some(&me), &mut document)?;
     let row = find(document, squad, name)?;
@@ -233,5 +242,5 @@ pub fn answer(
         }
     };
     send::answer(core, &me.name, chosen, text)?;
-    Ok(json!({"requestId": chosen, "from": name, "replied": true}).into())
+    Ok(json!({"requestId": chosen, "from": name, "as": me.name, "replied": true}).into())
 }

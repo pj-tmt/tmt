@@ -217,9 +217,9 @@ describe('squad extension', () => {
       expect(edited.stderr).toContain(
         "warning: squad.toml named 'rin' as you, but me_id is ada-3; still acting as ada-3"
       );
-      expect(edited.stderr).toContain('hint: tmt squad init <squad> --me rin');
+      expect(edited.stderr).toContain('hint: tmt squad me rin');
       expect(me()).toEqual({ me: 'ada-3', id: ada });
-      expect((await squad(sandbox, ['init', 'product', '--me', 'rin'])).status).toBe(0);
+      expect((await squad(sandbox, ['me', 'rin'])).status).toBe(0);
       expect(me()).toEqual({ me: 'rin', id: rin });
 
       // Hooks on: the rename observation follows the user at once.
@@ -239,33 +239,156 @@ describe('squad extension', () => {
     });
   });
 
-  it('initializes only after settling who the user is, preserving squad.toml', async () => {
+  it('initializes without asking; --me records the user only after it resolves', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       await identity(sandbox, 'Ben');
       const squadToml = path.join(sandbox.globalDir, 'squad.toml');
 
-      const refused = await squad(sandbox, ['init', 'product']);
-      expect(refused).toMatchObject({ status: 1, body: { error: { code: 'SQUAD_ME_REQUIRED' } } });
-      expect(observe(sandbox).rooms).toEqual([]);
+      // No --me and no terminal question: the room exists, squad.toml does not.
+      const created = await squad(sandbox, ['init', 'product']);
+      expect(created).toMatchObject({ status: 0, body: { created: true, me: null } });
+      expect(observe(sandbox).rooms).toEqual([{ name: 'squad-product', retired: 0 }]);
       expect(existsSync(squadToml)).toBe(false);
-      const unknown = await squad(sandbox, ['init', 'product', '--me', 'Nobody']);
+      const text = await runCli(sandbox, ['sq', 'init', 'reviews']);
+      expect(text).toMatchObject({ status: 0, stderr: '' });
+      expect(text.stdout).toBe('✓ Created squad reviews (room squad-reviews)\n');
+
+      // --me is checked before any effect.
+      const unknown = await squad(sandbox, ['init', 'docs', '--me', 'Nobody']);
       expect(unknown.body.error.code).toBe('NAME_NOT_FOUND');
       expect((await squad(sandbox, ['init', 'Product', '--me', 'Ben'])).body.error.code).toBe(
         'SQUAD_NAME_INVALID'
       );
+      expect(observe(sandbox).rooms.map((room) => room.name)).toEqual([
+        'squad-product',
+        'squad-reviews',
+      ]);
 
       const userText = '# mine\n[squad.product]\nlayout = "crew" # keep\n';
       writeFileSync(squadToml, userText);
-      const created = await squad(sandbox, ['init', 'product', '--me', 'Ben']);
-      expect(created).toMatchObject({ status: 0, body: { created: true, me: 'Ben' } });
+      const recorded = await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      expect(recorded).toMatchObject({ status: 0, body: { created: false, me: 'Ben' } });
       const written = readFileSync(squadToml, 'utf8');
       expect(written).toContain(userText);
       expect(written).toContain('me = "Ben"');
       const again = await squad(sandbox, ['init', 'product']);
       expect(again).toMatchObject({ status: 0, body: { created: false, me: 'Ben' } });
       expect(readFileSync(squadToml, 'utf8')).toBe(written);
-      expect(observe(sandbox).rooms).toEqual([{ name: 'squad-product', retired: 0 }]);
+    });
+  });
+
+  it('shows, records and clears who you are with sq me, never asking', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const ben = await identity(sandbox, 'Ben');
+      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      await squad(sandbox, ['init', 'product']);
+
+      // Nobody yet: outside a pane, nothing is recorded or derived.
+      const nobody = await squad(sandbox, ['me']);
+      expect(nobody.body).toMatchObject({ action: 'show', me: null, source: null });
+      const nobodyText = await runCli(sandbox, ['sq', 'me']);
+      expect(nobodyText.stdout).toBe(
+        'No identity is recorded as you, and this pane has no saved identity.\nhint: tmt squad me <name>\n'
+      );
+      const status = await squad(sandbox, ['status']);
+      expect(status.body.you).toBeNull();
+      expect((await runCli(sandbox, ['sq', 'status'])).stdout).toContain(
+        '◆ needs to know who you are: tmt squad me <name>'
+      );
+
+      // Recording needs a saved identity and changes nothing else.
+      const set = await squad(sandbox, ['me', 'Ben']);
+      expect(set.body).toMatchObject({
+        action: 'set',
+        me: { id: ben, name: 'Ben' },
+        source: 'recorded',
+        path: squadToml,
+      });
+      expect(readFileSync(squadToml, 'utf8')).toBe(`me = "Ben"\nme_id = "${ben}"\n`);
+      const shown = await runCli(sandbox, ['sq', 'me']);
+      expect(shown.stdout).toBe(`You are Ben (recorded in ${squadToml}).\n`);
+      expect((await squad(sandbox, ['status'])).body.you).toEqual({
+        id: ben,
+        name: 'Ben',
+        source: 'recorded',
+      });
+      expect((await runCli(sandbox, ['sq', 'status'])).stdout).not.toContain('◆ needs');
+      const missing = await squad(sandbox, ['me', 'Nobody']);
+      expect(missing.body.error.code).toBe('NAME_NOT_FOUND');
+
+      const cleared = await squad(sandbox, ['me', '--clear']);
+      expect(cleared.body).toMatchObject({ action: 'clear', changed: true, me: null });
+      expect(readFileSync(squadToml, 'utf8')).toBe('');
+      const repeat = await runCli(sandbox, ['sq', 'me', '--clear']);
+      expect(repeat.stdout).toBe('No identity was recorded; nothing changed.\n');
+      const both = await runCli(sandbox, ['sq', 'me', 'Ben', '--clear']);
+      expect(both.status).toBe(2);
+    });
+  });
+
+  it('sends as --identity, else the recorded user, else refuses in one line', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const ids: Record<string, string> = {};
+      for (const name of ['Ben', 'Sol', 'auth-fix']) ids[name] = await identity(sandbox, name);
+      await squad(sandbox, ['init', 'product']);
+      await squad(sandbox, ['lead', 'Sol']);
+      await squad(sandbox, ['add', 'auth-fix']);
+      const api = async (operation: string, input: object) =>
+        JSON.parse(
+          (
+            await runCli(sandbox, ['api'], {
+              stdin: JSON.stringify({ version: 1, operation, input }),
+            })
+          ).stdout
+        );
+      const sender = async (requestId: string) =>
+        (await api('requests.show', { requestId })).sender.identityId;
+      const requests = async () =>
+        (await api('requests.list', { recipientId: ids['auth-fix'], limit: 50 })).items.length;
+
+      // No pane identity and no recorded user: nothing is sent.
+      for (const args of [
+        ['talk', 'auth-fix', 'hello'],
+        ['annotate', 'auth-fix', 'split it'],
+        ['reply', 'auth-fix', 'yes'],
+        ['replies'],
+      ]) {
+        const refused = await squad(sandbox, args);
+        expect(refused, args.join(' ')).toMatchObject({
+          status: 1,
+          body: { error: { code: 'SQUAD_SENDER_UNKNOWN' } },
+        });
+      }
+      expect(await requests()).toBe(0);
+      const text = await runCli(sandbox, ['sq', 'talk', 'auth-fix', 'hello']);
+      expect(text.stderr).toBe(
+        'error: Who is sending? This pane has no identity, and no user is recorded\n' +
+          'hint: Name this pane with tmt this <name>, or record yourself with tmt squad me <name>\n'
+      );
+
+      // An explicit identity speaks for itself, even with a user recorded.
+      await squad(sandbox, ['me', 'Ben']);
+      const asLead = await squad(sandbox, [
+        'talk',
+        'auth-fix',
+        'rebase first',
+        '--identity',
+        'Sol',
+      ]);
+      expect(asLead.body).toMatchObject({ to: 'auth-fix', as: 'Sol' });
+      expect(await sender(asLead.body.requestId)).toBe(ids.Sol);
+      const unknown = await squad(sandbox, ['talk', 'auth-fix', 'x', '--identity', 'Nobody']);
+      expect(unknown.body.error.code).toBe('NAME_NOT_FOUND');
+
+      // Without one, the recorded user sends.
+      const asUser = await runCli(sandbox, ['sq', 'talk', 'auth-fix', 'status?']);
+      expect(asUser.stdout).toMatch(/^✓ Sent to auth-fix as Ben \(req_[0-9a-f-]+\)\n$/);
+      const annotated = await squad(sandbox, ['annotate', 'auth-fix', 'split it']);
+      expect(annotated.body).toMatchObject({ to: 'Sol', as: 'Ben' });
+      expect(await sender(annotated.body.requestId)).toBe(ids.Ben);
     });
   });
 
@@ -750,7 +873,12 @@ sort = ["-name"]
       expect(stranger.body.error.code).toBe('SQUAD_ACTION_REFUSED');
 
       const chosen = await squad(sandbox, ['reply', 'auth-fix', '-postgres', '--request', asks[0]]);
-      expect(chosen.body).toEqual({ requestId: asks[0], from: 'auth-fix', replied: true });
+      expect(chosen.body).toEqual({
+        requestId: asks[0],
+        from: 'auth-fix',
+        as: 'Ben',
+        replied: true,
+      });
       const result = JSON.parse((await runCli(sandbox, ['result', asks[0], '--json'])).stdout);
       expect(JSON.stringify(result)).toContain('-postgres');
       const only = await squad(sandbox, ['reply', 'auth-fix', 'yes']);
