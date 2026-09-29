@@ -5,7 +5,7 @@ use super::{
 };
 use crate::retirement::OfficeRetirementFence;
 use rusqlite::Connection;
-use tmt_adapters::office_pairing::RetirementFence;
+use tmt_office_pairing::office_pairing::RetirementFence;
 
 const UNKNOWN: &str = "99999999-9999-4999-8999-999999999999";
 

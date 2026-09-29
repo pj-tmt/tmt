@@ -14,10 +14,10 @@ use rusqlite::OptionalExtension;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tmt_adapters::{
     config::ConfigPaths,
-    office_pairing::RetirementFence,
     storage::{StorageError, classify},
 };
 use tmt_office_model::office_protocol::OfficeError;
+use tmt_office_pairing::office_pairing::RetirementFence;
 
 impl OfficeStore {
     pub(crate) fn has_retirement_marker(&self, identity_id: &str) -> Result<bool, StorageError> {

@@ -694,8 +694,9 @@ with `tmt --json identity show -- <uuid>` (accepting only the exact UUID) and
 pair-poll's claim reservation and completion, and the refresh and renewal on
 inspect and block operations) passes the fence under the same lock; only unpair
 and the consumer's own refresh, which reduce authority, are exempt, and a test
-pins those sites. Known debt owned by #355: the `office_pairing` module still living in `tmt-adapters`, and removing the
-retained Office rows and fences from core. The migration coordinator is the single
+pins those sites. Known debt owned by #355: the remaining `office_*` modules in
+`tmt-adapters` (the architecture guard lists them and rejects any new one), and
+removing the retained Office rows and fences from core. The migration coordinator is the single
 documented exception that opens the legacy core database (see below); it is a
 legacy path, removed after the release that stops shipping schema ≤ 35 upgrades.
 
@@ -773,10 +774,11 @@ for two exact-code mappings to existing Office semantics: `whoami`'s
 `INVALID_NAME` becomes `NAME_NOT_FOUND`. Neither mapping retries or changes targets.
 The executable is independently versioned and
 exposes the compatibility probe and typed one-shot pairing/status/inspect/sync operations.
-It depends on core and the existing adapters, not the CLI. Its adapter `office`
-feature owns validated deployment decoding, bounded HTTP, protected pairing
-records and explicit platform credential stores; ordinary CLI builds do not enable
-that feature. Serde derives reject duplicate/unknown descriptor fields; the URL
+It depends on core and the existing adapters, not the CLI.
+`extensions/tmt-office/rust/tmt-office-pairing` owns validated deployment decoding,
+bounded HTTP, protected pairing records and explicit platform credential stores
+(`office_deployment`, `office_http`, `office_pairing`); no core crate depends on it,
+so the CLI never links the credential-store backends. Serde derives reject duplicate/unknown descriptor fields; the URL
 Standard library matches browser URL interpretation instead of introducing a
 handwritten parser. Neither dependency enters core. The probe acquires no
 credentials or network data. `tmt-office-model::office_protocol` owns the fixed typed

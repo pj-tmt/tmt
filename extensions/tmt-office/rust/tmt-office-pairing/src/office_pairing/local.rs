@@ -1,10 +1,6 @@
 //! Nonsecret stable installation identity. Binding/secret state belongs to the vault.
 
 use super::{OfficeError, wire::valid_uuid};
-use crate::bounded_file;
-use crate::bounded_file::FileReadError;
-use crate::config::ConfigPaths;
-use crate::file_lock;
 use crate::office_deployment::WorldTarget;
 use std::{
     fs::{self, File, OpenOptions},
@@ -12,6 +8,10 @@ use std::{
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::PathBuf,
 };
+use tmt_adapters::bounded_file;
+use tmt_adapters::bounded_file::FileReadError;
+use tmt_adapters::config::ConfigPaths;
+use tmt_adapters::file_lock;
 use tmt_core::content_digest::sha256;
 
 pub struct OfficeInstallation {

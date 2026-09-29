@@ -4,13 +4,11 @@ use super::{
     AgentCredential, Approval, OfficeError, OfficeInstallation, PairingCore, PairingIdentity,
     PairingRecord, Proof, ProtectedEntry, RetirementFence, claim_pairing, fence::write_authority,
 };
-use crate::{
-    config::ConfigPaths,
-    office_deployment::{DeploymentMode, OfficeDeployment, WorldTarget},
-};
+use crate::office_deployment::{DeploymentMode, OfficeDeployment, WorldTarget};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tmt_adapters::config::ConfigPaths;
 use tmt_office_model::office_protocol::OfficeInvocation;
 
 #[derive(Deserialize)]

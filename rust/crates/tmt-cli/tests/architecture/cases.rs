@@ -1003,3 +1003,36 @@ fn squad_and_core_are_independent_in_both_directions() {
         &["tmt-cli/extra.rs: no package may depend on the squad extension: tmt_squad::status"],
     );
 }
+
+#[test]
+fn core_crates_cannot_add_office_modules() {
+    let empty = "";
+    // Retained modules stay allowed until #355 moves them out.
+    assert_exact(&[syntax("tmt-adapters", "office_companion.rs", empty)], &[]);
+    assert_exact(
+        &[syntax("tmt-adapters", "office_world/reply.rs", empty)],
+        &[],
+    );
+    // Moved or new Office modules cannot return to a core crate.
+    assert_exact(
+        &[syntax("tmt-adapters", "office_pairing.rs", empty)],
+        &[
+            "tmt-adapters/office_pairing.rs: core crates cannot declare Office module office_pairing",
+        ],
+    );
+    assert_exact(
+        &[syntax("tmt-adapters", "office_http/client.rs", empty)],
+        &[
+            "tmt-adapters/office_http/client.rs: core crates cannot declare Office module office_http",
+        ],
+    );
+    assert_exact(
+        &[syntax("tmt-core", "office_new.rs", empty)],
+        &["tmt-core/office_new.rs: core crates cannot declare Office module office_new"],
+    );
+    // Extension crates own their Office modules.
+    assert_exact(
+        &[syntax("tmt-office-pairing", "office_pairing.rs", empty)],
+        &[],
+    );
+}

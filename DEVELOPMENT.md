@@ -355,9 +355,8 @@ does not load service dependencies through E2E fixtures. The Docker browser
 target runs both package checks and this explicit E2E type check on Node 22.
 
 For in-progress native deployment discovery, run
-`cargo test --locked --workspace office_deployment` from `rust/` (or select
-`-p tmt-adapters --features office office_deployment`). The optional Office feature
-is not enabled by the native-only tmux fixture. These tests verify literal
+`cargo test --locked -p tmt-office-pairing office_deployment` from `rust/`.
+These tests verify literal
 browser/native descriptor conformance, strict URL/JSON validation and bounded
 unauthenticated HTTP; they do not prove native pairing or protected credentials.
 `deployment.spec.ts` checks the actual built emulator descriptor and unavailable

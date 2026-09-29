@@ -2335,11 +2335,8 @@ dependencies = [
 name = "tmt-adapters"
 version = "5.0.0-alpha.7"
 dependencies = [
- "apple-native-keyring-store",
  "base64 0.22.1",
  "flate2",
- "getrandom 0.4.3",
- "keyring-core",
  "nix",
  "png",
  "rcgen",
@@ -2355,9 +2352,7 @@ dependencies = [
  "tmt-core",
  "tmt-office-model",
  "ureq",
- "url",
  "uuid",
- "zbus-secret-service-keyring-store",
 ]
 
 [[package]]
@@ -2413,6 +2408,7 @@ dependencies = [
  "tmt-core",
  "tmt-office-command",
  "tmt-office-model",
+ "tmt-office-pairing",
  "tmt-office-storage",
  "uuid",
 ]
@@ -2445,6 +2441,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-office-pairing"
+version = "5.0.0-alpha.7"
+dependencies = [
+ "apple-native-keyring-store",
+ "base64 0.22.1",
+ "getrandom 0.4.3",
+ "keyring-core",
+ "serde",
+ "serde_json",
+ "tmt-adapters",
+ "tmt-core",
+ "tmt-office-model",
+ "ureq",
+ "url",
+ "uuid",
+ "zbus-secret-service-keyring-store",
+]
+
+[[package]]
 name = "tmt-office-storage"
 version = "5.0.0-alpha.7"
 dependencies = [
@@ -2458,6 +2473,7 @@ dependencies = [
  "tmt-adapters",
  "tmt-core",
  "tmt-office-model",
+ "tmt-office-pairing",
  "uuid",
 ]
 
