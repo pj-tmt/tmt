@@ -1,7 +1,7 @@
 //! Read-only, fixed-provider inspection. Never scan custom installation intents
 //! or executable search paths on ordinary commands.
 
-use super::{ProviderEnvironment, assets::SkillAssets, files, managed_link};
+use super::{ProviderEnvironment, assets::SkillAssets, files, managed_link, owned::owned_drift};
 use std::{
     collections::BTreeSet,
     io,
@@ -10,7 +10,8 @@ use std::{
 use tmt_core::skill_provider::Provider;
 
 pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Result<Vec<PathBuf>> {
-    let assets = SkillAssets::new(&files::resolved(global)?);
+    let global = files::resolved(global)?;
+    let assets = SkillAssets::new(&global);
     let current = assets.source();
     let inbox_current = assets.inbox_source();
     let office_current = assets.office_source();
@@ -55,6 +56,11 @@ pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Resu
             if legacy || managed_link(&path, &assets)?.as_ref() != Some(expected) {
                 drift.push(path);
             }
+        }
+    }
+    for path in owned_drift(env, &global)? {
+        if seen.insert(path.clone()) {
+            drift.push(path);
         }
     }
     Ok(drift)

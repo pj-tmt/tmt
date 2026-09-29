@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
@@ -341,6 +341,71 @@ describe('public local extension API', () => {
       expect((await api(sandbox, 'notes.read', { identityId: owner })).body.error.code).toBe(
         'NOTEBOOK_TOO_LARGE'
       );
+    });
+  });
+
+  it('publishes extension-owned skills only with consent and keeps owners apart', async () => {
+    await withSandbox(async (sandbox) => {
+      const skill = (name: string, body: string) => ({
+        name,
+        files: [
+          { path: 'SKILL.md', content: body },
+          { path: 'references/usage.md', content: 'reference' },
+        ],
+      });
+      const refused = await api(sandbox, 'skills.install', {
+        owner: 'squad',
+        consent: false,
+        skills: [skill('tmt-squad', 'lead playbook')],
+      });
+      expect(refused.status).toBe(1);
+      expect(refused.body.error.code).toBe('API_CONSENT_REQUIRED');
+
+      const installed = await api(sandbox, 'skills.install', {
+        owner: 'squad',
+        consent: true,
+        skills: [skill('tmt-squad', 'lead playbook')],
+      });
+      expect(installed.status).toBe(0);
+      expect(installed.body.owner).toBe('squad');
+      const targets: string[] = installed.body.published.map(
+        (item: { target: string }) => item.target
+      );
+      expect(targets.length).toBeGreaterThan(0);
+      for (const target of targets) {
+        expect(lstatSync(target).isSymbolicLink()).toBe(true);
+        expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('lead playbook');
+        expect(target.startsWith(sandbox.home)).toBe(true);
+      }
+
+      const core = await api(sandbox, 'skills.install', {
+        owner: 'squad',
+        consent: true,
+        skills: [skill('tmux-team', 'x')],
+      });
+      expect(core.body.error.code).toBe('SKILL_OWNED_ELSEWHERE');
+      const taken = await api(sandbox, 'skills.install', {
+        owner: 'other',
+        consent: true,
+        skills: [skill('tmt-squad', 'theirs')],
+      });
+      expect(taken.body.error.code).toBe('SKILL_OWNED_ELSEWHERE');
+      expect(taken.body.error.message).toContain('belongs to squad');
+      const invalid = await api(sandbox, 'skills.install', {
+        owner: 'squad',
+        consent: true,
+        skills: [{ name: 'tmt-squad', files: [{ path: '../escape', content: 'x' }] }],
+      });
+      expect(invalid.body.error.code).toBe('SKILL_INVALID');
+      for (const target of targets) {
+        expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('lead playbook');
+      }
+
+      const removed = await api(sandbox, 'skills.remove', { owner: 'squad', consent: true });
+      expect(removed.body).toEqual({ owner: 'squad', removed: targets, kept: [] });
+      for (const target of targets) expect(existsSync(target)).toBe(false);
+      // Skill ownership never opens identity storage.
+      expect(existsSync(sandbox.database)).toBe(false);
     });
   });
 });

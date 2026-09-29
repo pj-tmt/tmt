@@ -3,6 +3,7 @@
 mod assets;
 mod drift;
 mod files;
+mod owned;
 mod providers;
 mod refresh;
 mod registry;
@@ -10,6 +11,12 @@ pub use refresh::{RefreshFailure, RefreshReport, RefreshedSkill, refresh};
 #[cfg(test)]
 mod refresh_tests;
 pub use drift::inspect_local_drift;
+pub use owned::{
+    CORE_NAMES, OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned, owners,
+    refusal, remove_owned,
+};
+#[cfg(test)]
+mod owned_tests;
 pub use providers::ProviderEnvironment;
 #[cfg(test)]
 mod assets_tests;
@@ -200,6 +207,38 @@ pub fn install_office(
     install_office_with_publisher(env, global, force, files::link)
 }
 
+/// Skill directories that receive optional (Office and extension-owned)
+/// skills: every detected provider root, plus custom roots that still hold a
+/// managed core skill. Call with the installer lock held.
+fn optional_roots(
+    env: &ProviderEnvironment,
+    global: &Path,
+    assets: &assets::SkillAssets,
+) -> io::Result<BTreeMap<PathBuf, Option<Provider>>> {
+    let mut roots = BTreeMap::<PathBuf, Option<Provider>>::new();
+    for (agent, main) in selected(env, None, None)? {
+        roots.insert(
+            main.parent().expect("skill target parent").to_path_buf(),
+            agent,
+        );
+    }
+    for registered in registry::read(global)? {
+        let Some(name) = registered.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !matches!(
+            name,
+            "tmux-team" | "tmt-inbox" | "tmt-office" | "tmt-prop-create" | "tmt-avatar-create"
+        ) || managed_link(&registered, assets)?.is_none()
+        {
+            continue;
+        }
+        let parent = registered.parent().expect("registered skill target parent");
+        roots.entry(parent.to_path_buf()).or_insert(None);
+    }
+    Ok(roots)
+}
+
 fn install_office_with_publisher(
     env: &ProviderEnvironment,
     global: &Path,
@@ -209,41 +248,20 @@ fn install_office_with_publisher(
     let mut report = InstallReport::default();
     let mut pending_backup = None;
     let pending = (|| {
-        let discovered = selected(env, None, None)?;
         let global = files::resolved(global)?;
         let assets = assets::SkillAssets::new(&global);
         registry::read(&global)?;
         files::with_lock(&global, || {
             let mut targets = BTreeMap::<PathBuf, Option<Provider>>::new();
-            for (agent, main) in &discovered {
-                let parent = main.parent().expect("skill target parent");
-                targets.insert(parent.join("tmt-office"), *agent);
-                targets.insert(parent.join("tmt-prop-create"), *agent);
-                targets.insert(parent.join("tmt-avatar-create"), *agent);
-            }
-            for registered in registry::read(&global)? {
-                let Some(name) = registered.file_name().and_then(|name| name.to_str()) else {
-                    continue;
-                };
-                if !matches!(
-                    name,
-                    "tmux-team"
-                        | "tmt-inbox"
-                        | "tmt-office"
-                        | "tmt-prop-create"
-                        | "tmt-avatar-create"
-                ) || managed_link(&registered, &assets)?.is_none()
-                {
-                    continue;
+            // Once an owner holds a name (Office adopted through the owner
+            // door), core's bundle no longer publishes it.
+            let owned = owned::owned_names(&global)?;
+            for (root, agent) in optional_roots(env, &global, &assets)? {
+                for name in owned::OFFICE_NAMES {
+                    if !owned.contains(name) {
+                        targets.entry(root.join(name)).or_insert(agent);
+                    }
                 }
-                let parent = registered.parent().expect("registered skill target parent");
-                targets.entry(parent.join("tmt-office")).or_insert(None);
-                targets
-                    .entry(parent.join("tmt-prop-create"))
-                    .or_insert(None);
-                targets
-                    .entry(parent.join("tmt-avatar-create"))
-                    .or_insert(None);
             }
             for target in targets.keys() {
                 files::safe_target(assets.root(), target)?;

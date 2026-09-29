@@ -1525,6 +1525,23 @@ missing integrations. Core's `skill_provider::Provider` is the only provider
 inventory. Skill installation does not open application configuration, SQLite
 or tmux, and never silently replaces an unmanaged path.
 
+Extension-owned skills arrive as bytes through the local API
+(`skills.install`/`skills.remove`, both requiring explicit `consent: true` from
+a caller that asked the user). `skill_installation::owned` validates them,
+materializes each under `skill-assets/owners/<owner>/<digest>/<name>` (verified
+by recomputing the digest) and links it into the same roots as the optional
+Office skills. `skill-owners.json`, separate from the target intents that core
+refresh reads, records each name's owner, digest and targets. Core's names are
+reserved; the first owner of any other name keeps it until an explicit force.
+Because the same-user API cannot authenticate its caller, install and remove
+refuse targets another owner holds rather than trusting the stated owner.
+Claims and unmanaged paths are checked for every target before any effect.
+Office links published from the core bundle are adopted by owner `office`
+without force (any other owner needs force), and core's bundle then leaves held names alone: Office facade
+installs skip them and CLI refresh reports them as skipped. Removal deletes
+only links into the owner's store; drift reports owned targets that no longer
+point at their owner's current content.
+
 The core skill sources stay under `skills/`; the three Office skill sources live
 under `extensions/tmt-office/skills/`. `skill_installation::assets` still embeds
 those Office sources into the core bundle, so core compiles bytes from the
