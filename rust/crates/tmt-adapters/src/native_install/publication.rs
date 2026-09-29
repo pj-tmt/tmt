@@ -211,6 +211,24 @@ impl Layout {
                     },
                 )?;
             }
+            // A verified skills tree is published with its release, read-only
+            // content under directories only this release owns.
+            let skills = artifact
+                .files
+                .iter()
+                .filter(|(name, _)| super::skills_tree::is_skill_path(name))
+                .collect::<Vec<_>>();
+            if !skills.is_empty() {
+                checkpoint()?;
+                for (name, bytes) in skills {
+                    let path = release.join(name);
+                    fs::DirBuilder::new()
+                        .recursive(true)
+                        .mode(0o755)
+                        .create(path.parent().expect("skill file parent"))?;
+                    write(&path, bytes, 0o644)?;
+                }
+            }
             if let Some(verify) = verifier {
                 verify(&release.join(self.product.executable()), &artifact.version)?;
             }

@@ -19,6 +19,7 @@ mod publication;
 mod publication_tests;
 mod receipt;
 mod release;
+mod skills_tree;
 mod upgrade;
 pub use upgrade::{UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade, upgrade_product};
 #[cfg(test)]

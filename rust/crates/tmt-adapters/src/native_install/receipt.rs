@@ -3,7 +3,7 @@
 use super::{
     Product,
     artifact::{Artifact, digest},
-    invalid,
+    invalid, skills_tree,
 };
 use crate::bounded_file;
 use serde_json::{Value, json};
@@ -20,6 +20,68 @@ pub(super) struct Receipt {
     pub target: String,
     pub file_hashes: BTreeMap<String, String>,
     pub provenance: Option<GitHubProvenance>,
+}
+
+fn inventory_changed() -> io::Error {
+    invalid("Installed release inventory has changed.")
+}
+
+/// Every file in the release's skills tree is a recorded, unchanged regular
+/// file, and nothing else is there: no extra file, link or special entry.
+fn verify_skills(
+    directory: &Path,
+    hashes: &serde_json::Map<String, Value>,
+    recorded: &[&str],
+) -> io::Result<()> {
+    let recorded = recorded
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut found = 0;
+    let mut pending = vec![(
+        directory.join(skills_tree::ROOT),
+        skills_tree::ROOT.to_owned(),
+    )];
+    while let Some((path, relative)) = pending.pop() {
+        for entry in fs::read_dir(&path)?.take(recorded.len() + 1) {
+            let entry = entry?;
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| inventory_changed())?;
+            let relative = format!("{relative}/{name}");
+            let metadata = fs::symlink_metadata(entry.path())?;
+            if metadata.file_type().is_dir()
+                && recorded
+                    .iter()
+                    .any(|file| file.starts_with(&format!("{relative}/")))
+            {
+                pending.push((entry.path(), relative));
+                continue;
+            }
+            if !metadata.file_type().is_file()
+                || metadata.permissions().mode() & 0o7000 != 0
+                || !recorded.contains(relative.as_str())
+            {
+                return Err(inventory_changed());
+            }
+            let bytes = bounded_file::read_no_follow(
+                &entry.path(),
+                crate::skill_installation::MAXIMUM_FILE_BYTES,
+            )
+            .map_err(io::Error::other)?;
+            if Some(digest(&bytes).as_str()) != hashes[relative.as_str()].as_str() {
+                return Err(invalid(
+                    "Installed release file has changed; refusing replacement.",
+                ));
+            }
+            found += 1;
+        }
+    }
+    if found != recorded.len() {
+        return Err(inventory_changed());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -71,22 +133,30 @@ impl Receipt {
         id: Uuid,
     ) -> io::Result<Self> {
         let mut inventory = fs::read_dir(directory)?
-            .take(product.files().len() + 2)
+            .take(product.files().len() + 3)
             .map(|entry| entry.map(|entry| entry.file_name()))
             .collect::<io::Result<Vec<_>>>()?;
         inventory.sort();
+        // Only an extension release may add its skills tree; a reader that
+        // predates it fails closed here with the same error.
+        let has_skills =
+            product != Product::Cli && inventory.iter().any(|name| name == skills_tree::ROOT);
         let mut expected = product
             .files()
             .into_iter()
             .chain(["receipt.json"])
+            .chain(has_skills.then_some(skills_tree::ROOT))
             .map(std::ffi::OsString::from)
             .collect::<Vec<_>>();
         expected.sort();
         if inventory != expected {
-            return Err(invalid("Installed release inventory has changed."));
+            return Err(inventory_changed());
         }
-        let bytes = bounded_file::read_no_follow(&directory.join("receipt.json"), 16 * 1024)
-            .map_err(io::Error::other)?;
+        let bytes = bounded_file::read_no_follow(
+            &directory.join("receipt.json"),
+            skills_tree::receipt_limit(product),
+        )
+        .map_err(io::Error::other)?;
         let value: Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
         let text = |key: &str| {
             value[key]
@@ -150,8 +220,17 @@ impl Receipt {
         let hashes = value["file_sha256"]
             .as_object()
             .ok_or_else(|| invalid("Missing installed file digests."))?;
-        if hashes.len() != product.files().len() {
+        let skill_hashes = hashes
+            .keys()
+            .filter(|name| skills_tree::is_skill_path(name))
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        if hashes.len() != product.files().len() + skill_hashes.len() {
             return Err(invalid("Unexpected installed file digest inventory."));
+        }
+        skills_tree::validate(product, skill_hashes.iter().copied())?;
+        if has_skills == skill_hashes.is_empty() {
+            return Err(inventory_changed());
         }
         let mut file_hashes = BTreeMap::new();
         for name in product.files() {
@@ -177,6 +256,13 @@ impl Receipt {
                 ));
             }
             file_hashes.insert(name.into(), expected.into());
+        }
+        if has_skills {
+            verify_skills(directory, hashes, &skill_hashes)?;
+            for name in skill_hashes {
+                let expected = hashes[name].as_str().expect("verified skill digest");
+                file_hashes.insert(name.into(), expected.into());
+            }
         }
         Ok(Self {
             id,
