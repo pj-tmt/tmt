@@ -18,6 +18,13 @@ function observerPid(fixture: E2EFixture, id: string): number {
   return pid;
 }
 
+// A detached sender chose not to wait, so no timeout observer exists for it.
+function expectNoObserver(fixture: E2EFixture, id: string) {
+  expect(fs.existsSync(observerLog(fixture, id))).toBe(false);
+  const processes = execFileSync('ps', ['-axo', 'args='], { encoding: 'utf8' });
+  expect(processes).not.toContain(`__request-observer ${id}`);
+}
+
 async function observerGone(fixture: E2EFixture, pid: number) {
   await fixture.waitFor(
     () => {
@@ -60,37 +67,22 @@ function rows(fixture: E2EFixture) {
 }
 
 describe.sequential('session-aware durable routing', () => {
-  it('losing the detached timeout observer does not resend or suppress a later reply callback', async () => {
+  it('a detached request starts no timeout observer and its reply callback still fires once', async () => {
     await withE2EFixture(
       async (fixture) => {
         expectJsonResult(await fixture.runJsonCli(['name', 'receiver']));
         const sender = await fixture.createMockPane('sender');
         expectJsonResult(await fixture.runJsonCli(['name', 'sender'], { pane: sender.pane }));
         const sent = expectJsonResult(
-          await fixture.runJsonCli(['talk', 'receiver', 'worker crash', '--detach'], {
+          await fixture.runJsonCli(['talk', 'receiver', 'no observer', '--detach'], {
             pane: sender.pane,
           })
         );
         const id = String(sent.requestId);
-        const pid = observerPid(fixture, id);
-        const args = execFileSync('ps', ['-p', String(pid), '-o', 'args='], {
-          encoding: 'utf8',
-        }).trim();
-        expect(args.endsWith(`__request-observer ${id}`)).toBe(true);
-        const group = execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], {
-          encoding: 'utf8',
-        }).trim();
-        expect(Number(group)).toBe(pid);
-        process.kill(-pid, 'SIGKILL');
-        await observerGone(fixture, pid);
-        // A crashed observer never reaches cleanup; its log remains evidence.
-        expect(fs.readFileSync(observerLog(fixture, id), 'utf8')).toMatch(/^observer_pid=/m);
+        expectNoObserver(fixture, id);
         fixture.releaseReplyGate(id);
-        await fixture.waitForEvent(
-          (event) =>
-            event.event === 'input' &&
-            event.line === `[tmt] reply from receiver to ${id}: tmt result ${id}`
-        );
+        const hint = `[tmt] reply from receiver to ${id}: tmt result ${id}`;
+        await fixture.waitForEvent((event) => event.event === 'input' && event.line === hint);
         await fixture.waitForEvent(
           (event) => event.event === 'submitted' && event.requestId === id
         );
@@ -98,6 +90,9 @@ describe.sequential('session-aware durable routing', () => {
           timeout_state: 'not_attempted',
           reply_state: 'sent',
         });
+        expect(
+          fixture.events().filter((event) => event.event === 'input' && event.line === hint)
+        ).toHaveLength(1);
         expect(
           fixture.events().filter((event) => event.event === 'request' && event.requestId === id)
         ).toHaveLength(1);
@@ -121,7 +116,6 @@ describe.sequential('session-aware durable routing', () => {
             })
           );
           const id = String(sent.requestId);
-          const observer = observerPid(fixture, id);
           await fixture.waitForEvent(
             (event) => event.event === 'request' && event.requestId === id
           );
@@ -157,16 +151,14 @@ describe.sequential('session-aware durable routing', () => {
             status: 'completed',
             response: 'mock-agent response: held reply',
           });
-          // The reply ends the observer cleanly, and it removes only its own log.
-          await observerGone(fixture, observer);
-          expect(fs.existsSync(observerLog(fixture, id))).toBe(false);
+          expectNoObserver(fixture, id);
         },
         { replyGate: true }
       );
     }
   );
 
-  it('a detached timeout is not a final and a late reply still wakes the originator once', async () => {
+  it('a detached request past its deadline gets no timeout hint and a late reply still wakes the originator once', async () => {
     await withE2EFixture(
       async (fixture) => {
         expectJsonResult(await fixture.runJsonCli(['name', 'receiver']));
@@ -180,16 +172,16 @@ describe.sequential('session-aware durable routing', () => {
           await fixture.runJsonCli(['talk', 'receiver', 'late', '--detach'], { pane: sender.pane })
         );
         const id = String(sent.requestId);
-        const observer = observerPid(fixture, id);
-        await fixture.waitForEvent(
-          (event) =>
-            event.event === 'input' &&
-            event.line?.startsWith(`[tmt] no reply yet from receiver to ${id}`) === true
-        );
+        expectNoObserver(fixture, id);
+        // Absence has no readiness signal: pass the 1s deadline with margin.
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        expect(
+          fixture
+            .events()
+            .filter((event) => event.event === 'input' && event.line?.includes('no reply yet'))
+        ).toEqual([]);
+        expect(rows(fixture)[0]).toMatchObject({ timeout_state: 'not_attempted' });
         expect((await fixture.runJsonCli(['result', id])).code).toBe(3);
-        await observerGone(fixture, observer);
-        // A deadline exit is clean too: no log is left behind.
-        expect(fs.existsSync(observerLog(fixture, id))).toBe(false);
         fixture.releaseReplyGate(id);
         await fixture.waitForEvent(
           (event) =>
@@ -199,7 +191,10 @@ describe.sequential('session-aware durable routing', () => {
         await fixture.waitForEvent(
           (event) => event.event === 'submitted' && event.requestId === id
         );
-        expect(rows(fixture)[0]).toMatchObject({ timeout_state: 'sent', reply_state: 'sent' });
+        expect(rows(fixture)[0]).toMatchObject({
+          timeout_state: 'not_attempted',
+          reply_state: 'sent',
+        });
         expect(expectJsonResult(await fixture.runJsonCli(['result', id]))).toMatchObject({
           response: 'mock-agent response: late',
         });
@@ -330,7 +325,7 @@ describe.sequential('session-aware durable routing', () => {
         );
         expect(sent).toMatchObject({ status: 'sent', target: 'receiver', pane: fixture.pane });
         const id = String(sent.requestId);
-        const observer = observerPid(fixture, id);
+        expectNoObserver(fixture, id);
         const request = await fixture.waitForEvent(
           (event) => event.event === 'request' && event.requestId === id
         );
@@ -360,11 +355,70 @@ describe.sequential('session-aware durable routing', () => {
           fixture.events().filter((event) => event.event === 'input' && event.line === hint)
         ).toHaveLength(1);
         expect(fixture.events().filter((event) => event.event === 'request')).toHaveLength(1);
-        await observerGone(fixture, observer);
-        expect(fs.existsSync(observerLog(fixture, id))).toBe(false);
+        expectNoObserver(fixture, id);
       },
       { replyGate: true }
     );
+  });
+
+  it('losing the offline timeout observer does not resend or suppress the later reply callback', async () => {
+    await withE2EFixture(async (fixture) => {
+      expectJsonResult(await fixture.runJsonCli(['name', 'sender']));
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'offline']));
+      const sent = expectJsonResult(
+        await fixture.runJsonCli(['talk', 'offline', 'worker crash', '--timeout', '60'])
+      );
+      expect(sent).toMatchObject({ status: 'queued', offline: true, target: 'offline' });
+      const id = String(sent.requestId);
+      const pid = observerPid(fixture, id);
+      const args = execFileSync('ps', ['-p', String(pid), '-o', 'args='], {
+        encoding: 'utf8',
+      }).trim();
+      expect(args.endsWith(`__request-observer ${id}`)).toBe(true);
+      const group = execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], {
+        encoding: 'utf8',
+      }).trim();
+      expect(Number(group)).toBe(pid);
+      process.kill(-pid, 'SIGKILL');
+      await observerGone(fixture, pid);
+      // A crashed observer never reaches cleanup; its log remains evidence.
+      expect(fs.readFileSync(observerLog(fixture, id), 'utf8')).toMatch(/^observer_pid=/m);
+
+      const recipient = await fixture.createMockPane('offline');
+      expectJsonResult(await fixture.runJsonCli(['name', 'offline'], { pane: recipient.pane }));
+      const detail = expectJsonResult<{ exchange: { reply: { receipt: string } } }>(
+        await fixture.runJsonCli(['x', 'show', id, '--incoming', '--identity', 'offline'], {
+          withoutTmux: true,
+        })
+      );
+      // The reply command pastes the originator hint through tmux, so it runs
+      // from the recipient's pane like an agent would.
+      expectJsonResult(
+        await fixture.runJsonCli(
+          ['reply', id, '--receipt', detail.exchange.reply.receipt, '--message', 'late answer'],
+          { pane: recipient.pane }
+        )
+      );
+      const hint = `[tmt] reply from offline to ${id}: tmt result ${id}`;
+      await fixture.waitForEvent((event) => event.event === 'input' && event.line === hint);
+      await fixture.waitFor(
+        () => rows(fixture)[0]?.reply_state === 'sent',
+        5000,
+        'originator reply hint'
+      );
+      expect(rows(fixture)[0]).toMatchObject({
+        timeout_state: 'not_attempted',
+        reply_state: 'sent',
+      });
+      expect(
+        fixture.events().filter((event) => event.event === 'input' && event.line === hint)
+      ).toHaveLength(1);
+      // Neither the crash nor the later binding resends or re-wakes the request.
+      expect(fixture.events().filter((event) => event.event === 'request')).toEqual([]);
+      expect(expectJsonResult(await fixture.runJsonCli(['result', id]))).toMatchObject({
+        response: 'late answer',
+      });
+    });
   });
 
   it('queues an offline recipient, emits a bounded timeout hint and never re-wakes after binding', async () => {
@@ -375,7 +429,11 @@ describe.sequential('session-aware durable routing', () => {
         await fixture.runJsonCli(['talk', 'offline', 'kept offline', '--timeout', '1'])
       );
       expect(result).toMatchObject({ status: 'queued', offline: true, target: 'offline' });
+      // A non-detached sender to an offline recipient keeps its timeout observer.
+      const observer = observerPid(fixture, String(result.requestId));
       await fixture.waitFor(() => rows(fixture)[0]?.timeout_state === 'sent', 5000, 'timeout hint');
+      await observerGone(fixture, observer);
+      expect(fs.existsSync(observerLog(fixture, String(result.requestId)))).toBe(false);
       await fixture.waitForEvent(
         (event) =>
           event.event === 'input' &&

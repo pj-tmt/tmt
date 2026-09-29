@@ -402,7 +402,7 @@ fn run(
         }
         let response = deliver(&mut storage, &tmux, &mut prepared, &input, &settings, interrupt);
         if response.is_ok() && prepared.notify_originator
-            && (input.options.detach || prepared.correlation.offline)
+            && prepared.correlation.offline && !input.options.detach
             && let Err(error) = crate::request_observer_command::start(&paths.database, &prepared.correlation.request_id) {
             eprintln!("tmt: timeout notification unavailable ({error}); request is retained, do not resend.");
         }

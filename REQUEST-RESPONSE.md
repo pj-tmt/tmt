@@ -223,12 +223,14 @@ agent readiness is unverified, not proof of a running provider. The tmux driver
 cannot detect provider approval or attention states. A driver that reports
 denial, pending approval, acceptance or uncertainty never permits host fallback.
 
-Eligible detached/offline requests start one bounded timeout observer, detached
+A non-detached request to an offline recipient starts one bounded timeout observer, detached
 from terminal streams and the caller's session. It holds no database lock while
 waiting, exits on a final or its deadline, and may claim one timeout hint:
 `[tmt] no reply yet from <recipient> to <id> after <timeout>; still pending`.
 The later final has an independent callback. No worker restarts or resends work.
-Anonymous and explicit queue-only requests never push originator hints. Worker
+A `--detach` request starts no observer and never gets the timeout hint: the sender chose
+not to wait, and its reply notice is unchanged. Anonymous and explicit queue-only requests
+never push originator hints. Worker
 startup failure warns without undoing acceptance. Its state-directory log,
 `request-observers/<request-id>.log`, holds only the observer PID and a bounded
 failure line, never message bodies/receipts. A clean exit (final or deadline)
