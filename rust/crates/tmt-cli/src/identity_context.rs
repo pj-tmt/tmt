@@ -99,6 +99,7 @@ fn selected(
             selected.ok_or_else(|| identity_missing(&name)).map(Some)
         }
         Selector::Pane(pane) => {
+            host.resolve_servers(storage).map_err(endpoint_failure)?;
             let observed = binding::pane_presence(storage, &mut host.session(), &pane)
                 .map_err(binding_failure)?;
             Ok(observed.identity)

@@ -1679,13 +1679,36 @@ The CLI and the `delivery` and `pane_badge` adapters reach the terminal host
 only through `tmt-adapters::host::Host`. Extensions never do: they read presence
 from `tmt list --json` and the caller from `tmt whoami`, and the architecture
 guard rejects any extension source, test code included, that names the host
-port, the tmux module or core's `binding`, `endpoint` or `host` model. It holds the
-binding session (the core `BindingEndpoint` and `Driver` ports), caller and
-target resolution, snapshots, capture, send, focus and pane cosmetics. tmux is
-its only host today: `Host` forwards to `tmt-adapters::tmux` and re-exports
-tmux's error and value types under host names until a second host (Herdr,
-#479) needs per-host variants. The architecture guard rejects production
-references to the tmux module outside `host.rs` and `tmux/`.
+port, the tmux or Herdr module, or core's `binding`, `endpoint` or `host`
+model. The host port holds the binding session (the core `BindingEndpoint`
+and `Driver` ports), caller and target resolution, snapshots, capture, send,
+focus and pane cosmetics, over two hosts: `tmt-adapters::tmux` and
+`tmt-adapters::herdr` (#479). A handle has a primary host; its session observes
+new panes there, and probes, marks and clears every stored binding on that
+binding's own host, so presence is complete from either host. `HostError` and
+the host `ActionError` wrap each host's error and read exactly as it. The
+architecture guard rejects production references to the host modules outside
+`host.rs` and their own directories.
+
+Herdr is reached only through its documented CLI (`herdr <group> <command>`,
+JSON out) under the bounded process owner, on the socket a caller's
+`HERDR_SOCKET_PATH` or a stored server names, and refuses servers older than
+0.9.1 in semantic-version order (so a 0.9.1 pre-release is refused). A Herdr pane ID is the terminal ID, which follows a pane through moves
+while the public `wN:pM` (its target and display address) is reused after a
+restart. A caller's Herdr pane counts only when its shell is an ancestor of the
+caller (`process::ancestry`, shared with tmux); inside both hosts the nearer
+pane wins. A Herdr server incarnation is its server process (the parent of
+every pane shell) and that process's start; Herdr keeps no server-level store,
+so TMT's UUID for it comes from core's `HostServerIds` port, implemented by
+`Storage` (`host_servers`) and resolved by `Host::resolve_servers` before any
+binding transaction opens, so the transaction only sees resolved evidence. A
+stored Herdr server is live only as the same incarnation; otherwise it is lost
+only when its recorded process is conclusively gone. The marker is pane tokens
+under source `tmt` (a long name spans continuation keys) and proves nothing
+unless its IDs match storage. Herdr merges a report into the source's tokens
+key by key, so each publish also clears the marker keys it does not set. Herdr delivery, capture, focus, badges and hook
+context are not implemented yet: `send` is unsupported so core falls through to
+the Inbox, a pane route refuses before input, and `check` and `focus` refuse.
 
 Endpoint identity is opaque to everything but its host. `tmt-core::host::HostKind`
 is the pure-data list of hosts, like the driver descriptors: each owns its stored
@@ -1700,9 +1723,11 @@ NULL fence host is tmux. A `Host` handle states why it was chosen:
 `for_caller` (a caller-scoped command), `for_server` (a stored binding or request
 endpoint) or `for_target` (an explicit pane target); its methods take endpoints,
 never loose socket or pane strings. Only `tmt-core/src/host.rs`,
-`tmt-adapters/src/host.rs` and `tmux/` may spell a host's name, which the
-architecture guard enforces for every crate but Squad (its tmux-only hotkeys and
-clipboard are extension features).
+`tmt-adapters/src/host.rs`, `tmux/` and `herdr/` may spell a host's name, which
+the architecture guard enforces for every crate but Squad (its tmux-only hotkeys
+and clipboard are extension features). Names that a later host reads as targets
+(Herdr's `wN:pM`) are refused only as new names: an identity that already holds
+one keeps it for lookup and marker checks, and explicit resolution prefers it.
 
 `tmux` uses explicit socket/server evidence, bounded command budgets,
 owned buffers and no ambient host fallback. A failed paste or Enter is an

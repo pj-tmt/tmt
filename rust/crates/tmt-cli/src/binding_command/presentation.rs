@@ -21,6 +21,7 @@ use tmt_cli_style::{
 use tmt_core::{
     binding::{IdentityPresence, Presence, session::RememberedSession, session::RuntimeState},
     endpoint::PaneObservation,
+    host::HostKind,
     identity::{Identity, Lifetime},
 };
 
@@ -70,6 +71,7 @@ pub(super) fn document(report: &Report) -> Value {
             pane,
             identity,
             runtime,
+            ..
         } => {
             let mut value = identity.as_ref().map_or_else(
                 || json!({"bound": false, "pane": pane}),
@@ -79,7 +81,7 @@ pub(super) fn document(report: &Report) -> Value {
             value["sessionState"] = runtime.as_str().into();
             value
         }
-        Report::Unbound { pane, result } => json!({"unbound": true, "id": result.identity.id,
+        Report::Unbound { pane, result, .. } => json!({"unbound": true, "id": result.identity.id,
             "name": result.identity.name, "pane": pane, "lifetime": result.identity.lifetime.as_str(), "retired": result.retired}),
         Report::Removed(entry) => {
             json!({"removed": true, "identity": identity_document(&entry.identity)})
@@ -223,7 +225,11 @@ fn address(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Op
         }
         (Some((pane, binding)), _) => Some(Address {
             driver: binding.server.host.as_str().into(),
-            identifier: pane.id.clone(),
+            identifier: binding
+                .server
+                .host
+                .pane_address(&pane.id, pane.target.as_deref())
+                .into(),
         }),
         (None, Some(remembered)) => Some(session(remembered)),
         (None, None) => None,
@@ -397,11 +403,16 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                 "Bound {} identity '{}' on pane {}",
                 result.presence.identity.lifetime.as_str(),
                 result.presence.identity.name,
-                result.presence.pane.as_ref().expect("verified binding").id
+                result
+                    .presence
+                    .pane
+                    .as_ref()
+                    .map(|pane| HostKind::label(&pane.id, pane.target.as_deref()))
+                    .expect("verified binding")
             ),
         ),
         Report::Caller {
-            pane,
+            label: pane,
             identity: Some(identity),
             ..
         } => writeln!(
@@ -411,14 +422,18 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
             identity.lifetime.as_str()
         ),
         Report::Caller {
-            pane,
+            label: pane,
             identity: None,
             ..
         } => {
             writeln!(output, "Pane {pane} is unbound")?;
             message::hint(output, terminal, "tmt name <name>")
         }
-        Report::Unbound { pane, result } => message::success(
+        Report::Unbound {
+            label: pane,
+            result,
+            ..
+        } => message::success(
             output,
             terminal,
             &format!(
@@ -441,7 +456,23 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
         ),
         Report::Listed { rows, scope } => {
             let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-            write_listing(output, terminal, rows, scope.all, home.as_deref())
+            write_listing(output, terminal, rows, scope.all, home.as_deref())?;
+            // A name kept from before Herdr that now reads as a pane target.
+            match rows
+                .iter()
+                .find(|row| tmt_core::names::is_pane_target(&row.presence.identity.name))
+            {
+                Some(row) => message::hint(
+                    output,
+                    terminal,
+                    &format!(
+                        "{} reads as a pane target; rename it: tmt rename {} <name>",
+                        row.presence.identity.name,
+                        crate::output::shell_word(&row.presence.identity.name)
+                    ),
+                ),
+                None => Ok(()),
+            }
         }
         Report::Named {
             row, remembered, ..
@@ -472,17 +503,18 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                 )
             }
             None => {
+                let label = HostKind::label(&pane.id, pane.target.as_deref());
                 tmt_cli_style::detail::write(
                     output,
                     terminal,
-                    &pane.id,
+                    label,
                     &[
                         ("target", pane.target.clone().unwrap_or_else(|| "-".into())),
                         ("cwd", pane.cwd.clone().unwrap_or_else(|| "-".into())),
                         ("command", pane.command.clone()),
                     ],
                 )?;
-                message::hint(output, terminal, &format!("tmt add {} <name>", pane.id))
+                message::hint(output, terminal, &format!("tmt add {label} <name>"))
             }
         },
     }

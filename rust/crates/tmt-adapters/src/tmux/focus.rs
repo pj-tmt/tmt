@@ -214,7 +214,7 @@ mod tests {
     use super::*;
     use crate::{
         process::CommandFailure,
-        tmux::test_support::{ScriptedRunner, failure_with_kind},
+        scripted_runner::{ScriptedRunner, failure_with_kind},
     };
 
     fn invoker() -> Invoker {

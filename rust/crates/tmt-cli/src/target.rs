@@ -11,7 +11,6 @@ use tmt_adapters::{
 use tmt_core::{
     binding::{self, PaneIdentity},
     endpoint::EndpointSnapshot,
-    names::is_pane_target,
     request::RequestEndpoint,
 };
 
@@ -19,8 +18,12 @@ use tmt_core::{
 mod tests;
 
 pub fn resolve(storage: &mut Storage, host: &Host, input: &str) -> Result<PaneIdentity, Failure> {
-    if is_pane_target(input) {
+    let pane = tmt_core::identity::addresses_pane(storage, input).map_err(|error| {
+        Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)
+    })?;
+    if pane {
         let host = Host::for_target(input);
+        host.resolve_servers(storage).map_err(endpoint_failure)?;
         let mut endpoint = host.session();
         let pane = host
             .resolve_target(input, OperationOptions::default())

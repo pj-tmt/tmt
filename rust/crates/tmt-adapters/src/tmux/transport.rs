@@ -46,6 +46,15 @@ impl DeliveryError {
         }
     }
 
+    /// Refused before any pane input: the endpoint's host cannot take input
+    /// yet (Herdr until #479 H4).
+    pub(crate) fn unsupported() -> Self {
+        Self::new(
+            DeliveryStage::Prepare,
+            TmuxError::evidence("This host cannot receive pane input yet"),
+        )
+    }
+
     pub fn uncertain(&self) -> bool {
         self.stage != DeliveryStage::Prepare
     }

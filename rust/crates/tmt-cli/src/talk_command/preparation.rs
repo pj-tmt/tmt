@@ -23,7 +23,11 @@ pub(super) fn prepare(
         .map(|selector| crate::room_command::resolve(storage, selector))
         .transpose()?;
     let mut offline = false;
-    let automatic = if !input.options.inbox && !tmt_core::names::is_pane_target(&input.target) {
+    let names_pane = !input.options.inbox
+        && tmt_core::identity::addresses_pane(storage, &input.target).map_err(|error| {
+            Failure::new("IDENTITY_ERROR", "Could not read recipient identity.", 1).caused_by(error)
+        })?;
+    let automatic = if !input.options.inbox && !names_pane {
         let identity = match tmt_core::identity::find_by_name(storage, &input.target) {
             Ok(value) => value,
             // Preserve target resolution's existing missing-name boundary.

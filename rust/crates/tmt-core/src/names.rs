@@ -71,13 +71,29 @@ pub fn is_pane_target(value: &str) -> bool {
         .any(|host| host.is_target(&canonical))
 }
 
+/// A name a new identity (or a rename) may take: never text that a host
+/// reads as a pane target.
 pub fn validate_name(value: &str) -> Result<ValidatedName, NameError> {
+    let name = validate_existing_name(value)?;
+    if is_pane_target(&name.canonical_name) {
+        return Err(NameError::PaneTarget);
+    }
+    Ok(name)
+}
+
+/// A name an existing identity may already hold. A host added later (Herdr's
+/// `wN:pM`, #479) makes some earlier names look like targets; such names stay
+/// valid for the identities that hold them and are refused only as new names.
+pub fn validate_existing_name(value: &str) -> Result<ValidatedName, NameError> {
     let display_name = value.trim_matches(ecmascript_space);
     if display_name.is_empty() || display_name.chars().any(|c| c < '\u{20}' || c == '\u{7f}') {
         return Err(NameError::EmptyOrControl);
     }
     let canonical_name = normalize_name(value);
-    if is_pane_target(&canonical_name) {
+    if HostKind::ALL
+        .into_iter()
+        .any(|host| host.targets_never_named_identities() && host.is_target(&canonical_name))
+    {
         return Err(NameError::PaneTarget);
     }
     Ok(ValidatedName {
