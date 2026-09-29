@@ -22,7 +22,7 @@ use tmt_core::{
 pub fn execute(mode: OutputMode) -> io::Result<u8> {
     let document = observe().unwrap_or_else(presentation::unavailable);
     let output = presentation::bounded(document, mode.json)?;
-    io::stdout().lock().write_all(output.as_bytes())?;
+    tmt_cli_style::stream::stdout(mode.json).write_all(output.as_bytes())?;
     Ok(0)
 }
 

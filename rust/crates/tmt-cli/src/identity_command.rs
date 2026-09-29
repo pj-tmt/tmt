@@ -240,6 +240,48 @@ fn operation(
     }
 }
 
+/// `SAVED n` and `TEMPORARY n` sections, each sorted by name; the id is
+/// shortened because no command takes it as input.
+fn write_list(
+    output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
+    mut identities: Vec<Identity>,
+) -> io::Result<()> {
+    use tmt_cli_style::{
+        Token,
+        list::{self, Section},
+        table::{Cell, Column, Table},
+        value,
+    };
+    identities.sort_by(|a, b| a.canonical_name.cmp(&b.canonical_name));
+    let sections: Vec<Section> = [
+        ("saved", tmt_core::identity::Lifetime::Saved),
+        ("temporary", tmt_core::identity::Lifetime::Temporary),
+    ]
+    .into_iter()
+    .filter_map(|(title, lifetime)| {
+        let matching: Vec<&Identity> = identities
+            .iter()
+            .filter(|identity| identity.lifetime == lifetime)
+            .collect();
+        let mut rows = Table::new(&[Column::Name, Column::Fixed]);
+        for identity in &matching {
+            rows.row([
+                Cell::from(&identity.name),
+                Cell::styled(value::short_id(&identity.id), Token::Dim),
+            ]);
+        }
+        (!matching.is_empty()).then_some(Section {
+            title,
+            count: Some(matching.len()),
+            rows,
+            hint: None,
+        })
+    })
+    .collect();
+    list::write(output, terminal, &sections)
+}
+
 pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
     let report = match run(request) {
         Ok(report) => report,
@@ -313,34 +355,21 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                     )?;
                 }
             }
-            Report::Shown(identity, _) => {
-                crate::output::table::write(
-                    &mut stdout,
-                    ["NAME", "LIFETIME", "CANONICAL NAME", "ID"],
-                    [[
-                        identity.name,
-                        identity.lifetime.as_str().to_owned(),
-                        identity.canonical_name,
-                        identity.id,
-                    ]],
-                )?;
-            }
+            Report::Shown(identity, _) => tmt_cli_style::detail::write(
+                &mut stdout,
+                terminal,
+                &identity.name,
+                &[
+                    ("lifetime", identity.lifetime.as_str().to_owned()),
+                    ("canonical", identity.canonical_name),
+                    ("id", identity.id),
+                ],
+            )?,
             Report::Listed(identities) if identities.is_empty() => {
-                writeln!(stdout, "No identities found.")?
+                writeln!(stdout, "No identities found.")?;
+                tmt_cli_style::message::hint(&mut stdout, terminal, "tmt name <name>")?;
             }
-            Report::Listed(identities) => {
-                crate::output::table::write(
-                    &mut stdout,
-                    ["NAME", "LIFETIME", "ID"],
-                    identities.into_iter().map(|identity| {
-                        [
-                            identity.name,
-                            identity.lifetime.as_str().to_owned(),
-                            identity.id,
-                        ]
-                    }),
-                )?;
-            }
+            Report::Listed(identities) => write_list(&mut stdout, terminal, identities)?,
             Report::MetadataSet {
                 key,
                 value,
@@ -361,13 +390,15 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
             Report::MetadataList { metadata, .. } if metadata.is_empty() => {
                 writeln!(stdout, "No metadata found.")?;
             }
-            Report::MetadataList { metadata, .. } => {
-                crate::output::table::write(
-                    &mut stdout,
-                    ["KEY", "VALUE"],
-                    metadata.into_iter().map(|(key, value)| [key, value]),
-                )?;
-            }
+            Report::MetadataList { metadata, .. } => tmt_cli_style::detail::write(
+                &mut stdout,
+                terminal,
+                "METADATA",
+                &metadata
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.clone()))
+                    .collect::<Vec<_>>(),
+            )?,
             Report::MetadataRemoved { key, removed, .. } => {
                 if removed {
                     tmt_cli_style::message::success(

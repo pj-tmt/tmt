@@ -73,7 +73,7 @@ pub fn execute(request: ConfigRequest, mode: OutputMode) -> io::Result<u8> {
             if mode.json {
                 writeln!(output, "{}", show_json(&loaded, &paths))?;
             } else {
-                show_text(&mut output, &loaded, &paths)?;
+                show_text(&mut output, terminal, &loaded, &paths)?;
             }
         }
     }
@@ -110,6 +110,7 @@ fn show_json(loaded: &ResolvedSettings, paths: &ConfigPaths) -> serde_json::Valu
 
 fn show_text(
     output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
     loaded: &ResolvedSettings,
     paths: &ConfigPaths,
 ) -> io::Result<()> {
@@ -156,32 +157,57 @@ fn show_text(
             settings.pane_badge.as_str().to_string(),
         ),
     ];
-    writeln!(output, "ℹ Current configuration:\n")?;
-    crate::output::table::write(
+    use tmt_cli_style::{
+        Token,
+        list::{self, Section},
+        table::{Cell, Column, Table},
+        value,
+    };
+    let mut table = Table::new(&[
+        Column::Name,
+        Column::Fixed,
+        Column::Fixed,
+        Column::Fixed,
+        Column::Detail,
+    ]);
+    for (key, name, value) in rows {
+        let changes = if !EDITABLE_KEYS.contains(&key) {
+            "global file only"
+        } else if key.global_only() {
+            "global CLI"
+        } else {
+            "local/global CLI"
+        };
+        table.row([
+            Cell::from(name),
+            Cell::from(value),
+            Cell::styled(loaded.source(key), Token::Dim),
+            Cell::from(changes),
+            Cell::styled(key.expected(), Token::Dim),
+        ]);
+    }
+    list::write(
         output,
-        ["Key", "Value", "Source", "Changes", "Accepted values"],
-        rows.into_iter().map(|(key, name, value)| {
-            let changes = if !EDITABLE_KEYS.contains(&key) {
-                "global file only"
-            } else if key.global_only() {
-                "global CLI"
-            } else {
-                "local/global CLI"
-            };
-            [
-                name.to_owned(),
-                value,
-                format!("({})", loaded.source(key)),
-                changes.to_owned(),
-                key.expected().to_owned(),
-            ]
-        }),
+        terminal,
+        &[Section {
+            title: "settings",
+            count: None,
+            rows: table,
+            hint: Some(
+                "CLI numeric writes use unsigned decimal integers; config clear removes local overrides only",
+            ),
+        }],
     )?;
-    writeln!(
+    writeln!(output)?;
+    let home = std::env::home_dir();
+    let path = |path: &std::path::Path| value::home_path(path, home.as_deref());
+    tmt_cli_style::detail::write(
         output,
-        "ℹ CLI numeric writes use unsigned decimal integers; config clear removes local overrides only."
-    )?;
-    writeln!(output, "ℹ \nPaths:")?;
-    writeln!(output, "ℹ   Global: {}", paths.global_config.display())?;
-    writeln!(output, "ℹ   Local:  {}", paths.local_config.display())
+        terminal,
+        "PATHS",
+        &[
+            ("global", path(&paths.global_config)),
+            ("local", path(&paths.local_config)),
+        ],
+    )
 }

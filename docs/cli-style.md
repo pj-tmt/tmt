@@ -51,7 +51,8 @@ Each mark has one meaning everywhere (`mark::Mark`). A row's leading state mark 
 This is the list model that `tmt ls` (#434) follows first; other lists use the
 same parts.
 
-- Agent-first: each row starts with a state mark, then the name.
+- Agent-first: a row with a state starts with its mark, then the name; other
+  rows start with the name.
 - A section is an UPPERCASE bold title followed by a dimmed count. Rows are
   sorted by name within a section.
 - Rows are indented two spaces, with no header row and no borders. Sections with
@@ -64,7 +65,6 @@ same parts.
   (`offline: a · b`); a flag such as `--all` expands them.
 - A section-level `hint:` line comes last, only for a next step that applies to
   the whole section.
-
 ```text
 SAVED 3
   ●  astra            codex:019a2f4c   ~/dev/tmux-team
@@ -78,12 +78,25 @@ TEMPORARY 2
 hint: tmt ls --all shows offline identities
 ```
 
+One record is a detail view (`detail::write`): a bold title, then dimmed keys
+with full values that are never truncated.
+
+```text
+human-exchange
+  delivery      sent
+  final         retained
+  revision      2
+```
+
 ## Values
 
 Human output shows readable forms (`value`). `--json` always keeps the full values.
 
 - Paths under the home directory are shown as `~/…`.
 - Addresses are `driver:identifier`, with identifiers shortened to 8 characters.
+- Other identifiers are shortened the same way (`value::short_id`), except
+  those a reader types into a follow-up command (request ids, receipts),
+  which stay whole.
 - Times are relative: `just now`, `45s ago`, `3m ago`, `2h ago`, `5d ago`.
 
 ## Messages
@@ -139,6 +152,15 @@ Examples:
   let terminal = out.terminal();
   section.write(&mut out, terminal)?;
   ```
+
+  A prompt or optional notice asks `Stream::is_terminal` whether a person may
+  be reading, never the raw handle. A `Stream::new` over a buffer is never
+  interactive.
+- Text that must reach the reader unchanged (a stored response, a prompt,
+  captured pane text, a path a script reads) is written through the stream by a
+  function of its own that neither styles nor escapes it. Only output that
+  cannot go through a stream at all is an exact-body exemption (see
+  Enforcement).
 
 - On a terminal whose width is known, rows never wrap. Detail columns (paths,
   previews) are truncated with `…` first, then names. Marks and fixed columns
@@ -196,10 +218,12 @@ the migration lists in the same change.
    `stream::stdout(json)` and `stream::stderr()`. Pass `stream.terminal()` to
    every renderer.
 3. **Output.** Write outcomes with `message::success`, `message::error` and
-   `message::hint`, lists with `list::Section`, and values with `value`. Output
-   that must be an exact byte stream (a stored response, a script, a protocol)
-   moves into a function of its own and becomes an exact-body exemption with a
-   reason.
+   `message::hint`, lists with `list::Section`, one record with
+   `detail::write`, and values with `value`. Text that must stay exact (a
+   stored response, a prompt, captured pane text) moves into a function of its
+   own that writes it through the stream unchanged. Only output that cannot use
+   a stream (a protocol line on a raw handle) becomes an exact-body exemption
+   with a reason.
 4. **JSON proof.** `--json` never changes. Capture the command's `--json` output
    before and after the change in the same sandbox, and show the byte-equal
    comparison in the pull request.

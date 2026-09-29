@@ -5,7 +5,7 @@ mod dispatch;
 use crate::{
     identity_context,
     invocation::{OutputMode, RoomOperation},
-    output::{Failure, after_cleanup, table},
+    output::{Failure, after_cleanup},
 };
 use std::io::{self, Write};
 use tmt_adapters::{
@@ -113,6 +113,53 @@ fn run(operation: RoomOperation) -> Result<Report, Failure> {
     after_cleanup(pending, || storage.close())
 }
 
+fn state(room: &MeetingRoom) -> &'static str {
+    if room.retired { "retired" } else { "active" }
+}
+
+/// `ACTIVE n` and `RETIRED n` sections sorted by name; the id is shortened
+/// because commands take the room's name.
+fn write_list(
+    output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
+    rooms: &[MeetingRoom],
+) -> io::Result<()> {
+    use tmt_cli_style::{
+        Token,
+        list::{self, Section},
+        table::{Cell, Column, Table},
+        value,
+    };
+    let mut sorted: Vec<&MeetingRoom> = rooms.iter().collect();
+    sorted.sort_by(|a, b| a.name.cmp(&b.name));
+    let sections: Vec<Section> = ["active", "retired"]
+        .into_iter()
+        .filter_map(|title| {
+            let matching: Vec<&&MeetingRoom> =
+                sorted.iter().filter(|room| state(room) == title).collect();
+            let mut rows = Table::new(&[Column::Name, Column::Fixed, Column::Fixed]);
+            for room in &matching {
+                let members = match room.member_ids.len() {
+                    1 => "1 member".to_owned(),
+                    count => format!("{count} members"),
+                };
+                rows.row([
+                    Cell::from(&room.name),
+                    Cell::from(members),
+                    Cell::styled(value::short_id(&room.id), Token::Dim),
+                ]);
+            }
+            (!matching.is_empty()).then_some(Section {
+                title,
+                count: Some(matching.len()),
+                rows,
+                hint: None,
+            })
+        })
+        .collect();
+    list::write(output, terminal, &sections)
+}
+
 pub fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<u8> {
     if matches!(operation, RoomOperation::Dispatch { .. }) {
         return dispatch::execute(operation, mode);
@@ -121,7 +168,7 @@ pub fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };
-    let mut out = io::stdout().lock();
+    let mut out = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         let value = match &report {
             Report::One(room) => serde_json::json!({"room": RoomWire::from(room)}),
@@ -131,32 +178,68 @@ pub fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<u8> {
         };
         writeln!(out, "{value}")?;
     } else {
-        let rooms = match &report {
-            Report::One(room) => std::slice::from_ref(room),
-            Report::List(rooms) => rooms,
-        };
-        if rooms.is_empty() {
-            writeln!(out, "No rooms. Create one with: tmt room create <name>")?;
-        } else {
-            table::write(
+        let terminal = out.terminal();
+        match &report {
+            Report::One(room) => tmt_cli_style::detail::write(
                 &mut out,
-                ["ROOM", "STATE", "MEMBERS", "REVISION", "ID"],
-                rooms.iter().map(|room| {
-                    [
-                        room.name.clone(),
-                        if room.retired { "retired" } else { "active" }.into(),
-                        room.member_ids.len().to_string(),
-                        room.revision.to_string(),
-                        room.id.clone(),
-                    ]
-                }),
-            )?;
-            if let Report::One(room) = &report {
-                for id in &room.member_ids {
-                    writeln!(out, "  {id}")?;
-                }
+                terminal,
+                &room.name,
+                &[
+                    ("state", state(room).into()),
+                    ("revision", room.revision.to_string()),
+                    ("id", room.id.clone()),
+                    (
+                        "members",
+                        if room.member_ids.is_empty() {
+                            "-".into()
+                        } else {
+                            room.member_ids.join(", ")
+                        },
+                    ),
+                ],
+            )?,
+            Report::List(rooms) if rooms.is_empty() => {
+                writeln!(out, "No rooms.")?;
+                tmt_cli_style::message::hint(&mut out, terminal, "tmt room create <name>")?;
             }
+            Report::List(rooms) => write_list(&mut out, terminal, rooms)?,
         }
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn room(name: &str, id: &str, retired: bool, members: usize) -> MeetingRoom {
+        MeetingRoom {
+            id: id.into(),
+            name: name.into(),
+            revision: 1,
+            retired,
+            member_ids: (0..members)
+                .map(|index| format!("member-{index}"))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn rooms_list_in_state_sections_by_name_with_short_ids() {
+        let mut output = Vec::new();
+        write_list(
+            &mut output,
+            tmt_cli_style::Terminal::PLAIN,
+            &[
+                room("zeta", "11111111-aaaa", false, 2),
+                room("old", "22222222-bbbb", true, 0),
+                room("alpha", "33333333-cccc", false, 1),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "ACTIVE 2\n  alpha  1 member   33333333\n  zeta   2 members  11111111\n\nRETIRED 1\n  old    0 members  22222222\n"
+        );
+    }
 }

@@ -58,7 +58,7 @@ pub fn execute(identity: Option<String>, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         writeln!(
             stdout,
@@ -70,6 +70,7 @@ pub fn execute(identity: Option<String>, mode: OutputMode) -> io::Result<u8> {
             })
         )?;
     } else {
+        // The full path, never `~/`: scripts read it (see the command's Details).
         writeln!(stdout, "{}", report.notes.path.display())?;
     }
     Ok(0)

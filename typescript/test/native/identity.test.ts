@@ -455,7 +455,7 @@ describe('native durable identity process boundary', () => {
       delete sandbox.env.TMT_HINTS;
       const emptyHuman = await runCli(sandbox, ['identity', 'list']);
       expect(emptyHuman.status).toBe(0);
-      expect(emptyHuman.stdout).toBe('No identities found.\n');
+      expect(emptyHuman.stdout).toBe('No identities found.\nhint: tmt name <name>\n');
       expect(emptyHuman.stderr).toBe('');
 
       const human = await runCli(sandbox, ['identity', 'create', 'Human']);
@@ -475,7 +475,7 @@ describe('native durable identity process boundary', () => {
         await runCli(sandbox, ['identity', 'show', 'human', '--json'])
       );
       expect(humanShow.stdout).toBe(
-        `NAME   LIFETIME  CANONICAL NAME  ID\n` + `Human  saved     human           ${shown.id}\n`
+        `Human\n  lifetime   saved\n  canonical  human\n  id         ${shown.id}\n`
       );
       expect(humanShow.stderr).toBe('');
       const missingHuman = await runCli(sandbox, ['identity', 'show', 'missing']);
@@ -484,7 +484,7 @@ describe('native durable identity process boundary', () => {
       expect(missingHuman.stderr).toBe("error: Identity 'missing' was not found\n");
       const humanList = await runCli(sandbox, ['identity', 'list']);
       expect(humanList.status).toBe(0);
-      expect(humanList.stdout).toBe(`NAME   LIFETIME  ID\nHuman  saved     ${shown.id}\n`);
+      expect(humanList.stdout).toBe(`SAVED 1\n  Human  ${shown.id.slice(0, 8)}\n`);
       expect(humanList.stderr).toBe('');
     });
   });
@@ -505,11 +505,11 @@ describe('native durable identity process boundary', () => {
       expect(listed.status).toBe(0);
       expect(listed.stderr).toBe('');
       expect(listed.stdout).toBe(
-        `NAME                   LIFETIME  ID\n` +
-          `A                      saved     ${identities.get('A')?.id}\n` +
-          `ＡＢ                   saved     ${identities.get('ＡＢ')?.id}\n` +
-          `Longest identity name  saved     ${identities.get('Longest identity name')?.id}\n` +
-          `é                      saved     ${identities.get('e\u0301')?.id}\n`
+        `SAVED 4\n` +
+          `  A                      ${identities.get('A')?.id.slice(0, 8)}\n` +
+          `  ＡＢ                   ${identities.get('ＡＢ')?.id.slice(0, 8)}\n` +
+          `  Longest identity name  ${identities.get('Longest identity name')?.id.slice(0, 8)}\n` +
+          `  é                      ${identities.get('e\u0301')?.id.slice(0, 8)}\n`
       );
       const structured = await runCli(sandbox, ['identity', 'list', '--json']);
       expect(structured.status).toBe(0);

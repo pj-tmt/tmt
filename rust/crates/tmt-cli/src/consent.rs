@@ -4,6 +4,7 @@
 
 use crate::{invocation::OutputMode, output::Failure};
 use std::io::{self, BufRead, IsTerminal, Read, Write};
+use tmt_cli_style::stream::Stream;
 
 pub struct Consent<'a> {
     /// Failure code when consent is required but cannot be asked.
@@ -14,11 +15,11 @@ pub struct Consent<'a> {
     pub question: &'a str,
 }
 
-/// Asks on `output` (the caller's stdout) only when stdin and stdout are both
-/// terminals and output is not JSON. A decline prints "No changes made." and
+/// Asks on `output` (the caller's stdout) only when stdin and that stream are
+/// both terminals and output is not JSON. A decline prints "No changes made." and
 /// returns false. The answer is bounded to 256 bytes.
 pub fn ask(
-    output: &mut impl Write,
+    output: &mut Stream<impl Write>,
     yes: bool,
     mode: OutputMode,
     consent: Consent<'_>,
@@ -27,7 +28,7 @@ pub fn ask(
     if yes {
         return Ok(true);
     }
-    if mode.json || !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+    if mode.json || !io::stdin().is_terminal() || !output.is_terminal() {
         return Err(Failure::new(consent.code, consent.refusal, 1));
     }
     write!(output, "{}? [y/N] ", consent.question)
