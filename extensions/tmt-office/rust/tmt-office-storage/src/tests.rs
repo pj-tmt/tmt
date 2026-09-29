@@ -568,6 +568,7 @@ fn staging_is_private() {
 
 mod switch;
 
+mod context;
 mod plan;
 mod reconciliation;
 mod retirement;

@@ -268,7 +268,15 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
     {
         return Err(());
     }
-    let context = crate::context_command::render_verified(refreshed, &paths).map_err(|_| ())?;
+    // Extension contributions share the hook's remaining budget.
+    let context = crate::context_command::render_verified(
+        refreshed,
+        &paths,
+        deadline
+            .checked_sub(Duration::from_millis(200))
+            .unwrap_or(deadline),
+    )
+    .map_err(|_| ())?;
     let encoded = lifecycle.encode_context(&context).ok_or(())?;
     crate::pane_badge::refresh(&paths, &tmux, binding, deadline);
     Ok(encoded)

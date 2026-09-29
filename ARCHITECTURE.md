@@ -941,6 +941,25 @@ consumers must converge through their own reconciliation. Every hook call
 carries `TMT_HOOK_DELIVERY=1`, and a `tmt` process that sees it captures
 nothing, so an extension calling `tmt` cannot cause nested delivery.
 
+Rehydration context (`tmt whoami --context` and provider injection, which
+share `context_command::verified_document`) asks each verified extension that
+negotiated `context_v1` for one line, only for a verified, bound identity:
+`tmt-<name> __tmt-hooks 1 context` with `{"version":1,"identityId":…}` and
+`TMT_HOOK_DELIVERY=1`, under one 300 ms deadline (capped by the provider hook's
+remaining budget) and 1 KiB of output per extension, bounded before parsing.
+Only `{"summary":"…"}` with at most 240 characters is accepted; anything else,
+a timeout, or an absent, changed or disabled executable omits that
+contribution. The host attributes each `{extension, summary}` by its consent
+name. Summaries are untrusted, informational data: text output labels them
+`Extension <name> (informational): "…"` with the same escaping as role and
+notes, and the 4 KiB bound drops extension contributions before role or notes
+and never loses core counts or inspect commands. Unbound, ambiguous and
+unavailable callers never invoke extensions. Office answers with a read-only
+line about the identity's desk and meeting-area count from its own world
+layout, opening both databases read-only and never through
+`OfficeStore::open_configured`, so context never migrates, activates,
+reconciles or creates files.
+
 With no consent file or no enabled observer, a command performs at most one read
 attempt of the consent file, on its first storage open, and spawns nothing;
 commands that never open storage do no hook work at all. Office implements the

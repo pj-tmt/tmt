@@ -5,11 +5,11 @@ mod presentation;
 use crate::invocation::OutputMode;
 use std::{
     io::{self, Write},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    notes,
+    extension_hooks, notes,
     storage::Storage,
     tmux::{CallerEnvironment, OperationOptions, Tmux},
 };
@@ -62,25 +62,37 @@ fn observe() -> Option<serde_json::Value> {
     ) {
         return None;
     }
-    Some(verified_document(stored, &paths))
+    Some(verified_document(
+        stored,
+        &paths,
+        Instant::now() + extension_hooks::CONTEXT_DEADLINE,
+    ))
 }
 
+/// Only a verified, bound identity asks enabled extensions for context.
 pub(crate) fn verified_document(
     stored: tmt_adapters::storage::IdentityContextSnapshot,
     paths: &ConfigPaths,
+    deadline: Instant,
 ) -> serde_json::Value {
     let notes = NotesIdentityId::try_from(&stored.entry.identity)
         .ok()
         .and_then(|id| notes::existing_path(paths, &id).ok().flatten())
         .and_then(|path| path.into_os_string().into_string().ok());
-    presentation::document(stored, notes)
+    let extensions = extension_hooks::context_contributions(
+        &paths.global_dir,
+        &stored.entry.identity.id,
+        deadline,
+    );
+    presentation::document(stored, notes, &extensions)
 }
 
 pub(crate) fn render_verified(
     stored: tmt_adapters::storage::IdentityContextSnapshot,
     paths: &ConfigPaths,
+    deadline: Instant,
 ) -> io::Result<String> {
-    presentation::bounded(verified_document(stored, paths), false)
+    presentation::bounded(verified_document(stored, paths, deadline), false)
 }
 
 pub(crate) fn unbound_text() -> io::Result<String> {

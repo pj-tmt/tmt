@@ -164,3 +164,46 @@ fn consents_are_stored_privately_and_disable_removes_one() {
         Err(ExtensionHookError::Invalid(_))
     ));
 }
+
+#[test]
+fn a_summary_is_one_bounded_string_or_nothing() {
+    assert_eq!(
+        decode_summary(br#"{"summary":"Office: desk"}"#),
+        Some("Office: desk".into())
+    );
+    let longest = "\u{2603}".repeat(SUMMARY_CHARACTER_LIMIT);
+    assert_eq!(
+        decode_summary(
+            serde_json::json!({"summary": longest})
+                .to_string()
+                .as_bytes()
+        ),
+        Some(longest)
+    );
+    for bytes in [
+        br#"{"summary":null}"#.to_vec(),
+        br#"{"summary":"  "}"#.to_vec(),
+        br#"{"summary":"x","extra":1}"#.to_vec(),
+        br#"{"summary":7}"#.to_vec(),
+        b"not json".to_vec(),
+        serde_json::json!({"summary": "x".repeat(SUMMARY_CHARACTER_LIMIT + 1)})
+            .to_string()
+            .into_bytes(),
+    ] {
+        assert_eq!(
+            decode_summary(&bytes),
+            None,
+            "{}",
+            String::from_utf8_lossy(&bytes)
+        );
+    }
+}
+
+#[test]
+fn no_context_consent_means_no_contribution() {
+    let directory = TestDirectory::new();
+    assert!(
+        context_contributions(&directory.path, ID, Instant::now() + CONTEXT_DEADLINE).is_empty()
+    );
+    assert!(!consent_path(&directory.path).exists());
+}
