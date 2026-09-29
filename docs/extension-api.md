@@ -39,7 +39,7 @@ Clients must tolerate additive response fields.
 | `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                     | `recorded`                                                                                                                                                        |
 | `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                     | `acknowledged`                                                                                                                                                    |
 | `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                      | `owner`, `published` targets                                                                                                                                      |
-| `skills.remove`          | `owner`, `consent: true`                                                  | `owner`, `removed` and `kept` targets                                                                                                                             |
+| `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                       | `owner`, `removed` and `kept` targets                                                                                                                             |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                              | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
 
@@ -67,7 +67,11 @@ in the way. Errors are
 `SKILL_INVALID`, `SKILL_OWNED_ELSEWHERE`, `SKILL_CONFLICT` (an unmanaged path),
 `API_CONSENT_REQUIRED` and `SKILL_INSTALL_FAILED`. Repeating identical content
 changes nothing. `skills.remove` removes only links that still point at the
-owner's content and reports anything else at a recorded target as `kept`.
+owner's content and reports anything else at a recorded target as `kept`. By default it
+removes all of the owner's skills; `skills` limits it to 1 to 16 distinct names, and a
+name the owner does not hold (or another owner does) is nothing to remove, like a
+repeat. An empty, repeated or non-canonical selection is `SKILL_INVALID` and changes
+nothing.
 Ownership is bookkeeping between cooperating installers of one user, not
 authentication: this local API cannot prove which extension is calling.
 

@@ -549,15 +549,42 @@ pub fn install_owned(
     }
 }
 
+/// A selection of an owner's skills by name: nonempty, bounded, canonical
+/// names, no repeats.
+fn validate_selection(only: &[String]) -> Result<(), Refusal> {
+    let mut names = std::collections::BTreeSet::new();
+    if only.is_empty()
+        || only.len() > MAXIMUM_SKILLS
+        || only
+            .iter()
+            .any(|name| !valid_name(name) || !names.insert(name))
+    {
+        return Err(Refusal::Invalid(format!(
+            "Select 1 to {MAXIMUM_SKILLS} distinct skill names."
+        )));
+    }
+    Ok(())
+}
+
 /// Removes an owner's links: only targets that still point into that owner's
-/// store. Anything else at a recorded target is kept and reported.
-pub fn remove_owned(global: &Path, owner: &str) -> Result<OwnedReport, OwnedFailure> {
+/// store. Anything else at a recorded target is kept and reported. `only`
+/// limits removal to those of the owner's skills; a name the owner does not
+/// hold (including one held by another owner) is nothing to remove, like a
+/// repeated removal.
+pub fn remove_owned(
+    global: &Path,
+    owner: &str,
+    only: Option<&[String]>,
+) -> Result<OwnedReport, OwnedFailure> {
     let mut report = OwnedReport::default();
     let pending = (|| {
         if !valid_owner(owner) {
             return Err(refused(Refusal::Invalid(format!(
                 "Owner '{owner}' must be a lowercase extension name other than core."
             ))));
+        }
+        if let Some(only) = only {
+            validate_selection(only).map_err(refused)?;
         }
         let global = files::resolved(global)?;
         let assets = SkillAssets::new(&global);
@@ -566,7 +593,9 @@ pub fn remove_owned(global: &Path, owner: &str) -> Result<OwnedReport, OwnedFail
             let names: Vec<String> = owners
                 .skills
                 .iter()
-                .filter(|(_, entry)| entry.owner == owner)
+                .filter(|(name, entry)| {
+                    entry.owner == owner && only.is_none_or(|only| only.contains(name))
+                })
                 .map(|(name, _)| name.clone())
                 .collect();
             for name in &names {

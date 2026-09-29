@@ -1633,7 +1633,9 @@ refuse targets another owner holds rather than trusting the stated owner.
 Claims and unmanaged paths are checked for every target before any effect.
 Office links published from the core bundle are adopted by owner `office`
 without force (any other owner needs force), and core's bundle then leaves held names alone: Office facade
-installs skip them and CLI refresh reports them as skipped. Removal deletes
+installs skip them and CLI refresh reports them as skipped. Removal is by owner, or
+by a named subset of that owner's skills (`skills.remove`'s optional `skills`), so an
+extension can retract one optional skill without touching the rest. It deletes
 only links into the owner's store; drift reports owned targets that no longer
 point at their owner's current content.
 

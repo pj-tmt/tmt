@@ -239,7 +239,7 @@ fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
     fs::create_dir(&replaced).unwrap();
     fs::write(replaced.join("SKILL.md"), b"user copy").unwrap();
 
-    let removed = remove_owned(&global, "squad").unwrap();
+    let removed = remove_owned(&global, "squad", None).unwrap();
     assert_eq!(removed.removed, [root.join("tmt-squad")]);
     assert_eq!(removed.kept, std::slice::from_ref(&replaced));
     assert!(!root.join("tmt-squad").exists());
@@ -249,9 +249,69 @@ fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining["tmt-office"], "office");
     assert!(
-        remove_owned(&global, "squad").unwrap().removed.is_empty(),
+        remove_owned(&global, "squad", None)
+            .unwrap()
+            .removed
+            .is_empty(),
         "repeat is a no-op"
     );
+}
+
+#[test]
+fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
+    let (_directory, env, global, root) = fixture();
+    install_owned(
+        &env,
+        &global,
+        "squad",
+        &[skill("tmt-squad", "s"), skill("tmux-squad", "p")],
+        false,
+    )
+    .unwrap();
+    install_owned(&env, &global, "office", &[skill("tmt-office", "o")], false).unwrap();
+    let before = owners(&global).unwrap();
+
+    // Invalid selections change nothing.
+    for bad in [
+        vec![],
+        vec!["Tmux-Squad".to_string()],
+        vec!["tmux-squad".to_string(), "tmux-squad".to_string()],
+    ] {
+        let error = remove_owned(&global, "squad", Some(&bad)).unwrap_err();
+        assert!(matches!(refusal(&error.cause), Some(Refusal::Invalid(_))));
+        assert_eq!(owners(&global).unwrap(), before);
+        assert!(root.join("tmux-squad").exists());
+    }
+
+    // Names the owner does not hold, or another owner holds, are nothing to remove.
+    let none = remove_owned(
+        &global,
+        "squad",
+        Some(&["tmt-office".to_string(), "missing".to_string()]),
+    )
+    .unwrap();
+    assert!(none.removed.is_empty() && none.kept.is_empty());
+    assert_eq!(owners(&global).unwrap(), before);
+
+    let removed = remove_owned(&global, "squad", Some(&["tmux-squad".to_string()])).unwrap();
+    assert_eq!(removed.removed, [root.join("tmux-squad")]);
+    assert!(removed.kept.is_empty());
+    assert!(!root.join("tmux-squad").exists());
+    assert_eq!(read_skill(&root.join("tmt-squad")), "s");
+    assert_eq!(read_skill(&root.join("tmt-office")), "o");
+    let remaining = owners(&global).unwrap();
+    assert_eq!(remaining.len(), 2);
+    assert_eq!(remaining["tmt-squad"], "squad");
+    assert!(
+        remove_owned(&global, "squad", Some(&["tmux-squad".to_string()]))
+            .unwrap()
+            .removed
+            .is_empty(),
+        "repeat is a no-op"
+    );
+    // Without a selection the owner's remaining skill goes as before.
+    let rest = remove_owned(&global, "squad", None).unwrap();
+    assert_eq!(rest.removed, [root.join("tmt-squad")]);
 }
 
 #[test]

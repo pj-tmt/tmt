@@ -996,7 +996,7 @@ documented status row shape against real output. Extension-owned skills
 (`skills.install`, owned by an extension rather than this bundle) are covered by
 `skill_installation::owned_tests` with isolated provider roots: publish, repeat
 no-op, core and cross-owner claims, force backup, Office adoption, removal by
-owner and drift. Runtime/linkage proof shared by archive
+owner (all skills or a named subset) and drift. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
 ## Review and evidence
