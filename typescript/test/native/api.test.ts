@@ -408,4 +408,57 @@ describe('public local extension API', () => {
       expect(existsSync(sandbox.database)).toBe(false);
     });
   });
+
+  it('removes only the selected skills of an owner when skills.remove names them', async () => {
+    await withSandbox(async (sandbox) => {
+      const skill = (name: string, body: string) => ({
+        name,
+        files: [{ path: 'SKILL.md', content: body }],
+      });
+      const installed = await api(sandbox, 'skills.install', {
+        owner: 'squad',
+        consent: true,
+        skills: [skill('tmt-squad', 'lead'), skill('tmux-squad', 'playbook')],
+      });
+      expect(installed.status).toBe(0);
+      const targets = (name: string): string[] =>
+        installed.body.published
+          .filter((item: { name: string }) => item.name === name)
+          .map((item: { target: string }) => item.target);
+      expect(targets('tmux-squad').length).toBeGreaterThan(0);
+
+      for (const bad of [[], ['Tmux-Squad'], ['tmux-squad', 'tmux-squad']]) {
+        const refused = await api(sandbox, 'skills.remove', {
+          owner: 'squad',
+          consent: true,
+          skills: bad,
+        });
+        expect(refused.status).toBe(1);
+        expect(refused.body.error.code).toBe('SKILL_INVALID');
+      }
+      const mistyped = await api(sandbox, 'skills.remove', {
+        owner: 'squad',
+        consent: true,
+        skills: 'tmux-squad',
+      });
+      expect(mistyped.body.error.code).toBe('API_INPUT_INVALID');
+      for (const target of [...targets('tmt-squad'), ...targets('tmux-squad')]) {
+        expect(existsSync(target)).toBe(true);
+      }
+
+      const removed = await api(sandbox, 'skills.remove', {
+        owner: 'squad',
+        consent: true,
+        skills: ['tmux-squad'],
+      });
+      expect(removed.body).toEqual({ owner: 'squad', removed: targets('tmux-squad'), kept: [] });
+      for (const target of targets('tmux-squad')) expect(existsSync(target)).toBe(false);
+      for (const target of targets('tmt-squad')) {
+        expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('lead');
+      }
+      const rest = await api(sandbox, 'skills.remove', { owner: 'squad', consent: true });
+      expect(rest.body.removed).toEqual(targets('tmt-squad'));
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
 });

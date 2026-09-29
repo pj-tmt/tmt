@@ -133,7 +133,10 @@ pub enum Request {
         skills: Vec<skill_installation::OwnedSkill>,
         force: bool,
     },
-    SkillsRemove(String),
+    SkillsRemove {
+        owner: String,
+        skills: Option<Vec<String>>,
+    },
     /// Read-only states of identities and rooms named by UUID.
     References {
         identities: Vec<String>,
@@ -171,6 +174,8 @@ struct SkillsInstallInput {
 struct SkillsRemoveInput {
     owner: String,
     consent: bool,
+    /// Only these of the owner's skills; absent means all of them.
+    skills: Option<Vec<String>>,
 }
 
 /// Skills write into the user's provider directories, so the caller must
@@ -415,7 +420,10 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "skills.remove" => {
             let value: SkillsRemoveInput = serde_json::from_slice(input).map_err(|_| invalid())?;
             consented(value.consent)?;
-            Request::SkillsRemove(value.owner)
+            Request::SkillsRemove {
+                owner: value.owner,
+                skills: value.skills,
+            }
         }
         "notes.read" => {
             let value: IdentityInput = serde_json::from_slice(input).map_err(|_| invalid())?;
@@ -493,8 +501,8 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     {
         return skills_install(&paths.global_dir, &owner, &skills, force);
     }
-    if let Request::SkillsRemove(owner) = request {
-        return skill_installation::remove_owned(&paths.global_dir, &owner)
+    if let Request::SkillsRemove { owner, skills } = request {
+        return skill_installation::remove_owned(&paths.global_dir, &owner, skills.as_deref())
             .map(|report| {
                 serde_json::to_vec(&json!({
                     "owner": owner,
@@ -528,7 +536,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         Request::Capabilities
         | Request::Notes(_)
         | Request::SkillsInstall { .. }
-        | Request::SkillsRemove(_) => unreachable!("handled before storage"),
+        | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
         Request::Roster { room, prefix } => storage
             .room_roster(&room, prefix.as_deref())
             .map(|roster| room::encode_roster(&roster, wall_time_ms()))
