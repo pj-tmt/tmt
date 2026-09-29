@@ -4,7 +4,7 @@ use crate::{
     config::{ConfigFiles, ConfigPaths},
     dispatch, notes, request_history,
     request_runtime::wall_time_ms,
-    room,
+    room, skill_installation,
     storage::{RosterError, Storage, StorageError},
 };
 use serde::Deserialize;
@@ -33,16 +33,28 @@ const OPS: &[&str] = &[
     "identityHooks.pending",
     "identityHooks.attempt",
     "identityHooks.ack",
+    "skills.install",
+    "skills.remove",
 ];
 
 #[derive(Debug)]
 pub struct Fault {
     code: &'static str,
-    message: &'static str,
+    message: std::borrow::Cow<'static, str>,
 }
 impl Fault {
     pub fn new(code: &'static str, message: &'static str) -> Self {
-        Self { code, message }
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+    /// A fault whose message names the specific skill, path or owner.
+    pub fn detailed(code: &'static str, message: String) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
     }
     pub fn unavailable() -> Self {
         Self::new(
@@ -101,6 +113,54 @@ pub enum Request {
     },
     HookAttempt(IdentityHook),
     HookAck(IdentityHook),
+    /// Extension-owned skills; the caller has obtained the user's consent.
+    SkillsInstall {
+        owner: String,
+        skills: Vec<skill_installation::OwnedSkill>,
+        force: bool,
+    },
+    SkillsRemove(String),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkillFileInput {
+    path: String,
+    content: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkillInput {
+    name: String,
+    files: Vec<SkillFileInput>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkillsInstallInput {
+    owner: String,
+    consent: bool,
+    #[serde(default)]
+    force: bool,
+    skills: Vec<SkillInput>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkillsRemoveInput {
+    owner: String,
+    consent: bool,
+}
+
+/// Skills write into the user's provider directories, so the caller must
+/// have asked the user first and say so explicitly.
+fn consented(consent: bool) -> Result<(), Fault> {
+    if consent {
+        Ok(())
+    } else {
+        Err(Fault::new(
+            "API_CONSENT_REQUIRED",
+            "Skill installation changes the user's agent directories; ask the user, then send consent: true.",
+        ))
+    }
 }
 
 /// Bound on one pending page; matches the Office consumer's batch.
@@ -228,6 +288,31 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
                 limit: value.limit,
             }
         }
+        "skills.install" => {
+            let value: SkillsInstallInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+            consented(value.consent)?;
+            Request::SkillsInstall {
+                owner: value.owner,
+                force: value.force,
+                skills: value
+                    .skills
+                    .into_iter()
+                    .map(|skill| skill_installation::OwnedSkill {
+                        name: skill.name,
+                        files: skill
+                            .files
+                            .into_iter()
+                            .map(|file| (file.path, file.content.into_bytes()))
+                            .collect(),
+                    })
+                    .collect(),
+            }
+        }
+        "skills.remove" => {
+            let value: SkillsRemoveInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+            consented(value.consent)?;
+            Request::SkillsRemove(value.owner)
+        }
         "notes.read" => {
             let value: IdentityInput = serde_json::from_slice(input).map_err(|_| invalid())?;
             if !tmt_core::dispatch::canonical_id(&value.identity_id) {
@@ -237,6 +322,43 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         }
         _ => return Err(invalid()),
     })
+}
+
+fn skill_fault(failure: &skill_installation::OwnedFailure) -> Fault {
+    let code = match skill_installation::refusal(&failure.cause) {
+        Some(skill_installation::Refusal::Invalid(_)) => "SKILL_INVALID",
+        Some(skill_installation::Refusal::Claimed { .. }) => "SKILL_OWNED_ELSEWHERE",
+        Some(skill_installation::Refusal::Unmanaged(_)) => "SKILL_CONFLICT",
+        None => "SKILL_INSTALL_FAILED",
+    };
+    Fault::detailed(code, failure.to_string())
+}
+
+fn skills_install(
+    global: &std::path::Path,
+    owner: &str,
+    skills: &[skill_installation::OwnedSkill],
+    force: bool,
+) -> Result<Vec<u8>, Fault> {
+    let env = skill_installation::ProviderEnvironment::capture().map_err(|_| {
+        Fault::new(
+            "SKILL_INSTALL_FAILED",
+            "Could not determine the home directory for agent skills.",
+        )
+    })?;
+    let report = skill_installation::install_owned(&env, global, owner, skills, force)
+        .map_err(|failure| skill_fault(&failure))?;
+    Ok(serde_json::to_vec(&json!({
+        "owner": owner,
+        "published": report.published.iter().map(|item| json!({
+            "name": item.name,
+            "agent": item.agent.map(|agent| agent.as_str()),
+            "target": item.target,
+            "changed": item.changed,
+            "backup": item.backup,
+        })).collect::<Vec<_>>(),
+    }))
+    .expect("installation report"))
 }
 
 pub fn capabilities() -> Vec<u8> {
@@ -259,6 +381,26 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     if matches!(request, Request::Capabilities) {
         return Ok(capabilities());
     }
+    if let Request::SkillsInstall {
+        owner,
+        skills,
+        force,
+    } = request
+    {
+        return skills_install(&paths.global_dir, &owner, &skills, force);
+    }
+    if let Request::SkillsRemove(owner) = request {
+        return skill_installation::remove_owned(&paths.global_dir, &owner)
+            .map(|report| {
+                serde_json::to_vec(&json!({
+                    "owner": owner,
+                    "removed": report.removed,
+                    "kept": report.kept,
+                }))
+                .expect("removal report")
+            })
+            .map_err(|failure| skill_fault(&failure));
+    }
     if let Request::Notes(id) = request {
         return notes::read(paths, &id)
             .map(|note| notes::encode(&note))
@@ -279,7 +421,10 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     };
     let mut storage = Storage::open(&paths.database).map_err(|_| Fault::unavailable())?;
     let pending = (|| match request {
-        Request::Capabilities | Request::Notes(_) => unreachable!("handled before storage"),
+        Request::Capabilities
+        | Request::Notes(_)
+        | Request::SkillsInstall { .. }
+        | Request::SkillsRemove(_) => unreachable!("handled before storage"),
         Request::Roster { room, prefix } => storage
             .room_roster(&room, prefix.as_deref())
             .map(|roster| room::encode_roster(&roster, wall_time_ms()))
@@ -461,6 +606,7 @@ fn request_error(error: tmt_core::request::RequestError<StorageError>) -> Fault 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     #[test]
     fn version_and_nested_admission_preserve_strict_resource_decoders() {
@@ -643,6 +789,79 @@ mod tests {
                     .contains(&json!(operation))
             );
         }
+    }
+
+    #[test]
+    fn skills_operations_require_consent_and_strict_shapes() {
+        let code = |operation: &str, input: Value, identity: Option<&str>| {
+            let mut body = json!({"version": 1, "operation": operation, "input": input});
+            if let Some(identity) = identity {
+                body["identity"] = json!(identity);
+            }
+            match decode(&body.to_string()) {
+                Ok(_) => "OK".to_owned(),
+                Err(fault) => fault.code.to_owned(),
+            }
+        };
+        let skills =
+            json!([{"name": "tmt-squad", "files": [{"path": "SKILL.md", "content": "x"}]}]);
+        assert_eq!(
+            code(
+                "skills.install",
+                json!({"owner": "squad", "consent": true, "skills": skills}),
+                None
+            ),
+            "OK"
+        );
+        assert_eq!(
+            code(
+                "skills.install",
+                json!({"owner": "squad", "consent": false, "skills": skills}),
+                None
+            ),
+            "API_CONSENT_REQUIRED"
+        );
+        assert_eq!(
+            code(
+                "skills.remove",
+                json!({"owner": "squad", "consent": false}),
+                None
+            ),
+            "API_CONSENT_REQUIRED"
+        );
+        assert_eq!(
+            code(
+                "skills.remove",
+                json!({"owner": "squad", "consent": true}),
+                None
+            ),
+            "OK"
+        );
+        for (input, identity) in [
+            (json!({"owner": "squad", "skills": skills}), None),
+            (
+                json!({"owner": "squad", "consent": true, "skills": skills, "extra": 1}),
+                None,
+            ),
+            (
+                json!({"owner": "squad", "consent": true, "skills": skills}),
+                Some("Ben"),
+            ),
+            (
+                json!({"owner": "squad", "consent": true, "skills": [{"name": "x", "files": [{"path": "SKILL.md", "bytes": "x"}]}]}),
+                None,
+            ),
+        ] {
+            assert_eq!(
+                code("skills.install", input.clone(), identity),
+                "API_INPUT_INVALID",
+                "{input}"
+            );
+        }
+        let listed: Value = serde_json::from_slice(&capabilities()).unwrap();
+        let operations = listed["operations"].as_array().unwrap();
+        assert!(operations.contains(&json!("skills.install")));
+        assert!(operations.contains(&json!("skills.remove")));
     }
 
     #[test]

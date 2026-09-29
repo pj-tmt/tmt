@@ -1,6 +1,6 @@
 //! Refresh existing managed links, never install new integrations from intent.
 
-use super::{assets::SkillAssets, files, managed_link, registry};
+use super::{assets::SkillAssets, files, managed_link, owned::owned_names, registry};
 use std::{
     collections::BTreeSet,
     error::Error,
@@ -59,6 +59,7 @@ pub(super) fn refresh_with_publisher(
         }
         files::with_lock(&global, || {
             let targets = registry::read(&global)?;
+            let owned = owned_names(&global)?;
             let assets = SkillAssets::new(&global);
             let mut locations = BTreeSet::new();
             let mut sources = None;
@@ -67,7 +68,11 @@ pub(super) fn refresh_with_publisher(
                 if !locations.insert(location) {
                     continue;
                 }
-                if !files::exists(&target)? {
+                let held = target
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| owned.contains(name));
+                if held || !files::exists(&target)? {
                     report.skipped.push(target);
                     continue;
                 }

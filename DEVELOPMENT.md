@@ -958,7 +958,11 @@ Follow `USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do
 not add provider-specific skill copies. The squad lead skill
 (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`) is deliberately outside this
 bundle: the squad executable embeds it, and its native test checks the
-documented status row shape against real output. Runtime/linkage proof shared by archive
+documented status row shape against real output. Extension-owned skills
+(`skills.install`, owned by an extension rather than this bundle) are covered by
+`skill_installation::owned_tests` with isolated provider roots: publish, repeat
+no-op, core and cross-owner claims, force backup, Office adoption, removal by
+owner and drift. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
 ## Review and evidence
