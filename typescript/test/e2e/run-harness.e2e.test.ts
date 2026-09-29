@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
+import { waitForFileContent } from './wait-for-file.js';
 
 function quote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -77,8 +78,9 @@ describe.sequential('foreground identity launch', () => {
       const run = async (label: string, args: string[], expected: number, exit = 31) => {
         const status = path.join(fixture.root, `${label}.status`);
         submit(fixture, pane, args, status, { HOME: home, RESUME_EXIT: String(exit) });
-        await fixture.waitFor(() => existsSync(status), 5000, `${label} completed`);
-        expect(readFileSync(status, 'utf8')).toBe(String(expected));
+        expect(await waitForFileContent(status, { description: `${label} completed` })).toBe(
+          String(expected)
+        );
       };
       const calls = () =>
         readFileSync(callsFile, 'utf8')
@@ -219,8 +221,9 @@ describe.sequential('foreground identity launch', () => {
       );
       const firstStatus = path.join(fixture.root, 'interrupt.status');
       submit(fixture, pane, ['run', '-s', 'Signals', fake], firstStatus);
-      await fixture.waitFor(() => existsSync(ready), 5000, 'signal harness start');
-      const first = JSON.parse(readFileSync(ready, 'utf8')) as { child: number; owner: number };
+      const first = JSON.parse(
+        await waitForFileContent(ready, { description: 'signal harness start' })
+      ) as { child: number; owner: number };
       const state = () =>
         durableState(fixture).bindings.find((row) => row.pane_id === pane)?.runtime_state;
       await fixture.waitFor(() => state() === 'running', 5000, 'durable running admission');
@@ -242,8 +245,9 @@ describe.sequential('foreground identity launch', () => {
         ['run', 'Signals', '/bin/sh', '-c', `touch ${quote(forbidden)}`],
         rejectedStatus
       );
-      await fixture.waitFor(() => existsSync(rejectedStatus), 5000, 'stopped runtime conflict');
-      expect(readFileSync(rejectedStatus, 'utf8')).toBe('5');
+      expect(
+        await waitForFileContent(rejectedStatus, { description: 'stopped runtime conflict' })
+      ).toBe('5');
       expect(existsSync(forbidden)).toBe(false);
       expect(stopped(first.child)).toBe(true);
       fixture.tmux(['send-keys', '-t', pane, '-l', 'fg']);
@@ -267,8 +271,9 @@ describe.sequential('foreground identity launch', () => {
       const interruptResult = path.join(fixture.root, 'fg-interrupt.status');
       fixture.tmux(['send-keys', '-t', pane, '-l', `printf '%s' "$?" > ${quote(interruptResult)}`]);
       fixture.tmux(['send-keys', '-t', pane, 'Enter']);
-      await fixture.waitFor(() => existsSync(interruptResult), 5000, 'foreground interrupt status');
-      expect(readFileSync(interruptResult, 'utf8')).toBe('130');
+      expect(
+        await waitForFileContent(interruptResult, { description: 'foreground interrupt status' })
+      ).toBe('130');
 
       writeFileSync(ready, '');
       const termStatus = path.join(fixture.root, 'term.status');
@@ -280,8 +285,9 @@ describe.sequential('foreground identity launch', () => {
       );
       const second = JSON.parse(readFileSync(ready, 'utf8')) as { child: number; owner: number };
       process.kill(second.owner, 'SIGTERM');
-      await fixture.waitFor(() => existsSync(termStatus), 5000, 'forwarded termination return');
-      expect(readFileSync(termStatus, 'utf8')).toBe('143');
+      expect(
+        await waitForFileContent(termStatus, { description: 'forwarded termination return' })
+      ).toBe('143');
       expect(state()).toBe('ended');
       await fixture.waitFor(
         () => !existsSync(`/proc/${second.child}`) && !existsSync(`/proc/${second.owner}`),
@@ -319,8 +325,9 @@ process.exit(23);
       ];
       const firstStatus = path.join(fixture.root, 'first.status');
       submit(fixture, shell.pane, ['run', 'Runner', fake, ...args], firstStatus);
-      await fixture.waitFor(() => existsSync(firstStatus), 5000, 'foreground command exit');
-      expect(readFileSync(firstStatus, 'utf8')).toBe('23');
+      expect(
+        await waitForFileContent(firstStatus, { description: 'foreground command exit' })
+      ).toBe('23');
       const first = JSON.parse(readFileSync(log, 'utf8').trim()) as {
         pid: number;
         owner: number;
@@ -360,8 +367,9 @@ process.exit(23);
 
       const secondStatus = path.join(fixture.root, 'second.status');
       submit(fixture, shell.pane, ['run', '-s', 'Runner'], secondStatus);
-      await fixture.waitFor(() => existsSync(secondStatus), 5000, 'remembered bare relaunch exit');
-      expect(readFileSync(secondStatus, 'utf8')).toBe('23');
+      expect(
+        await waitForFileContent(secondStatus, { description: 'remembered bare relaunch exit' })
+      ).toBe('23');
       const calls = readFileSync(log, 'utf8')
         .trim()
         .split('\n')
@@ -374,8 +382,9 @@ process.exit(23);
 
       const genericStatus = path.join(fixture.root, 'generic.status');
       submit(fixture, shell.pane, ['run', 'Runner', '/bin/sh', '-c', 'exit 7'], genericStatus);
-      await fixture.waitFor(() => existsSync(genericStatus), 5000, 'generic fast exit');
-      expect(readFileSync(genericStatus, 'utf8')).toBe('7');
+      expect(await waitForFileContent(genericStatus, { description: 'generic fast exit' })).toBe(
+        '7'
+      );
       expect(preferences(fixture)[0]?.preferred_harness).toBe('claude');
       expect(
         durableState(fixture).identities.find((row) => row.id === binding?.identity_id)?.lifetime
