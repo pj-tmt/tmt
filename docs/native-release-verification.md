@@ -10,15 +10,33 @@ This is verification guidance, not publication authorization.
 
 ### Explicit multi-platform release preparation
 
-`Native release artifacts` (`.github/workflows/native-release.yml`) is manually
-dispatched with an explicit `cli`, `office` or `squad` product, not part of every PR.
-Dispatch each authorized product on the release's reviewed,
-required-checks-green main commit and record the product, run ID and exact SHA in
-its issue. It builds on native macOS arm64/x64 and Linux arm64/x64 hosts using
-the existing pinned tools and `build-native-artifact.sh`. A shared matrix keeps
-build and final verification hosts aligned; dispatches outside main are skipped.
-Cached packaging tools are keyed
-by OS, architecture and exact tool versions; they are developer tools only.
+`Native release artifacts` (`.github/workflows/native-release.yml`) is the per-product
+release run, dispatched with an explicit `cli`, `office` or `squad` product, not part of
+every PR. It has two modes. The default `prepare` builds and verifies one bundle from the
+current main commit without a draft release and attaches nothing: dispatch each authorized
+product on the release's reviewed, required-checks-green main commit and record the
+product, run ID and exact SHA in its issue. With `prepare` off, the run plans the
+product's draft releases that carry neither a verified bundle nor a recorded failure,
+oldest first, and builds, verifies and attaches each one at its own commit
+(`target_commitish`), one at a time. `.github/workflows/native-release-bundle.yml` is the
+pipeline it calls once per draft. The pipeline builds on native macOS arm64/x64 and Linux
+arm64/x64 hosts using the existing pinned tools and `build-native-artifact.sh`. A shared
+matrix keeps build and final verification hosts aligned; dispatches outside main are
+skipped. Cached packaging tools are keyed by OS, architecture and exact tool versions;
+they are developer tools only. Rust dependency caches are per product and target and are
+written by main only.
+
+The draft release carries the state of its own build. A draft with
+`release-publication.json` has a complete bundle: the archives, the final manifest and, for
+the CLI, both installers are uploaded first, their digests compared with the local bytes,
+and that file last, after every final verifier passed. A draft with
+`verification-failed.json` (run URL, commit, failed jobs) is parked: later runs list it in
+their summary and skip it. A cancelled run records nothing and is retried. Retry a parked
+draft by dispatching the run with `prepare` off and `retry` set to its tag, or delete the
+draft. Each product has one queued run group (`release-<product>`); GitHub keeps one pending
+run per group and replaces it, which loses nothing because a run plans from the drafts
+when it starts. The run asserts that the draft tag is the tag prefix and Cargo version of
+its commit, and it never creates, edits or publishes a release.
 
 cargo-dist itself merges the downloaded `*-dist-manifest.json` inputs through
 `dist build --artifacts global --output-format=json --no-local-paths`. Do not

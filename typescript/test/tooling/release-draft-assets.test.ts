@@ -74,6 +74,13 @@ function bundle(product: string, tag: string) {
   return directory;
 }
 
+/** An asset as the fake store keeps it: its digest can be withheld. */
+interface StoredAsset {
+  id: number;
+  name: string;
+  digest?: string | null;
+}
+
 interface Fake {
   api: ReleaseApi;
   releases: DraftRelease[];
@@ -88,9 +95,7 @@ function fakeApi(
   const calls: string[] = [];
   let nextId = 100;
   let withheld = options.withheldDigests ?? 0;
-  const mutable = releases as (DraftRelease & {
-    assets: { id: number; name: string; digest: string | null }[];
-  })[];
+  const mutable = releases as (Omit<DraftRelease, 'assets'> & { assets: StoredAsset[] })[];
   const api: ReleaseApi = {
     listReleases: () => {
       const listed = JSON.parse(JSON.stringify(mutable)) as typeof mutable;
