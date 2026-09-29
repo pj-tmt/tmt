@@ -40,9 +40,13 @@ so never use the old TypeScript writer on a native database.
 
 ## Connect agent lifecycle hooks
 
-`tmt setup` is read-only: it shows detected providers and Claude/Codex hook status.
-Run `tmt setup claude` or `tmt setup codex` to review the exact settings and launcher
-paths and approve one plan. Noninteractive use requires `--yes`; add `--json` for a
+`tmt setup` sets up every agent it finds, after one approval. It reads only the
+filesystem and never starts an agent. Agents with an executable on PATH get the
+TMT skills and session hooks. Agents that are only configured get the skills,
+and so do installed extensions' skills. It prints every file it will change and
+asks once; nothing already set up is offered again. Without a terminal it needs
+`--yes` and otherwise changes nothing. Run `tmt setup claude` or `tmt setup codex`
+to review one agent's exact settings and launcher paths and approve that plan. Noninteractive use requires `--yes`; add `--json` for a
 structured result. This updates only TMT-owned SessionStart/SessionEnd entries in
 `~/.claude/settings.json` or Codex's `CODEX_HOME/hooks.json` (default
 `~/.codex/hooks.json`), retaining other hooks and permission settings. It does

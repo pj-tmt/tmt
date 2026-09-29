@@ -915,16 +915,16 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     )
     .subcommand(general(spec!(
         "setup",
-        "Inspect or consent to agent lifecycle integration",
+        "Set up every detected agent: skills and session hooks, after one approval",
         [
-            "Show lifecycle integration status" => "tmt setup",
-            "Enable it for Claude" => "tmt setup claude --yes",
-            "Remove it for Claude" => "tmt setup claude --remove",
+            "Review and apply what is missing" => "tmt setup",
+            "Only Claude's session hooks" => "tmt setup claude --yes",
+            "Remove Claude's session hooks" => "tmt setup claude --remove",
         ]
     ))
         .arg(operand("provider", false).value_parser(hooked.clone()))
         .arg(Arg::new("remove").long("remove").action(ArgAction::SetTrue).requires("provider"))
-        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue).requires("provider")))
+        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)))
     .subcommand(internal("__hook", "Internal bounded provider lifecycle callback").hide(true)
         .arg(operand("provider", true).value_parser(hooked))
         .arg(Arg::new("worker").long("worker").hide(true).action(ArgAction::SetTrue)))

@@ -674,6 +674,38 @@ pub fn owned_by(global: &Path, owner: &str) -> io::Result<BTreeMap<String, Vec<P
         .collect())
 }
 
+/// Links recorded owned skills at new targets to each owner's current
+/// source, under the installation lock, and records those targets. A target
+/// that exists is skipped, never replaced.
+pub(super) fn link_recorded<'a>(
+    global: &Path,
+    targets: impl IntoIterator<Item = (&'a str, &'a Path)>,
+) -> io::Result<Vec<PathBuf>> {
+    let assets = SkillAssets::new(global);
+    let targets: Vec<(&str, &Path)> = targets.into_iter().collect();
+    files::with_lock(global, || {
+        let mut owners = read_owners(global)?;
+        let mut linked = Vec::new();
+        for (name, target) in &targets {
+            let Some(entry) = owners.skills.get_mut(*name) else {
+                continue;
+            };
+            if files::exists(target)? {
+                continue;
+            }
+            files::safe_target(assets.root(), target)?;
+            let from = source(&assets, &entry.owner, &entry.digest, name);
+            files::link(target, &from)?;
+            entry.targets.push(target.to_path_buf());
+            linked.push(target.to_path_buf());
+        }
+        if !linked.is_empty() {
+            write_owners(global, &owners)?;
+        }
+        Ok(linked)
+    })
+}
+
 /// Each owned skill's recorded targets, by name.
 pub(super) fn owned_targets(global: &Path) -> io::Result<BTreeMap<String, Vec<PathBuf>>> {
     Ok(read_owners(global)?

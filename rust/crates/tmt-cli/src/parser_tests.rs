@@ -19,9 +19,17 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
             yes: true,
         }
     );
+    // Guided setup takes --yes for its one plan; --remove needs a driver.
+    assert_eq!(
+        parsed(&["setup", "--yes"]).invocation,
+        Invocation::Setup {
+            provider: None,
+            remove: false,
+            yes: true,
+        }
+    );
     for argv in [
         vec!["setup", "--remove"],
-        vec!["setup", "--yes"],
         vec!["setup", "unknown"],
         vec!["setup", "claude", "--force"],
     ] {

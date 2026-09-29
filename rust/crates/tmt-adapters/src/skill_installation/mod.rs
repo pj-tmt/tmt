@@ -8,6 +8,8 @@ mod owned;
 mod providers;
 mod refresh;
 mod registry;
+mod setup_plan;
+pub use setup_plan::{SkillState, SkillTarget, plan_core, plan_owned, publish_owned};
 mod uninstall;
 pub use refresh::{RefreshFailure, RefreshReport, RefreshedSkill, refresh};
 pub use uninstall::{SkillsRemoval, plan_uninstall, uninstall};
@@ -227,11 +229,7 @@ fn optional_roots(
         let Some(name) = registered.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if !matches!(
-            name,
-            "tmux-team" | "tmt-inbox" | "tmt-office" | "tmt-prop-create" | "tmt-avatar-create"
-        ) || managed_link(&registered, assets)?.is_none()
-        {
+        if catalog::bundled(name).is_none() || managed_link(&registered, assets)?.is_none() {
             continue;
         }
         let parent = registered.parent().expect("registered skill target parent");
