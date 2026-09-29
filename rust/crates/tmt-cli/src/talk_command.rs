@@ -408,7 +408,7 @@ fn run(
             && let Err(error) = crate::request_observer_command::start(&paths.database, &prepared.correlation.request_id) {
             let mut stderr = tmt_cli_style::stream::stderr();
             let terminal = stderr.terminal();
-            let _ = tmt_cli_style::message::warning(&mut stderr, terminal, &format!("Timeout notification unavailable ({error}); the request is retained."), Some("do not resend; inspect it with tmt result <request-id>"));
+            let _ = tmt_cli_style::message::warning(&mut stderr, terminal, &format!("Timeout notification unavailable ({error}); the request is retained."), Some(&format!("do not resend; inspect it with tmt result {}", prepared.correlation.request_id)));
         }
         let correlation = prepared.correlation;
         response.map(|response| Report { correlation, response })

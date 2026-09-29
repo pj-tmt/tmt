@@ -66,7 +66,7 @@ impl HookObserver for EmptyObserver {
 
 fn observe(observer: &mut impl HookObserver, event: &HookEvent<'_>) {
     if observe_driver_hook(observer, event).is_some() {
-        diagnostic("A lifecycle observer failed; the recorded command outcome is unchanged.");
+        diagnostic("a lifecycle observer failed; the recorded command outcome is unchanged.");
     }
 }
 
@@ -99,10 +99,17 @@ fn observe_admission(
 
 /// A non-fatal problem while the command keeps running or has run.
 fn diagnostic(message: &str) {
+    warn(message, None);
+}
+
+/// The child shares stderr with `tmt run`, so each warning names `tmt` as
+/// its source.
+fn warn(message: &str, hint: Option<&str>) {
     let mut stderr = tmt_cli_style::stream::stderr();
     let terminal = stderr.terminal();
     // A closed diagnostic stream must not unwind and drop a live owned child.
-    let _ = tmt_cli_style::message::warning(&mut stderr, terminal, message, None);
+    let _ =
+        tmt_cli_style::message::warning(&mut stderr, terminal, &format!("tmt: {message}"), hint);
 }
 
 #[derive(Clone, Copy)]
@@ -266,7 +273,7 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     // Closing local state cannot turn a successful child into a different exit.
     if storage.close().is_err() {
         diagnostic(
-            "Could not close launch state cleanly; inspect identity status before retrying.",
+            "could not close launch state cleanly; inspect identity status before retrying.",
         );
     }
     pending
@@ -296,7 +303,7 @@ fn run_bound(
             .map_err(storage_failure)?
         {
             diagnostic(&format!(
-                "Forgot {}'s remembered {} session; that driver is no longer registered.",
+                "forgot {}'s remembered {} session; that driver is no longer registered.",
                 purged.name, purged.harness
             ));
         }
@@ -316,7 +323,7 @@ fn run_bound(
             {
                 records.set_session_preferences(&identity.id, &preferences)?;
                 diagnostic(&format!(
-                    "Discarded {name}'s unreadable {} resume details (version {version}); resuming with the provider's defaults.",
+                    "discarded {name}'s unreadable {} resume details (version {version}); resuming with the provider's defaults.",
                     harness.as_str()
                 ));
             }
@@ -400,7 +407,7 @@ fn run_bound(
                 ));
             }
             diagnostic(
-                "Prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run` again to establish runtime ownership.",
+                "prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run` again to establish runtime ownership.",
             );
             false
         } else {
@@ -416,7 +423,7 @@ fn run_bound(
         )
         .is_err()
     {
-        diagnostic("Identity bound, but its cosmetic badge could not be updated.");
+        diagnostic("identity bound, but its cosmetic badge could not be updated.");
     }
     // Mark the resumed session pending before the child can start, so its
     // first provider start (which clears the mark) cannot race ahead of it.
@@ -520,12 +527,12 @@ fn run_bound(
         .unwrap_or(None);
     if admitted.is_none() {
         diagnostic(
-            "Command started, but runtime ownership could not be recorded; automatic delivery is not established.",
+            "command started, but runtime ownership could not be recorded; automatic delivery is not established.",
         );
     }
     if storage.close().is_err() {
         diagnostic(
-            "Could not close launch state before waiting; the command will not be restarted.",
+            "could not close launch state before waiting; the command will not be restarted.",
         );
     }
     crate::pane_badge::refresh(
@@ -545,7 +552,7 @@ fn run_bound(
             .as_ref()
             .is_some_and(|(_, state)| *state == tmt_core::binding::session::RuntimeState::Ended),
     );
-    let status = child.wait(|_| diagnostic("Signal observation degraded; waiting for the original command without restarting it."))
+    let status = child.wait(|_| diagnostic("signal observation degraded; waiting for the original command without restarting it."))
         .map_err(|error| Failure::new("PROCESS_ERROR", "Could not finish observing the requested command.", 1).caused_by(error))?;
     if let Some(session) = &launch.resumed {
         settle_resume(
@@ -564,7 +571,7 @@ fn run_bound(
         let recorded = Storage::open(&paths.database).and_then(|mut storage| {
             let recorded = finish(&mut storage, binding, owner, child, lifecycle);
             if storage.close().is_err() {
-                diagnostic("Could not close final state cleanly; the recorded exit is unchanged.");
+                diagnostic("could not close final state cleanly; the recorded exit is unchanged.");
             }
             recorded
         });
@@ -579,7 +586,7 @@ fn run_bound(
             Ok(Finished::AlreadyEnded) => {}
             Ok(Finished::Disconnected) => {}
             Ok(Finished::Replaced) | Err(_) => diagnostic(
-                "Command exited, but its final state could not be stored; no command was retried.",
+                "command exited, but its final state could not be stored; no command was retried.",
             ),
         }
         crate::pane_badge::refresh(
@@ -649,24 +656,18 @@ fn settle_resume(
         storage.close().and(stale)
     });
     match settled {
-        Ok(true) => {
-            let mut stderr = tmt_cli_style::stream::stderr();
-            let terminal = stderr.terminal();
-            let _ = tmt_cli_style::message::warning(
-                &mut stderr,
-                terminal,
-                &format!(
-                    "{} exited before confirming {name}'s resumed session; marked it stale.",
-                    session.harness.as_str()
-                ),
-                Some(&format!(
-                    "forget it with tmt resume --forget {name}, or try once more with tmt resume --retry {name}"
-                )),
-            );
-        }
+        Ok(true) => warn(
+            &format!(
+                "{} exited before confirming {name}'s resumed session; marked it stale.",
+                session.harness.as_str()
+            ),
+            Some(&format!(
+                "forget it with tmt resume --forget {name}, or try once more with tmt resume --retry {name}"
+            )),
+        ),
         Ok(false) => {}
         Err(_) => {
-            diagnostic("Could not record the resume outcome; the recorded exit is unchanged.")
+            diagnostic("could not record the resume outcome; the recorded exit is unchanged.")
         }
     }
 }
