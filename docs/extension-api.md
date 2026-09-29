@@ -150,9 +150,10 @@ user runs `tmt extension hooks enable <name>`. Core then invokes the resolved
 - `__tmt-hooks 1 capabilities`: print `TMT-HOOKS/1`, then one capability token per
   line (for example `lifecycle_observations_v1`), within one second and 1 KiB.
 - `__tmt-hooks 1 observe`: read `{"version":1,"events":[...]}` from stdin. Events
-  are `identity.created` and `identity.retired`
+  are `identity.created`, `identity.renamed` and `identity.retired`
   (`identityId`, `lifetime`, `retired`) and `room.created`, `room.updated` and
-  `room.retired` (`roomId`, `revision`, `retired`).
+  `room.retired` (`roomId`, `revision`, `retired`). A rename carries no names;
+  read the current name with `tmt identity show <identityId>`.
 
 - `__tmt-hooks 1 context` (capability `context_v1`): read
   `{"version":1,"identityId":"<uuid>"}` and print `{"summary":"<text>"}` (at most

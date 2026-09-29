@@ -978,8 +978,9 @@ grammar stays composable under `tmt extension` for installation commands.
 Capture is per connection and transactional. When the process allows capture
 (only the `tmt` CLI does) and an enabled extension offers
 `lifecycle_observations_v1`, `Storage::open` installs temporary triggers that
-record typed evidence in a temporary table: `identity.created` and
-`identity.retired` (UUID, lifetime, retired) and `room.created`, `room.updated`
+record typed evidence in a temporary table: `identity.created`,
+`identity.renamed` and `identity.retired` (UUID, lifetime, retired) and
+`room.created`, `room.updated`
 and `room.retired` (UUID, revision, retired), never names, messages or payloads.
 Temporary tables take part in the transaction, so rolled-back changes leave no
 evidence and nothing is persisted. Storage drains the table on close or drop;
@@ -1100,6 +1101,18 @@ in the renderer.
 binding use cases. Unknown or conflicting endpoint evidence is never treated as
 proof of death. Saved identities detach and remain offline; temporary identities
 may retire only after conclusive evidence.
+
+A pane's binding marker (`@tmux-team.agent`) proves ownership by its IDs alone:
+identity, binding, server and pane process. Its name is informational. It must be
+a well-formed name consistent with its canonical form, but it may lag the stored
+name, and every reader resolves the identity by ID and shows the stored name.
+Rename (`binding::rename_identity`) changes the name and canonical name of an
+unretired identity in the immediate binding transaction, under the same global
+uniqueness as creation, so everything keyed by the UUID follows. A marker that
+still carries the earlier name stays active; the post-commit cosmetic refresh
+(`Tmux::update_binding_cosmetics`, used by rename, bind, run and `pane_badge`)
+rewrites it to the stored name only when the marker is still this binding's.
+Read paths such as `ls` and `talk` never write it.
 
 `binding::session` separates remembered identity-owned harness/session preferences
 from binding-owned runtime observations. Schema 33 retains the former independently
