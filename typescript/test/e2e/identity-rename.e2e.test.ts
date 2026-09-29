@@ -154,6 +154,9 @@ describe.sequential('identity rename', () => {
           response: 'mock-agent response: before the rename',
         });
 
+        // The gate held only the pending request; open it for new ones.
+        fixture.releaseReplyGate();
+
         const reply = expectJsonResult(
           await fixture.runJsonCli<{ response: string }>([
             'talk',
