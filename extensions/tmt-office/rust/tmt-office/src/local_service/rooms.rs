@@ -5,10 +5,10 @@ use serde_json::{Value, json};
 use std::{io, net::TcpStream};
 use tmt_adapters::{
     config::ConfigPaths,
-    office_service::ServiceReceipt,
     room::{decode_retire, decode_write},
 };
 use tmt_core::dispatch::canonical_id;
+use tmt_office_service::ServiceReceipt;
 use tmt_office_storage::core_client::WriteOriginator;
 
 pub(super) const PATH: &str = "/api/v1/local/rooms";

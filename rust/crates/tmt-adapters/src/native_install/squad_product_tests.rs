@@ -32,6 +32,7 @@ fn install(
             channel: tmt_core::native_install::Channel::Stable,
             pin,
         },
+        None,
         &mut checkpoint,
     )
 }

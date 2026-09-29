@@ -5,6 +5,7 @@ use std::{
     io::{self, Write},
     path::Path,
 };
+use tmt_adapters::native_install;
 use tmt_core::native_install::{Channel, PinAction};
 
 pub fn execute(
@@ -37,7 +38,7 @@ pub fn execute(
                 .publish(mode);
         }
     };
-    let request = tmt_adapters::native_install::InstallRequest {
+    let request = native_install::InstallRequest {
         archive: Path::new(archive),
         manifest: Path::new(manifest),
         prefix: Path::new(prefix),
@@ -45,7 +46,8 @@ pub fn execute(
         channel,
         pin,
     };
-    let report = match tmt_adapters::native_install::install_product(product, request, || {
+    let verifier = crate::office_facade::release_verifier(product);
+    let report = match native_install::install_product(product, request, verifier, || {
         if interrupt.is_interrupted() {
             Err(io::Error::new(
                 io::ErrorKind::Interrupted,

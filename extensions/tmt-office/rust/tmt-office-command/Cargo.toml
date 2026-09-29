@@ -12,9 +12,18 @@ repository.workspace = true
 tmt-core.workspace = true
 tmt-office-model.workspace = true
 tmt-adapters.workspace = true
+tmt-office-service.workspace = true
 tmt-command-output.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+semver.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+png.workspace = true
+tar.workspace = true
+flate2.workspace = true
 
 [lints]
 workspace = true

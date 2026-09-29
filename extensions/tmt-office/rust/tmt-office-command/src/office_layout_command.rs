@@ -1,5 +1,7 @@
 //! One local world operation; no identity selection, implicit service or retry.
 
+use crate::office_companion::invoke_office_world;
+use crate::office_world::read_world_file;
 use crate::{
     invocation::{OfficeLayoutOperation, OutputMode},
     output::Failure,
@@ -10,11 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::interrupt::Interrupt;
-use tmt_adapters::office_companion::invoke_office_world;
-use tmt_adapters::office_world::WorldFailure;
-use tmt_adapters::office_world::read_world_file;
-use tmt_adapters::office_world::snapshot_value;
 use tmt_office_model::codec::office_world::SaveWorld;
+use tmt_office_model::codec::office_world::reply::WorldFailure;
+use tmt_office_model::codec::office_world::snapshot_value;
 
 pub fn run(
     executable: &Path,

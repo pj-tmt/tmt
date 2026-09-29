@@ -16,6 +16,7 @@ in-process-core = []
 [dependencies]
 tmt-adapters.workspace = true
 tmt-office-pairing.workspace = true
+tmt-office-service.workspace = true
 tmt-core.workspace = true
 tmt-office-model.workspace = true
 rusqlite.workspace = true

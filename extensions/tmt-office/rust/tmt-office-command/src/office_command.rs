@@ -14,10 +14,11 @@ use std::{
 use tmt_adapters::{
     config::ConfigPaths,
     native_install::{self, InstallRequest, Product, UpgradeRequest},
-    office_companion::probe_office_companion,
-    office_service::{self, ServiceError},
     skill_installation::{self, ProviderEnvironment},
 };
+use tmt_office_service::{self as office_service, ServiceError};
+
+use crate::office_companion::probe_office_companion;
 use tmt_core::native_install::{Channel, PinAction};
 
 const INSTALL_HINT: &str = "Install Office with: tmt office install --yes";
@@ -154,6 +155,7 @@ fn install(
                 channel,
                 pin: PinAction::Preserve,
             },
+            Some(&crate::verify_release),
             checkpoint,
         ),
         (None, None) => {
@@ -167,6 +169,7 @@ fn install(
                         exact: None,
                         unpin: false,
                     },
+                    Some(&crate::verify_release),
                     checkpoint,
                 )
                 .map(|report| report.installation)
@@ -177,6 +180,7 @@ fn install(
                     prefix,
                     target,
                     channel,
+                    Some(&crate::verify_release),
                     checkpoint,
                 )
             }
@@ -599,6 +603,7 @@ fn run(
                     exact: None,
                     unpin: false,
                 },
+                Some(&crate::verify_release),
                 || {
                     if interrupt.is_interrupted() {
                         Err(io::Error::new(
@@ -654,7 +659,7 @@ fn run(
             )? {
                 return Ok(0);
             }
-            let changed = native_install::uninstall_office(&prefix)
+            let changed = native_install::uninstall_extension(&prefix, Product::Office)
                 .map_err(|e| failure("OFFICE_UNINSTALL_FAILED", e))?;
             report(
                 json!({"installed":false,"changed":changed,"retainedReleases":true}),

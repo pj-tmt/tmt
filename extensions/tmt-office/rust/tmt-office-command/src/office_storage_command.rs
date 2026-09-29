@@ -1,6 +1,7 @@
 //! `tmt office storage`: report and run the consented Office storage migration
 //! through the verified companion.
 
+use crate::office_companion::invoke_office_storage;
 use crate::{
     invocation::{OfficeStorageOperation, OutputMode},
     output::Failure,
@@ -11,7 +12,6 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::office_companion::invoke_office_storage;
 use tmt_office_model::office_protocol::OfficeInvocation;
 
 const PLAN_DEADLINE: Duration = Duration::from_secs(60);

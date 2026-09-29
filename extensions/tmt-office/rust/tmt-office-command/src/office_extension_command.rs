@@ -1,5 +1,6 @@
 //! File acquisition and presentation only; companion admission owns semantics.
 
+use crate::office_companion::validate_office_extension;
 use crate::{invocation::OutputMode, output::Failure};
 use std::{
     io::{self, Write},
@@ -7,7 +8,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::bounded_file;
-use tmt_adapters::office_companion::validate_office_extension;
 use tmt_office_model::codec::office_extension::preflight::ValidationInput;
 use tmt_office_model::codec::office_extension::preflight::ValidationReport;
 

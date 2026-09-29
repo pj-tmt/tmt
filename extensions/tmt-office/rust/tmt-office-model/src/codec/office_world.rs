@@ -1,6 +1,7 @@
 //! One strict envelope for topology and ordered world placements, not resource contents.
 
 mod preset;
+pub mod reply;
 mod starter;
 pub use preset::{lobby_objects, placement_id};
 pub use starter::new_world;
@@ -284,6 +285,14 @@ pub fn world_value(world: &WorldLayout) -> Value {
                 }),
             },
         })).collect::<Vec<_>>(),
+    })
+}
+
+pub fn snapshot_value(snapshot: &crate::office_world::LocalWorldSnapshot) -> Value {
+    json!({
+        "worldId": snapshot.world_id, "revision": snapshot.revision,
+        "legacyBasis": snapshot.legacy_basis, "layout": world_value(&snapshot.layout),
+        "updatedAtMs": snapshot.updated_at_ms, "changed": snapshot.changed,
     })
 }
 

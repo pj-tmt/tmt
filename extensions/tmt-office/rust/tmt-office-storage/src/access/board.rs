@@ -18,7 +18,8 @@ use tmt_office_model::office_board::ShowRequest;
 use tmt_office_model::office_protocol::OfficeInvocation;
 
 use crate::{OfficeStore, local_owner_actor};
-use tmt_adapters::{config::ConfigPaths, office_board::BOARD_WIRE_LIMIT};
+use tmt_adapters::config::ConfigPaths;
+use tmt_office_model::office_board::BOARD_WIRE_LIMIT;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

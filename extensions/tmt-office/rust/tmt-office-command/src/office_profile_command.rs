@@ -5,10 +5,10 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    interrupt::Interrupt, office_companion::invoke_local_office_profile,
-    office_profile::read_profile_file,
-};
+use tmt_adapters::interrupt::Interrupt;
+
+use crate::office_companion::invoke_local_office_profile;
+use crate::office_profile::read_profile_file;
 use tmt_office_model::office_protocol::OfficeError;
 
 use crate::{

@@ -2,6 +2,19 @@
 
 pub(crate) use tmt_office_command::{grammar, invocation, parser};
 
+/// The release verifier a product's owner requires before native publication.
+/// Office lends its handshake probe to core's installers (`__native-install`
+/// and `tmt extension`) until PR B of #355 removes this facade.
+pub(crate) fn release_verifier(
+    product: tmt_core::native_install::Product,
+) -> Option<tmt_adapters::native_install::ReleaseVerifier<'static>> {
+    use tmt_core::native_install::Product;
+    match product {
+        Product::Cli | Product::Squad => None,
+        Product::Office => Some(&tmt_office_command::verify_release),
+    }
+}
+
 pub(crate) fn execute(
     prefix: Option<String>,
     operation: invocation::OfficeOperation,

@@ -51,7 +51,7 @@ pub(super) fn publish(layout: &Layout, artifact: &Artifact, receipt: &Receipt) {
     let mut checkpoint = || Ok(());
     let expected_current = layout.current().unwrap().map(|current| current.id);
     layout
-        .publish(artifact, receipt, expected_current, &mut checkpoint)
+        .publish(artifact, receipt, expected_current, None, &mut checkpoint)
         .unwrap();
 }
 
@@ -66,7 +66,7 @@ pub(super) fn checkpoint_count() -> usize {
         Ok(())
     };
     layout
-        .publish(&artifact, &receipt, None, &mut checkpoint)
+        .publish(&artifact, &receipt, None, None, &mut checkpoint)
         .unwrap();
     calls
 }

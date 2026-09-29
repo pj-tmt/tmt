@@ -3,7 +3,6 @@
 use super::{Request, require_content_origin, require_json_origin, response};
 use std::{io, net::TcpStream};
 use tmt_adapters::config::ConfigPaths;
-use tmt_adapters::office_service::ServiceReceipt;
 use tmt_adapters::request_runtime::wall_time_ms;
 use tmt_office_model::codec::office_whiteboard::document::SAVE_INPUT_LIMIT;
 use tmt_office_model::codec::office_whiteboard::document::decode_save;
@@ -19,6 +18,7 @@ use tmt_office_model::office_whiteboard::{
     document::{DocumentError, SaveDocument, SaveReceipt, WhiteboardDocument, valid_document_id},
     snapshot::{CaptureWhiteboard, WhiteboardSnapshot, valid_snapshot_id},
 };
+use tmt_office_service::ServiceReceipt;
 use tmt_office_storage::{OfficeStore, WhiteboardStoreError};
 
 #[derive(Debug, PartialEq, Eq)]

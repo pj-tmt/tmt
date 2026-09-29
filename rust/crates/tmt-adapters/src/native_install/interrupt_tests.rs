@@ -98,6 +98,7 @@ fn subprocess_fixture() {
             &first_artifact,
             &first_receipt,
             None,
+            None,
             &mut initial_checkpoint,
         )
         .expect("publish initial synthetic release");
@@ -147,6 +148,7 @@ fn subprocess_fixture() {
             &next_artifact,
             &next_receipt,
             Some(first_receipt.id),
+            None,
             &mut checkpoint,
         )
         .expect_err("SIGINT must stop publication before activation");
@@ -173,6 +175,7 @@ fn subprocess_fixture() {
             &next_artifact,
             &next_receipt,
             Some(first_receipt.id),
+            None,
             &mut retry_checkpoint,
         )
         .expect("retry publication after SIGINT");

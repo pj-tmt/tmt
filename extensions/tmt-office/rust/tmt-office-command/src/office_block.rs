@@ -9,8 +9,8 @@ use tmt_office_model::office_block::{BlockLayout, INPUT_LIMIT};
 use tmt_office_model::office_protocol::OfficeError;
 
 pub fn read_layout_file(path: &Path) -> Result<BlockLayout, OfficeError> {
-    let bytes =
-        crate::bounded_file::read(path, INPUT_LIMIT).map_err(|_| OfficeError::LayoutInvalid)?;
+    let bytes = tmt_adapters::bounded_file::read(path, INPUT_LIMIT)
+        .map_err(|_| OfficeError::LayoutInvalid)?;
     decode_layout(&bytes)
 }
 
@@ -21,7 +21,7 @@ mod tests {
     #[test]
     fn local_customization_values_match_shared_vectors_and_require_v3() {
         let vectors: Value = serde_json::from_str(include_str!(
-            "../../../../extensions/tmt-office/contracts/prop-customization-vectors.json"
+            "../../../contracts/prop-customization-vectors.json"
         ))
         .unwrap();
         for case in vectors["placementCases"].as_array().unwrap() {
@@ -65,10 +65,8 @@ mod tests {
 
     #[test]
     fn actual_readable_inputs_conform_to_shared_literal_vectors() {
-        let vectors: Vec<Value> = serde_json::from_str(include_str!(
-            "../../../../extensions/tmt-office/contracts/block-v1.vectors.json"
-        ))
-        .unwrap();
+        let vectors: Vec<Value> =
+            serde_json::from_str(include_str!("../../../contracts/block-v1.vectors.json")).unwrap();
         for vector in vectors {
             let result =
                 decode_layout(&serde_json::to_vec(&json!({"objects":[vector["item"]]})).unwrap());
@@ -83,10 +81,9 @@ mod tests {
 
     #[test]
     fn local_v2_inputs_conform_to_shared_prop_vectors() {
-        let vectors: Value = serde_json::from_str(include_str!(
-            "../../../../extensions/tmt-office/contracts/prop-block-vectors.json"
-        ))
-        .unwrap();
+        let vectors: Value =
+            serde_json::from_str(include_str!("../../../contracts/prop-block-vectors.json"))
+                .unwrap();
         for case in vectors["layoutCases"].as_array().unwrap() {
             let decoded = decode_local_layout(&serde_json::to_vec(&case["value"]).unwrap());
             assert_eq!(

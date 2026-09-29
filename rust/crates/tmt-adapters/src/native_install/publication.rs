@@ -1,6 +1,6 @@
 //! One durable release directory and one atomic activation pointer.
 
-use super::{Product, artifact::Artifact, invalid, receipt::Receipt};
+use super::{Product, ReleaseVerifier, artifact::Artifact, invalid, receipt::Receipt};
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -170,11 +170,17 @@ impl Layout {
         artifact: &Artifact,
         receipt: &Receipt,
         expected_current: Option<Uuid>,
+        verifier: Option<ReleaseVerifier<'_>>,
         checkpoint: &mut impl FnMut() -> io::Result<()>,
     ) -> io::Result<()> {
-        self.publish_with_finalization(artifact, receipt, expected_current, checkpoint, || {
-            self.ensure_links()
-        })
+        self.publish_with_finalization(
+            artifact,
+            receipt,
+            expected_current,
+            verifier,
+            checkpoint,
+            || self.ensure_links(),
+        )
     }
 
     pub(super) fn publish_with_finalization(
@@ -182,6 +188,7 @@ impl Layout {
         artifact: &Artifact,
         receipt: &Receipt,
         expected_current: Option<Uuid>,
+        verifier: Option<ReleaseVerifier<'_>>,
         checkpoint: &mut impl FnMut() -> io::Result<()>,
         finalize: impl FnOnce() -> io::Result<()>,
     ) -> io::Result<()> {
@@ -204,11 +211,8 @@ impl Layout {
                     },
                 )?;
             }
-            if self.product == Product::Office {
-                crate::office_companion::probe_candidate(
-                    &release.join(self.product.executable()),
-                    &artifact.version,
-                )?;
+            if let Some(verify) = verifier {
+                verify(&release.join(self.product.executable()), &artifact.version)?;
             }
             write(
                 &release.join("receipt.json"),

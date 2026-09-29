@@ -198,6 +198,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
                     exact: to.as_deref(),
                     unpin,
                 },
+                crate::office_facade::release_verifier(product),
                 interruptible("Extension update interrupted before activation.")?,
             )
             .map_err(|error| {
@@ -301,6 +302,7 @@ fn install(
                 channel,
                 pin: PinAction::Preserve,
             },
+            crate::office_facade::release_verifier(product),
             checkpoint,
         ),
         (None, None) if current.is_some() => native_install::upgrade_product(
@@ -311,13 +313,19 @@ fn install(
                 exact: None,
                 unpin: false,
             },
+            crate::office_facade::release_verifier(product),
             checkpoint,
         )
         .map(|report| report.installation)
         .map_err(|error| io::Error::new(error.kind(), error)),
-        (None, None) => {
-            native_install::install_release(product, prefix, target, channel, checkpoint)
-        }
+        (None, None) => native_install::install_release(
+            product,
+            prefix,
+            target,
+            channel,
+            crate::office_facade::release_verifier(product),
+            checkpoint,
+        ),
         _ => {
             return Err(Failure::new(
                 "USAGE_ERROR",

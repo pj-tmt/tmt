@@ -19,6 +19,14 @@ mod office_prop_command;
 mod office_storage_command;
 mod office_whiteboard_command;
 
+mod office_avatar;
+mod office_block;
+mod office_companion;
+mod office_profile;
+mod office_prop;
+mod office_whiteboard;
+mod office_world;
+
 mod output {
     pub use tmt_command_output::{Failure, identity_missing};
     pub mod table {
@@ -27,3 +35,7 @@ mod output {
 }
 
 pub use office_command::execute;
+pub use office_companion::verify_release;
+
+#[cfg(test)]
+mod test_support;

@@ -14,10 +14,9 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    office_companion::invoke_office_board,
-    response_input::{read_file, read_stdin},
-};
+use tmt_adapters::response_input::{read_file, read_stdin};
+
+use crate::office_companion::invoke_office_board;
 use tmt_office_model::office_protocol::OfficeInvocation;
 
 pub fn run(

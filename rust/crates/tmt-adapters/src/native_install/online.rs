@@ -1,6 +1,8 @@
 //! First installation through the same release verifier and activation owner as updates.
 
-use super::{ActivationRequest, InstallReport, Product, activate, artifact, release};
+use super::{
+    ActivationRequest, InstallReport, Product, ReleaseVerifier, activate, artifact, release,
+};
 use semver::Version;
 use std::{
     io,
@@ -20,6 +22,7 @@ pub fn install_release(
     prefix: &Path,
     target: &str,
     channel: Channel,
+    verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
     let client = crate::release_http::Https::new();
@@ -28,6 +31,7 @@ pub fn install_release(
         prefix,
         target,
         channel,
+        verifier,
         checkpoint,
         |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
     )
@@ -51,6 +55,7 @@ fn install_release_with(
     prefix: &Path,
     target: &str,
     channel: Channel,
+    verifier: Option<ReleaseVerifier<'_>>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
 ) -> io::Result<InstallReport> {
@@ -79,6 +84,7 @@ fn install_release_with(
             pin: PinAction::Preserve,
             expected: None,
             provenance: Some(downloaded.provenance),
+            verifier,
         },
         &artifact,
         checkpoint,
@@ -100,6 +106,7 @@ mod tests {
             &prefix,
             "aarch64-apple-darwin",
             Channel::Alpha,
+            Some(&|_: &Path, _: &semver::Version| Ok(())),
             || Ok(()),
             |url, _, _, _| {
                 calls += 1;
@@ -125,6 +132,7 @@ mod tests {
             &prefix,
             "aarch64-apple-darwin",
             Channel::Alpha,
+            Some(&|_: &Path, _: &semver::Version| Ok(())),
             || Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")),
             |_, _, _, _| panic!("cancelled installation must not download"),
         )

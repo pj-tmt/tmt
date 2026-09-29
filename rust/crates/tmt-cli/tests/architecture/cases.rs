@@ -433,7 +433,8 @@ fn office_model_direction_and_dependency_aliases_are_guarded() {
         ("tmt-office-model", "tmt-adapters", None),
         ("tmt-office-model", "rusqlite", None),
         ("tmt-office-model", "tmt-core", Some("hidden")),
-        ("tmt-adapters", "tmt-office-model", Some("hidden")),
+        ("tmt-adapters", "tmt-office-model", None),
+        ("tmt-office-command", "tmt-office-model", Some("hidden")),
     ] {
         assert_eq!(
             policy::dependency_violations(&package(
@@ -456,9 +457,21 @@ fn office_model_direction_and_dependency_aliases_are_guarded() {
 #[test]
 fn office_consumers_cannot_expand_or_hide_behind_reexports() {
     let import = "use tmt_office_model::office_world::WorldLayout as Layout;";
+    for package in [
+        "tmt-office-command",
+        "tmt-office-pairing",
+        "tmt-office-service",
+        "tmt-office-storage",
+    ] {
+        assert_exact(&[syntax(package, "lib.rs", import)], &[]);
+    }
+    // The world reply moved to the Office model; core cannot regrow it.
     assert_exact(
         &[syntax("tmt-adapters", "office_world/reply.rs", import)],
-        &[],
+        &[
+            "tmt-adapters/office_world/reply.rs: core crates cannot declare Office module office_world",
+            "tmt-adapters/office_world/reply.rs: unreviewed Office dependency tmt_office_model::office_world::WorldLayout",
+        ],
     );
     // Office repositories moved to tmt-office-storage; core cannot regrow them.
     assert_exact(
@@ -498,7 +511,9 @@ fn office_consumers_cannot_expand_or_hide_behind_reexports() {
             "pub use tmt_office_model::office_world::WorldLayout as Layout;",
         )],
         &[
+            "tmt-adapters/office_world.rs: core crates cannot declare Office module office_world",
             "tmt-adapters/office_world.rs: import the Office owner directly; do not re-export tmt_office_model::office_world::WorldLayout",
+            "tmt-adapters/office_world.rs: unreviewed Office dependency tmt_office_model::office_world::WorldLayout",
         ],
     );
     assert_exact(
@@ -1035,13 +1050,21 @@ fn squad_and_core_are_independent_in_both_directions() {
 #[test]
 fn core_crates_cannot_add_office_modules() {
     let empty = "";
-    // Retained modules stay allowed until #355 moves them out.
-    assert_exact(&[syntax("tmt-adapters", "office_companion.rs", empty)], &[]);
-    assert_exact(
-        &[syntax("tmt-adapters", "office_world/reply.rs", empty)],
-        &[],
-    );
+    // Only the facade remains until #355's PR B removes it.
+    assert_exact(&[syntax("tmt-cli", "office_facade.rs", empty)], &[]);
     // Moved or new Office modules cannot return to a core crate.
+    assert_exact(
+        &[syntax("tmt-adapters", "office_companion.rs", empty)],
+        &[
+            "tmt-adapters/office_companion.rs: core crates cannot declare Office module office_companion",
+        ],
+    );
+    assert_exact(
+        &[syntax("tmt-adapters", "office_service.rs", empty)],
+        &[
+            "tmt-adapters/office_service.rs: core crates cannot declare Office module office_service",
+        ],
+    );
     assert_exact(
         &[syntax("tmt-adapters", "office_pairing.rs", empty)],
         &[
@@ -1061,6 +1084,10 @@ fn core_crates_cannot_add_office_modules() {
     // Extension crates own their Office modules.
     assert_exact(
         &[syntax("tmt-office-pairing", "office_pairing.rs", empty)],
+        &[],
+    );
+    assert_exact(
+        &[syntax("tmt-office-command", "office_companion.rs", empty)],
         &[],
     );
 }

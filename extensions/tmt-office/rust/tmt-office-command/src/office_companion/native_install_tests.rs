@@ -1,11 +1,9 @@
 //! Hostile protocol fixtures exercise the managed execution boundary, not release artifacts.
 
-use super::{install_fixture, office_fixture_with_payload};
-use crate::{
-    native_install::Product,
-    office_companion::{invoke_office_board, probe_office_companion},
-};
+use crate::office_companion::{invoke_office_board, probe_office_companion};
+use crate::test_support::{install_office, office_fixture, office_fixture_with_payload};
 use std::fs;
+use tmt_adapters::native_install::{self, Product};
 
 #[test]
 fn verified_installed_companion_capability_and_board_dispatch_are_one_shot() {
@@ -20,7 +18,7 @@ board-post) cat >/dev/null; printf '{"entryId":"11111111-1111-4111-8111-11111111
 esac
 "#);
     let prefix = fixture.directory.path.join("prefix");
-    let report = install_fixture(&fixture, &prefix, Product::Office).unwrap();
+    let report = install_office(&fixture, &prefix).unwrap();
     let calls = prefix.join("board-calls");
     fs::remove_file(&calls).unwrap();
     let value = invoke_office_board(
@@ -55,7 +53,7 @@ esac
         );
         let fixture = office_fixture_with_payload(payload.as_bytes());
         let prefix = fixture.directory.path.join("prefix");
-        let report = install_fixture(&fixture, &prefix, Product::Office).unwrap();
+        let report = install_office(&fixture, &prefix).unwrap();
         let marker = prefix.join("board-calls");
         let error = invoke_office_board(
             &report.executable,
@@ -88,7 +86,7 @@ esac
 "#,
     );
     let prefix = fixture.directory.path.join("prefix");
-    let report = install_fixture(&fixture, &prefix, Product::Office).unwrap();
+    let report = install_office(&fixture, &prefix).unwrap();
     let control = prefix.join("board-race");
     std::thread::scope(|scope| {
         let invocation = scope.spawn(|| {
@@ -108,7 +106,7 @@ esac
             );
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        assert!(crate::native_install::uninstall_office(&prefix).unwrap());
+        assert!(native_install::uninstall_extension(&prefix, Product::Office).unwrap());
         fs::write(control.join("release"), b"").unwrap();
         assert_eq!(
             invocation.join().unwrap().unwrap_err().kind(),
@@ -137,7 +135,7 @@ esac
 "#,
     );
     let prefix = old.directory.path.join("prefix");
-    let old_report = install_fixture(&old, &prefix, Product::Office).unwrap();
+    let old_report = install_office(&old, &prefix).unwrap();
     let control = prefix.join("board-race");
     std::thread::scope(|scope| {
         let invocation = scope.spawn(|| {
@@ -168,7 +166,7 @@ esac
             serde_json::to_vec(&manifest).unwrap(),
         )
         .unwrap();
-        install_fixture(&replacement, &prefix, Product::Office).unwrap();
+        install_office(&replacement, &prefix).unwrap();
         fs::write(control.join("release"), b"").unwrap();
         let error = invocation.join().unwrap().unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
@@ -189,7 +187,7 @@ printf 'TMT-OFFICE/1\n1.2.3\n'
 "#,
     );
     let prefix = fixture.directory.path.join("prefix");
-    let report = install_fixture(&fixture, &prefix, Product::Office).unwrap();
+    let report = install_office(&fixture, &prefix).unwrap();
     let active = &report.active_executable;
     let control = prefix.join("probe-control");
     fs::create_dir(&control).unwrap();
@@ -214,7 +212,7 @@ printf 'TMT-OFFICE/1\n1.2.3\n'
         }
         // A ready child proves launch happened. Deactivation must acquire the
         // real installer lock while that same child is still awaiting release.
-        let removed = crate::native_install::uninstall_office(&prefix);
+        let removed = native_install::uninstall_extension(&prefix, Product::Office);
         fs::write(marker("release"), b"").unwrap();
         assert!(removed.unwrap());
         assert_eq!(probe.join().unwrap().unwrap(), "1.2.3");
@@ -228,7 +226,7 @@ printf 'TMT-OFFICE/1\n1.2.3\n'
 fn verified_probe_uses_the_installed_executable_and_preserves_its_receipt() {
     let fixture = office_fixture_with_payload(b"#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\n");
     let prefix = fixture.directory.path.join("prefix");
-    let report = install_fixture(&fixture, &prefix, Product::Office).unwrap();
+    let report = install_office(&fixture, &prefix).unwrap();
     let receipt = report
         .active_executable
         .parent()
@@ -261,7 +259,7 @@ fn incompatible_noisy_and_nonzero_companions_are_not_successful_handshakes() {
     ] {
         let fixture = office_fixture_with_payload(payload);
         let prefix = fixture.directory.path.join("prefix");
-        let error = install_fixture(&fixture, &prefix, Product::Office).unwrap_err();
+        let error = install_office(&fixture, &prefix).unwrap_err();
         assert!(error.to_string().starts_with(expected), "{error}");
         assert!(!prefix.join("lib/tmt-office/current").exists());
         assert_eq!(
@@ -276,12 +274,7 @@ fn incompatible_noisy_and_nonzero_companions_are_not_successful_handshakes() {
 #[test]
 fn changed_payload_is_rejected_before_executing_it() {
     let fixture = office_fixture_with_payload(b"#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\n");
-    let report = install_fixture(
-        &fixture,
-        &fixture.directory.path.join("prefix"),
-        Product::Office,
-    )
-    .unwrap();
+    let report = install_office(&fixture, &fixture.directory.path.join("prefix")).unwrap();
     // If executed, this replacement would produce a distinct protocol failure.
     fs::write(&report.active_executable, b"#!/bin/sh\nprintf 'tampered'\n").unwrap();
     let error = probe_office_companion(&report.executable).unwrap_err();
@@ -293,9 +286,9 @@ fn changed_payload_is_rejected_before_executing_it() {
 
 #[test]
 fn incompatible_upgrade_preserves_the_previous_working_release() {
-    let good = super::office_fixture();
+    let good = office_fixture();
     let prefix = good.directory.path.join("prefix");
-    let previous = install_fixture(&good, &prefix, Product::Office).unwrap();
+    let previous = install_office(&good, &prefix).unwrap();
     let before = fs::read(&previous.active_executable).unwrap();
     let pointer = fs::read_link(prefix.join("lib/tmt-office/current")).unwrap();
     let bad = office_fixture_with_payload(b"#!/bin/sh\nprintf 'TMT-OFFICE/2\\n1.2.4\\n'\n");
@@ -303,7 +296,7 @@ fn incompatible_upgrade_preserves_the_previous_working_release() {
         serde_json::from_slice(&fs::read(&bad.manifest).unwrap()).unwrap();
     manifest["releases"][0]["app_version"] = serde_json::json!("1.2.4");
     fs::write(&bad.manifest, serde_json::to_vec(&manifest).unwrap()).unwrap();
-    let error = install_fixture(&bad, &prefix, Product::Office).unwrap_err();
+    let error = install_office(&bad, &prefix).unwrap_err();
     assert_eq!(error.to_string(), "Incompatible Office handshake.");
     assert_eq!(
         fs::read_link(prefix.join("lib/tmt-office/current")).unwrap(),
@@ -322,36 +315,56 @@ fn incompatible_upgrade_preserves_the_previous_working_release() {
     );
 }
 
+/// A rejected candidate leaves no current release and no retained release.
+fn assert_nothing_published(prefix: &std::path::Path) {
+    assert!(!prefix.join("lib/tmt-office/current").exists());
+    assert!(!prefix.join("bin/tmt-office").exists());
+    assert_eq!(
+        fs::read_dir(prefix.join("lib/tmt-office/releases"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
 #[test]
-fn uninstall_preserves_unmanaged_links_and_tampered_releases() {
-    use std::os::unix::fs::symlink;
-    let fixture = super::office_fixture();
+fn release_verifier_kills_a_hung_candidate_at_the_handshake_deadline() {
+    let fixture = office_fixture_with_payload(b"#!/bin/sh\nexec sleep 30\n");
     let prefix = fixture.directory.path.join("prefix");
-    let report = install_fixture(&fixture, &prefix, Product::Office).unwrap();
-    let original_link = fs::read_link(&report.executable).unwrap();
-    let pointer = fs::read_link(prefix.join("lib/tmt-office/current")).unwrap();
-    let user_file = fixture.directory.path.join("user-command");
-    fs::write(&user_file, b"user content").unwrap();
-    fs::remove_file(&report.executable).unwrap();
-    symlink(&user_file, &report.executable).unwrap();
-    assert!(crate::native_install::uninstall_office(&prefix).is_err());
-    assert_eq!(fs::read_link(&report.executable).unwrap(), user_file);
-    assert_eq!(fs::read(&user_file).unwrap(), b"user content");
-    assert_eq!(
-        fs::read_link(prefix.join("lib/tmt-office/current")).unwrap(),
-        pointer
+    let started = std::time::Instant::now();
+    let error = install_office(&fixture, &prefix).unwrap_err();
+    let elapsed = started.elapsed();
+    assert_eq!(error.to_string(), "External command failed: Timeout");
+    assert!(
+        elapsed >= std::time::Duration::from_secs(5)
+            && elapsed < std::time::Duration::from_secs(15),
+        "{elapsed:?}"
     );
-    fs::remove_file(&report.executable).unwrap();
-    symlink(&original_link, &report.executable).unwrap();
-    fs::write(&report.active_executable, b"user edited executable").unwrap();
-    let error = crate::native_install::uninstall_office(&prefix).unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "Installed release file has changed; refusing replacement."
+    assert_nothing_published(&prefix);
+}
+
+#[test]
+fn release_verifier_rejects_a_handshake_over_the_output_bound() {
+    let limit = tmt_office_model::office_protocol::OFFICE_PROTOCOL_OUTPUT_LIMIT;
+    // A valid handshake padded one byte past the protocol's output bound.
+    let payload = format!(
+        "#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\nhead -c {} /dev/zero | tr '\\0' ' '\n",
+        limit + 1 - "TMT-OFFICE/1\n1.2.3\n".len()
     );
-    assert_eq!(fs::read_link(&report.executable).unwrap(), original_link);
-    assert_eq!(
-        fs::read(&report.active_executable).unwrap(),
-        b"user edited executable"
+    let fixture = office_fixture_with_payload(payload.as_bytes());
+    let prefix = fixture.directory.path.join("prefix");
+    let error = install_office(&fixture, &prefix).unwrap_err();
+    assert_eq!(error.to_string(), "External command failed: OutputLimit");
+    assert_nothing_published(&prefix);
+
+    // Exactly at the bound, the output is read in full and judged by the codec.
+    let payload = format!(
+        "#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\nhead -c {} /dev/zero | tr '\\0' ' '\n",
+        limit - "TMT-OFFICE/1\n1.2.3\n".len()
     );
+    let fixture = office_fixture_with_payload(payload.as_bytes());
+    let prefix = fixture.directory.path.join("prefix");
+    let error = install_office(&fixture, &prefix).unwrap_err();
+    assert_eq!(error.to_string(), "Incompatible Office handshake.");
+    assert_nothing_published(&prefix);
 }

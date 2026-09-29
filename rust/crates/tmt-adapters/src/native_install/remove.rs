@@ -4,10 +4,6 @@
 use super::{Product, invalid, publication::Layout};
 use std::{fs, io, path::Path};
 
-pub fn uninstall_office(prefix: &Path) -> io::Result<bool> {
-    uninstall_extension(prefix, Product::Office)
-}
-
 /// Remove every command link of an installed extension after validating that
 /// each still points into its managed release, then its `current` pointer.
 /// A foreign same-named command is refused, never removed. The CLI is not an

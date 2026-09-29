@@ -13,8 +13,6 @@ use tar::{Builder, EntryType, Header};
 const TARGET: &str = "aarch64-apple-darwin";
 const OFFICE_PAYLOAD: &[u8] = b"#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\n";
 
-#[path = "office_companion_tests.rs"]
-mod office_companion_tests;
 #[path = "squad_product_tests.rs"]
 mod squad_product_tests;
 
@@ -205,8 +203,17 @@ fn install_fixture(
             channel: tmt_core::native_install::Channel::Stable,
             pin: tmt_core::native_install::PinAction::Preserve,
         },
+        product
+            .requires_release_verifier()
+            .then_some(&accept_release as super::ReleaseVerifier<'_>),
         || Ok(()),
     )
+}
+
+/// Stands in for the product owner's check; the Office handshake itself is
+/// tested with the Office commands that own it.
+fn accept_release(_: &std::path::Path, _: &semver::Version) -> io::Result<()> {
+    Ok(())
 }
 
 #[test]
@@ -299,6 +306,7 @@ fn interrupted_office_pin_preserves_both_active_releases() {
             channel: tmt_core::native_install::Channel::Stable,
             pin: tmt_core::native_install::PinAction::PinCandidate,
         },
+        Some(&accept_release),
         || {
             calls += 1;
             if calls == 4 {
@@ -684,4 +692,122 @@ fn malformed_manifest_is_rejected_without_touching_archive_or_extracting() {
     assert!(artifact::acquire(&fixture.manifest, &fixture.archive, TARGET).is_err());
     assert_eq!(fs::read(&fixture.archive).unwrap(), original_archive);
     assert_only_inputs_remain(&fixture);
+}
+
+#[test]
+fn uninstall_preserves_unmanaged_links_and_tampered_releases() {
+    use std::os::unix::fs::symlink;
+    let fixture = office_fixture();
+    let prefix = fixture.directory.path.join("prefix");
+    let report = install_fixture(&fixture, &prefix, super::Product::Office).unwrap();
+    let original_link = fs::read_link(&report.executable).unwrap();
+    let pointer = fs::read_link(prefix.join("lib/tmt-office/current")).unwrap();
+    let user_file = fixture.directory.path.join("user-command");
+    fs::write(&user_file, b"user content").unwrap();
+    fs::remove_file(&report.executable).unwrap();
+    symlink(&user_file, &report.executable).unwrap();
+    assert!(super::uninstall_extension(&prefix, super::Product::Office).is_err());
+    assert_eq!(fs::read_link(&report.executable).unwrap(), user_file);
+    assert_eq!(fs::read(&user_file).unwrap(), b"user content");
+    assert_eq!(
+        fs::read_link(prefix.join("lib/tmt-office/current")).unwrap(),
+        pointer
+    );
+    fs::remove_file(&report.executable).unwrap();
+    symlink(&original_link, &report.executable).unwrap();
+    fs::write(&report.active_executable, b"user edited executable").unwrap();
+    let error = super::uninstall_extension(&prefix, super::Product::Office).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Installed release file has changed; refusing replacement."
+    );
+    assert_eq!(fs::read_link(&report.executable).unwrap(), original_link);
+    assert_eq!(
+        fs::read(&report.active_executable).unwrap(),
+        b"user edited executable"
+    );
+}
+
+fn office_request<'a>(
+    fixture: &'a Fixture,
+    prefix: &'a std::path::Path,
+) -> super::InstallRequest<'a> {
+    super::InstallRequest {
+        archive: &fixture.archive,
+        manifest: &fixture.manifest,
+        prefix,
+        target: TARGET,
+        channel: tmt_core::native_install::Channel::Stable,
+        pin: tmt_core::native_install::PinAction::Preserve,
+    }
+}
+
+#[test]
+fn a_product_that_requires_a_verifier_is_refused_without_one_before_any_write() {
+    let office = office_fixture();
+    let prefix = office.directory.path.join("prefix");
+    let error = super::install_product(
+        super::Product::Office,
+        office_request(&office, &prefix),
+        None,
+        || Ok(()),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    assert!(!prefix.exists());
+}
+
+#[test]
+fn verifier_sees_the_written_candidate_and_its_rejection_keeps_the_previous_release() {
+    let office = office_fixture();
+    let prefix = office.directory.path.join("prefix");
+    let previous = install_fixture(&office, &prefix, super::Product::Office).unwrap();
+    let pointer = fs::read_link(prefix.join("lib/tmt-office/current")).unwrap();
+
+    let update = office_fixture_with_payload(b"candidate payload\n");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&update.manifest).unwrap()).unwrap();
+    manifest["releases"][0]["app_version"] = json!("1.2.4");
+    fs::write(&update.manifest, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let seen = std::cell::RefCell::new(None);
+    let verifier = |executable: &std::path::Path, version: &semver::Version| {
+        let release = executable.parent().unwrap();
+        *seen.borrow_mut() = Some((
+            fs::read(executable).unwrap(),
+            version.to_string(),
+            release.join("receipt.json").exists(),
+            fs::canonicalize(release.parent().unwrap()).unwrap()
+                == fs::canonicalize(prefix.join("lib/tmt-office/releases")).unwrap(),
+        ));
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "candidate rejected",
+        ))
+    };
+    let error = super::install_product(
+        super::Product::Office,
+        office_request(&update, &prefix),
+        Some(&verifier),
+        || Ok(()),
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), "candidate rejected");
+    assert_eq!(
+        seen.into_inner(),
+        Some((b"candidate payload\n".to_vec(), "1.2.4".into(), false, true))
+    );
+    assert_eq!(
+        fs::read_link(prefix.join("lib/tmt-office/current")).unwrap(),
+        pointer
+    );
+    assert_eq!(
+        fs::read(&previous.active_executable).unwrap(),
+        OFFICE_PAYLOAD
+    );
+    assert_eq!(
+        fs::read_dir(prefix.join("lib/tmt-office/releases"))
+            .unwrap()
+            .count(),
+        1
+    );
 }

@@ -13,11 +13,15 @@ export const NATIVE_OFFICE_UNREACHABLE = {
   'tmt-adapters': ['setup'],
 };
 
-/** CLI surfaces Office drives: its facade, the API command, native install. */
+/**
+ * CLI surfaces Office drives: its facade, the API command, and the installers
+ * that publish Office releases through its verifier.
+ */
 const NATIVE_OFFICE_CLI = [
   'rust/crates/tmt-cli/src/office_facade.rs',
   'rust/crates/tmt-cli/src/api_command.rs',
   'rust/crates/tmt-cli/src/native_install_command.rs',
+  'rust/crates/tmt-cli/src/extension_install_command.rs',
   'rust/crates/tmt-cli/src/native_upgrade_command.rs',
 ];
 

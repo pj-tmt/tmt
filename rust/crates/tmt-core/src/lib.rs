@@ -16,6 +16,7 @@ pub mod names;
 pub mod native_install;
 pub mod operation;
 pub mod profile;
+pub mod repository_id;
 pub mod request;
 pub mod retention;
 pub mod room;
