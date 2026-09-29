@@ -61,6 +61,23 @@ changes. Add `--remove` to review removal of only unchanged TMT hooks.
 Edited/conflicting hooks or invalid JSON are left untouched. Updates report a
 recoverable settings backup; identity, notes and exchange data are never removed.
 
+Context usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`)
+also installs a TMT `Stop` hook. After each turn, that hook reads the token
+counts from the end of the agent's own transcript and stores them with the
+remembered session; no transcript content is stored. `tmt identity show --json`
+and `tmt ls --json` then include `resume.usage`:
+- `tokens`: the context the agent's next request re-sends;
+- `windowTokens`: the context window, when the provider states it (Codex does,
+  Claude does not);
+- `observedAtMs`: when the usage was read.
+
+The value can be one turn old, because Claude writes its transcript
+asynchronously. A new, cleared or compacted conversation clears it. The
+transcript formats are unofficial, so a provider update can stop the readings;
+nothing else is affected. A later `tmt setup` keeps whatever you chose.
+`--no-usage` removes only the `Stop` hook, and `--remove` removes it with the
+others.
+
 In a verified bound tmux pane, starts restore the small `whoami --context` summary
 and record the exact independent Claude/Codex session for resume. Clear and compact do not change
 the pane's identity. Unbound panes receive a binding hint, not a guessed identity;
@@ -263,7 +280,8 @@ the next resume forgets it and says so. Do not combine `--resume` with an
 explicit command.
 
 While a session is remembered, `tmt identity show --json` and `tmt ls --json`
-include a `resume` object with the driver, mode, session, model and `staleAtMs`.
+include a `resume` object with the driver, mode, session, model and `staleAtMs`,
+plus `usage` while the opt-in usage hook has recorded one (see setup above).
 
 The command inherits the terminal and foreground job control. Ctrl-C reaches the
 command; Ctrl-Z suspends it together with TMT, and `fg` resumes both. TMT returns
