@@ -1679,15 +1679,16 @@ The CLI and the `delivery` and `pane_badge` adapters reach the terminal host
 only through `tmt-adapters::host::Host`. Extensions never do: they read presence
 from `tmt list --json` and the caller from `tmt whoami`, and the architecture
 guard rejects any extension source, test code included, that names the host
-port, the tmux module or core's `binding`, `endpoint` or `host` model. It holds the
-binding session (the core `BindingEndpoint` and `Driver` ports), caller and
-target resolution, snapshots, capture, send, focus and pane cosmetics, over two
-hosts: `tmt-adapters::tmux` and `tmt-adapters::herdr` (#479). A handle has a
-primary host; its session observes new panes there, and probes, marks and
-clears every stored binding on that binding's own host, so presence is complete
-from either host. `HostError` and the host `ActionError` wrap each host's error
-and read exactly as it. The architecture guard rejects production references to
-the host modules outside `host.rs` and their own directories.
+port, the tmux or Herdr module, or core's `binding`, `endpoint` or `host`
+model. The host port holds the binding session (the core `BindingEndpoint`
+and `Driver` ports), caller and target resolution, snapshots, capture, send,
+focus and pane cosmetics, over two hosts: `tmt-adapters::tmux` and
+`tmt-adapters::herdr` (#479). A handle has a primary host; its session observes
+new panes there, and probes, marks and clears every stored binding on that
+binding's own host, so presence is complete from either host. `HostError` and
+the host `ActionError` wrap each host's error and read exactly as it. The
+architecture guard rejects production references to the host modules outside
+`host.rs` and their own directories.
 
 Herdr is reached only through its documented CLI (`herdr <group> <command>`,
 JSON out) under the bounded process owner, on the socket a caller's
