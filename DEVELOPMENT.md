@@ -236,6 +236,28 @@ steps despite their failure/cancellation predicate. Report completed and expecte
 counts together, including missing artifacts; do not claim a complete inventory from
 the partition count alone.
 
+### Office browser verification
+
+A change affects Office when `typescript/scripts/ci-scope.mjs` selects
+`native_office` for it: Office's own app, service, crates, contracts and skills;
+every workspace crate under `rust/crates/` other than `tmt-cli`, except the modules
+the script's verified denylist names; the CLI Office facade, API command and native install
+commands; workspace build inputs; the shared test support and E2E harness the
+image reads; and any path the script does not recognize. Squad, core skills, other
+CLI code, prose outside Office, core-only test suites and E2E scenarios do not
+affect it. `ci-scope.mjs` owns this mapping; its tests recompute what the Office
+crates and the API module reach across the workspace crates so the denylist
+cannot go stale.
+
+- Run the local browser suite above before opening a PR for an Office-affecting
+  change, and record the result in the PR.
+- CI runs the Office browser partitions only when `office` is selected, and the
+  native Office shards only when `native_office` is. Their results are advisory
+  and never gate merge.
+- If a remote browser job fails but the same tests pass reliably in the local
+  suite, treat the failure as flaky: record the local pass in the PR and move on.
+  Only a failure that also reproduces locally needs a fix.
+
 Capacity diagnostics are preserved as explicit opt-in runs and are not required CI:
 
 ```bash

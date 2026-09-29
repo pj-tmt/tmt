@@ -18,6 +18,7 @@ jobs:
     outputs:
       native: ${{ steps.scope.outputs.native }}
       office: ${{ steps.scope.outputs.office }}
+      native_office: ${{ steps.scope.outputs.native_office }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,7 +121,7 @@ jobs:
   native-office-browser:
     name: Native Office browser (${{ matrix.shard }}/8)
     needs: changes
-    if: needs.changes.outputs.native == 'true' || needs.changes.outputs.office == 'true'
+    if: needs.changes.outputs.native_office == 'true'
     strategy:
       fail-fast: false
       matrix:

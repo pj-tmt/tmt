@@ -34,6 +34,8 @@ Read the repository guidance before planning work:
    When replacing implementations, map behavioral assertions, not test counts:
    returned-error rollback is not crash recovery. Preserve resource cleanup
    ordering through the existing child-process owner.
+   Office-affecting changes follow
+   [Office browser verification](../../../DEVELOPMENT.md#office-browser-verification).
 5. Close the bounded review when relevant evidence supports the agreed behavior,
    correctness/security blockers and confirmed duplicate responsibilities in
    scope are resolved, and deferred risks are explicit. A broad audit is not a
