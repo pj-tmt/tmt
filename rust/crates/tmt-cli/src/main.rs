@@ -100,7 +100,14 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return extension_command::execute(&name, &args, help, &prefix);
         }
         // The parser has already resolved and validated this public path.
-        Invocation::Help(path) => help_output::write(&path, &mut stdout)?,
+        Invocation::Help(path) => {
+            let discovered = if path.is_empty() {
+                extension_command::discover()?
+            } else {
+                extension_command::Discovered::default()
+            };
+            help_output::write(&path, &discovered, &mut stdout)?;
+        }
         Invocation::Version => writeln!(stdout, "{}", env!("CARGO_PKG_VERSION"))?,
         Invocation::Complete(words) => completion::query(&words, &mut stdout)?,
         Invocation::Completion(shell) => {

@@ -1,10 +1,12 @@
 //! What `-h`, `--help` and `tmt help <command>` print, for a path the parser
 //! has already resolved and validated.
 
-use crate::{extension_command, grammar};
+use crate::{extension_command::Discovered, grammar};
 use std::io::{self, Write};
 
-pub fn write(path: &[String], output: &mut impl Write) -> io::Result<()> {
+/// Root help also lists `discovered`; dispatch passes the real `PATH`
+/// discovery, and tests pass a fixed list so help never depends on the machine.
+pub fn write(path: &[String], discovered: &Discovered, output: &mut impl Write) -> io::Result<()> {
     if path.is_empty() {
         writeln!(
             output,
@@ -16,7 +18,7 @@ pub fn write(path: &[String], output: &mut impl Write) -> io::Result<()> {
         .write_help(output)?;
     writeln!(output)?;
     if path.is_empty() {
-        extension_command::write_discovered(output)?;
+        discovered.write(output)?;
     }
     Ok(())
 }

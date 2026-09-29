@@ -2,7 +2,7 @@
 //! command follows `docs/cli-style.md` and its examples parse through the real
 //! parser, except the commands still listed in `cli_style_allowlist.rs`.
 
-use crate::{help_output, invocation::Invocation, parser};
+use crate::{extension_command::Discovered, help_output, invocation::Invocation, parser};
 use std::ffi::OsString;
 use tmt_cli_style::audit::{self, Probe};
 
@@ -19,7 +19,9 @@ fn help(words: &[String]) -> Result<String, String> {
         return Err("not a help request".into());
     };
     let mut text = Vec::new();
-    help_output::write(&path, &mut text).map_err(|error| error.to_string())?;
+    // No `PATH` discovery: the walk must not depend on what the machine has installed.
+    help_output::write(&path, &Discovered::default(), &mut text)
+        .map_err(|error| error.to_string())?;
     String::from_utf8(text).map_err(|error| error.to_string())
 }
 

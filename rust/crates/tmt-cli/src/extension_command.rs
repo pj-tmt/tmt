@@ -49,32 +49,54 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
     crate::failure(error.mode, error.code, &error.message)
 }
 
-pub fn write_discovered(output: &mut impl Write) -> io::Result<()> {
+/// The `tmt-*` commands on `PATH`, as root help lists them.
+#[derive(Debug, Default)]
+pub struct Discovered {
+    /// Commands named after a reserved core command, which are never run.
+    ignored: Vec<(String, std::path::PathBuf)>,
+    /// Extension names grouped by the file they resolve to.
+    extensions: Vec<(Vec<String>, std::path::PathBuf)>,
+}
+
+/// Reads the real `PATH`. Help rendering takes the result as input, so tests
+/// can pass a fixed list.
+pub fn discover() -> io::Result<Discovered> {
     let reserved = extensions::reserved(&crate::grammar::grammar());
+    let mut discovered = Discovered::default();
     let mut extensions = Vec::new();
     for (name, path) in adapter::discover(&std::env::var_os("PATH").unwrap_or_default())? {
         if reserved.contains(&name) {
-            writeln!(
-                output,
-                "Ignored tmt-{name}: reserved core command ({path:?})"
-            )?;
+            discovered.ignored.push((name, path));
         } else if valid_extension_name(&name) {
             let file = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
             extensions.push((name, path, file));
         }
     }
-    for (names, path) in group_aliases(extensions) {
-        match names.split_first() {
-            Some((name, [])) => writeln!(output, "Extension {name}: {path:?}")?,
-            Some((name, aliases)) => writeln!(
+    discovered.extensions = group_aliases(extensions);
+    Ok(discovered)
+}
+
+impl Discovered {
+    pub fn write(&self, output: &mut impl Write) -> io::Result<()> {
+        for (name, path) in &self.ignored {
+            writeln!(
                 output,
-                "Extension {name} (also: {}): {path:?}",
-                aliases.join(", ")
-            )?,
-            None => {}
+                "Ignored tmt-{name}: reserved core command ({path:?})"
+            )?;
         }
+        for (names, path) in &self.extensions {
+            match names.split_first() {
+                Some((name, [])) => writeln!(output, "Extension {name}: {path:?}")?,
+                Some((name, aliases)) => writeln!(
+                    output,
+                    "Extension {name} (also: {}): {path:?}",
+                    aliases.join(", ")
+                )?,
+                None => {}
+            }
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 /// Names whose commands resolve to the same file are one extension. The
