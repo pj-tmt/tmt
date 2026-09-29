@@ -7,7 +7,9 @@ use crate::{
     consent::consent,
     core::{Core, SquadError},
 };
+use clap::{Arg, ArgAction, Command};
 use serde_json::{Value, json};
+use tmt_cli_style::{CommandSpec, Example, OutputModes};
 
 /// The owner recorded with core, shared with the `tmt-squad` lead skill that
 /// `tmt extension install squad` offers, so uninstalling the extension removes
@@ -27,6 +29,117 @@ const PLAYBOOKS: &[Playbook] = &[Playbook {
     name: "tmux-squad",
     skill: include_str!("../../../playbooks/tmux-squad/SKILL.md"),
 }];
+
+/// `tmt squad playbook`, registered through the shared CLI style. `--json` is
+/// squad's global option, so no command declares its own.
+pub fn grammar() -> Command {
+    let name = || {
+        Arg::new("playbook")
+            .required(true)
+            .help("Playbook name (see `playbook list`)")
+    };
+    let yes = || {
+        Arg::new("yes")
+            .long("yes")
+            .action(ArgAction::SetTrue)
+            .help("Consent without a prompt")
+    };
+    tmt_cli_style::command(&CommandSpec {
+        name: "playbook",
+        summary: "Optional layouts for lead agents to propose (squad never runs them)",
+        examples: &[
+            Example {
+                command: "tmt squad playbook list",
+                note: "See which playbooks exist",
+            },
+            Example {
+                command: "tmt squad playbook show tmux-squad",
+                note: "Read one before installing it",
+            },
+            Example {
+                command: "tmt squad playbook install tmux-squad",
+                note: "Install it for your agents, after a prompt",
+            },
+        ],
+        outputs: OutputModes::Human,
+    })
+    .subcommand_required(true)
+    .subcommand(tmt_cli_style::command(&CommandSpec {
+        name: "list",
+        summary: "List the playbooks",
+        examples: &[
+            Example {
+                command: "tmt squad playbook list",
+                note: "List names and descriptions",
+            },
+            Example {
+                command: "tmt squad playbook list --json",
+                note: "Read them from a script",
+            },
+        ],
+        outputs: OutputModes::Human,
+    }))
+    .subcommand(
+        tmt_cli_style::command(&CommandSpec {
+            name: "show",
+            summary: "Print a playbook exactly as embedded",
+            examples: &[Example {
+                command: "tmt squad playbook show tmux-squad",
+                note: "Print the tmux-squad playbook; nothing is installed",
+            }],
+            outputs: OutputModes::Human,
+        })
+        .arg(name()),
+    )
+    .subcommand(
+        tmt_cli_style::command(&CommandSpec {
+            name: "install",
+            summary: "Show the plan, ask, then publish the playbook as an agent skill",
+            examples: &[
+                Example {
+                    command: "tmt squad playbook install tmux-squad --print",
+                    note: "See the plan first; nothing changes",
+                },
+                Example {
+                    command: "tmt squad playbook install tmux-squad",
+                    note: "Ask, then install for your agents",
+                },
+                Example {
+                    command: "tmt squad playbook install tmux-squad --yes --force",
+                    note: "Replace an unmanaged skill of that name, keeping a backup",
+                },
+            ],
+            outputs: OutputModes::Human,
+        })
+        .arg(name())
+        .arg(
+            Arg::new("print")
+                .long("print")
+                .action(ArgAction::SetTrue)
+                .help("Print the plan; change nothing"),
+        )
+        .arg(yes())
+        .arg(
+            Arg::new("force")
+                .long("force")
+                .action(ArgAction::SetTrue)
+                .help("Back up and replace a skill of that name tmt does not manage"),
+        ),
+    )
+    .subcommand(
+        tmt_cli_style::command(&CommandSpec {
+            name: "remove",
+            summary: "Remove only this playbook's skill",
+            examples: &[Example {
+                command: "tmt squad playbook remove tmux-squad",
+                note: "Ask, then remove it from your agents",
+            }],
+            outputs: OutputModes::Human,
+        })
+        .arg(name())
+        .arg(yes()),
+    )
+}
 
 fn failed(code: &str, message: impl Into<String>) -> SquadError {
     SquadError::new(code, message)

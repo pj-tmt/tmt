@@ -38,12 +38,6 @@ fn squad_option() -> Arg {
         .help("Select a squad; optional when exactly one exists")
 }
 
-fn playbook_name() -> Arg {
-    Arg::new("playbook")
-        .required(true)
-        .help("Playbook name (see `playbook list`)")
-}
-
 fn message() -> Arg {
     Arg::new("text")
         .required(true)
@@ -238,51 +232,7 @@ fn grammar() -> Command {
                 )
                 .arg(squad_option()),
         )
-        .subcommand(
-            Command::new("playbook")
-                .about("Optional layouts for lead agents to propose (squad never runs them)")
-                .subcommand_required(true)
-                .subcommand(Command::new("list").about("List the playbooks"))
-                .subcommand(
-                    Command::new("show")
-                        .about("Print a playbook exactly as embedded")
-                        .arg(playbook_name()),
-                )
-                .subcommand(
-                    Command::new("install")
-                        .about("Show the plan, ask, then publish the playbook as an agent skill")
-                        .arg(playbook_name())
-                        .arg(
-                            Arg::new("print")
-                                .long("print")
-                                .action(ArgAction::SetTrue)
-                                .help("Print the plan; change nothing"),
-                        )
-                        .arg(
-                            Arg::new("yes")
-                                .long("yes")
-                                .action(ArgAction::SetTrue)
-                                .help("Consent without a prompt"),
-                        )
-                        .arg(
-                            Arg::new("force")
-                                .long("force")
-                                .action(ArgAction::SetTrue)
-                                .help("Back up and replace a skill of that name tmt does not manage"),
-                        ),
-                )
-                .subcommand(
-                    Command::new("remove")
-                        .about("Remove only this playbook's skill")
-                        .arg(playbook_name())
-                        .arg(
-                            Arg::new("yes")
-                                .long("yes")
-                                .action(ArgAction::SetTrue)
-                                .help("Consent without a prompt"),
-                        ),
-                ),
-        )
+        .subcommand(playbook::grammar())
         .subcommand(
             Command::new("skill")
                 .about("The tmt-squad skill for lead agents")
@@ -706,7 +656,7 @@ mod tests {
         );
         assert_eq!(
             complete(&words("-- playbook install --")),
-            ["--force", "--json", "--print", "--yes"]
+            ["--force", "--help", "--json", "--print", "--yes"]
         );
         assert_eq!(
             complete(&words("-- hotkeys ")),
