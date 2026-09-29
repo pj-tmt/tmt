@@ -18,6 +18,9 @@ jobs:
     outputs:
       native: ${{ steps.scope.outputs.native }}
       office: ${{ steps.scope.outputs.office }}
+      native_scope: ${{ steps.scope.outputs.native_scope }}
+      scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests }}
+      scoped_e2e_files: ${{ steps.scope.outputs.scoped_e2e_files }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,7 +95,30 @@ jobs:
         run: |
           rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
           rustup toolchain install 1.88.0 --profile minimal
+      - name: Verify Squad quality and locked builds
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: rust
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
+          cargo test --locked -p tmt-squad
+          cargo test --locked -p tmt-cli --test architecture
+          cargo +1.88.0 build --locked -p tmt-squad
+      - name: Build Squad process fixtures
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: rust
+        env:
+          CARGO_PROFILE_DEV_DEBUG: 0
+        run: |
+          cargo build --locked -p tmt-squad
+          cargo build --locked --release -p tmt-cli
+      - name: Reject an unknown native scope
+        if: needs.changes.outputs.native_scope != 'full' && needs.changes.outputs.native_scope != 'squad'
+        run: |
+          echo "No native checks are defined for scope '${{ needs.changes.outputs.native_scope }}'." >&2
+          exit 1
       - name: Verify native quality and locked builds
+        if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
           cargo fmt --all --check
@@ -102,6 +128,7 @@ jobs:
           cargo build --locked
           cargo build --locked --example storage-probe
       - name: Build independent native process fixtures
+        if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         env:
           CARGO_PROFILE_DEV_DEBUG: 0
@@ -122,6 +149,7 @@ jobs:
         working-directory: typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify embedded local Office companion
+        if: needs.changes.outputs.native_scope == 'full'
         working-directory: typescript
         env:
           # This rebuild replaces the companion used by native process fixtures.
@@ -134,17 +162,28 @@ jobs:
           TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
           TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
       - name: Verify native process and shared parser contracts
+        if: needs.changes.outputs.native_scope == 'full'
         working-directory: typescript
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
           TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
         run: |
           pnpm test:native --reporter=verbose
+      - name: Verify Squad native contracts
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: typescript
+        env:
+          TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
+          # Plain file names from the component map, validated when it is parsed.
+          SCOPED_NATIVE_TESTS: ${{ needs.changes.outputs.scoped_native_tests }}
+        run: |
+          # shellcheck disable=SC2086
+          pnpm test:native --reporter=verbose $SCOPED_NATIVE_TESTS
 
   unit-tests:
     name: Unit tests
     needs: [changes, native-runtime-build]
-    if: needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.native_scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -200,12 +239,15 @@ jobs:
         run: pnpm --filter tmux-team install --frozen-lockfile
       - name: Run Docker end-to-end tests
         working-directory: typescript
+        env:
+          # Empty for the full suite; plain file names from the component map for a scoped run.
+          TMT_E2E_FILES: ${{ needs.changes.outputs.scoped_e2e_files }}
         run: pnpm test:e2e
 
   native-runtime-build:
     name: Build native runtime (${{ matrix.target }})
     needs: changes
-    if: needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
       # Runner allocation for the four targets owned by dist-workspace.toml.
@@ -265,7 +307,7 @@ jobs:
     # product. Each row now executes native linkage/skill/SQLite runtime proof.
     name: Packed install (${{ matrix.label }})
     needs: [changes, native-runtime-build]
-    if: needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
       matrix:
@@ -354,11 +396,11 @@ jobs:
           node-version: 22.23.2
       - name: Require every selected native gate
         env:
-          NATIVE_SELECTED: ${{ needs.changes.outputs.native }}
+          NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
           CONTRACT_RESULT: ${{ needs.native-rust.result }}
           UNIT_RESULT: ${{ needs.unit-tests.result }}
           DOCKER_RESULT: ${{ needs.docker-e2e.result }}
           BUILD_RESULT: ${{ needs.native-runtime-build.result }}
           MATRIX_RESULT: ${{ needs.packed-native-install.result }}
         run: |
-          node typescript/scripts/ci-scope.mjs gate "$NATIVE_SELECTED" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
+          node typescript/scripts/ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
