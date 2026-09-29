@@ -30,6 +30,7 @@ use std::{
     process::ExitCode,
 };
 use tmt_cli_style::Route;
+use tmt_cli_style::{Terminal, message};
 
 const SKILL: &str = include_str!("../../../skills/tmt-squad/SKILL.md");
 
@@ -333,7 +334,7 @@ fn replies_text(document: &Value) -> String {
     output
 }
 
-fn hotkeys_text(document: &Value) -> String {
+fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
     let path = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     if document["bindings"].is_string() && document["installed"].is_null() {
         // --print: exactly what install would write.
@@ -347,13 +348,16 @@ fn hotkeys_text(document: &Value) -> String {
     }
     if document["installed"] == true && document.get("changed").is_some() {
         return if document["changed"] == true {
-            format!(
-                "Installed: {} sources {}.{}\n",
-                path(&document["target"]),
-                path(&document["squadFile"]),
-                document["backup"]
-                    .as_str()
-                    .map_or(String::new(), |backup| format!(" Backup: {backup}."))
+            done(
+                terminal,
+                &format!(
+                    "Installed hotkeys: {} sources {}.{}",
+                    path(&document["target"]),
+                    path(&document["squadFile"]),
+                    document["backup"]
+                        .as_str()
+                        .map_or(String::new(), |backup| format!(" Backup: {backup}."))
+                ),
             )
         } else {
             "Already installed; nothing changed.\n".into()
@@ -361,7 +365,10 @@ fn hotkeys_text(document: &Value) -> String {
     }
     if document.get("removed").is_some() {
         return if document["changed"] == true {
-            format!("Removed squad's hotkeys ({}).\n", document["removed"])
+            done(
+                terminal,
+                &format!("Removed squad's hotkeys ({})", document["removed"]),
+            )
         } else {
             "No squad hotkeys were installed; nothing changed.\n".into()
         };
@@ -390,49 +397,70 @@ fn hotkeys_text(document: &Value) -> String {
     output
 }
 
-fn human(command: &str, document: &Value) -> String {
+/// One `✓ <past tense> <object>` line, rendered for `terminal`.
+fn done(terminal: Terminal, text: &str) -> String {
+    let mut line = Vec::new();
+    let _ = message::success(&mut line, terminal, text);
+    String::from_utf8(line).unwrap_or_default()
+}
+
+fn human(command: &str, document: &Value, terminal: Terminal) -> String {
+    let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     match command {
         "status" | "board" => status::text(document),
-        "hotkeys" => hotkeys_text(document),
-        "playbook" => playbook::text(document),
-        "jump" => format!(
-            "Showing {} ({}).\n{}",
-            document["member"].as_str().unwrap_or_default(),
-            document["focused"]["pane"].as_str().unwrap_or_default(),
-            document["warning"]
-                .as_str()
-                .map_or(String::new(), |warning| format!("Note: {warning}\n"))
-        ),
-        "talk" | "annotate" => format!(
-            "Sent to {} ({}).\n",
-            document["to"].as_str().unwrap_or_default(),
-            document["requestId"].as_str().unwrap_or_default()
+        "hotkeys" => hotkeys_text(document, terminal),
+        "playbook" => playbook::text(document, terminal),
+        "jump" => {
+            let mut output = done(
+                terminal,
+                &format!(
+                    "Jumped to {} ({})",
+                    text(&document["member"]),
+                    text(&document["focused"]["pane"])
+                ),
+            );
+            if let Some(warning) = document["warning"].as_str() {
+                let mut line = Vec::new();
+                let _ = message::warning(&mut line, terminal, warning, None);
+                output.push_str(&String::from_utf8(line).unwrap_or_default());
+            }
+            output
+        }
+        "talk" | "annotate" => done(
+            terminal,
+            &format!(
+                "Sent to {} ({})",
+                text(&document["to"]),
+                text(&document["requestId"])
+            ),
         ),
         "replies" => replies_text(document),
-        "reply" => format!(
-            "Replied to {} ({}).\n",
-            document["from"].as_str().unwrap_or_default(),
-            document["requestId"].as_str().unwrap_or_default()
+        "reply" => done(
+            terminal,
+            &format!(
+                "Replied to {} ({})",
+                text(&document["from"]),
+                text(&document["requestId"])
+            ),
         ),
         "back" => match document["back"]["focused"]["pane"].as_str() {
-            Some(pane) => format!("Back at {pane}.\n"),
+            Some(pane) => done(terminal, &format!("Went back to {pane}")),
             None => "Nothing to go back to.\n".into(),
         },
-        "open" => format!(
-            "Opened {}\n",
-            document["opened"].as_str().unwrap_or_default()
+        "open" => done(terminal, &format!("Opened {}", text(&document["opened"]))),
+        "copy" => done(terminal, &text(&document["message"])),
+        "init" if document["created"] == true => done(
+            terminal,
+            &format!(
+                "Created squad {name} (room squad-{name}); you are {}",
+                document["me"].as_str().unwrap_or("unset"),
+                name = text(&document["squad"]["name"]),
+            ),
         ),
-        "copy" => format!("{}\n", document["message"].as_str().unwrap_or_default()),
         "init" => format!(
-            "Squad {} {} (room squad-{}); you are {}.\n",
-            document["squad"]["name"].as_str().unwrap_or_default(),
-            if document["created"] == true {
-                "created"
-            } else {
-                "already exists"
-            },
-            document["squad"]["name"].as_str().unwrap_or_default(),
+            "Squad {name} already exists (room squad-{name}); you are {}.\n",
             document["me"].as_str().unwrap_or("unset"),
+            name = text(&document["squad"]["name"]),
         ),
         _ => format!(
             "{}\n",
@@ -501,7 +529,8 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
         .map(Outcome::from);
     }
     if command == "init" {
-        let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+        let interactive =
+            std::io::stdin().is_terminal() && tmt_cli_style::stream::stderr().is_terminal();
         return membership::init(
             &core,
             &mut config,
@@ -587,8 +616,7 @@ fn main() -> ExitCode {
         }
         Err(error) if json && error.use_stderr() => {
             let failure = SquadError::new("USAGE_ERROR", error.kind().to_string());
-            println!("{}", failure.to_json());
-            return ExitCode::from(2);
+            return print_document(&failure.to_json(), 2);
         }
         Err(error) => {
             let _ = error.print();
@@ -604,53 +632,89 @@ fn main() -> ExitCode {
                 .flatten()
                 .cloned()
                 .collect();
-            for candidate in complete(&words) {
-                println!("{candidate}");
-            }
-            return ExitCode::SUCCESS;
+            return print_completion(&complete(&words));
         }
-        "skill" => {
-            print!("{SKILL}");
-            return ExitCode::SUCCESS;
-        }
+        "skill" => return print_embedded(SKILL),
         _ => {}
     }
     // The board needs a terminal; otherwise it is `status`, text or JSON.
-    if command == "board" && !json && std::io::stdout().is_terminal() {
+    if command == "board" && !json && tmt_cli_style::stream::stdout(false).is_terminal() {
         let squad = sub.get_one::<String>("squad").cloned();
         let popup = sub.get_flag("popup");
         return match Core::discover().and_then(|core| board::run(core, squad, popup)) {
             Ok(signal) => ExitCode::from(board::exit_status(signal)),
             Err(failure) => {
-                let _ = writeln!(std::io::stderr(), "tmt squad: {failure}");
+                report(&failure);
                 ExitCode::from(1)
             }
         };
     }
-    let (body, code) = match run(command, sub) {
+    match run(command, sub) {
         Ok(outcome) => {
-            let rendered = if json {
-                format!("{}\n", outcome.document)
-            } else {
-                human(command, &outcome.document)
-            };
-            (rendered, if outcome.complete { 0 } else { 1 })
+            let code = if outcome.complete { 0 } else { 1 };
+            if json {
+                return print_document(&outcome.document, code);
+            }
+            let mut stdout = tmt_cli_style::stream::stdout(false);
+            let body = human(command, &outcome.document, stdout.terminal());
+            match stdout
+                .write_all(body.as_bytes())
+                .and_then(|()| stdout.flush())
+            {
+                Ok(()) => ExitCode::from(code),
+                Err(_) => ExitCode::FAILURE,
+            }
         }
-        Err(failure) if json => (format!("{}\n", failure.to_json()), 1),
+        Err(failure) if json => print_document(&failure.to_json(), 1),
         Err(failure) => {
-            let _ = writeln!(std::io::stderr(), "tmt squad: {failure}");
-            (String::new(), 1)
+            report(&failure);
+            ExitCode::from(1)
         }
-    };
-    let mut stdout = std::io::stdout().lock();
-    if stdout
-        .write_all(body.as_bytes())
-        .and_then(|()| stdout.flush())
-        .is_err()
-    {
-        return ExitCode::FAILURE;
     }
-    ExitCode::from(code)
+}
+
+/// `--json`: one document and a newline, unstyled.
+fn print_document(document: &Value, code: u8) -> ExitCode {
+    let mut stdout = tmt_cli_style::stream::stdout(true);
+    match writeln!(stdout, "{document}").and_then(|()| stdout.flush()) {
+        Ok(()) => ExitCode::from(code),
+        Err(_) => ExitCode::FAILURE,
+    }
+}
+
+/// `__complete`: one candidate per line, for the shell.
+fn print_completion(candidates: &[String]) -> ExitCode {
+    let mut stdout = tmt_cli_style::stream::stdout(true);
+    let written = candidates
+        .iter()
+        .try_for_each(|candidate| writeln!(stdout, "{candidate}"))
+        .and_then(|()| stdout.flush());
+    if written.is_ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// `skill show`: the embedded skill, byte for byte.
+fn print_embedded(text: &str) -> ExitCode {
+    let mut stdout = tmt_cli_style::stream::stdout(true);
+    match stdout
+        .write_all(text.as_bytes())
+        .and_then(|()| stdout.flush())
+    {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(_) => ExitCode::FAILURE,
+    }
+}
+
+/// A human failure: `error: <what>`, then `hint: <next>` when there is one.
+/// The code is for `--json`; human output does not repeat it.
+fn report(failure: &SquadError) {
+    let mut stderr = tmt_cli_style::stream::stderr();
+    let terminal = stderr.terminal();
+    let (what, hint) = failure.human();
+    let _ = message::error(&mut stderr, terminal, what, hint);
 }
 
 #[cfg(test)]

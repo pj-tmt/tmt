@@ -81,7 +81,7 @@ fn prompt_me(core: &Core) -> Result<String, SquadError> {
         .filter(|identity| identity["lifetime"] == "saved")
         .filter_map(|identity| identity["name"].as_str())
         .collect();
-    let mut stderr = std::io::stderr().lock();
+    let mut stderr = tmt_cli_style::stream::stderr();
     let _ = writeln!(
         stderr,
         "Which saved identity is you? It receives what members need from you."
@@ -97,6 +97,7 @@ fn prompt_me(core: &Core) -> Result<String, SquadError> {
     );
     let _ = write!(stderr, "me = ");
     let _ = stderr.flush();
+    drop(stderr);
     let mut line = String::new();
     std::io::stdin()
         .lock()

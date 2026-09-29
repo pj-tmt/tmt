@@ -83,7 +83,4 @@ pub const MIGRATING: &[(&str, &str)] = &[
     ("tmt-office-command", "office_storage_command.rs"),
     ("tmt-office-command", "office_whiteboard_command.rs"),
     ("tmt-office-command", "public.rs"),
-    ("tmt-squad", "consent.rs"),
-    ("tmt-squad", "main.rs"),
-    ("tmt-squad", "membership.rs"),
 ];
