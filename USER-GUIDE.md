@@ -443,7 +443,11 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 list (`/`), the ◆ rows that wait on you first in the crew layout, and each
 member's note under its row. It refreshes in the background every few seconds
 and re-reads `squad.toml`, so edits apply on the next refresh; `q` or Esc
-closes it. Without a terminal, or with `--json`, it prints `status`. Rows and
+closes it. Switching squads never blanks the screen: a squad you already
+visited shows at once while it refreshes, and otherwise the current frame stays
+until the new one is ready, with a small spinner if that takes a moment (row
+actions wait until it arrives). Tabs keep their width, so switching never moves
+them. Without a terminal, or with `--json`, it prints `status`. Rows and
 state colors are configurable. Every row sits on one grid of columns; a row can
 take more than one line, and on each line a cell can span columns:
 

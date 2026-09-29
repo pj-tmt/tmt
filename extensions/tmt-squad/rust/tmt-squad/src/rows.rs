@@ -447,6 +447,9 @@ fn read_legacy(item: &Item, place: &str) -> Result<Rows, SquadError> {
                 &default.map_or_else(|| field.to_uppercase(), |column| column.title.clone()),
                 default.and_then(|column| column.width),
             );
+            // A preset column keeps how it steps aside (pr_link drops first).
+            let priority = default.and_then(|column| column.priority);
+            column.priority = priority;
             if let Some(settings) = table.get(&field) {
                 let settings = settings
                     .as_table_like()
@@ -461,6 +464,7 @@ fn read_legacy(item: &Item, place: &str) -> Result<Rows, SquadError> {
                                 &column.title,
                                 Some(number(value, &here, 1..=MAX_WIDTH)?),
                             );
+                            column.priority = priority;
                         }
                         other => {
                             return Err(invalid(format!(
