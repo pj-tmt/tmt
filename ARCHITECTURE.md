@@ -1210,6 +1210,7 @@ stops setup before any provider file changes.
 
 Guided `tmt setup` (no driver, `setup_command/guided.rs`) plans from
 `Registry::detect`, which reads only the filesystem:
+
 - `Present` and `ConfigOnly` drivers get core skills in their skill roots
   (`skill_installation::plan_core`, then `install`), and recorded extension
   skills are linked into roots that lack them (`plan_owned`, `publish_owned`);
