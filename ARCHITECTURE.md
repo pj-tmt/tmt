@@ -1818,7 +1818,9 @@ list|show|install|remove`, first `tmux-squad`) live beside it in
 `extensions/tmt-squad/playbooks/`, deliberately not under `skills/`: the release
 archive ships and the extension installer offers every skill under `skills/`,
 while a playbook is installed only on request, and a test pins that no playbook is
-in that tree. `playbook.rs` holds the one catalog of embedded sources. `show`
+in that tree. `playbook.rs` holds the one catalog of embedded sources and registers the
+subtree through `tmt-cli-style` (summary and examples per command, `--json` from
+squad's global option); it is Squad's first dependency on that crate. `show`
 prints the exact bytes; `install` asks (the same `consent` helper as `hotkeys`),
 then calls `skills.install` as owner `squad`, and `remove` calls `skills.remove`
 with the playbook's name, so the lead skill and `tmt extension uninstall squad`
