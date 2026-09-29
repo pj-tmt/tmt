@@ -56,7 +56,11 @@ export interface MockPane {
 export interface CliRunOptions {
   cwd?: string;
   pane?: string;
-  /** Remove pane context and fail visibly if the CLI attempts to invoke tmux. */
+  /**
+   * Remove pane context and fail visibly if the CLI attempts to invoke tmux. The
+   * shim refuses every call, so tmux is also unreachable to notification and
+   * transport: use `outsideTmux` to run outside a pane while tmux stays reachable.
+   */
   withoutTmux?: boolean;
   /** Remove caller context while keeping tmux available for explicit targets. */
   outsideTmux?: boolean;

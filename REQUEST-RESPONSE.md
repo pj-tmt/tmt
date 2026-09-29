@@ -230,7 +230,11 @@ waiting, exits on a final or its deadline, and may claim one timeout hint:
 The later final has an independent callback. No worker restarts or resends work.
 A `--detach` request starts no observer and never gets the timeout hint: the sender chose
 not to wait, and its reply notice is unchanged. Anonymous and explicit queue-only requests
-never push originator hints. Worker
+never push originator hints. The reply hint goes to the originator's recorded tmux
+server wherever `reply` runs, so it needs no tmux context in the replier's
+environment; it does need a `tmux` executable on `PATH` and a reachable socket.
+Otherwise the durable reply stands, its JSON `notification` is `unavailable`, and
+nothing is retried. Worker
 startup failure warns without undoing acceptance. Its state-directory log,
 `request-observers/<request-id>.log`, holds only the observer PID and a bounded
 failure line, never message bodies/receipts. A clean exit (final or deadline)
