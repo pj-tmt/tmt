@@ -595,6 +595,9 @@ fn main() -> ExitCode {
 }
 
 #[cfg(test)]
+mod cli_style_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

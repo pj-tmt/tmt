@@ -2452,9 +2452,11 @@ version = "5.0.0-alpha.7"
 dependencies = [
  "clap",
  "clap_complete",
+ "proc-macro2",
  "serde_json",
  "syn 2.0.119",
  "tmt-adapters",
+ "tmt-cli-style",
  "tmt-command-output",
  "tmt-core",
  "tmt-office-command",
@@ -2591,6 +2593,7 @@ dependencies = [
  "serde_json",
  "signal-hook 0.4.4",
  "subprocess",
+ "tmt-cli-style",
  "toml_edit",
  "unicode-width",
 ]

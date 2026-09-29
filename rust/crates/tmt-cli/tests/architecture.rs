@@ -1,5 +1,11 @@
 #[path = "architecture/cases.rs"]
 mod cases;
+#[path = "architecture/output.rs"]
+mod output;
+#[path = "architecture/output_allowlist.rs"]
+mod output_allowlist;
+#[path = "architecture/output_cases.rs"]
+mod output_cases;
 #[path = "architecture/policy.rs"]
 mod policy;
 #[path = "architecture/source.rs"]
@@ -104,6 +110,11 @@ fn workspace_obeys_native_architecture() {
             .any(|s| s.package == "tmt-cli" && s.file == "identity_command.rs")
     );
     violations.extend(policy::source_violations(&sources));
+    violations.extend(output::violations(
+        &sources,
+        output_allowlist::EXACT_BODIES,
+        output_allowlist::MIGRATING,
+    ));
     assert!(
         violations.is_empty(),
         "Native architecture violations:\n{}",

@@ -59,3 +59,56 @@ fn examples_split_into_the_argv_a_shell_passes() {
     assert!(argv("tmt \"open").is_err());
     assert!(argv("tmt x\\").is_err());
 }
+
+#[test]
+fn examples_read_back_exactly_what_the_help_shows() {
+    const THREE: &[Example] = &[
+        Example {
+            command: "tmt talk worker \"Run the tests\"",
+            note: "Send a message to one agent",
+        },
+        Example {
+            command: "tmt talk worker --wait \"Is it green?\"",
+            note: "Wait for the reply",
+        },
+        Example {
+            command: "tmt talk worker --detach 'Deploy later'",
+            note: "Queue without waiting",
+        },
+    ];
+    let sections = [HelpSection {
+        title: "Extensions".into(),
+        entries: vec![("sq".into(), "Squad".into())],
+    }];
+    for terminal in [
+        Terminal::PLAIN,
+        Terminal {
+            color: true,
+            width: None,
+        },
+    ] {
+        let command = command_with_sections(&spec(THREE, OutputModes::Human), &sections);
+        let text = anstream::adapter::strip_str(&help_text(&command, terminal)).to_string();
+        let shown = examples(&text).unwrap();
+        let expected: Vec<_> = THREE
+            .iter()
+            .map(|example| ShownExample {
+                note: example.note.into(),
+                command: example.command.into(),
+            })
+            .collect();
+        assert_eq!(shown, expected);
+        for (shown, example) in shown.iter().zip(THREE) {
+            assert_eq!(shown.argv(), example.argv());
+        }
+    }
+}
+
+#[test]
+fn a_malformed_or_missing_examples_section_is_reported() {
+    assert!(examples("Usage: tmt ls\n").is_err());
+    assert!(examples("Examples:\n  tmt ls\n").is_err());
+    assert!(examples("Examples:\n  # List agents\n").is_err());
+    assert!(examples("Examples:\n  # List agents\n  # again\n").is_err());
+    assert_eq!(examples("Examples:\n").unwrap(), []);
+}

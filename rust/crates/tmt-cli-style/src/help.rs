@@ -141,8 +141,53 @@ impl Example {
     /// The argv a POSIX shell would pass, for parsing examples through the
     /// real grammar. Unbalanced quoting is an error.
     pub fn argv(&self) -> Result<Vec<String>, String> {
-        shlex::split(self.command).ok_or_else(|| format!("unbalanced quoting: {}", self.command))
+        split(self.command)
     }
+}
+
+fn split(command: &str) -> Result<Vec<String>, String> {
+    shlex::split(command).ok_or_else(|| format!("unbalanced quoting: {command}"))
+}
+
+/// An example as a reader of the help sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShownExample {
+    pub note: String,
+    pub command: String,
+}
+
+impl ShownExample {
+    pub fn argv(&self) -> Result<Vec<String>, String> {
+        split(&self.command)
+    }
+}
+
+/// Reads the `Examples` section back from plain help text: the inverse of
+/// what [`command`] writes, so the grammar walk checks the examples a user
+/// actually sees. The section must be last and hold only note/command pairs.
+pub fn examples(help: &str) -> Result<Vec<ShownExample>, String> {
+    let lines: Vec<&str> = help.lines().collect();
+    let start = lines
+        .iter()
+        .rposition(|line| *line == "Examples:")
+        .ok_or("no Examples section")?;
+    let mut shown = Vec::new();
+    let mut rest = lines[start + 1..].iter().filter(|line| !line.is_empty());
+    while let Some(line) = rest.next() {
+        let note = line
+            .strip_prefix("  # ")
+            .ok_or_else(|| format!("expected an example note, found {line:?}"))?;
+        let command = rest
+            .next()
+            .and_then(|line| line.strip_prefix("  "))
+            .filter(|command| !command.is_empty() && !command.starts_with('#'))
+            .ok_or_else(|| format!("example {note:?} has no command"))?;
+        shown.push(ShownExample {
+            note: note.to_owned(),
+            command: command.to_owned(),
+        });
+    }
+    Ok(shown)
 }
 
 #[cfg(test)]

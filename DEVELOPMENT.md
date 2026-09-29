@@ -698,6 +698,12 @@ After an intended change, regenerate with `INSTA_UPDATE=always cargo test -p
 <crate>`, delete any leftover `*.snap.new` files, and review the snapshot diff as
 part of the change. CI never updates snapshots.
 
+The CLI style guards ([enforcement](docs/cli-style.md#enforcement)) run in
+`cargo test`. When a migrated command leaves its list, run them directly from
+`rust/`: `cargo test --locked -p tmt-cli --bin tmt cli_style`, `cargo test
+--locked -p tmt-squad cli_style` and the architecture test below. A failure
+prints the exact list entry to add or remove.
+
 The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash

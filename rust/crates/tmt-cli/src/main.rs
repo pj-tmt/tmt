@@ -17,6 +17,7 @@ mod extension_hooks_command;
 mod extension_install_command;
 mod grammar;
 mod guidance_command;
+mod help_output;
 mod identity_command;
 mod identity_context;
 mod init_command;
@@ -40,6 +41,9 @@ mod skill_refresh_command;
 mod skill_reminder;
 mod talk_command;
 mod target;
+
+#[cfg(test)]
+mod cli_style_tests;
 
 use std::io::{self, Write};
 use std::process::ExitCode;
@@ -95,22 +99,8 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             drop(stdout);
             return extension_command::execute(&name, &args, help, &prefix);
         }
-        Invocation::Help(path) => {
-            if path.is_empty() {
-                writeln!(
-                    stdout,
-                    "TMT native alpha — collaborate with terminal agents through durable exchanges.\nRun tmt install to set up agent skills; managed installations use tmt upgrade.\n"
-                )?;
-            }
-            // The parser has already resolved and validated this public path.
-            grammar::help_command(&path)
-                .map_err(io::Error::other)?
-                .write_help(&mut stdout)?;
-            writeln!(stdout)?;
-            if path.is_empty() {
-                extension_command::write_discovered(&mut stdout)?;
-            }
-        }
+        // The parser has already resolved and validated this public path.
+        Invocation::Help(path) => help_output::write(&path, &mut stdout)?,
         Invocation::Version => writeln!(stdout, "{}", env!("CARGO_PKG_VERSION"))?,
         Invocation::Complete(words) => completion::query(&words, &mut stdout)?,
         Invocation::Completion(shell) => {
