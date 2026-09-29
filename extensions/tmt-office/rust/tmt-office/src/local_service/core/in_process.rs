@@ -11,7 +11,7 @@ use tmt_adapters::{
     tmux::{BindingSession, CallerEnvironment, Tmux},
 };
 use tmt_core::{binding, room::RoomRepository};
-use tmt_office_storage::core_client::Originator;
+use tmt_office_storage::core_client::WriteOriginator;
 
 pub(super) struct InProcessCore {
     pub paths: ConfigPaths,
@@ -22,12 +22,12 @@ impl LocalCore for InProcessCore {
         &self,
         operation: &str,
         input: Value,
-        originator: Option<Originator<'_>>,
+        originator: Option<WriteOriginator<'_>>,
     ) -> Result<Value, CoreFault> {
         let mut envelope = json!({"version": 1, "operation": operation, "input": input});
         match originator {
-            Some(Originator::Identity(identity)) => envelope["identity"] = json!(identity),
-            Some(Originator::Anonymous) => envelope["originator"] = json!("anonymous"),
+            Some(WriteOriginator::Identity(identity)) => envelope["identity"] = json!(identity),
+            Some(WriteOriginator::Anonymous) => envelope["originator"] = json!("anonymous"),
             None => {}
         }
         let outcome = api::decode(&envelope.to_string())

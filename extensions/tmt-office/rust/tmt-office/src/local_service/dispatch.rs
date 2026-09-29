@@ -3,7 +3,7 @@
 use super::{Request, require_json_origin, response};
 use std::{io, net::TcpStream};
 use tmt_adapters::{config::ConfigPaths, dispatch::decode_input, office_service::ServiceReceipt};
-use tmt_office_storage::core_client::Originator;
+use tmt_office_storage::core_client::WriteOriginator;
 
 pub(super) const PATH: &str = "/api/v1/local/dispatch";
 
@@ -51,7 +51,7 @@ pub(super) fn api(
     };
     // Core composes acceptance, the advisory wake and settings; the browser is
     // the local owner, so the originator is anonymous like the CLI without one.
-    match core.api("dispatch.create", body, Some(Originator::Anonymous)) {
+    match core.api("dispatch.create", body, Some(WriteOriginator::Anonymous)) {
         Ok(receipt) => response(
             stream,
             200,

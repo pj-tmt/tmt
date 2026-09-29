@@ -32,7 +32,7 @@ fn a_successful_call_returns_the_json_document_and_sends_the_anonymous_envelope(
         .api(
             "rooms.retire",
             json!({"roomId": "x"}),
-            Some(Originator::Anonymous),
+            Some(WriteOriginator::Anonymous),
         )
         .unwrap();
     assert_eq!(value, json!({"ok": true}));

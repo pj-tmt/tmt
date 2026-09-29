@@ -9,7 +9,7 @@ use tmt_adapters::{
     room::{decode_retire, decode_write},
 };
 use tmt_core::dispatch::canonical_id;
-use tmt_office_storage::core_client::Originator;
+use tmt_office_storage::core_client::WriteOriginator;
 
 pub(super) const PATH: &str = "/api/v1/local/rooms";
 fn room_id(path: &str) -> Option<&str> {
@@ -85,12 +85,12 @@ pub(super) fn api(
         Some(Mutation::Save(id, input)) => core.api(
             "rooms.write",
             json!({"roomId": id, "room": input}),
-            Some(Originator::Anonymous),
+            Some(WriteOriginator::Anonymous),
         ),
         Some(Mutation::Retire(id, revision)) => core.api(
             "rooms.retire",
             json!({"roomId": id, "expectedRevision": revision}),
-            Some(Originator::Anonymous),
+            Some(WriteOriginator::Anonymous),
         ),
         None => core
             .command(&["room", "list"])

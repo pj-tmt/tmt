@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 use tmt_adapters::config::ConfigPaths;
-use tmt_office_storage::core_client::{CoreClient, Originator};
+use tmt_office_storage::core_client::{CoreClient, WriteOriginator};
 
 /// A core failure: core's own error code, or `CORE_UNAVAILABLE` when it could
 /// not be reached or answered without one.
@@ -29,7 +29,7 @@ pub(super) trait LocalCore {
         &self,
         operation: &str,
         input: Value,
-        originator: Option<Originator<'_>>,
+        originator: Option<WriteOriginator<'_>>,
     ) -> Result<Value, CoreFault>;
     /// One JSON command of `tmt`, for example `["list"]`.
     fn command(&self, args: &[&str]) -> Result<Value, CoreFault>;
@@ -48,7 +48,7 @@ impl LocalCore for ProcessCore {
         &self,
         operation: &str,
         input: Value,
-        originator: Option<Originator<'_>>,
+        originator: Option<WriteOriginator<'_>>,
     ) -> Result<Value, CoreFault> {
         self.0.api(operation, input, originator).map_err(fault)
     }

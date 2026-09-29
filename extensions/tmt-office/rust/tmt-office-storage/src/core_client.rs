@@ -43,7 +43,7 @@ impl std::error::Error for CoreCallError {}
 
 /// Who a `tmt api` write is attributed to.
 #[derive(Debug, Clone, Copy)]
-pub enum Originator<'a> {
+pub enum WriteOriginator<'a> {
     /// An active identity UUID or name.
     Identity(&'a str),
     /// No writer identity, as the CLI without `--identity`.
@@ -106,12 +106,12 @@ impl CoreClient {
         &self,
         operation: &str,
         input: Value,
-        originator: Option<Originator<'_>>,
+        originator: Option<WriteOriginator<'_>>,
     ) -> Result<Value, CoreCallError> {
         let mut envelope = json!({"version": 1, "operation": operation, "input": input});
         match originator {
-            Some(Originator::Identity(identity)) => envelope["identity"] = json!(identity),
-            Some(Originator::Anonymous) => envelope["originator"] = json!("anonymous"),
+            Some(WriteOriginator::Identity(identity)) => envelope["identity"] = json!(identity),
+            Some(WriteOriginator::Anonymous) => envelope["originator"] = json!("anonymous"),
             None => {}
         }
         self.run(&[OsString::from("api")], envelope.to_string().as_bytes())
