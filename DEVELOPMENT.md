@@ -97,13 +97,26 @@ branch is pushed or merged, then `git fetch origin` and
 `git switch -c <new-branch> origin/main`.
 
 **Remove a worktree when its PR merges**, in the same turn, as AGENTS.md
-requires. Verify it is clean and safely pushed first, then remove its images:
+requires, with the script that checks it is safe:
 
 ```sh
-git -C <worktree-path> status --short          # must print nothing
-git -C <worktree-path> log --oneline @{u}..    # must print nothing (or the branch is merged)
-git worktree remove <worktree-path>
-git worktree prune
+scripts/dev-worktree-remove.sh <worktree-path> <pr-number>
+```
+
+It removes the worktree and prunes only when both hold:
+
+1. `git status --short` prints nothing (no uncommitted or untracked files);
+2. either the PR is merged (`gh pr view <n> --json state` shows `MERGED`), or
+   the branch has an upstream and `git log @{u}..` prints nothing.
+
+`git log @{u}..` alone is not enough: when the maintainer updates a PR branch on
+the server (a rebase), it lists local commits although nothing is lost. If
+neither half of (2) holds, or the script refuses for any reason, stop and ask
+the maintainer. A refusal is not permission to remove the worktree by hand,
+with `--force`, or by deleting the branch. Only after the script succeeds,
+remove that worktree's images:
+
+```sh
 worktree=<worktree-name>                       # as defined above, for that worktree
 docker image rm "tmt-office-browser:$worktree" "tmt-office-browser:$worktree-capacity" \
   "tmt-office-check:$worktree"                 # images that were never built are reported and skipped
