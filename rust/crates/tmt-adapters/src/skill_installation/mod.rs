@@ -9,7 +9,9 @@ mod providers;
 mod refresh;
 mod registry;
 mod setup_plan;
-pub use setup_plan::{SkillState, SkillTarget, plan_core, plan_owned, publish_owned};
+pub use setup_plan::{
+    CorePublication, SkillState, SkillTarget, plan_core, plan_owned, publish_core, publish_owned,
+};
 mod uninstall;
 pub use refresh::{RefreshFailure, RefreshReport, RefreshedSkill, refresh};
 pub use uninstall::{SkillsRemoval, plan_uninstall, uninstall};
@@ -36,6 +38,8 @@ mod files_tests;
 mod install_tests;
 #[cfg(test)]
 mod publication_tests;
+#[cfg(test)]
+mod setup_plan_tests;
 
 pub fn bundled_skill() -> &'static [u8] {
     catalog::bundled(catalog::MAIN).expect("main skill").bytes

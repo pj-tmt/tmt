@@ -1232,8 +1232,14 @@ Guided `tmt setup` (no driver, `setup_command/guided.rs`) plans from
 `Registry::detect`, which reads only the filesystem:
 
 - `Present` and `ConfigOnly` drivers get core skills in their skill roots
-  (`skill_installation::plan_core`, then `install`), and recorded extension
-  skills are linked into roots that lack them (`plan_owned`, `publish_owned`);
+  (`skill_installation::plan_core`, then `publish_core`), and recorded extension
+  skills are linked into roots that lack them (`plan_owned`, `publish_owned`).
+  Apply publishes exactly the planned targets: `publish_core` classifies each
+  target again under the installer lock and skips one that changed since
+  planning. A target that is not TMT's is kept and reported, never replaced. A
+  link into another TMT home's `skill-assets/<bundle>/<name>`, whose skill
+  declares that name, is an outdated TMT skill: the plan names it, and apply
+  backs it up before linking the current one;
 - `Present` drivers with hooks get `setup::plan`, then `apply` and the record.
 
 It prints only what is missing, asks once (`SETUP_CONSENT_REQUIRED` without a
