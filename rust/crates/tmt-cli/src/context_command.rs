@@ -29,8 +29,9 @@ pub fn execute(mode: OutputMode) -> io::Result<u8> {
 
 fn observe() -> Option<serde_json::Value> {
     crate::caller_context::require_independent_host().ok()?;
-    let host = Host::default();
-    let pane = host.caller_pane(&CallerEnvironment::current()).ok()??;
+    let environment = CallerEnvironment::current();
+    let host = Host::for_caller(&environment);
+    let pane = host.caller_pane(&environment).ok()??;
     let snapshot = host
         .observe_snapshot(OperationOptions {
             pane_ids: Some(std::slice::from_ref(&pane)),
@@ -45,8 +46,14 @@ fn observe() -> Option<serde_json::Value> {
             .as_millis(),
     )
     .ok()?;
-    let stored =
-        Storage::context_by_pane(&paths.database, &pane, &snapshot.server.server_id, now).ok()?;
+    let stored = Storage::context_by_pane(
+        &paths.database,
+        snapshot.server.host,
+        &pane,
+        &snapshot.server.server_id,
+        now,
+    )
+    .ok()?;
     let Some(stored) = stored else {
         // This branch emits only the fixed unbound hint, never identity data.
         // A command-derived suggested name is not a stored binding marker.

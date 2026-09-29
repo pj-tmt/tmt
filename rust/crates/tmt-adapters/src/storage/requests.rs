@@ -388,8 +388,12 @@ impl RequestRecords for RequestRows<'_> {
                 "SELECT request_id FROM request_attempts WHERE route_kind = 'pane'
                  AND server_id = ? AND socket_path = ? AND server_pid = ?
                  AND server_start_time = ? AND pane_id = ? AND pane_pid = ?
+                 AND COALESCE(host, 'tmux') = ?
                  AND wait_active = 1 ORDER BY prepared_at_ms, attempt_id LIMIT 1",
-                endpoint_args(endpoint)?.to_vec(),
+                endpoint_args(endpoint)?
+                    .into_iter()
+                    .chain([endpoint.server.host.as_str().to_owned().into()])
+                    .collect(),
             ),
             RequestRoute::Inbox {
                 recipient_identity_id,
@@ -464,12 +468,12 @@ impl RequestRecords for RequestRows<'_> {
                 retention_expires_at_ms, attention_revision,
                 attention_acknowledged_revision, recipient_attention_revision,
                 recipient_attention_acknowledged_revision, message_text, message_bytes,
-                message_expires_at_ms, request_kind, room_id
+                message_expires_at_ms, request_kind, room_id, host
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?
             )",
                 params![
                     attempt.attempt_id,
@@ -508,6 +512,7 @@ impl RequestRecords for RequestRows<'_> {
                     prompt_expires_at_ms,
                     attempt.kind.as_str(),
                     attempt.room_id,
+                    endpoint.map(|e| e.server.host.as_str()),
                 ],
             )
             .map_err(|error| classify(error, "Create request attempt"))?;
@@ -537,8 +542,8 @@ impl RequestRecords for RequestRows<'_> {
                 request_id, attempt_id, route_kind, route_recipient_identity_id,
                 server_id, socket_path, server_pid,
                 server_start_time, pane_id, pane_pid, body, body_bytes,
-                submitted_at_ms, response_expires_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                submitted_at_ms, response_expires_at_ms, host
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
                     response.request_id,
                     response.attempt_id,
@@ -554,6 +559,7 @@ impl RequestRecords for RequestRows<'_> {
                     body_bytes,
                     submitted_at_ms,
                     response_expires_at_ms,
+                    endpoint.map(|e| e.server.host.as_str()),
                 ],
             )
             .map_err(|error| classify(error, "Create request response"))?;

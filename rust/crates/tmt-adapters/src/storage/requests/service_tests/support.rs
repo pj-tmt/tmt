@@ -57,6 +57,7 @@ pub fn service<'a>(fixture: &'a mut Fixture) -> RequestService<'a, Storage, impl
 pub fn endpoint(pane_id: &str, pane_pid: u64) -> RequestEndpoint {
     RequestEndpoint {
         server: ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
             server_id: "server-for-request-tests".into(),
             socket_path: "/tmp/tmt-request-tests.sock".into(),
             server_pid: 41,

@@ -174,6 +174,7 @@ impl BindingEndpoint for FakeEndpoint {
 
 pub(super) fn server(id: &str, socket: &str, pid: u64, start: &str) -> ServerEvidence {
     ServerEvidence {
+        host: tmt_core::host::HostKind::Tmux,
         server_id: id.into(),
         socket_path: socket.into(),
         server_pid: pid,

@@ -30,6 +30,7 @@ pub fn refresh<R: CommandRunner>(
     };
     let Ok(Some(context)) = Storage::context_by_pane(
         &paths.database,
+        expected.server.host,
         &expected.pane_id,
         &expected.server.server_id,
         crate::request_runtime::wall_time_ms(),

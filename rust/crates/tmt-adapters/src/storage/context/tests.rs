@@ -87,18 +87,22 @@ fn insert_request(connection: &Connection, identity: &str, id: &str) {
 fn absent_storage_is_not_created_and_missing_binding_is_not_reconciled() {
     let directory = TestDirectory::new();
     let absent = directory.path.join("missing/context.db");
-    assert!(Storage::context_by_pane(&absent, "%1", "server", 10).is_err());
+    assert!(
+        Storage::context_by_pane(&absent, tmt_core::host::HostKind::Tmux, "%1", "server", 10)
+            .is_err()
+    );
     assert!(!absent.parent().unwrap().exists());
     let (_directory, path, _) = fixture();
     let before = fs::read(&path).unwrap();
     assert!(
-        Storage::context_by_pane(&path, "%2", "server", 10)
+        Storage::context_by_pane(&path, tmt_core::host::HostKind::Tmux, "%2", "server", 10)
             .unwrap()
             .is_none()
     );
-    let snapshot = Storage::context_by_pane(&path, "%1", "server", 10)
-        .unwrap()
-        .unwrap();
+    let snapshot =
+        Storage::context_by_pane(&path, tmt_core::host::HostKind::Tmux, "%1", "server", 10)
+            .unwrap()
+            .unwrap();
     assert_eq!(snapshot.entry.identity.lifetime, Lifetime::Saved);
     assert_eq!(snapshot.entry.binding.unwrap().pane_pid, 11);
     assert_eq!(snapshot.requests, ContextRequests::default());
@@ -170,9 +174,10 @@ fn acknowledged_work_is_excluded_and_role_is_bounded_without_writes() {
         .unwrap();
     connection.close().unwrap();
     let before = fs::read(&path).unwrap();
-    let snapshot = Storage::context_by_pane(&path, "%1", "server", 10)
-        .unwrap()
-        .unwrap();
+    let snapshot =
+        Storage::context_by_pane(&path, tmt_core::host::HostKind::Tmux, "%1", "server", 10)
+            .unwrap()
+            .unwrap();
     assert_eq!(snapshot.requests.originated, 0);
     assert_eq!(snapshot.requests.incoming, 0);
     assert_eq!(snapshot.role.unwrap(), "x\0".repeat(250));
@@ -197,7 +202,10 @@ fn incompatible_history_is_not_read_or_repaired() {
         }
         connection.close().unwrap();
         let before = fs::read(&path).unwrap();
-        assert!(Storage::context_by_pane(&path, "%1", "server", 10).is_err());
+        assert!(
+            Storage::context_by_pane(&path, tmt_core::host::HostKind::Tmux, "%1", "server", 10)
+                .is_err()
+        );
         assert_eq!(fs::read(&path).unwrap(), before);
     }
 }
@@ -232,9 +240,10 @@ fn replies_and_incoming_obey_separate_attention_and_retention_without_cleanup() 
         .unwrap();
     connection.close().unwrap();
     let before = fs::read(&path).unwrap();
-    let snapshot = Storage::context_by_pane(&path, "%1", "server", 10)
-        .unwrap()
-        .unwrap();
+    let snapshot =
+        Storage::context_by_pane(&path, tmt_core::host::HostKind::Tmux, "%1", "server", 10)
+            .unwrap()
+            .unwrap();
     // X includes failed delivery attention until acknowledged; expiration excludes one row.
     assert_eq!(snapshot.requests.originated, 3);
     assert_eq!(snapshot.requests.incoming, 2);
@@ -245,7 +254,7 @@ fn replies_and_incoming_obey_separate_attention_and_retention_without_cleanup() 
         .execute("UPDATE identities SET lifetime = 'temporary'", [])
         .unwrap();
     assert_eq!(
-        Storage::context_by_pane(&path, "%1", "server", 10)
+        Storage::context_by_pane(&path, tmt_core::host::HostKind::Tmux, "%1", "server", 10)
             .unwrap()
             .unwrap()
             .entry
@@ -257,7 +266,7 @@ fn replies_and_incoming_obey_separate_attention_and_retention_without_cleanup() 
         .execute("UPDATE identities SET retired_at_ms = 5", [])
         .unwrap();
     assert!(
-        Storage::context_by_pane(&path, "%1", "server", 10)
+        Storage::context_by_pane(&path, tmt_core::host::HostKind::Tmux, "%1", "server", 10)
             .unwrap()
             .is_none()
     );
@@ -293,9 +302,10 @@ fn many_unread_items_keep_exact_counts_and_independent_bulk_watermarks() {
         .unwrap();
     connection.close().unwrap();
     let before = fs::read(&path).unwrap();
-    let snapshot = Storage::context_by_pane(&path, "%1", "server", 10)
-        .unwrap()
-        .unwrap();
+    let snapshot =
+        Storage::context_by_pane(&path, tmt_core::host::HostKind::Tmux, "%1", "server", 10)
+            .unwrap()
+            .unwrap();
     for summary in [snapshot.requests.originated, snapshot.requests.incoming] {
         assert_eq!(summary, 9);
     }
@@ -316,9 +326,10 @@ fn many_unread_items_keep_exact_counts_and_independent_bulk_watermarks() {
         .unwrap();
     connection.close().unwrap();
     let before = fs::read(&path).unwrap();
-    let snapshot = Storage::context_by_pane(&path, "%1", "server", 10)
-        .unwrap()
-        .unwrap();
+    let snapshot =
+        Storage::context_by_pane(&path, tmt_core::host::HostKind::Tmux, "%1", "server", 10)
+            .unwrap()
+            .unwrap();
     assert_eq!(snapshot.requests.originated, 5);
     assert_eq!(snapshot.requests.incoming, 7);
     assert_eq!(fs::read(&path).unwrap(), before);

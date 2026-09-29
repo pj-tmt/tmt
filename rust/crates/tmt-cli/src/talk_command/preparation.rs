@@ -39,7 +39,7 @@ pub(super) fn prepare(
         };
         if let Some(identity) = identity {
             offline = matches!(
-                crate::delivery::status(storage, host, &identity.id).map_err(|error| {
+                crate::delivery::status(storage, &identity.id).map_err(|error| {
                     Failure::new(
                         "DELIVERY_PREPARATION_FAILED",
                         "Could not read recipient state.",
@@ -162,7 +162,7 @@ pub(super) fn prepare(
         (Some(identity), _) => RequestRoute::Inbox {
             recipient_identity_id: identity.id.clone(),
         },
-        (_, Some(observed)) => RequestRoute::Pane(target::refresh(host, observed)?),
+        (_, Some(observed)) => RequestRoute::Pane(target::refresh(observed)?),
         _ => unreachable!("one route is selected"),
     };
     let timeout_ms = if input.options.detach {

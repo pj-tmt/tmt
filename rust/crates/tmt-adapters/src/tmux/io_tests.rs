@@ -405,6 +405,7 @@ fn explicit_socket_metadata_updates_preserve_opaque_data_and_never_fall_back() {
 fn binding_session_requires_a_budget_and_preserves_failed_probe_cleanup() {
     use tmt_core::binding::BindingEndpoint;
     let server = ServerEvidence {
+        host: tmt_core::host::HostKind::Tmux,
         server_id: SERVER_ID.into(),
         socket_path: "/foreign/socket".into(),
         server_pid: 321,

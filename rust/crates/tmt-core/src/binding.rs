@@ -152,7 +152,12 @@ pub trait BindingRecords: IdentityReader {
         state: &session::BindingSessionState,
     ) -> Result<bool, Self::Error>;
     fn entry_by_id(&self, id: &str) -> Result<Option<BindingEntry>, Self::Error>;
-    fn entry_by_pane(&self, pane: &str, server: &str) -> Result<Option<BindingEntry>, Self::Error>;
+    fn entry_by_pane(
+        &self,
+        host: crate::host::HostKind,
+        pane: &str,
+        server: &str,
+    ) -> Result<Option<BindingEntry>, Self::Error>;
     fn binding_entries(&self) -> Result<Vec<BindingEntry>, Self::Error>;
     fn insert_binding(
         &mut self,

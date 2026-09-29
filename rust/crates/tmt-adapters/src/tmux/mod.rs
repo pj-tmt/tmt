@@ -35,6 +35,11 @@ use tmt_core::endpoint::{
     valid_server_id,
 };
 
+/// tmux's own pane-ID syntax (`%N`), owned by the core host descriptor.
+fn valid_pane_id(value: &str) -> bool {
+    tmt_core::host::HostKind::Tmux.is_pane_id(value)
+}
+
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(1);
 const OPERATION_MAX_OUTPUT: usize = 1024 * 1024;
 const SERVER_ID_OPTION: &str = "@tmux-team.server-id";
@@ -459,7 +464,7 @@ impl<R: CommandRunner> Tmux<R> {
             return Ok(None);
         };
         let id = output.trim();
-        Ok(tmt_core::endpoint::valid_pane_id(id).then(|| id.into()))
+        Ok(valid_pane_id(id).then(|| id.into()))
     }
 
     fn read_metadata(

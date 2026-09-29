@@ -43,6 +43,7 @@ fn binding(state: RuntimeState, session: Option<&str>) -> Binding {
         id: "binding".into(),
         identity_id: "identity".into(),
         server: ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
             server_id: "server".into(),
             socket_path: "/tmp/tmux".into(),
             server_pid: 1,

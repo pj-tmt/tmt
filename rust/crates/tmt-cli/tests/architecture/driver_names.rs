@@ -13,9 +13,22 @@ const OWNERS: [(&str, &str); 2] = [
 ];
 
 pub fn violations(sources: &[Source], names: &[&str]) -> Vec<String> {
+    owned_literals(sources, names, &OWNERS, |name| {
+        format!("names the driver {name:?}; iterate tmt_core::driver::ALL instead")
+    })
+}
+
+/// Production string literals equal to one of `names`, outside the `owners`
+/// (package, file prefix) pairs. Shared with the host-name guard.
+pub fn owned_literals(
+    sources: &[Source],
+    names: &[&str],
+    owners: &[(&str, &str)],
+    message: impl Fn(&str) -> String,
+) -> Vec<String> {
     let mut found = Vec::new();
     for source in sources {
-        if OWNERS
+        if owners
             .iter()
             .any(|(package, file)| source.package == *package && source.file.starts_with(file))
         {
@@ -26,12 +39,12 @@ pub fn violations(sources: &[Source], names: &[&str]) -> Vec<String> {
             found: Vec::new(),
         };
         visitor.visit_file(&source.syntax);
-        found.extend(visitor.found.into_iter().map(|name| {
-            format!(
-                "{}/{}: names the driver {name:?}; iterate tmt_core::driver::ALL instead",
-                source.package, source.file
-            )
-        }));
+        found.extend(
+            visitor
+                .found
+                .into_iter()
+                .map(|name| format!("{}/{}: {}", source.package, source.file, message(&name))),
+        );
     }
     found.sort();
     found.dedup();

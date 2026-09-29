@@ -274,6 +274,7 @@ mod tests {
 
     fn server() -> ServerEvidence {
         ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
             server_id: "11111111-1111-4111-8111-111111111111".into(),
             socket_path: "/tmp/session-fixture.sock".into(),
             server_pid: 100,

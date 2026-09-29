@@ -191,7 +191,10 @@ fn list_groups_servers_orders_identities_and_preserves_rows_when_budget_is_exhau
     let result = list_presence(
         &mut storage,
         &mut endpoint,
-        Some(server_b.socket_path.as_str()),
+        Some(tmt_core::host::ServerSelector {
+            host: tmt_core::host::HostKind::Tmux,
+            socket: server_b.socket_path.as_str(),
+        }),
     )
     .unwrap();
     assert_eq!(
@@ -220,7 +223,10 @@ fn list_groups_servers_orders_identities_and_preserves_rows_when_budget_is_exhau
     let result = list_presence(
         &mut storage,
         &mut endpoint,
-        Some(server_b.socket_path.as_str()),
+        Some(tmt_core::host::ServerSelector {
+            host: tmt_core::host::HostKind::Tmux,
+            socket: server_b.socket_path.as_str(),
+        }),
     )
     .unwrap();
     assert_eq!(endpoint.probe_calls.len(), probe_count + 1);

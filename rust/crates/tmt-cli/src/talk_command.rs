@@ -15,7 +15,7 @@ use std::{
 };
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
-    host::Host,
+    host::{CallerEnvironment, Host},
     interrupt::Interrupt,
     request_runtime::wall_time_ms,
     storage::{Storage, StorageError},
@@ -136,7 +136,6 @@ impl Correlation {
 
 fn deliver(
     storage: &mut Storage,
-    host: &Host,
     prepared: &mut Prepared,
     input: &Input,
     settings: &Settings,
@@ -227,7 +226,6 @@ fn deliver(
             } else if eligible {
                 crate::delivery::send(
                     storage,
-                    host,
                     &identity.id,
                     &prepared.payload,
                     Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
@@ -288,9 +286,8 @@ fn deliver(
                 ));
             }
         } else if let Some(endpoint) = &prepared.endpoint {
-            let delivered = host.send(
-                &endpoint.server.socket_path,
-                &endpoint.pane_id,
+            let delivered = Host::for_server(&endpoint.server).send(
+                endpoint,
                 &prepared.payload,
                 Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
             );
@@ -393,7 +390,8 @@ fn run(
             "Could not open request storage; no message was sent.",
         )
     })?;
-    let host = Host::default();
+    // The originator is caller-scoped; the recipient's own host delivers.
+    let host = Host::for_caller(&CallerEnvironment::current());
     let mut cleanup_correlation = None;
     let pending = preparation::prepare(&mut storage, &host, &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
         cleanup_correlation = Some(prepared.correlation.clone());
@@ -402,7 +400,7 @@ fn run(
             let terminal = stderr.terminal();
             let _ = tmt_cli_style::message::warning(&mut stderr, terminal, &format!("Another recent request exists for '{}' (id: {previous}). Input processing is not serialized; durable results remain associated by request ID.", input.target), None);
         }
-        let response = deliver(&mut storage, &host, &mut prepared, &input, &settings, interrupt);
+        let response = deliver(&mut storage, &mut prepared, &input, &settings, interrupt);
         if response.is_ok() && prepared.notify_originator
             && prepared.correlation.offline && !input.options.detach
             && let Err(error) = crate::request_observer_command::start(&paths.database, &prepared.correlation.request_id) {

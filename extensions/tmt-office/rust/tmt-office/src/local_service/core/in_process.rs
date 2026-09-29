@@ -51,10 +51,10 @@ impl LocalCore for InProcessCore {
             Storage::open(&self.paths.database).map_err(|_| CoreFault::unavailable())?;
         let result = match args {
             ["list"] => {
-                let host = Host::default();
                 let environment = CallerEnvironment::current();
+                let host = Host::for_caller(&environment);
                 let mut endpoint = host.session();
-                binding::list_presence(&mut storage, &mut endpoint, environment.selected_socket())
+                binding::list_presence(&mut storage, &mut endpoint, environment.selected_server())
                     .map(|rows| {
                         json!({"identities": rows.into_iter().map(|row| json!({
                             "id": row.identity.id,

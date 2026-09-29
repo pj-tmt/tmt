@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
     dispatch::encode_receipt,
-    host::Host,
+    host::{CallerEnvironment, Host},
     request_runtime::wall_time_ms,
     storage::{DispatchError, Storage},
 };
@@ -79,15 +79,18 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
                 1,
             ));
         }
-        let originator =
-            identity_context::optional(&mut storage, &Host::default(), identity.as_deref())?
-                .map_or(Originator::Unknown, |sender| {
-                    if identity.is_some() {
-                        Originator::Explicit(sender.id)
-                    } else {
-                        Originator::Verified(sender.id)
-                    }
-                });
+        let originator = identity_context::optional(
+            &mut storage,
+            &Host::for_caller(&CallerEnvironment::current()),
+            identity.as_deref(),
+        )?
+        .map_or(Originator::Unknown, |sender| {
+            if identity.is_some() {
+                Originator::Explicit(sender.id)
+            } else {
+                Originator::Verified(sender.id)
+            }
+        });
         storage
             .dispatch_request(
                 DispatchInput {

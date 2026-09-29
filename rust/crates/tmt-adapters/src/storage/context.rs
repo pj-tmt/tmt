@@ -3,7 +3,10 @@
 use super::{Storage, StorageError, bindings::BindingRows, errors::classify};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::{path::Path, time::Duration};
-use tmt_core::binding::{BindingEntry, BindingRecords};
+use tmt_core::{
+    binding::{BindingEntry, BindingRecords},
+    host::HostKind,
+};
 
 const ROLE_LIMIT: usize = 500;
 
@@ -31,12 +34,13 @@ impl Storage {
     /// to a quiet unavailable context, never an invitation to initialize it.
     pub fn context_by_pane(
         path: &Path,
+        host: HostKind,
         pane: &str,
         server: &str,
         now_ms: u64,
     ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
         read_context(path, now_ms, |connection| {
-            BindingRows(connection).entry_by_pane(pane, server)
+            BindingRows(connection).entry_by_pane(host, pane, server)
         })
     }
 
@@ -54,7 +58,7 @@ impl Storage {
                 .prepare(
                     "SELECT b.identity_id FROM bindings b JOIN identities i ON i.id = b.identity_id
                  JOIN identity_session_preferences p ON p.identity_id = b.identity_id
-                 WHERE i.retired_at_ms IS NULL AND b.transport = 'tmux'
+                 WHERE i.retired_at_ms IS NULL
                    AND b.observed_provider_session_id = ?1
                    AND p.provider_session_id = ?1 AND p.remembered_harness = ?2 LIMIT 2",
                 )

@@ -161,6 +161,7 @@ fn saved_detach_does_not_enqueue_and_registration_serializes_with_retirement() {
             rows.insert_binding(
                 &original,
                 &tmt_core::endpoint::ServerEvidence {
+                    host: tmt_core::host::HostKind::Tmux,
                     server_id: uuid::Uuid::new_v4().to_string(),
                     socket_path: "/fixture/socket".into(),
                     server_pid: 100,

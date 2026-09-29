@@ -2,6 +2,8 @@
 mod cases;
 #[path = "architecture/driver_names.rs"]
 mod driver_names;
+#[path = "architecture/host_names.rs"]
+mod host_names;
 #[path = "architecture/output.rs"]
 mod output;
 #[path = "architecture/output_allowlist.rs"]
@@ -118,6 +120,10 @@ fn workspace_obeys_native_architecture() {
     violations.extend(driver_names::violations(
         &sources,
         &tmt_core::driver::ALL.map(|driver| driver.name),
+    ));
+    violations.extend(host_names::violations(
+        &sources,
+        &tmt_core::host::HostKind::ALL.map(|host| host.as_str()),
     ));
     violations.extend(skill_lists::violations(
         &sources,
