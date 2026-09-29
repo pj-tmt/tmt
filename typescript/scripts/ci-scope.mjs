@@ -36,6 +36,21 @@ function nonEmptyStrings(value, label) {
   return value;
 }
 
+/** File names only: they reach a shell word list, so no other character is allowed. */
+const TEST_FILE = /^[A-Za-z0-9._-]+$/;
+
+function parseScopedChecks(name, checks) {
+  if (checks === undefined) return undefined;
+  const files = (key) => {
+    const list = nonEmptyStrings(checks[key], `components.${name}.scopedChecks.${key}`);
+    if (list.some((file) => !TEST_FILE.test(file))) {
+      throw new Error(`components.${name}.scopedChecks.${key} must be plain file names.`);
+    }
+    return list;
+  };
+  return { nativeTests: files('nativeTests'), e2eFiles: files('e2eFiles') };
+}
+
 /**
  * Parses and validates the component map. A malformed map throws, so the
  * selector job fails visibly instead of selecting the wrong work.
@@ -48,6 +63,7 @@ export function parseComponentMap(text) {
     owns: nonEmptyStrings(component.owns, `components.${name}.owns`),
     excludes: component.excludes ?? [],
     selectedBy: (component.selectedBy ?? []).map((glob) => ({ glob, pattern: globToRegExp(glob) })),
+    scopedChecks: parseScopedChecks(name, component.scopedChecks),
   }));
   if (components.length === 0) throw new Error('The component map has no components.');
   const ids = new Set();
@@ -193,10 +209,31 @@ export function selectCiAreas(paths, map = componentMap()) {
   };
 }
 
+/**
+ * How much of the native work a change needs. `none`: nothing native is selected.
+ * A component name (only `squad` declares `scopedChecks`): every path that selects
+ * native work is owned by that component, which cannot affect the others, so it
+ * runs its own checks. `full`: anything else, and an empty diff, fails closed.
+ */
+export function selectNativeScope(paths, map = componentMap()) {
+  if (paths.length === 0) return 'full';
+  const native = explainCiSelection(paths, map).filter((row) => row.native);
+  if (native.length === 0) return 'none';
+  const owner = native[0].owner;
+  const component = map.components.find(({ name }) => name === owner);
+  return component?.scopedChecks && native.every((row) => row.owner === owner) ? owner : 'full';
+}
+
+/** The tests a scoped component runs, for the workflow to pass on as word lists. */
+export function scopedChecks(scope, map = componentMap()) {
+  const checks = map.components.find(({ name }) => name === scope)?.scopedChecks;
+  return { nativeTests: checks?.nativeTests ?? [], e2eFiles: checks?.e2eFiles ?? [] };
+}
+
 const EVIDENCE_ROWS = 100;
 
 /** Markdown for `$GITHUB_STEP_SUMMARY` and the log: one row per changed path. */
-export function renderSelectionEvidence({ base, head, rows, areas, digest }) {
+export function renderSelectionEvidence({ base, head, rows, areas, digest, nativeScope }) {
   const selects = (row) =>
     [row.native && 'native', row.office && 'office', row.nativeOffice && 'native_office']
       .filter(Boolean)
@@ -206,7 +243,8 @@ export function renderSelectionEvidence({ base, head, rows, areas, digest }) {
     '',
     `Diff \`${base.slice(0, 12)}...${head.slice(0, 12)}\`, ${rows.length} changed path(s), component map \`sha256:${digest}\`.`,
     '',
-    `Selected: native=${areas.native}, office=${areas.office}, native_office=${areas.nativeOffice}.`,
+    `Selected: native=${areas.native}, office=${areas.office}, native_office=${areas.nativeOffice}` +
+      (nativeScope ? `, native scope ${nativeScope}.` : '.'),
     '',
     '| Path | Owner | Rule | Selects |',
     '| --- | --- | --- | --- |',
@@ -232,6 +270,33 @@ export function ciGatePasses(selected, results) {
   return results.every((result) => result === expected);
 }
 
+const NATIVE_JOBS = ['nativeRust', 'unitTests', 'dockerE2e', 'runtimeBuild', 'packedInstall'];
+
+/**
+ * `Native package matrix`: what each native job must have reported for the
+ * scope. A scoped component runs its Rust checks and the E2E suite; the CLI
+ * runtime builds, packed installs and tooling unit tests are skipped because
+ * the CLI is unchanged. Anything unexpected, including an unknown scope, fails.
+ */
+export function nativeGatePasses(scope, results, map = componentMap()) {
+  if (NATIVE_JOBS.some((job) => typeof results?.[job] !== 'string')) return false;
+  const scoped = map.components.some(
+    (component) => component.name === scope && component.scopedChecks
+  );
+  const expected = { full: 'success', none: 'skipped' };
+  const scopedExpected = {
+    nativeRust: 'success',
+    dockerE2e: 'success',
+    unitTests: 'skipped',
+    runtimeBuild: 'skipped',
+    packedInstall: 'skipped',
+  };
+  if (!scoped && !(scope in expected)) return false;
+  return NATIVE_JOBS.every(
+    (job) => results[job] === (scoped ? scopedExpected[job] : expected[scope])
+  );
+}
+
 export function readChangedCiSelection(base, head, cwd) {
   if ([base, head].some((sha) => !/^[a-f0-9]{40}$/.test(sha ?? ''))) {
     throw new Error('Expected exact base and head commit SHAs.');
@@ -247,6 +312,7 @@ export function readChangedCiSelection(base, head, cwd) {
     paths,
     rows: explainCiSelection(paths, map),
     areas: selectCiAreas(paths, map),
+    nativeScope: selectNativeScope(paths, map),
     digest: map.digest,
   };
 }
@@ -268,6 +334,16 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     }
     return;
   }
+  if (args[0] === 'gate-native') {
+    const [, scope, ...values] = args;
+    const results = Object.fromEntries(NATIVE_JOBS.map((job, index) => [job, values[index]]));
+    if (values.length !== NATIVE_JOBS.length || !nativeGatePasses(scope, results)) {
+      throw new Error(
+        'Selected native CI work did not complete successfully, or skip evidence is invalid.'
+      );
+    }
+    return;
+  }
   if (args.length !== 2) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
@@ -275,9 +351,13 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const evidence = renderSelectionEvidence({ base: args[0], head: args[1], ...selection });
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
-  const { areas } = selection;
+  const { areas, nativeScope } = selection;
+  const checks = scopedChecks(nativeScope);
   stdout.write(
-    `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n`
+    `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
+      `native_scope=${nativeScope}\n` +
+      `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
+      `scoped_e2e_files=${checks.e2eFiles.join(' ')}\n`
   );
 }
 

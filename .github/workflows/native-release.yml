@@ -180,6 +180,9 @@ jobs:
         with:
           name: native-release-${{ inputs.product }}-bundle
           path: target/distrib
+      - name: Warm the macOS toolchain lookup
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/warm-xcrun
       - name: Execute final archive and bootstrap on matching native host
         env:
           PRODUCT: ${{ inputs.product }}

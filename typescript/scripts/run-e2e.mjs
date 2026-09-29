@@ -47,7 +47,18 @@ async function removeImage() {
   }
 }
 
+/**
+ * Optional scoping of the suite to named files. The value becomes a shell word list
+ * inside the image, so only plain file names are accepted.
+ */
+const FILE_LIST = /^[A-Za-z0-9._-]+( [A-Za-z0-9._-]+)*$/;
+
 async function main() {
+  const files = process.env.TMT_E2E_FILES ?? '';
+  if (files !== '' && !FILE_LIST.test(files)) {
+    console.error('TMT_E2E_FILES must be a space-separated list of plain file names.');
+    return 2;
+  }
   try {
     const buildStatus = await run('docker', [
       'build',
@@ -64,6 +75,7 @@ async function main() {
     const selection = ['TMT_TEST_CLI', 'TMT_TEST_PEER_CLI'].flatMap((key) =>
       process.env[key] === undefined ? [] : ['--env', `${key}=${process.env[key]}`]
     );
+    const scope = files === '' ? [] : ['--env', `TMT_E2E_FILES=${files}`];
     const testStatus = await run('docker', [
       'run',
       '--rm',
@@ -71,6 +83,7 @@ async function main() {
       '--network',
       'none',
       ...selection,
+      ...scope,
       image,
     ]);
     return interrupted ? 130 : testStatus;
