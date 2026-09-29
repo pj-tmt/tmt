@@ -143,6 +143,9 @@ jobs:
           dist plan --tag "$tag" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
           dist build --tag "$tag" --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
           cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
+          # How this product's GitHub release must be published (#333): only the
+          # CLI becomes the repository's latest release.
+          node typescript/scripts/release-policy.mjs --product "$PRODUCT" > target/distrib/release-publication.json
           if [ "$PRODUCT" = cli ]; then
             node typescript/scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib --plan "$RUNNER_TEMP/plan.json" > target/distrib/tmt-installer.sh
             sh -n target/distrib/tmt-installer.sh
@@ -158,6 +161,7 @@ jobs:
             target/distrib/*.sha256
             target/distrib/sha256.sum
             target/distrib/dist-manifest.json
+            target/distrib/release-publication.json
             target/distrib/tmt-installer.sh
             target/distrib/install.sh
             target/distrib/*-notices.txt
@@ -194,6 +198,7 @@ jobs:
           PRODUCT: ${{ inputs.product }}
           TARGET: ${{ matrix.target }}
         run: |
+          node typescript/scripts/release-policy.mjs --product "$PRODUCT" | cmp - target/distrib/release-publication.json
           if [ "$PRODUCT" = cli ]; then
             node typescript/scripts/verify-native-artifact.mjs \
               --manifest target/distrib/dist-manifest.json \

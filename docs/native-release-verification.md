@@ -38,7 +38,16 @@ verification inputs; every archive also contains its own target-filtered notices
 
 Publication remains a separately authorized operation, not a workflow side
 effect. Verify the selected product run's exact commit and all required PR checks;
-enable GitHub release immutability before creating a draft prerelease. A CLI
+enable GitHub release immutability before creating a draft release.
+
+Each bundle carries `release-publication.json` from
+`typescript/scripts/native-release-policy.mjs`; create the draft with its
+`flags` (`gh release create <tag> --draft <flags> …`). The CLI release is
+published as a normal release with `--latest=true`, so
+`releases/latest/download/install.sh` reaches its installer; alpha status stays
+in the version and title. Office and Squad releases keep `--prerelease` and
+`--latest=false` and can never become latest. After publishing, check
+`node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/wkh237/tmt/releases/latest --jq .tag_name)"`. A CLI
 release attaches its four tar.gz archives, final `dist-manifest.json`,
 `tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line
 install uses); an Office release uses the independent `tmt-office-v<version>`
