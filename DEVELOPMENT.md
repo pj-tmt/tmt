@@ -1005,7 +1005,12 @@ transport, identity, talk, or cleanup changes:
 ```
 
 `TMT_E2E_FILES="squad.e2e.test.ts"` (space-separated plain file names) limits the run to those
-E2E files and skips the adapter tests; CI sets it only for the Squad scope.
+E2E files, and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. CI runs the suite as two
+shard jobs behind the required `Docker E2E` gate, each with its own file list from
+`typescript/scripts/e2e-shards.mjs`, balanced by the seconds in
+`typescript/test/e2e/shard-weights.json` (refresh them from a full run when the shards drift
+apart; a missing or stale weight only costs balance, and a guard fails if any scenario file is
+in no shard or two).
 
 The harness builds its pinned image, uses `--network none`, private tmux
 sockets and deterministic mock agents, and selects the Docker-built native
