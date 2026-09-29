@@ -88,6 +88,18 @@ pub fn command_with_sections(spec: &CommandSpec, sections: &[HelpSection]) -> Co
     command
 }
 
+/// The hidden `-V`/`--version` flag. [`command`] disables clap's own, so a
+/// command opts in: [`ArgAction::Version`] prints `<name> <version>` and
+/// exits 0; a parser that answers itself passes [`ArgAction::SetTrue`].
+pub fn version_arg(action: ArgAction) -> Arg {
+    Arg::new("version")
+        .short('V')
+        .long("version")
+        .help("Show version")
+        .action(action)
+        .hide(true)
+}
+
 /// The spec's summary, template, palette and `Examples` on an existing
 /// command, for a CLI that owns its own help and `--json` options (core's
 /// parser resolves help itself). [`command`] is this plus those options.

@@ -73,7 +73,39 @@ function observe(sandbox: Sandbox) {
   }
 }
 
+/** The version tmt-squad reports: its package version. */
+const squadVersion = /^version = "([^"]+)"$/m.exec(
+  readFileSync(
+    fileURLToPath(
+      new URL('../../../extensions/tmt-squad/rust/tmt-squad/Cargo.toml', import.meta.url)
+    ),
+    'utf8'
+  )
+)?.[1];
+
 describe('squad extension', () => {
+  // The Squad release proof (native-runtime-proof.mjs) expects this exact
+  // line; PR CI never runs that proof, so this pins it.
+  it('prints exactly squad <version> for --version and -V, directly and through tmt', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = installSquad(sandbox);
+      expect(squadVersion).toBeTruthy();
+      const direct = { ...sandbox, cli: { executable: path.join(bin, 'tmt-squad'), args: [] } };
+      for (const [target, args] of [
+        [direct, ['--version']],
+        [direct, ['-V']],
+        [sandbox, ['squad', '--version']],
+      ] as const) {
+        const result = await runCli(target, [...args]);
+        expect(result, args.join(' ')).toMatchObject({
+          status: 0,
+          stdout: `squad ${squadVersion}\n`,
+          stderr: '',
+        });
+      }
+    });
+  });
+
   it('behaves identically through tmt squad, tmt sq and both help paths', async () => {
     await withSandbox(async (sandbox) => {
       const bin = installSquad(sandbox);

@@ -1166,7 +1166,7 @@ fn option(id: &'static str) -> Arg {
         }
         "save" => flag("Preserve this identity after its pane is gone").short('s'),
         "help" => flag("Show help").short('h').hide(true),
-        "version" => flag("Show version").short('V').hide(true),
+        "version" => tmt_cli_style::version_arg(ArgAction::SetTrue),
         "wait" => flag("Retired; use timeout or detach").hide(true),
         "detach" => flag("Return after sending"),
         "inbox" => flag("Queue for an identity without tmux delivery"),
