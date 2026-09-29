@@ -1,5 +1,5 @@
 //! Messages from the user to squad members through public core commands:
-//! detached talk, tagged annotations and receipt-based replies. Nothing here
+//! detached talk, tagged annotations and answers. Nothing here
 //! waits for an answer or acknowledges anything.
 
 use crate::{
@@ -56,22 +56,22 @@ pub fn annotate(
     talk(core, squad, me, to, &format!("{}{text}", tag(squad, row)))
 }
 
-/// Answers one open request to `me`, with the receipt core shows only to its
-/// recipient. The incoming item stays unacknowledged.
-pub fn answer(core: &Core, me: &str, request: &str, text: &str) -> Result<(), SquadError> {
+/// Answers one open request from `from` to `me` through `tmt answer`: core
+/// checks that it is addressed to `me` and derives the proof, so no receipt
+/// passes through Squad. The incoming item stays unacknowledged.
+pub fn answer(
+    core: &Core,
+    me: &str,
+    request: &str,
+    from: &str,
+    text: &str,
+) -> Result<(), SquadError> {
     if text.trim().is_empty() {
         return Err(refused("Nothing to send."));
     }
-    let shown = core.json(&["x", "show", request, "--incoming", "--identity", me])?;
-    let receipt = shown["exchange"]["reply"]["receipt"]
-        .as_str()
-        .ok_or_else(|| refused(format!("{request} no longer takes a reply.")))?;
-    core.json(&[
-        "reply",
-        request,
-        "--receipt",
-        receipt,
-        &format!("--message={text}"),
-    ])?;
+    core.json_with_operands(
+        &["answer", "--identity", me, "--request", request],
+        &[from, text],
+    )?;
     Ok(())
 }

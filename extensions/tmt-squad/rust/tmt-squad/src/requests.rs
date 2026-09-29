@@ -1,8 +1,8 @@
 //! Request state read from core: the user's open annotations in the squad
-//! room, the requests members are waiting on the user for, and the finals
-//! to the user's squad requests. Everything is
-//! derived per load from bounded `requests.list` pages; nothing is stored and
-//! nothing here acknowledges.
+//! room and the finals to the user's squad requests (from bounded
+//! `requests.list` pages), and the requests members are waiting on the user
+//! for (from `tmt inbox`). Everything is derived per load; nothing is stored
+//! and nothing here acknowledges.
 
 use crate::{
     core::{Core, SquadError},
@@ -97,11 +97,12 @@ fn annotations(
     found
 }
 
-/// Per sender identity ID, open requests to the user, newest first.
+/// Per sender identity ID, the requests waiting on the user, oldest first,
+/// from `tmt inbox`: core decides what still takes an answer.
 fn waiting(inbox: &Window) -> BTreeMap<String, Vec<Value>> {
     let mut found: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-    for item in inbox.items.iter().filter(|item| open_request(item)) {
-        if let Some(sender) = sender(item) {
+    for item in &inbox.items {
+        if let Some(sender) = item["from"]["identityId"].as_str() {
             found.entry(sender.to_owned()).or_default().push(json!({
                 "requestId": item["requestId"],
                 "preview": item["preview"],
@@ -173,7 +174,17 @@ pub fn overlay(
     let me_id = me.id.clone();
     let fetch = |input| core.api("requests.list", input);
     let room = window(fetch, &json!({"roomId": squad.room_id}))?;
-    let inbox = window(fetch, &json!({"recipientId": me_id}))?;
+    let inbox = core.json(&[
+        "inbox",
+        "--identity",
+        &me_id,
+        "--limit",
+        &(PAGE * PAGES).to_string(),
+    ])?;
+    let inbox = Window {
+        items: inbox["items"].as_array().cloned().unwrap_or_default(),
+        complete: inbox["more"] != true,
+    };
     apply(document, &squad.name, &me_id, &room, &inbox);
     Ok(Some(Sent { me: me_id, room }))
 }
@@ -407,10 +418,13 @@ mod tests {
             ],
             complete: true,
         };
+        // `tmt inbox --json` items: only what still waits, oldest first.
+        let waiting = |id: &str, from: &str, preview: &str| json!({"requestId": id, "from": {"identityId": from, "name": from}, "preview": preview, "preparedAtMs": 1});
         let inbox = Window {
             items: vec![
-                item("q2", "A", "ME", "approve the plan?", false),
-                item("q1", "A", "ME", "answered already", true),
+                waiting("q1", "A", "which branch?"),
+                waiting("q2", "A", "approve the plan?"),
+                waiting("q3", "X", "from someone off the board"),
             ],
             complete: false,
         };
@@ -421,8 +435,9 @@ mod tests {
             json!({"requestId": "r3", "to": "sol", "text": "newest note"})
         );
         assert_eq!(rows[1]["annotation"], Value::Null, "answered or not mine");
-        assert_eq!(rows[0]["waitingOnYou"][0]["requestId"], "q2");
-        assert_eq!(rows[0]["waitingOnYou"].as_array().unwrap().len(), 1);
+        assert_eq!(rows[0]["waitingOnYou"][0]["requestId"], "q1");
+        assert_eq!(rows[0]["waitingOnYou"][1]["requestId"], "q2");
+        assert_eq!(rows[0]["waitingOnYou"].as_array().unwrap().len(), 2);
         assert_eq!(rows[1]["waitingOnYou"], json!([]));
         assert_eq!(document["squad"]["lead"]["annotation"], Value::Null);
         assert_eq!(document["olderRequestsNotShown"], true);
