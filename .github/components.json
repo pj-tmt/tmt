@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects, and release-please will read the same ownership.",
+    "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects, and typescript/scripts/release-please-config.mjs reads the same ownership to generate release-please-config.json.",
     "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
     "rules: ordered, the first rule whose `paths` match a changed path decides which consumers it selects: `native` (the native Rust, tooling and E2E jobs) and `office` (the Office web checks). No match fails closed to both.",
     "The advisory native Office browser shards are selected by consumedByNativeOffice in ci-scope.mjs, not by these rules; its verified denylist has its own tests.",
