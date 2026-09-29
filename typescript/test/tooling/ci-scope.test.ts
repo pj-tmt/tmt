@@ -19,12 +19,13 @@ describe('CI area selection', () => {
     ).toEqual({
       native: false,
       office: true,
+      nativeOffice: true,
     });
   });
 
   it('selects native code and embedded skill consumers without Office', () => {
     expect(selectCiAreas(['rust/crates/tmt-core/src/lib.rs', 'skills/tmux-team/SKILL.md'])).toEqual(
-      { native: true, office: false }
+      { native: true, office: false, nativeOffice: false }
     );
   });
 
@@ -34,10 +35,11 @@ describe('CI area selection', () => {
         'extensions/tmt-squad/rust/tmt-squad/src/main.rs',
         'extensions/tmt-squad/skills/tmt-squad/SKILL.md',
       ])
-    ).toEqual({ native: true, office: false });
+    ).toEqual({ native: true, office: false, nativeOffice: false });
     expect(selectCiAreas(['extensions/tmt-squad-other/file.rs'])).toEqual({
       native: true,
       office: true,
+      nativeOffice: true,
     });
   });
 
@@ -47,7 +49,6 @@ describe('CI area selection', () => {
     'typescript/package.json',
     '.github/workflows/ci.yml',
     'typescript/scripts/ci-scope.mjs',
-    'typescript/test/e2e/Dockerfile',
     'contracts/office/request.json',
     'extensions/tmt-office/contracts/request.json',
     'extensions/tmt-office/skills/tmt-office/SKILL.md',
@@ -56,15 +57,80 @@ describe('CI area selection', () => {
     'typescript/apps/office/src/main.tsx',
     'new-owner/file.ts',
   ])('fans out shared or unknown input %s', (file) => {
-    expect(selectCiAreas([file])).toEqual({ native: true, office: true });
+    expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: true });
+  });
+
+  it('schedules native Office browser shards only for Office and the core it consumes', () => {
+    const coreOnly = { native: true, office: false, nativeOffice: false };
+    expect(
+      selectCiAreas([
+        'extensions/tmt-squad/rust/tmt-squad/src/board.rs',
+        'extensions/tmt-squad/skills/tmt-squad/SKILL.md',
+      ])
+    ).toEqual(coreOnly);
+    expect(
+      selectCiAreas([
+        'rust/crates/tmt-adapters/src/skill_installation/owned.rs',
+        'rust/crates/tmt-core/src/request.rs',
+        'rust/crates/tmt-cli/src/main.rs',
+        'rust/crates/tmt-adapters/src/storage_like.rs',
+      ])
+    ).toEqual(coreOnly);
+    for (const consumed of [
+      'rust/crates/tmt-adapters/src/storage/migrations.rs',
+      'rust/crates/tmt-adapters/src/office_service.rs',
+      'rust/crates/tmt-adapters/src/office_companion/process.rs',
+      'rust/crates/tmt-adapters/src/native_install/archive.rs',
+      'rust/crates/tmt-core/src/native_install.rs',
+      'rust/crates/tmt-cli/src/office_facade.rs',
+      'rust/Cargo.lock',
+      'rust/rust-toolchain.toml',
+    ]) {
+      expect(selectCiAreas(['extensions/tmt-squad/rust/tmt-squad/src/board.rs', consumed])).toEqual(
+        { native: true, office: false, nativeOffice: true }
+      );
+    }
+    // Prose, core-only suites and E2E scenarios fan out to native and Office
+    // checks, but the native Office image never reads them.
+    expect(
+      selectCiAreas([
+        'ARCHITECTURE.md',
+        'docs/extension-api.md',
+        'typescript/test/native/api.test.ts',
+        'typescript/test/tooling/ci-scope.test.ts',
+        'typescript/test/e2e/squad.e2e.test.ts',
+        'typescript/test/e2e/Dockerfile',
+      ])
+    ).toEqual({ native: true, office: true, nativeOffice: false });
+    for (const read of [
+      'docs/office/architecture.md',
+      'extensions/tmt-office/README.md',
+      'typescript/test/e2e/harness.ts',
+      'typescript/test/support/office-world.ts',
+      'contracts/office/profile-v1.md',
+      'docs/office.md.orig',
+    ]) {
+      expect(selectCiAreas(['ARCHITECTURE.md', read]).nativeOffice).toBe(true);
+    }
+    expect(selectCiAreas(['extensions/tmt-office/rust/tmt-office/src/main.rs'])).toEqual({
+      native: true,
+      office: true,
+      nativeOffice: true,
+    });
+    expect(selectCiAreas(['extensions/tmt-office/typescript/apps/office/src/main.tsx'])).toEqual({
+      native: false,
+      office: true,
+      nativeOffice: true,
+    });
   });
 
   it('does not confuse similar prefixes and fails closed on an empty diff', () => {
     expect(selectCiAreas(['extensions/tmt-office/typescript/apps/office-other/file.ts'])).toEqual({
       native: true,
       office: true,
+      nativeOffice: true,
     });
-    expect(selectCiAreas([])).toEqual({ native: true, office: true });
+    expect(selectCiAreas([])).toEqual({ native: true, office: true, nativeOffice: true });
   });
 
   it('unions mixed paths including both sides of a no-renames diff', () => {
@@ -73,10 +139,12 @@ describe('CI area selection', () => {
     ).toEqual({
       native: true,
       office: true,
+      nativeOffice: true,
     });
     expect(selectCiAreas(['extensions/tmt-office/typescript/apps/office/deleted.ts'])).toEqual({
       native: false,
       office: true,
+      nativeOffice: true,
     });
   });
 });
@@ -113,7 +181,11 @@ describe('CI diff and command integration', () => {
       const historicalSource = path.join(root, 'apps/office/name with\nnewline.ts');
       writeFileSync(historicalSource, 'export const fixture = true;\n');
       const historical = commit();
-      expect(readChangedCiAreas(base, historical, root)).toEqual({ native: false, office: true });
+      expect(readChangedCiAreas(base, historical, root)).toEqual({
+        native: false,
+        office: true,
+        nativeOffice: true,
+      });
       mkdirSync(path.join(root, 'extensions/tmt-office/typescript/apps/office'), {
         recursive: true,
       });
@@ -123,15 +195,28 @@ describe('CI diff and command integration', () => {
       );
       renameSync(historicalSource, source);
       const added = commit();
-      expect(readChangedCiAreas(historical, added, root)).toEqual({ native: false, office: true });
+      expect(readChangedCiAreas(historical, added, root)).toEqual({
+        native: false,
+        office: true,
+        nativeOffice: true,
+      });
       mkdirSync(path.join(root, 'rust'));
       const target = path.join(root, 'rust/fixture.rs');
       renameSync(source, target);
       const moved = commit();
-      expect(readChangedCiAreas(added, moved, root)).toEqual({ native: true, office: true });
+      expect(readChangedCiAreas(added, moved, root)).toEqual({
+        native: true,
+        office: true,
+        nativeOffice: true,
+      });
       rmSync(target);
       const deleted = commit();
-      expect(readChangedCiAreas(moved, deleted, root)).toEqual({ native: true, office: false });
+      // A workspace file outside the crates is a native Office build input.
+      expect(readChangedCiAreas(moved, deleted, root)).toEqual({
+        native: true,
+        office: false,
+        nativeOffice: true,
+      });
       expect(() => readChangedCiAreas('--help', deleted, root)).toThrow('exact base and head');
       expect(() => readChangedCiAreas('0'.repeat(40), deleted, root)).toThrow(
         'Packed command failed'

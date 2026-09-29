@@ -1,6 +1,7 @@
 export interface CiAreas {
   readonly native: boolean;
   readonly office: boolean;
+  readonly nativeOffice: boolean;
 }
 
 export function selectCiAreas(paths: readonly string[]): CiAreas;

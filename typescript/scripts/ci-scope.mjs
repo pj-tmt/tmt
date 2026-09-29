@@ -2,11 +2,50 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { runPackedCommand } from './packed-command.mjs';
 
-/** Unknown and shared paths run every consumer; deletions are still changes. */
+/**
+ * Core surfaces the native Office companion consumes: the storage schema and
+ * adapters, the Office adapters and local service, native packaging, the CLI
+ * Office facade, and workspace build inputs outside the crates.
+ */
+const NATIVE_OFFICE_CORE = [
+  'rust/crates/tmt-adapters/src/storage/',
+  'rust/crates/tmt-adapters/src/office_',
+  'rust/crates/tmt-adapters/src/native_install/',
+  'rust/crates/tmt-core/src/native_install',
+  'rust/crates/tmt-cli/src/office_facade.rs',
+];
+
+/**
+ * Shared paths the native Office image never reads: prose outside Office,
+ * core-only test suites, and E2E scenarios (Office imports only the harness
+ * and test support) with their separate image.
+ */
+const NATIVE_OFFICE_UNRELATED = [
+  /^(?!docs\/office\/)(?:docs\/.+|[^/]+)\.md$/,
+  /^typescript\/test\/(?:native|tooling)\//,
+  /^typescript\/test\/e2e\/(?:[^/]+\.e2e\.test\.ts|Dockerfile)$/,
+];
+
+/** Unknown paths fail closed, as they do for the other areas. */
+function consumedByNativeOffice(path) {
+  if (path.startsWith('rust/crates/')) {
+    return NATIVE_OFFICE_CORE.some((prefix) => path.startsWith(prefix));
+  }
+  if (path.startsWith('rust/')) return true;
+  if (path.startsWith('skills/') || path.startsWith('extensions/tmt-squad/')) return false;
+  return !NATIVE_OFFICE_UNRELATED.some((pattern) => pattern.test(path));
+}
+
+/**
+ * Unknown and shared paths run every consumer; deletions are still changes.
+ * `nativeOffice` schedules the advisory native Office browser shards only for
+ * Office itself or the core surfaces it consumes.
+ */
 export function selectCiAreas(paths) {
-  const selected = { native: false, office: false };
-  if (paths.length === 0) return { native: true, office: true };
+  const selected = { native: false, office: false, nativeOffice: false };
+  if (paths.length === 0) return { native: true, office: true, nativeOffice: true };
   for (const path of paths) {
+    selected.nativeOffice ||= consumedByNativeOffice(path);
     if (
       path.startsWith('apps/office/') ||
       path.startsWith('extensions/tmt-office/typescript/apps/office/') ||
@@ -63,7 +102,9 @@ function main(args) {
     args[1],
     fileURLToPath(new URL('../../', import.meta.url))
   );
-  process.stdout.write(`native=${areas.native}\noffice=${areas.office}\n`);
+  process.stdout.write(
+    `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n`
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
