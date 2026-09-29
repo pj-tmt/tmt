@@ -2041,8 +2041,10 @@ squad unbinds only keys whose note is its own. `board --popup` ends the session
 after a successful jump.
 `send` sends through public commands only: detached `talk --identity <sender>
 --room squad-<name>` with operands after `--`, annotations
-as a talk tagged `[<squad> · <row>]`, and replies with the receipt that `x show
---incoming` gives the recipient; nothing acknowledges. The sender (`me::resolve_sender`) is
+as a talk tagged `[<squad> · <row>]`, and answers as one `tmt answer <member>
+--request <id>` (core selects and proves the request; no receipt passes through
+Squad); nothing acknowledges. Squad has no talk, reply or replies commands of its
+own: those words refuse before parsing with the core command that replaces them. The sender (`me::resolve_sender`) is
 an explicit `--identity`, otherwise the identity core attributes the call to
 (`tmt whoami`), otherwise the recorded user; with none, `SQUAD_SENDER_UNKNOWN`
 names both ways to set one. `whoami`'s `PANE_NOT_FOUND` and an unbound pane mean
@@ -2053,9 +2055,10 @@ otherwise the saved identity bound to the calling pane (the board reads it once
 per worker); when neither exists, `ls` and the board footer show one hint
 line. The board also sends as "you", because a popup's pane is not its operator.
 `requests` derives each
-row's `annotation` (the sender's newest open tagged request) and `waitingOnYou`
-(open requests to "you") per load from `requests.list`, at most four pages
-of 50, and marks the document `olderRequestsNotShown` when a window is cut off.
+row's `annotation` (the sender's newest open tagged request) per load from
+`requests.list` for the squad room, at most four pages of 50, and `waitingOnYou`
+(what waits on "you", oldest first) from `tmt inbox --json`, at most 200; it
+marks the document `olderRequestsNotShown` when either is cut off.
 The same room window yields the replies list (finals to the user's requests,
 newest first); bodies come from `requests.show` for the newest eight only, and
 the refresh worker caches them by request ID because a submitted final never

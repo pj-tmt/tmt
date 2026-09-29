@@ -35,7 +35,6 @@ use tmt_cli_style::{Interaction, Mode, Route};
 use tmt_cli_style::{
     Terminal, Token,
     list::Section,
-    mark::Mark,
     message,
     table::{Cell, Column, Table},
     value,
@@ -183,26 +182,6 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
-            build(specs::TALK)
-                .arg(operand("member", "Member or lead"))
-                .arg(message())
-                .arg(identity_option())
-                .arg(squad_option()),
-        )
-        .subcommand(
-            build(specs::REPLY)
-                .arg(operand("member", "Member or lead"))
-                .arg(message())
-                .arg(
-                    Arg::new("request")
-                        .long("request")
-                        .value_name("ID")
-                        .help("Which open request, when the member waits on several"),
-                )
-                .arg(identity_option())
-                .arg(squad_option()),
-        )
-        .subcommand(
             build(specs::ANNOTATE)
                 .arg(operand("member", "The row the note is about"))
                 .arg(message())
@@ -214,11 +193,6 @@ fn grammar() -> Command {
                         .default_value("lead")
                         .help("Send to the squad's lead or to the member"),
                 )
-                .arg(identity_option())
-                .arg(squad_option()),
-        )
-        .subcommand(
-            build(specs::REPLIES)
                 .arg(identity_option())
                 .arg(squad_option()),
         )
@@ -335,69 +309,6 @@ fn complete(words: &[String]) -> Vec<String> {
     candidates.sort();
     candidates.dedup();
     candidates
-}
-
-/// Replies to the user's squad requests, newest first as core lists them.
-/// A row previews one line; the whole body stays exact behind `tmt result`.
-fn replies_text(document: &Value, terminal: Terminal) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis() as u64);
-    let replies: Vec<&Value> = document["replies"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .collect();
-    if replies.is_empty() {
-        let mut text = "No replies to your squad requests yet.\n".to_owned();
-        if document["olderRequestsNotShown"] == true {
-            text.push_str(&terminal.paint(Token::Dim, "older requests not shown"));
-            text.push('\n');
-        }
-        return text;
-    }
-    let mut table = Table::new(&[
-        Column::Fixed,
-        Column::Name,
-        Column::Fixed,
-        Column::Fixed,
-        Column::Detail,
-    ]);
-    for reply in &replies {
-        let text = |key: &str| reply[key].as_str().unwrap_or_default();
-        let age = reply["submittedAtMs"].as_u64().map_or(String::new(), |at| {
-            value::relative_time(now.saturating_sub(at))
-        });
-        let (mark, preview) = match reply["response"].as_str() {
-            Some(response) => (
-                Mark::Done,
-                response.lines().next().unwrap_or_default().to_owned(),
-            ),
-            None => (Mark::Idle, format!("waiting: {}", text("prompt"))),
-        };
-        table.row([
-            Cell::styled(mark.symbol(), mark.token()),
-            text("to").into(),
-            Cell::styled(age, Token::Dim),
-            Cell::styled(text("requestId"), Token::Dim),
-            preview.into(),
-        ]);
-    }
-    let newest = replies
-        .iter()
-        .find(|reply| reply["response"].is_string())
-        .and_then(|reply| reply["requestId"].as_str())
-        .map(|id| format!("tmt result {id}"));
-    let section = Section {
-        title: "replies",
-        count: Some(replies.len()),
-        rows: table,
-        note: (document["olderRequestsNotShown"] == true).then_some("older requests not shown"),
-        hint: newest.as_deref(),
-    };
-    let mut output = Vec::new();
-    let _ = section.write(&mut output, terminal);
-    String::from_utf8(output).unwrap_or_default()
 }
 
 fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
@@ -554,21 +465,11 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
             }
             output
         }
-        "talk" | "annotate" => done(
+        "annotate" => done(
             terminal,
             &format!(
                 "Sent to {} as {} ({})",
                 text(&document["to"]),
-                text(&document["as"]),
-                text(&document["requestId"])
-            ),
-        ),
-        "replies" => replies_text(document, terminal),
-        "reply" => done(
-            terminal,
-            &format!(
-                "Replied to {} as {} ({})",
-                text(&document["from"]),
                 text(&document["as"]),
                 text(&document["requestId"])
             ),
@@ -884,24 +785,6 @@ fn run(
             text("member").unwrap_or_default(),
             &many("fields"),
         ),
-        "replies" => member_actions::replies(&core, &squad, &mut config, text("identity")),
-        "talk" => member_actions::talk(
-            &core,
-            &squad,
-            &mut config,
-            text("identity"),
-            text("member").unwrap_or_default(),
-            text("text").unwrap_or_default(),
-        ),
-        "reply" => member_actions::answer(
-            &core,
-            &squad,
-            &mut config,
-            text("identity"),
-            text("member").unwrap_or_default(),
-            text("request"),
-            text("text").unwrap_or_default(),
-        ),
         "annotate" => member_actions::annotate(
             &core,
             &squad,
@@ -982,6 +865,16 @@ fn main() -> ExitCode {
         return hook_protocol::run(&argv[1..]);
     }
     let json = argv.iter().skip(1).any(|arg| arg == "--json");
+    if let Some(failure) = argv
+        .get(1)
+        .and_then(|word| removed(&word.to_string_lossy()))
+    {
+        if json {
+            return print_document(&failure.to_json(), 2);
+        }
+        report(&failure);
+        return ExitCode::from(2);
+    }
     let matches = match request(&bare_is_board(argv)) {
         Ok(Request::Run(matches)) => matches,
         Ok(Request::Help(command)) => {
@@ -1056,6 +949,24 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// Squad's conversation verbs moved to core (#512). For one release the old
+/// names refuse with the replacement; they never forward, and the grammar,
+/// help and completion no longer know them.
+fn removed(command: &str) -> Option<SquadError> {
+    let replacement = match command {
+        "talk" => "tmt talk <member> \"…\" --detach",
+        "reply" => "tmt answer <member> \"…\"",
+        "replies" => "tmt x (and tmt result <request-id>)",
+        _ => return None,
+    };
+    Some(SquadError::hinted(
+        "SQUAD_COMMAND_REMOVED",
+        &format!("tmt squad {command} was removed"),
+        "; use ",
+        replacement,
+    ))
 }
 
 /// `--json`: one document and a newline, unstyled.
@@ -1152,24 +1063,24 @@ mod tests {
     }
 
     #[test]
-    fn replies_preview_one_line_and_point_at_the_whole_body() {
-        let document = serde_json::json!({"replies": [
-            {"to": "auth-fix", "requestId": "req_1", "prompt": "check retries",
-             "response": "Done.\nSecond line stays behind tmt result.", "submittedAtMs": 0},
-            {"to": "docs", "requestId": "req_2", "prompt": "draft the guide", "response": null},
-        ]});
-        let text = replies_text(&document, Terminal::PLAIN);
-        assert!(text.starts_with("REPLIES 2\n"), "{text}");
-        assert!(text.contains("✓  auth-fix"), "{text}");
-        assert!(text.contains("req_1  Done.\n"), "{text}");
-        assert!(!text.contains("Second line"), "{text}");
-        assert!(text.contains("◌  docs"), "{text}");
-        assert!(text.contains("req_2  waiting: draft the guide\n"), "{text}");
-        assert!(text.ends_with("hint: tmt result req_1\n"), "{text}");
-        assert_eq!(
-            replies_text(&serde_json::json!({"replies": []}), Terminal::PLAIN),
-            "No replies to your squad requests yet.\n"
-        );
+    fn removed_conversation_verbs_refuse_with_their_core_replacement() {
+        for (command, replacement) in [
+            ("talk", "tmt talk <member> \"…\" --detach"),
+            ("reply", "tmt answer <member> \"…\""),
+            ("replies", "tmt x (and tmt result <request-id>)"),
+        ] {
+            let failure = removed(command).expect(command);
+            assert_eq!(failure.code, "SQUAD_COMMAND_REMOVED");
+            assert_eq!(
+                failure.human(),
+                (
+                    format!("tmt squad {command} was removed").as_str(),
+                    Some(replacement)
+                )
+            );
+            assert!(request(&[OsString::from("tmt-squad"), command.into()]).is_err());
+        }
+        assert!(removed("annotate").is_none());
     }
 
     #[test]
@@ -1206,8 +1117,7 @@ mod tests {
             complete(&words("-- ")),
             [
                 "add", "annotate", "back", "board", "copy", "help", "hotkeys", "init", "jump",
-                "lead", "ls", "me", "open", "playbook", "remove", "replies", "reply", "set",
-                "skill", "talk"
+                "lead", "ls", "me", "open", "playbook", "remove", "set", "skill"
             ]
         );
         assert_eq!(complete(&words("-- h")), ["help", "hotkeys"]);
@@ -1294,8 +1204,8 @@ mod tests {
     #[test]
     fn a_message_that_reads_help_is_data_not_a_help_request() {
         for line in [
-            "talk auth-fix -- -h",
-            "talk auth-fix help",
+            "annotate auth-fix -- -h",
+            "annotate auth-fix help",
             "annotate auth-fix -- --help",
         ] {
             let Ok(Request::Run(matches)) = request(&argv(line)) else {

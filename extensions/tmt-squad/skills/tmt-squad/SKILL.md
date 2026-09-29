@@ -71,8 +71,12 @@ tmt squad remove <name>                       # leaves the squad; the agent keep
   failure, re-run it with the same pairs.
 - Removing a member clears its fields for this squad only. Its requests and
   notes keep the history.
-- `tmt squad talk`, `annotate`, `reply` and `replies` act as you: the identity
-  of the pane you run in (or `--identity <name>`), never as the user.
+- `tmt squad annotate` acts as you: the identity of the pane you run in (or
+  `--identity <name>`), never as the user. To talk to a member use
+  `tmt talk <member> "…" --detach`; to answer what someone is waiting on you
+  for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you were
+  given a receipt). `tmt squad talk`, `reply` and `replies` were removed and
+  only refuse.
 
 ## Annotations from the user
 
