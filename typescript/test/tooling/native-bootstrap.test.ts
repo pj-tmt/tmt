@@ -102,6 +102,10 @@ case "$command" in
     if [ "\${TMT_BOOTSTRAP_SKILL_FAILURE-}" = 1 ]; then exit 7; fi
     printf '%s\\n' '{"installed":true}'
     ;;
+  setup)
+    if [ -t 0 ]; then printf 'stdin=terminal\\n' >> "$log"; fi
+    printf 'path=%s\\n' "$(command -v tmt)" >> "$log"
+    ;;
   *) exit 64 ;;
 esac
 `;
@@ -170,6 +174,8 @@ async function runBootstrap(
     readonly skillFailure?: boolean;
     readonly unsupportedPlatform?: boolean;
     readonly endpointOverride?: string;
+    /** Run under a pseudo-terminal, as a person at a shell would. */
+    readonly terminal?: boolean;
   } = {}
 ) {
   const stage = mkdtempSync(path.join(sandbox.root, 'bootstrap-tmp-'));
@@ -183,12 +189,23 @@ async function runBootstrap(
   const log = path.join(sandbox.root, 'stub.log');
   const curlLog = path.join(sandbox.root, 'curl.log');
   const systemPath = process.env.PATH ?? '/usr/bin:/bin';
+  const installerArgs = ['--prefix', prefix, ...args];
+  // `script` gives the installer a pseudo-terminal: BSD and util-linux differ.
+  const quoted = ['/bin/sh', installer, ...installerArgs]
+    .map((word) => `'${word.replaceAll("'", "'\\''")}'`)
+    .join(' ');
+  const cli = !options.terminal
+    ? { executable: '/bin/sh', args: [installer] }
+    : process.platform === 'darwin'
+      ? { executable: '/usr/bin/script', args: ['-q', '/dev/null', '/bin/sh', installer] }
+      : { executable: 'script', args: ['-qec', quoted, '/dev/null'] };
   const result = await runCli(
     {
       ...sandbox,
-      cli: { executable: '/bin/sh', args: [installer] },
+      cli,
       env: {
         ...sandbox.env,
+        CI: '',
         PATH: `${fakeBin}:${systemPath}`,
         TMPDIR: stage,
         TMT_BOOTSTRAP_STUB_LOG: log,
@@ -205,7 +222,7 @@ async function runBootstrap(
           : {}),
       },
     },
-    ['--prefix', prefix, ...args],
+    options.terminal && process.platform !== 'darwin' ? [] : installerArgs,
     { deadlineMs: 15_000 }
   );
   return { result, prefix, log: existsSync(log) ? readFileSync(log, 'utf8') : '', stage, curlLog };
@@ -372,6 +389,42 @@ describe('native curl bootstrap', () => {
           ...(corrupt === 'archive' ? [`${base}/${path.basename(fixture.archive)}`] : []),
         ]);
         expectCleanStage(run.stage);
+      });
+    }
+  );
+
+  it(
+    'continues into guided setup only on a terminal, otherwise installs skills',
+    { timeout: 30_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const fixture = await createFixture(sandbox);
+        const script = await generateNativeBootstrap(
+          fixture.manifest,
+          path.dirname(fixture.archive)
+        );
+        const piped = await runBootstrap(sandbox, script, fixture);
+        expect(piped.result.status, piped.result.stderr).toBe(0);
+        expect(piped.log).toContain('command=install');
+        expect(piped.log).not.toContain('command=setup');
+        expect(piped.result.stdout).toContain('Run tmt setup to connect your agents.');
+
+        const optedOut = await runBootstrap(sandbox, script, fixture, ['--no-setup'], {
+          terminal: true,
+        });
+        expect(optedOut.result.status, optedOut.result.stdout).toBe(0);
+        expect(optedOut.log).not.toContain('command=setup');
+
+        const guided = await runBootstrap(sandbox, script, fixture, [], { terminal: true });
+        expect(guided.result.status, guided.result.stdout).toBe(0);
+        const setupLog = guided.log.slice(guided.log.lastIndexOf('command=setup'));
+        expect(setupLog).toContain('command=setup');
+        // The approval is read from the terminal, and the new tmt is on PATH.
+        expect(setupLog).toContain('stdin=terminal');
+        expect(setupLog).toContain(`path=${path.join(guided.prefix, 'bin', 'tmt')}`);
+        // The log accumulates across runs: guided setup added no skill install.
+        const installs = (log: string) => log.split('command=install').length - 1;
+        expect(installs(guided.log)).toBe(installs(optedOut.log));
       });
     }
   );

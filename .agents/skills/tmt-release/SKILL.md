@@ -45,7 +45,11 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   all four final native verifiers must pass on the recorded reviewed commit.
   Keep cargo-dist as the merged manifest owner. Authorized publication uses an
   immutable draft-to-published GitHub release and verifies its attestation and
-  public installer before promoting README instructions. Do not equate a
+  public installer before promoting README instructions. Publish with the
+  bundle's `release-publication.json` flags: the CLI release is a normal release
+  marked latest (the README's `releases/latest/download/install.sh` depends on
+  it); Office and Squad releases stay prereleases with `--latest=false`. After
+  publishing, run the guide's `--check-latest` check. Do not equate a
   downloadable CI bundle with a published or accepted release.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing

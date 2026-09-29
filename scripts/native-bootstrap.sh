@@ -9,6 +9,7 @@ main() {
   prefix=${HOME:?HOME is required}/.local
   pin=no
   skill=yes
+  setup=yes
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --prefix)
@@ -17,8 +18,9 @@ main() {
         shift 2 ;;
       --pin) pin=yes; shift ;;
       --no-skill) skill=no; shift ;;
+      --no-setup) setup=no; shift ;;
       --help)
-        printf '%s\n' 'Usage: sh installer.sh [--prefix /absolute/directory] [--pin] [--no-skill]'
+        printf '%s\n' 'Usage: sh install.sh [--prefix /absolute/directory] [--pin] [--no-setup] [--no-skill]'
         return 0 ;;
       *) fail "Unknown installer option: $1" ;;
     esac
@@ -79,18 +81,33 @@ main() {
       'If replacing an npm/pnpm installation, remove it with npm uninstall -g tmux-team or pnpm remove -g tmux-team using its original manager.' \
       'For Homebrew/manual installs, use their original uninstall procedure. No old installation or shell profile was changed.'
   fi
-  if [ "$skill" = yes ]; then
+  # On a terminal, continue into guided setup: it reads its one approval from
+  # the terminal because a piped installer's stdin is the script itself.
+  # Elsewhere (CI, no terminal, --no-setup), install skills as before.
+  if [ "$setup" = yes ] && [ "$skill" = yes ] && [ -z "${CI:-}" ] && interactive; then
+    if PATH="$prefix/bin:$PATH" "$prefix/bin/tmt" setup </dev/tty; then
+      :
+    else
+      printf '%s\n' 'Setup did not finish; tmt is installed. Run tmt setup again when ready.' >&2
+    fi
+  elif [ "$skill" = yes ]; then
     if ! "$prefix/bin/tmt" install; then
       printf '%s\n' 'The native binary is installed, but skill setup failed. Inspect conflicts before explicitly running the new tmt install --force; it backs up conflicting links/content.' \
         'No data was migrated or deleted. Retry with the absolute new tmt path.' >&2
       return 1
     fi
-    printf '%s\n' 'Reload your agent, or read tmt learn --skill in an existing conversation.'
+    printf '%s\n' 'Reload your agent, or read tmt learn --skill in an existing conversation.' \
+      'Run tmt setup to connect your agents.'
   fi
   printf '%s\n' 'Use the new tmt upgrade for subsequent native updates. Application data was not migrated or deleted.'
 }
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+# A person is at a terminal: both the output and /dev/tty are usable.
+interactive() {
+  [ -t 1 ] && { : </dev/tty; } 2>/dev/null
+}
 
 download() {
   # Disable user curl configuration; never accept an inherited insecure flag.

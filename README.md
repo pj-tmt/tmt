@@ -11,22 +11,17 @@ history. A standalone native CLI—no Node.js, Rust toolchain, or daemon require
 Native alpha for macOS and Linux, arm64 and x64. No Node, npm, pnpm or Rust
 toolchain needed.
 
-[Download the installer](https://github.com/wkh237/tmt/releases/download/v5.0.0-alpha.6/tmt-installer.sh),
-then run it from the download folder:
-
 ```sh
-sh tmt-installer.sh
+curl -fsSL https://github.com/wkh237/tmt/releases/latest/download/install.sh | sh
 ```
 
-Installs into `~/.local/bin` and sets up the agent skill non-interactively.
-If `tmt` is not found, complete the [one-time PATH setup](docs/NATIVE-INSTALL.md#one-time-path-setup).
-Reload your agent's skills. For an update, run `tmt upgrade --channel alpha`
-followed by `tmt install`, then reload the agent; no binary reinstall or repeated
-PATH setup is needed.
-
-Prefer curl, a custom location, or replacing an older installation? See
-[installation options](docs/NATIVE-INSTALL.md). The installer never uninstalls old
-packages or deletes application data.
+The installer puts `tmt` in `~/.local/bin` and, on a terminal, continues into
+`tmt setup`: it finds your agents, lists every file it will change (skills for
+each agent, session hooks for the ones installed here) and asks once. Run
+`tmt setup` any time later; it offers only what is missing. If `tmt` is not
+found, complete the [one-time PATH setup](docs/NATIVE-INSTALL.md#one-time-path-setup).
+For updates, a custom location or replacing an older installation, see
+[installation options](docs/NATIVE-INSTALL.md).
 
 Office is optional. After installing the CLI, install and start the independently
 versioned local companion with:
