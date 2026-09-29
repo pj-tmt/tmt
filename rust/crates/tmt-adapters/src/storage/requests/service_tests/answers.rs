@@ -41,7 +41,10 @@ fn ask(fixture: &mut Fixture, id: &str, from: &str, kind: RequestKind) {
 }
 
 fn ids(page: &OpenPage) -> Vec<&str> {
-    page.items.iter().map(|item| item.request_id.as_str()).collect()
+    page.items
+        .iter()
+        .map(|item| item.request_id.as_str())
+        .collect()
 }
 
 fn open(fixture: &mut Fixture, from: Option<&str>) -> Vec<String> {
@@ -117,13 +120,25 @@ fn several_open_requests_are_refused_oldest_first_until_one_is_chosen() {
     assert_eq!(open(&mut fixture, Some(&alice)), ["a1", "a2"]);
     match answer(&mut fixture, &alice, None, "which?") {
         Err(RequestError::Answer(AnswerRejection::Ambiguous(items))) => assert_eq!(
-            items.iter().map(|item| item.request_id.as_str()).collect::<Vec<_>>(),
+            items
+                .iter()
+                .map(|item| item.request_id.as_str())
+                .collect::<Vec<_>>(),
             ["a1", "a2"]
         ),
         other => panic!("expected ambiguity, got {other:?}"),
     }
-    assert_eq!(open(&mut fixture, None).len(), 3, "a refusal changes nothing");
-    assert_eq!(answer(&mut fixture, &alice, Some("a2"), "second").unwrap().0, "a2");
+    assert_eq!(
+        open(&mut fixture, None).len(),
+        3,
+        "a refusal changes nothing"
+    );
+    assert_eq!(
+        answer(&mut fixture, &alice, Some("a2"), "second")
+            .unwrap()
+            .0,
+        "a2"
+    );
     assert_eq!(answer(&mut fixture, &alice, None, "first").unwrap().0, "a1");
     assert_eq!(answer(&mut fixture, &bob, None, "bob's").unwrap().0, "b1");
 }
@@ -180,7 +195,12 @@ fn acknowledgment_and_live_delivery_do_not_remove_an_open_request() {
     service(&mut fixture)
         .acknowledge_incoming_request(&me, &acked.request_id, acked.revision)
         .unwrap();
-    assert!(service(&mut fixture).claim_wake("delivered").unwrap().claimed);
+    assert!(
+        service(&mut fixture)
+            .claim_wake("delivered")
+            .unwrap()
+            .claimed
+    );
     service(&mut fixture)
         .settle_request_delivery("delivered", WakeState::Sent)
         .unwrap();
@@ -194,7 +214,12 @@ fn acknowledgment_and_live_delivery_do_not_remove_an_open_request() {
             .is_empty()
     );
     assert_eq!(open(&mut fixture, None), ["acked", "delivered"]);
-    assert_eq!(answer(&mut fixture, &alice, Some("delivered"), "ok").unwrap().0, "delivered");
+    assert_eq!(
+        answer(&mut fixture, &alice, Some("delivered"), "ok")
+            .unwrap()
+            .0,
+        "delivered"
+    );
     assert_eq!(answer(&mut fixture, &alice, None, "ok").unwrap().0, "acked");
 }
 
@@ -259,9 +284,13 @@ fn the_inbox_limit_reports_more_and_rejects_invalid_input() {
     for id in ["q1", "q2", "q3"] {
         ask(&mut fixture, id, &alice, RequestKind::Request);
     }
-    let page = service(&mut fixture).open_requests(&me, None, Some(2)).unwrap();
+    let page = service(&mut fixture)
+        .open_requests(&me, None, Some(2))
+        .unwrap();
     assert_eq!((ids(&page), page.more), (vec!["q1", "q2"], true));
-    let page = service(&mut fixture).open_requests(&me, None, Some(3)).unwrap();
+    let page = service(&mut fixture)
+        .open_requests(&me, None, Some(3))
+        .unwrap();
     assert!(!page.more);
     for limit in [0, 201] {
         assert!(matches!(

@@ -53,7 +53,8 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             return Err(RequestError::Invalid("Invalid inbox limit or originator."));
         }
         self.read(|records, now| {
-            let mut items = open_items(records, &query(recipient, originator, limit + 1, now), now)?;
+            let mut items =
+                open_items(records, &query(recipient, originator, limit + 1, now), now)?;
             let more = items.len() as u64 > limit;
             items.truncate(limit as usize);
             Ok(OpenPage { items, more })
@@ -98,8 +99,11 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                         && attempt.originator.identity_id() == Some(originator)
                 })
                 .ok_or(RequestError::Attention(AttentionRejection::NotFound))?;
-            let token =
-                correlation::response_token(&attempt.request_id, &attempt.attempt_id, &attempt.route);
+            let token = correlation::response_token(
+                &attempt.request_id,
+                &attempt.attempt_id,
+                &attempt.route,
+            );
             Ok((attempt.request_id, ResponseProof::Compact(token)))
         })
     }
