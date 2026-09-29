@@ -1,6 +1,7 @@
 //! Managed local agent guidance; independent of identities, SQLite and tmux.
 
 mod assets;
+pub mod catalog;
 mod drift;
 mod files;
 mod owned;
@@ -11,14 +12,14 @@ pub use refresh::{RefreshFailure, RefreshReport, RefreshedSkill, refresh};
 #[cfg(test)]
 mod refresh_tests;
 pub use drift::inspect_local_drift;
-pub use owned::{
-    CORE_NAMES, OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned, owners,
-    refusal, remove_owned,
-};
 /// The skill name and file path rules, shared with native release archives.
 pub(crate) use owned::{
     MAXIMUM_FILE_BYTES, MAXIMUM_FILES, MAXIMUM_SKILLS, valid_file as valid_skill_file,
     valid_name as valid_skill_name,
+};
+pub use owned::{
+    OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned, owners, refusal,
+    remove_owned,
 };
 #[cfg(test)]
 mod owned_tests;
@@ -33,18 +34,11 @@ mod install_tests;
 mod publication_tests;
 
 pub fn bundled_skill() -> &'static [u8] {
-    assets::SKILL
+    catalog::bundled(catalog::MAIN).expect("main skill").bytes
 }
 
 pub fn bundled_skill_named(name: &str) -> Option<&'static [u8]> {
-    match name {
-        "tmux-team" => Some(assets::SKILL),
-        "tmt-inbox" => Some(assets::INBOX_SKILL),
-        "tmt-office" => Some(assets::OFFICE_SKILL),
-        "tmt-prop-create" => Some(assets::PROP_CREATE_SKILL),
-        "tmt-avatar-create" => Some(assets::AVATAR_CREATE_SKILL),
-        _ => None,
-    }
+    catalog::bundled(name).map(|skill| skill.bytes)
 }
 
 use crate::drivers::{DriverDefinition, Registry};
@@ -262,7 +256,7 @@ fn install_office_with_publisher(
             // door), core's bundle no longer publishes it.
             let owned = owned::owned_names(&global)?;
             for (root, agent) in optional_roots(env, &global, &assets)? {
-                for name in owned::OFFICE_NAMES {
+                for name in catalog::Catalog::bundled().names(catalog::Group::Office) {
                     if !owned.contains(name) {
                         targets.entry(root.join(name)).or_insert(agent);
                     }
@@ -271,7 +265,7 @@ fn install_office_with_publisher(
             for target in targets.keys() {
                 files::safe_target(assets.root(), target)?;
             }
-            let (_, _, office_source, prop_source, avatar_source) = assets.materialize_bundle()?;
+            let sources = assets.materialize_bundle()?;
             registry::remember(&global, targets.keys().cloned())?;
             let mut context = PublicationContext {
                 assets: &assets,
@@ -280,11 +274,13 @@ fn install_office_with_publisher(
                 pending_backup: &mut pending_backup,
             };
             for (target, agent) in targets {
-                let (source, name) = match target.file_name().and_then(|name| name.to_str()) {
-                    Some("tmt-prop-create") => (&prop_source, "tmt-prop-create"),
-                    Some("tmt-avatar-create") => (&avatar_source, "tmt-avatar-create"),
-                    _ => (&office_source, "tmt-office"),
-                };
+                let skill = target
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(catalog::bundled)
+                    .expect("an Office target is named after a bundled skill");
+                let name = skill.name;
+                let source = sources.get(name).expect("a bundled source");
                 publish_managed_target(&mut context, &target, source, name, agent, &mut publish)?;
             }
             Ok(())
@@ -331,7 +327,9 @@ fn install_with_publisher(
         }
         files::with_lock(&global, || {
             registry::read(&global)?;
-            let (main_source, inbox_source, _, _, _) = assets.materialize_bundle()?;
+            let sources = assets.materialize_bundle()?;
+            let main_source = sources.get(catalog::MAIN).expect("main source");
+            let inbox_source = sources.get(catalog::INBOX).expect("inbox source");
             registry::remember(&global, targets.iter().map(|(_, target, _)| target.clone()))?;
             let mut context = PublicationContext {
                 assets: &assets,
@@ -340,7 +338,7 @@ fn install_with_publisher(
                 pending_backup: &mut pending_backup,
             };
             for (agent, target, inbox) in targets {
-                let source = if inbox { &inbox_source } else { &main_source };
+                let source = if inbox { inbox_source } else { main_source };
                 publish_managed_target(
                     &mut context,
                     &target,

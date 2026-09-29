@@ -108,7 +108,7 @@ fn refreshes_both_targets_from_a_genuine_old_two_skill_bundle() {
     assert_current(&main_target);
     assert_eq!(
         fs::read(fs::read_link(&inbox_target).unwrap().join("SKILL.md")).unwrap(),
-        super::assets::INBOX_SKILL
+        super::bundled_skill_named("tmt-inbox").unwrap()
     );
     assert_eq!(fs::read(main_source.join("SKILL.md")).unwrap(), old_core);
     assert_eq!(fs::read(inbox_source.join("SKILL.md")).unwrap(), old_inbox);
@@ -133,7 +133,7 @@ fn refreshes_an_existing_optional_office_skill_without_creating_missing_siblings
     assert!(first.refreshed[0].changed);
     assert_eq!(
         fs::read(fs::read_link(&office_target).unwrap().join("SKILL.md")).unwrap(),
-        super::assets::OFFICE_SKILL
+        super::bundled_skill_named("tmt-office").unwrap()
     );
     assert!(
         !directory

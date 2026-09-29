@@ -85,13 +85,13 @@ pub(super) fn refresh_with_publisher(
                     Some(sources) => sources,
                     None => sources.insert(assets.materialize_bundle()?),
                 };
-                let current = match target.file_name().and_then(|name| name.to_str()) {
-                    Some("tmux-team") => &current_sources.0,
-                    Some("tmt-inbox") => &current_sources.1,
-                    Some("tmt-office") => &current_sources.2,
-                    Some("tmt-prop-create") => &current_sources.3,
-                    Some("tmt-avatar-create") => &current_sources.4,
-                    _ => {
+                let current = match target
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| current_sources.get(name))
+                {
+                    Some(current) => current,
+                    None => {
                         report.conflicts.push(target);
                         continue;
                     }

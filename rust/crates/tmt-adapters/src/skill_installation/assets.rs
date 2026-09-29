@@ -1,7 +1,9 @@
 //! One embedded authored source, materialized without a checkout dependency.
 
+use super::catalog::{self, BUNDLED, MAIN, PRIOR_LAYOUTS};
 use crate::bounded_file;
 use std::{
+    collections::BTreeMap,
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -9,16 +11,8 @@ use std::{
 use tmt_core::content_digest::sha256 as digest;
 use uuid::Uuid;
 
-pub(super) const SKILL: &[u8] = include_bytes!("../../../../../skills/tmux-team/SKILL.md");
-pub(super) const INBOX_SKILL: &[u8] = include_bytes!("../../../../../skills/tmt-inbox/SKILL.md");
-pub(super) const OFFICE_SKILL: &[u8] =
-    include_bytes!("../../../../../extensions/tmt-office/skills/tmt-office/SKILL.md");
-pub(super) const PROP_CREATE_SKILL: &[u8] =
-    include_bytes!("../../../../../extensions/tmt-office/skills/tmt-prop-create/SKILL.md");
-pub(super) const AVATAR_CREATE_SKILL: &[u8] =
-    include_bytes!("../../../../../extensions/tmt-office/skills/tmt-avatar-create/SKILL.md");
-
-fn framed_digest(parts: &[&[u8]]) -> String {
+fn framed_digest<B: AsRef<[u8]>>(parts: &[B]) -> String {
+    let parts: Vec<&[u8]> = parts.iter().map(AsRef::as_ref).collect();
     let mut bytes =
         Vec::with_capacity(parts.iter().map(|part| part.len()).sum::<usize>() + parts.len() * 8);
     for part in parts {
@@ -29,13 +23,7 @@ fn framed_digest(parts: &[&[u8]]) -> String {
 }
 
 fn bundle_digest() -> String {
-    framed_digest(&[
-        SKILL,
-        INBOX_SKILL,
-        OFFICE_SKILL,
-        PROP_CREATE_SKILL,
-        AVATAR_CREATE_SKILL,
-    ])
+    framed_digest(&BUNDLED.iter().map(|skill| skill.bytes).collect::<Vec<_>>())
 }
 
 fn invalid(path: &Path) -> io::Error {
@@ -85,68 +73,30 @@ fn inventory(version: &Path) -> io::Result<Vec<String>> {
     Ok(names)
 }
 
-type BundleSourceBytes = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
-type PriorPropBundleSourceBytes = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
-
-fn bundle_source_bytes(version: &Path) -> io::Result<BundleSourceBytes> {
-    if inventory(version)?
-        != [
-            "tmt-avatar-create",
-            "tmt-inbox",
-            "tmt-office",
-            "tmt-prop-create",
-            "tmux-team",
-        ]
-    {
+/// The source bytes of the first `count` bundled skills, in digest order,
+/// when the version directory holds exactly those skills.
+fn layout_bytes(version: &Path, count: usize) -> io::Result<Vec<Vec<u8>>> {
+    let layout = &BUNDLED[..count];
+    let mut expected: Vec<&str> = layout.iter().map(|skill| skill.name).collect();
+    expected.sort_unstable();
+    if inventory(version)? != expected {
         return Err(invalid(version));
     }
-    Ok((
-        source_bytes(&version.join("tmux-team"))?,
-        source_bytes(&version.join("tmt-inbox"))?,
-        source_bytes(&version.join("tmt-office"))?,
-        source_bytes(&version.join("tmt-prop-create"))?,
-        source_bytes(&version.join("tmt-avatar-create"))?,
-    ))
+    layout
+        .iter()
+        .map(|skill| source_bytes(&version.join(skill.name)))
+        .collect()
 }
 
-fn prior_prop_bundle_source_bytes(version: &Path) -> io::Result<PriorPropBundleSourceBytes> {
-    if inventory(version)? != ["tmt-inbox", "tmt-office", "tmt-prop-create", "tmux-team"] {
-        return Err(invalid(version));
-    }
-    Ok((
-        source_bytes(&version.join("tmux-team"))?,
-        source_bytes(&version.join("tmt-inbox"))?,
-        source_bytes(&version.join("tmt-office"))?,
-        source_bytes(&version.join("tmt-prop-create"))?,
-    ))
+/// The current bundle's sources, one per bundled skill.
+pub(super) struct BundleSources {
+    paths: BTreeMap<&'static str, PathBuf>,
 }
 
-fn prior_office_bundle_source_bytes(version: &Path) -> io::Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
-    if inventory(version)? != ["tmt-inbox", "tmt-office", "tmux-team"] {
-        return Err(invalid(version));
+impl BundleSources {
+    pub(super) fn get(&self, name: &str) -> Option<&PathBuf> {
+        self.paths.get(name)
     }
-    Ok((
-        source_bytes(&version.join("tmux-team"))?,
-        source_bytes(&version.join("tmt-inbox"))?,
-        source_bytes(&version.join("tmt-office"))?,
-    ))
-}
-
-fn prior_bundle_source_bytes(version: &Path) -> io::Result<(Vec<u8>, Vec<u8>)> {
-    if inventory(version)? != ["tmt-inbox", "tmux-team"] {
-        return Err(invalid(version));
-    }
-    Ok((
-        source_bytes(&version.join("tmux-team"))?,
-        source_bytes(&version.join("tmt-inbox"))?,
-    ))
-}
-
-fn legacy_source_bytes(version: &Path) -> io::Result<Vec<u8>> {
-    if inventory(version)? != ["tmux-team"] {
-        return Err(invalid(version));
-    }
-    source_bytes(&version.join("tmux-team"))
 }
 
 pub(super) struct SkillAssets {
@@ -163,24 +113,13 @@ impl SkillAssets {
         }
     }
 
+    /// Core's main skill source in the current bundle.
     pub(super) fn source(&self) -> PathBuf {
-        self.root.join(bundle_digest()).join("tmux-team")
+        self.source_of(MAIN)
     }
 
-    pub(super) fn inbox_source(&self) -> PathBuf {
-        self.root.join(bundle_digest()).join("tmt-inbox")
-    }
-
-    pub(super) fn office_source(&self) -> PathBuf {
-        self.root.join(bundle_digest()).join("tmt-office")
-    }
-
-    pub(super) fn prop_create_source(&self) -> PathBuf {
-        self.root.join(bundle_digest()).join("tmt-prop-create")
-    }
-
-    pub(super) fn avatar_create_source(&self) -> PathBuf {
-        self.root.join(bundle_digest()).join("tmt-avatar-create")
+    pub(super) fn source_of(&self, name: &str) -> PathBuf {
+        self.root.join(bundle_digest()).join(name)
     }
 
     /// This is local managed-file evidence, not authentication of remote code.
@@ -194,148 +133,88 @@ impl SkillAssets {
         let Some(expected) = version.file_name().and_then(|name| name.to_str()) else {
             return false;
         };
-        let source_name = match source.file_name().and_then(|name| name.to_str()) {
-            Some(
-                name @ ("tmux-team" | "tmt-inbox" | "tmt-office" | "tmt-prop-create"
-                | "tmt-avatar-create"),
-            ) => name,
-            _ => return false,
+        let Some(source_name) = source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| catalog::bundled(name).is_some())
+        else {
+            return false;
         };
         if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return false;
         }
-        if bundle_source_bytes(version).is_ok_and(|(core, inbox, office, prop, avatar)| {
-            framed_digest(&[&core, &inbox, &office, &prop, &avatar]) == expected
-        }) {
-            return true;
-        }
-        if source_name != "tmt-avatar-create"
-            && prior_prop_bundle_source_bytes(version).is_ok_and(|(core, inbox, office, prop)| {
-                framed_digest(&[&core, &inbox, &office, &prop]) == expected
+        // The current layout, then each earlier one that held this skill.
+        let contains = |count: usize| {
+            BUNDLED[..count]
+                .iter()
+                .any(|skill| skill.name == source_name)
+        };
+        if [BUNDLED.len()]
+            .into_iter()
+            .chain(PRIOR_LAYOUTS)
+            .filter(|count| contains(*count))
+            .any(|count| {
+                layout_bytes(version, count).is_ok_and(|bytes| framed_digest(&bytes) == expected)
             })
         {
             return true;
         }
-        if !matches!(source_name, "tmt-prop-create" | "tmt-avatar-create")
-            && prior_office_bundle_source_bytes(version).is_ok_and(|(core, inbox, office)| {
-                framed_digest(&[&core, &inbox, &office]) == expected
-            })
-        {
-            return true;
-        }
-        if !matches!(
-            source_name,
-            "tmt-office" | "tmt-prop-create" | "tmt-avatar-create"
-        ) && prior_bundle_source_bytes(version)
-            .is_ok_and(|(core, inbox)| framed_digest(&[&core, &inbox]) == expected)
-        {
-            return true;
-        }
-        source_name == "tmux-team"
-            && legacy_source_bytes(version).is_ok_and(|bytes| digest(&bytes) == expected)
+        source_name == MAIN
+            && inventory(version).is_ok_and(|names| names == [MAIN])
+            && source_bytes(&version.join(MAIN)).is_ok_and(|bytes| digest(&bytes) == expected)
     }
 
     /// Called while the installer lock is held. Existing sources are never
     /// overwritten, even with force; that flag authorizes target backups only.
     #[cfg(test)]
     pub(super) fn materialize(&self) -> io::Result<PathBuf> {
-        self.materialize_bundle().map(|sources| sources.0)
+        self.materialize_bundle()
+            .map(|sources| sources.get(MAIN).expect("main source").clone())
     }
 
-    pub(super) fn materialize_bundle(
-        &self,
-    ) -> io::Result<(PathBuf, PathBuf, PathBuf, PathBuf, PathBuf)> {
-        let destination = self.source();
-        let inbox_destination = self.inbox_source();
-        let office_destination = self.office_source();
-        let prop_create_destination = self.prop_create_source();
-        let avatar_create_destination = self.avatar_create_source();
-        if fs::symlink_metadata(&destination).is_ok()
-            || fs::symlink_metadata(&inbox_destination).is_ok()
-            || fs::symlink_metadata(&office_destination).is_ok()
-            || fs::symlink_metadata(&prop_create_destination).is_ok()
-            || fs::symlink_metadata(&avatar_create_destination).is_ok()
+    pub(super) fn materialize_bundle(&self) -> io::Result<BundleSources> {
+        let sources = BundleSources {
+            paths: BUNDLED
+                .iter()
+                .map(|skill| (skill.name, self.source_of(skill.name)))
+                .collect(),
+        };
+        let parent = self.root.join(bundle_digest());
+        if sources
+            .paths
+            .values()
+            .any(|path| fs::symlink_metadata(path).is_ok())
         {
-            let (core, inbox, office, prop, avatar) =
-                bundle_source_bytes(destination.parent().expect("digest source directory"))?;
-            if core != SKILL
-                || inbox != INBOX_SKILL
-                || office != OFFICE_SKILL
-                || prop != PROP_CREATE_SKILL
-                || avatar != AVATAR_CREATE_SKILL
+            let bytes = layout_bytes(&parent, BUNDLED.len())?;
+            if bytes
+                .iter()
+                .zip(&BUNDLED)
+                .any(|(found, skill)| found.as_slice() != skill.bytes)
             {
-                return Err(invalid(&destination));
+                return Err(invalid(&self.source()));
             }
-            return Ok((
-                destination,
-                inbox_destination,
-                office_destination,
-                prop_create_destination,
-                avatar_create_destination,
-            ));
+            return Ok(sources);
         }
         fs::create_dir_all(&self.root)?;
         let stage = self.root.join(format!(".stage-{}", Uuid::new_v4()));
         fs::create_dir(&stage)?;
         let pending = (|| {
-            let directory = stage.join("tmux-team");
-            fs::create_dir(&directory)?;
-            let mut file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(directory.join("SKILL.md"))?;
-            file.write_all(SKILL)?;
-            file.sync_all()?;
-            drop(file);
-            let inbox_directory = stage.join("tmt-inbox");
-            fs::create_dir(&inbox_directory)?;
-            let mut inbox_file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(inbox_directory.join("SKILL.md"))?;
-            inbox_file.write_all(INBOX_SKILL)?;
-            inbox_file.sync_all()?;
-            drop(inbox_file);
-            let office_directory = stage.join("tmt-office");
-            fs::create_dir(&office_directory)?;
-            let mut office_file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(office_directory.join("SKILL.md"))?;
-            office_file.write_all(OFFICE_SKILL)?;
-            office_file.sync_all()?;
-            drop(office_file);
-            let prop_directory = stage.join("tmt-prop-create");
-            fs::create_dir(&prop_directory)?;
-            let mut prop_file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(prop_directory.join("SKILL.md"))?;
-            prop_file.write_all(PROP_CREATE_SKILL)?;
-            prop_file.sync_all()?;
-            drop(prop_file);
-            let avatar_directory = stage.join("tmt-avatar-create");
-            fs::create_dir(&avatar_directory)?;
-            let mut avatar_file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(avatar_directory.join("SKILL.md"))?;
-            avatar_file.write_all(AVATAR_CREATE_SKILL)?;
-            avatar_file.sync_all()?;
-            drop(avatar_file);
-            let parent = destination.parent().expect("digest source directory");
-            // An invalid digest directory is not disposable user data.
-            if fs::symlink_metadata(parent).is_ok() {
-                return Err(invalid(parent));
+            for skill in &BUNDLED {
+                let directory = stage.join(skill.name);
+                fs::create_dir(&directory)?;
+                let mut file = fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(directory.join("SKILL.md"))?;
+                file.write_all(skill.bytes)?;
+                file.sync_all()?;
             }
-            fs::rename(&stage, parent)?;
-            Ok((
-                destination,
-                inbox_destination,
-                office_destination,
-                prop_create_destination,
-                avatar_create_destination,
-            ))
+            // An invalid digest directory is not disposable user data.
+            if fs::symlink_metadata(&parent).is_ok() {
+                return Err(invalid(&parent));
+            }
+            fs::rename(&stage, &parent)?;
+            Ok(sources)
         })();
         if stage.exists()
             && let Err(cleanup) = fs::remove_dir_all(&stage)

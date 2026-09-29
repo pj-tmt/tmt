@@ -1131,14 +1131,13 @@ fn option(id: &'static str) -> Arg {
             .long(id)
             .help("Print an exact bundled skill (default: tmux-team)")
             .num_args(0..=1)
-            .default_missing_value("tmux-team")
-            .value_parser([
-                "tmux-team",
-                "tmt-inbox",
-                "tmt-office",
-                "tmt-prop-create",
-                "tmt-avatar-create",
-            ]),
+            .default_missing_value(tmt_core::skill_catalog::MAIN)
+            .value_parser(
+                tmt_core::skill_catalog::BUNDLED
+                    .iter()
+                    .map(|skill| skill.name)
+                    .collect::<Vec<_>>(),
+            ),
         "global" => flag("Edit global settings").short('g'),
         "config" => value("Unsupported path override").hide(true),
         "team" => value("Retired scope").hide(true),

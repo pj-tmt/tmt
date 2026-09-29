@@ -10,6 +10,8 @@ mod output_allowlist;
 mod output_cases;
 #[path = "architecture/policy.rs"]
 mod policy;
+#[path = "architecture/skill_lists.rs"]
+mod skill_lists;
 #[path = "architecture/source.rs"]
 mod source;
 
@@ -116,6 +118,13 @@ fn workspace_obeys_native_architecture() {
     violations.extend(driver_names::violations(
         &sources,
         &tmt_core::driver::ALL.map(|driver| driver.name),
+    ));
+    violations.extend(skill_lists::violations(
+        &sources,
+        &tmt_core::skill_catalog::BUNDLED
+            .iter()
+            .map(|skill| skill.name)
+            .collect::<Vec<_>>(),
     ));
     violations.extend(output::violations(
         &sources,

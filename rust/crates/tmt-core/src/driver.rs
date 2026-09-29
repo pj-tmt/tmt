@@ -7,6 +7,7 @@
 
 pub mod caller;
 pub mod descriptor;
+pub mod detection;
 pub mod routing;
 
 pub use descriptor::ALL;

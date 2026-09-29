@@ -1,7 +1,9 @@
 //! Read-only, fixed-provider inspection. Never scan custom installation intents
 //! or executable search paths on ordinary commands.
 
-use super::{ProviderEnvironment, assets::SkillAssets, files, managed_link, owned::owned_drift};
+use super::{
+    ProviderEnvironment, assets::SkillAssets, catalog, files, managed_link, owned::owned_drift,
+};
 use crate::drivers::Registry;
 use std::{
     collections::BTreeSet,
@@ -13,47 +15,23 @@ pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Resu
     let global = files::resolved(global)?;
     let assets = SkillAssets::new(&global);
     let current = assets.source();
-    let inbox_current = assets.inbox_source();
-    let office_current = assets.office_source();
-    let prop_current = assets.prop_create_source();
-    let avatar_current = assets.avatar_create_source();
     let mut seen = BTreeSet::new();
     let mut drift = Vec::new();
     for provider in Registry::builtin().iter() {
         let target = env.target(provider);
-        let inbox = target
-            .parent()
-            .expect("skill target parent")
-            .join("tmt-inbox");
-        let office = target
-            .parent()
-            .expect("skill target parent")
-            .join("tmt-office");
-        let prop = target
-            .parent()
-            .expect("skill target parent")
-            .join("tmt-prop-create");
-        let avatar = target
-            .parent()
-            .expect("skill target parent")
-            .join("tmt-avatar-create");
-        for (path, legacy, expected) in [
-            (target, false, &current),
-            (inbox, false, &inbox_current),
-            (office, false, &office_current),
-            (prop, false, &prop_current),
-            (avatar, false, &avatar_current),
-        ]
-        .into_iter()
-        .chain(
-            env.legacy_targets(provider)
-                .into_iter()
-                .map(|path| (path, true, &current)),
-        ) {
+        let root = target.parent().expect("skill target parent");
+        let bundled = catalog::BUNDLED
+            .iter()
+            .map(|skill| (root.join(skill.name), false, assets.source_of(skill.name)));
+        let legacy = env
+            .legacy_targets(provider)
+            .into_iter()
+            .map(|path| (path, true, current.clone()));
+        for (path, legacy, expected) in bundled.chain(legacy) {
             if !seen.insert(path.clone()) || !files::exists(&path)? {
                 continue;
             }
-            if legacy || managed_link(&path, &assets)?.as_ref() != Some(expected) {
+            if legacy || managed_link(&path, &assets)?.as_ref() != Some(&expected) {
                 drift.push(path);
             }
         }

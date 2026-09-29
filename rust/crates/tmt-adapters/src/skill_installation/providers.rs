@@ -10,7 +10,7 @@ use std::{
 };
 
 /// The directory name of TMT's core skill under a skills root.
-pub const SKILL_NAME: &str = "tmux-team";
+pub const SKILL_NAME: &str = super::catalog::MAIN;
 
 #[derive(Debug, Clone)]
 pub struct ProviderEnvironment {
@@ -127,11 +127,15 @@ impl ProviderEnvironment {
     }
 
     fn command_exists(&self, command: &str) -> bool {
-        self.path.iter().any(|directory| {
-            fs::metadata(self.resolve(&directory.join(command)))
-                .map(|metadata| metadata.is_file())
-                .unwrap_or(false)
-        })
+        self.find_command(command).is_some()
+    }
+
+    /// The first regular file with this name on `PATH`, executable or not.
+    pub fn find_command(&self, command: &str) -> Option<PathBuf> {
+        self.path
+            .iter()
+            .map(|directory| self.resolve(&directory.join(command)))
+            .find(|candidate| fs::metadata(candidate).is_ok_and(|metadata| metadata.is_file()))
     }
 }
 
