@@ -865,7 +865,10 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 `rust/crates/tmt-cli/src/grammar.rs` owns core syntax/help/completion and mounts
 the Office subtree from `tmt-office-command::grammar`. Each visible core command
 is registered from a `CommandSpec` (summary and examples) through
-`tmt_cli_style::apply`; hidden internal commands have no help page. Each owner's parser turns
+`tmt_cli_style::apply`; hidden internal commands have no help page. Squad registers each
+command from a `CommandSpec` in `extensions/tmt-squad/rust/tmt-squad/src/specs.rs` through
+`tmt_cli_style::command` and resolves `tmt squad help <command>` with `tmt_cli_style::route`.
+Each owner's parser turns
 its grammar into typed invocations; both publish through `tmt-command-output`.
 Hidden commands are still
 parsed for controlled internal workflows but are omitted from public help and

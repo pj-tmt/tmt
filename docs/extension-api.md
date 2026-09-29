@@ -138,8 +138,9 @@ Example conditional room write (replace the UUIDs with actual identities):
 
 An extension CLI looks like core TMT by depending on `tmt-cli-style` (its only
 permitted TMT dependency) and following the [CLI style](cli-style.md). Build each
-command with `tmt_cli_style::command` and print through its list, message and
-table renderers.
+command with `tmt_cli_style::command`, resolve `<cli> help <command>` with
+`tmt_cli_style::route` so it prints what `<command> -h` prints, and print
+through its list, message and table renderers.
 
 ## Lifecycle hooks
 

@@ -16,18 +16,20 @@ mod playbook;
 mod requests;
 mod runner;
 mod send;
+mod specs;
 mod squad;
 mod status;
 mod template;
 
 use crate::{config::Config, core::Core, core::SquadError, membership::Outcome, squad::Squad};
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command, error::ErrorKind};
 use serde_json::Value;
 use std::{
     ffi::OsString,
     io::{IsTerminal, Write},
     process::ExitCode,
 };
+use tmt_cli_style::Route;
 
 const SKILL: &str = include_str!("../../../skills/tmt-squad/SKILL.md");
 
@@ -49,13 +51,12 @@ fn message() -> Arg {
 /// byte-identical help, errors and completion.
 fn grammar() -> Command {
     let operand = |name: &'static str, help: &'static str| Arg::new(name).required(true).help(help);
-    Command::new("squad")
+    let build = tmt_cli_style::command;
+    build(specs::ROOT)
         .bin_name("tmt squad")
-        .about("Leads, members and one board for a team of agents (alias: tmt sq)")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .disable_help_subcommand(true)
         .arg(
             Arg::new("json")
                 .long("json")
@@ -64,8 +65,7 @@ fn grammar() -> Command {
                 .help("Print one JSON document"),
         )
         .subcommand(
-            Command::new("init")
-                .about("Create the squad room squad-<name>; record which saved identity is you")
+            build(specs::INIT)
                 .arg(operand(
                     "name",
                     "Squad name: [a-z][a-z0-9-], up to 24 characters",
@@ -78,40 +78,32 @@ fn grammar() -> Command {
                 ),
         )
         .subcommand(
-            Command::new("lead")
-                .about("Make a saved identity the squad's lead")
+            build(specs::LEAD)
                 .arg(operand("name", "Saved identity to lead"))
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("add")
-                .about("Add running agents to the squad")
+            build(specs::ADD)
                 .arg(operand("names", "Identities to add").num_args(1..))
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("remove")
-                .about("Remove a member and clear its squad fields; the agent keeps running")
+            build(specs::REMOVE)
                 .arg(operand("name", "Member to remove"))
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("set")
-                .about(
-                    "Set member fields such as state, task, pending, note or links (field= clears)",
-                )
+            build(specs::SET)
                 .arg(operand("member", "Member to update"))
                 .arg(operand("fields", "field=value pairs").num_args(1..))
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("status")
-                .about("Show the squad as text, or JSON with --json")
+            build(specs::STATUS)
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("board")
-                .about("Open the terminal board (prints status without a terminal)")
+            build(specs::BOARD)
                 .arg(squad_option())
                 .arg(
                     Arg::new("popup")
@@ -121,12 +113,10 @@ fn grammar() -> Command {
                 ),
         )
         .subcommand(
-            Command::new("hotkeys")
-                .about("tmux prefix keys that open the board (added to tmux.conf only with consent)")
+            build(specs::HOTKEYS)
                 .subcommand_required(true)
                 .subcommand(
-                    Command::new("install")
-                        .about("Show the plan, then add squad's source-file line and bindings")
+                    build(specs::HOTKEYS_INSTALL)
                         .arg(
                             Arg::new("print")
                                 .long("print")
@@ -147,8 +137,7 @@ fn grammar() -> Command {
                         ),
                 )
                 .subcommand(
-                    Command::new("remove")
-                        .about("Remove only squad's line and squad's bindings")
+                    build(specs::HOTKEYS_REMOVE)
                         .arg(
                             Arg::new("yes")
                                 .long("yes")
@@ -156,24 +145,21 @@ fn grammar() -> Command {
                                 .help("Consent without a prompt"),
                         ),
                 )
-                .subcommand(Command::new("show").about("Report the hotkeys' state; change nothing")),
+                .subcommand(build(specs::HOTKEYS_SHOW)),
         )
         .subcommand(
-            Command::new("jump")
-                .about("Show a member's pane in your tmux client (tmt focus)")
+            build(specs::JUMP)
                 .arg(operand("member", "Member or lead to show"))
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("talk")
-                .about("Send a detached request to a member, in the squad room")
+            build(specs::TALK)
                 .arg(operand("member", "Member or lead"))
                 .arg(message())
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("reply")
-                .about("Answer what a member is waiting on you for")
+            build(specs::REPLY)
                 .arg(operand("member", "Member or lead"))
                 .arg(message())
                 .arg(
@@ -185,8 +171,7 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("annotate")
-                .about("Send a note about a member's row to the lead (or the member)")
+            build(specs::ANNOTATE)
                 .arg(operand("member", "The row the note is about"))
                 .arg(message())
                 .arg(
@@ -200,17 +185,14 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("replies")
-                .about("Show finals to your squad requests, newest first (never acknowledges)")
+            build(specs::REPLIES)
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("back")
-                .about("Return your tmux client to where its last squad jump came from"),
+            build(specs::BACK),
         )
         .subcommand(
-            Command::new("open")
-                .about("Open a member's http(s) link: pr_link, link or another *_link field")
+            build(specs::OPEN)
                 .arg(operand("member", "Member or lead"))
                 .arg(
                     Arg::new("link")
@@ -221,8 +203,7 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
-            Command::new("copy")
-                .about("Copy a member's summary to the clipboard")
+            build(specs::COPY)
                 .arg(operand("member", "Member or lead"))
                 .arg(
                     Arg::new("format")
@@ -235,10 +216,9 @@ fn grammar() -> Command {
         )
         .subcommand(playbook::grammar())
         .subcommand(
-            Command::new("skill")
-                .about("The tmt-squad skill for lead agents")
+            build(specs::SKILL)
                 .subcommand_required(true)
-                .subcommand(Command::new("show").about("Print the skill")),
+                .subcommand(build(specs::SKILL_SHOW)),
         )
         .subcommand(
             Command::new("__complete").hide(true).arg(
@@ -250,6 +230,37 @@ fn grammar() -> Command {
         )
 }
 
+/// What the command line asks for.
+enum Request {
+    /// `tmt squad help [command...]`: print that command's help.
+    Help(Box<Command>),
+    Run(ArgMatches),
+}
+
+/// `help <command>` resolves through the shared route, so it prints what
+/// `<command> -h` prints; everything else, `-h` included, is clap's.
+fn request(argv: &[OsString]) -> Result<Request, clap::Error> {
+    let words: Option<Vec<String>> = argv
+        .iter()
+        .skip(1)
+        .filter(|word| *word != "--json")
+        .map(|word| word.to_str().map(str::to_owned))
+        .collect();
+    if let Some(words) = words {
+        match tmt_cli_style::route(&grammar(), &words) {
+            Route::Help(command) => return Ok(Request::Help(command)),
+            Route::Unknown(word) => {
+                return Err(grammar().error(
+                    ErrorKind::InvalidSubcommand,
+                    format!("unrecognized subcommand '{word}'"),
+                ));
+            }
+            Route::Other => {}
+        }
+    }
+    grammar().try_get_matches_from(argv).map(Request::Run)
+}
+
 /// Completion v1: literal candidates for the unfinished word; empty output
 /// lets the shell fall back to file completion.
 fn complete(words: &[String]) -> Vec<String> {
@@ -258,6 +269,9 @@ fn complete(words: &[String]) -> Vec<String> {
         .split_last()
         .map_or(("", &[][..]), |(last, rest)| (last.as_str(), rest));
     let root = grammar();
+    // `help <command>` completes the command names, never options.
+    let helping = before.first().is_some_and(|word| word == "help");
+    let before = if helping { &before[1..] } else { before };
     // Descend through subcommand names (`hotkeys install`); any other word
     // before the cursor is a value, which falls back to the shell.
     let mut command = &root;
@@ -267,7 +281,9 @@ fn complete(words: &[String]) -> Vec<String> {
             None => return Vec::new(),
         }
     }
-    let mut candidates: Vec<String> = if current.starts_with('-') {
+    let mut candidates: Vec<String> = if current.starts_with('-') && helping {
+        Vec::new()
+    } else if current.starts_with('-') {
         command
             .get_arguments()
             .filter_map(|arg| arg.get_long().map(|long| format!("--{long}")))
@@ -278,6 +294,7 @@ fn complete(words: &[String]) -> Vec<String> {
             .get_subcommands()
             .filter(|sub| !sub.is_hide_set())
             .map(|sub| sub.get_name().to_owned())
+            .chain((before.is_empty() && !helping).then(|| "help".to_owned()))
             .collect()
     };
     candidates.retain(|candidate| candidate.starts_with(current));
@@ -558,8 +575,16 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
 fn main() -> ExitCode {
     let argv: Vec<OsString> = std::env::args_os().collect();
     let json = argv.iter().skip(1).any(|arg| arg == "--json");
-    let matches = match grammar().try_get_matches_from(&argv) {
-        Ok(matches) => matches,
+    let matches = match request(&argv) {
+        Ok(Request::Run(matches)) => matches,
+        Ok(Request::Help(command)) => {
+            let mut out = tmt_cli_style::stream::stdout(json);
+            let text = tmt_cli_style::help_text(&command, out.terminal());
+            return match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(_) => ExitCode::FAILURE,
+            };
+        }
         Err(error) if json && error.use_stderr() => {
             let failure = SquadError::new("USAGE_ERROR", error.kind().to_string());
             println!("{}", failure.to_json());
@@ -645,11 +670,24 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "annotate", "back", "board", "copy", "hotkeys", "init", "jump", "lead",
-                "open", "playbook", "remove", "replies", "reply", "set", "skill", "status", "talk"
+                "add", "annotate", "back", "board", "copy", "help", "hotkeys", "init", "jump",
+                "lead", "open", "playbook", "remove", "replies", "reply", "set", "skill", "status",
+                "talk"
             ]
         );
-        assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);
+        assert_eq!(complete(&words("-- h")), ["help", "hotkeys"]);
+        assert_eq!(
+            complete(&words("-- help ho")),
+            ["hotkeys"],
+            "help completes command names"
+        );
+        assert_eq!(complete(&words("-- help hotkeys i")), ["install"]);
+        assert!(complete(&words("-- help --")).is_empty());
+        assert!(!complete(&words("-- help ")).contains(&"help".to_owned()));
+        assert_eq!(
+            complete(&words("-- status --")),
+            ["--help", "--json", "--squad"]
+        );
         assert_eq!(complete(&words("-- skill s")), ["show"]);
         assert_eq!(
             complete(&words("-- playbook ")),
@@ -665,7 +703,7 @@ mod tests {
         );
         assert_eq!(
             complete(&words("-- hotkeys install --")),
-            ["--config", "--json", "--print", "--yes"]
+            ["--config", "--help", "--json", "--print", "--yes"]
         );
         assert!(
             complete(&words("-- set auth-fix st")).is_empty(),
@@ -675,6 +713,62 @@ mod tests {
             complete(&words("-- __c")).is_empty(),
             "hidden entry points stay hidden"
         );
+    }
+
+    fn argv(line: &str) -> Vec<OsString> {
+        std::iter::once("tmt-squad")
+            .chain(line.split(' ').filter(|word| !word.is_empty()))
+            .map(OsString::from)
+            .collect()
+    }
+
+    fn help_of(line: &str) -> String {
+        match request(&argv(line)) {
+            Ok(Request::Help(command)) => {
+                tmt_cli_style::help_text(&command, tmt_cli_style::Terminal::PLAIN)
+            }
+            Err(error) => error.to_string(),
+            Ok(Request::Run(_)) => panic!("{line:?} is not a help request"),
+        }
+    }
+
+    #[test]
+    fn help_prints_what_dash_h_prints_and_does_not_reach_a_command() {
+        assert_eq!(help_of("help"), help_of("--help"));
+        assert_eq!(help_of("help status"), help_of("status -h"));
+        assert_eq!(
+            help_of("help hotkeys install"),
+            help_of("hotkeys install --help")
+        );
+        assert_eq!(help_of("help skill show --json"), help_of("skill show -h"));
+        assert!(help_of("help hotkeys install").contains("Usage: tmt squad hotkeys install"));
+        // A word that is no command is an error, never a command that runs.
+        for line in [
+            "help nope",
+            "help init product",
+            "help status --squad x",
+            "help __complete",
+        ] {
+            let Err(error) = request(&argv(line)) else {
+                panic!("{line:?} did not fail");
+            };
+            assert_eq!(error.kind(), ErrorKind::InvalidSubcommand, "{line}");
+        }
+    }
+
+    #[test]
+    fn a_message_that_reads_help_is_data_not_a_help_request() {
+        for line in [
+            "talk auth-fix -- -h",
+            "talk auth-fix help",
+            "annotate auth-fix -- --help",
+        ] {
+            let Ok(Request::Run(matches)) = request(&argv(line)) else {
+                panic!("{line:?} was taken for help");
+            };
+            let (_, sub) = matches.subcommand().unwrap();
+            assert!(sub.get_one::<String>("text").is_some(), "{line}");
+        }
     }
 
     #[test]

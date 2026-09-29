@@ -19,7 +19,7 @@ pub mod value;
 
 pub use anstyle::AnsiColor;
 pub use help::{
-    CommandSpec, Example, HelpSection, OutputModes, ShownExample, apply, command,
-    command_with_sections, examples, frame, help_text,
+    CommandSpec, Example, HelpSection, OutputModes, Route, ShownExample, apply, command,
+    command_with_sections, examples, frame, help_text, route,
 };
 pub use palette::{Terminal, Token};

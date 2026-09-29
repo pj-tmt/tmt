@@ -94,6 +94,15 @@ describe('squad extension', () => {
           ['squad', 'bogus'],
           ['sq', 'bogus'],
         ],
+        // `help <command>` prints exactly what `<command> --help` prints.
+        [
+          ['squad', 'help', 'hotkeys', 'install'],
+          ['sq', 'hotkeys', 'install', '--help'],
+        ],
+        [
+          ['squad', 'help', 'bogus'],
+          ['sq', 'help', 'bogus'],
+        ],
       ];
       for (const [long, short] of pairs) {
         const [a, b] = [await runCli(sandbox, long), await runCli(sandbox, short)];
@@ -105,6 +114,13 @@ describe('squad extension', () => {
       }
       const help = await runCli(sandbox, ['squad', '--help']);
       expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] <COMMAND>');
+      const routed = await runCli(sandbox, ['squad', 'help', 'hotkeys', 'install']);
+      expect(routed.status).toBe(0);
+      expect(routed.stdout).toContain('Usage: tmt squad hotkeys install [OPTIONS]');
+      expect(routed.stdout).toContain('\nExamples:\n  # See the bindings and the line');
+      const unknown = await runCli(sandbox, ['squad', 'help', 'bogus']);
+      expect(unknown.status).toBe(2);
+      expect(unknown.stderr).toContain("unrecognized subcommand 'bogus'");
       const status = await squad(sandbox, ['status']);
       expect(status).toMatchObject({ status: 1, body: { error: { code: 'SQUAD_NOT_FOUND' } } });
       // Completion v1: core invokes `tmt-<name> __complete -- <words>` directly.
