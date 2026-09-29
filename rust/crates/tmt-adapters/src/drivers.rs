@@ -17,7 +17,8 @@ use crate::{
     skill_installation::ProviderEnvironment,
 };
 use std::{
-    fmt,
+    fmt, fs,
+    os::unix::fs::PermissionsExt,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -27,7 +28,7 @@ use tmt_core::{
 };
 
 use tmt_core::driver::descriptor;
-use tmt_core::driver::detection::{self, VersionProbe};
+use tmt_core::driver::detection::{self, OnPath, VersionProbe};
 pub use tmt_core::driver::{
     descriptor::{DriverDescriptor, HookFormat, Hue},
     detection::Detection,
@@ -169,25 +170,12 @@ impl Registry {
         names
     }
 
-    /// Each driver's detection: configuration directories on disk, then a
-    /// bounded `--version` of the first of its executables on `PATH`.
-    ///
-    /// This starts the agent. `--version` is not read-only for every agent
-    /// (Codex 0.159 creates `~/.codex/tmp`), so only a flow the user started to
-    /// set up agents runs it; status commands and skill installation do not.
+    /// Each driver's detection from the filesystem alone: configuration
+    /// directories and the first of its executables on `PATH`, with its
+    /// execute permission. It never starts an agent.
     pub fn detect(
         &self,
         environment: &ProviderEnvironment,
-        runner: &impl CommandRunner,
-    ) -> Vec<(&'static DriverDefinition, Detection)> {
-        self.detect_within(environment, runner, PROBE_DEADLINE)
-    }
-
-    fn detect_within(
-        &self,
-        environment: &ProviderEnvironment,
-        runner: &impl CommandRunner,
-        deadline: Duration,
     ) -> Vec<(&'static DriverDefinition, Detection)> {
         self.iter()
             .map(|driver| {
@@ -196,16 +184,49 @@ impl Registry {
                     .config_dirs
                     .iter()
                     .any(|directory| environment.resolve(directory).is_dir());
-                let probe = driver
-                    .descriptor
-                    .executables
-                    .iter()
-                    .find_map(|name| environment.find_command(name))
-                    .map_or(VersionProbe::NotFound, |executable| {
-                        probe(runner, &executable, deadline)
-                    });
-                (driver, detection::detection_of(configured, &probe))
+                let on_path = executable(driver, environment).map_or(OnPath::Missing, |path| {
+                    if fs::metadata(path)
+                        .is_ok_and(|metadata| metadata.permissions().mode() & 0o111 != 0)
+                    {
+                        OnPath::Executable
+                    } else {
+                        OnPath::NotExecutable
+                    }
+                });
+                (driver, detection::detection_of(configured, on_path))
             })
+            .collect()
+    }
+
+    /// [`Registry::detect`], then a bounded `--version` of each present
+    /// driver, for diagnostics only. This runs the agents, and some write
+    /// under `HOME` when they do (Codex 0.159 creates `~/.codex/tmp`); setup,
+    /// install and status commands never call it.
+    pub fn probe_versions(
+        &self,
+        environment: &ProviderEnvironment,
+        runner: &impl CommandRunner,
+    ) -> Vec<(&'static DriverDefinition, Detection)> {
+        self.probe_within(environment, runner, PROBE_DEADLINE)
+    }
+
+    fn probe_within(
+        &self,
+        environment: &ProviderEnvironment,
+        runner: &impl CommandRunner,
+        deadline: Duration,
+    ) -> Vec<(&'static DriverDefinition, Detection)> {
+        self.detect(environment)
+            .into_iter()
+            .map(
+                |(driver, detection)| match (&detection, executable(driver, environment)) {
+                    (Detection::Present { .. }, Some(path)) => (
+                        driver,
+                        detection::with_version(&probe(runner, &path, deadline)),
+                    ),
+                    _ => (driver, detection),
+                },
+            )
             .collect()
     }
 
@@ -217,6 +238,15 @@ impl Registry {
                 found.or_unsupported(identify)
             })
     }
+}
+
+/// The first of the driver's executables on `PATH`.
+fn executable(driver: &DriverDefinition, environment: &ProviderEnvironment) -> Option<PathBuf> {
+    driver
+        .descriptor
+        .executables
+        .iter()
+        .find_map(|name| environment.find_command(name))
 }
 
 fn probe(
@@ -256,7 +286,6 @@ fn probe(
 mod tests {
     use super::*;
     use crate::{process::UnixCommandRunner, test_support::TestDirectory};
-    use std::{fs, os::unix::fs::PermissionsExt};
 
     fn script(directory: &std::path::Path, name: &str, body: &str, mode: u32) {
         let path = directory.join(name);
@@ -264,38 +293,87 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
     }
 
-    #[test]
-    fn detection_runs_a_bounded_version_check_for_each_driver() {
-        let directory = TestDirectory::new();
+    /// Six fixture executables, one per built-in driver, and the
+    /// environment that finds them.
+    fn fixture(directory: &TestDirectory) -> (ProviderEnvironment, [&'static str; 6]) {
         let home = directory.path.join("home");
         let bin = directory.path.join("bin");
         fs::create_dir_all(&bin).unwrap();
-        let [present, failing, hanging, unstartable, configured, absent] =
-            descriptor::ALL.map(|descriptor| descriptor.executables[0]);
-        script(&bin, present, "echo 'fixture 1.2.3'", 0o755);
-        script(&bin, failing, "exit 1", 0o755);
-        script(&bin, hanging, "sleep 5", 0o755);
-        script(&bin, unstartable, "echo never", 0o644);
-        let registry = Registry::builtin();
-        let config_only = registry.find(configured).unwrap();
-        let environment = ProviderEnvironment::from_parts(&home, &home, vec![bin.clone()], []);
+        let names = descriptor::ALL.map(|descriptor| descriptor.executables[0]);
+        let [present, failing, hanging, unexecutable, configured, _absent] = names;
+        // Each script records that it ran, so detection can prove it did not.
+        script(
+            &bin,
+            present,
+            "touch \"$0.ran\"; echo 'fixture 1.2.3'",
+            0o755,
+        );
+        script(&bin, failing, "touch \"$0.ran\"; exit 1", 0o755);
+        script(&bin, hanging, "touch \"$0.ran\"; sleep 5", 0o755);
+        script(&bin, unexecutable, "echo never", 0o644);
+        let environment = ProviderEnvironment::from_parts(&home, &home, vec![bin], []);
+        let config_only = Registry::builtin().find(configured).unwrap();
         for directory in environment.locations(config_only).config_dirs {
             fs::create_dir_all(environment.resolve(&directory)).unwrap();
         }
-        let detected: Vec<(&str, Detection)> = registry
-            .detect_within(
-                &environment,
-                &UnixCommandRunner,
-                Duration::from_millis(1500),
-            )
+        (environment, names)
+    }
+
+    fn named(found: Vec<(&'static DriverDefinition, Detection)>) -> Vec<(&'static str, Detection)> {
+        found
             .into_iter()
             .map(|(driver, detection)| (driver.name(), detection))
-            .collect();
-        let broken = |reason: &str| Detection::Broken {
+            .collect()
+    }
+
+    fn broken(reason: &str) -> Detection {
+        Detection::Broken {
             reason: reason.into(),
-        };
+        }
+    }
+
+    #[test]
+    fn detection_reads_the_filesystem_and_never_starts_an_agent() {
+        let directory = TestDirectory::new();
+        let (environment, [present, failing, hanging, unexecutable, configured, absent]) =
+            fixture(&directory);
+        let unversioned = Detection::Present { version: None };
         assert_eq!(
-            detected,
+            named(Registry::builtin().detect(&environment)),
+            [
+                (present, unversioned.clone()),
+                (failing, unversioned.clone()),
+                (hanging, unversioned),
+                (unexecutable, broken("it is not executable")),
+                (configured, Detection::ConfigOnly),
+                (absent, Detection::Absent),
+            ]
+        );
+        let ran = fs::read_dir(directory.path.join("bin"))
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".ran")
+            })
+            .count();
+        assert_eq!(ran, 0);
+    }
+
+    #[test]
+    fn the_explicit_probe_runs_each_present_driver_once_within_its_bound() {
+        let directory = TestDirectory::new();
+        let (environment, [present, failing, hanging, unexecutable, configured, absent]) =
+            fixture(&directory);
+        assert_eq!(
+            named(Registry::builtin().probe_within(
+                &environment,
+                &UnixCommandRunner,
+                Duration::from_millis(1500)
+            )),
             [
                 (
                     present,
@@ -305,7 +383,7 @@ mod tests {
                 ),
                 (failing, broken("its version check failed")),
                 (hanging, broken("its version check did not finish")),
-                (unstartable, broken("it could not be started")),
+                (unexecutable, broken("it is not executable")),
                 (configured, Detection::ConfigOnly),
                 (absent, Detection::Absent),
             ]

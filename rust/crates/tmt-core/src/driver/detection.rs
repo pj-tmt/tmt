@@ -1,25 +1,32 @@
-//! Whether a driver is installed and runnable, as a pure decision over what
-//! the adapters observed. Setup and the guided install (#333) read this; skill
-//! installation keeps its filesystem-only presence check and never runs an
-//! agent.
+//! Whether a driver is installed, as a pure decision over what the adapters
+//! observed. Detection reads only the filesystem and never starts an agent;
+//! [`with_version`] refines it from an explicit `--version` probe, which is
+//! for diagnostics only because running an agent can write under `HOME`.
+
+/// What `PATH` holds for a driver's executables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnPath {
+    Missing,
+    /// A regular file without execute permission.
+    NotExecutable,
+    Executable,
+}
 
 /// What running a driver's `--version` showed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VersionProbe {
-    /// None of its executables is on `PATH`.
-    NotFound,
     /// It exited within the deadline.
     Exited { success: bool, stdout: Vec<u8> },
     /// It did not exit within the deadline and was stopped.
     TimedOut,
-    /// It could not be started, such as a file without execute permission.
+    /// It could not be started.
     Unstartable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Detection {
-    /// An executable was found and its version check succeeded. `version`
-    /// is `None` only when the output held no version line.
+    /// An executable is on `PATH`. `version` is known only after an explicit
+    /// version probe, and then only when its output had a version line.
     Present {
         version: Option<String>,
     },
@@ -36,10 +43,19 @@ pub enum Detection {
 /// The longest version string kept, in characters.
 pub const VERSION_LIMIT: usize = 64;
 
-pub fn detection_of(configured: bool, probe: &VersionProbe) -> Detection {
+/// The filesystem-only decision: configuration directories and `PATH`.
+pub fn detection_of(configured: bool, on_path: OnPath) -> Detection {
+    match on_path {
+        OnPath::Executable => Detection::Present { version: None },
+        OnPath::NotExecutable => broken("it is not executable"),
+        OnPath::Missing if configured => Detection::ConfigOnly,
+        OnPath::Missing => Detection::Absent,
+    }
+}
+
+/// A present driver refined by its version probe.
+pub fn with_version(probe: &VersionProbe) -> Detection {
     match probe {
-        VersionProbe::NotFound if configured => Detection::ConfigOnly,
-        VersionProbe::NotFound => Detection::Absent,
         VersionProbe::Exited {
             success: true,
             stdout,
@@ -82,21 +98,37 @@ mod tests {
     }
 
     #[test]
-    fn a_runnable_executable_is_present_with_its_first_version_line() {
+    fn detection_reads_only_the_filesystem() {
+        for configured in [false, true] {
+            assert_eq!(
+                detection_of(configured, OnPath::Executable),
+                Detection::Present { version: None }
+            );
+            assert!(matches!(
+                detection_of(configured, OnPath::NotExecutable),
+                Detection::Broken { .. }
+            ));
+        }
+        assert_eq!(detection_of(true, OnPath::Missing), Detection::ConfigOnly);
+        assert_eq!(detection_of(false, OnPath::Missing), Detection::Absent);
+    }
+
+    #[test]
+    fn a_successful_probe_keeps_the_first_version_line_bounded() {
         assert_eq!(
-            detection_of(false, &exited(true, "\n  2.1.3 (Claude Code)\nextra\n")),
+            with_version(&exited(true, "\n  2.1.3 (Claude Code)\nextra\n")),
             Detection::Present {
                 version: Some("2.1.3 (Claude Code)".into())
             }
         );
         assert_eq!(
-            detection_of(true, &exited(true, "")),
+            with_version(&exited(true, "")),
             Detection::Present { version: None }
         );
         let long = format!("v{}\u{1b}[31m", "9".repeat(100));
         let Detection::Present {
             version: Some(version),
-        } = detection_of(false, &exited(true, &long))
+        } = with_version(&exited(true, &long))
         else {
             panic!("present");
         };
@@ -105,30 +137,16 @@ mod tests {
     }
 
     #[test]
-    fn configuration_alone_is_config_only_and_nothing_is_absent() {
-        assert_eq!(
-            detection_of(true, &VersionProbe::NotFound),
-            Detection::ConfigOnly
-        );
-        assert_eq!(
-            detection_of(false, &VersionProbe::NotFound),
-            Detection::Absent
-        );
-    }
-
-    #[test]
-    fn an_executable_that_does_not_run_is_broken_even_when_configured() {
+    fn a_probe_that_does_not_run_is_broken() {
         for probe in [
             exited(false, "2.0"),
             VersionProbe::TimedOut,
             VersionProbe::Unstartable,
         ] {
-            for configured in [false, true] {
-                assert!(
-                    matches!(detection_of(configured, &probe), Detection::Broken { .. }),
-                    "{probe:?} {configured}"
-                );
-            }
+            assert!(
+                matches!(with_version(&probe), Detection::Broken { .. }),
+                "{probe:?}"
+            );
         }
     }
 }

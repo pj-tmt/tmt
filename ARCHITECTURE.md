@@ -1626,16 +1626,15 @@ Each agent driver is one declarative descriptor plus one adapter module:
   skill targets, `run`, the runtime registry and caller recognition iterate it.
   A test requires exactly one adapter module per descriptor.
 
-`tmt_core::driver::detection` decides whether a driver is `Present` (its
-executable's `--version` succeeded; the version is kept when the output has
-one), `ConfigOnly` (configuration directories but no executable on `PATH`),
-`Absent`, or `Broken` (on `PATH` but the check failed, timed out or could not
-start). `Registry::detect` gathers the evidence: directories, then one bounded
-`--version` (5 s, 4 KiB, empty stdin) through the process runner. That starts
-the agent, and `--version` is not read-only for every agent (Codex creates
-`~/.codex/tmp`), so only a flow the user started to set up agents runs it.
-Status commands and skill installation keep the filesystem-only presence check
-and never start an agent.
+`tmt_core::driver::detection` decides from the filesystem alone whether a
+driver is `Present` (an executable on `PATH`), `ConfigOnly` (configuration
+directories but no executable), `Absent`, or `Broken` (on `PATH` but not
+executable). `Registry::detect` gathers that evidence and never starts an
+agent; guided setup (#333) and every status or install path use it.
+`Registry::probe_versions` additionally runs one bounded `--version` per
+present driver (5 s, 4 KiB, empty stdin) for diagnostics only: running an
+agent can write under `HOME` (Codex creates `~/.codex/tmp`), so setup, install
+and status commands never call it.
 
 Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
