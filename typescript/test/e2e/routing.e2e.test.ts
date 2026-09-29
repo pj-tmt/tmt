@@ -1,3 +1,4 @@
+import { withoutAddress } from './cli-assertions.js';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture } from './harness.js';
 
@@ -73,9 +74,11 @@ describe.sequential('global identity and runtime routing', () => {
         globalIdentity: { name: 'all', canonicalName: 'all' },
       });
 
-      const listed = await fixture.runJsonCli<{ identities: IdentityListItem[] }>(['list'], {
-        cwd: callerWorkspace,
-      });
+      const listed = withoutAddress(
+        await fixture.runJsonCli<{ identities: IdentityListItem[] }>(['list'], {
+          cwd: callerWorkspace,
+        })
+      );
       expect(listed.code).toBe(0);
       expect(listed.json).toEqual({
         identities: [
@@ -213,16 +216,18 @@ describe.sequential('global identity and runtime routing', () => {
       });
       expect(checked.json?.output).toContain(`mock-agent summary: ${alphaMessage}`);
 
-      const focused = await fixture.runJsonCli<{
-        target: string;
-        identity: IdentitySummary | null;
-        pane: {
-          id: string;
-          target?: string;
-          cwd?: string;
-          command?: string;
-        };
-      }>(['list', directTarget], { cwd: callerWorkspace });
+      const focused = withoutAddress(
+        await fixture.runJsonCli<{
+          target: string;
+          identity: IdentitySummary | null;
+          pane: {
+            id: string;
+            target?: string;
+            cwd?: string;
+            command?: string;
+          };
+        }>(['list', directTarget], { cwd: callerWorkspace })
+      );
       expect(focused).toMatchObject({
         code: 0,
         json: {
@@ -305,7 +310,9 @@ describe.sequential('global identity and runtime routing', () => {
 
   it('returns a stable empty identity list', async () => {
     await withE2EFixture(async (fixture) => {
-      const listed = await fixture.runJsonCli<{ identities: IdentityListItem[] }>(['list']);
+      const listed = withoutAddress(
+        await fixture.runJsonCli<{ identities: IdentityListItem[] }>(['list'])
+      );
       expect(listed).toMatchObject({ code: 0, json: { identities: [] } });
     });
   });

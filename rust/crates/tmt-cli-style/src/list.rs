@@ -1,6 +1,6 @@
 //! A list section: an UPPERCASE bold title with a dimmed count, rows indented
-//! two spaces with no header row or borders, then a hint only when there is
-//! something to do next.
+//! two spaces with no header row or borders, an optional dimmed note for rows
+//! folded away, then a hint only when there is something to do next.
 
 use crate::{
     message,
@@ -14,6 +14,9 @@ pub struct Section<'a> {
     /// Shown dimmed after the title; `None` for sections that are not counts.
     pub count: Option<usize>,
     pub rows: Table,
+    /// One dimmed line under the rows, such as `offline: a · b` for rows that
+    /// were folded away.
+    pub note: Option<&'a str>,
     pub hint: Option<&'a str>,
 }
 
@@ -39,6 +42,9 @@ impl Section<'_> {
             None => writeln!(output, "{title}")?,
         }
         self.rows.write_laid_out(output, terminal, widths)?;
+        if let Some(note) = self.note {
+            writeln!(output, "    {}", terminal.paint(Token::Dim, note))?;
+        }
         match self.hint {
             Some(next) => message::hint(output, terminal, next),
             None => Ok(()),

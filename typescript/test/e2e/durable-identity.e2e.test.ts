@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { expectJsonResult } from './cli-assertions.js';
+import { expectJsonResult, withoutAddress } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 
@@ -116,7 +116,7 @@ describe.sequential('durable identity lifecycle', () => {
 
       const activeBeforeRestart = expectJsonResult<{
         identities: ListedIdentity[];
-      }>(await fixture.runJsonCli(['list']));
+      }>(withoutAddress(await fixture.runJsonCli(['list'])));
       expect(activeBeforeRestart.identities).toEqual([
         expect.objectContaining({
           id: created.identity.id,
@@ -141,7 +141,7 @@ describe.sequential('durable identity lifecycle', () => {
         lifetime: 'saved',
         retired: false,
       });
-      expect(expectJsonResult(await fixture.runJsonCli(['list']))).toEqual({
+      expect(expectJsonResult(withoutAddress(await fixture.runJsonCli(['list'])))).toEqual({
         identities: [{ ...created.identity, presence: 'offline', pane: null, command: '' }],
       });
 
@@ -170,7 +170,9 @@ describe.sequential('durable identity lifecycle', () => {
         )
       ).toEqual({ agent: name, preamble });
       expect(
-        expectJsonResult<{ identities: ListedIdentity[] }>(await fixture.runJsonCli(['list']))
+        expectJsonResult<{ identities: ListedIdentity[] }>(
+          withoutAddress(await fixture.runJsonCli(['list']))
+        )
       ).toEqual({
         identities: [
           expect.objectContaining({

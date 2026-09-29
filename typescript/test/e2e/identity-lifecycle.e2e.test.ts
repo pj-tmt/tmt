@@ -1,3 +1,4 @@
+import { withoutAddress } from './cli-assertions.js';
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
@@ -34,7 +35,9 @@ function json<T>(result: CliResult<T>): T {
 }
 
 async function listIdentities(fixture: E2EFixture): Promise<IdentityListItem[]> {
-  const result = await fixture.runJsonCli<{ identities: IdentityListItem[] }>(['list']);
+  const result = withoutAddress(
+    await fixture.runJsonCli<{ identities: IdentityListItem[] }>(['list'])
+  );
   expect(result.code).toBe(0);
   return json(result).identities;
 }
@@ -127,7 +130,7 @@ describe.sequential('global identity lifecycle', () => {
 
       const initialHuman = await fixture.runCli(['whoami']);
       expect(initialHuman.code).toBe(0);
-      expect(initialHuman.stdout).toContain(`Pane ${pane} is unbound.`);
+      expect(initialHuman.stdout).toContain(`Pane ${pane} is unbound`);
       expect(initialHuman.stderr).toBe('');
 
       const namedJson = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
@@ -145,7 +148,7 @@ describe.sequential('global identity lifecycle', () => {
 
       const whoamiHuman = await fixture.runCli(['whoami']);
       expect(whoamiHuman.code).toBe(0);
-      expect(whoamiHuman.stdout).toContain(`Bound temporary identity 'Lifecycle' on pane ${pane}`);
+      expect(whoamiHuman.stdout).toBe(`Lifecycle (temporary) on pane ${pane}\n`);
       expect(whoamiHuman.stderr).toBe('');
 
       const whoamiJson = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
@@ -528,7 +531,7 @@ describe.sequential('global identity lifecycle', () => {
         2_000,
         'durable pane to disappear'
       );
-      expect((await fixture.runJsonCli(['list'])).json).toEqual({
+      expect(withoutAddress(await fixture.runJsonCli(['list'])).json).toEqual({
         identities: [
           {
             id: identity.id,

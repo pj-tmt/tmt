@@ -33,7 +33,9 @@ the same UUID without downgrading existing saved identities. Names remain
 globally unique, not folder-scoped. `identity create` creates or promotes saved
 records. `ls` includes all non-retired identities with `lifetime` and independent
 `presence` (`active`, `offline`, `unknown`); offline/unknown entries are not
-verified destinations. Unknown evidence never authorizes retirement.
+verified destinations. Its human list leads with a state mark and the name,
+then a `driver:id` address; read `ls --json` (which adds `address` and
+`driver`) rather than parsing that text. Unknown evidence never authorizes retirement.
 Conclusive pane loss or explicit unbind retires temporary identities; saved
 identities remain offline. Native `rm <name>` retires a temporary identity;
 saved removal needs `--force`. Removal never kills a pane and removes only its

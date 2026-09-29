@@ -1,10 +1,27 @@
 //! Public projections deliberately omit binding markers and process evidence.
+//! Human output follows docs/cli-style.md: `ls` is agent-first, with a state
+//! mark, the name, one `driver:identifier` address and the working folder.
 
-use super::Report;
-use crate::output::{identity_document, table};
+use super::{ListedRow, Report};
+use crate::output::identity_document;
 use serde_json::{Value, json};
-use std::io::{self, Write};
-use tmt_core::{binding::IdentityPresence, endpoint::PaneObservation, identity::Identity};
+use std::{
+    io::{self, Write},
+    path::Path,
+};
+use tmt_cli_style::{
+    Terminal, Token,
+    list::{self, Section},
+    mark::Mark,
+    message,
+    table::{Cell, Column, Table},
+    value,
+};
+use tmt_core::{
+    binding::{IdentityPresence, Presence, session::RememberedSession, session::RuntimeState},
+    endpoint::PaneObservation,
+    identity::{Identity, Lifetime},
+};
 
 fn pane_document(pane: &PaneObservation) -> Value {
     let mut value = json!({"id": pane.id, "command": pane.command});
@@ -66,54 +83,317 @@ pub(super) fn document(report: &Report) -> Value {
         Report::Removed(entry) => {
             json!({"removed": true, "identity": identity_document(&entry.identity)})
         }
-        Report::Listed(rows) => json!({"identities": rows.iter().map(|(row, resume)| {
-            let mut value = presence_document(row);
-            if let Some(resume) = resume {
+        Report::Listed { rows, .. } => json!({"identities": rows.iter().map(|row| {
+            let mut value = presence_document(&row.presence);
+            if let Some(resume) = &row.resume {
                 value["resume"] = resume.clone();
             }
-            value
+            with_address(value, address(&row.presence, row.remembered.as_ref()))
         }).collect::<Vec<_>>()}),
-        Report::Named { target, row } => {
+        Report::Named {
+            target,
+            row,
+            remembered,
+        } => with_address(
             json!({"target": target, "identity": identity_document(&row.identity),
-            "presence": row.presence.as_str(), "pane": row.pane.as_ref().map(pane_document)})
-        }
+            "presence": row.presence.as_str(), "pane": row.pane.as_ref().map(pane_document)}),
+            address(row, remembered.as_ref()),
+        ),
         Report::Pane {
             target,
             pane,
             identity,
+            ..
         } => json!({"target": target,
             "identity": identity.as_ref().map(identity_document), "pane": pane_document(pane)}),
     }
 }
 
-const HEADERS: [&str; 7] = [
-    "NAME", "LIFETIME", "STATUS", "PANE", "TARGET", "CWD", "COMMAND",
-];
+/// Additive `address`/`driver` keys, full values; existing keys keep their order.
+fn with_address(mut value: Value, address: Option<Address>) -> Value {
+    value["address"] = address.as_ref().map(Address::full).into();
+    value["driver"] = address.map(|address| address.driver).into();
+    value
+}
 
 #[cfg(test)]
 mod caller_tests;
+#[cfg(test)]
+mod list_tests;
 
-fn identity_row(identity: &Identity, status: &str, pane: Option<&PaneObservation>) -> [String; 7] {
-    [
-        identity.name.as_str(),
-        identity.lifetime.as_str(),
-        status,
-        pane.map_or("-", |pane| pane.id.as_str()),
-        pane.and_then(|pane| pane.target.as_deref()).unwrap_or("-"),
-        pane.and_then(|pane| pane.cwd.as_deref()).unwrap_or("-"),
-        pane.map_or("", |pane| pane.command.as_str()),
-    ]
-    .map(str::to_owned)
+/// Foreground commands that mean a bound pane has no agent in it. A pane
+/// running anything else is treated as an agent, even one started without
+/// `tmt run`, whose runtime state TMT cannot see.
+const SHELLS: &[&str] = &["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "nu"];
+
+fn is_shell(command: &str) -> bool {
+    // A login shell reports itself with a leading dash (`-zsh`).
+    SHELLS.contains(&command.strip_prefix('-').unwrap_or(command))
 }
 
-pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
+/// What a row's leading mark says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    /// An agent is running in the bound pane.
+    Running,
+    /// The bound pane has only a shell in it.
+    Shell,
+    /// No live pane.
+    Offline,
+}
+
+impl State {
+    fn mark(self) -> Mark {
+        match self {
+            Self::Running => Mark::Running,
+            Self::Shell => Mark::Idle,
+            Self::Offline => Mark::Offline,
+        }
+    }
+}
+
+fn running(row: &IdentityPresence) -> bool {
+    row.binding
+        .as_ref()
+        .is_some_and(|binding| binding.session.state == RuntimeState::Running)
+}
+
+fn state(row: &IdentityPresence) -> State {
+    match (&row.presence, &row.pane) {
+        (Presence::Active, Some(pane)) if running(row) || !is_shell(&pane.command) => {
+            State::Running
+        }
+        (Presence::Active, Some(_)) => State::Shell,
+        _ => State::Offline,
+    }
+}
+
+/// Where an agent lives: its driver's session when TMT knows it, otherwise
+/// the tmux pane. Human output shortens the identifier; JSON keeps it whole.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Address {
+    driver: String,
+    identifier: String,
+}
+
+impl Address {
+    fn full(&self) -> String {
+        format!("{}:{}", self.driver, self.identifier)
+    }
+
+    fn short(&self) -> String {
+        value::address(&self.driver, &self.identifier)
+    }
+}
+
+fn address(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Option<Address> {
+    let session = |session: &RememberedSession| Address {
+        driver: session.harness.as_str().into(),
+        identifier: session.provider_session.as_str().into(),
+    };
+    let live = row
+        .pane
+        .as_ref()
+        .filter(|_| row.presence == Presence::Active);
+    // A running agent's own session, only when the binding observed that
+    // session: Codex may start before it discloses its thread.
+    let observed = row
+        .binding
+        .as_ref()
+        .and_then(|binding| binding.session.key.as_ref())
+        .and_then(|key| key.provider_session.as_ref());
+    match (live, remembered) {
+        (Some(_), Some(remembered))
+            if running(row) && observed == Some(&remembered.provider_session) =>
+        {
+            Some(session(remembered))
+        }
+        (Some(pane), _) => Some(Address {
+            driver: "tmux".into(),
+            identifier: pane.id.clone(),
+        }),
+        (None, Some(remembered)) => Some(session(remembered)),
+        (None, None) => None,
+    }
+}
+
+/// The trailing action, only where one is possible.
+fn action(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Option<String> {
+    let state = state(row);
+    match remembered {
+        Some(session) if session.stale_at_ms.is_some() => Some("stale".into()),
+        Some(_) if state != State::Running => Some(format!(
+            "{} tmt resume {}",
+            Mark::Resumable.symbol(),
+            row.identity.name
+        )),
+        _ => (state == State::Shell).then(|| "shell".into()),
+    }
+}
+
+fn folder(pane: Option<&PaneObservation>, home: Option<&Path>) -> String {
+    pane.and_then(|pane| pane.cwd.as_deref())
+        .map_or_else(String::new, |cwd| value::home_path(Path::new(cwd), home))
+}
+
+const COLUMNS: [Column; 4] = [Column::Fixed, Column::Name, Column::Fixed, Column::Detail];
+
+fn row_cells(row: &ListedRow, home: Option<&Path>) -> [Cell; 4] {
+    let presence = &row.presence;
+    let mark = state(presence).mark();
+    let address = address(presence, row.remembered.as_ref());
+    [
+        Cell::styled(mark.symbol(), mark.token()),
+        presence.identity.name.as_str().into(),
+        address.map_or_else(
+            || Cell::styled("-", Token::Dim),
+            |address| Cell::styled(address.short(), Token::driver(&address.driver)),
+        ),
+        folder(presence.pane.as_ref(), home).into(),
+    ]
+}
+
+fn write_listing(
+    output: &mut impl Write,
+    terminal: Terminal,
+    rows: &[ListedRow],
+    all: bool,
+    home: Option<&Path>,
+) -> io::Result<()> {
+    if rows.is_empty() {
+        writeln!(output, "No identities found.")?;
+        return message::hint(output, terminal, "tmt name <name>");
+    }
+    let mut built = Vec::new();
+    for (title, lifetime) in [
+        ("saved", Lifetime::Saved),
+        ("temporary", Lifetime::Temporary),
+    ] {
+        let mut members: Vec<&ListedRow> = rows
+            .iter()
+            .filter(|row| row.presence.identity.lifetime == lifetime)
+            .collect();
+        if members.is_empty() {
+            continue;
+        }
+        members.sort_by(|a, b| {
+            a.presence
+                .identity
+                .canonical_name
+                .cmp(&b.presence.identity.canonical_name)
+        });
+        let mut table = Table::new(&COLUMNS);
+        let mut folded = Vec::new();
+        for row in &members {
+            match action(&row.presence, row.remembered.as_ref()) {
+                Some(action) => {
+                    table.row_with_action(row_cells(row, home), &action);
+                }
+                // Offline with nothing to do: one line for all of them.
+                None if !all && state(&row.presence) == State::Offline => {
+                    folded.push(row.presence.identity.name.as_str());
+                }
+                None => {
+                    table.row(row_cells(row, home));
+                }
+            }
+        }
+        let note = (!folded.is_empty()).then(|| format!("offline: {}", folded.join(" · ")));
+        built.push((title, members.len(), table, note));
+    }
+    let sections: Vec<Section<'_>> = built
+        .iter()
+        .map(|(title, count, table, note)| Section {
+            title,
+            count: Some(*count),
+            rows: table.clone(),
+            note: note.as_deref(),
+            hint: None,
+        })
+        .collect();
+    list::write(output, terminal, &sections)
+}
+
+/// Full values for one identity or pane: the tmux location and the whole
+/// session identifier live here, not in the list.
+fn details(
+    output: &mut impl Write,
+    terminal: Terminal,
+    title: &str,
+    fields: Vec<(&str, String)>,
+) -> io::Result<()> {
+    writeln!(output, "{}", terminal.paint(Token::Title, title))?;
+    let mut table = Table::new(&[Column::Fixed, Column::Detail]);
+    for (key, value) in fields {
+        table.row([Cell::styled(key, Token::Dim), value.into()]);
+    }
+    // Details are never truncated, whatever the terminal width.
+    table.write(
+        output,
+        Terminal {
+            width: None,
+            ..terminal
+        },
+    )
+}
+
+fn identity_fields(
+    row: &IdentityPresence,
+    remembered: Option<&RememberedSession>,
+) -> Vec<(&'static str, String)> {
+    let dash = || "-".to_owned();
+    let pane = row.pane.as_ref();
+    let mut fields = vec![
+        ("lifetime", row.identity.lifetime.as_str().to_owned()),
+        (
+            "state",
+            format!("{} {}", state(row).mark().symbol(), row.presence.as_str()),
+        ),
+        (
+            "address",
+            address(row, remembered).map_or_else(dash, |address| address.full()),
+        ),
+        ("pane", pane.map_or_else(dash, |pane| pane.id.clone())),
+        (
+            "target",
+            pane.and_then(|pane| pane.target.clone())
+                .unwrap_or_else(dash),
+        ),
+        (
+            "cwd",
+            pane.and_then(|pane| pane.cwd.clone()).unwrap_or_else(dash),
+        ),
+        (
+            "command",
+            pane.map_or_else(dash, |pane| pane.command.clone()),
+        ),
+    ];
+    if let Some(session) = remembered {
+        let mut resume = format!(
+            "{}:{} ({})",
+            session.harness.as_str(),
+            session.provider_session.as_str(),
+            session.mode.as_str()
+        );
+        if session.stale_at_ms.is_some() {
+            resume.push_str(", stale");
+        }
+        fields.push(("resume", resume));
+    }
+    fields
+}
+
+pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report) -> io::Result<()> {
     match report {
-        Report::Bound(result) => writeln!(
+        Report::Bound(result) => message::success(
             output,
-            "Bound {} identity '{}' on pane {}.",
-            result.presence.identity.lifetime.as_str(),
-            result.presence.identity.name,
-            result.presence.pane.as_ref().expect("verified binding").id
+            terminal,
+            &format!(
+                "Bound {} identity '{}' on pane {}",
+                result.presence.identity.lifetime.as_str(),
+                result.presence.identity.name,
+                result.presence.pane.as_ref().expect("verified binding").id
+            ),
         ),
         Report::Caller {
             pane,
@@ -121,64 +401,84 @@ pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
             ..
         } => writeln!(
             output,
-            "Bound {} identity '{}' on pane {pane}.",
-            identity.lifetime.as_str(),
-            identity.name
+            "{} ({}) on pane {pane}",
+            identity.name,
+            identity.lifetime.as_str()
         ),
         Report::Caller {
             pane,
             identity: None,
             ..
-        } => writeln!(output, "Pane {pane} is unbound."),
-        Report::Unbound { pane, result } => writeln!(
-            output,
-            "Unbound '{}' from pane {pane}; identity {}.",
-            result.identity.name,
-            if result.retired {
-                "retired"
-            } else {
-                "saved offline"
-            }
-        ),
-        Report::Removed(entry) => writeln!(
-            output,
-            "Removed identity '{}'. Exchanges are retained.",
-            entry.identity.name
-        ),
-        Report::Listed(rows) if rows.is_empty() => writeln!(output, "No identities found."),
-        Report::Listed(rows) => table::write(
-            output,
-            HEADERS,
-            rows.iter().map(|(row, _)| {
-                identity_row(&row.identity, row.presence.as_str(), row.pane.as_ref())
-            }),
-        ),
-        Report::Named { row, .. } => table::write(
-            output,
-            HEADERS,
-            [identity_row(
-                &row.identity,
-                row.presence.as_str(),
-                row.pane.as_ref(),
-            )],
-        ),
-        Report::Pane { pane, identity, .. } => {
-            writeln!(
-                output,
-                "Pane: {}\nCWD:  {}\nCMD:  {}",
-                pane.id,
-                pane.cwd.as_deref().unwrap_or("-"),
-                pane.command
-            )?;
-            if let Some(identity) = identity {
-                table::write(
-                    output,
-                    HEADERS,
-                    [identity_row(identity, "active", Some(pane))],
-                )
-            } else {
-                writeln!(output, "Pane has no active global identity.")
-            }
+        } => {
+            writeln!(output, "Pane {pane} is unbound")?;
+            message::hint(output, terminal, "tmt name <name>")
         }
+        Report::Unbound { pane, result } => message::success(
+            output,
+            terminal,
+            &format!(
+                "Unbound '{}' from pane {pane}; identity {}",
+                result.identity.name,
+                if result.retired {
+                    "retired"
+                } else {
+                    "saved offline"
+                }
+            ),
+        ),
+        Report::Removed(entry) => message::success(
+            output,
+            terminal,
+            &format!(
+                "Removed identity '{}'; exchanges are retained",
+                entry.identity.name
+            ),
+        ),
+        Report::Listed { rows, scope } => {
+            let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+            write_listing(output, terminal, rows, scope.all, home.as_deref())
+        }
+        Report::Named {
+            row, remembered, ..
+        } => details(
+            output,
+            terminal,
+            &row.identity.name,
+            identity_fields(row, remembered.as_ref()),
+        ),
+        Report::Pane {
+            pane,
+            identity,
+            remembered,
+            ..
+        } => match identity {
+            Some(identity) => {
+                let row = IdentityPresence {
+                    identity: identity.clone(),
+                    presence: Presence::Active,
+                    pane: Some(pane.clone()),
+                    binding: None,
+                };
+                details(
+                    output,
+                    terminal,
+                    &identity.name,
+                    identity_fields(&row, remembered.as_ref()),
+                )
+            }
+            None => {
+                details(
+                    output,
+                    terminal,
+                    &pane.id,
+                    vec![
+                        ("target", pane.target.clone().unwrap_or_else(|| "-".into())),
+                        ("cwd", pane.cwd.clone().unwrap_or_else(|| "-".into())),
+                        ("command", pane.command.clone()),
+                    ],
+                )?;
+                message::hint(output, terminal, &format!("tmt add {} <name>", pane.id))
+            }
+        },
     }
 }

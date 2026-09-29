@@ -10,4 +10,5 @@ SAVED 3
 TEMPORARY 2
   ●  mamezu-astra     codex:01a9c3b8   ~/dev/mosaic-art
   ◌  opus-1           tmux:%31         /srv/builds/nightly                       shell
+    offline: gemini-helper · night-owl
 hint: tmt ls --all shows offline identities

@@ -76,18 +76,40 @@ tmt add %12 gemini
 tmt marked claude
 ```
 
-Use these commands to inspect the current tmux server:
+Use these commands to inspect your agents:
 
 ```bash
-tmt list
-tmt list reviewer
+tmt ls                # agents first, saved then temporary
+tmt ls --all          # also each offline identity with nothing to resume
+tmt ls --saved        # or --temp; --here keeps this tmux session's agents
+tmt ls reviewer       # one identity's full details, including its pane
 tmt whoami
 ```
 
-Human tables align columns using Unicode display widths and show complete values.
-Long rows may wrap in narrow terminals. Control characters in table metadata are
-shown as escapes, not executed. Use `--json` for scripts and exact metadata;
-human spacing is presentation, not a machine-readable format.
+`tmt ls` prints one row per agent: a state mark, the name, where the agent
+lives and its folder, with an action at the end only where one is possible:
+
+```text
+SAVED 3
+  ●  astra            codex:019a2f4c   ~/dev/tmux-team
+  ●  reviewer         claude:7c41e9d2  ~/dev/tmux-team
+  ○  sol              claude:3f9a1c07                    ↻ tmt resume sol
+    offline: gemini
+
+TEMPORARY 1
+  ◌  scratch          tmux:%31         ~/dev/scratch     shell
+```
+
+`●` means an agent is running, `○` offline and `◌` a bound pane with only a
+shell in it. The address is the agent's own session (`claude:`, `codex:`) when
+TMT knows it, otherwise its tmux pane (`tmux:%N`); identifiers are shortened to
+8 characters. `↻ tmt resume <name>` appears when a remembered session can
+resume, and `stale` when that session is gone. `tmt ls <name>` shows the full
+values, the tmux location and the remembered session. The output follows the
+[CLI style](docs/cli-style.md): on a terminal, rows never wrap and folders are
+shortened first; piped output keeps every value whole. Control characters in
+names or folders are shown as escapes, not executed. Use `--json` for scripts:
+each row adds `address` and `driver` to the existing fields.
 
 `name` and ordinary `whoami` need a live caller pane. `add` accepts `%pane_id`,
 `window.pane`, or `session:window.pane`; the current order is pane target first,

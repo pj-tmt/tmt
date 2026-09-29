@@ -29,6 +29,7 @@ pub enum Invocation {
     List {
         target: Option<String>,
         room: Option<String>,
+        scope: ListScope,
     },
     Bind {
         pane: Option<String>,
@@ -306,4 +307,14 @@ pub struct ParseError {
     pub code: &'static str,
     pub message: String,
     pub mode: OutputMode,
+}
+
+/// Which identities `tmt ls` shows: one lifetime or both, only the caller's
+/// tmux session, and whether offline identities with nothing to resume are
+/// folded into one line.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ListScope {
+    pub lifetime: Option<tmt_core::identity::Lifetime>,
+    pub here: bool,
+    pub all: bool,
 }

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { expectJsonResult } from './cli-assertions.js';
+import { expectJsonResult, withoutAddress } from './cli-assertions.js';
 import { withE2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';
@@ -41,7 +41,7 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       const peer = await fixture.createMockPane('table-peer', workspace);
       const wide = expectJsonResult(await fixture.runJsonCli<Bound>(['name', wideName]));
       const long = expectJsonResult(await fixture.runJsonCli<Bound>(['add', peer.pane, longName]));
-      const before = expectJsonResult(await fixture.runJsonCli<Listing>(['ls']));
+      const before = expectJsonResult(withoutAddress(await fixture.runJsonCli<Listing>(['ls'])));
       expect(before.identities).toEqual([
         expect.objectContaining({
           id: wide.id,
@@ -56,24 +56,34 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       expect(human.stderr).toBe('');
       expect(human.stdout).not.toContain('\t');
       const lines = human.stdout.trimEnd().split('\n');
+      // Agent-first: one TEMPORARY section, no header row, rows sorted by name.
       expect(lines).toHaveLength(3);
-      const header = lines[0]!;
-      const starts = ['LIFETIME', 'STATUS', 'PANE', 'TARGET', 'CWD', 'COMMAND'].map((label) =>
-        header.indexOf(label)
-      );
+      expect(lines[0]).toBe('TEMPORARY 2');
+      const starts = new Set<string>();
       for (const [index, row] of before.identities.entries()) {
         const line = lines[index + 1]!;
-        expect(line.startsWith(row.name)).toBe(true);
+        expect(line).toBe(line.trimEnd());
         // This known five-fullwidth-character name occupies ten columns.
         // Substitution is an independent fixture oracle, not a second renderer.
         const columns = line.replace(wideName, '1234567890');
-        const values = [row.lifetime, row.presence, row.pane!, row.target!, row.cwd!, row.command];
-        for (const [column, value] of values.entries()) {
-          expect(columns.slice(starts[column], starts[column]! + value.length)).toBe(value);
-        }
-        expect(line).toBe(line.trimEnd());
+        const name = row.name === wideName ? '1234567890' : row.name;
+        expect(columns.slice(5, 5 + name.length)).toBe(name);
+        const address = columns.indexOf(`tmux:${row.pane}`);
+        expect(address).toBeGreaterThan(5);
+        // The folder follows the address; home abbreviation depends on the CLI's HOME.
+        const after = address + `tmux:${row.pane}`.length;
+        const cwd = after + columns.slice(after).search(/\S/);
+        expect(columns.slice(cwd)).toMatch(
+          // A mock pane runs a shell, so the row ends with its `shell` action.
+          new RegExp(`${path.basename(row.cwd!)}(  shell)?$`)
+        );
+        starts.add(`${address}:${cwd}`);
       }
-      expect(expectJsonResult(await fixture.runJsonCli<Listing>(['ls']))).toEqual(before);
+      // Both rows share one layout: every column starts at the same place.
+      expect(starts.size).toBe(1);
+      expect(expectJsonResult(withoutAddress(await fixture.runJsonCli<Listing>(['ls'])))).toEqual(
+        before
+      );
       expect(
         durableState(fixture)
           .bindings.map((row) => row.identity_id)
@@ -135,7 +145,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
           expect(durableState(first).bindings).toEqual([
             expect.objectContaining({ identity_id: alice.id, socket_path: first.socketPath }),
           ]);
-          const list = expectJsonResult(await second.runJsonCli<Listing>(['ls'])).identities;
+          const list = expectJsonResult(
+            withoutAddress(await second.runJsonCli<Listing>(['ls']))
+          ).identities;
           expect(list.map((row) => [row.name, row.presence])).toEqual([
             ['Alice', 'active'],
             ['Bob', 'offline'],
@@ -158,7 +170,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
         '@tmux-team.server-id',
         '123e4567-e89b-42d3-a456-426614174111',
       ]);
-      const rows = expectJsonResult(await fixture.runJsonCli<Listing>(['ls'])).identities;
+      const rows = expectJsonResult(
+        withoutAddress(await fixture.runJsonCli<Listing>(['ls']))
+      ).identities;
       expect(rows).toEqual([
         {
           id: initial.id,
@@ -191,7 +205,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
         JSON.stringify(mismatched),
       ]);
       const scoped = expectJsonResult(
-        await fixture.runJsonCli<{ presence: string; pane: null }>(['ls', 'Uncertain'])
+        withoutAddress(
+          await fixture.runJsonCli<{ presence: string; pane: null }>(['ls', 'Uncertain'])
+        )
       );
       expect(scoped).toMatchObject({ presence: 'offline', pane: null });
       expect(durableState(fixture).identities).toEqual(before.identities);
@@ -227,7 +243,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
           .every((line) => line.includes(' -f ') && line.includes(fixture.pane))
       ).toBe(true);
       trace.clear();
-      const all = expectJsonResult(await fixture.runJsonCli<Listing>(['ls'])).identities;
+      const all = expectJsonResult(
+        withoutAddress(await fixture.runJsonCli<Listing>(['ls']))
+      ).identities;
       expect(all.map((row) => row.id)).toEqual([owner.id, second.id]);
       const queries = trace.invocations().filter((line) => line.includes('list-panes'));
       expect(queries).toHaveLength(1);
@@ -261,7 +279,7 @@ describe.sequential('binding publication, reconciliation and presentation', () =
         sessionState: 'unknown',
       });
       const live = expectJsonResult(
-        await fixture.runJsonCli<Listing>(['ls'], { cwd: otherFolder })
+        withoutAddress(await fixture.runJsonCli<Listing>(['ls'], { cwd: otherFolder }))
       ).identities;
       expect(live).toEqual([
         {
@@ -287,8 +305,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       });
       expect(fixture.paneMetadata()).toBe('');
       expect(
-        expectJsonResult(await fixture.runJsonCli<Listing>(['ls'], { withoutTmux: true }))
-          .identities
+        expectJsonResult(
+          withoutAddress(await fixture.runJsonCli<Listing>(['ls'], { withoutTmux: true }))
+        ).identities
       ).toEqual([
         {
           id: initial.id,
@@ -314,8 +333,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
         identity: { id: initial.id, name: 'Alice', canonicalName: 'alice', lifetime: 'saved' },
       });
       expect(
-        expectJsonResult(await fixture.runJsonCli<Listing>(['ls'], { withoutTmux: true }))
-          .identities
+        expectJsonResult(
+          withoutAddress(await fixture.runJsonCli<Listing>(['ls'], { withoutTmux: true }))
+        ).identities
       ).toEqual([]);
       expect(durableState(fixture).identities).toEqual([
         expect.objectContaining({ id: initial.id, retired_at_ms: expect.any(Number) }),
@@ -337,7 +357,8 @@ describe.sequential('binding publication, reconciliation and presentation', () =
         '-t',
         'e2e:8',
       ]);
-      const moved = expectJsonResult(await fixture.runJsonCli<Listing>(['ls'])).identities[0];
+      const moved = expectJsonResult(withoutAddress(await fixture.runJsonCli<Listing>(['ls'])))
+        .identities[0];
       expect(moved).toMatchObject({
         id: named.id,
         pane: peer.pane,
@@ -346,7 +367,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
         presence: 'active',
       });
       fixture.tmux(['kill-pane', '-t', peer.pane]);
-      expect(expectJsonResult(await fixture.runJsonCli<Listing>(['ls'])).identities).toEqual([]);
+      expect(
+        expectJsonResult(withoutAddress(await fixture.runJsonCli<Listing>(['ls']))).identities
+      ).toEqual([]);
       const fresh = expectJsonResult(
         await fixture.runJsonCli<Bound>(['add', fixture.pane, 'worker'])
       );
@@ -382,7 +405,7 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       expect(refused).toMatchObject({ lifetime: 'temporary' });
       expect(typeof refused.retired_at_ms).toBe('number');
       expect(state.bindings).toEqual([expect.objectContaining({ identity_id: owner.id })]);
-      const listing = expectJsonResult(await fixture.runJsonCli<Listing>(['ls']));
+      const listing = expectJsonResult(withoutAddress(await fixture.runJsonCli<Listing>(['ls'])));
       expect(listing.identities.map((row) => row.name)).toEqual(['Owner']);
       const peer = await fixture.createMockPane('retry');
       const rebound = expectJsonResult(
@@ -418,9 +441,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
         );
         expect(fixture.paneMetadata()).toBe('');
         expect(
-          expectJsonResult(await fixture.runJsonCli<Listing>(['ls'])).identities.map(
-            (row) => row.pane
-          )
+          expectJsonResult(
+            withoutAddress(await fixture.runJsonCli<Listing>(['ls']))
+          ).identities.map((row) => row.pane)
         ).toEqual([real.pane]);
       }, inputLog);
     },
@@ -438,7 +461,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
           fixture.tmux(['link-window', '-s', 'e2e:0', '-t', 'attached:']);
         }
         await fixture.attachSessionClient('attached');
-        const live = expectJsonResult(await fixture.runJsonCli<Listing>(['ls'])).identities;
+        const live = expectJsonResult(
+          withoutAddress(await fixture.runJsonCli<Listing>(['ls']))
+        ).identities;
         expect(live).toHaveLength(1);
         expect(live[0]).toMatchObject({
           id: identity.id,
@@ -447,7 +472,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
           target: expect.stringMatching(/^attached:/),
         });
         const scoped = expectJsonResult(
-          await fixture.runJsonCli<{ pane: { id: string; target: string } }>(['ls', fixture.pane])
+          withoutAddress(
+            await fixture.runJsonCli<{ pane: { id: string; target: string } }>(['ls', fixture.pane])
+          )
         );
         expect(scoped.pane).toMatchObject({ id: fixture.pane, target: live[0]!.target });
         expect(durableState(fixture).bindings).toHaveLength(1);
@@ -472,7 +499,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       expect((await process.result).code).not.toBe(0);
       fixture.releaseMetadataBarrier();
       expect(durableState(fixture).bindings).toEqual([]);
-      const offline = expectJsonResult(await fixture.runJsonCli<Listing>(['ls'])).identities;
+      const offline = expectJsonResult(
+        withoutAddress(await fixture.runJsonCli<Listing>(['ls']))
+      ).identities;
       expect(offline).toEqual([
         expect.objectContaining({ id: orphan.identityId, presence: 'offline', pane: null }),
       ]);
@@ -515,10 +544,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
           const bob = expectJsonResult(await second.runJsonCli<Bound>(['name', 'Bob']));
           expect(second.pane).toBe(first.pane);
           expect(
-            expectJsonResult(await second.runJsonCli<Listing>(['ls'])).identities.map((row) => [
-              row.id,
-              row.presence,
-            ])
+            expectJsonResult(
+              withoutAddress(await second.runJsonCli<Listing>(['ls']))
+            ).identities.map((row) => [row.id, row.presence])
           ).toEqual([
             [alice.id, 'active'],
             [bob.id, 'active'],
@@ -533,7 +561,9 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       );
       // Native global visibility reconciles conclusive foreign death too;
       // the installed TS current-server-only rule is not this contract.
-      expect(expectJsonResult(await first.runJsonCli<Listing>(['ls'])).identities).toEqual([]);
+      expect(
+        expectJsonResult(withoutAddress(await first.runJsonCli<Listing>(['ls']))).identities
+      ).toEqual([]);
       expect(
         durableState(first).identities.every((row) => typeof row.retired_at_ms === 'number')
       ).toBe(true);

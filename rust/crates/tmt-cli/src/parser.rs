@@ -290,6 +290,17 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["list"] => Invocation::List {
             target: text(m, "target"),
             room: text(m, "room"),
+            scope: crate::invocation::ListScope {
+                lifetime: if flag(m, "saved") {
+                    Some(tmt_core::identity::Lifetime::Saved)
+                } else if flag(m, "temp") {
+                    Some(tmt_core::identity::Lifetime::Temporary)
+                } else {
+                    None
+                },
+                here: flag(m, "here"),
+                all: flag(m, "all"),
+            },
         },
         ["room", "create"] => Invocation::Room(RoomOperation::Create(required(m, "name"))),
         ["room", "list"] => Invocation::Room(RoomOperation::List),

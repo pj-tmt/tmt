@@ -140,14 +140,19 @@ describe('native identity binding process contract', () => {
             presence: 'offline',
             pane: null,
             command: '',
+            // Additive: an offline identity with no remembered session has no address.
+            address: null,
+            driver: null,
           },
         ],
       });
       const globalRow = (parseWholeStdout(global) as { identities: Array<Record<string, unknown>> })
         .identities[0];
       expect(Object.keys(globalRow).sort()).toEqual([
+        'address',
         'canonicalName',
         'command',
+        'driver',
         'id',
         'lifetime',
         'name',
@@ -163,8 +168,12 @@ describe('native identity binding process contract', () => {
         identity,
         presence: 'offline',
         pane: null,
+        address: null,
+        driver: null,
       });
       expect(Object.keys(parseWholeStdout(named)).sort()).toEqual([
+        'address',
+        'driver',
         'identity',
         'pane',
         'presence',
@@ -179,14 +188,42 @@ describe('native identity binding process contract', () => {
       const human = await runCli(sandbox, ['ls']);
       expect(human.status).toBe(0);
       expect(human.stderr).toBe('');
-      expect(human.stdout).toBe(
-        'NAME           LIFETIME  STATUS   PANE  TARGET  CWD  COMMAND\n' +
-          'Offline Agent  saved     offline  -     -       -\n'
+      // Offline with nothing to resume: folded into one line; --all expands it.
+      expect(human.stdout).toBe('SAVED 1\n    offline: Offline Agent\n');
+      const all = await runCli(sandbox, ['ls', '--all']);
+      expect(all.stdout).toBe('SAVED 1\n  ○  Offline Agent  -\n');
+      const details = await runCli(sandbox, ['ls', 'offline agent']);
+      expect(details.stdout).toBe(
+        'Offline Agent\n' +
+          '  lifetime  saved\n' +
+          '  state     ○ offline\n' +
+          '  address   -\n' +
+          '  pane      -\n' +
+          '  target    -\n' +
+          '  cwd       -\n' +
+          '  command   -\n'
       );
     });
   });
 
-  it('aligns Unicode and variable-length names in the human ls table', async () => {
+  it('filters ls by lifetime and refuses --here outside tmux', async () => {
+    await withSandbox(async (sandbox) => {
+      await runCli(sandbox, ['identity', 'create', 'Keeper', '--json']);
+      const saved = await runCli(sandbox, ['ls', '--saved', '--all']);
+      expect(saved.stdout).toBe('SAVED 1\n  ○  Keeper  -\n');
+      const temporary = await runCli(sandbox, ['ls', '--temp']);
+      expect(temporary.status).toBe(0);
+      expect(temporary.stdout).toBe('No identities found.\nhint: tmt name <name>\n');
+      const here = await runCli(sandbox, ['ls', '--here']);
+      expect(here.status).toBe(3);
+      expect(here.stdout).toBe('');
+      expect(here.stderr).toContain('needs a tmux pane');
+      const json = await runCli(sandbox, ['ls', '--temp', '--json']);
+      expect(parseWholeStdout(json)).toEqual({ identities: [] });
+    });
+  });
+
+  it('aligns Unicode and variable-length names in the human ls list', async () => {
     await withSandbox(async (sandbox) => {
       // Fullwidth and decomposed fixture names must retain their display bytes.
       const names = ['A', 'ＡＢ', 'Longest identity name', 'e\u0301'];
@@ -198,15 +235,20 @@ describe('native identity binding process contract', () => {
         );
       }
 
-      const listed = await runCli(sandbox, ['ls']);
+      const listed = await runCli(sandbox, ['ls', '--all']);
       expect(listed.status).toBe(0);
       expect(listed.stderr).toBe('');
+      // Sorted by canonical name; widths are display columns, not bytes.
       expect(listed.stdout).toBe(
-        'NAME                   LIFETIME  STATUS   PANE  TARGET  CWD  COMMAND\n' +
-          `A                      saved     offline  -     -       -\n` +
-          `ＡＢ                   saved     offline  -     -       -\n` +
-          `Longest identity name  saved     offline  -     -       -\n` +
-          `é                      saved     offline  -     -       -\n`
+        'SAVED 4\n' +
+          '  ○  A                      -\n' +
+          '  ○  ＡＢ                   -\n' +
+          '  ○  Longest identity name  -\n' +
+          '  ○  e\u0301                      -\n'
+      );
+      const folded = await runCli(sandbox, ['ls']);
+      expect(folded.stdout).toBe(
+        'SAVED 4\n    offline: A · ＡＢ · Longest identity name · e\u0301\n'
       );
       const structured = await runCli(sandbox, ['ls', '--json']);
       expect(structured.status).toBe(0);
@@ -220,6 +262,8 @@ describe('native identity binding process contract', () => {
           presence: 'offline',
           pane: null,
           command: '',
+          address: null,
+          driver: null,
         })),
       });
     });

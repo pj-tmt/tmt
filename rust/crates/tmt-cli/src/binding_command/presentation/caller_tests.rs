@@ -28,8 +28,8 @@ fn ordinary_whoami_preserves_existing_fields_and_human_text() {
     );
     assert_eq!(projected, original);
     let mut human = Vec::new();
-    text(&mut human, &report).unwrap();
-    assert_eq!(human, b"Bound saved identity 'Alice' on pane %1.\n");
+    text(&mut human, Terminal::PLAIN, &report).unwrap();
+    assert_eq!(human, b"Alice (saved) on pane %1\n");
     let report = Report::Caller {
         pane: "%1".into(),
         identity: None,
