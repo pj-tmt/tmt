@@ -4,8 +4,8 @@
 // Extension releases share the repository and must never become latest.
 // Alpha status lives in the version and title, not in GitHub's prerelease flag.
 // `tmt upgrade` checks the flag with `Product::accepts_prerelease_flag` in
-// tmt-core; a Rust test in native_install/release_tests.rs reads this table, so
-// publishing a flag the updater refuses fails there.
+// tmt-core. The flags are pinned in test/tooling/native-release-policy.test.ts
+// and in the Rust native_install/release_tests.rs; change all three together.
 
 const PRODUCTS = {
   cli: { tagPrefix: 'v', prerelease: false, latest: true },

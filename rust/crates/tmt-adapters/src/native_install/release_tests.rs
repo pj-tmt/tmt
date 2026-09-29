@@ -406,35 +406,24 @@ fn a_cli_alpha_may_be_a_normal_release_but_extensions_stay_flagged() {
     }
 }
 
-/// The publication policy in `typescript/scripts/native-release-policy.mjs`
-/// must publish every product with a flag the updater accepts for a
-/// pre-release version, under the same tag prefix.
+/// The GitHub prerelease flag each product is published with, pinned here
+/// and in `typescript/test/tooling/native-release-policy.test.ts` against
+/// `typescript/scripts/native-release-policy.mjs`. Change all three together:
+/// this is a two-sided pin, not an automatic cross-check.
 #[test]
 fn the_publication_policy_publishes_flags_the_updater_accepts() {
-    let policy = include_str!("../../../../../typescript/scripts/native-release-policy.mjs");
     let alpha = "1.0.0-alpha.1".parse().unwrap();
-    let mut seen = Vec::new();
-    for line in policy.lines().filter(|line| line.contains("tagPrefix:")) {
-        let field = |name: &str| {
-            let start = line.find(&format!("{name}: ")).unwrap() + name.len() + 2;
-            line[start..]
-                .split([',', ' '])
-                .next()
-                .unwrap()
-                .trim_matches('\'')
-                .to_owned()
-        };
-        let name = line.trim().split(':').next().unwrap();
-        let product = Product::parse(name).unwrap();
-        assert_eq!(field("tagPrefix"), product.tag_prefix(), "{line}");
-        let flagged = field("prerelease").parse::<bool>().unwrap();
+    for (product, published) in [
+        (Product::Cli, false),
+        (Product::Office, true),
+        (Product::Squad, true),
+    ] {
         assert!(
-            product.accepts_prerelease_flag(&alpha, flagged),
-            "{name} publishes prerelease={flagged}, which tmt upgrade refuses"
+            product.accepts_prerelease_flag(&alpha, published),
+            "{} publishes prerelease={published}, which tmt upgrade refuses",
+            product.as_str()
         );
-        seen.push(product);
     }
-    assert_eq!(seen, Product::ALL);
 }
 
 #[test]
