@@ -1,16 +1,12 @@
 //! Test-only stand-in for the invoking `tmt`: the same `tmt api` code path and
-//! the two JSON commands the service uses.
+//! the two JSON commands the service uses. It never observes panes: the
+//! fixtures bind none, and bound presence is `tmt list`'s own contract, tested
+//! in core.
 
 use super::{CoreFault, LocalCore};
 use serde_json::{Value, json};
-use tmt_adapters::{
-    api,
-    config::ConfigPaths,
-    host::{CallerEnvironment, Host},
-    room::encode_rooms,
-    storage::Storage,
-};
-use tmt_core::{binding, room::RoomRepository};
+use tmt_adapters::{api, config::ConfigPaths, room::encode_rooms, storage::Storage};
+use tmt_core::{identity::IdentityReader, room::RoomRepository};
 use tmt_office_storage::core_client::WriteOriginator;
 
 pub(super) struct InProcessCore {
@@ -50,20 +46,17 @@ impl LocalCore for InProcessCore {
         let mut storage =
             Storage::open(&self.paths.database).map_err(|_| CoreFault::unavailable())?;
         let result = match args {
-            ["list"] => {
-                let environment = CallerEnvironment::current();
-                let host = Host::for_caller(&environment);
-                let mut endpoint = host.session();
-                binding::list_presence(&mut storage, &mut endpoint, environment.selected_server())
-                    .map(|rows| {
-                        json!({"identities": rows.into_iter().map(|row| json!({
-                            "id": row.identity.id,
-                            "lifetime": row.identity.lifetime.as_str(),
-                            "presence": row.presence.as_str(),
-                        })).collect::<Vec<_>>()})
-                    })
-                    .map_err(|_| CoreFault::unavailable())
-            }
+            // An unbound identity is offline in `tmt list --json`.
+            ["list"] => storage
+                .list_identities()
+                .map(|identities| {
+                    json!({"identities": identities.into_iter().map(|identity| json!({
+                        "id": identity.id,
+                        "lifetime": identity.lifetime.as_str(),
+                        "presence": "offline",
+                    })).collect::<Vec<_>>()})
+                })
+                .map_err(|_| CoreFault::unavailable()),
             ["room", "list"] => storage
                 .list_meeting_rooms()
                 .map(|rooms| json!({"rooms": serde_json::from_slice::<Value>(&encode_rooms(&rooms)).expect("rooms")}))
