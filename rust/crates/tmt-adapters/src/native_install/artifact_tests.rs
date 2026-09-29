@@ -15,6 +15,8 @@ const OFFICE_PAYLOAD: &[u8] = b"#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\n";
 
 #[path = "office_companion_tests.rs"]
 mod office_companion_tests;
+#[path = "squad_product_tests.rs"]
+mod squad_product_tests;
 
 enum Entry {
     File {
@@ -119,8 +121,17 @@ fn fixture(entries: Vec<Entry>) -> Fixture {
 }
 
 fn product_fixture(entries: Vec<Entry>, package: &str, files: &[&str]) -> Fixture {
+    product_fixture_at(entries, package, files, "1.2.3")
+}
+
+fn product_fixture_at(
+    entries: Vec<Entry>,
+    package: &str,
+    files: &[&str],
+    version: &str,
+) -> Fixture {
     let directory = TestDirectory::new();
-    let name = "tmux-team-1.2.3-aarch64-apple-darwin.tar.gz".to_owned();
+    let name = format!("tmux-team-{version}-aarch64-apple-darwin.tar.gz");
     let archive = directory.path.join(&name);
     let manifest = directory.path.join("manifest.json");
     let compressed = gzip_tar(entries);
@@ -140,7 +151,7 @@ fn product_fixture(entries: Vec<Entry>, package: &str, files: &[&str]) -> Fixtur
             },
             "releases": [{
                 "app_name": package,
-                "app_version": "1.2.3",
+                "app_version": version,
                 "artifacts": [name.clone()]
             }]
         }))
