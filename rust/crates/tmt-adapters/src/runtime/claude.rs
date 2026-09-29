@@ -22,6 +22,8 @@ pub fn observe_in_pane(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaudeObservation {
     pub session: ProviderSessionId,
+    /// The model the provider reported for this event, unvalidated.
+    pub model: Option<String>,
     pub transition: SessionTransition,
     pub starting: bool,
 }
@@ -96,6 +98,8 @@ impl ClaudeObservation {
 struct Payload {
     hook_event_name: String,
     session_id: String,
+    /// Documented provider field: the active model slug.
+    model: Option<String>,
     source: Option<String>,
     reason: Option<String>,
 }
@@ -141,6 +145,7 @@ pub fn decode_hook(bytes: &[u8]) -> Result<ClaudeObservation, HookInputError> {
     };
     Ok(ClaudeObservation {
         session,
+        model: payload.model,
         transition,
         starting,
     })
@@ -155,6 +160,10 @@ pub fn hook_entry(launcher: &str) -> Value {
 pub struct ClaudeLifecycle;
 
 impl super::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
+    fn state_version(&self) -> Option<u16> {
+        Some(super::model_state::MODEL_STATE_VERSION)
+    }
+
     fn observe_replacement(
         &self,
         pane_pid: u64,
@@ -202,6 +211,12 @@ impl super::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
 impl super::lifecycle::LifecycleObservation for ClaudeObservation {
     fn session(&self) -> &ProviderSessionId {
         &self.session
+    }
+    fn driver_state(
+        &self,
+        previous: Option<&tmt_core::binding::session::DriverState>,
+    ) -> Option<tmt_core::binding::session::DriverState> {
+        super::model_state::next_state(self.model.as_deref(), previous)
     }
     fn starting(&self) -> bool {
         self.starting

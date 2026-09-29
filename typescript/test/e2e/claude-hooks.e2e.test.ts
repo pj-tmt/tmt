@@ -6,12 +6,13 @@ import { withE2EFixture } from './harness.js';
 
 const first = '11111111-1111-4111-8111-111111111111';
 const second = '22222222-2222-4222-8222-222222222222';
-const hook = (event: string, transition: string, session: string) => ({
+const hook = (event: string, transition: string, session: string, model?: string) => ({
   args: ['__hook', 'claude'],
   input: {
     hook_event_name: event,
     session_id: session,
     [event === 'SessionStart' ? 'source' : 'reason']: transition,
+    ...(model === undefined ? {} : { model }),
   },
 });
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -33,7 +34,8 @@ describe.sequential('Claude hooks with a real pane and verified runtime ancestry
           JSON.stringify([
             hook('SessionStart', 'startup', first),
             { args: ['name', 'Hook Reader', '-s', '--json'] },
-            hook('SessionStart', 'startup', first),
+            // Claude reports the model on startup and may omit it after /clear.
+            hook('SessionStart', 'startup', first, 'claude-opus-5'),
             whoami,
             hook('SessionEnd', 'clear', first),
             hook('SessionStart', 'clear', second),
@@ -103,7 +105,7 @@ describe.sequential('Claude hooks with a real pane and verified runtime ancestry
           expect(
             db
               .prepare(
-                'SELECT preferred_harness, remembered_harness, runtime_mode, provider_session_id FROM identity_session_preferences WHERE identity_id = ?'
+                'SELECT preferred_harness, remembered_harness, runtime_mode, provider_session_id, driver_state_version, driver_state, stale_at_ms FROM identity_session_preferences WHERE identity_id = ?'
               )
               .get(identity.id)
           ).toEqual({
@@ -111,6 +113,10 @@ describe.sequential('Claude hooks with a real pane and verified runtime ancestry
             remembered_harness: 'claude',
             runtime_mode: 'default',
             provider_session_id: second,
+            // The new session keeps the model no later start reported.
+            driver_state_version: 1,
+            driver_state: '{"model":"claude-opus-5"}',
+            stale_at_ms: null,
           });
         } finally {
           db.close();

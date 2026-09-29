@@ -2,7 +2,7 @@
 
 use std::time::Instant;
 use tmt_core::binding::session::{
-    BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
+    BindingSessionState, DriverState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
     RuntimeLiveness, RuntimeMode, SessionPreferences,
 };
 
@@ -33,6 +33,12 @@ pub struct LifecycleUnavailable;
 pub trait LifecycleObservation {
     fn session(&self) -> &ProviderSessionId;
     fn starting(&self) -> bool;
+    /// Optional persistence: the driver state to keep after this starting
+    /// event, given the same driver's previous state. Only fields the provider
+    /// reported count; without them the driver returns the previous state.
+    fn driver_state(&self, _previous: Option<&DriverState>) -> Option<DriverState> {
+        None
+    }
     fn propose(
         &self,
         current: &BindingSessionState,

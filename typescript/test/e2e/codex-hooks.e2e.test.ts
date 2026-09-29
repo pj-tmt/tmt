@@ -7,9 +7,10 @@ import { withE2EFixture } from './harness.js';
 const session = '33333333-3333-4333-8333-333333333333';
 const foreign = '44444444-4444-4444-8444-444444444444';
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-const hook = (source: string, id = session) => ({
+// Codex documents `model` (the active model slug) on every hook input.
+const hook = (source: string, id = session, model = 'gpt-5.2-codex') => ({
   args: ['__hook', 'codex'],
-  input: { hook_event_name: 'SessionStart', source, session_id: id },
+  input: { hook_event_name: 'SessionStart', source, session_id: id, model },
 });
 
 it('maps independent Codex then shared exact-thread hooks without using the server pane', async () => {
@@ -88,6 +89,16 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
             runtime_state: string;
             runtime_mode: string;
           };
+        const driverState = () =>
+          db
+            .prepare(
+              'SELECT driver_state_version, driver_state FROM identity_session_preferences WHERE identity_id = ?'
+            )
+            .get(identity.id) as { driver_state_version: number; driver_state: string };
+        expect(driverState()).toEqual({
+          driver_state_version: 1,
+          driver_state: '{"model":"gpt-5.2-codex"}',
+        });
         const before = read();
         expect(before).toMatchObject({
           runtime_state: 'ended',
@@ -115,7 +126,11 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         const sharedReport = path.join(fixture.root, 'codex-shared-report.json');
         fs.writeFileSync(
           sharedScenario,
-          JSON.stringify([hook('resume', foreign), hook('resume'), hook('compact')])
+          JSON.stringify([
+            hook('resume', foreign, 'gpt-5.3-codex'),
+            hook('resume', session, 'gpt-5.3-codex'),
+            hook('compact', session, 'gpt-5.3-codex'),
+          ])
         );
         fixture.tmux([
           'new-window',
@@ -147,6 +162,11 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
           );
         }
         expect(read()).toEqual({ ...before, runtime_state: 'running', runtime_mode: 'shared' });
+        // A reported model replaces the stored one.
+        expect(driverState()).toEqual({
+          driver_state_version: 1,
+          driver_state: '{"model":"gpt-5.3-codex"}',
+        });
         expect(badge()).toBe(
           '#[push-default]#[fg=green]●#[default]#[pop-default] Codex Reader (tmt)'
         );
@@ -197,7 +217,13 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
           5000,
           'owned exact shared resume admitted'
         );
-        expect(JSON.parse(fs.readFileSync(resumed, 'utf8'))).toEqual(['resume', session]);
+        // Resume replays the exact session with the model its hooks reported.
+        expect(JSON.parse(fs.readFileSync(resumed, 'utf8'))).toEqual([
+          'resume',
+          session,
+          '-m',
+          'gpt-5.3-codex',
+        ]);
         expect(read()).toEqual({ ...before, runtime_state: 'running', runtime_mode: 'shared' });
         fs.writeFileSync(release, 'exit');
         await fixture.waitFor(

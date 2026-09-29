@@ -22,6 +22,8 @@ pub fn observe_in_pane(
 #[derive(Debug, Clone)]
 pub struct CodexObservation {
     pub session: ProviderSessionId,
+    /// The model the provider reported for this event, unvalidated.
+    pub model: Option<String>,
     pub starting: bool,
     pub transition: SessionTransition,
 }
@@ -30,6 +32,8 @@ pub struct CodexObservation {
 struct Payload {
     hook_event_name: String,
     session_id: String,
+    /// Documented provider field: the active model slug.
+    model: Option<String>,
     source: Option<String>,
     reason: Option<String>,
 }
@@ -57,6 +61,7 @@ pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
     };
     Some(CodexObservation {
         session: ProviderSessionId::new(&payload.session_id).ok()?,
+        model: payload.model,
         starting,
         transition,
     })
@@ -188,6 +193,10 @@ pub fn record_client_exit(
 pub struct CodexLifecycle;
 
 impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
+    fn state_version(&self) -> Option<u16> {
+        Some(super::model_state::MODEL_STATE_VERSION)
+    }
+
     fn observe_replacement(
         &self,
         pane_pid: u64,
@@ -303,6 +312,12 @@ impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
 impl super::lifecycle::LifecycleObservation for CodexObservation {
     fn session(&self) -> &ProviderSessionId {
         &self.session
+    }
+    fn driver_state(
+        &self,
+        previous: Option<&tmt_core::binding::session::DriverState>,
+    ) -> Option<tmt_core::binding::session::DriverState> {
+        super::model_state::next_state(self.model.as_deref(), previous)
     }
     fn starting(&self) -> bool {
         self.starting

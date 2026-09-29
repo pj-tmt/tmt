@@ -1,0 +1,12 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "/Users/.../.claude/projects/.../00893aaf-19fa-41d2-8238-13269b9b3ca0.jsonl",
+  "cwd": "/Users/...",
+  "hook_event_name": "SessionStart",
+  "source": "resume",
+  "model": "claude-opus-5",
+  "seconds_since_last_response": 5400,
+  "context_tokens": 182340,
+  "prompt_cache_likely_expired": true,
+  "estimated_cache_write_usd": 1.1396
+}
