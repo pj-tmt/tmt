@@ -93,12 +93,17 @@ function expectNativeSchema(
     { version: 36, name: 'record extension storage cutovers and fence moved Office rows' },
     { version: 37, name: 'keep driver-owned resume state beside remembered sessions' },
     { version: 38, name: 'mark resume launches pending until a provider start confirms them' },
+    {
+      version: 39,
+      name: 'admit a second terminal host in bindings, request fences and host servers',
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
       'extension_storage_cutovers',
+      'host_servers',
       'identity_hooks',
       'identity_metadata',
       'identity_status',
@@ -387,6 +392,7 @@ function expectNativeSchema(
       recipient_attention_revision: 0,
       recipient_attention_acknowledged_revision: 0,
       wake_state: 'not_attempted',
+      host: null,
     }))
   );
   expect(newAttempts.columns.map(({ name }) => name)).toContain('route_kind');
@@ -420,9 +426,13 @@ function expectNativeSchema(
       ...row,
       route_kind: 'pane',
       route_recipient_identity_id: null,
+      host: null,
     }))
   );
   expect(newResponses.columns.map(({ name }) => name)).toContain('route_kind');
+  // Schema 39: a NULL host is tmux, so earlier fences are never rewritten.
+  expect(newAttempts.columns.map(({ name }) => name)).toContain('host');
+  expect(newResponses.columns.map(({ name }) => name)).toContain('host');
 
   const oldIdentities = table(reference, 'identities');
   const newIdentities = table(migrated, 'identities');
