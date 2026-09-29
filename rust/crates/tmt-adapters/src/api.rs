@@ -27,6 +27,7 @@ const OPS: &[&str] = &[
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
+    "rooms.retire",
     "rooms.roster",
     "notes.read",
     "identityHooks.register",
@@ -36,6 +37,7 @@ const OPS: &[&str] = &[
     "skills.install",
     "skills.remove",
     "references.resolve",
+    "identities.status",
 ];
 
 #[derive(Debug)]
@@ -85,6 +87,9 @@ struct Envelope {
     operation: String,
     #[serde(default)]
     identity: Option<String>,
+    /// `"anonymous"`: no writer identity, as the CLI without `--identity`.
+    #[serde(default)]
+    originator: Option<String>,
     input: Box<RawValue>,
 }
 pub enum Request {
@@ -93,13 +98,21 @@ pub enum Request {
     Detail(String),
     Receipt(String),
     Dispatch {
-        identity: String,
+        /// `None` is the anonymous originator.
+        identity: Option<String>,
         input: DispatchInput,
     },
     Room {
-        identity: String,
+        /// `None` is the anonymous originator.
+        identity: Option<String>,
         id: String,
         input: RoomWrite,
+    },
+    RoomRetire {
+        /// `None` is the anonymous originator.
+        identity: Option<String>,
+        id: String,
+        expected_revision: u64,
     },
     Notes(String),
     Roster {
@@ -125,6 +138,10 @@ pub enum Request {
     References {
         identities: Vec<String>,
         rooms: Vec<String>,
+    },
+    /// Read-only self-reported statuses of identities named by UUID.
+    IdentityStatuses {
+        identities: Vec<String>,
     },
 }
 
@@ -181,6 +198,12 @@ struct ReferencesInput {
     room_ids: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct IdentityStatusesInput {
+    identity_ids: Vec<String>,
+}
+
 /// Bound on one pending page; matches the Office consumer's batch.
 const HOOK_PAGE_LIMIT: usize = 16;
 
@@ -211,6 +234,12 @@ struct RoomInput {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RoomRetireInput {
+    room_id: String,
+    expected_revision: u64,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RosterInput {
     room: String,
     #[serde(default)]
@@ -234,8 +263,18 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         ));
     }
     let input = wire.input.get().as_bytes();
-    let writing = matches!(wire.operation.as_str(), "dispatch.create" | "rooms.write");
-    if writing != wire.identity.is_some()
+    let writing = matches!(
+        wire.operation.as_str(),
+        "dispatch.create" | "rooms.write" | "rooms.retire"
+    );
+    // A write names exactly one originator: an identity or `"anonymous"`. Other
+    // operations name neither.
+    let anonymous = match wire.originator.as_deref() {
+        None => false,
+        Some("anonymous") => true,
+        Some(_) => return Err(invalid()),
+    };
+    if writing != (wire.identity.is_some() != anonymous)
         || wire
             .identity
             .as_ref()
@@ -259,7 +298,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
             Request::Receipt(dispatch::decode_dispatch_lookup(input).ok_or_else(invalid)?)
         }
         "dispatch.create" => Request::Dispatch {
-            identity: wire.identity.expect("write identity"),
+            identity: wire.identity,
             input: dispatch::decode_input(input).ok_or_else(invalid)?,
         },
         "rooms.write" => {
@@ -268,9 +307,25 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
                 return Err(invalid());
             }
             Request::Room {
-                identity: wire.identity.expect("write identity"),
+                identity: wire.identity,
                 id: value.room_id,
                 input: room::decode_write(value.room.get().as_bytes()).ok_or_else(invalid)?,
+            }
+        }
+        "rooms.retire" => {
+            let value: RoomRetireInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+            if !tmt_core::dispatch::canonical_id(&value.room_id) {
+                return Err(invalid());
+            }
+            Request::RoomRetire {
+                identity: wire.identity,
+                id: value.room_id,
+                expected_revision: room::decode_retire(
+                    json!({"expectedRevision": value.expected_revision})
+                        .to_string()
+                        .as_bytes(),
+                )
+                .ok_or_else(invalid)?,
             }
         }
         "rooms.roster" => {
@@ -308,6 +363,21 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
             Request::References {
                 identities: value.identity_ids,
                 rooms: value.room_ids,
+            }
+        }
+        "identities.status" => {
+            let value: IdentityStatusesInput =
+                serde_json::from_slice(input).map_err(|_| invalid())?;
+            if value.identity_ids.len() > REFERENCE_LIMIT
+                || !value
+                    .identity_ids
+                    .iter()
+                    .all(|id| tmt_core::dispatch::canonical_id(id))
+            {
+                return Err(invalid());
+            }
+            Request::IdentityStatuses {
+                identities: value.identity_ids,
             }
         }
         "identityHooks.pending" => {
@@ -505,6 +575,27 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
                     .expect("reference states"),
             )
         }
+        Request::IdentityStatuses { identities } => {
+            // One directory read; expiry (`stale`) is applied here, by core.
+            let statuses = storage
+                .list_active_identity_statuses()
+                .map_err(|_| Fault::unavailable())?;
+            let now = crate::request_runtime::wall_time_ms();
+            let mut entries = Vec::with_capacity(identities.len());
+            for id in &identities {
+                entries.push(
+                    match storage
+                        .find_identity_by_id(id)
+                        .map_err(|_| Fault::unavailable())?
+                    {
+                        None => json!({"id": id, "found": false}),
+                        Some(_) => json!({"id": id, "found": true,
+                            "status": crate::identity_status::status_value(statuses.get(id), now)}),
+                    },
+                );
+            }
+            Ok(serde_json::to_vec(&json!({"identities": entries})).expect("identity statuses"))
+        }
         Request::HookRegister(hook) => {
             // Identities are never deleted, so existence checked here holds at
             // registration; a retired identity registers straight to pending.
@@ -581,7 +672,9 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             id,
             input,
         } => {
-            identity(&mut storage, &selector)?;
+            if let Some(selector) = &selector {
+                identity(&mut storage, selector)?;
+            }
             storage
                 .save_meeting_room(&id, input)
                 .map(|value| room::encode_room(&value))
@@ -592,11 +685,32 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
                     )
                 })
         }
+        Request::RoomRetire {
+            identity: selector,
+            id,
+            expected_revision,
+        } => {
+            if let Some(selector) = &selector {
+                identity(&mut storage, selector)?;
+            }
+            storage
+                .retire_meeting_room(&id, expected_revision)
+                .map(|value| room::encode_room(&value))
+                .map_err(|error| {
+                    Fault::new(
+                        error.code(),
+                        "Room retirement failed; refresh its revision before retrying.",
+                    )
+                })
+        }
         Request::Dispatch {
             identity: selector,
             mut input,
         } => {
-            input.originator = Originator::Explicit(identity(&mut storage, &selector)?);
+            input.originator = match &selector {
+                Some(selector) => Originator::Explicit(identity(&mut storage, selector)?),
+                None => Originator::Unknown,
+            };
             let settings = settings.expect("dispatch settings");
             let direct = input.kind == tmt_core::request::RequestKind::Request
                 && input.recipient_ids.len() == 1
@@ -1002,6 +1116,71 @@ mod tests {
     }
 
     #[test]
+    fn identities_status_reports_status_expiry_and_not_found_without_errors() {
+        let directory = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
+        let fresh = "11111111-1111-4111-8111-111111111111";
+        let expired = "22222222-2222-4222-8222-222222222222";
+        let plain = "33333333-3333-4333-8333-333333333333";
+        let missing = "44444444-4444-4444-8444-444444444444";
+        Storage::open(&paths.database).unwrap().close().unwrap();
+        let now = crate::request_runtime::wall_time_ms() as i64;
+        rusqlite::Connection::open(&paths.database).unwrap().execute_batch(&format!(
+            "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES
+               ('{fresh}', 'Ada', 'ada', 't', 't', 'saved'),
+               ('{expired}', 'Old', 'old', 't', 't', 'saved'),
+               ('{plain}', 'Cy', 'cy', 't', 't', 'saved');
+             INSERT INTO identity_status (identity_id, activity, mood, updated_at_ms, expires_at_ms) VALUES
+               ('{fresh}', 'Reviewing', 'calm', {now}, {}),
+               ('{expired}', 'Was busy', NULL, 1000, 5000);",
+            now + 3_600_000
+        )).unwrap();
+        let call = |input: serde_json::Value| {
+            let body =
+                json!({"version": 1, "operation": "identities.status", "input": input}).to_string();
+            decode(&body).map(|request| {
+                serde_json::from_slice::<serde_json::Value>(&execute(&paths, request).unwrap())
+                    .unwrap()
+            })
+        };
+        let result = call(json!({"identityIds": [fresh, expired, plain, missing]})).unwrap();
+        let entries = result["identities"].as_array().unwrap();
+        assert_eq!(entries.len(), 4);
+        assert_eq!(entries[0]["status"]["activity"], "Reviewing");
+        assert_eq!(entries[0]["status"]["stale"], false);
+        assert_eq!(entries[1]["status"]["activity"], "Was busy");
+        assert_eq!(entries[1]["status"]["stale"], true);
+        assert_eq!(
+            entries[2],
+            json!({"id": plain, "found": true, "status": null})
+        );
+        assert_eq!(entries[3], json!({"id": missing, "found": false}));
+        let too_many: Vec<String> = (0..257).map(|_| fresh.to_owned()).collect();
+        for input in [
+            json!({"identityIds": too_many}),
+            json!({"identityIds": ["not-a-uuid"]}),
+            json!({}),
+            json!({"identityIds": [fresh], "extra": true}),
+        ] {
+            assert!(
+                matches!(
+                    call(input.clone()),
+                    Err(Fault {
+                        code: "API_INPUT_INVALID",
+                        ..
+                    })
+                ),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
     fn roster_is_a_read_with_a_strict_room_and_key_prefix() {
         let roster = |input: &str| {
             decode(&format!(
@@ -1074,5 +1253,165 @@ mod tests {
             panic!("dispatch");
         };
         assert_eq!(input.message, message);
+    }
+
+    #[test]
+    fn writes_name_exactly_one_originator_and_anonymous_stores_no_identity() {
+        let directory = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
+        Storage::open(&paths.database).unwrap().close().unwrap();
+        let ada = "11111111-1111-4111-8111-111111111111";
+        let room = "55555555-5555-4555-8555-555555555555";
+        rusqlite::Connection::open(&paths.database)
+            .unwrap()
+            .execute(
+                "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES (?, 'Ada', 'ada', 't', 't', 'saved')",
+                [ada],
+            )
+            .unwrap();
+        let dispatch = json!({"operationId": "66666666-6666-4666-8666-666666666666",
+            "recipientIds": [ada], "message": "hello"});
+        let room_write = json!({"roomId": room,
+            "room": {"expectedRevision": 0, "name": "Review", "memberIds": [ada]}});
+        let decode_with = |operation: &str, extra: serde_json::Value, input: &serde_json::Value| {
+            let mut envelope = json!({"version": 1, "operation": operation, "input": input});
+            for (key, value) in extra.as_object().unwrap() {
+                envelope[key] = value.clone();
+            }
+            decode(&envelope.to_string())
+        };
+        for (operation, input) in [("dispatch.create", &dispatch), ("rooms.write", &room_write)] {
+            assert!(decode_with(operation, json!({"originator": "anonymous"}), input).is_ok());
+            assert!(decode_with(operation, json!({"identity": "Ada"}), input).is_ok());
+            for extra in [
+                json!({}),
+                json!({"identity": "Ada", "originator": "anonymous"}),
+                json!({"originator": "owner"}),
+                json!({"originator": ""}),
+            ] {
+                assert!(
+                    matches!(
+                        decode_with(operation, extra.clone(), input),
+                        Err(Fault {
+                            code: "API_INPUT_INVALID",
+                            ..
+                        })
+                    ),
+                    "{operation} {extra}"
+                );
+            }
+        }
+        // Reads never accept an originator.
+        assert!(
+            decode_with(
+                "capabilities",
+                json!({"originator": "anonymous"}),
+                &json!({})
+            )
+            .is_err()
+        );
+
+        let run = |operation: &str, input: &serde_json::Value| {
+            let request =
+                decode_with(operation, json!({"originator": "anonymous"}), input).unwrap();
+            serde_json::from_slice::<serde_json::Value>(&execute(&paths, request).unwrap()).unwrap()
+        };
+        let written = run("rooms.write", &room_write);
+        assert_eq!(written["id"], room);
+        let receipt = run("dispatch.create", &dispatch);
+        assert_eq!(receipt["items"][0]["recipientId"], ada);
+        let originators: Vec<Option<String>> = rusqlite::Connection::open(&paths.database)
+            .unwrap()
+            .prepare("SELECT originator_identity_id FROM request_attempts")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(originators, vec![None]);
+    }
+
+    #[test]
+    fn rooms_retire_uses_the_expected_revision_and_the_shared_originator_rule() {
+        let directory = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
+        Storage::open(&paths.database).unwrap().close().unwrap();
+        let room = "55555555-5555-4555-8555-555555555555";
+        let unknown = "66666666-6666-4666-8666-666666666666";
+        let call = |operation: &str, extra: serde_json::Value, input: serde_json::Value| {
+            let mut envelope = json!({"version": 1, "operation": operation, "input": input});
+            for (key, value) in extra.as_object().unwrap() {
+                envelope[key] = value.clone();
+            }
+            decode(&envelope.to_string()).and_then(|request| {
+                execute(&paths, request)
+                    .map(|body| serde_json::from_slice::<serde_json::Value>(&body).unwrap())
+            })
+        };
+        let anonymous = || json!({"originator": "anonymous"});
+        call(
+            "rooms.write",
+            anonymous(),
+            json!({"roomId": room, "room": {"expectedRevision": 0, "name": "Review", "memberIds": []}}),
+        )
+        .unwrap();
+        let retire = |id: &str, revision: u64| {
+            call(
+                "rooms.retire",
+                anonymous(),
+                json!({"roomId": id, "expectedRevision": revision}),
+            )
+        };
+        let stale = retire(room, 9).unwrap_err();
+        let conflict = stale.code;
+        assert_eq!(conflict, "ROOM_REVISION_CONFLICT");
+        assert_eq!(retire(unknown, 1).unwrap_err().code, "ROOM_NOT_FOUND");
+        let retired = retire(room, 1).unwrap();
+        assert_eq!(retired["id"], room);
+        assert_eq!(retired["retired"], true);
+        // A retry with the pre- or post-retirement revision is idempotent; anything
+        // else against a retired room is a conflict.
+        assert_eq!(retire(room, 1).unwrap()["retired"], true);
+        assert_eq!(retire(room, 2).unwrap()["retired"], true);
+        assert_eq!(retire(room, 5).unwrap_err().code, "ROOM_REVISION_CONFLICT");
+        for extra in [
+            json!({}),
+            json!({"identity": "Ada", "originator": "anonymous"}),
+        ] {
+            assert!(matches!(
+                call(
+                    "rooms.retire",
+                    extra,
+                    json!({"roomId": room, "expectedRevision": 1})
+                ),
+                Err(Fault {
+                    code: "API_INPUT_INVALID",
+                    ..
+                })
+            ));
+        }
+        for input in [
+            json!({"roomId": room, "expectedRevision": 0}),
+            json!({"roomId": "not-a-uuid", "expectedRevision": 1}),
+            json!({"roomId": room}),
+        ] {
+            assert!(matches!(
+                call("rooms.retire", anonymous(), input),
+                Err(Fault {
+                    code: "API_INPUT_INVALID",
+                    ..
+                })
+            ));
+        }
     }
 }
