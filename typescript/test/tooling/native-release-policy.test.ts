@@ -21,6 +21,22 @@ describe('native release publication policy', () => {
     expect(() => releasePolicy('unknown')).toThrow();
   });
 
+  it('publishes the prerelease flags the native updater accepts', () => {
+    // Pinned on both sides: tmt upgrade accepts these through
+    // Product::accepts_prerelease_flag (tmt-core), and
+    // rust/crates/tmt-adapters/src/native_install/release_tests.rs pins the
+    // same table. Change them together; neither side reads the other.
+    expect(
+      Object.fromEntries(
+        ['cli', 'office', 'squad'].map((product) => [product, releasePolicy(product).prerelease])
+      )
+    ).toEqual({ cli: false, office: true, squad: true });
+    expect(releaseFlags('cli')).not.toContain('--prerelease');
+    for (const extension of ['office', 'squad']) {
+      expect(releaseFlags(extension)).toContain('--prerelease');
+    }
+  });
+
   it('accepts only a CLI tag as the published latest release', () => {
     expect(checkLatestTag('v5.0.0-alpha.7')).toBe(true);
     for (const tag of [

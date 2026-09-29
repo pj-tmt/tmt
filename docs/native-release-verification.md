@@ -46,7 +46,11 @@ Each bundle carries `release-publication.json` from
 published as a normal release with `--latest=true`, so
 `releases/latest/download/install.sh` reaches its installer; alpha status stays
 in the version and title. Office and Squad releases keep `--prerelease` and
-`--latest=false` and can never become latest. After publishing, check
+`--latest=false` and can never become latest. `tmt upgrade` accepts a CLI
+pre-release published either way (earlier alphas were flagged prereleases) but
+never a stable CLI flagged prerelease, and accepts an extension release only when
+its flag matches whether its version is a pre-release
+(`Product::accepts_prerelease_flag`). After publishing, check
 `node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/wkh237/tmt/releases/latest --jq .tag_name)"`. A CLI
 release attaches its four tar.gz archives, final `dist-manifest.json`,
 `tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line

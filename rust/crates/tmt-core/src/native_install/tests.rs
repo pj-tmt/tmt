@@ -342,3 +342,21 @@ fn squad_is_a_fixed_extension_product_with_two_command_links() {
         }
     }
 }
+
+#[test]
+fn the_cli_accepts_either_prerelease_flag_on_an_alpha_and_extensions_match_exactly() {
+    use super::Product;
+    let alpha = version("5.0.0-alpha.7");
+    let stable = version("5.0.0");
+    // The CLI's current policy (a normal release) and its flagged history.
+    assert!(Product::Cli.accepts_prerelease_flag(&alpha, false));
+    assert!(Product::Cli.accepts_prerelease_flag(&alpha, true));
+    assert!(Product::Cli.accepts_prerelease_flag(&stable, false));
+    assert!(!Product::Cli.accepts_prerelease_flag(&stable, true));
+    for extension in [Product::Office, Product::Squad] {
+        assert!(extension.accepts_prerelease_flag(&alpha, true));
+        assert!(!extension.accepts_prerelease_flag(&alpha, false));
+        assert!(extension.accepts_prerelease_flag(&stable, false));
+        assert!(!extension.accepts_prerelease_flag(&stable, true));
+    }
+}

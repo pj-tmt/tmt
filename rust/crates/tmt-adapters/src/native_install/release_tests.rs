@@ -361,11 +361,69 @@ fn rejects_draft_mutable_and_mismatched_prerelease_metadata() {
         assert!(call_download(&mut fixture, Channel::Stable, Some("1.2.3"), TARGET).is_err());
         assert_eq!(fixture.calls.len(), 1);
     }
-    let (mut alpha, _, _, _) = valid_fixture("1.3.0-alpha.1", TARGET, 231);
-    alpha["prerelease"] = json!(false);
+    let (mut missing, _, _, _) = valid_fixture("1.2.3", TARGET, 232);
+    missing.as_object_mut().unwrap().remove("prerelease");
     let mut fixture = HttpFixture::default();
-    fixture.exact("1.3.0-alpha.1", &alpha);
-    assert!(call_download(&mut fixture, Channel::Alpha, Some("1.3.0-alpha.1"), TARGET).is_err());
+    fixture.exact("1.2.3", &missing);
+    assert!(call_download(&mut fixture, Channel::Stable, Some("1.2.3"), TARGET).is_err());
+}
+
+/// Downloads `version` of `product` by exact tag, with its release's
+/// `prerelease` flag set to `flagged`.
+fn download_flagged(product: Product, version: &str, flagged: bool) -> io::Result<()> {
+    let (mut release, manifest, archive, _) = product_fixture(product, version, TARGET, 233);
+    release["prerelease"] = json!(flagged);
+    let mut fixture = HttpFixture::default();
+    let url = format!("{}/tags/{}{version}", endpoint(), product.tag_prefix());
+    fixture.response(url, serde_json::to_vec(&release).unwrap());
+    register(&mut fixture, &release, &manifest, &archive);
+    let channel = if version.contains('-') {
+        Channel::Alpha
+    } else {
+        Channel::Stable
+    };
+    super::download_product(
+        product,
+        channel,
+        Some(&version.parse().unwrap()),
+        TARGET,
+        deadline(),
+        |u, a, l, d| fixture.get(u, a, l, d),
+    )
+    .map(|_| ())
+}
+
+#[test]
+fn a_cli_alpha_may_be_a_normal_release_but_extensions_stay_flagged() {
+    // The CLI is published as a normal release (the repository's latest);
+    // alpha.2-6 were flagged prereleases. A stable CLI is never flagged.
+    download_flagged(Product::Cli, "5.0.0-alpha.7", false).unwrap();
+    download_flagged(Product::Cli, "5.0.0-alpha.6", true).unwrap();
+    assert!(download_flagged(Product::Cli, "5.0.0", true).is_err());
+    for extension in [Product::Office, Product::Squad] {
+        download_flagged(extension, "0.1.0-alpha.4", true).unwrap();
+        assert!(download_flagged(extension, "0.1.0-alpha.4", false).is_err());
+    }
+}
+
+/// The GitHub prerelease flag each product is published with, pinned here
+/// and in `typescript/test/tooling/native-release-policy.test.ts` against
+/// `typescript/scripts/native-release-policy.mjs`. Change all three together:
+/// this is a two-sided pin, not an automatic cross-check.
+#[test]
+fn the_publication_policy_publishes_flags_the_updater_accepts() {
+    let alpha = "1.0.0-alpha.1".parse().unwrap();
+    for (product, published) in [
+        (Product::Cli, false),
+        (Product::Office, true),
+        (Product::Squad, true),
+    ] {
+        assert!(
+            product.accepts_prerelease_flag(&alpha, published),
+            "{} publishes prerelease={published}, which tmt upgrade refuses",
+            product.as_str()
+        );
+    }
 }
 
 #[test]
