@@ -36,6 +36,15 @@ function preferences(fixture: E2EFixture): Record<string, unknown>[] {
   }
 }
 
+function identityId(fixture: E2EFixture, name: string): string {
+  const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  try {
+    return (db.prepare('SELECT id FROM identities WHERE name = ?').get(name) as { id: string }).id;
+  } finally {
+    db.close();
+  }
+}
+
 describe.sequential('foreground identity launch', () => {
   it('resumes only the exact remembered session and never launches a fallback after a failed resume', async () => {
     await withE2EFixture(async (fixture) => {
@@ -79,21 +88,37 @@ describe.sequential('foreground identity launch', () => {
           .split('\n')
           .map((line) => JSON.parse(line) as string[]);
       expect(calls()).toEqual([[], [], ['--resume', session]]);
-      expect(preferences(fixture)[0]).toMatchObject({
-        remembered_harness: 'claude',
-        runtime_mode: 'default',
-        provider_session_id: session,
-      });
+      expect(preferences(fixture)).toEqual([
+        {
+          identity_id: identityId(fixture, 'Resume'),
+          preferred_harness: 'claude',
+          remembered_harness: 'claude',
+          runtime_mode: 'default',
+          provider_session_id: session,
+          driver_state: null,
+          driver_state_version: null,
+          stale_at_ms: null,
+        },
+      ]);
       seed('claude', 'unsupported-fixture-mode');
       await run('unsupported-mode', ['run', '--resume', 'Resume'], 0);
       seed('unregistered-fixture-harness', 'default');
       await run('unsupported-harness', ['run', '--resume', 'Resume'], 0);
       expect(calls()).toEqual([[], [], ['--resume', session], [], []]);
-      expect(preferences(fixture)[0]).toMatchObject({
-        preferred_harness: 'claude',
-        remembered_harness: 'unregistered-fixture-harness',
-        provider_session_id: session,
-      });
+      // The bare fallback launches claude, and one identity has one current
+      // runtime: the unregistered driver's remembered session is dropped.
+      expect(preferences(fixture)).toEqual([
+        {
+          identity_id: identityId(fixture, 'Resume'),
+          preferred_harness: 'claude',
+          remembered_harness: null,
+          runtime_mode: null,
+          provider_session_id: null,
+          driver_state: null,
+          driver_state_version: null,
+          stale_at_ms: null,
+        },
+      ]);
     });
   });
 
@@ -241,6 +266,9 @@ process.exit(23);
           remembered_harness: null,
           runtime_mode: null,
           provider_session_id: null,
+          driver_state: null,
+          driver_state_version: null,
+          stale_at_ms: null,
         },
       ]);
 
