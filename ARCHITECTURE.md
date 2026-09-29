@@ -1156,6 +1156,24 @@ state, and it reports each change once. Read-only projections (`identity show`,
 `ls --json`) read preferences without a write transaction and ask the session's
 own driver for its model.
 
+Schema 39 admits a second terminal host (Herdr, #479):
+
+- `bindings.transport` accepts `tmux` and `herdr`. SQLite cannot alter a CHECK,
+  so the migration rebuilds the table with only that CHECK changed, from a
+  verbatim copy of its schema-38 definition. It refuses a table that differs
+  from that copy, or any view or trigger that depends on it, rather than drop
+  custom columns or rules.
+- `request_attempts.host` and `request_responses.host` record the request
+  fence's host. NULL is tmux, the only host that wrote earlier rows, so
+  history is never rewritten; inbox routes carry no host.
+- `host_servers` holds TMT's UUIDv4 for each server incarnation (socket, PID
+  and start time) of a host without a server-level store of its own;
+  `Storage::host_server_id` gets or creates it. tmux keeps its ID in a server
+  option and has no rows there.
+
+Binding queries still read tmux rows only until the core endpoint types carry
+the host.
+
 The claude and codex drivers implement persistence with a version 1 document,
 `{"model": <slug>}` (`runtime::model_state`). Its only source is the `model` field
 of a starting hook event, which both providers document (see
