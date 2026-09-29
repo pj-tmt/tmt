@@ -17,9 +17,10 @@ same command as `tmt squad`.
 tmt squad ls --json [--squad <name>]
 ```
 
-Without `--squad`, when several squads exist, the document is
-`{squads: [...]}` with one document per squad. `columns` lists the board's
-configured columns.
+With `--squad <name>` the document is that squad's; without it, it is always
+`{squads: [...], you}`, one document per squad in name order (even for one
+squad or none), so read `.squads[]` unless you pass `--squad`. `columns` lists
+the board's configured columns.
 
 - `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`) and
   `lead` (a row, or null).

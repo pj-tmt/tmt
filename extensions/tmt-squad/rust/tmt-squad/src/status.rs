@@ -187,13 +187,17 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
         Some(squads) => squads.iter().collect(),
         None => vec![document],
     };
+    if squads.is_empty() {
+        let _ = writeln!(output, "No squad exists yet.");
+        let _ = tmt_cli_style::message::hint(&mut output, terminal, "tmt squad init <name>");
+    }
     for (index, squad) in squads.iter().enumerate() {
         if index > 0 {
             let _ = writeln!(output);
         }
         squad_text(squad, terminal, &mut output);
     }
-    if document.get("you").is_some_and(Value::is_null) {
+    if !squads.is_empty() && document.get("you").is_some_and(Value::is_null) {
         let _ = writeln!(output, "\n{}", terminal.paint(Token::Dim, UNKNOWN_YOU));
     }
     String::from_utf8(output).unwrap_or_default()

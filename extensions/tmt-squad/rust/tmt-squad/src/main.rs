@@ -914,9 +914,10 @@ fn run(
     }
 }
 
-/// `ls` (and `board` without a person at a terminal): one squad's document,
-/// or with several squads and no `--squad`, `{squads: [...]}` in name order.
-/// "You" is resolved once for all of them.
+/// `ls` (and `board` without a person at a terminal). With `--squad`, that
+/// squad's document; without it, always `{squads: [...], you}` in name order,
+/// even for one squad or none, so a script's shape never depends on how many
+/// squads exist. "You" is resolved once for all of them.
 fn ls_document(
     core: &Core,
     config: &mut Config,
@@ -926,10 +927,6 @@ fn ls_document(
         Some(_) => vec![Squad::resolve(core, explicit)?],
         None => {
             let mut squads = Squad::list(core)?;
-            if squads.is_empty() {
-                // The one-squad path owns the not-found error and its hint.
-                squads.push(Squad::resolve(core, None)?);
-            }
             squads.sort_by(|a, b| a.name.cmp(&b.name));
             squads
         }
@@ -946,9 +943,10 @@ fn ls_document(
         document["columns"] = status::columns_value(&config.columns(&squad.name)?);
         documents.push(document);
     }
-    let mut document = match <[Value; 1]>::try_from(documents) {
-        Ok([one]) => one,
-        Err(several) => json!({"squads": several}),
+    let mut document = match (explicit, <[Value; 1]>::try_from(documents)) {
+        (Some(_), Ok([one])) => one,
+        (_, Ok([one])) => json!({"squads": [one]}),
+        (_, Err(all)) => json!({"squads": all}),
     };
     document["you"] = you.map_or(
         Value::Null,

@@ -1928,9 +1928,10 @@ one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
 the single list, and rows that match none follow in one untitled section so
 nobody is hidden. The document carries the board's configured `columns`, which
-the text output renders; without `--squad` and with several squads, `ls` returns
-`{squads: [...]}` in name order, while commands that change state still require
-`--squad`; `filter` owns a bounded boolean language over a row's text
+the text output renders. With `--squad`, `ls` returns that squad's document;
+without it, always `{squads: [...], you}` in name order (even for one squad or
+none), so a script's shape never depends on how many squads exist. Commands that
+change state still require `--squad` when several exist; `filter` owns a bounded boolean language over a row's text
 fields, and every section is validated before output. `tmt squad board` renders
 the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
