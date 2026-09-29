@@ -257,7 +257,7 @@ fn install_office_with_publisher(
             // door), core's bundle no longer publishes it.
             let owned = owned::owned_names(&global)?;
             for (root, agent) in optional_roots(env, &global, &assets)? {
-                for name in ["tmt-office", "tmt-prop-create", "tmt-avatar-create"] {
+                for name in owned::OFFICE_NAMES {
                     if !owned.contains(name) {
                         targets.entry(root.join(name)).or_insert(agent);
                     }

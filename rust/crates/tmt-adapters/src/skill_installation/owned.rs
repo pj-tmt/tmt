@@ -13,13 +13,16 @@ use std::{
     error::Error,
     fmt, fs,
     io::{self, Write},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 use tmt_core::{content_digest::sha256, skill_provider::Provider};
 use uuid::Uuid;
 
 /// Names core itself installs; no extension can claim them.
 pub const CORE_NAMES: &[&str] = &["tmux-team", "tmt-inbox"];
+/// Office names core's bundle published before owners existed; owner
+/// `office` adopts them without force.
+pub(super) const OFFICE_NAMES: [&str; 3] = ["tmt-office", "tmt-prop-create", "tmt-avatar-create"];
 pub const MAXIMUM_SKILLS: usize = 16;
 pub const MAXIMUM_FILES: usize = 64;
 pub const MAXIMUM_FILE_BYTES: usize = 1_048_576;
@@ -39,7 +42,7 @@ pub enum Refusal {
     Invalid(String),
     /// Another owner, or core, holds this name.
     Claimed { name: String, owner: String },
-    /// A path that squad did not publish; `force` backs it up.
+    /// A path neither core nor an owner published; `force` backs it up.
     Unmanaged(PathBuf),
 }
 
@@ -55,7 +58,7 @@ impl fmt::Display for Refusal {
             }
             Self::Unmanaged(path) => write!(
                 output,
-                "Refusing to replace existing unmanaged path: {} (use --force)",
+                "Refusing to replace existing unmanaged path: {}; force backs it up and replaces it.",
                 path.display()
             ),
         }
@@ -92,15 +95,15 @@ fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
-/// Relative, normal components only, bounded; never `.`, `..` or hidden
-/// staging names.
+/// Canonical relative paths only, bounded: `/`-separated non-empty segments,
+/// none dot-prefixed (so never `.`, `..` or hidden staging names). The digest
+/// hashes the supplied string, so a form the filesystem would normalize
+/// (`a//b`, `a/`) could never verify after materialization.
 fn valid_file(path: &str) -> bool {
-    !path.is_empty()
-        && path.len() <= 512
-        && Path::new(path).components().all(|component| {
-            matches!(component, Component::Normal(part)
-                if part.len() <= 255 && !part.to_string_lossy().starts_with('.'))
-        })
+    path.len() <= 512
+        && path
+            .split('/')
+            .all(|part| (1..=255).contains(&part.len()) && !part.starts_with('.'))
 }
 
 /// Checks everything before any effect.
@@ -469,6 +472,18 @@ pub fn install_owned(
                             return Err(refused(Refusal::Claimed {
                                 name: skill.name.clone(),
                                 owner: other.clone(),
+                            }));
+                        }
+                        // Only Office adopts the Office links core published
+                        // before owners existed; anyone else needs force.
+                        Prior::Core
+                            if !force
+                                && !(owner == "office"
+                                    && OFFICE_NAMES.contains(&skill.name.as_str())) =>
+                        {
+                            return Err(refused(Refusal::Claimed {
+                                name: skill.name.clone(),
+                                owner: "core".into(),
                             }));
                         }
                         Prior::Unmanaged if !force => {

@@ -50,10 +50,13 @@ re-wake. Recover with `dispatch.show` after uncertain process completion.
 skill directories, so send `consent: true` only after asking the user, as
 `tmt extension install` does. `owner` is the extension name; each skill is
 `{name, files: [{path, content}]}` with UTF-8 `content`, a top-level
-`SKILL.md`, relative paths without `.`-prefixed parts, at most 64 files of
-1 MiB each and 16 skills per call. Core's `tmux-team` and `tmt-inbox` cannot
-be claimed; the first owner of any other name keeps it, and `force: true` both
-transfers a name and backs up an unmanaged path in the way. Errors are
+`SKILL.md`, canonical `/`-separated relative paths (no empty or
+`.`-prefixed segments, no trailing `/`), at most 64 files of 1 MiB each and
+16 skills per call. Core's `tmux-team` and `tmt-inbox` cannot be claimed; the
+first owner of any other name keeps it. Office links core published before
+owners existed belong to core too, and only owner `office` takes them over
+without force. `force: true` transfers a name and backs up an unmanaged path
+in the way. Errors are
 `SKILL_INVALID`, `SKILL_OWNED_ELSEWHERE`, `SKILL_CONFLICT` (an unmanaged path),
 `API_CONSENT_REQUIRED` and `SKILL_INSTALL_FAILED`. Repeating identical content
 changes nothing. `skills.remove` removes only links that still point at the

@@ -182,6 +182,47 @@ fn office_links_published_before_owners_existed_are_adopted_without_force() {
 }
 
 #[test]
+fn only_office_adopts_core_office_links_without_force() {
+    let (_directory, env, global, root) = fixture();
+    install(&env, &global, None, None, false).unwrap();
+    install_office(&env, &global, false).unwrap();
+    let office = root.join("tmt-office");
+    let core_link = fs::read_link(&office).unwrap();
+
+    let refused = install_owned(
+        &env,
+        &global,
+        "squad",
+        &[skill("tmt-office", "squad's office")],
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(
+        claimed(&refused.cause),
+        Some(("tmt-office".into(), "core".into()))
+    );
+    assert!(refused.report.published.is_empty());
+    assert_eq!(fs::read_link(&office).unwrap(), core_link);
+    assert!(!global.join("skill-owners.json").exists());
+
+    let forced = install_owned(
+        &env,
+        &global,
+        "squad",
+        &[skill("tmt-office", "squad's office")],
+        true,
+    )
+    .unwrap();
+    assert!(forced.published[0].changed);
+    assert!(
+        forced.published[0].backup.is_none(),
+        "a managed link is relinked"
+    );
+    assert_eq!(read_skill(&office), "squad's office");
+    assert_eq!(owners(&global).unwrap()["tmt-office"], "squad");
+}
+
+#[test]
 fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
     let (_directory, env, global, root) = fixture();
     install_owned(
@@ -237,15 +278,25 @@ fn owners_names_and_files_are_validated_before_anything_else() {
         );
     }
     assert!(validate("squad", &[]).is_err());
-    let mut bad_files: Vec<Vec<(String, Vec<u8>)>> = ["../escape.md", "/abs.md", ".hidden", ""]
-        .iter()
-        .map(|path| {
-            vec![
-                ("SKILL.md".to_owned(), b"x".to_vec()),
-                ((*path).to_owned(), b"y".to_vec()),
-            ]
-        })
-        .collect();
+    // Non-canonical spellings the filesystem would normalize are refused too.
+    let mut bad_files: Vec<Vec<(String, Vec<u8>)>> = [
+        "../escape.md",
+        "/abs.md",
+        ".hidden",
+        "",
+        "ref//usage.md",
+        "ref/",
+        "ref/usage.md/",
+        "./ref.md",
+    ]
+    .iter()
+    .map(|path| {
+        vec![
+            ("SKILL.md".to_owned(), b"x".to_vec()),
+            ((*path).to_owned(), b"y".to_vec()),
+        ]
+    })
+    .collect();
     bad_files.push(vec![("README.md".into(), b"no skill file".to_vec())]);
     bad_files.push(vec![
         ("SKILL.md".into(), b"x".to_vec()),
