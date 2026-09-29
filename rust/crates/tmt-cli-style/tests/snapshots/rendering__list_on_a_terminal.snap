@@ -10,4 +10,5 @@ expression: render_list(TTY)
 \u{1b}[1mTEMPORARY\u{1b}[0m \u{1b}[2m2\u{1b}[0m
   \u{1b}[38;5;4m●  \u{1b}[39mmamezu-astra     \u{1b}[38;5;6mcodex:01a9c3b8   \u{1b}[39m~/dev/mosaic-art
   \u{1b}[2m◌  \u{1b}[0mopus-1           \u{1b}[2mtmux:%31         \u{1b}[0m/srv/builds/nightly      \u{1b}[38;5;4mshell\u{1b}[39m
+    \u{1b}[2moffline: gemini-helper · night-owl\u{1b}[0m
 \u{1b}[34mhint:\u{1b}[0m tmt ls --all shows offline identities

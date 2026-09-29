@@ -5,7 +5,7 @@ mod presentation;
 
 use crate::{
     binding_error::{binding_failure, endpoint_failure},
-    invocation::{Invocation, OutputMode},
+    invocation::{Invocation, ListScope, OutputMode},
     output::{Failure, after_cleanup},
 };
 use std::io::{self, Write};
@@ -15,7 +15,7 @@ use tmt_adapters::{
     tmux::{BindingSession, CallerEnvironment, OperationOptions, Tmux},
 };
 use tmt_core::{
-    binding::session::RuntimeState,
+    binding::session::{RememberedSession, RuntimeState},
     binding::{
         self, BindingEntry, BindingTargetEvidence, BoundIdentity, IdentityPresence, UnboundIdentity,
     },
@@ -24,6 +24,14 @@ use tmt_core::{
     names::is_pane_target,
     settings::PaneBadge,
 };
+
+/// One `tmt ls` row: its presence and its remembered session, if any.
+struct ListedRow {
+    presence: IdentityPresence,
+    remembered: Option<RememberedSession>,
+    /// The existing `resume` JSON projection, kept byte for byte.
+    resume: Option<serde_json::Value>,
+}
 
 struct ResolvedPane {
     id: String,
@@ -42,17 +50,35 @@ enum Report {
         result: UnboundIdentity,
     },
     Removed(BindingEntry),
-    /// Each row with its remembered-session projection (JSON only).
-    Listed(Vec<(IdentityPresence, Option<serde_json::Value>)>),
+    /// The rows `tmt ls` shows, after its filters, in storage order.
+    Listed {
+        rows: Vec<ListedRow>,
+        scope: ListScope,
+    },
     Named {
         target: String,
         row: IdentityPresence,
+        remembered: Option<RememberedSession>,
     },
     Pane {
         target: String,
         pane: PaneObservation,
         identity: Option<Identity>,
+        remembered: Option<RememberedSession>,
     },
+}
+
+fn remembered_session(
+    storage: &Storage,
+    identity: &Identity,
+) -> Result<Option<RememberedSession>, Failure> {
+    storage
+        .session_preferences(&identity.id)
+        .map(|preferences| preferences.remembered)
+        .map_err(|error| {
+            Failure::new("IDENTITY_ERROR", "Could not read remembered sessions.", 1)
+                .caused_by(error)
+        })
 }
 
 fn preflight(
@@ -97,6 +123,26 @@ fn preflight(
             target: Some(target),
             ..
         } if is_pane_target(target) => Some(target.as_str()),
+        Invocation::List {
+            target: None,
+            scope: ListScope { here: true, .. },
+            ..
+        } => {
+            // `--here` is caller-scoped like `whoami`: it needs a tmux pane.
+            crate::caller_context::require_independent_host()?;
+            return tmux
+                .caller_pane(environment)
+                .map_err(endpoint_failure)?
+                .map(|id| Some(ResolvedPane { id, frozen: None }))
+                .ok_or_else(|| {
+                    Failure::new(
+                        "PANE_NOT_FOUND",
+                        "`tmt ls --here` needs a tmux pane, and this is not one.",
+                        3,
+                    )
+                    .suggestion("Run it inside tmux, or drop --here to list every agent.".into())
+                });
+        }
         Invocation::Bind { pane: None, .. } | Invocation::Whoami | Invocation::Unbind => {
             crate::caller_context::require_independent_host()?;
             return tmux
@@ -231,7 +277,11 @@ fn operation(
                 .map(Report::Removed)
                 .map_err(binding_failure)
         }
-        Invocation::List { target: None, room } => {
+        Invocation::List {
+            target: None,
+            room,
+            scope,
+        } => {
             // Resolve scope first: a typo must not trigger global reconciliation.
             let room = room
                 .map(|selector| crate::room_command::resolve(storage, &selector))
@@ -240,6 +290,22 @@ fn operation(
                 .map_err(binding_failure)?;
             if let Some(room) = room {
                 rows.retain(|row| room.member_ids.contains(&row.identity.id));
+            }
+            if let Some(lifetime) = scope.lifetime {
+                rows.retain(|row| row.identity.lifetime == lifetime);
+            }
+            if let Some(caller) = &pane {
+                // The caller's session is the part of its pane target before ':'.
+                let observed = binding::pane_presence(storage, endpoint, &caller.id)
+                    .map_err(binding_failure)?;
+                let session = |pane: &PaneObservation| {
+                    pane.target
+                        .as_deref()
+                        .and_then(|target| target.split_once(':'))
+                        .map(|(session, _)| session.to_owned())
+                };
+                let here = session(&observed.pane);
+                rows.retain(|row| here.is_some() && row.pane.as_ref().and_then(session) == here);
             }
             let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
             let rows = rows
@@ -257,10 +323,14 @@ fn operation(
                                 .caused_by(error)
                             })?;
                     let resume = crate::output::resume_document(&preferences, &registry);
-                    Ok((row, resume))
+                    Ok(ListedRow {
+                        presence: row,
+                        remembered: preferences.remembered,
+                        resume,
+                    })
                 })
                 .collect::<Result<Vec<_>, Failure>>()?;
-            Ok(Report::Listed(rows))
+            Ok(Report::Listed { rows, scope })
         }
         Invocation::List {
             target: Some(target),
@@ -269,15 +339,25 @@ fn operation(
             if let Some(pane) = pane {
                 let observed =
                     binding::pane_presence(storage, endpoint, &pane.id).map_err(binding_failure)?;
+                let remembered = match &observed.identity {
+                    Some(identity) => remembered_session(storage, identity)?,
+                    None => None,
+                };
                 Ok(Report::Pane {
                     target,
                     pane: observed.pane,
                     identity: observed.identity,
+                    remembered,
                 })
             } else {
                 let row =
                     binding::name_presence(storage, endpoint, &target).map_err(binding_failure)?;
-                Ok(Report::Named { target, row })
+                let remembered = remembered_session(storage, &row.identity)?;
+                Ok(Report::Named {
+                    target,
+                    row,
+                    remembered,
+                })
             }
         }
         _ => Err(Failure::new(
@@ -293,11 +373,12 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         writeln!(stdout, "{}", presentation::document(&report))?;
     } else {
-        presentation::text(&mut stdout, &report)?;
+        let terminal = stdout.terminal();
+        presentation::text(&mut stdout, terminal, &report)?;
     }
     drop(stdout);
     use crate::skill_reminder::Outcome;

@@ -59,6 +59,9 @@ same parts.
 - A row's trailing action appears only where an action is possible, such as
   `↻ tmt resume <name>`, `stale` or `shell`. It is accent-colored, comes after
   every column, and is never truncated.
+- Rows with nothing to show, such as offline identities with nothing to
+  resume, may fold into one dimmed note under the section's rows
+  (`offline: a · b`); a flag such as `--all` expands them.
 - A section-level `hint:` line comes last, only for a next step that applies to
   the whole section.
 
@@ -71,6 +74,7 @@ SAVED 3
 TEMPORARY 2
   ●  mamezu-astra     codex:01a9c3b8   ~/dev/mosaic-art
   ◌  opus-1           tmux:%31         /srv/builds/nightly                       shell
+    offline: gemini-helper · night-owl
 hint: tmt ls --all shows offline identities
 ```
 

@@ -127,7 +127,7 @@ describe.sequential('global identity lifecycle', () => {
 
       const initialHuman = await fixture.runCli(['whoami']);
       expect(initialHuman.code).toBe(0);
-      expect(initialHuman.stdout).toContain(`Pane ${pane} is unbound.`);
+      expect(initialHuman.stdout).toContain(`Pane ${pane} is unbound`);
       expect(initialHuman.stderr).toBe('');
 
       const namedJson = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
@@ -145,7 +145,7 @@ describe.sequential('global identity lifecycle', () => {
 
       const whoamiHuman = await fixture.runCli(['whoami']);
       expect(whoamiHuman.code).toBe(0);
-      expect(whoamiHuman.stdout).toContain(`Bound temporary identity 'Lifecycle' on pane ${pane}`);
+      expect(whoamiHuman.stdout).toBe(`Lifecycle (temporary) on pane ${pane}\n`);
       expect(whoamiHuman.stderr).toBe('');
 
       const whoamiJson = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([

@@ -83,12 +83,14 @@ fn agents() -> Vec<Section<'static>> {
             title: "saved",
             count: Some(3),
             rows: saved,
+            note: None,
             hint: None,
         },
         Section {
             title: "temporary",
             count: Some(2),
             rows: temporary,
+            note: Some("offline: gemini-helper · night-owl"),
             hint: Some("tmt ls --all shows offline identities"),
         },
     ]

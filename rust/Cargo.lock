@@ -2451,6 +2451,7 @@ version = "5.0.0-alpha.7"
 dependencies = [
  "clap",
  "clap_complete",
+ "insta",
  "proc-macro2",
  "serde_json",
  "syn 2.0.119",

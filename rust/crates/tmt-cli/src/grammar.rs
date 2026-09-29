@@ -237,7 +237,11 @@ pub fn grammar() -> Command {
         ))
             .visible_alias("ls")
             .arg(operand("target", false).conflicts_with("room"))
-            .arg(option("room")),
+            .arg(option("room"))
+            .arg(list_filter("saved", "Only saved identities").conflicts_with("temp"))
+            .arg(list_filter("temp", "Only temporary identities"))
+            .arg(list_filter("here", "Only agents in this tmux session"))
+            .arg(list_filter("all", "Show offline identities one per row")),
     )
     .subcommand(
         with_options(
@@ -1006,6 +1010,15 @@ fn channel_option() -> Arg {
     Arg::new("channel")
         .long("channel")
         .value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()))
+}
+
+/// A `tmt ls` filter; filters narrow the list, never a single identity.
+fn list_filter(id: &'static str, help: &'static str) -> Arg {
+    Arg::new(id)
+        .long(id)
+        .help(help)
+        .action(ArgAction::SetTrue)
+        .conflicts_with("target")
 }
 
 fn operand(id: &'static str, required: bool) -> Arg {

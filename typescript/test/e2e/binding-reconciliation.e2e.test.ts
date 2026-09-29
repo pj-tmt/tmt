@@ -56,23 +56,31 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       expect(human.stderr).toBe('');
       expect(human.stdout).not.toContain('\t');
       const lines = human.stdout.trimEnd().split('\n');
+      // Agent-first: one TEMPORARY section, no header row, rows sorted by name.
       expect(lines).toHaveLength(3);
-      const header = lines[0]!;
-      const starts = ['LIFETIME', 'STATUS', 'PANE', 'TARGET', 'CWD', 'COMMAND'].map((label) =>
-        header.indexOf(label)
-      );
+      expect(lines[0]).toBe('TEMPORARY 2');
+      const starts = new Set<string>();
       for (const [index, row] of before.identities.entries()) {
         const line = lines[index + 1]!;
-        expect(line.startsWith(row.name)).toBe(true);
+        expect(line).toBe(line.trimEnd());
         // This known five-fullwidth-character name occupies ten columns.
         // Substitution is an independent fixture oracle, not a second renderer.
         const columns = line.replace(wideName, '1234567890');
-        const values = [row.lifetime, row.presence, row.pane!, row.target!, row.cwd!, row.command];
-        for (const [column, value] of values.entries()) {
-          expect(columns.slice(starts[column], starts[column]! + value.length)).toBe(value);
-        }
-        expect(line).toBe(line.trimEnd());
+        const name = row.name === wideName ? '1234567890' : row.name;
+        expect(columns.slice(5, 5 + name.length)).toBe(name);
+        const address = columns.indexOf(`tmux:${row.pane}`);
+        expect(address).toBeGreaterThan(5);
+        // The folder follows the address; home abbreviation depends on the CLI's HOME.
+        const after = address + `tmux:${row.pane}`.length;
+        const cwd = after + columns.slice(after).search(/\S/);
+        expect(columns.slice(cwd)).toMatch(
+          // A mock pane runs a shell, so the row ends with its `shell` action.
+          new RegExp(`${path.basename(row.cwd!)}(  shell)?$`)
+        );
+        starts.add(`${address}:${cwd}`);
       }
+      // Both rows share one layout: every column starts at the same place.
+      expect(starts.size).toBe(1);
       expect(expectJsonResult(await fixture.runJsonCli<Listing>(['ls']))).toEqual(before);
       expect(
         durableState(fixture)

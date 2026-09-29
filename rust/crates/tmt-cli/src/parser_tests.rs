@@ -317,10 +317,41 @@ fn room_commands_share_typed_grammar_and_reject_unrelated_flags() {
         );
     }
     assert_eq!(
+        parsed(&["ls", "--temp", "--here", "--all"]).invocation,
+        Invocation::List {
+            target: None,
+            room: None,
+            scope: crate::invocation::ListScope {
+                lifetime: Some(tmt_core::identity::Lifetime::Temporary),
+                here: true,
+                all: true,
+            },
+        }
+    );
+    for input in [
+        vec!["ls", "--saved", "--temp"],
+        vec!["ls", "Alice", "--all"],
+        vec!["ls", "%3", "--here"],
+    ] {
+        assert_eq!(parse_error(&input).code, "USAGE_ERROR", "{input:?}");
+    }
+    assert_eq!(
+        parsed(&["ls", "--saved"]).invocation,
+        Invocation::List {
+            target: None,
+            room: None,
+            scope: crate::invocation::ListScope {
+                lifetime: Some(tmt_core::identity::Lifetime::Saved),
+                ..Default::default()
+            },
+        }
+    );
+    assert_eq!(
         parsed(&["ls", "--room", "Design"]).invocation,
         Invocation::List {
             target: None,
-            room: Some("Design".into())
+            room: Some("Design".into()),
+            scope: Default::default(),
         }
     );
     for command in [
@@ -1528,6 +1559,7 @@ fn command_aliases_preserve_typed_invocations() {
             Invocation::List {
                 target: None,
                 room: None,
+                scope: Default::default(),
             },
         ),
         (

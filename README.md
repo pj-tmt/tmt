@@ -79,7 +79,7 @@ waits for that stored reply, not terminal markers or idle output. Use
 `--detach` to return immediately and `tmt result <request-id>` to collect it later.
 
 Names are global, not folder-scoped. Pane identities are temporary by default;
-use `tmt name reviewer -s` to save one. `tmt ls` shows lifetime and presence.
+use `tmt name reviewer -s` to save one. `tmt ls` lists your agents, saved then temporary.
 `tmt rm reviewer` removes a temporary identity; saved removal requires `--force`.
 Neither removal nor unbinding kills the pane.
 

@@ -1,0 +1,13 @@
+---
+source: crates/tmt-cli/src/binding_command/presentation/list_tests.rs
+expression: "render(agents(), Terminal::PLAIN, false)"
+---
+SAVED 5
+  ●  astra            codex:019a2f4c   ~/dev/tmux-team
+  ●  opus-tmt-peer-2  claude:7c41e9d2  ~/dev/tmux-team
+  ○  sol              claude:3f9a1c07                       ↻ tmt resume sol
+    offline: codex-old · gemini
+
+TEMPORARY 2
+  ○  mamezu           codex:01a9c3b8                        stale
+  ◌  opus-1           tmux:%31         /srv/builds/nightly  shell
