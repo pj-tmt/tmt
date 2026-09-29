@@ -180,7 +180,7 @@ pub const COLORS: &[&str] = &[
     "default", "dim", "red", "amber", "green", "cyan", "blue", "magenta",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Pane {
     Rows,
     Notes,
