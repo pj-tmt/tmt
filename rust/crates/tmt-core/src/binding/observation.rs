@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    host::{HostKind, ServerSelector},
     identity::{self, IdentityError, Lifetime},
     names::{normalize_name, validate_name},
 };
@@ -9,10 +10,15 @@ use std::collections::BTreeMap;
 // and lookup keyed identically without allocating a second server registry.
 fn server_key(
     server: &ServerEvidence,
-    current_socket: Option<&str>,
-) -> (bool, String, String, u64, String) {
+    current: Option<ServerSelector<'_>>,
+) -> (bool, HostKind, String, String, u64, String) {
+    let selector = ServerSelector {
+        host: server.host,
+        socket: &server.socket_path,
+    };
     (
-        current_socket != Some(server.socket_path.as_str()),
+        current != Some(selector),
+        server.host,
         server.socket_path.clone(),
         server.server_id.clone(),
         server.server_pid,
@@ -31,7 +37,10 @@ pub fn evaluate_binding(entry: &BindingEntry, probe: &EndpointProbe) -> BindingE
         EndpointProbe::Unknown => return BindingEvidence::Unknown,
         EndpointProbe::Live(snapshot) => snapshot,
     };
-    if snapshot.server.socket_path != binding.server.socket_path {
+    // Another host, or another socket, cannot speak for this binding.
+    if snapshot.server.host != binding.server.host
+        || snapshot.server.socket_path != binding.server.socket_path
+    {
         return BindingEvidence::Unknown;
     }
     if snapshot.server.server_pid != binding.server.server_pid
@@ -170,7 +179,8 @@ pub fn pane_presence<R: BindingRepository, O: BindingEndpoint>(
             .find(|pane| pane.id == pane_id)
             .cloned()
             .ok_or_else(|| BindingError::PaneNotFound(pane_id.into()))?;
-        let entry = records.entry_by_pane(pane_id, &snapshot.server.server_id)?;
+        let entry =
+            records.entry_by_pane(snapshot.server.host, pane_id, &snapshot.server.server_id)?;
         let server = snapshot.server.clone();
         let active = match entry {
             Some(entry) => reconcile(records, entry, &EndpointProbe::Live(snapshot))?
@@ -229,7 +239,7 @@ pub fn current_name_presence<R: BindingRepository, O: BindingEndpoint>(
 pub fn list_presence<R: BindingRepository, O: BindingEndpoint>(
     repository: &mut R,
     endpoint: &mut O,
-    current_socket: Option<&str>,
+    current_server: Option<ServerSelector<'_>>,
 ) -> Result<Vec<IdentityPresence>, BindingError<R::Error, O::Error>> {
     repository.with_binding_transaction(|records| {
         endpoint.begin_coordination();
@@ -238,7 +248,7 @@ pub fn list_presence<R: BindingRepository, O: BindingEndpoint>(
         for entry in &entries {
             if let Some(binding) = &entry.binding {
                 let server = &binding.server;
-                let key = server_key(server, current_socket);
+                let key = server_key(server, current_server);
                 groups
                     .entry(key)
                     .or_insert_with(|| (server.clone(), Vec::new()))
@@ -262,7 +272,7 @@ pub fn list_presence<R: BindingRepository, O: BindingEndpoint>(
             let probe = entry
                 .binding
                 .as_ref()
-                .and_then(|binding| probes.get(&server_key(&binding.server, current_socket)))
+                .and_then(|binding| probes.get(&server_key(&binding.server, current_server)))
                 .unwrap_or(&EndpointProbe::Unknown);
             if let Some(row) = reconcile(records, entry, probe)? {
                 result.push(row);

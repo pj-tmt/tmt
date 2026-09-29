@@ -14,6 +14,7 @@ use super::test_support::{Fixture, pane};
 
 fn server() -> ServerEvidence {
     ServerEvidence {
+        host: tmt_core::host::HostKind::Tmux,
         server_id: "123e4567-e89b-42d3-a456-426614174000".into(),
         socket_path: "/tmp/tmux-test.sock".into(),
         server_pid: 41,
@@ -116,7 +117,11 @@ fn corrupt_binding_pids_fail_every_reader_without_repair_or_retirement() {
                     assert_invalid_pid(records.entry_by_id(&identity.id).unwrap_err());
                     assert_invalid_pid(
                         records
-                            .entry_by_pane("%3", &server().server_id)
+                            .entry_by_pane(
+                                tmt_core::host::HostKind::Tmux,
+                                "%3",
+                                &server().server_id,
+                            )
                             .unwrap_err(),
                     );
                     assert_invalid_pid(records.binding_entries().unwrap_err());
@@ -474,5 +479,44 @@ fn closed_storage_and_immediate_lock_contention_are_reported() {
     assert!(error.retryable);
     assert!(storage.connection().unwrap().is_autocommit());
     blocker.execute_batch("ROLLBACK;").unwrap();
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_binding_stores_its_host_and_an_unknown_stored_host_is_invalid() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let identity = create_or_resolve(&mut storage, "Hosted", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let binding = storage
+        .with_binding_transaction(|records| {
+            records.insert_binding(&identity, &server(), &pane("%3", 99))
+        })
+        .unwrap();
+    assert_eq!(binding.server.host, tmt_core::host::HostKind::Tmux);
+    let connection = Connection::open(&fixture.database).unwrap();
+    let transport: String = connection
+        .query_row("SELECT transport FROM bindings", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(transport, "tmux");
+    // The schema admits a host this build does not know yet: never a guess.
+    connection
+        .execute("UPDATE bindings SET transport = 'herdr'", [])
+        .unwrap();
+    storage
+        .with_binding_transaction(|records| {
+            assert_invalid_pid(records.entry_by_id(&identity.id).unwrap_err());
+            assert_invalid_pid(records.binding_entries().unwrap_err());
+            assert!(
+                records
+                    .entry_by_pane(tmt_core::host::HostKind::Tmux, "%3", &server().server_id)
+                    .unwrap()
+                    .is_none(),
+                "a tmux lookup never selects another host's pane"
+            );
+            Ok::<_, StorageError>(())
+        })
+        .unwrap();
     storage.close().unwrap();
 }

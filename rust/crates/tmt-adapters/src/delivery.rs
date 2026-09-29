@@ -68,7 +68,7 @@ pub fn wake_request(
         .wake_recipient_is_eligible(request_id, recipient_id)
         .unwrap_or(false);
     let state = if eligible {
-        send(storage, &Host::default(), recipient_id, notification, delay)
+        send(storage, recipient_id, notification, delay)
             .map(|outcome| outcome.wake_state())
             .unwrap_or(WakeState::Unavailable)
     } else {
@@ -140,10 +140,11 @@ fn recover(
     if changed {
         entry.binding.as_mut().expect("verified binding").session = next;
         if let Ok(paths) = crate::config::ConfigPaths::discover() {
+            let binding = entry.binding.as_ref().expect("verified binding");
             crate::pane_badge::refresh(
                 &paths,
-                &Host::default(),
-                entry.binding.as_ref().expect("verified binding"),
+                &Host::for_server(&binding.server),
+                binding,
                 Instant::now() + Duration::from_secs(1),
             );
         }
@@ -151,12 +152,16 @@ fn recover(
     Ok(())
 }
 
-pub fn status(
-    storage: &mut Storage,
-    host: &Host,
-    identity: &str,
-) -> Result<Availability, StorageError> {
+/// Probes the identity's binding through the host that runs its server.
+pub fn status(storage: &mut Storage, identity: &str) -> Result<Availability, StorageError> {
     let Some(mut entry) = current(storage, identity)? else {
+        return Ok(Availability::Offline);
+    };
+    let Some(host) = entry
+        .binding
+        .as_ref()
+        .map(|binding| Host::for_server(&binding.server))
+    else {
         return Ok(Availability::Offline);
     };
     let mut session = host.session();
@@ -190,17 +195,23 @@ pub fn status(
 
 pub fn send(
     storage: &mut Storage,
-    host: &Host,
     identity: &str,
     message: &str,
     delay: Duration,
 ) -> Result<Delivery, StorageError> {
-    match status(storage, host, identity)? {
+    match status(storage, identity)? {
         Availability::Ready => {}
         Availability::Offline => return Ok(Delivery::Offline),
         Availability::Unavailable => return Ok(Delivery::Unavailable),
     }
     let Some(entry) = current(storage, identity)? else {
+        return Ok(Delivery::Offline);
+    };
+    let Some(host) = entry
+        .binding
+        .as_ref()
+        .map(|binding| Host::for_server(&binding.server))
+    else {
         return Ok(Delivery::Offline);
     };
     let preferences =
@@ -284,7 +295,6 @@ pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
     };
     let outcome = match send(
         storage,
-        &Host::default(),
         &hint.originator_id,
         &text,
         Duration::from_millis(500),

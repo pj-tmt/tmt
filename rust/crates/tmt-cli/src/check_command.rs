@@ -9,11 +9,11 @@ use crate::{
 use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
-    host::Host,
+    host::{CallerEnvironment, Host},
     storage::Storage,
 };
 use tmt_cli_style::Token;
-use tmt_core::binding::PaneIdentity;
+use tmt_core::{binding::PaneIdentity, request::RequestEndpoint};
 
 struct Report {
     target: String,
@@ -31,7 +31,8 @@ fn run(target: String, lines: Option<u64>) -> Result<Report, Failure> {
     .map_err(Failure::from)?
     .settings;
     let lines = lines.unwrap_or(settings.capture_lines);
-    let host = Host::default();
+    // Names resolve through stored bindings; each is probed on its own host.
+    let host = Host::for_caller(&CallerEnvironment::current());
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -42,8 +43,13 @@ fn run(target: String, lines: Option<u64>) -> Result<Report, Failure> {
         )
     })?;
     let pending = target::resolve(&mut storage, &host, &target).and_then(|observed| {
-        let output = host
-            .capture(&observed.server.socket_path, &observed.pane.id, lines)
+        let endpoint = RequestEndpoint {
+            server: observed.server.clone(),
+            pane_id: observed.pane.id.clone(),
+            pane_pid: observed.pane.pane_pid,
+        };
+        let output = Host::for_server(&observed.server)
+            .capture(&endpoint, lines)
             .map_err(|error| {
                 if error.socket_permission_denied() {
                     return socket_failure(error);

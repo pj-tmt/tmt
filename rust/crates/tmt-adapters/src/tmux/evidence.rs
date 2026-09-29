@@ -1,7 +1,10 @@
+use super::valid_pane_id;
 use std::collections::{HashMap, HashSet};
-use tmt_core::endpoint::{
-    EndpointSnapshot, PaneObservation, ServerEvidence, valid_pane_id, valid_process_id,
-    valid_server_id,
+use tmt_core::{
+    endpoint::{
+        EndpointSnapshot, PaneObservation, ServerEvidence, valid_process_id, valid_server_id,
+    },
+    host::HostKind,
 };
 
 use super::{TmuxError, metadata};
@@ -81,6 +84,7 @@ fn server(rows: &[Vec<&str>], expected: Option<&str>) -> Result<ServerEvidence, 
         ));
     }
     Ok(ServerEvidence {
+        host: HostKind::Tmux,
         server_id: first[0].into(),
         socket_path: first[1].into(),
         server_pid,

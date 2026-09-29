@@ -6,7 +6,7 @@ use icu_locale_core::LanguageIdentifier;
 use icu_normalizer::ComposingNormalizer;
 use std::{error::Error, fmt};
 
-use crate::endpoint::valid_pane_id;
+use crate::host::HostKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidatedName {
@@ -62,22 +62,13 @@ pub fn normalize_name(value: &str) -> String {
         .into_owned()
 }
 
+/// Text that any host reads as one of its pane targets; such text is never a
+/// name. Each host owns its syntax ([`HostKind::is_target`]).
 pub fn is_pane_target(value: &str) -> bool {
     let canonical = normalize_name(value);
-    if valid_pane_id(&canonical) || window_pane(&canonical) {
-        return true;
-    }
-    canonical.split_once(':').is_some_and(|(session, pane)| {
-        !session.is_empty() && !session.chars().any(ecmascript_space) && window_pane(pane)
-    })
-}
-
-fn window_pane(value: &str) -> bool {
-    value.split_once('.').is_some_and(|(window, pane)| {
-        [window, pane]
-            .into_iter()
-            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
-    })
+    HostKind::ALL
+        .into_iter()
+        .any(|host| host.is_target(&canonical))
 }
 
 pub fn validate_name(value: &str) -> Result<ValidatedName, NameError> {

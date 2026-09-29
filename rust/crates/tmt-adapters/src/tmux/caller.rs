@@ -1,11 +1,15 @@
 use super::evidence::wire_integer as number;
+use super::valid_pane_id;
 use super::{CommandRunner, OPERATION_TIMEOUT, Tmux, TmuxError, TmuxFailure};
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
     time::Instant,
 };
-use tmt_core::{endpoint::valid_pane_id, limits::MAX_JS_SAFE_INTEGER};
+use tmt_core::{
+    host::{HostKind, ServerSelector},
+    limits::MAX_JS_SAFE_INTEGER,
+};
 
 const SEPARATOR: &str = "__TMT_CALLER_PANE_4f1c__";
 const MAX_DEPTH: usize = 64;
@@ -21,8 +25,11 @@ pub struct CallerEnvironment {
 
 impl CallerEnvironment {
     /// A scheduling preference only, not verified caller or routing authority.
-    pub fn selected_socket(&self) -> Option<&str> {
-        context(self.tmux.as_ref()?.to_str()?).map(|context| context.socket)
+    pub fn selected_server(&self) -> Option<ServerSelector<'_>> {
+        context(self.tmux.as_ref()?.to_str()?).map(|context| ServerSelector {
+            host: HostKind::Tmux,
+            socket: context.socket,
+        })
     }
 
     /// The selected tmux server, with malformed supplied evidence rejected

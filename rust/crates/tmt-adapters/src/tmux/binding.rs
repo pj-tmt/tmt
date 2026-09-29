@@ -67,7 +67,8 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
         server: &ServerEvidence,
         panes: &[String],
     ) -> Result<EndpointProbe, Self::Error> {
-        if !self.budget_available() {
+        // Another host's server is never evidence on this one.
+        if !self.budget_available() || server.host != tmt_core::host::HostKind::Tmux {
             return Ok(EndpointProbe::Unknown);
         }
         let probe = self.tmux.probe(

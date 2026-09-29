@@ -103,7 +103,9 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
             .map_err(BindingError::Endpoint)?;
         let pane = target_pane(&snapshot, pane_id, target)?;
         let mut current = None;
-        if let Some(occupied) = records.entry_by_pane(pane_id, &snapshot.server.server_id)? {
+        if let Some(occupied) =
+            records.entry_by_pane(snapshot.server.host, pane_id, &snapshot.server.server_id)?
+        {
             match evaluate_binding(&occupied, &EndpointProbe::Live(snapshot.clone())) {
                 BindingEvidence::Active(_) if occupied.identity.id != selected.identity.id => {
                     return Err(BindingError::PaneAlreadyBound);
@@ -124,7 +126,9 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
         if let Some(old) = &selected.binding
             && current.as_ref().is_none_or(|current| current.id != old.id)
         {
-            let probe = if old.server.socket_path == snapshot.server.socket_path {
+            let probe = if old.server.host == snapshot.server.host
+                && old.server.socket_path == snapshot.server.socket_path
+            {
                 EndpointProbe::Live(snapshot.clone())
             } else {
                 observe(endpoint, &selected).map_err(BindingError::Endpoint)?
@@ -157,7 +161,7 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
             .map_err(BindingError::Endpoint)?;
         target_pane(&verified, pane_id, target)?;
         let persisted = records
-            .entry_by_pane(pane_id, &binding.server.server_id)?
+            .entry_by_pane(binding.server.host, pane_id, &binding.server.server_id)?
             .ok_or(BindingError::Unverified)?;
         if persisted.identity.id != selected.identity.id
             || persisted.binding.as_ref() != Some(&binding)
@@ -256,7 +260,9 @@ pub fn unbind_identity<R: BindingRepository, O: BindingEndpoint>(
         if !snapshot.panes.iter().any(|pane| pane.id == pane_id) {
             return Err(BindingError::PaneNotFound(pane_id.into()));
         }
-        let Some(entry) = records.entry_by_pane(pane_id, &snapshot.server.server_id)? else {
+        let Some(entry) =
+            records.entry_by_pane(snapshot.server.host, pane_id, &snapshot.server.server_id)?
+        else {
             return Ok(None);
         };
         let evidence = evaluate_binding(&entry, &EndpointProbe::Live(snapshot));

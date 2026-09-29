@@ -1,8 +1,9 @@
 //! Bringing a pane to the invoking user's tmux client. Only the view changes:
 //! no buffer, paste or key input, and never a guessed client.
 
-use super::{CallerEnvironment, CommandRunner, OperationOptions, Tmux, TmuxError, socket_args};
-use tmt_core::endpoint::valid_pane_id;
+use super::{
+    CallerEnvironment, CommandRunner, OperationOptions, Tmux, TmuxError, socket_args, valid_pane_id,
+};
 
 // tmux sanitizes control characters in formats; share the evidence separator.
 const FIELD: &str = super::evidence::SEPARATOR;

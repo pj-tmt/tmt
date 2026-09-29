@@ -84,6 +84,7 @@ fn accepts_strict_v4_server_evidence_and_expected_identity() {
         server_row(SERVER_ID, SOCKET, SERVER_PID, START_TIME)
     );
     let expected = ServerEvidence {
+        host: tmt_core::host::HostKind::Tmux,
         server_id: SERVER_ID.into(),
         socket_path: SOCKET.into(),
         server_pid: 321,

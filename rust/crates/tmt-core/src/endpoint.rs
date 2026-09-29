@@ -3,12 +3,6 @@
 
 use crate::limits::MAX_JS_SAFE_INTEGER;
 
-pub fn valid_pane_id(value: &str) -> bool {
-    value.strip_prefix('%').is_some_and(|digits| {
-        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-    })
-}
-
 pub fn valid_process_id(value: u64) -> bool {
     value > 0 && value <= MAX_JS_SAFE_INTEGER
 }
@@ -22,6 +16,8 @@ pub fn valid_server_id(value: &str) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerEvidence {
+    /// The host that runs this server; pane IDs follow its syntax.
+    pub host: crate::host::HostKind,
     pub server_id: String,
     pub socket_path: String,
     pub server_pid: u64,

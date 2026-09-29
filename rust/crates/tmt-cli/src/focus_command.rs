@@ -61,7 +61,8 @@ fn identity_failure(error: ActionError) -> Failure {
 /// `from`); the shared resolver handles both, current server only.
 fn run(target: String) -> Result<Focused, Failure> {
     let invoker = invoker()?;
-    let host = Host::default();
+    // A focus changes the invoking user's own view: the caller's host.
+    let host = Host::for_caller(&CallerEnvironment::current());
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
@@ -99,7 +100,7 @@ fn run(target: String) -> Result<Focused, Failure> {
 /// anything or opening storage.
 pub fn client(mode: OutputMode) -> io::Result<u8> {
     let view = match invoker().and_then(|invoker| {
-        Host::default()
+        Host::for_caller(&CallerEnvironment::current())
             .invoker_client(&invoker, OperationOptions::default())
             .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
     }) {

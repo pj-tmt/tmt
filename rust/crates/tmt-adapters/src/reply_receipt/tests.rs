@@ -6,6 +6,7 @@ const LEGACY_RECEIPT: &str = "eyJ2ZXJzaW9uIjoxLCJyZXF1ZXN0SWQiOiJsZWdhY3kiLCJhdH
 fn endpoint() -> RequestEndpoint {
     RequestEndpoint {
         server: ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
             server_id: "server-1".into(),
             socket_path: "/tmp/tmt-test.sock".into(),
             server_pid: 1234,
@@ -108,6 +109,7 @@ fn original_ts_literal_reordered_whitespace_and_duplicate_keys_share_one_proof()
         attempt_id: "legacy-attempt".into(),
         endpoint: RequestEndpoint {
             server: ServerEvidence {
+                host: tmt_core::host::HostKind::Tmux,
                 server_id: "server-for-request-tests".into(),
                 socket_path: "/tmp/tmt-request-tests.sock".into(),
                 server_pid: 41,

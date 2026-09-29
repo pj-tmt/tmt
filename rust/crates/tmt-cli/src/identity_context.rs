@@ -25,11 +25,21 @@ fn required_failure() -> Failure {
 
 /// Reject an unavailable implicit caller before opening or migrating storage.
 pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
-    select(&Host::default(), explicit, false)?.ok_or_else(required_failure)
+    select(
+        &Host::for_caller(&CallerEnvironment::current()),
+        explicit,
+        false,
+    )?
+    .ok_or_else(required_failure)
 }
 
 pub fn resolve(storage: &mut Storage, selector: Selector) -> Result<Identity, Failure> {
-    selected(storage, &Host::default(), selector)?.ok_or_else(required_failure)
+    selected(
+        storage,
+        &Host::for_caller(&CallerEnvironment::current()),
+        selector,
+    )?
+    .ok_or_else(required_failure)
 }
 
 pub fn optional(

@@ -230,6 +230,7 @@ mod tests {
                 id: "binding".into(),
                 identity_id: "identity".into(),
                 server: ServerEvidence {
+                    host: tmt_core::host::HostKind::Tmux,
                     server_id: "123e4567-e89b-42d3-a456-426614174000".into(),
                     socket_path: "/tmp/tmt-driver.sock".into(),
                     server_pid: 321,

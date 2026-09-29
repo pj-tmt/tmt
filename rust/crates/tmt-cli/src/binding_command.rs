@@ -21,6 +21,7 @@ use tmt_core::{
         RenamedIdentity, UnboundIdentity,
     },
     endpoint::PaneObservation,
+    host::ServerSelector,
     identity::Identity,
     names::is_pane_target,
     settings::PaneBadge,
@@ -167,7 +168,8 @@ fn preflight(
     };
     target
         .map(|target| {
-            host.resolve_target(target, OperationOptions::default())
+            Host::for_target(target)
+                .resolve_target(target, OperationOptions::default())
                 .map_err(endpoint_failure)?
                 .ok_or_else(|| {
                     Failure::new(
@@ -182,8 +184,8 @@ fn preflight(
 }
 
 fn run(request: Invocation) -> Result<Report, Failure> {
-    let host = Host::default();
     let environment = CallerEnvironment::current();
+    let host = Host::for_caller(&environment);
     let pane = preflight(&request, &host, &environment)?;
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let badge = if matches!(
@@ -209,7 +211,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
         &mut endpoint,
         request,
         pane,
-        environment.selected_socket(),
+        environment.selected_server(),
     )
     .and_then(|mut report| {
         // Presentation follows successful durable effects, never decides
@@ -236,7 +238,8 @@ fn run(request: Invocation) -> Result<Report, Failure> {
             _ => None,
         };
         if let Some((binding, cosmetics)) = update {
-            host.update_binding_cosmetics(binding, cosmetics)
+            Host::for_server(&binding.server)
+                .update_binding_cosmetics(binding, cosmetics)
                 .map_err(cosmetic_cleanup)?;
         }
         // The rename is committed; its pane only shows it, and a stale
@@ -249,7 +252,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
                 identity: &result.identity,
                 badge,
             };
-            let refresh = host
+            let refresh = Host::for_server(&binding.server)
                 .update_binding_cosmetics(binding, cosmetics)
                 .map_err(cosmetic_cleanup)?;
             if refresh != PaneRefresh::Absent {
@@ -275,7 +278,7 @@ fn operation(
     endpoint: &mut BindingSession<'_, tmt_adapters::process::UnixCommandRunner>,
     request: Invocation,
     pane: Option<ResolvedPane>,
-    current_socket: Option<&str>,
+    current_server: Option<ServerSelector<'_>>,
 ) -> Result<Report, Failure> {
     match request {
         Invocation::Bind { name, save, .. } => binding::bind_identity_with_creation(
@@ -341,7 +344,7 @@ fn operation(
             let room = room
                 .map(|selector| crate::room_command::resolve(storage, &selector))
                 .transpose()?;
-            let mut rows = binding::list_presence(storage, endpoint, current_socket)
+            let mut rows = binding::list_presence(storage, endpoint, current_server)
                 .map_err(binding_failure)?;
             if let Some(room) = room {
                 rows.retain(|row| room.member_ids.contains(&row.identity.id));

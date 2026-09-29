@@ -19,8 +19,9 @@ use tmt_core::{
 mod tests;
 
 pub fn resolve(storage: &mut Storage, host: &Host, input: &str) -> Result<PaneIdentity, Failure> {
-    let mut endpoint = host.session();
     if is_pane_target(input) {
+        let host = Host::for_target(input);
+        let mut endpoint = host.session();
         let pane = host
             .resolve_target(input, OperationOptions::default())
             .map_err(endpoint_failure)?
@@ -33,7 +34,8 @@ pub fn resolve(storage: &mut Storage, host: &Host, input: &str) -> Result<PaneId
             })?;
         return binding::pane_presence(storage, &mut endpoint, &pane).map_err(binding_failure);
     }
-    binding::current_name_presence(storage, &mut endpoint, input)
+    // A name resolves through its stored binding, probed on its own host.
+    binding::current_name_presence(storage, &mut host.session(), input)
         .map_err(binding_failure)?
         .ok_or_else(|| {
             Failure::new(
@@ -45,9 +47,9 @@ pub fn resolve(storage: &mut Storage, host: &Host, input: &str) -> Result<PaneId
 }
 
 /// A fresh observation before preparation is not a lease on later processing.
-pub fn refresh(host: &Host, observed: &PaneIdentity) -> Result<RequestEndpoint, Failure> {
+pub fn refresh(observed: &PaneIdentity) -> Result<RequestEndpoint, Failure> {
     let scope = [observed.pane.id.clone()];
-    let snapshot = host
+    let snapshot = Host::for_server(&observed.server)
         .snapshot(OperationOptions {
             pane_ids: Some(&scope),
             ..Default::default()

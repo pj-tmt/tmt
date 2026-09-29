@@ -3,6 +3,7 @@
 use rusqlite::Row;
 use tmt_core::{
     endpoint::ServerEvidence,
+    host::HostKind,
     limits::is_valid_js_safe_integer,
     request::{
         AttemptStatus, FinalResponse, Originator, RawRequestContext, RequestAttempt,
@@ -19,8 +20,9 @@ pub(super) const ATTEMPT_COLUMNS: &str = "
     sending_at_ms, settled_at_ms, wait_released_at_ms, response_submitted_at_ms,
     expires_at_ms, retention_days, retention_expires_at_ms,
     attention_revision, attention_acknowledged_revision,
-    recipient_attention_revision, recipient_attention_acknowledged_revision, request_kind, room_id";
-pub(super) const ATTEMPT_COLUMN_COUNT: usize = 33;
+    recipient_attention_revision, recipient_attention_acknowledged_revision, request_kind, room_id,
+    host";
+pub(super) const ATTEMPT_COLUMN_COUNT: usize = 34;
 pub(super) fn qualified_attempt_columns() -> String {
     ATTEMPT_COLUMNS
         .split(',')
@@ -31,7 +33,7 @@ pub(super) fn qualified_attempt_columns() -> String {
 pub(super) const RESPONSE_COLUMNS: &str = "
     request_id, attempt_id, route_kind, route_recipient_identity_id,
     server_id, socket_path, server_pid, server_start_time,
-    pane_id, pane_pid, body, body_bytes, submitted_at_ms, response_expires_at_ms";
+    pane_id, pane_pid, body, body_bytes, submitted_at_ms, response_expires_at_ms, host";
 
 fn invalid_row() -> rusqlite::Error {
     rusqlite::Error::InvalidQuery
@@ -86,7 +88,7 @@ pub(super) fn attempt_row(row: &Row<'_>) -> rusqlite::Result<RequestAttempt> {
         _ => return Err(invalid_row()),
     };
     let route = match row.get::<_, String>(7)?.as_str() {
-        "pane" => pane_route_at(row, 8)?,
+        "pane" => pane_route_at(row, 8, 33)?,
         "inbox" => RequestRoute::Inbox {
             recipient_identity_id: row.get::<_, Option<String>>(4)?.ok_or_else(invalid_row)?,
         },
@@ -148,7 +150,7 @@ pub(super) fn response_row(row: &Row<'_>) -> rusqlite::Result<FinalResponse> {
         request_id: row.get(0)?,
         attempt_id: row.get(1)?,
         route: match row.get::<_, String>(2)?.as_str() {
-            "pane" => pane_route_at(row, 4)?,
+            "pane" => pane_route_at(row, 4, 14)?,
             "inbox" => RequestRoute::Inbox {
                 recipient_identity_id: row.get::<_, Option<String>>(3)?.ok_or_else(invalid_row)?,
             },
@@ -232,7 +234,13 @@ pub(super) fn context_row(row: &Row<'_>) -> rusqlite::Result<RawRequestContext> 
     })
 }
 
-fn pane_route_at(row: &Row<'_>, offset: usize) -> rusqlite::Result<RequestRoute> {
+/// `host_at` holds the fence's host; NULL is tmux, which wrote every fence
+/// before schema 39. An unknown host is invalid, never a guess.
+fn pane_route_at(row: &Row<'_>, offset: usize, host_at: usize) -> rusqlite::Result<RequestRoute> {
+    let host = match row.get::<_, Option<String>>(host_at)? {
+        None => HostKind::Tmux,
+        Some(host) => HostKind::parse(&host).ok_or_else(invalid_row)?,
+    };
     let server_pid = u64_at(row, offset + 2)?;
     let pane_pid = u64_at(row, offset + 5)?;
     if server_pid == 0 || pane_pid == 0 {
@@ -240,6 +248,7 @@ fn pane_route_at(row: &Row<'_>, offset: usize) -> rusqlite::Result<RequestRoute>
     }
     Ok(RequestRoute::Pane(RequestEndpoint {
         server: ServerEvidence {
+            host,
             server_id: row.get(offset)?,
             socket_path: row.get(offset + 1)?,
             server_pid,

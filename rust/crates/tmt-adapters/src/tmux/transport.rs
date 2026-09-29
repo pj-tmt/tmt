@@ -1,11 +1,12 @@
 //! Pane IO only: callers own routing, endpoint verification and request state.
 
+use super::valid_pane_id;
 use super::{CommandRunner, OPERATION_TIMEOUT, Tmux, TmuxError, TmuxFailure, socket_args};
 use std::{
     fmt,
     time::{Duration, Instant},
 };
-use tmt_core::{endpoint::valid_pane_id, limits::is_valid_capture_lines};
+use tmt_core::limits::is_valid_capture_lines;
 
 const SEND_MAX_OUTPUT: usize = 64 * 1024;
 const CAPTURE_MAX_OUTPUT: usize = 4 * 1024 * 1024;

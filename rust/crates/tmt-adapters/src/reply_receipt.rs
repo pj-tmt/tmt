@@ -6,6 +6,7 @@ use serde_json::{Map, Value};
 use std::{error::Error, fmt};
 use tmt_core::{
     endpoint::ServerEvidence,
+    host::HostKind,
     limits::MAX_JS_SAFE_INTEGER,
     request::{RequestEndpoint, RequestRoute, ResponseProof, correlation::response_token},
 };
@@ -105,15 +106,14 @@ fn decode_v1(value: &Value, request_id: &str) -> Result<ResponseProof, ReplyRece
             "panePid",
         ],
     )?;
+    // v1 is decode-only and predates every host but tmux.
     let pane_id = bounded_string(&endpoint["paneId"], 4096)?;
-    if !pane_id
-        .strip_prefix('%')
-        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
-    {
+    if !HostKind::Tmux.is_pane_id(pane_id) {
         return Err(ReplyReceiptError::Invalid);
     }
     let endpoint = RequestEndpoint {
         server: ServerEvidence {
+            host: HostKind::Tmux,
             server_id: bounded_string(&endpoint["serverId"], 4096)?.into(),
             socket_path: bounded_string(&endpoint["socketPath"], 4096)?.into(),
             server_pid: pid(&endpoint["serverPid"])?,

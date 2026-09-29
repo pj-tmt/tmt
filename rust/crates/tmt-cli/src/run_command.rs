@@ -241,9 +241,10 @@ pub fn execute(
 
 fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     crate::caller_context::require_independent_host()?;
-    let host = Host::default();
+    let environment = CallerEnvironment::current();
+    let host = Host::for_caller(&environment);
     let pane = host
-        .caller_pane(&CallerEnvironment::current())
+        .caller_pane(&environment)
         .map_err(endpoint_failure)?
         .ok_or_else(|| {
             Failure::new(

@@ -7,6 +7,7 @@ use tmt_core::{
 
 fn recipient() -> PaneIdentity {
     let server = ServerEvidence {
+        host: tmt_core::host::HostKind::Tmux,
         server_id: "6c57fcc9-96b1-4022-b071-870b81288814".into(),
         socket_path: "/tmp/target-test.sock".into(),
         server_pid: 41,

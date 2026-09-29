@@ -83,6 +83,7 @@ fn response(body: &str) -> FinalResponse {
         attempt_id: "attempt-observe".into(),
         route: tmt_core::request::RequestRoute::Pane(RequestEndpoint {
             server: ServerEvidence {
+                host: tmt_core::host::HostKind::Tmux,
                 server_id: "server".into(),
                 socket_path: "/tmp/tmux.sock".into(),
                 server_pid: 41,

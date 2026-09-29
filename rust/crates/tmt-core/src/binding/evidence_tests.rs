@@ -16,6 +16,7 @@ fn fixture(name: &str) -> (Identity, Binding, EndpointSnapshot) {
         updated_at: "updated".into(),
     };
     let server = ServerEvidence {
+        host: crate::host::HostKind::Tmux,
         server_id: "123e4567-e89b-42d3-a456-426614174000".into(),
         socket_path: "/tmp/tmt.sock".into(),
         server_pid: 321,

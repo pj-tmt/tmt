@@ -79,7 +79,6 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
     let harness = HarnessId::new(provider).map_err(|_| ())?;
     let lifecycle = registry.lifecycle(&harness).ok_or(())?;
     let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
-    let panes = Host::new(SupervisedProbeRunner);
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(String::new());
@@ -100,16 +99,16 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         };
         let binding = stored.entry.binding.as_ref().ok_or(())?;
         let pane = &binding.pane_id;
-        let EndpointProbe::Live(snapshot) = panes
-            .probe(
-                &binding.server.socket_path,
-                binding.server.server_pid,
-                OperationOptions {
-                    deadline: Some(deadline),
-                    pane_ids: Some(std::slice::from_ref(pane)),
-                },
-            )
-            .map_err(|_| ())?
+        let EndpointProbe::Live(snapshot) =
+            Host::for_server_with(&binding.server, SupervisedProbeRunner)
+                .probe(
+                    &binding.server,
+                    OperationOptions {
+                        deadline: Some(deadline),
+                        pane_ids: Some(std::slice::from_ref(pane)),
+                    },
+                )
+                .map_err(|_| ())?
         else {
             return Err(());
         };
@@ -121,10 +120,9 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         };
         (stored, snapshot, process)
     } else {
-        let Some(pane) = panes
-            .caller_pane(&CallerEnvironment::current())
-            .map_err(|_| ())?
-        else {
+        let environment = CallerEnvironment::current();
+        let panes = Host::for_caller_with(&environment, SupervisedProbeRunner);
+        let Some(pane) = panes.caller_pane(&environment).map_err(|_| ())? else {
             return if Instant::now() < deadline {
                 Ok(String::new())
             } else {
@@ -157,6 +155,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         }
         let stored = Storage::context_by_pane(
             &paths.database,
+            snapshot.server.host,
             &pane,
             &snapshot.server.server_id,
             tmt_adapters::request_runtime::wall_time_ms(),
@@ -244,13 +243,19 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         return Err(());
     }
     if !event.starting() {
-        crate::pane_badge::refresh(&paths, &panes, binding, deadline);
+        crate::pane_badge::refresh(
+            &paths,
+            &Host::for_server_with(&binding.server, SupervisedProbeRunner),
+            binding,
+            deadline,
+        );
         return Ok(String::new());
     }
     // Re-read the bounded projection after acknowledgment. Do not inject a
     // different binding if a concurrent rebind occurred during the callback.
     let refreshed = Storage::context_by_pane(
         &paths.database,
+        snapshot.server.host,
         &pane,
         &snapshot.server.server_id,
         tmt_adapters::request_runtime::wall_time_ms(),
@@ -279,6 +284,11 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
     )
     .map_err(|_| ())?;
     let encoded = lifecycle.encode_context(&context).ok_or(())?;
-    crate::pane_badge::refresh(&paths, &panes, binding, deadline);
+    crate::pane_badge::refresh(
+        &paths,
+        &Host::for_server_with(&binding.server, SupervisedProbeRunner),
+        binding,
+        deadline,
+    );
     Ok(encoded)
 }

@@ -13,6 +13,7 @@ use super::super::*;
 fn endpoint() -> RequestEndpoint {
     RequestEndpoint {
         server: ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
             server_id: "server-id".into(),
             socket_path: "/tmp/tmt-request-test.sock".into(),
             server_pid: 41,
@@ -313,5 +314,54 @@ fn request_history_plans_seek_the_scope_and_cursor_without_sorting() {
             }
         }
     }
+    storage.close().unwrap();
+}
+
+#[test]
+fn request_fences_record_their_host_and_read_legacy_rows_as_tmux() {
+    let directory = TestDirectory::new();
+    let database = directory.path.join("state").join("requests.db");
+    let mut storage = Storage::open(database).unwrap();
+    seed_attempt(&mut storage, "request-1", "attempt-1");
+    let connection = storage.connection().unwrap();
+    let stored: Option<String> = connection
+        .query_row(
+            "SELECT host FROM request_attempts WHERE request_id = 'request-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored.as_deref(), Some("tmux"));
+    // A fence written before schema 39 has no host: it is tmux.
+    connection
+        .execute("UPDATE request_attempts SET host = NULL", [])
+        .unwrap();
+    let attempt = storage
+        .with_request_transaction(|records| records.find_request("request-1"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(attempt.route, RequestRoute::Pane(endpoint()));
+    storage.close().unwrap();
+}
+
+#[test]
+fn an_active_legacy_fence_still_matches_its_tmux_endpoint() {
+    let directory = TestDirectory::new();
+    let database = directory.path.join("state").join("requests.db");
+    let mut storage = Storage::open(database).unwrap();
+    seed_attempt(&mut storage, "request-1", "attempt-1");
+    let connection = storage.connection().unwrap();
+    connection
+        .execute(
+            "UPDATE request_attempts SET wait_active = 1, host = NULL",
+            [],
+        )
+        .unwrap();
+    let active = storage
+        .with_request_transaction(|records| {
+            records.find_active_request(&RequestRoute::Pane(endpoint()))
+        })
+        .unwrap();
+    assert_eq!(active.as_deref(), Some("request-1"));
     storage.close().unwrap();
 }

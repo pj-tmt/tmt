@@ -4,6 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use tmt_core::{
     binding::{Binding, BindingEntry, BindingRecords, BindingRepository},
     endpoint::{PaneObservation, ServerEvidence, valid_process_id},
+    host::HostKind,
     identity::{Identity, IdentityReader},
     names::ValidatedName,
 };
@@ -21,7 +22,7 @@ const IDENTITY_COLUMNS: &str =
 const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.socket_path, \
     b.server_pid, b.server_start_time, b.pane_pid, b.runtime_state, b.last_transition, \
     b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id, \
-    b.launch_owner_pid, b.launch_owner_start_identity";
+    b.launch_owner_pid, b.launch_owner_start_identity, b.transport";
 
 pub(super) struct BindingRows<'a>(pub(super) &'a Connection);
 
@@ -44,6 +45,9 @@ fn binding_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Binding> {
         id: row.get(offset)?,
         identity_id: row.get(offset + 1)?,
         server: ServerEvidence {
+            // An unknown stored host is invalid, never a guess.
+            host: HostKind::parse(&row.get::<_, String>(offset + 15)?)
+                .ok_or(rusqlite::Error::InvalidQuery)?,
             server_id: row.get(offset + 3)?,
             socket_path: row.get(offset + 4)?,
             server_pid: process_id_at(row, offset + 5)?,
@@ -107,8 +111,7 @@ impl BindingRecords for BindingRows<'_> {
             .query_row(
                 &format!(
                     "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS} \
-                     FROM identities AS i LEFT JOIN bindings AS b \
-                       ON b.identity_id = i.id AND b.transport = 'tmux' \
+                     FROM identities AS i LEFT JOIN bindings AS b ON b.identity_id = i.id \
                      WHERE i.id = ? AND i.retired_at_ms IS NULL"
                 ),
                 [id],
@@ -118,16 +121,21 @@ impl BindingRecords for BindingRows<'_> {
             .map_err(|error| classify(error, "Find binding"))
     }
 
-    fn entry_by_pane(&self, pane: &str, server: &str) -> Result<Option<BindingEntry>, Self::Error> {
+    fn entry_by_pane(
+        &self,
+        host: HostKind,
+        pane: &str,
+        server: &str,
+    ) -> Result<Option<BindingEntry>, Self::Error> {
         self.0
             .query_row(
                 &format!(
                     "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS} \
                      FROM bindings AS b JOIN identities AS i ON i.id = b.identity_id \
-                     WHERE b.transport = 'tmux' AND b.pane_id = ? AND b.server_id = ? \
+                     WHERE b.transport = ? AND b.pane_id = ? AND b.server_id = ? \
                        AND i.retired_at_ms IS NULL"
                 ),
-                [pane, server],
+                [host.as_str(), pane, server],
                 entry_row,
             )
             .optional()
@@ -139,8 +147,7 @@ impl BindingRecords for BindingRows<'_> {
             .0
             .prepare(&format!(
                 "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS} \
-                 FROM identities AS i LEFT JOIN bindings AS b \
-                   ON b.identity_id = i.id AND b.transport = 'tmux' \
+                 FROM identities AS i LEFT JOIN bindings AS b ON b.identity_id = i.id \
                  WHERE i.retired_at_ms IS NULL \
                  ORDER BY i.canonical_name COLLATE BINARY"
             ))
@@ -169,16 +176,17 @@ impl BindingRecords for BindingRows<'_> {
                 "INSERT INTO bindings (
                     id, identity_id, transport, pane_id, server_id, socket_path,
                     server_pid, server_start_time, pane_pid, bound_at, last_verified_at
-                 ) VALUES (?, ?, 'tmux', ?, ?, ?, ?, ?, ?,
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                  RETURNING id, identity_id, pane_id, server_id, socket_path,
                     server_pid, server_start_time, pane_pid, runtime_state, last_transition,
                     runtime_pid, runtime_start_identity, observed_provider_session_id,
-                    launch_owner_pid, launch_owner_start_identity",
+                    launch_owner_pid, launch_owner_start_identity, transport",
                 params![
                     id,
                     identity.id,
+                    server.host.as_str(),
                     pane.id,
                     server.server_id,
                     server.socket_path,

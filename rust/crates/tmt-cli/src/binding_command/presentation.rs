@@ -202,9 +202,11 @@ fn address(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Op
         driver: session.harness.as_str().into(),
         identifier: session.provider_session.as_str().into(),
     };
+    // An active row's pane is on its binding's host.
     let live = row
         .pane
         .as_ref()
+        .zip(row.binding.as_ref())
         .filter(|_| row.presence == Presence::Active);
     // A running agent's own session, only when the binding observed that
     // session: Codex may start before it discloses its thread.
@@ -219,8 +221,8 @@ fn address(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Op
         {
             Some(session(remembered))
         }
-        (Some(pane), _) => Some(Address {
-            driver: "tmux".into(),
+        (Some((pane, binding)), _) => Some(Address {
+            driver: binding.server.host.as_str().into(),
             identifier: pane.id.clone(),
         }),
         (None, Some(remembered)) => Some(session(remembered)),
