@@ -135,6 +135,59 @@ reject accepted replies; the reply reports notification outcome separately.
 Identical retries cannot acquire another notification claim. A retained claim
 after process loss is uncertain, never permission to send again.
 
+## Inbox and answer
+
+```text
+tmt inbox [--from <name>] [--limit <1-200>] [--identity <name>] [--json]
+tmt answer <from> (<text> | --file <path> | --stdin) [--request <request-id>] [--identity <name>] [--json]
+tmt answer --request <request-id> [<from>] (<text> | --file <path> | --stdin) [--identity <name>] [--json]
+```
+
+These are the recipient's side of a request, selected by identity instead of a
+receipt: for people, and for agents that were asked without a receipt at hand.
+An agent that received a receipt keeps using `tmt reply --receipt`. Both select
+"you" as `x` does: `--identity <name>`, otherwise the verified caller; outside
+that context they fail with `IDENTITY_REQUIRED`. `--identity` must be your own
+identity; answering as another is attribution misuse, since receipts and
+`--identity` are local correlation, not authentication.
+
+A request is waiting on you while it is addressed to your identity, is a
+request (not an announcement), has no final, and still accepts one: its
+delivery is `sending`, `sent`, `queued` or `uncertain`, and its acceptance
+deadline has not passed. That is the same rule final submission enforces, so
+the inbox never offers a request an answer would refuse. Acknowledgment and
+live delivery do not remove a request; only a final or the deadline does.
+There is no dismiss or decline.
+
+`inbox` is read-only and lists oldest first, at most 50 by default. JSON is
+`{identity,items,more}`; each item has `requestId`, `from`
+(`{identityId,name,canonicalName}`, or null for an anonymous originator),
+`preparedAtMs`, `delivery`, the bounded `preview` of the original message (null
+once the prompt is no longer retained) and `roomId` when scoped. `more` means
+newer open requests exist beyond the limit.
+
+`answer <from>` answers the request `<from>` is waiting on you for. With one
+open request it answers that one. With several it sends nothing and fails with
+`ANSWER_AMBIGUOUS` (exit 1), listing each request ID and preview; choose one
+with `--request`. With none it fails with `ANSWER_NOT_WAITING` (exit 3), which
+also covers answered and expired requests. An explicit `--request` must be a
+retained request to you, and from `<from>` when one is named, otherwise
+`X_NOT_FOUND` (exit 3). With `--request` the sender may be omitted, which is the
+only way to answer an anonymous originator; one operand is then the text unless
+`--file` or `--stdin` supplies the body. The request then
+behaves like `reply`, so an identical retry is idempotent and a different body
+is `RESPONSE_CONFLICT` (exit 5). Body sources, limits and exact-text rules are
+those of `reply`. The proof is derived in-process from the recorded attempt and
+route, exactly the receipt `talk` gave the recipient; no receipt is shown or
+stored, and no incoming attention is acknowledged. Success returns
+`{identity,status:"submitted",requestId,from,bodyBytes,submittedAtMs}` (`from` is
+null for an anonymous originator) plus
+`notification` when an originator callback was claimed, as for `reply`.
+
+A default user identity, so a person outside a named pane need not pass
+`--identity`, is not provided; see
+[#513](https://github.com/wkh237/tmt/issues/513).
+
 ## Compact receipts
 
 Encoded receipts are bounded to 8192 characters. V1 is decode-only; v2 is the

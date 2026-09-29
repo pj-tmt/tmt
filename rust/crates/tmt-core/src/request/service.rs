@@ -1,6 +1,7 @@
 //! Short transactional use cases. The clock is sampled after acquiring the
 //! write lock; callers generate IDs and freeze configuration before entry.
 
+mod answers;
 mod attention;
 mod history;
 mod lifecycle;

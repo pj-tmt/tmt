@@ -92,6 +92,20 @@ pub enum Invocation {
     Result {
         request_id: String,
     },
+    /// Requests waiting on the selected identity for a final.
+    Inbox {
+        identity: Option<String>,
+        from: Option<String>,
+        limit: Option<u64>,
+    },
+    /// Answers what `from` waits on the selected identity for, or the
+    /// explicit `request`; no receipt.
+    Answer {
+        identity: Option<String>,
+        from: Option<String>,
+        request: Option<String>,
+        input: ContentInput,
+    },
     Install {
         target: Option<String>,
         directory: Option<String>,

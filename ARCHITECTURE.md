@@ -1034,7 +1034,7 @@ The maintained public surface is:
 - saved-identity notes through `notes path`;
 - the versioned local extension interface through `api`;
 - profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
-  `reply`, `result`, `talk`/`send`, `check`/`read`;
+  `reply`, `result`, `inbox`, `answer`, `talk`/`send`, `check`/`read`;
 - `focus <identity|pane>`, which shows a verified pane in the
   invoking user's own tmux client and reports that client (see the driver
   `focus` action), and the read-only `focus --client`, which names the same
@@ -1603,6 +1603,17 @@ becomes unread again. Acknowledgment means handled, not successful or cancelled.
 Retention is frozen per attempt; bounded lazy housekeeping must respect active
 waiters, preserve the defined acceptance deadline and never resurrect an expired
 submission. The settings owner defines retention defaults and limits.
+
+Whether a request still accepts a first final is one service rule,
+`first_final_refusal`: final submission enforces it, and the open-request read
+(`open_requests`) applies it to what `storage::requests` narrows by the same
+columns. "Waiting on you" is therefore an open-request question, not an
+attention one: acknowledgment and live delivery settle attention but leave a
+request open until a final or its acceptance deadline. `answer_target` selects
+one open request by recipient and originator, never guessing among several, and
+derives the route proof in-process from the recorded attempt, so `tmt answer`
+submits through the same acceptance path as `reply` without exposing a receipt
+([contract](REQUEST-RESPONSE.md#inbox-and-answer)).
 
 `RequestRoute` distinguishes unbound direct-pane delivery from durable identity inbox
 queueing. Identified talk is Inbox-first with one claimed full-payload live wake;
