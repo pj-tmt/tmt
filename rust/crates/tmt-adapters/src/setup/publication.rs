@@ -10,6 +10,9 @@ use std::{
 };
 use uuid::Uuid;
 
+/// Serializes setup publications to the settings files in one directory.
+const LOCK: &str = ".tmt-setup.lock";
+
 pub fn read_settings(path: &Path) -> io::Result<Option<String>> {
     match bounded_file::read_no_follow(path, SETTINGS_LIMIT) {
         Ok(bytes) => String::from_utf8(bytes)
@@ -31,7 +34,7 @@ pub fn apply(plan: &SetupPlan) -> io::Result<Option<PathBuf>> {
         .parent()
         .ok_or_else(|| io::Error::other("Settings path has no parent."))?;
     fs::create_dir_all(parent)?;
-    let _lock = crate::file_lock::exclusive(&parent.join(".tmt-setup.lock"))?;
+    let _lock = crate::file_lock::exclusive(&parent.join(LOCK))?;
     ensure_unchanged(plan)?;
     let backup = if let Some(before) = &plan.change.before {
         let backup = parent.join(format!("settings.tmt-backup-{}.json", Uuid::new_v4()));
@@ -63,6 +66,22 @@ pub fn apply(plan: &SetupPlan) -> io::Result<Option<PathBuf>> {
         )
     })?;
     Ok(backup)
+}
+
+/// Removes the setup lock beside `settings` once TMT has no hooks left in
+/// that directory. It is held while it is unlinked, so it never disappears
+/// under a publication that is still running.
+pub(super) fn remove_lock(settings: &Path) -> io::Result<()> {
+    let Some(parent) = settings.parent() else {
+        return Ok(());
+    };
+    let lock = parent.join(LOCK);
+    match fs::symlink_metadata(&lock) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        result => result?,
+    };
+    let _held = crate::file_lock::exclusive(&lock)?;
+    fs::remove_file(&lock)
 }
 
 fn ensure_unchanged(plan: &SetupPlan) -> io::Result<()> {

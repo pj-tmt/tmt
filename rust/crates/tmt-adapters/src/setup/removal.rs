@@ -3,7 +3,7 @@
 //! driver's settings file (installed before the record existed). A hook that
 //! differs from what setup generates is kept and reported.
 
-use super::{PlanError, SetupPlan, apply, plan, read_settings, record};
+use super::{PlanError, SetupPlan, apply, plan, publication::remove_lock, read_settings, record};
 use crate::{drivers::Registry, skill_installation::ProviderEnvironment};
 use std::{
     fs, io,
@@ -80,6 +80,7 @@ pub fn plan_hook_removal(
 
 /// Carries out one step and updates the record. A file that held nothing but
 /// TMT's hooks (`{}` once they are removed) is deleted rather than rewritten.
+/// Once no TMT hook is left in a directory, setup's lock there goes too.
 pub fn remove_hooks(global: &Path, step: &HookStep) -> io::Result<()> {
     match step {
         HookStep::Remove(planned) => {
@@ -93,9 +94,13 @@ pub fn remove_hooks(global: &Path, step: &HookStep) -> io::Result<()> {
             } else {
                 apply(planned)?;
             }
-            record::forget(global, planned.provider, &planned.change.path)
+            record::forget(global, planned.provider, &planned.change.path)?;
+            remove_lock(&planned.change.path)
         }
-        HookStep::Forget { driver, settings } => record::forget(global, driver, settings),
+        HookStep::Forget { driver, settings } => {
+            record::forget(global, driver, settings)?;
+            remove_lock(settings)
+        }
         HookStep::Keep { .. } => Ok(()),
     }
 }
