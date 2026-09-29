@@ -158,6 +158,60 @@ describe.sequential('session-aware durable routing', () => {
     }
   );
 
+  it.each([
+    { mode: 'outsideTmux', notification: 'sent', hints: 1 },
+    { mode: 'withoutTmux', notification: 'unavailable', hints: 0 },
+  ] as const)(
+    'a reply run with $mode leaves the durable reply intact and reports notification $notification',
+    async ({ mode, notification, hints }) => {
+      await withE2EFixture(
+        async (fixture) => {
+          expectJsonResult(await fixture.runJsonCli(['name', 'receiver']));
+          const sender = await fixture.createMockPane('sender');
+          expectJsonResult(await fixture.runJsonCli(['name', 'sender'], { pane: sender.pane }));
+          const sent = expectJsonResult(
+            await fixture.runJsonCli(['talk', 'receiver', 'question', '--detach'], {
+              pane: sender.pane,
+            })
+          );
+          const id = String(sent.requestId);
+          const detail = expectJsonResult<{ exchange: { reply: { receipt: string } } }>(
+            await fixture.runJsonCli(['x', 'show', id, '--incoming', '--identity', 'receiver'], {
+              outsideTmux: true,
+            })
+          );
+          // Delivery uses the originator's recorded binding and its own tmux
+          // socket, never the replier's TMUX context. `withoutTmux` makes tmux
+          // itself unreachable: the fixture's shim refuses every call.
+          const replied = await fixture.runJsonCli(
+            ['reply', id, '--receipt', detail.exchange.reply.receipt, '--message', 'answer'],
+            { [mode]: true }
+          );
+          expect(replied.code).toBe(0);
+          expect(replied.json).toMatchObject({ status: 'submitted', requestId: id, notification });
+          expect(rows(fixture)[0]).toMatchObject({ reply_state: notification });
+          const hint = `[tmt] reply from receiver to ${id}: tmt result ${id}`;
+          if (hints > 0) {
+            await fixture.waitForEvent((event) => event.event === 'input' && event.line === hint);
+          } else {
+            // Absence has no readiness signal; the notice is written before `reply` exits.
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            expect(fs.readFileSync(fixture.forbiddenTmuxLogPath, 'utf8')).toContain(
+              'unexpected tmux invocation'
+            );
+          }
+          expect(
+            fixture.events().filter((event) => event.event === 'input' && event.line === hint)
+          ).toHaveLength(hints);
+          expect(
+            expectJsonResult(await fixture.runJsonCli(['result', id], { outsideTmux: true }))
+          ).toMatchObject({ status: 'completed', response: 'answer' });
+        },
+        { replyGate: true }
+      );
+    }
+  );
+
   it('a detached request past its deadline gets no timeout hint and a late reply still wakes the originator once', async () => {
     await withE2EFixture(
       async (fixture) => {
