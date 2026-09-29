@@ -4,7 +4,7 @@
 //! in their provider skill directories; `remove` retracts only that skill.
 
 use crate::{
-    consent::consent,
+    consent::{Consent, ask},
     core::{Core, SquadError},
 };
 use clap::{Arg, ArgAction, Command};
@@ -194,7 +194,7 @@ pub fn install(
     core: &Core,
     name: &str,
     print: bool,
-    yes: bool,
+    consent: Consent,
     force: bool,
 ) -> Result<Value, SquadError> {
     let playbook = find(name)?;
@@ -217,7 +217,7 @@ pub fn install(
             "plan": plan,
         }));
     }
-    consent(yes, &plan, "Install this playbook?")?;
+    ask(consent, &plan, "Install this playbook?")?;
     let published = core
         .api(
             "skills.install",
@@ -249,13 +249,13 @@ pub fn install(
 }
 
 /// `remove <name> [--yes]`: only this playbook, never the owner's other skills.
-pub fn remove(core: &Core, name: &str, yes: bool) -> Result<Value, SquadError> {
+pub fn remove(core: &Core, name: &str, consent: Consent) -> Result<Value, SquadError> {
     let playbook = find(name)?;
     let plan = format!(
         "tmt squad playbook remove will remove the skill '{}' that squad published into your agents' skill directories.\n  A copy you replaced or edited is kept, and squad's other skills (such as tmt-squad) stay.",
         playbook.name
     );
-    consent(yes, &plan, "Remove this playbook?")?;
+    ask(consent, &plan, "Remove this playbook?")?;
     let removed = core.api(
         "skills.remove",
         json!({"owner": OWNER, "consent": true, "skills": [playbook.name]}),

@@ -158,9 +158,15 @@ Examples:
   section.write(&mut out, terminal)?;
   ```
 
-  A prompt or optional notice asks `Stream::is_terminal` whether a person may
-  be reading, never the raw handle. A `Stream::new` over a buffer is never
-  interactive.
+  A `Stream::new` over a buffer is never interactive.
+- Whether a person takes part is decided once per invocation by
+  `tmt_cli_style::Interaction::detect(json)` and passed to what needs it:
+  `view()` for a full-screen view (stdin and stdout are terminals, no `--json`,
+  `TERM` is not `dumb`) and `prompt()` for a question on stderr (stdin and
+  stderr are terminals, no `--json`), each a `Mode` of `Interactive` or
+  `Plain`. `Plain` prints the plain result and never asks: a view falls back to
+  its text or JSON output, and a question needs its flag (`--yes`). Commands
+  never test a handle themselves.
 - Text that must reach the reader unchanged (a stored response, a prompt,
   captured pane text, a path a script reads) is written through the stream by a
   function of its own that neither styles nor escapes it. Only output that
@@ -176,11 +182,11 @@ Examples:
 
 ## Enforcement
 
-Two tests enforce this document. Each keeps a migration list of what does not
+Three tests enforce this document. Each keeps a migration list of what does not
 follow it yet. A list must equal what still fails: a command or file that now
 follows the style fails the test until its entry is removed, and anything new
 that breaks a rule fails at once. Migrating a command means deleting its
-entries. Both lists are empty when #436 closes.
+entries. The first two lists are empty when #436 closes, the interaction list when #485 does.
 
 - **Grammar walk** (`tmt_cli_style::audit`). For every visible command,
   extension trees included, it checks that the command:
@@ -207,6 +213,11 @@ entries. Both lists are empty when #436 closes.
   Squad board) is exempt by name, with a reason. The rest of its file is still
   checked. The lists are in
   `rust/crates/tmt-cli/tests/architecture/output_allowlist.rs`.
+
+- **Interaction guard** (the architecture test, #485). In the same crates,
+  production code may not call `is_terminal` or name `IsTerminal`; it receives
+  an `Interaction` decision instead. The files that still decide for themselves
+  are listed in `rust/crates/tmt-cli/tests/architecture/interaction.rs`.
 
 ## Migrating a command
 

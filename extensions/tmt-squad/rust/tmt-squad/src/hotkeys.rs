@@ -4,7 +4,7 @@
 
 use crate::{
     config::{Config, TmuxKeys},
-    consent::consent,
+    consent::{Consent, ask},
     core::{Core, SquadError},
     effects, runner,
 };
@@ -445,7 +445,7 @@ pub fn install(
     config: &Config,
     explicit: Option<&Path>,
     print: bool,
-    yes: bool,
+    consent: Consent,
 ) -> Result<Value, SquadError> {
     let plan = plan(core, config, explicit)?;
     let original = plan
@@ -523,7 +523,7 @@ pub fn install(
             ""
         },
     );
-    consent(yes, &summary, "Install these tmux hotkeys?")?;
+    ask(consent, &summary, "Install these tmux hotkeys?")?;
     // The user's file first: if it cannot be written, nothing changed. Its
     // line is quiet (`-q`), so squad's own file may follow.
     let backup = publish(
@@ -546,7 +546,7 @@ pub fn install(
 
 /// `remove [--yes]`: the owned line from every file that has it, and the
 /// running server's keys that are still squad's own.
-pub fn remove(core: &Core, config: &Config, yes: bool) -> Result<Value, SquadError> {
+pub fn remove(core: &Core, config: &Config, consent: Consent) -> Result<Value, SquadError> {
     let plan = plan(core, config, None)?;
     let owners: Vec<(PathBuf, Vec<u8>)> = plan
         .candidates
@@ -585,7 +585,7 @@ pub fn remove(core: &Core, config: &Config, yes: bool) -> Result<Value, SquadErr
             )
         }
     );
-    consent(yes, &summary, "Remove these tmux hotkeys?")?;
+    ask(consent, &summary, "Remove these tmux hotkeys?")?;
     let mut backups = Vec::new();
     for (path, bytes) in &owners {
         let kept = without_line(&text(&Some(bytes.clone())), &plan.line);
