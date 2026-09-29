@@ -6,6 +6,7 @@ import {
   readFileSync,
   statSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -682,6 +683,81 @@ sort = ["-name"]
 
       // Reading replies acknowledges nothing: the originator's attention is unchanged.
       expect(await attention()).toEqual(before);
+    });
+  });
+
+  it('installs tmux hotkeys only with consent, through the stable launcher, and removes only its line', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      // A stable launcher on PATH that resolves to the tmt under test.
+      const launcherDir = path.join(sandbox.root, 'launcher');
+      mkdirSync(launcherDir);
+      const launcher = path.join(launcherDir, 'tmt');
+      symlinkSync(sandbox.cli.executable, launcher);
+      sandbox.env.PATH = `${launcherDir}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+      const conf = path.join(sandbox.home, '.tmux.conf');
+      const squadFile = path.join(sandbox.globalDir, 'squad.tmux.conf');
+      const hotkeys = (args: string[]) => squad(sandbox, ['hotkeys', ...args]);
+
+      const printed = await hotkeys(['install', '--print']);
+      expect(printed.body).toMatchObject({ target: conf, creates: true, collisions: [] });
+      expect(printed.body.bindings).toContain(
+        `bind-key -N "tmt squad popup" S display-popup -E -w 90% -h 85% "exec '${launcher}' squad board --popup"`
+      );
+      expect(printed.body.bindings).not.toContain(sandbox.cli.executable);
+      expect(existsSync(conf) || existsSync(squadFile), '--print changes nothing').toBe(false);
+      const refused = await hotkeys(['install']);
+      expect(refused.body.error.code, 'no terminal and no --yes').toBe('SQUAD_CONSENT_REQUIRED');
+      expect(existsSync(conf) || existsSync(squadFile)).toBe(false);
+
+      // An existing binding for a chosen key refuses the install.
+      const original = '# mine\r\nset -g mouse on\nbind S choose-tree -s';
+      writeFileSync(conf, original);
+      const taken = await hotkeys(['install', '--yes']);
+      expect(taken.body.error.code).toBe('SQUAD_HOTKEY_TAKEN');
+      expect(taken.body.error.message).toContain('bind S choose-tree -s');
+      expect(readFileSync(conf, 'utf8')).toBe(original);
+
+      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        squadToml,
+        `${readFileSync(squadToml, 'utf8')}\n[tmux]\npopup = "C-s"\nback = "b"\n`
+      );
+      const installed = await hotkeys(['install', '--yes']);
+      expect(installed.body).toMatchObject({ installed: true, changed: true, creates: false });
+      const line = `source-file -q '${squadFile}' # tmt squad hotkeys`;
+      expect(readFileSync(conf, 'utf8')).toBe(`${original}\n${line}\n`);
+      expect(readFileSync(installed.body.backup, 'utf8'), 'byte-exact backup').toBe(original);
+      const bindings = readFileSync(squadFile, 'utf8');
+      expect(bindings).toContain(`bind-key -N "tmt squad popup" C-s display-popup`);
+      expect(bindings).toContain(
+        `bind-key -N "tmt squad back" b run-shell "'${launcher}' squad back"`
+      );
+      const again = await hotkeys(['install', '--yes']);
+      expect(again.body).toMatchObject({ installed: true, changed: false });
+      expect(again.body.backup, 'a no-op writes no backup').toBeUndefined();
+      expect(readFileSync(conf, 'utf8')).toBe(`${original}\n${line}\n`);
+
+      const shown = await hotkeys(['show']);
+      expect(shown.body).toMatchObject({
+        installed: true,
+        current: true,
+        executable: launcher,
+        executableExists: true,
+        keys: { popup: 'C-s', pane: 'B', back: 'b' },
+      });
+      unlinkSync(launcher);
+      expect((await hotkeys(['show'])).body.executableExists).toBe(false);
+      expect((await runCli(sandbox, ['sq', 'hotkeys', 'show'])).stdout).toContain(
+        `The recorded tmt ${launcher} no longer exists`
+      );
+
+      const removed = await hotkeys(['remove', '--yes']);
+      expect(removed.body).toMatchObject({ removed: [conf], changed: true, unbound: [] });
+      expect(readFileSync(conf, 'utf8'), 'only the owned line is gone').toBe(`${original}\n`);
+      expect((await hotkeys(['remove', '--yes'])).body.changed).toBe(false);
     });
   });
 });

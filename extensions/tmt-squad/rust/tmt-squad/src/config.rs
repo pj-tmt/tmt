@@ -347,6 +347,36 @@ fn program(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
     Ok(argv)
 }
 
+/// Prefix keys for the board and `back`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TmuxKeys {
+    pub popup: String,
+    pub pane: String,
+    pub back: Option<String>,
+}
+
+/// A tmux key that needs no quoting: one printable character other than
+/// quotes, `;`, `#`, `$`, `\\`, `{`, `}` or `~`; `C-` or `M-` with a letter or
+/// digit; or F1 through F12.
+fn tmux_key(key: &str) -> bool {
+    let plain = |c: char| c.is_ascii_graphic() && !"\"';#\\{}~$".contains(c);
+    let mut chars = key.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => plain(c),
+        _ => {
+            let modified = key
+                .strip_prefix("C-")
+                .or_else(|| key.strip_prefix("M-"))
+                .is_some_and(|rest| rest.len() == 1 && rest.as_bytes()[0].is_ascii_alphanumeric());
+            let function = key
+                .strip_prefix('F')
+                .and_then(|number| number.parse::<u8>().ok())
+                .is_some_and(|number| (1..=12).contains(&number) && !key.starts_with("F0"));
+            modified || function
+        }
+    }
+}
+
 fn invalid(message: impl Into<String>) -> SquadError {
     SquadError::new("SQUAD_CONFIG_INVALID", message)
 }
@@ -409,6 +439,52 @@ impl Config {
             .get(key)
             .map(|item| program(item, key))
             .transpose()
+    }
+
+    /// `[tmux]`: the prefix keys that open the board as a popup (default `S`)
+    /// or a pane (default `B`), and an optional key for `tmt squad back`.
+    pub fn tmux_keys(&self) -> Result<TmuxKeys, SquadError> {
+        let table = match self.document.get("tmux") {
+            None => None,
+            Some(item) => Some(
+                item.as_table_like()
+                    .ok_or_else(|| invalid("`tmux` must be a table."))?,
+            ),
+        };
+        if let Some(unknown) = table
+            .into_iter()
+            .flat_map(|table| table.iter().map(|(key, _)| key))
+            .find(|key| !["popup", "pane", "back"].contains(key))
+        {
+            return Err(invalid(format!(
+                "`tmux.{unknown}` is not a setting; use popup, pane or back."
+            )));
+        }
+        let key = |name: &str| -> Result<Option<String>, SquadError> {
+            match table.and_then(|table| table.get(name)) {
+                None => Ok(None),
+                Some(item) => item
+                    .as_str()
+                    .filter(|key| tmux_key(key))
+                    .map(|key| Some(key.to_owned()))
+                    .ok_or_else(|| {
+                        invalid(format!(
+                            "`tmux.{name}` must be a tmux key such as \"S\", \"C-s\" or \"F5\"."
+                        ))
+                    }),
+            }
+        };
+        let keys = TmuxKeys {
+            popup: key("popup")?.unwrap_or_else(|| "S".into()),
+            pane: key("pane")?.unwrap_or_else(|| "B".into()),
+            back: key("back")?,
+        };
+        let mut chosen = vec![&keys.popup, &keys.pane];
+        chosen.extend(keys.back.as_ref());
+        if (1..chosen.len()).any(|index| chosen[..index].contains(&chosen[index])) {
+            return Err(invalid("`tmux` keys must differ from each other."));
+        }
+        Ok(keys)
     }
 
     /// Top-level `me`: the saved identity that is the user. Never guessed.
@@ -995,6 +1071,51 @@ sort = ["state", "-name"]
             fs::write(&path, body).unwrap();
             let error = Config::read(path.clone())
                 .and_then(|config| config.program("opener"))
+                .unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn tmux_keys_default_to_s_and_b_and_back_is_opt_in() {
+        let path = temp("tmux-keys");
+        fs::write(&path, "").unwrap();
+        let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
+        assert_eq!(
+            keys,
+            TmuxKeys {
+                popup: "S".into(),
+                pane: "B".into(),
+                back: None
+            }
+        );
+        fs::write(
+            &path,
+            "[tmux]\npopup = \"C-s\"\npane = \"F5\"\nback = \"b\"\n",
+        )
+        .unwrap();
+        let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
+        assert_eq!((keys.popup.as_str(), keys.pane.as_str()), ("C-s", "F5"));
+        assert_eq!(keys.back.as_deref(), Some("b"));
+        for body in [
+            "[tmux]\npopup = \"\"\n",
+            "[tmux]\npopup = \"SS\"\n",
+            "[tmux]\npopup = \";\"\n",
+            "[tmux]\npopup = \"'\"\n",
+            "[tmux]\npopup = \"#\"\n",
+            "[tmux]\npane = \"F13\"\n",
+            "[tmux]\npane = \"C-\"\n",
+            "[tmux]\npane = \"C-ab\"\n",
+            "[tmux]\npane = \"S\"\n",
+            "[tmux]\nback = \"B\"\n",
+            "[tmux]\nhotkey = \"S\"\n",
+            "tmux = \"S\"\n",
+            "[tmux]\npopup = 1\n",
+        ] {
+            fs::write(&path, body).unwrap();
+            let error = Config::read(path.clone())
+                .and_then(|config| config.tmux_keys())
                 .unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
         }

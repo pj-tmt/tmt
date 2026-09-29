@@ -509,6 +509,41 @@ recorded, `back` says so and changes nothing. The record is disposable, kept per
 tmux server and client under `$XDG_CACHE_HOME/tmt-squad` (or
 `~/.cache/tmt-squad`), at most 32 entries.
 
+In tmux, hotkeys open the board: `prefix S` as a popup that closes when you
+jump, and `prefix B` as a pane beside the current one that stays open. They are
+added to your tmux configuration only with your OK:
+
+```sh
+tmt squad hotkeys install --print   # what would be written; changes nothing
+tmt squad hotkeys install           # shows the plan, asks, then installs
+tmt squad hotkeys show              # installed? which keys? is tmt still there?
+tmt squad hotkeys remove            # takes out only squad's line and keys
+```
+
+The bindings live in `squad.tmux.conf` beside `squad.toml`, which squad
+regenerates. Your tmux configuration gets one line, `source-file -q
+'<…>/squad.tmux.conf' # tmt squad hotkeys`, in the first of `~/.tmux.conf`,
+`$XDG_CONFIG_HOME/tmux/tmux.conf` or `~/.config/tmux/tmux.conf` that exists
+(`~/.tmux.conf` is created if none does; `--config <path>` picks another).
+Before writing, install rereads the file, keeps a byte-exact backup beside it
+(`<name>.tmt-squad-backup-<time>`) and replaces it in one step; running it
+again changes nothing. Inside tmux it also loads the bindings into the running
+server, and `remove` unbinds only keys still bound to squad's commands. Without
+a terminal to ask on, pass `--yes`. If a chosen key is already bound, in the
+running server or your configuration, install lists it and changes nothing;
+choose other keys in `squad.toml`:
+
+```toml
+[tmux]
+popup = "S"      # the defaults; a single key, C-x, M-x or F1-F12
+pane  = "B"
+back  = "b"      # optional: prefix b runs `tmt squad back`
+```
+
+The bindings run the `tmt` found on your PATH (for example `~/.local/bin/tmt`),
+not a versioned release path, so upgrades keep them working; `show` says when
+that command no longer exists. Squad needs tmux 3.2 or later.
+
 `open` opens only http and https links, with `open` on macOS and `xdg-open`
 elsewhere. `--format` fills `{field}` placeholders from the row:
 `name`, `state`, `pending`, `note`, `presence`, `lifetime`, `activity`, `pane`,
