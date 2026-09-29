@@ -39,8 +39,9 @@ verification inputs; every archive also contains its own target-filtered notices
 Publication remains a separately authorized operation, not a workflow side
 effect. Verify the selected product run's exact commit and all required PR checks;
 enable GitHub release immutability before creating a draft prerelease. A CLI
-release attaches its four tar.gz archives, final `dist-manifest.json` and
-`tmt-installer.sh`; an Office release uses the independent `tmt-office-v<version>`
+release attaches its four tar.gz archives, final `dist-manifest.json`,
+`tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line
+install uses); an Office release uses the independent `tmt-office-v<version>`
 tag and attaches its four archives and final manifest without a CLI bootstrap, and
 a Squad release does the same under `tmt-squad-v<version>`.
 Verify uploaded SHA-256 digests before publishing each draft. Verify

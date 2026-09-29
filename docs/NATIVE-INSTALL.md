@@ -160,29 +160,28 @@ remove it, and it changes nothing. Upgrade `tmt` back to fix this.
 
 ## Curl bootstrap
 
-Download the current immutable installer linked from the [README][public-install].
-When downloading it with curl, retain `--proto '=https' --proto-redir '=https'`
-and save the response as `tmt-installer.sh`; do not pipe an unchecked response
-directly into a shell.
-
-Only after a successful download, inspect it if desired and run:
-
-```sh
-sh tmt-installer.sh
-```
+The one-line install in the [README][public-install] pipes the release's
+`install.sh` into `sh`. To inspect it first, download it with
+`--proto '=https' --proto-redir '=https'`, then run `sh install.sh`; a failed or
+truncated download is not installation success.
 
 The script fixes the initial version and channel, not a mutable alpha tag.
-Later native `tmt upgrade` follows that channel. Inspect the downloaded file
-before running it; a failed or truncated download is not installation success.
-Check the installed absolute command afterwards.
+Later native `tmt upgrade` follows that channel. Check the installed absolute
+command afterwards.
+
+On a terminal, the installer ends by running `tmt setup` with the new `tmt`
+first on PATH; setup reads its one approval from the terminal. Without a
+terminal, in CI, or with `--no-setup`, it runs the non-interactive
+`tmt install` (skills only) instead and asks you to run `tmt setup` later.
 
 Default prefix: `$HOME/.local`, with commands in `~/.local/bin`. Options after
 `sh -s --` (or the downloaded script):
 
 - `--prefix /absolute/directory`: another prefix, including paths with spaces.
 - `--pin`: pin this release; `tmt upgrade --unpin` resumes channel updates.
-- `--no-skill`: binary only. Otherwise the new absolute command runs the native
-  non-interactive `tmt install`; no provider application is installed.
+- `--no-setup`: skip guided setup; skills are installed non-interactively.
+- `--no-skill`: binary only: neither setup nor skills. No provider application
+  is ever installed.
 
 Requires POSIX shell, curl, tar/gzip, standard filesystem utilities and
 `sha256sum` or `shasum`. No Node, Rust, jq or sudo. The script verifies manifest

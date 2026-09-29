@@ -147,6 +147,8 @@ jobs:
             node typescript/scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib --plan "$RUNNER_TEMP/plan.json" > target/distrib/tmt-installer.sh
             sh -n target/distrib/tmt-installer.sh
             shellcheck --shell sh target/distrib/tmt-installer.sh
+            # The same verified bootstrap under the name the one-line install uses.
+            cp target/distrib/tmt-installer.sh target/distrib/install.sh
           fi
       - uses: actions/upload-artifact@v4
         with:
@@ -157,6 +159,7 @@ jobs:
             target/distrib/sha256.sum
             target/distrib/dist-manifest.json
             target/distrib/tmt-installer.sh
+            target/distrib/install.sh
             target/distrib/*-notices.txt
           if-no-files-found: error
           retention-days: 7
@@ -203,6 +206,7 @@ jobs:
               --skill skills/tmux-team/SKILL.md
             node typescript/scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib > "$RUNNER_TEMP/installer.sh"
             cmp "$RUNNER_TEMP/installer.sh" target/distrib/tmt-installer.sh
+            cmp target/distrib/tmt-installer.sh target/distrib/install.sh
           elif [ "$PRODUCT" = squad ]; then
             node typescript/scripts/verify-native-artifact.mjs \
               --product squad \
