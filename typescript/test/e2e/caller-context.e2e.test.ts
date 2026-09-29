@@ -170,7 +170,7 @@ describe.sequential('strict caller context', () => {
       const result = readRealTmuxCli<string>(real);
       expect(result.code).toBe(0);
       expect(result.stderr).toBe('');
-      expect(result.stdout).toContain("Bound temporary identity 'HumanCaller'");
+      expect(result.stdout).toBe(`HumanCaller (temporary) on pane ${real.pane}\n`);
       expect(result.stdout).not.toContain('Not running inside tmux. Some features may not work.');
     });
   }, 20_000);

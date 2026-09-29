@@ -1,3 +1,4 @@
+import { withoutAddress } from './cli-assertions.js';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
@@ -121,7 +122,7 @@ async function assertPublished(fixture: E2EFixture, name: string): Promise<void>
   expect(whoami.code).toBe(0);
   expect(json(whoami)).toMatchObject({ bound: true, name });
 
-  const list = await fixture.runJsonCli<IdentityList>(['list']);
+  const list = withoutAddress(await fixture.runJsonCli<IdentityList>(['list']));
   expect(list.code).toBe(0);
   expect(json(list).identities).toEqual(
     expect.arrayContaining([expect.objectContaining({ name, pane: fixture.pane })])
@@ -298,7 +299,7 @@ describe.sequential('crash-safe identity publication', () => {
         interfaceKind: 'container',
         sessionState: 'unknown',
       });
-      const listAfterKill = await fixture.runJsonCli<IdentityList>(['list']);
+      const listAfterKill = withoutAddress(await fixture.runJsonCli<IdentityList>(['list']));
       expect(listAfterKill.code).toBe(0);
       expect(json(listAfterKill).identities).toEqual([
         {
@@ -365,7 +366,7 @@ describe.sequential('crash-safe identity publication', () => {
       const whoami = await fixture.runJsonCli<{ bound: boolean; name: string }>(['whoami']);
       expect(whoami.code).toBe(0);
       expect(json(whoami)).toMatchObject({ bound: true, name: 'NewIdentity' });
-      const list = await fixture.runJsonCli<IdentityList>(['list']);
+      const list = withoutAddress(await fixture.runJsonCli<IdentityList>(['list']));
       expect(list.code).toBe(0);
       expect(json(list).identities).toEqual([
         expect.objectContaining({ name: 'NewIdentity', pane: fixture.pane }),

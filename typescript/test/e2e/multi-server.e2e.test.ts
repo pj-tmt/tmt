@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { expectJsonResult } from './cli-assertions.js';
+import { expectJsonResult, withoutAddress } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import {
   durableIdentity,
@@ -112,7 +112,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
         .find((row) => row.startsWith(`${b.pane}|`))!
         .split('|')[1];
 
-      expect(expectJsonResult(await a.runJsonCli<Listing>(['list']))).toEqual({
+      expect(expectJsonResult(withoutAddress(await a.runJsonCli<Listing>(['list'])))).toEqual({
         identities: [
           {
             id: remoteIdentity.id,
@@ -158,7 +158,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
         )
       ).toEqual(local);
 
-      const listB = expectJsonResult(await b.runJsonCli<Listing>(['list']));
+      const listB = expectJsonResult(withoutAddress(await b.runJsonCli<Listing>(['list'])));
       expect(listB).toEqual({
         identities: [
           {
@@ -223,7 +223,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
         else process.kill(b.serverPid, 'SIGSTOP');
         try {
           expect(b.serverProcessIsRunning()).toBe(true);
-          expect(expectJsonResult(await a.runJsonCli<Listing>(['list']))).toEqual({
+          expect(expectJsonResult(withoutAddress(await a.runJsonCli<Listing>(['list'])))).toEqual({
             identities: [
               {
                 id: remoteIdentity.id,
@@ -308,7 +308,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
       const oldSocket = a.socketPath;
       await a.restartServer();
       expect(a.socketPath).toBe(oldSocket);
-      expect(expectJsonResult(await a.runJsonCli<Listing>(['list']))).toEqual({
+      expect(expectJsonResult(withoutAddress(await a.runJsonCli<Listing>(['list'])))).toEqual({
         identities: [
           {
             id: localIdentity.id,
@@ -377,7 +377,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
       await b.waitFor(() => !b.mockProcessIsRunning(), 2_000, 'foreign pane process exit');
       expect(b.serverProcessIsRunning()).toBe(true);
 
-      expect(expectJsonResult(await a.runJsonCli<Listing>(['list']))).toEqual({
+      expect(expectJsonResult(withoutAddress(await a.runJsonCli<Listing>(['list'])))).toEqual({
         identities: [
           {
             id: remoteIdentity.id,
