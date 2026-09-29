@@ -23,11 +23,14 @@ mod squad;
 mod status;
 mod template;
 
-use crate::{config::Config, core::Core, core::SquadError, membership::Outcome, squad::Squad};
+use crate::{
+    config::Config, consent::Consent, core::Core, core::SquadError, membership::Outcome,
+    squad::Squad,
+};
 use clap::{Arg, ArgAction, ArgMatches, Command, error::ErrorKind};
 use serde_json::{Value, json};
 use std::{ffi::OsString, io::Write, process::ExitCode};
-use tmt_cli_style::Route;
+use tmt_cli_style::{Interaction, Mode, Route};
 use tmt_cli_style::{
     Terminal, Token,
     list::Section,
@@ -734,7 +737,7 @@ fn names(values: &Value) -> String {
 
 /// `playbook`: `list` and `show` are pure; `install` and `remove` reach core
 /// only through the extension-skill door, never the provider directories.
-fn playbook_command(matches: &ArgMatches) -> Result<Outcome, SquadError> {
+fn playbook_command(matches: &ArgMatches, interaction: Interaction) -> Result<Outcome, SquadError> {
     let (action, flags) = matches.subcommand().expect("subcommand required");
     let flag = |name: &str| flags.try_get_one::<bool>(name).ok().flatten() == Some(&true);
     let name = flags
@@ -750,10 +753,14 @@ fn playbook_command(matches: &ArgMatches) -> Result<Outcome, SquadError> {
             &Core::discover()?,
             name,
             flag("print"),
-            flag("yes"),
+            Consent::new(flag("yes"), interaction.prompt()),
             flag("force"),
         ),
-        _ => playbook::remove(&Core::discover()?, name, flag("yes")),
+        _ => playbook::remove(
+            &Core::discover()?,
+            name,
+            Consent::new(flag("yes"), interaction.prompt()),
+        ),
     }
     .map(Outcome::from)
 }
@@ -790,9 +797,13 @@ fn me_command(
     .into())
 }
 
-fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
+fn run(
+    command: &str,
+    matches: &ArgMatches,
+    interaction: Interaction,
+) -> Result<Outcome, SquadError> {
     if command == "playbook" {
-        return playbook_command(matches);
+        return playbook_command(matches, interaction);
     }
     let core = Core::discover()?;
     let text = |name: &str| matches.get_one::<String>(name).map(String::as_str);
@@ -817,8 +828,18 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             .flatten()
             .map(std::path::Path::new);
         return match action {
-            "install" => hotkeys::install(&core, &config, explicit, flag("print"), flag("yes")),
-            "remove" => hotkeys::remove(&core, &config, flag("yes")),
+            "install" => hotkeys::install(
+                &core,
+                &config,
+                explicit,
+                flag("print"),
+                Consent::new(flag("yes"), interaction.prompt()),
+            ),
+            "remove" => hotkeys::remove(
+                &core,
+                &config,
+                Consent::new(flag("yes"), interaction.prompt()),
+            ),
             _ => hotkeys::report(&core, &config),
         }
         .map(Outcome::from);
@@ -947,8 +968,10 @@ fn main() -> ExitCode {
         "skill" => return print_embedded(SKILL),
         _ => {}
     }
-    // The board needs a terminal; otherwise it is `status`, text or JSON.
-    if command == "board" && !json && tmt_cli_style::stream::stdout(false).is_terminal() {
+    // Decided once: whether a person can see the board or answer a question.
+    let interaction = Interaction::detect(json);
+    // The board needs a person at a terminal; otherwise it is `status`.
+    if command == "board" && interaction.view() == Mode::Interactive {
         let squad = sub.get_one::<String>("squad").cloned();
         let popup = sub.get_flag("popup");
         return match Core::discover().and_then(|core| board::run(core, squad, popup)) {
@@ -959,7 +982,7 @@ fn main() -> ExitCode {
             }
         };
     }
-    match run(command, sub) {
+    match run(command, sub, interaction) {
         Ok(outcome) => {
             let code = if outcome.complete { 0 } else { 1 };
             if json {

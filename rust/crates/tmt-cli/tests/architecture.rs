@@ -4,6 +4,8 @@ mod cases;
 mod driver_names;
 #[path = "architecture/host_names.rs"]
 mod host_names;
+#[path = "architecture/interaction.rs"]
+mod interaction;
 #[path = "architecture/output.rs"]
 mod output;
 #[path = "architecture/output_allowlist.rs"]
@@ -137,6 +139,7 @@ fn workspace_obeys_native_architecture() {
         output_allowlist::EXACT_BODIES,
         output_allowlist::MIGRATING,
     ));
+    violations.extend(interaction::violations(&sources, interaction::MIGRATING));
     assert!(
         violations.is_empty(),
         "Native architecture violations:\n{}",

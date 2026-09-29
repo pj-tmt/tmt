@@ -587,7 +587,8 @@ The Rust crates have deliberately narrow responsibilities:
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
 implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
-messages, lists, tables and the help registration contract). Migrated command
+messages, lists, tables, the help registration contract and the one
+interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
 `whoami`, `unbind`), also render through it directly and write through its
 `stream`. That crate is a leaf with no TMT dependency, so extension CLIs may
@@ -1931,8 +1932,10 @@ the same status document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data; stale results for a squad the user left are dropped. Without a
-terminal or with `--json`, `board` is `status`. `[squad.<name>.board]` selects
+painted data; stale results for a squad the user left are dropped. `board`
+runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
+once in `main`); otherwise it is `status`. Consent for hotkeys and playbooks is
+likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
 split or tabs panes (rows, notes, detail, replies) over a per-layout preset,
 validated before raw mode. The notes pane reads the lead's notebook only through
 `tmt api notes.read` (bounded, never creating a file); `board::notes` removes
