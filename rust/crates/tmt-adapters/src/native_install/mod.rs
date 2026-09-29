@@ -3,7 +3,7 @@
 mod artifact;
 mod online;
 mod remove;
-pub use online::{default_install_prefix, install_release};
+pub use online::{default_install_prefix, install_release, latest_release_version};
 pub use remove::{uninstall_extension, uninstall_office};
 pub use tmt_core::native_install::Product;
 mod managed;

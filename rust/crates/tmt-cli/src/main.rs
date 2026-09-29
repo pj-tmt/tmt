@@ -5,6 +5,7 @@ mod caller_context;
 mod check_command;
 mod completion;
 mod config_command;
+mod consent;
 mod context_command;
 mod focus_command;
 mod resume_command;
@@ -13,6 +14,7 @@ mod diagnostics;
 mod exchange_command;
 mod extension_command;
 mod extension_hooks_command;
+mod extension_install_command;
 mod grammar;
 mod guidance_command;
 mod identity_command;
@@ -117,6 +119,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Config(request) => {
             drop(stdout);
             return config_command::execute(request, parsed.mode);
+        }
+        Invocation::ExtensionInstall(request) => {
+            drop(stdout);
+            return extension_install_command::execute(request, parsed.mode);
         }
         Invocation::ExtensionHooks(request) => {
             drop(stdout);

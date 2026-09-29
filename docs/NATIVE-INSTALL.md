@@ -111,6 +111,39 @@ Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
 x64/arm64 with a static musl runtime. Refer to the release's verification evidence
 for tested host OS versions; a deployment target is not testing on every OS.
 
+## Official extensions
+
+`tmt extension` installs, updates and removes the official extensions (`office`
+and `squad`) through the same verified native installer as the CLI:
+
+```sh
+tmt extension install squad --yes --channel alpha
+tmt extension list            # local state only; add --check to look for updates
+tmt extension upgrade squad --yes
+tmt extension uninstall squad --yes
+```
+
+Install, upgrade and uninstall change your installation, so they ask first, or
+take `--yes`. A non-interactive run without `--yes` changes nothing. `install`
+also accepts `--archive <archive.tar.gz> --manifest <dist-manifest.json>` for a
+local artifact, and every command takes `--prefix <folder>` for a custom
+installation. `upgrade` takes `--to <version>` to pin an exact version and
+`--unpin` to follow the channel again. Squad installs two commands, `tmt-squad`
+and its short form `tmt-sq`.
+
+`tmt extension list` never uses the network unless you add `--check`. An
+unreachable release then shows as `unknown`. The listing also reports any other
+`tmt-<name>` command on your PATH that would shadow the installed one; it never
+runs that command.
+
+`uninstall` removes only the extension's own command links. It keeps the
+retained releases, the agent skills the extension installed, its lifecycle hook
+consent and, for Office, `office.db` and its backups. It prints where each is
+and how to remove it yourself.
+
+This command does not install agent skills yet. For Office, `tmt office install`
+still manages its skills.
+
 ## Curl bootstrap
 
 Download the current immutable installer linked from the [README][public-install].

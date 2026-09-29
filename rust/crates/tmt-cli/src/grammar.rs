@@ -28,7 +28,9 @@ pub fn grammar() -> Command {
     ] {
         root = root.arg(option(id).global(true));
     }
-    root = root.subcommand(crate::office_facade::grammar::grammar());
+    root = root.subcommand(crate::office_facade::grammar::grammar().after_help(
+        "To install, update or remove any official extension, see: tmt extension --help",
+    ));
     root = root.subcommand(storage(
         "api",
         "Versioned JSON extension interface (one request on stdin)",
@@ -220,6 +222,32 @@ pub fn grammar() -> Command {
                             .arg(operand("name", true)),
                     )
                     .subcommand(general("list", "List extensions with enabled hooks")),
+            )
+            .subcommand(
+                extension_target(general("install", "Install an official extension (office, squad)"))
+                    .arg(channel_option())
+                    .arg(Arg::new("archive").long("archive").requires("manifest"))
+                    .arg(Arg::new("manifest").long("manifest").requires("archive")),
+            )
+            .subcommand(
+                extension_target(general("upgrade", "Update an installed official extension"))
+                    .arg(channel_option())
+                    .arg(Arg::new("to").long("to").conflicts_with("unpin"))
+                    .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
+            )
+            .subcommand(extension_target(general(
+                "uninstall",
+                "Remove an extension's commands; releases and data are kept",
+            )))
+            .subcommand(
+                general("list", "List official extensions, versions and PATH shadowing")
+                    .arg(Arg::new("prefix").long("prefix"))
+                    .arg(
+                        Arg::new("check")
+                            .long("check")
+                            .action(ArgAction::SetTrue)
+                            .help("Also check for a newer release (uses the network)"),
+                    ),
             ),
     )
     .subcommand(
@@ -470,6 +498,20 @@ fn with_options(mut command: Command, ids: &[&'static str]) -> Command {
         command = command.arg(option(id));
     }
     command
+}
+
+/// Consented extension installation: the extension name, --yes and --prefix.
+fn extension_target(command: Command) -> Command {
+    command
+        .arg(operand("name", true))
+        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
+        .arg(Arg::new("prefix").long("prefix"))
+}
+
+fn channel_option() -> Arg {
+    Arg::new("channel")
+        .long("channel")
+        .value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()))
 }
 
 fn operand(id: &'static str, required: bool) -> Arg {

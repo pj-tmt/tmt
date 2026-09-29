@@ -51,6 +51,7 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
 
 pub fn write_discovered(output: &mut impl Write) -> io::Result<()> {
     let reserved = extensions::reserved(&crate::grammar::grammar());
+    let mut extensions = Vec::new();
     for (name, path) in adapter::discover(&std::env::var_os("PATH").unwrap_or_default())? {
         if reserved.contains(&name) {
             writeln!(
@@ -58,8 +59,77 @@ pub fn write_discovered(output: &mut impl Write) -> io::Result<()> {
                 "Ignored tmt-{name}: reserved core command ({path:?})"
             )?;
         } else if valid_extension_name(&name) {
-            writeln!(output, "Extension {name}: {path:?}")?;
+            let file = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            extensions.push((name, path, file));
+        }
+    }
+    for (names, path) in group_aliases(extensions) {
+        match names.split_first() {
+            Some((name, [])) => writeln!(output, "Extension {name}: {path:?}")?,
+            Some((name, aliases)) => writeln!(
+                output,
+                "Extension {name} (also: {}): {path:?}",
+                aliases.join(", ")
+            )?,
+            None => {}
         }
     }
     Ok(())
+}
+
+/// Names whose commands resolve to the same file are one extension. The
+/// longest name leads (ties alphabetical); names on different files stay apart.
+fn group_aliases(
+    extensions: Vec<(String, std::path::PathBuf, std::path::PathBuf)>,
+) -> Vec<(Vec<String>, std::path::PathBuf)> {
+    let mut groups: Vec<(Vec<String>, std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+    for (name, path, file) in extensions {
+        match groups.iter_mut().find(|(_, _, existing)| *existing == file) {
+            Some((names, _, _)) => names.push(name),
+            None => groups.push((vec![name], path, file)),
+        }
+    }
+    let mut grouped = groups
+        .into_iter()
+        .map(|(mut names, path, _)| {
+            names.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+            (names, path)
+        })
+        .collect::<Vec<_>>();
+    grouped.sort_by(|a, b| a.0[0].cmp(&b.0[0]));
+    grouped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::group_aliases;
+    use std::path::PathBuf;
+
+    #[test]
+    fn names_resolving_to_one_file_are_grouped_and_others_stay_apart() {
+        let entry = |name: &str, file: &str| {
+            (
+                name.to_owned(),
+                PathBuf::from(format!("/bin/tmt-{name}")),
+                PathBuf::from(file),
+            )
+        };
+        let grouped = group_aliases(vec![
+            entry("office", "/lib/office"),
+            entry("sq", "/lib/squad"),
+            entry("squad", "/lib/squad"),
+            entry("sqx", "/lib/other"),
+        ]);
+        assert_eq!(
+            grouped,
+            [
+                (vec!["office".to_owned()], PathBuf::from("/bin/tmt-office")),
+                (
+                    vec!["squad".to_owned(), "sq".to_owned()],
+                    PathBuf::from("/bin/tmt-sq")
+                ),
+                (vec!["sqx".to_owned()], PathBuf::from("/bin/tmt-sqx")),
+            ]
+        );
+    }
 }

@@ -1645,6 +1645,18 @@ links without deleting releases, skills or application data. It is recoverable, 
 a missing command link with a retained activation is reported as invalid and
 explicit uninstall can finish that state.
 
+`tmt extension install|upgrade|uninstall|list` (`tmt-cli::extension_install_command`)
+is the public surface for the official extensions over this path. The names come
+from the fixed product table, never from PATH or archive data. Install, upgrade
+and uninstall require consent (`--yes`, or an interactive prompt), and refuse a
+non-interactive run without it. `list` reads local receipts only. `--check` adds a
+bounded release lookup (`latest_release_version`, metadata only), and a failed
+lookup reports `unknown`. Shadowing canonicalizes every `tmt-<name>` on PATH and
+reports those that resolve elsewhere, without executing them. Root help groups
+discovered extension names that resolve to the same file (`squad (also: sq)`).
+`tmt office install|upgrade|status|uninstall` keeps its own Office-specific
+flow for now.
+
 - `artifact` consumes cargo-dist metadata and a matching archive, checking
   target, manifest membership, SHA-256, bounded compressed/expanded input,
   notices and executable contents;

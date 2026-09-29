@@ -46,61 +46,7 @@ pub(super) fn download_product(
             deadline,
         )?)?
     } else {
-        let mut releases = Vec::new();
-        for page in 1..=3 {
-            let document = json(&get(
-                &format!("{endpoint}?per_page=100&page={page}"),
-                "application/vnd.github+json",
-                METADATA_LIMIT,
-                deadline,
-            )?)?;
-            let entries = document
-                .as_array()
-                .ok_or_else(|| invalid("Invalid release discovery response."))?;
-            if entries.len() > 100 {
-                return Err(invalid("Release discovery exceeds its page bound."));
-            }
-            releases.extend(
-                entries
-                    .iter()
-                    .filter(|entry| entry["draft"] == false)
-                    .cloned(),
-            );
-            if entries.len() < 100 {
-                break;
-            }
-            if page == 3 {
-                return Err(invalid(
-                    "Release discovery exceeds its bound; select an exact version with --to.",
-                ));
-            }
-        }
-        let candidates = releases
-            .iter()
-            .filter_map(|release| {
-                version(product, release)
-                    .ok()
-                    .map(|version| (release, version))
-            })
-            .collect::<Vec<_>>();
-        let versions = candidates
-            .iter()
-            .map(|(_, version)| version.clone())
-            .collect::<Vec<_>>();
-        let selected = latest_in_channel(&versions, channel)
-            .map_err(io::Error::other)?
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "No release is available in the selected native channel.",
-                )
-            })?;
-        candidates
-            .iter()
-            .find(|(_, version)| version == selected)
-            .expect("selected release exists")
-            .0
-            .clone()
+        discover_latest(product, channel, deadline, &mut get)?.0
     };
     let version = version(product, &document)?;
     if !channel.accepts(&version) || exact.is_some_and(|expected| expected != &version) {
@@ -152,6 +98,71 @@ pub(super) fn download_product(
             manifest_sha256: manifest_asset.digest,
         },
     })
+}
+
+/// The newest non-draft release of `product` in `channel`, found by bounded
+/// discovery (at most three pages), with its parsed version. No asset is read.
+pub(super) fn discover_latest(
+    product: super::Product,
+    channel: Channel,
+    deadline: Instant,
+    get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+) -> io::Result<(Value, Version)> {
+    let endpoint = format!("https://api.github.com/repos/{OFFICIAL_REPOSITORY}/releases");
+    let mut releases = Vec::new();
+    for page in 1..=3 {
+        let document = json(&get(
+            &format!("{endpoint}?per_page=100&page={page}"),
+            "application/vnd.github+json",
+            METADATA_LIMIT,
+            deadline,
+        )?)?;
+        let entries = document
+            .as_array()
+            .ok_or_else(|| invalid("Invalid release discovery response."))?;
+        if entries.len() > 100 {
+            return Err(invalid("Release discovery exceeds its page bound."));
+        }
+        releases.extend(
+            entries
+                .iter()
+                .filter(|entry| entry["draft"] == false)
+                .cloned(),
+        );
+        if entries.len() < 100 {
+            break;
+        }
+        if page == 3 {
+            return Err(invalid(
+                "Release discovery exceeds its bound; select an exact version with --to.",
+            ));
+        }
+    }
+    let candidates = releases
+        .iter()
+        .filter_map(|release| {
+            version(product, release)
+                .ok()
+                .map(|version| (release, version))
+        })
+        .collect::<Vec<_>>();
+    let versions = candidates
+        .iter()
+        .map(|(_, version)| version.clone())
+        .collect::<Vec<_>>();
+    let selected = latest_in_channel(&versions, channel)
+        .map_err(io::Error::other)?
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "No release is available in the selected native channel.",
+            )
+        })?;
+    let (release, version) = candidates
+        .iter()
+        .find(|(_, version)| version == selected)
+        .expect("selected release exists");
+    Ok(((*release).clone(), version.clone()))
 }
 
 fn json(bytes: &[u8]) -> io::Result<Value> {
