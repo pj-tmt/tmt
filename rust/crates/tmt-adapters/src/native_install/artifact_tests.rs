@@ -830,3 +830,84 @@ fn verifier_sees_the_written_candidate_and_its_rejection_keeps_the_previous_rele
         1
     );
 }
+
+/// Rewrite an installed receipt's source to a GitHub release of `repository`.
+fn record_release_source(executable: &std::path::Path, repository: &str) {
+    let receipt = fs::canonicalize(executable)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("receipt.json");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&receipt).unwrap()).unwrap();
+    value["source"] = serde_json::json!({
+        "kind": "github-release", "repository": repository,
+        "release_id": 42, "manifest_sha256": "a".repeat(64),
+    });
+    fs::write(&receipt, serde_json::to_vec(&value).unwrap()).unwrap();
+}
+
+#[test]
+fn every_product_reads_receipts_recorded_under_the_pre_rename_repository() {
+    let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
+    let office = office_fixture();
+    let prefix = cli.directory.path.join("prefix");
+    let installed = [
+        (
+            super::Product::Cli,
+            install_fixture(&cli, &prefix, super::Product::Cli).unwrap(),
+        ),
+        (
+            super::Product::Office,
+            install_fixture(&office, &prefix, super::Product::Office).unwrap(),
+        ),
+    ];
+    for (product, report) in &installed {
+        // Receipts from v5.0.0-alpha.2..alpha.6 and Office 0.1.0-alpha.1..alpha.3.
+        record_release_source(&report.executable, "wkh237/tmux-team");
+        super::inspect_product(*product, &report.executable).unwrap();
+        for foreign in [
+            "attacker/tmux-team",
+            "wkh237/tmux-team-fork",
+            "WKH237/TMUX-TEAM",
+            "",
+        ] {
+            record_release_source(&report.executable, foreign);
+            let error = super::inspect_product(*product, &report.executable).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("Invalid native release provenance"),
+                "{product:?} accepted {foreign:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn installing_over_an_alpha_6_receipt_under_the_pre_rename_repository_succeeds() {
+    // The one-line installer runs `__native-install` over the existing prefix.
+    let old = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
+    let prefix = old.directory.path.join("prefix");
+    let installed = install_fixture(&old, &prefix, super::Product::Cli).unwrap();
+    record_release_source(&installed.executable, "wkh237/tmux-team");
+    let next = product_fixture_at(
+        valid_entries("tmux-team-1.2.4-aarch64-apple-darwin"),
+        "tmt-cli",
+        &FILES,
+        "1.2.4",
+    );
+    let report = install_fixture(&next, &prefix, super::Product::Cli).unwrap();
+    assert!(report.changed);
+    assert_eq!(report.version, "1.2.4");
+    super::inspect(&report.executable).unwrap();
+    // A foreign repository in the current receipt still stops the installer.
+    record_release_source(&report.executable, "attacker/other");
+    let again = product_fixture_at(
+        valid_entries("tmux-team-1.2.5-aarch64-apple-darwin"),
+        "tmt-cli",
+        &FILES,
+        "1.2.5",
+    );
+    assert!(install_fixture(&again, &prefix, super::Product::Cli).is_err());
+}

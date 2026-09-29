@@ -33,6 +33,19 @@ use std::{
 use tmt_core::native_install::{Channel, PinAction, plan_version};
 
 const OFFICIAL_REPOSITORY: &str = "wkh237/tmt";
+/// The same repository before its rename (#334). Receipts written by
+/// v5.0.0-alpha.2 through alpha.6 and Office 0.1.0-alpha.1 through alpha.3
+/// record it; GitHub redirects it and keeps its release IDs. Read-only: new
+/// receipts always record `OFFICIAL_REPOSITORY`.
+const LEGACY_REPOSITORY: &str = "wkh237/tmux-team";
+
+/// Whether a receipt's recorded repository is the official one, under its
+/// current or pre-rename name. Anything else is foreign provenance.
+fn official_repository(recorded: &serde_json::Value) -> bool {
+    [OFFICIAL_REPOSITORY, LEGACY_REPOSITORY]
+        .iter()
+        .any(|name| recorded == *name)
+}
 
 #[derive(Debug, Clone)]
 pub struct InstallReport {

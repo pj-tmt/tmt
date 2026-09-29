@@ -199,7 +199,7 @@ impl Receipt {
             let source = &value["source"];
             if source.as_object().is_none_or(|fields| fields.len() != 4)
                 || source["kind"] != "github-release"
-                || source["repository"] != super::OFFICIAL_REPOSITORY
+                || !super::official_repository(&source["repository"])
             {
                 return Err(invalid("Invalid native release provenance."));
             }
