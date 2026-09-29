@@ -36,9 +36,11 @@ describe('native passive skill guidance', () => {
           : fs.readFileSync(process.outputPath, 'utf8') +
             fs.readFileSync(process.errorPath, 'utf8');
         if (scenario.warn) {
-          expect(output).toContain(`Skill guidance needs inspection at ${stale} (1 location(s)).`);
           expect(output).toContain(
-            'Run tmt install for the intended provider; inspect conflicts before using --force. Reload the agent afterward.'
+            `warning: Skill guidance needs inspection at ${stale} (1 location(s))`
+          );
+          expect(output).toContain(
+            'hint: run tmt install for the intended provider; inspect conflicts before using --force, then reload the agent'
           );
         } else {
           expect(output).not.toContain('Skill guidance needs inspection');

@@ -27,7 +27,7 @@ describe('native role and preamble process contracts', () => {
 
       const set = await runCli(sandbox, ['role', 'set', 'Review code', '--identity', 'Alice']);
       expect(set.status).toBe(0);
-      expect(set.stdout).toBe("Set role profile for 'Alice'.\n");
+      expect(set.stdout).toBe("✓ Set role profile for 'Alice'\n");
       expect(set.stderr).toBe('');
 
       const shown = await runCli(sandbox, ['role', 'show', '--identity', 'Alice']);
@@ -37,7 +37,7 @@ describe('native role and preamble process contracts', () => {
 
       const cleared = await runCli(sandbox, ['role', 'clear', '--identity', 'Alice']);
       expect(cleared.status).toBe(0);
-      expect(cleared.stdout).toBe("Cleared role profile for 'Alice'.\n");
+      expect(cleared.stdout).toBe("✓ Cleared role profile for 'Alice'\n");
       expect(cleared.stderr).toBe('');
       expect(await json(sandbox, ['role', 'show', '--identity', 'Alice'])).toMatchObject({
         identity: { name: 'Alice', lifetime: 'saved' },
@@ -61,7 +61,7 @@ describe('native role and preamble process contracts', () => {
       ]);
       expect(result.status).toBe(1);
       expect(result.stdout).toBe('');
-      expect(result.stderr).toBe('Could not read a regular role file.\n');
+      expect(result.stderr).toBe('error: Could not read a regular role file\n');
       expect(await json(sandbox, ['role', 'show', '--identity', 'Alice'])).toEqual(original);
       expect(readFileSync(log, 'utf8')).toBe('\n');
     });
@@ -73,7 +73,7 @@ describe('native role and preamble process contracts', () => {
 
       const set = await runCli(sandbox, ['preamble', 'set', 'Alice', 'Be helpful']);
       expect(set.status).toBe(0);
-      expect(set.stdout).toBe('Set preamble for Alice\n');
+      expect(set.stdout).toBe('✓ Set preamble for Alice\n');
       expect(set.stderr).toBe('');
 
       const shown = await runCli(sandbox, ['preamble', 'show', 'Alice']);
@@ -87,7 +87,7 @@ describe('native role and preamble process contracts', () => {
 
       const cleared = await runCli(sandbox, ['preamble', 'clear', 'Alice']);
       expect(cleared.status).toBe(0);
-      expect(cleared.stdout).toBe('Cleared preamble for Alice\n');
+      expect(cleared.stdout).toBe('✓ Cleared preamble for Alice\n');
       expect(cleared.stderr).toBe('');
       expect(await json(sandbox, ['preamble', 'show', 'Alice'])).toEqual({
         agent: 'Alice',

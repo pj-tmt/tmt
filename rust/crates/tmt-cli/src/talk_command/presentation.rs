@@ -3,7 +3,8 @@ use std::io::Write;
 
 pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
     let correlation = report.correlation;
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = stdout.terminal();
     if mode.json {
         let mut value =
             serde_json::json!({"requestId": correlation.request_id, "target": correlation.target});
@@ -30,44 +31,52 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
         writeln!(stdout, "{value}")?;
     } else {
         if let Some(response) = report.response {
-            if correlation.inbox {
-                writeln!(
-                    stdout,
-                    "Completed queued request {} for {}.\n{}",
-                    correlation.request_id, correlation.target, response.body
-                )?;
-            } else {
-                writeln!(
-                    stdout,
-                    "Completed request {} for {} ({}).\n{}",
-                    correlation.request_id, correlation.target, correlation.pane, response.body
-                )?;
-            }
-        } else {
-            if correlation.offline {
-                writeln!(
-                    stdout,
-                    "{} is offline; the request is kept in Inbox ({}).",
-                    correlation.target, correlation.request_id
-                )?;
-            } else if correlation.inbox {
-                writeln!(
-                    stdout,
-                    "Queued request {} for {}.",
+            let text = if correlation.inbox {
+                format!(
+                    "Completed queued request {} for {}",
                     correlation.request_id, correlation.target
-                )?;
+                )
             } else {
-                writeln!(
-                    stdout,
-                    "Sent request {} to {} ({}).",
+                format!(
+                    "Completed request {} for {} ({})",
                     correlation.request_id, correlation.target, correlation.pane
-                )?;
-            }
+                )
+            };
+            tmt_cli_style::message::success(&mut stdout, terminal, &text)?;
+            // The responder's exact text, never styled or escaped.
+            writeln!(stdout, "{}", response.body)?;
+        } else if correlation.offline {
+            writeln!(
+                stdout,
+                "{} is offline; the request is kept in Inbox ({}).",
+                correlation.target, correlation.request_id
+            )?;
+        } else if correlation.inbox {
+            tmt_cli_style::message::success(
+                &mut stdout,
+                terminal,
+                &format!(
+                    "Queued request {} for {}",
+                    correlation.request_id, correlation.target
+                ),
+            )?;
+        } else {
+            tmt_cli_style::message::success(
+                &mut stdout,
+                terminal,
+                &format!(
+                    "Sent request {} to {} ({})",
+                    correlation.request_id, correlation.target, correlation.pane
+                ),
+            )?;
         }
-        writeln!(
-            stdout,
-            "Retrieve later with 'tmt result {}'.",
-            correlation.request_id
+        tmt_cli_style::message::hint(
+            &mut stdout,
+            terminal,
+            &format!(
+                "retrieve it later with tmt result {}",
+                correlation.request_id
+            ),
         )?;
     }
     Ok(0)

@@ -174,14 +174,38 @@ impl Failure {
 
     pub fn publish(&self, mode: OutputMode) -> io::Result<u8> {
         if mode.json {
-            writeln!(io::stdout().lock(), "{}", self.document())?;
+            writeln!(tmt_cli_style::stream::stdout(true), "{}", self.document())?;
         } else {
-            writeln!(io::stderr().lock(), "{}", self.message)?;
-            if let Some(suggestion) = &self.suggestion {
-                writeln!(io::stderr().lock(), "{suggestion}")?;
-            }
+            let mut stderr = tmt_cli_style::stream::stderr();
+            let terminal = stderr.terminal();
+            self.write_human(&mut stderr, terminal)?;
         }
         Ok(self.status)
+    }
+
+    /// `error: <first line>`, any further lines of the message as written, then
+    /// `hint: <suggestion>`. Each line is escaped, since messages quote user data.
+    pub fn write_human(
+        &self,
+        output: &mut impl Write,
+        terminal: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let mut lines = self.message.lines();
+        let first = lines.next().unwrap_or_default();
+        // Parser messages come from clap, which already says `error: `.
+        let first = first.strip_prefix("error: ").unwrap_or(first);
+        tmt_cli_style::message::error(output, terminal, first, None)?;
+        for line in lines {
+            writeln!(output, "{}", tmt_cli_style::table::escape(line))?;
+        }
+        if let Some(suggestion) = &self.suggestion {
+            let suggestion = ["Hint: ", "hint: "]
+                .iter()
+                .find_map(|prefix| suggestion.strip_prefix(prefix))
+                .unwrap_or(suggestion);
+            tmt_cli_style::message::hint(output, terminal, suggestion)?;
+        }
+        Ok(())
     }
 }
 
@@ -245,6 +269,34 @@ pub fn after_cleanup<T, E: Error + 'static>(
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    fn human(failure: &Failure) -> String {
+        let mut output = Vec::new();
+        failure
+            .write_human(&mut output, tmt_cli_style::Terminal::PLAIN)
+            .unwrap();
+        String::from_utf8(output).unwrap()
+    }
+
+    #[test]
+    fn human_failures_read_error_then_hint() {
+        let failure = Failure::new("NAME_NOT_FOUND", "Identity 'x\u{1b}' was not found.", 3)
+            .suggestion("Hint: Create it with tmt identity create x.".into());
+        assert_eq!(
+            human(&failure),
+            "error: Identity 'x\\u{1b}' was not found\nhint: Create it with tmt identity create x\n"
+        );
+        // clap's own `error: ` prefix is not repeated, and its usage block stays.
+        let usage = Failure::new(
+            "USAGE_ERROR",
+            "error: the following required arguments were not provided:\n  <message>\n\nUsage: tmt talk <target> <message>\n",
+            1,
+        );
+        assert_eq!(
+            human(&usage),
+            "error: the following required arguments were not provided:\n  <message>\n\nUsage: tmt talk <target> <message>\n"
+        );
+    }
 
     #[test]
     fn cleanup_runs_once_before_a_success_can_be_published() {

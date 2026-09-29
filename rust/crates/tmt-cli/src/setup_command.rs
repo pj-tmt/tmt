@@ -40,7 +40,8 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
                 .map_err(failure)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut output = io::stdout().lock();
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = output.terminal();
     if provider.is_none() {
         let detected = ProviderEnvironment::capture().map_err(failure)?.detect();
         let providers: Vec<_> = detected.iter().map(|value| value.as_str()).collect();
@@ -109,16 +110,20 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
             "removed": remove, "settingsPath": plan.change.path, "launcher": plan.launcher, "backup": backup
         })).map_err(failure)?;
     } else {
-        writeln!(
-            output,
-            "{}",
-            if plan.change.changed() {
-                "Setup applied."
-            } else {
-                "Already current; no changes made."
-            }
-        )
-        .map_err(failure)?;
+        if plan.change.changed() {
+            tmt_cli_style::message::success(
+                &mut output,
+                terminal,
+                &format!(
+                    "{} {} hooks",
+                    if remove { "Removed" } else { "Configured" },
+                    plan.provider
+                ),
+            )
+            .map_err(failure)?;
+        } else {
+            writeln!(output, "Already current; no changes made.").map_err(failure)?;
+        }
         if let Some(backup) = backup {
             writeln!(output, "Recoverable backup: {}", backup.display()).map_err(failure)?;
         }

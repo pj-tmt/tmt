@@ -211,7 +211,8 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = stdout.terminal();
     if mode.json {
         let value = match report {
             Report::Role {
@@ -245,10 +246,16 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
                 profile,
                 change,
             } => match change {
-                Change::Set => writeln!(stdout, "Set role profile for '{}'.", identity.name)?,
-                Change::Cleared | Change::NotSet => {
-                    writeln!(stdout, "Cleared role profile for '{}'.", identity.name)?
-                }
+                Change::Set => tmt_cli_style::message::success(
+                    &mut stdout,
+                    terminal,
+                    &format!("Set role profile for '{}'", identity.name),
+                )?,
+                Change::Cleared | Change::NotSet => tmt_cli_style::message::success(
+                    &mut stdout,
+                    terminal,
+                    &format!("Cleared role profile for '{}'", identity.name),
+                )?,
                 Change::Shown => {
                     writeln!(stdout, "Identity '{}'", identity.name)?;
                     writeln!(
@@ -266,8 +273,16 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
                 profile,
                 change,
             } => match change {
-                Change::Set => writeln!(stdout, "Set preamble for {name}")?,
-                Change::Cleared => writeln!(stdout, "Cleared preamble for {name}")?,
+                Change::Set => tmt_cli_style::message::success(
+                    &mut stdout,
+                    terminal,
+                    &format!("Set preamble for {name}"),
+                )?,
+                Change::Cleared => tmt_cli_style::message::success(
+                    &mut stdout,
+                    terminal,
+                    &format!("Cleared preamble for {name}"),
+                )?,
                 Change::NotSet => writeln!(stdout, "No preamble was set for {name}")?,
                 Change::Shown => {
                     if let Some(profile) = profile {

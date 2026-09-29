@@ -42,11 +42,12 @@ fn ask(yes: bool, mode: OutputMode, action: &str) -> Result<bool, Failure> {
 pub fn execute(request: ExtensionInstallRequest, mode: OutputMode) -> io::Result<u8> {
     match run(request, mode) {
         Ok(Some((document, human))) => {
-            let mut stdout = io::stdout().lock();
+            let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+            let terminal = stdout.terminal();
             if mode.json {
                 writeln!(stdout, "{document}")?;
             } else {
-                writeln!(stdout, "{human}")?;
+                human.write(&mut stdout, terminal)?;
             }
             Ok(0)
         }
@@ -142,7 +143,36 @@ fn interruptible(message: &'static str) -> Result<impl FnMut() -> io::Result<()>
     })
 }
 
-type Outcome = Option<(Value, String)>;
+/// Human output: a first line that is a success when `done`, then any
+/// further lines as written.
+struct Human {
+    done: bool,
+    text: String,
+}
+
+impl Human {
+    fn done(text: String) -> Self {
+        Self { done: true, text }
+    }
+
+    fn plain(text: String) -> Self {
+        Self { done: false, text }
+    }
+
+    fn write(&self, output: &mut impl Write, terminal: tmt_cli_style::Terminal) -> io::Result<()> {
+        let mut lines = self.text.lines();
+        if self.done {
+            let first = lines.next().unwrap_or_default();
+            tmt_cli_style::message::success(output, terminal, first)?;
+        }
+        for line in lines {
+            writeln!(output, "{line}")?;
+        }
+        Ok(())
+    }
+}
+
+type Outcome = Option<(Value, Human)>;
 
 fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Failure> {
     match request {
@@ -209,13 +239,13 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             })?;
             let version = report.installation.version.clone();
             let human = if report.skipped_pinned {
-                format!(
+                Human::plain(format!(
                     "{name} {version} is pinned; nothing changed. Clear the pin with: tmt extension upgrade {name} --unpin"
-                )
+                ))
             } else if report.installation.changed {
-                format!("Updated {name} to {version}.")
+                Human::done(format!("Updated {name} to {version}."))
             } else {
-                format!("{name} {version} is current.")
+                Human::plain(format!("{name} {version} is current."))
             };
             Ok(Some((
                 json!({"extension": name, "installed": true, "changed": report.installation.changed,
@@ -241,14 +271,19 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             let changed = native_install::uninstall_extension(&prefix, product)
                 .map_err(|error| failure("EXTENSION_UNINSTALL_FAILED", error))?;
             let kept = kept(product, &prefix);
-            let human = std::iter::once(if changed {
-                format!("Removed the {name} extension's commands. Kept:")
+            let text = std::iter::once(if changed {
+                format!("Removed the {name} extension's commands; kept:")
             } else {
                 format!("{name} was not installed; nothing changed. Kept, if present:")
             })
             .chain(kept.iter().map(|(_, how)| format!("  - {how}")))
             .collect::<Vec<_>>()
             .join("\n");
+            let human = if changed {
+                Human::done(text)
+            } else {
+                Human::plain(text)
+            };
             Ok(Some((
                 json!({"extension": name, "installed": false, "changed": changed,
                     "kept": kept.iter().map(|(what, _)| *what).collect::<Vec<_>>()}),
@@ -258,7 +293,8 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
         ExtensionInstallRequest::List {
             prefix: selected,
             check,
-        } => listing(&prefix(selected.as_deref())?, check).map(Some),
+        } => listing(&prefix(selected.as_deref())?, check)
+            .map(|(document, text)| Some((document, Human::plain(text)))),
     }
 }
 
@@ -345,13 +381,13 @@ fn install(
         )
     })?;
     let human = if report.changed {
-        format!(
+        Human::done(format!(
             "Installed {name} {} at {}.",
             report.version,
             report.executable.display()
-        )
+        ))
     } else {
-        format!("{name} {} is already installed.", report.version)
+        Human::plain(format!("{name} {} is already installed.", report.version))
     };
     Ok(Some((
         json!({"extension": name, "installed": true, "changed": report.changed,

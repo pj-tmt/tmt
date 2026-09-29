@@ -59,13 +59,14 @@ pub fn execute(request: ConfigRequest, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };
-    let mut output = io::stdout().lock();
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = output.terminal();
     match report {
         Report::Changed(message) => {
             if mode.json {
                 writeln!(output, "{{\"ok\":true}}")?;
             } else {
-                writeln!(output, "✓ {message}")?;
+                tmt_cli_style::message::success(&mut output, terminal, &message)?;
             }
         }
         Report::Show { loaded, paths } => {

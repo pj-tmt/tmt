@@ -193,7 +193,8 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = stdout.terminal();
     match report {
         Report::NotRequired(request_id) if mode.json => writeln!(
             stdout,
@@ -222,20 +223,25 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
                 "bodyBytes": record.body_bytes, "submittedAtMs": record.submitted_at_ms
             })
         )?,
-        Report::Submitted(record, notification) => writeln!(
-            stdout,
-            "Submitted response for request '{}' ({} bytes).{}",
-            record.request_id,
-            record.body_bytes,
-            notification
-                .map(|value| format!(" Originator notification: {}.", value.as_str()))
-                .unwrap_or_default()
+        Report::Submitted(record, notification) => tmt_cli_style::message::success(
+            &mut stdout,
+            terminal,
+            &format!(
+                "Submitted response for request {} ({} bytes){}",
+                record.request_id,
+                record.body_bytes,
+                notification
+                    .map(|value| format!("; originator notification {}", value.as_str()))
+                    .unwrap_or_default()
+            ),
         )?,
-        Report::Completed(record) => writeln!(
-            stdout,
-            "Response for request '{}':\n{}",
-            record.request_id, record.body
-        )?,
+        Report::Completed(record) => write_result(&mut stdout, &record.request_id, &record.body)?,
     }
     Ok(0)
+}
+
+/// `tmt result`: a header, then the stored response byte for byte. The body is
+/// the responder's exact text, so it is never styled or escaped.
+fn write_result(output: &mut impl Write, request_id: &str, body: &str) -> io::Result<()> {
+    writeln!(output, "Response for request '{request_id}':\n{body}")
 }

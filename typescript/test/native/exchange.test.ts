@@ -89,7 +89,7 @@ describe('native exchange attention process contract', () => {
       expect(submitted.status).toBe(0);
       expect(submitted.stderr).toBe('');
       expect(submitted.stdout).toBe(
-        `Submitted response for request 'human-exchange' (${Buffer.byteLength(body)} bytes).\n`
+        `✓ Submitted response for request human-exchange (${Buffer.byteLength(body)} bytes)\n`
       );
       expect(responseSnapshot(sandbox.database, seeded.requestId).response).toMatchObject({
         body,

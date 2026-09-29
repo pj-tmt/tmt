@@ -17,11 +17,16 @@ pub fn execute(mode: OutputMode) -> io::Result<u8> {
         Ok(path) => path,
         Err(error) => return error.publish(mode),
     };
-    let mut output = io::stdout().lock();
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = output.terminal();
     if mode.json {
         writeln!(output, "{}", json!({"created": created}))?;
     } else {
-        writeln!(output, "Created {}", created.display())?;
+        tmt_cli_style::message::success(
+            &mut output,
+            terminal,
+            &format!("Created {}", created.display()),
+        )?;
     }
     Ok(0)
 }

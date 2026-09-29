@@ -43,15 +43,17 @@ pub fn execute(
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };
-    let mut output = io::stdout().lock();
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = output.terminal();
     if mode.json {
         let value = report_document(&report);
         writeln!(output, "{value}")?;
     } else {
         write_report_human(&report, &mut output)?;
-        writeln!(
-            output,
-            "Reload or restart your agent to use the current skill. Existing conversations can read tmt learn --skill."
+        tmt_cli_style::message::hint(
+            &mut output,
+            terminal,
+            "reload or restart your agent to use the current skill; existing conversations can read tmt learn --skill",
         )?;
     }
     Ok(0)

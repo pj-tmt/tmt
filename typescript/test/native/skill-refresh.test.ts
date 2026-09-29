@@ -98,7 +98,7 @@ describe('native managed skill refresh', () => {
       });
       const human = await runCli(sandbox, ['__native-refresh-skills']);
       expect(human.status).toBe(0);
-      expect(human.stdout).toContain('Reload or restart your agent');
+      expect(human.stdout).toContain('hint: reload or restart your agent');
       expect(existsSync(sandbox.database)).toBe(false);
       expect(readFileSync(tripwire)).toEqual(baseline);
     });

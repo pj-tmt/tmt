@@ -8,7 +8,7 @@ describe('outcome-aware CLI discovery on a private tmux server', () => {
       expect(first.code).toBe(0);
       expect(first.stdout).toContain("Bound temporary identity 'First Agent'");
       expect(first.stderr).toBe(
-        'Hint: This temporary identity ends with its pane. Use `tmt identity create <name>` to keep it.\n'
+        'hint: this temporary identity ends with its pane; keep it with tmt identity create <name>\n'
       );
 
       const repeated = await fixture.runCli(['name', 'First Agent']);

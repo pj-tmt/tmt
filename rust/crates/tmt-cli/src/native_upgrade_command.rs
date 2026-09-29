@@ -175,23 +175,24 @@ fn publish(
     if let Some(failure) = &failure {
         document["error"] = failure.document()["error"].clone();
     }
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = stdout.terminal();
     if mode.json {
-        writeln!(io::stdout().lock(), "{document}")?;
+        writeln!(stdout, "{document}")?;
     } else {
         if let Some(report) = report {
-            writeln!(
-                io::stdout().lock(),
-                "{} tmt {} at {}",
-                if report.skipped_pinned {
-                    "Pinned"
-                } else if report.installation.changed {
-                    "Updated"
-                } else {
-                    "Current"
-                },
+            let what = format!(
+                "tmt {} at {}",
                 report.installation.version,
                 report.installation.executable.display()
-            )?;
+            );
+            if report.skipped_pinned {
+                writeln!(stdout, "Pinned {what}")?;
+            } else if report.installation.changed {
+                tmt_cli_style::message::success(&mut stdout, terminal, &format!("Updated {what}"))?;
+            } else {
+                writeln!(stdout, "Current {what}")?;
+            }
             if !report.skipped_pinned
                 && let Some(refreshed) = document["skills"]["refreshed"].as_array()
             {
@@ -200,28 +201,35 @@ fn publish(
                     .as_array()
                     .expect("validated skill report");
                 writeln!(
-                    io::stdout().lock(),
+                    stdout,
                     "Managed skills: {} current/refreshed, {skipped} missing, {} conflicts preserved.",
                     refreshed.len(),
                     conflicts.len()
                 )?;
                 for target in conflicts {
-                    writeln!(
-                        io::stdout().lock(),
-                        "Resolve skill conflict at {}",
-                        target.as_str().expect("validated skill path")
+                    tmt_cli_style::message::hint(
+                        &mut stdout,
+                        terminal,
+                        &format!(
+                            "resolve the skill conflict at {}",
+                            target.as_str().expect("validated skill path")
+                        ),
                     )?;
                 }
                 if !refreshed.is_empty() {
-                    writeln!(
-                        io::stdout().lock(),
-                        "Reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill."
+                    tmt_cli_style::message::hint(
+                        &mut stdout,
+                        terminal,
+                        "reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",
                     )?;
                 }
             }
         }
         if let Some(warning) = warning {
-            writeln!(io::stderr().lock(), "{warning}")?;
+            drop(stdout);
+            let mut stderr = tmt_cli_style::stream::stderr();
+            let terminal = stderr.terminal();
+            tmt_cli_style::message::warning(&mut stderr, terminal, &warning, None)?;
         }
         if let Some(failure) = &failure {
             failure.publish(mode)?;

@@ -22,7 +22,8 @@ fn consent_json(consent: &extension_hooks::Consent) -> serde_json::Value {
 }
 
 pub fn execute(request: ExtensionHooksRequest, mode: OutputMode) -> io::Result<u8> {
-    let result = (|| -> Result<(serde_json::Value, String), Failure> {
+    // The document, whether the human text reports a change, and the text.
+    let result = (|| -> Result<(serde_json::Value, bool, String), Failure> {
         let paths = ConfigPaths::discover()?;
         match request {
             ExtensionHooksRequest::Enable(name) => {
@@ -38,7 +39,7 @@ pub fn execute(request: ExtensionHooksRequest, mode: OutputMode) -> io::Result<u
                     consent.path.display(),
                     consent.capabilities.join(", ")
                 );
-                Ok((json!({"enabled": consent_json(&consent)}), text))
+                Ok((json!({"enabled": consent_json(&consent)}), true, text))
             }
             ExtensionHooksRequest::Disable(name) => {
                 let changed = extension_hooks::disable(&paths, &name).map_err(failure)?;
@@ -47,7 +48,7 @@ pub fn execute(request: ExtensionHooksRequest, mode: OutputMode) -> io::Result<u
                 } else {
                     format!("Hooks for {name} were not enabled.")
                 };
-                Ok((json!({"name": name, "changed": changed}), text))
+                Ok((json!({"name": name, "changed": changed}), changed, text))
             }
             ExtensionHooksRequest::List => {
                 let consents = extension_hooks::list_consents(&paths).map_err(failure)?;
@@ -69,16 +70,20 @@ pub fn execute(request: ExtensionHooksRequest, mode: OutputMode) -> io::Result<u
                 };
                 Ok((
                     json!({"extensions": consents.iter().map(consent_json).collect::<Vec<_>>()}),
+                    false,
                     text,
                 ))
             }
         }
     })();
     match result {
-        Ok((value, text)) => {
-            let mut output = io::stdout().lock();
+        Ok((value, changed, text)) => {
+            let mut output = tmt_cli_style::stream::stdout(mode.json);
+            let terminal = output.terminal();
             if mode.json {
                 writeln!(output, "{value}")?;
+            } else if changed {
+                tmt_cli_style::message::success(&mut output, terminal, &text)?;
             } else {
                 writeln!(output, "{text}")?;
             }
