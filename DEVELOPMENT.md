@@ -992,7 +992,13 @@ Follow `USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do
 not add provider-specific skill copies. The squad lead skill
 (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`) is deliberately outside this
 bundle: the squad executable embeds it, and its native test checks the
-documented status row shape against real output. Extension-owned skills
+documented status row shape against real output. The squad playbooks
+(`extensions/tmt-squad/playbooks/<name>/SKILL.md`) are embedded the same way but
+kept out of the release skills tree; `playbook.rs` tests pin the catalog to the
+source files and that separation, and `squad.test.ts` covers install and removal
+against isolated provider roots. Every command a playbook tells an agent to run
+is executed once in a disposable tmux server and git repository before it is
+written down. Extension-owned skills
 (`skills.install`, owned by an extension rather than this bundle) are covered by
 `skill_installation::owned_tests` with isolated provider roots: publish, repeat
 no-op, core and cross-owner claims, force backup, Office adoption, removal by
