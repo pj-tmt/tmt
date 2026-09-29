@@ -29,22 +29,22 @@ impl OfficeStore {
             return Ok(Reconciliation::default());
         }
         let (identities, rooms) = references(self.connection()?)?;
-        let mut retired_identities = Vec::new();
-        for id in &identities {
-            if self
-                .references()
-                .identity(id)?
-                .is_some_and(|identity| identity.retired)
-            {
-                retired_identities.push(id);
-            }
-        }
-        let mut retired_rooms = Vec::new();
-        for id in &rooms {
-            if self.references().room(id)?.is_some_and(|room| room.retired) {
-                retired_rooms.push(id);
-            }
-        }
+        // One batched lookup per 256 references rather than one per UUID.
+        let identities: Vec<String> = identities.into_iter().collect();
+        let rooms: Vec<String> = rooms.into_iter().collect();
+        let (identity_states, room_states) = self.references().resolve(&identities, &rooms)?;
+        let retired_identities: Vec<&String> = identities
+            .iter()
+            .zip(&identity_states)
+            .filter(|(_, state)| state.as_ref().is_some_and(|identity| identity.retired))
+            .map(|(id, _)| id)
+            .collect();
+        let retired_rooms: Vec<&String> = rooms
+            .iter()
+            .zip(&room_states)
+            .filter(|(_, state)| state.as_ref().is_some_and(|room| room.retired))
+            .map(|(id, _)| id)
+            .collect();
         let newly_marked = crate::store::with_immediate_transaction(
             self,
             "Office reconciliation",

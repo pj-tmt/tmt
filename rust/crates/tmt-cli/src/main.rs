@@ -60,6 +60,8 @@ fn main() -> ExitCode {
 }
 
 fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
+    // Companions reach core through this executable, whatever name it has.
+    tmt_adapters::core_executable::declare_core();
     let inspect_drift = skill_reminder::eligible_for_drift(&parsed);
     let mode = parsed.mode;
     // This process may observe lifecycle changes for enabled extension hooks;

@@ -8,6 +8,7 @@ import { expect, test } from '@playwright/test';
 import { runCli, withSandbox } from '../../../../../../typescript/test/support/cli-process.js';
 import {
   installNativeOffice,
+  seedLegacyOfficeData,
   unusedLoopbackPort,
   NATIVE_OFFICE_FIXTURE_VERSION,
 } from './native-office-fixture.js';
@@ -79,18 +80,7 @@ test('human Office start also mentions a pending storage migration once user Off
     const prefix = await installNativeOffice(sandbox);
     const office = (args: string[]) =>
       runCli(sandbox, ['office', '--prefix', prefix, ...args], { deadlineMs: 30_000 });
-    const posted = await office([
-      'board',
-      'post',
-      '--general',
-      '--owner',
-      '--title',
-      'Hi',
-      '--body',
-      'Data',
-      '--json',
-    ]);
-    expect(posted.status, posted.stdout + posted.stderr).toBe(0);
+    await seedLegacyOfficeData(sandbox);
     try {
       const started = await office(['start', '--port', String(await unusedLoopbackPort())]);
       expect(started.status, started.stdout + started.stderr).toBe(0);

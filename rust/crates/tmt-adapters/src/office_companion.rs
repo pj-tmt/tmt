@@ -1093,7 +1093,7 @@ fn companion_arguments(
     operation: OfficeInvocation,
 ) -> io::Result<Vec<OsString>> {
     let mut selector = OsString::from("TMT_EXECUTABLE=");
-    selector.push(std::env::current_exe()?);
+    selector.push(crate::core_executable::selected()?);
     Ok([selector, executable.as_os_str().to_owned()]
         .into_iter()
         .chain(operation.arguments().map(OsString::from))

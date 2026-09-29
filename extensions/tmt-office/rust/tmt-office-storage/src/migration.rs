@@ -24,6 +24,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 pub(crate) use switch::ensure_active;
+pub(crate) use switch::switch_fresh;
 pub use switch::{
     Backup, Held, OfficeService, Quiesce, Quiesced, Recovery, Switched, recover, switch,
 };
@@ -220,6 +221,27 @@ pub(crate) fn switched(layout: &StorageLayout) -> Result<bool> {
     switch::read_receipt(&layout.source).map(|receipt| receipt.is_some())
 }
 
+/// Rows the user created in the shared Office tables: everything outside the
+/// seeded singleton catalogs. Read query-only inside one snapshot.
+pub(crate) fn user_rows(layout: &StorageLayout) -> Result<u64> {
+    let source = open_source(&layout.source)?;
+    let snapshot = source
+        .unchecked_transaction()
+        .map_err(source_error("Open source snapshot"))?;
+    let mut rows = 0;
+    for table in schema::OFFICE_TABLES {
+        if schema::SEEDED.contains(table) {
+            continue;
+        }
+        rows += snapshot
+            .query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(source_error("Count Office rows"))? as u64;
+    }
+    Ok(rows)
+}
+
 const BACKUP_PREFIX: &str = "office-storage-";
 
 fn backups(layout: &StorageLayout) -> Result<Vec<Backup>> {
@@ -284,6 +306,10 @@ fn office_manifest(connection: &Connection) -> Result<(Manifest, Vec<TableShape>
 /// switch it is never authoritative.
 pub fn prepare(layout: &StorageLayout) -> Result<Status> {
     let _lock = lock(layout)?;
+    prepare_locked(layout)
+}
+
+fn prepare_locked(layout: &StorageLayout) -> Result<Status> {
     require_no_destination(layout)?;
     let source = open_source(&layout.source)?;
     let identity = source_identity(&layout.source)?;
@@ -311,6 +337,10 @@ pub fn prepare(layout: &StorageLayout) -> Result<Status> {
 /// the staged rows atomically, so resuming after any interruption is safe.
 pub fn copy(layout: &StorageLayout) -> Result<Status> {
     let _lock = lock(layout)?;
+    copy_locked(layout)
+}
+
+fn copy_locked(layout: &StorageLayout) -> Result<Status> {
     require_no_destination(layout)?;
     let mut staging = open_existing_staging(layout)?;
     let record = require_record(&staging)?;
@@ -355,6 +385,10 @@ pub fn copy(layout: &StorageLayout) -> Result<Status> {
 /// requires another copy; a differing copy is never marked verified.
 pub fn verify(layout: &StorageLayout) -> Result<Status> {
     let _lock = lock(layout)?;
+    verify_locked(layout)
+}
+
+fn verify_locked(layout: &StorageLayout) -> Result<Status> {
     require_no_destination(layout)?;
     let staging = open_existing_staging(layout)?;
     let record = require_record(&staging)?;

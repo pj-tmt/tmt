@@ -177,6 +177,12 @@ pub fn start(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .process_group(0);
+    // The service reaches core through the `tmt` that declared itself core, or
+    // the one that launched the companion; never a PATH lookup.
+    command.env(
+        "TMT_EXECUTABLE",
+        crate::core_executable::selected().map_err(ServiceError::Unavailable)?,
+    );
     let mut child = command.spawn().map_err(ServiceError::Unavailable)?;
     let stdout = child.stdout.take().ok_or_else(|| {
         ServiceError::Unavailable(io::Error::other("Office readiness pipe is unavailable"))

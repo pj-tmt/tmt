@@ -7,6 +7,8 @@ pub mod api;
 pub mod bounded_file;
 pub mod config;
 #[cfg(unix)]
+pub mod core_executable;
+#[cfg(unix)]
 pub mod delivery;
 pub mod dispatch;
 #[cfg(unix)]

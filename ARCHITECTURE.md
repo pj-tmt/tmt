@@ -618,16 +618,21 @@ an Office-local retired-identity marker and a migration record; schema v2 adds t
 activation marker written when `office.db` becomes authoritative, and v3 adds
 the retired-room marker. Switched storage from an earlier Office schema upgrades
 when opened. The crate reaches
-core only through public owners: `config`, `file_lock`, `Storage::open` and the
+core only through public owners: `config`, `file_lock`, the process runner and the
 `StorageError` type with its `classify` mapping. It owns the Office repositories
 (worlds and legacy blocks, profiles, prop and avatar catalogs, the discussion board
 and whiteboards) on `OfficeStore`, and the `access` operations shared by the
 one-shot companion protocol and the local HTTP service. Production opens go
-through `OfficeStore::open_configured(&StorageLayout)`, which reads core's cutover
-receipt through `CoreReferences::storage_cutover`: without a receipt it opens the
-shared core database file through `Storage::open`, so creation and migration are
-unchanged; with one it opens `office.db`, finishing an interrupted activation
-first and failing with the recovery error rather than recreating lost storage.
+through `OfficeStore::open_configured(&StorageLayout)`, which selects the store
+from Office's own files and the receipt the migration coordinator maintains:
+an existing `office.db` is finished (activation) or, if recovery reverts it,
+skipped; otherwise the coordinator's fresh path runs, and an install whose
+Office tables hold nothing but the seeded catalogs switches immediately
+(`migration::switch_fresh`, the normal decision transaction and receipt, skipping
+only the backup and service quiesce because there is no user data to protect and no
+service can be running against an unswitched store). Any user data keeps the legacy
+store on the shared core file until `tmt office storage migrate`. A receipt
+without usable storage fails with the recovery error rather than recreating it.
 The single-file constructor is test-only, so no production path can bypass a
 switched store. The CLI side keeps only file readers, reply
 decoders and wire limits in `tmt-adapters`; the core `tmt office` facade still
@@ -635,7 +640,15 @@ reaches storage only by invoking the installed companion.
 
 Office reads core-owned identities and rooms only through the UUID-keyed
 `tmt-office-storage::core_references::CoreReferences` port (`identity`,
-`active_identities`, `room`), separate from the CLI selector port `CoreAccess`.
+`active_identities`, `room`, and a batch `resolve`), separate from the CLI selector
+port `CoreAccess`. Production implements it as `ProcessReferences`: it runs the
+invoking `tmt` (`TMT_EXECUTABLE`, else `tmt` on `PATH`, never itself) through the
+supervised process runner, using `tmt --json identity list` and the
+`references.resolve` API operation, so the Office binary never opens or migrates
+the core database. The in-process `CoreStore` is compiled only for tests and the
+`in-process-core` feature, and a crate test forbids `Storage::open` and
+`CoreStore::open` anywhere else. Core sets `TMT_EXECUTABLE` for one-shot companion
+launches and for the local service when started from `tmt`.
 Each write preflights its references and then commits in its own Office
 transaction; no Office SQL names a core table outside the migration modules, and a
 crate test enforces that. This accepts a window: a reference retired between
@@ -663,12 +676,11 @@ with `tmt --json identity show -- <uuid>` (accepting only the exact UUID) and
 pair-poll's claim reservation and completion, and the refresh and renewal on
 inspect and block operations) passes the fence under the same lock; only unpair
 and the consumer's own refresh, which reduce authority, are exempt, and a test
-pins those sites. Known debt owned by #355: the in-process `CoreStore` behind the
-Office repositories' `CoreReferences`, the migration coordinator's direct core
-reads and receipt write, the `office_pairing` module still living in
-`tmt-adapters`, and removing the retained Office rows and fences from core. An
-independently versioned Office binary must eventually reach core only through
-public commands and `tmt api`, never opening or migrating the core database itself.
+pins those sites. Known debt owned by #355: the local service's direct core reads
+(A2), the `office_pairing` module still living in `tmt-adapters`, and removing the
+retained Office rows and fences from core. The migration coordinator is the single
+documented exception that opens the legacy core database (see below); it is a
+legacy path, removed after the release that stops shipping schema ≤ 35 upgrades.
 
 Reconciliation v1 (`tmt-office-storage::reconciliation`) compares every identity
 and room UUID Office stores (local profiles, legacy blocks, world personal and
@@ -712,8 +724,8 @@ transaction, recomputes the Office manifest, publishes staging (upgraded to the
 current Office schema) as `office.db` with file and directory fsyncs, and inserts
 core's `extension_storage_cutovers` receipt. That commit is the single decision
 point, and the receipt is the one sanctioned Office write to the core database,
-confined by the crate guard to `migration/switch.rs` and removed with the
-in-process core link (#355). Core schema 36 triggers then reject every write to the
+confined by the crate guard to `migration/switch.rs`. This legacy exception is
+removed after the release that stops shipping schema ≤ 35 upgrades. Core schema 36 triggers then reject every write to the
 14 retained Office tables, including from already-open older connections; core
 reads the receipt through `Storage::extension_storage_cutover`. Activation writes
 the marker and moves `office.db` to WAL. Recovery derives the outcome from the

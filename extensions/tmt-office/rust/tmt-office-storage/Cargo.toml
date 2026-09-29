@@ -8,6 +8,11 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 
+[features]
+# Test-only: open core references in process over a disposable core file.
+# Enabled by dependents' dev-dependencies; release builds never enable it.
+in-process-core = []
+
 [dependencies]
 tmt-adapters = { workspace = true, features = ["office"] }
 tmt-core.workspace = true

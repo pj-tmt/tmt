@@ -836,7 +836,8 @@ test('data-only prop reaches catalog, preview, world renderer and placeholder li
       await page.setViewportSize({ width: 1280, height: 900 });
       await expect.poll(() => signalColorMask(page)).toEqual(renderedSignal);
 
-      const database = new Database(sandbox.database);
+      // Prop packs live in Office storage, not the core file.
+      const database = new Database(path.join(sandbox.globalDir, 'office', 'office.db'));
       try {
         database
           .prepare('UPDATE office_prop_packs SET bytes = ? WHERE digest = ?')

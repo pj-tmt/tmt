@@ -32,6 +32,7 @@ fn markers(root: &Root) -> i64 {
 #[test]
 fn before_the_switch_core_retirement_fences_and_marking_changes_nothing() {
     let root = Root::new();
+    super::legacy_user_data(&root);
     root.source()
         .execute(
             "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES (?, 'Ada', 'ada', 't', 't', 'saved')",

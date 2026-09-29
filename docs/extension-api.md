@@ -19,22 +19,23 @@ Every request has `version`, `operation` and `input`. Writes additionally requir
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
 Clients must tolerate additive response fields.
 
-| Operation                | Input                                                             | Result                                                                                  |
-| ------------------------ | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `capabilities`           | `{}`                                                              | Protocol range, operations, byte limits and ordinary commands                           |
-| `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`      | `items`, `nextBefore`                                                                   |
-| `requests.show`          | `requestId`                                                       | Request detail including retained prompt/final state                                    |
-| `dispatch.show`          | `operationId`                                                     | Immutable acceptance receipt                                                            |
-| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room` | Acceptance receipt; optional independent `wake` on first direct request                 |
-| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`             | Room resource                                                                           |
-| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`     | `room` resource and `members` with metadata and status                                  |
-| `notes.read`             | `identityId`                                                      | Saved identity's `identityId`, `name`, `content`                                        |
-| `identityHooks.register` | `consumer`, `identityId`, `reference`                             | `state`: `registered`, `pending` or `delivered`                                         |
-| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                        | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count |
-| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                             | `recorded`                                                                              |
-| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                             | `acknowledged`                                                                          |
-| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`              | `owner`, `published` targets                                                            |
-| `skills.remove`          | `owner`, `consent: true`                                          | `owner`, `removed` and `kept` targets                                                   |
+| Operation                | Input                                                                     | Result                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `capabilities`           | `{}`                                                                      | Protocol range, operations, byte limits and ordinary commands                                      |
+| `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`              | `items`, `nextBefore`                                                                              |
+| `requests.show`          | `requestId`                                                               | Request detail including retained prompt/final state                                               |
+| `dispatch.show`          | `operationId`                                                             | Immutable acceptance receipt                                                                       |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room`         | Acceptance receipt; optional independent `wake` on first direct request                            |
+| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                     | Room resource                                                                                      |
+| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`             | `room` resource and `members` with metadata and status                                             |
+| `notes.read`             | `identityId`                                                              | Saved identity's `identityId`, `name`, `content`                                                   |
+| `identityHooks.register` | `consumer`, `identityId`, `reference`                                     | `state`: `registered`, `pending` or `delivered`                                                    |
+| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count            |
+| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                     | `recorded`                                                                                         |
+| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                     | `acknowledged`                                                                                     |
+| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                      | `owner`, `published` targets                                                                       |
+| `skills.remove`          | `owner`, `consent: true`                                                  | `owner`, `removed` and `kept` targets                                                              |
+| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`) |
 
 IDs are canonical UUIDs, except request IDs, which use TMT's `req_...` format.
 `dispatch.create.kind` defaults to `request`; `announcement` does not expect a
@@ -63,6 +64,11 @@ changes nothing. `skills.remove` removes only links that still point at the
 owner's content and reports anything else at a recorded target as `kept`.
 Ownership is bookkeeping between cooperating installers of one user, not
 authentication: this local API cannot prove which extension is calling.
+
+`references.resolve` answers batch reference lookups in one call. Unknown IDs
+return `{id, found:false}` entries rather than errors, so an absent ID is never
+confused with a failed lookup; more than 256 IDs or a non-canonical UUID is
+`API_INPUT_INVALID`. Retired identities and rooms are `found` with `retired:true`.
 
 For room creation use a new UUID and `expectedRevision:0`; updates use the current
 revision. Refresh rather than blindly retrying a stale write. The returned resource

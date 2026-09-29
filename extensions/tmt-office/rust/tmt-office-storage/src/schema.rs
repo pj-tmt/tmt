@@ -33,6 +33,14 @@ pub(crate) const OFFICE_TABLES: &[&str] = &[
     "office_avatar_catalog",
 ];
 
+/// Singleton tables core seeds on every install, so a fresh install has rows
+/// here without any user data.
+pub(crate) const SEEDED: &[&str] = &[
+    "office_board_state",
+    "office_prop_catalog",
+    "office_avatar_catalog",
+];
+
 /// Core-owned references Office replaces with preflight; the only allowed
 /// difference between the core and Office definitions of these tables.
 const CORE_REFERENCE: &str = " REFERENCES identities(id)";
