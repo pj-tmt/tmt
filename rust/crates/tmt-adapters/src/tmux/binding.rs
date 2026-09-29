@@ -102,28 +102,52 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     }
 }
 
+/// What a post-commit pane refresh shows for a binding.
+#[derive(Debug, Clone, Copy)]
+pub enum PaneCosmetics<'a> {
+    /// The bound identity: a marker still carrying an earlier name is
+    /// rewritten to the stored one, and the badge is shown when enabled.
+    Bound { identity: &'a Identity, badge: bool },
+    /// The binding ended: the badge is hidden.
+    Ended,
+}
+
+/// Whether a pane refresh reached the binding's pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneRefresh {
+    Updated,
+    /// The binding is not on a live pane it still owns; nothing to show.
+    Absent,
+    /// tmux did not complete the update within its budget.
+    Failed,
+}
+
 impl<R: CommandRunner> Tmux<R> {
     /// Cosmetic work is bounded and post-commit. Recheck the recorded endpoint
-    /// and marker before touching the pane-local option; never change a title,
+    /// and marker before touching the pane-local options; never change a title,
     /// window theme or another binding. Only failed child cleanup propagates.
-    pub fn update_binding_badge(
+    pub fn update_binding_cosmetics(
         &self,
         binding: &Binding,
-        name: Option<&str>,
-    ) -> Result<(), TmuxError> {
-        self.update_binding_badge_until(binding, name, Instant::now() + Duration::from_secs(1))
+        cosmetics: PaneCosmetics<'_>,
+    ) -> Result<PaneRefresh, TmuxError> {
+        self.update_binding_cosmetics_until(
+            binding,
+            cosmetics,
+            Instant::now() + Duration::from_secs(1),
+        )
     }
 
     /// Hook callers share their existing deadline; cosmetic work gets no extra
     /// budget and cannot turn a successful session write into a retry.
-    pub fn update_binding_badge_until(
+    pub fn update_binding_cosmetics_until(
         &self,
         binding: &Binding,
-        name: Option<&str>,
+        cosmetics: PaneCosmetics<'_>,
         deadline: Instant,
-    ) -> Result<(), TmuxError> {
+    ) -> Result<PaneRefresh, TmuxError> {
         if Instant::now() >= deadline {
-            return Ok(());
+            return Ok(PaneRefresh::Failed);
         }
         let result = (|| {
             let panes = [binding.pane_id.clone()];
@@ -137,36 +161,48 @@ impl<R: CommandRunner> Tmux<R> {
                 options,
             )?
             else {
-                return Ok(());
+                return Ok(PaneRefresh::Absent);
             };
             if snapshot.server != binding.server {
-                return Ok(());
+                return Ok(PaneRefresh::Absent);
             }
             let Some(pane) = snapshot
                 .panes
                 .iter()
                 .find(|p| p.id == binding.pane_id && p.pane_pid == binding.pane_pid)
             else {
-                return Ok(());
+                return Ok(PaneRefresh::Absent);
             };
-            if pane
+            let owned = pane
                 .marker
                 .as_ref()
-                .is_some_and(|marker| marker.binding_id != binding.id)
-            {
-                return Ok(());
+                .filter(|marker| marker.binding_id == binding.id);
+            if pane.marker.is_some() && owned.is_none() {
+                return Ok(PaneRefresh::Absent);
             }
-            if name.is_some()
-                && pane
-                    .marker
-                    .as_ref()
-                    .is_none_or(|marker| marker.binding_id != binding.id)
-            {
-                return Ok(());
-            }
+            let badge = match cosmetics {
+                PaneCosmetics::Bound { identity, badge } => {
+                    let Some(marker) = owned.filter(|_| identity.id == binding.identity_id) else {
+                        return Ok(PaneRefresh::Absent);
+                    };
+                    if (marker.name != identity.name
+                        || marker.canonical_name != identity.canonical_name)
+                        && !self.refresh_marker_on(
+                            Some(&binding.server.socket_path),
+                            &binding.pane_id,
+                            &binding.marker(identity),
+                            options,
+                        )?
+                    {
+                        return Ok(PaneRefresh::Absent);
+                    }
+                    badge.then_some(identity.name.as_str())
+                }
+                PaneCosmetics::Ended => None,
+            };
             let mut args = socket_args(Some(&binding.server.socket_path));
             args.extend(["set-option".into(), "-p".into()]);
-            if name.is_none() {
+            if badge.is_none() {
                 args.push("-u".into());
             }
             args.extend([
@@ -174,15 +210,16 @@ impl<R: CommandRunner> Tmux<R> {
                 binding.pane_id.clone(),
                 "@tmux-team.badge".into(),
             ]);
-            if let Some(name) = name {
+            if let Some(name) = badge {
                 args.push(badge_label(name, binding.session.state));
             }
             self.execute(args, options, TmuxFailure::Command)
-                .map(|_| ())
+                .map(|_| PaneRefresh::Updated)
         })();
         match result {
             Err(error) if error.cleanup_failed() => Err(error),
-            _ => Ok(()),
+            Err(_) => Ok(PaneRefresh::Failed),
+            Ok(refresh) => Ok(refresh),
         }
     }
 }

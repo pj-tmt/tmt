@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
     storage::Storage,
-    tmux::{BindingSession, CallerEnvironment, OperationOptions, Tmux},
+    tmux::{BindingSession, CallerEnvironment, OperationOptions, PaneCosmetics, Tmux},
 };
 use tmt_core::{
     binding::session::{RememberedSession, RuntimeState},
@@ -202,15 +202,16 @@ fn run(request: Invocation) -> Result<Report, Failure> {
         .and_then(|report| {
             // Presentation follows successful durable effects, never decides
             // them. The adapter preserves user themes and changed endpoints.
+            let badge = badge == PaneBadge::On;
             let update = match &report {
                 Report::Bound(result) => result.presence.binding.as_ref().map(|binding|
-                    (binding, (badge == PaneBadge::On).then_some(result.presence.identity.name.as_str()))),
-                Report::Unbound { result, .. } => result.binding.as_ref().map(|binding| (binding, None)),
-                Report::Removed(entry) => entry.binding.as_ref().map(|binding| (binding, None)),
+                    (binding, PaneCosmetics::Bound { identity: &result.presence.identity, badge })),
+                Report::Unbound { result, .. } => result.binding.as_ref().map(|binding| (binding, PaneCosmetics::Ended)),
+                Report::Removed(entry) => entry.binding.as_ref().map(|binding| (binding, PaneCosmetics::Ended)),
                 _ => None,
             };
-            if let Some((binding, name)) = update {
-                tmux.update_binding_badge(binding, name).map_err(|error|
+            if let Some((binding, cosmetics)) = update {
+                tmux.update_binding_cosmetics(binding, cosmetics).map_err(|error|
                     Failure::new("CLEANUP_ERROR", "Could not clean up cosmetic operation resources. Effects may already have occurred.", 1).caused_by(error))?;
             }
             Ok(report)

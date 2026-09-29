@@ -22,6 +22,8 @@ fn capture_records_only_committed_typed_evidence() {
     connection
         .execute_batch(&format!(
             "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES ('{ID}', 'Secret Name', 'secret name', 't', 't', 'saved');
+             UPDATE identities SET name = 'Secret Other', canonical_name = 'secret other' WHERE id = '{ID}';
+             UPDATE identities SET name = 'Secret Other' WHERE id = '{ID}';
              UPDATE identities SET retired_at_ms = 5 WHERE id = '{ID}';
              UPDATE identities SET retired_at_ms = 6 WHERE id = '{ID}';
              INSERT INTO office_meeting_rooms (room_id, name, revision) VALUES ('{ROOM}', 'Private room', 1);
@@ -40,6 +42,7 @@ fn capture_records_only_committed_typed_evidence() {
         events,
         vec![
             serde_json::json!({"kind": "identity.created", "identityId": ID, "lifetime": "saved", "retired": false}),
+            serde_json::json!({"kind": "identity.renamed", "identityId": ID, "lifetime": "saved", "retired": false}),
             serde_json::json!({"kind": "identity.retired", "identityId": ID, "lifetime": "saved", "retired": true}),
             serde_json::json!({"kind": "room.created", "roomId": ROOM, "revision": 1, "retired": false}),
             serde_json::json!({"kind": "room.updated", "roomId": ROOM, "revision": 2, "retired": false}),

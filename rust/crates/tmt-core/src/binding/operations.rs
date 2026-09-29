@@ -329,3 +329,38 @@ pub fn remove_identity<R: BindingRepository, O: BindingEndpoint>(
         })
     })
 }
+
+/// Renames by name in one binding transaction, so it serializes with binding
+/// and removal. Everything keyed by the UUID follows. The pane marker and badge
+/// are cosmetic and refreshed by the caller after commit; a stale marker name
+/// never detaches (see `evaluate_binding`).
+pub fn rename_identity<R: BindingRepository, O>(
+    repository: &mut R,
+    old: &str,
+    new: &str,
+) -> Result<RenamedIdentity, BindingError<R::Error, O>> {
+    let name = crate::names::validate_name(new).map_err(BindingError::InvalidName)?;
+    repository.with_binding_transaction(|records| {
+        let entry =
+            named_entry(records, old)?.ok_or_else(|| BindingError::NameNotFound(old.into()))?;
+        if name.display_name() == entry.identity.name {
+            return Ok(RenamedIdentity {
+                identity: entry.identity.clone(),
+                previous: entry.identity,
+                binding: entry.binding,
+            });
+        }
+        // A case-only change keeps the canonical name, so the holder is itself.
+        if name.canonical_name() != entry.identity.canonical_name
+            && records.find_identity(name.canonical_name())?.is_some()
+        {
+            return Err(BindingError::NameTaken(name.display_name().into()));
+        }
+        let identity = records.rename_identity(&entry.identity, &name)?;
+        Ok(RenamedIdentity {
+            previous: entry.identity,
+            identity,
+            binding: entry.binding,
+        })
+    })
+}

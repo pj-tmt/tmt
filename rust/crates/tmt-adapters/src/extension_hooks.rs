@@ -405,6 +405,11 @@ WHEN OLD.retired_at_ms IS NULL AND NEW.retired_at_ms IS NOT NULL BEGIN
   INSERT INTO tmt_lifecycle_events (kind, subject, lifetime, retired)
   VALUES ('identity.retired', NEW.id, NEW.lifetime, 1);
 END;
+CREATE TEMP TRIGGER IF NOT EXISTS tmt_identity_renamed AFTER UPDATE OF name ON main.identities
+WHEN OLD.name IS NOT NEW.name AND NEW.retired_at_ms IS NULL BEGIN
+  INSERT INTO tmt_lifecycle_events (kind, subject, lifetime, retired)
+  VALUES ('identity.renamed', NEW.id, NEW.lifetime, 0);
+END;
 CREATE TEMP TRIGGER IF NOT EXISTS tmt_room_created AFTER INSERT ON main.office_meeting_rooms BEGIN
   INSERT INTO tmt_lifecycle_events (kind, subject, revision, retired)
   VALUES ('room.created', NEW.room_id, NEW.revision, NEW.retired);

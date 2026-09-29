@@ -5,6 +5,7 @@ use tmt_core::{
     binding::{Binding, BindingEntry, BindingRecords, BindingRepository},
     endpoint::{PaneObservation, ServerEvidence, valid_process_id},
     identity::{Identity, IdentityReader},
+    names::ValidatedName,
 };
 
 use super::{
@@ -251,6 +252,25 @@ impl BindingRecords for BindingRows<'_> {
             super::identity_hooks::enqueue_retirement(self.0, &identity.id)?;
         }
         Ok(())
+    }
+
+    fn rename_identity(
+        &mut self,
+        identity: &Identity,
+        name: &ValidatedName,
+    ) -> Result<Identity, Self::Error> {
+        // The partial unique index on unretired canonical names is the final
+        // arbiter; the service checks first to report which name is taken.
+        self.0
+            .query_row(
+                "UPDATE identities SET name = ?, canonical_name = ?,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE id = ? AND retired_at_ms IS NULL
+                 RETURNING id, name, canonical_name, lifetime, created_at, updated_at",
+                params![name.display_name(), name.canonical_name(), identity.id],
+                |row| identity_row_at(row, 0),
+            )
+            .map_err(|error| classify(error, "Rename identity"))
     }
 }
 
