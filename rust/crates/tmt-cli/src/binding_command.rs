@@ -42,7 +42,8 @@ enum Report {
         result: UnboundIdentity,
     },
     Removed(BindingEntry),
-    Listed(Vec<IdentityPresence>),
+    /// Each row with its remembered-session projection (JSON only).
+    Listed(Vec<(IdentityPresence, Option<serde_json::Value>)>),
     Named {
         target: String,
         row: IdentityPresence,
@@ -240,6 +241,25 @@ fn operation(
             if let Some(room) = room {
                 rows.retain(|row| room.member_ids.contains(&row.identity.id));
             }
+            let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
+            let rows = rows
+                .into_iter()
+                .map(|row| {
+                    let preferences =
+                        storage
+                            .session_preferences(&row.identity.id)
+                            .map_err(|error| {
+                                Failure::new(
+                                    "IDENTITY_ERROR",
+                                    "Could not read remembered sessions.",
+                                    1,
+                                )
+                                .caused_by(error)
+                            })?;
+                    let resume = crate::output::resume_document(&preferences, &registry);
+                    Ok((row, resume))
+                })
+                .collect::<Result<Vec<_>, Failure>>()?;
             Ok(Report::Listed(rows))
         }
         Invocation::List {

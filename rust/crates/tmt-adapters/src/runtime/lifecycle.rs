@@ -110,6 +110,11 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// The model recorded in this driver's own state, for display only.
+    fn state_model(&self, _state: &DriverState) -> Option<String> {
+        None
+    }
+
     /// An admitted runtime may outlive its owned foreground client. None keeps
     /// the generic exact-child exit path; a value is the driver's disconnect state.
     fn disconnected(

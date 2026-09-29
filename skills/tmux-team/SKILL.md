@@ -625,19 +625,22 @@ This launches a real program and needs user authorization just like running it
 directly. Do not invoke it to replace an already running agent in this pane.
 
 A new identity is temporary unless `-s` is supplied; existing saved identities
-never downgrade. Registered runtime drivers remember only their harness ID,
-not arguments, model/effort choices, executable paths or provider session IDs
-derived from argv. Generic commands leave the prior harness preference intact.
+never downgrade. Registered runtime drivers remember their harness ID, never
+arguments, executable paths or anything derived from argv; provider hooks record
+the session and the model the provider reports. Generic commands leave the prior
+harness preference intact.
 Bare `tmt run <name>` launches the remembered registered executable through PATH
 with no arguments; without one, supply an explicit command.
 
-`tmt run --resume <name>` uses an exact hook-recorded provider session and mode.
-`run` itself neither captures a session nor injects initial context. If exact
-resume is unsupported or no session is recorded, it reports a prelaunch fallback
-and launches a usable remembered harness bare. If no registered harness is
-available, it fails without guessing an executable. Never combine `--resume`
-with an explicit command. After any resume process starts, failure is returned
-as-is: no fresh launch or task resend follows automatically.
+`tmt resume <name>` (alias `tmt run --resume <name>`) resumes the exact
+hook-recorded session in the current pane. It never starts fresh: when nothing
+is remembered or the driver cannot resume it, it fails and says
+`Start fresh with: tmt run <name>`. Starting fresh is the user's call. A resume
+that fails before the provider confirms the session marks it stale; a stale
+session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
+combine `--resume` with an explicit command, and never resend a task after a
+failed resume. Details:
+<https://github.com/wkh237/tmt/blob/main/USER-GUIDE.md#resume-a-remembered-session>.
 
 TMT records the owned command's exit and keeps the pane binding. Its exit status
 is the command's status, or 128 plus a terminating signal number. It reaps only

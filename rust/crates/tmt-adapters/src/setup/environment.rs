@@ -2,6 +2,22 @@
 
 use std::{env, fs, io, os::unix::fs::PermissionsExt, path::PathBuf};
 
+/// The user settings file where setup installs a provider's TMT hooks.
+pub fn provider_settings(provider: super::Provider) -> io::Result<PathBuf> {
+    let home =
+        env::home_dir().ok_or_else(|| io::Error::other("Cannot determine the home directory."))?;
+    match provider {
+        super::Provider::Claude => Ok(home.join(".claude/settings.json")),
+        super::Provider::Codex => Ok(env::var_os("CODEX_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".codex"))
+            .join("hooks.json")),
+        _ => Err(io::Error::other(
+            "This provider does not support lifecycle setup.",
+        )),
+    }
+}
+
 pub struct SetupEnvironment {
     pub claude_settings: PathBuf,
     pub codex_settings: PathBuf,
@@ -10,8 +26,6 @@ pub struct SetupEnvironment {
 
 impl SetupEnvironment {
     pub fn capture() -> io::Result<Self> {
-        let home = env::home_dir()
-            .ok_or_else(|| io::Error::other("Cannot determine the home directory."))?;
         let cwd = env::current_dir()?;
         let search = env::var_os("PATH").unwrap_or_default();
         let launcher = env::split_paths(&search)
@@ -23,11 +37,8 @@ impl SetupEnvironment {
             })
             .ok_or_else(|| io::Error::other("Put the stable tmt launcher on PATH before setup."))?;
         Ok(Self {
-            claude_settings: home.join(".claude/settings.json"),
-            codex_settings: env::var_os("CODEX_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(".codex"))
-                .join("hooks.json"),
+            claude_settings: provider_settings(super::Provider::Claude)?,
+            codex_settings: provider_settings(super::Provider::Codex)?,
             launcher,
         })
     }

@@ -19,9 +19,10 @@ use tmt_adapters::{
         runtime::{ProcessObservation, observe_runtime_process},
     },
     runtime::{
-        RuntimeCommand, RuntimeError, RuntimeRegistry,
+        RuntimeCommand, RuntimeError, RuntimeRegistry, StateReconciliation,
         lifecycle::{NoLifecycle, RuntimeLifecycle},
     },
+    setup::{Provider, start_hook_installed},
     storage::{Storage, StorageError},
     tmux::{BindingSession, CallerEnvironment, Tmux},
 };
@@ -29,8 +30,8 @@ use tmt_core::{
     binding::{
         self, Binding, BindingRepository,
         session::{
-            ObservedSessionKey, RuntimeIncarnation, RuntimeLiveness, SessionPreferences,
-            SessionTransition,
+            ObservedSessionKey, RememberedSession, RuntimeIncarnation, RuntimeLiveness,
+            SessionPreferences, SessionTransition,
         },
     },
     driver::{ActionResult, HookEvent, HookObserver, observe_driver_hook},
@@ -41,8 +42,15 @@ use tmt_core::{
 
 struct Launch {
     command: RuntimeCommand,
-    resumed: bool,
-    notice: bool,
+    /// The exact remembered session this launch resumes, if any.
+    resumed: Option<RememberedSession>,
+}
+
+/// `tmt resume <name>` and its `tmt run --resume <name>` alias.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Resume {
+    /// Try a session marked stale once more.
+    pub retry: bool,
 }
 
 // The extension envelope (#324/#328) will supply registered observers here.
@@ -98,71 +106,89 @@ fn diagnostic(message: &str) {
 struct RunRequest<'a> {
     name: &'a str,
     command: &'a [OsString],
-    resume: bool,
+    resume: Option<Resume>,
     save: bool,
 }
 
+fn resume_failure(code: &'static str, message: String, name: &str) -> Failure {
+    Failure::new(
+        code,
+        format!("{message} Start fresh with: tmt run {name}"),
+        1,
+    )
+}
+
+/// A resume never falls back to a fresh start: an unavailable or unsupported
+/// session is reported, and a fresh start stays explicit (`tmt run <name>`).
 fn select_command(
     registry: &mut RuntimeRegistry,
+    name: &str,
     command: &[OsString],
-    resume: bool,
+    resume: Option<Resume>,
     preferences: &SessionPreferences,
 ) -> Result<Launch, Failure> {
     if let Some(command) = RuntimeCommand::verbatim(command) {
         return Ok(Launch {
             command,
-            resumed: false,
-            notice: false,
+            resumed: None,
         });
     }
-    if resume && let Some(session) = &preferences.remembered {
-        match registry.resume(session) {
-            ActionResult::Completed(command) => {
-                return Ok(Launch {
-                    command,
-                    resumed: true,
-                    notice: false,
-                });
-            }
-            ActionResult::Unsupported | ActionResult::Failed(RuntimeError::InvalidSession) => {}
-            ActionResult::Failed(error) => {
-                return Err(
-                    Failure::new("RUNTIME_ERROR", "Could not prepare runtime resume.", 1)
-                        .caused_by(error),
-                );
-            }
+    let Some(resume) = resume else {
+        let command = preferences
+            .preferred_harness
+            .as_ref()
+            .and_then(|harness| registry.relaunch(harness))
+            .ok_or_else(|| {
+                Failure::new(
+                    "USAGE_ERROR",
+                    "Specify a command, e.g. tmt run opus claude; no usable harness is remembered.",
+                    1,
+                )
+            })?;
+        return Ok(Launch {
+            command,
+            resumed: None,
+        });
+    };
+    let Some(session) = &preferences.remembered else {
+        return Err(resume_failure(
+            "RESUME_UNAVAILABLE",
+            format!("{name} has no remembered session to resume."),
+            name,
+        ));
+    };
+    let harness = session.harness.as_str();
+    if session.stale_at_ms.is_some() && !resume.retry {
+        return Err(resume_failure(
+            "RESUME_UNAVAILABLE",
+            format!(
+                "{name}'s remembered {harness} session looked gone when it was last resumed. Forget it with: tmt resume --forget {name}; try it once more with: tmt resume --retry {name}."
+            ),
+            name,
+        ));
+    }
+    match registry.resume(session) {
+        ActionResult::Completed(command) => Ok(Launch {
+            command,
+            resumed: Some(session.clone()),
+        }),
+        ActionResult::Unsupported => Err(resume_failure(
+            "RESUME_UNSUPPORTED",
+            format!("The {harness} driver cannot resume {name}'s remembered session."),
+            name,
+        )),
+        ActionResult::Failed(RuntimeError::InvalidSession) => Err(resume_failure(
+            "RESUME_UNAVAILABLE",
+            format!("{name}'s remembered {harness} session is not one its driver can resume."),
+            name,
+        )),
+        ActionResult::Failed(error) => {
+            Err(
+                Failure::new("RUNTIME_ERROR", "Could not prepare runtime resume.", 1)
+                    .caused_by(error),
+            )
         }
     }
-    // Prefer a bare launch of the session's own driver. If that registration
-    // is unavailable, the independently remembered preferred harness may still
-    // be launchable. Never guess an executable from an unknown driver ID.
-    let session_fallback = resume
-        .then(|| {
-            preferences
-                .remembered
-                .as_ref()
-                .and_then(|session| registry.relaunch(&session.harness))
-        })
-        .flatten();
-    let command = session_fallback
-        .or_else(|| {
-            preferences
-                .preferred_harness
-                .as_ref()
-                .and_then(|harness| registry.relaunch(harness))
-        })
-        .ok_or_else(|| {
-            Failure::new(
-                "USAGE_ERROR",
-                "Specify a command, e.g. tmt run opus claude; no usable harness is remembered.",
-                1,
-            )
-        })?;
-    Ok(Launch {
-        command,
-        resumed: false,
-        notice: resume,
-    })
 }
 
 fn storage_failure(error: StorageError) -> Failure {
@@ -185,7 +211,12 @@ fn incarnation(pid: u32) -> Option<RuntimeIncarnation> {
     }
 }
 
-pub fn execute(name: &str, command: &[OsString], resume: bool, save: bool) -> io::Result<u8> {
+pub fn execute(
+    name: &str,
+    command: &[OsString],
+    resume: Option<Resume>,
+    save: bool,
+) -> io::Result<u8> {
     match run(RunRequest {
         name,
         command,
@@ -253,19 +284,43 @@ fn run_bound(
         resume,
         save,
     } = request;
+    let mut registry = RuntimeRegistry::first_party();
+    // Only the resume path purges or reconciles, and it reports each change once.
+    if resume.is_some() {
+        let registered = registry.harnesses().collect::<Vec<_>>();
+        for purged in storage
+            .purge_unregistered_sessions(&registered)
+            .map_err(storage_failure)?
+        {
+            diagnostic(&format!(
+                "tmt: forgot {}'s remembered {} session; that driver is no longer registered.",
+                purged.name, purged.harness
+            ));
+        }
+    }
     let existing = storage
         .find_identity(&normalize_name(name))
         .map_err(storage_failure)?;
     let preferences = storage
         .with_binding_transaction::<_, StorageError>(|records| {
-            existing
-                .as_ref()
-                .map(|identity| records.session_preferences(&identity.id))
-                .unwrap_or_else(|| Ok(SessionPreferences::default()))
+            let Some(identity) = &existing else {
+                return Ok(SessionPreferences::default());
+            };
+            let mut preferences = records.session_preferences(&identity.id)?;
+            if resume.is_some()
+                && let Some(StateReconciliation::DiscardedState { harness, version }) =
+                    registry.reconcile(&mut preferences)
+            {
+                records.set_session_preferences(&identity.id, &preferences)?;
+                diagnostic(&format!(
+                    "tmt: discarded {name}'s unreadable {} resume details (version {version}); resuming with the provider's defaults.",
+                    harness.as_str()
+                ));
+            }
+            Ok(preferences)
         })
         .map_err(storage_failure)?;
-    let mut registry = RuntimeRegistry::first_party();
-    let launch = select_command(&mut registry, command, resume, &preferences)?;
+    let launch = select_command(&mut registry, name, command, resume, &preferences)?;
     let claim = registry.claim(&launch.command.executable);
     let lifecycle = claim
         .as_ref()
@@ -360,11 +415,15 @@ fn run_bound(
     {
         diagnostic("tmt: identity bound, but its cosmetic badge could not be updated.");
     }
-    if launch.notice {
-        diagnostic(
-            "tmt: no supported exact session is available; starting the remembered harness without arguments.",
-        );
-    }
+    // Mark the resumed session pending before the child can start, so its
+    // first provider start (which clears the mark) cannot race ahead of it.
+    let hooks_installed = match &launch.resumed {
+        Some(session) => {
+            mark_resume_pending(storage, &binding.identity_id, session)?;
+            Provider::parse(session.harness.as_str()).is_some_and(start_hook_installed)
+        }
+        None => false,
+    };
     let owner = incarnation(std::process::id());
     let child = InteractiveChild::start(&launch.command.executable, &launch.command.args).map_err(
         |error| {
@@ -428,8 +487,7 @@ fn run_bound(
                     // remembered record, never from user argv or a hook pane.
                     provider_session: launch
                         .resumed
-                        .then_some(preferences.remembered.as_ref())
-                        .flatten()
+                        .as_ref()
                         .filter(|session| Some(&session.harness) == claim.as_ref())
                         .map(|session| session.provider_session.clone()),
                 });
@@ -439,7 +497,7 @@ fn run_bound(
                 current.session.admit_launched(
                     key,
                     owner.clone(),
-                    if launch.resumed {
+                    if launch.resumed.is_some() {
                         SessionTransition::Resumed
                     } else {
                         SessionTransition::Started
@@ -479,13 +537,23 @@ fn run_bound(
         observer,
         &binding.id,
         admitted.as_ref().map(|(key, _)| key),
-        launch.resumed,
+        launch.resumed.is_some(),
         admitted
             .as_ref()
             .is_some_and(|(_, state)| *state == tmt_core::binding::session::RuntimeState::Ended),
     );
     let status = child.wait(|_| diagnostic("tmt: signal observation degraded; waiting for the original command without restarting it."))
         .map_err(|error| Failure::new("PROCESS_ERROR", "Could not finish observing the requested command.", 1).caused_by(error))?;
+    if let Some(session) = &launch.resumed {
+        settle_resume(
+            paths,
+            name,
+            &binding.identity_id,
+            session,
+            status,
+            hooks_installed,
+        );
+    }
     if admitted.is_some()
         && !already_exited
         && let (Some(owner), Some(child)) = (&owner, &child_incarnation)
@@ -521,6 +589,74 @@ fn run_bound(
         );
     }
     Ok(u8::try_from(status).unwrap_or(1))
+}
+
+fn mark_resume_pending(
+    storage: &mut Storage,
+    identity_id: &str,
+    session: &RememberedSession,
+) -> Result<(), Failure> {
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            let mut preferences = records.session_preferences(identity_id)?;
+            if let Some(remembered) = preferences.remembered.as_mut().filter(|remembered| {
+                remembered.harness == session.harness
+                    && remembered.provider_session == session.provider_session
+            }) {
+                remembered.resume_pending_at_ms =
+                    Some(tmt_adapters::request_runtime::wall_time_ms());
+                records.set_session_preferences(identity_id, &preferences)?;
+            }
+            Ok(())
+        })
+        .map_err(storage_failure)
+}
+
+/// A non-zero exit that no signal caused (128 + n), from a provider whose
+/// TMT start hook was installed at launch, so its start would have been seen.
+fn failure_is_trustworthy(status: u32, hooks_installed: bool) -> bool {
+    status != 0 && status <= 128 && hooks_installed
+}
+
+/// A resumed provider that exited unconfirmed marks its session stale only
+/// when the failure is trustworthy: a non-zero exit that no signal caused
+/// (128 + n), with the provider's TMT start hook installed at launch, so a
+/// start would have been observed. The child's status stays authoritative.
+fn settle_resume(
+    paths: &ConfigPaths,
+    name: &str,
+    identity_id: &str,
+    session: &RememberedSession,
+    status: u32,
+    hooks_installed: bool,
+) {
+    let trustworthy = failure_is_trustworthy(status, hooks_installed);
+    let settled = Storage::open(&paths.database).and_then(|mut storage| {
+        let stale = storage.with_binding_transaction::<_, StorageError>(|records| {
+            let mut preferences = records.session_preferences(identity_id)?;
+            let before = preferences.clone();
+            let stale = preferences.settle_resume(
+                &session.provider_session,
+                trustworthy,
+                tmt_adapters::request_runtime::wall_time_ms(),
+            );
+            if preferences != before {
+                records.set_session_preferences(identity_id, &preferences)?;
+            }
+            Ok(stale)
+        });
+        storage.close().and(stale)
+    });
+    match settled {
+        Ok(true) => diagnostic(&format!(
+            "tmt: {} exited before confirming {name}'s resumed session; marked it stale. Forget it with: tmt resume --forget {name}; try it once more with: tmt resume --retry {name}.",
+            session.harness.as_str()
+        )),
+        Ok(false) => {}
+        Err(_) => {
+            diagnostic("tmt: could not record the resume outcome; the recorded exit is unchanged.")
+        }
+    }
 }
 
 enum Finished {
@@ -668,82 +804,153 @@ mod tests {
                 provider_session: ProviderSessionId::new(session).unwrap(),
                 state: None,
                 stale_at_ms: None,
+                resume_pending_at_ms: None,
             }),
         }
+    }
+
+    const SESSION: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const RESUME: Option<Resume> = Some(Resume { retry: false });
+
+    fn refused(result: Result<Launch, Failure>) -> (String, String) {
+        let error = result.err().expect("resume must not launch");
+        (error.code.to_string(), error.message.to_string())
     }
 
     #[test]
     fn launch_selection_has_no_implicit_resume_or_argument_replay() {
         let mut registry = RuntimeRegistry::first_party();
-        let preferences = preferences(
-            "claude",
-            CLAUDE_MODE_DEFAULT,
-            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        );
+        let preferences = preferences("claude", CLAUDE_MODE_DEFAULT, SESSION);
         let explicit = vec![
             OsString::from("/bin/sh"),
             "-c".into(),
             "printf secret".into(),
         ];
-        let launch = select_command(&mut registry, &explicit, false, &preferences).unwrap();
+        let launch = select_command(&mut registry, "Ann", &explicit, None, &preferences).unwrap();
         assert_eq!(launch.command, RuntimeCommand::verbatim(&explicit).unwrap());
-        assert!(!launch.resumed && !launch.notice);
-        let launch = select_command(&mut registry, &[], false, &preferences).unwrap();
+        assert!(launch.resumed.is_none());
+        let launch = select_command(&mut registry, "Ann", &[], None, &preferences).unwrap();
         assert_eq!(launch.command.executable, "claude");
         assert!(launch.command.args.is_empty());
-        assert!(!launch.resumed && !launch.notice);
-        assert!(select_command(&mut registry, &[], false, &SessionPreferences::default()).is_err());
+        assert!(launch.resumed.is_none());
+        assert!(
+            select_command(
+                &mut registry,
+                "Ann",
+                &[],
+                None,
+                &SessionPreferences::default()
+            )
+            .is_err()
+        );
     }
 
     #[test]
-    fn resume_selection_falls_back_only_for_known_prelaunch_conditions() {
+    fn resume_launches_only_the_exact_session_and_never_starts_fresh() {
         let mut registry = RuntimeRegistry::first_party();
-        let mut preferences = preferences(
-            "codex",
-            CODEX_MODE_EMBEDDED,
-            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        );
-        let launch = select_command(&mut registry, &[], true, &preferences).unwrap();
-        assert!(launch.resumed && !launch.notice);
+        let mut preferences = preferences("codex", CODEX_MODE_EMBEDDED, SESSION);
+        let launch = select_command(&mut registry, "Ann", &[], RESUME, &preferences).unwrap();
+        assert_eq!(launch.resumed.as_ref(), preferences.remembered.as_ref());
         assert_eq!(
             launch.command.args,
-            [
-                "resume",
-                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-                "--no-daemon"
-            ]
-            .map(OsString::from)
+            ["resume", SESSION, "--no-daemon"].map(OsString::from)
         );
-        for (mode, session) in [
-            ("unsupported", "valid-opaque-id"),
-            (CODEX_MODE_EMBEDDED, "invalid-uuid"),
-        ] {
-            preferences.remembered.as_mut().unwrap().mode = RuntimeMode::new(mode).unwrap();
-            preferences.remembered.as_mut().unwrap().provider_session =
-                ProviderSessionId::new(session).unwrap();
-            let launch = select_command(&mut registry, &[], true, &preferences).unwrap();
-            assert!(!launch.resumed && launch.notice);
-            assert_eq!(launch.command.executable, "codex");
-            assert!(launch.command.args.is_empty());
-        }
+        preferences.remembered.as_mut().unwrap().mode = RuntimeMode::new("unsupported").unwrap();
+        let (code, message) = refused(select_command(
+            &mut registry,
+            "Ann",
+            &[],
+            RESUME,
+            &preferences,
+        ));
+        assert_eq!(code, "RESUME_UNSUPPORTED");
+        assert!(
+            message.ends_with("Start fresh with: tmt run Ann"),
+            "{message}"
+        );
+        preferences.remembered.as_mut().unwrap().mode =
+            RuntimeMode::new(CODEX_MODE_EMBEDDED).unwrap();
+        preferences.remembered.as_mut().unwrap().provider_session =
+            ProviderSessionId::new("not-a-uuid").unwrap();
+        assert_eq!(
+            refused(select_command(
+                &mut registry,
+                "Ann",
+                &[],
+                RESUME,
+                &preferences
+            ))
+            .0,
+            "RESUME_UNAVAILABLE"
+        );
         preferences.remembered = None;
-        let launch = select_command(&mut registry, &[], true, &preferences).unwrap();
-        assert!(!launch.resumed && launch.notice);
-        assert!(launch.command.args.is_empty());
-        preferences.preferred_harness = Some(HarnessId::new("uninstalled").unwrap());
-        assert!(select_command(&mut registry, &[], true, &preferences).is_err());
+        let (code, message) = refused(select_command(
+            &mut registry,
+            "Ann",
+            &[],
+            RESUME,
+            &preferences,
+        ));
+        assert_eq!(code, "RESUME_UNAVAILABLE");
+        assert_eq!(
+            message,
+            "Ann has no remembered session to resume. Start fresh with: tmt run Ann"
+        );
     }
 
     #[test]
-    fn unavailable_session_driver_can_fall_back_to_a_registered_preference_only() {
+    fn a_stale_session_is_refused_until_the_user_retries() {
+        let mut registry = RuntimeRegistry::first_party();
+        let mut preferences = preferences("claude", CLAUDE_MODE_DEFAULT, SESSION);
+        preferences.remembered.as_mut().unwrap().stale_at_ms = Some(1);
+        let (code, message) = refused(select_command(
+            &mut registry,
+            "Ann",
+            &[],
+            RESUME,
+            &preferences,
+        ));
+        assert_eq!(code, "RESUME_UNAVAILABLE");
+        assert!(message.contains("tmt resume --forget Ann"), "{message}");
+        assert!(message.contains("tmt resume --retry Ann"), "{message}");
+        let launch = select_command(
+            &mut registry,
+            "Ann",
+            &[],
+            Some(Resume { retry: true }),
+            &preferences,
+        )
+        .unwrap();
+        assert_eq!(
+            launch.command.args,
+            ["--resume", SESSION].map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn an_unregistered_session_driver_is_reported_not_replaced() {
         let mut registry = RuntimeRegistry::first_party();
         let mut preferences = preferences("missing-driver", "default", "provider-session");
         preferences.preferred_harness = Some(HarnessId::new("claude").unwrap());
-        let launch = select_command(&mut registry, &[], true, &preferences).unwrap();
-        assert_eq!(launch.command.executable, "claude");
-        assert!(launch.command.args.is_empty());
-        assert!(launch.notice && !launch.resumed);
-        preferences.preferred_harness = Some(HarnessId::new("also-missing").unwrap());
-        assert!(select_command(&mut registry, &[], true, &preferences).is_err());
+        assert_eq!(
+            refused(select_command(
+                &mut registry,
+                "Ann",
+                &[],
+                RESUME,
+                &preferences
+            ))
+            .0,
+            "RESUME_UNSUPPORTED"
+        );
+    }
+
+    #[test]
+    fn only_an_unsignalled_failure_with_hooks_installed_can_mark_a_session_stale() {
+        assert!(failure_is_trustworthy(1, true));
+        assert!(!failure_is_trustworthy(0, true), "a clean exit");
+        assert!(!failure_is_trustworthy(130, true), "Ctrl-C (128 + SIGINT)");
+        assert!(!failure_is_trustworthy(143, true), "SIGTERM");
+        assert!(!failure_is_trustworthy(1, false), "hooks absent at launch");
     }
 }

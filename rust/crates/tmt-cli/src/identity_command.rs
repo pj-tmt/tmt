@@ -25,7 +25,8 @@ mod status;
 enum Report {
     Status(status::Report),
     Created(identity::CreatedIdentity),
-    Shown(Identity),
+    /// The identity with its remembered-session projection (JSON only).
+    Shown(Identity, Option<serde_json::Value>),
     Listed(Vec<Identity>),
     MetadataSet {
         identity_id: String,
@@ -113,6 +114,15 @@ fn run(request: IdentityRequest) -> Result<Report, Failure> {
     after_cleanup(pending, || storage.close())
 }
 
+fn shown(storage: &Storage, identity: Identity) -> Result<Report, Failure> {
+    let preferences = storage
+        .session_preferences(&identity.id)
+        .map_err(unavailable)?;
+    let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
+    let resume = crate::output::resume_document(&preferences, &registry);
+    Ok(Report::Shown(identity, resume))
+}
+
 fn operation(
     storage: &mut Storage,
     request: IdentityRequest,
@@ -135,22 +145,25 @@ fn operation(
             tmt_core::names::validate_name(&name).map_err(|error| {
                 Failure::new("INVALID_NAME", error.to_string(), 1).caused_by(error)
             })?;
-            storage
+            let identity = storage
                 .resolve_identity(&name)
                 .map_err(unavailable)?
-                .map(Report::Shown)
                 .ok_or_else(|| {
                     Failure::new(
                         "NAME_NOT_FOUND",
                         format!("Identity '{name}' was not found."),
                         3,
                     )
-                })
+                })?;
+            shown(storage, identity)
         }
         IdentityRequest::Show(None) => {
-            identity_context::resolve(storage, selector.expect("unnamed show resolved a selector"))
-                .map(Report::Shown)
-                .map_err(show_selection_failure)
+            let identity = identity_context::resolve(
+                storage,
+                selector.expect("unnamed show resolved a selector"),
+            )
+            .map_err(show_selection_failure)?;
+            shown(storage, identity)
         }
         IdentityRequest::List(filters) => {
             if filters.is_empty() {
@@ -245,7 +258,13 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
             Report::Created(result) => {
                 json!({"identity": identity_document(&result.identity), "created": result.created})
             }
-            Report::Shown(identity) => json!({"identity": identity_document(&identity)}),
+            Report::Shown(identity, resume) => {
+                let mut document = json!({"identity": identity_document(&identity)});
+                if let Some(resume) = resume {
+                    document["resume"] = resume;
+                }
+                document
+            }
             Report::Listed(identities) => {
                 json!({"identities": identities.iter().map(identity_document).collect::<Vec<_>>()})
             }
@@ -287,7 +306,7 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                     result.identity.name, result.identity.id
                 )?;
             }
-            Report::Shown(identity) => {
+            Report::Shown(identity, _) => {
                 crate::output::table::write(
                     &mut stdout,
                     ["NAME", "LIFETIME", "CANONICAL NAME", "ID"],

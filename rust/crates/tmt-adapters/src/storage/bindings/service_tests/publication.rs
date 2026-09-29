@@ -57,6 +57,7 @@ fn same_interface_rebind_retains_runtime_observation_and_preferences() {
             provider_session: ProviderSessionId::new("remembered-session").unwrap(),
             state: None,
             stale_at_ms: None,
+            resume_pending_at_ms: None,
         }),
     };
     storage

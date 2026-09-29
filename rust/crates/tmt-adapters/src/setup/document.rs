@@ -148,6 +148,22 @@ fn event_array(
     })
 }
 
+/// Whether the settings hold exactly one TMT-owned SessionStart hook for the
+/// provider. Read-only; anything unparsable or edited counts as absent.
+pub(super) fn has_owned_start_hook(provider: Provider, text: &str) -> bool {
+    (|| {
+        let root = object(text).ok()?;
+        let hooks = object(field(&root, "hooks")?).ok()?;
+        let entries: Vec<&RawValue> = serde_json::from_str(field(&hooks, "SessionStart")?).ok()?;
+        let mut owned_entries = 0;
+        for entry in entries {
+            owned_entries += usize::from(owned(provider, entry).ok()?);
+        }
+        Some(owned_entries == 1)
+    })()
+    .unwrap_or(false)
+}
+
 pub(super) fn settings(
     provider: Provider,
     text: &str,
@@ -245,5 +261,31 @@ mod tests {
             Err(PlanError::EditedHook)
         );
         assert_eq!(claude_settings("{\n}\n", "/tmt", true).unwrap(), "{\n}\n");
+    }
+
+    #[test]
+    fn installed_start_hooks_are_recognized_only_in_their_owned_shape() {
+        let installed = claude_settings("{}", "/stable/tmt", false).unwrap();
+        assert!(has_owned_start_hook(Provider::Claude, &installed));
+        assert!(
+            !has_owned_start_hook(Provider::Codex, &installed),
+            "another provider's hook"
+        );
+        let removed = claude_settings(&installed, "/stable/tmt", true).unwrap();
+        assert!(!has_owned_start_hook(Provider::Claude, &removed));
+        for text in [
+            "",
+            "not json",
+            "{}",
+            r#"{"hooks":{}}"#,
+            r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"user-hook"}]}]}}"#,
+        ] {
+            assert!(!has_owned_start_hook(Provider::Claude, text), "{text}");
+        }
+        let edited = installed.replace("__hook claude", "__hook claude --edited");
+        assert!(
+            !has_owned_start_hook(Provider::Claude, &edited),
+            "edited hooks count as absent"
+        );
     }
 }

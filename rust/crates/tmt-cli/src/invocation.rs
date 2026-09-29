@@ -21,6 +21,11 @@ pub enum Invocation {
         resume: bool,
         save: bool,
     },
+    Resume {
+        name: String,
+        forget: bool,
+        retry: bool,
+    },
     List {
         target: Option<String>,
         room: Option<String>,

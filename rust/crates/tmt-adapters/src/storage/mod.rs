@@ -25,6 +25,7 @@ use std::{
     time::Duration,
 };
 
+pub use bindings::PurgedSession;
 pub use context::{ContextRequests, IdentityContextSnapshot};
 pub use dispatch::DispatchError;
 pub use errors::{StorageError, StorageErrorCode, classify};

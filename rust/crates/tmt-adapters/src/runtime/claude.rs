@@ -164,6 +164,10 @@ impl super::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         Some(super::model_state::MODEL_STATE_VERSION)
     }
 
+    fn state_model(&self, state: &tmt_core::binding::session::DriverState) -> Option<String> {
+        super::model_state::state_model(state)
+    }
+
     fn observe_replacement(
         &self,
         pane_pid: u64,

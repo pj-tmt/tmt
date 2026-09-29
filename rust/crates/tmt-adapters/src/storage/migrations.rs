@@ -200,6 +200,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "keep driver-owned resume state beside remembered sessions",
         sql: include_str!("schema/037.sql"),
     },
+    Migration {
+        name: "mark resume launches pending until a provider start confirms them",
+        sql: include_str!("schema/038.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

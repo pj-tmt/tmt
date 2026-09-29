@@ -197,6 +197,10 @@ impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
         Some(super::model_state::MODEL_STATE_VERSION)
     }
 
+    fn state_model(&self, state: &tmt_core::binding::session::DriverState) -> Option<String> {
+        super::model_state::state_model(state)
+    }
+
     fn observe_replacement(
         &self,
         pane_pid: u64,
@@ -364,6 +368,7 @@ mod tests {
                 provider_session: session.clone(),
                 state: None,
                 stale_at_ms: None,
+                resume_pending_at_ms: None,
             }),
         };
         let launched = BindingSessionState::default()

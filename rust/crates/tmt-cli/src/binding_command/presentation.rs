@@ -66,9 +66,13 @@ pub(super) fn document(report: &Report) -> Value {
         Report::Removed(entry) => {
             json!({"removed": true, "identity": identity_document(&entry.identity)})
         }
-        Report::Listed(rows) => {
-            json!({"identities": rows.iter().map(presence_document).collect::<Vec<_>>()})
-        }
+        Report::Listed(rows) => json!({"identities": rows.iter().map(|(row, resume)| {
+            let mut value = presence_document(row);
+            if let Some(resume) = resume {
+                value["resume"] = resume.clone();
+            }
+            value
+        }).collect::<Vec<_>>()}),
         Report::Named { target, row } => {
             json!({"target": target, "identity": identity_document(&row.identity),
             "presence": row.presence.as_str(), "pane": row.pane.as_ref().map(pane_document)})
@@ -145,8 +149,9 @@ pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
         Report::Listed(rows) => table::write(
             output,
             HEADERS,
-            rows.iter()
-                .map(|row| identity_row(&row.identity, row.presence.as_str(), row.pane.as_ref())),
+            rows.iter().map(|(row, _)| {
+                identity_row(&row.identity, row.presence.as_str(), row.pane.as_ref())
+            }),
         ),
         Report::Named { row, .. } => table::write(
             output,

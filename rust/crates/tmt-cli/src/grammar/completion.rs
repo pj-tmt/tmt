@@ -155,6 +155,12 @@ pub fn context(words: &[OsString]) -> Context {
             }
         }
     }
+    if path == ["resume"] && owns_marker("name") && !current.starts_with('-') {
+        return Context::Identities {
+            prefix: current.into(),
+            remembered: true,
+        };
+    }
     let identity_operand = IDENTITY_OPERANDS
         .iter()
         .any(|(candidate, operand)| path.as_slice() == *candidate && owns_marker(operand));
@@ -241,6 +247,16 @@ mod tests {
             assert_eq!(inspect(&words), Context::Command { offset: 2 }, "{words:?}");
         }
         assert_eq!(inspect(&["run", "--resume", "alice", ""]), Context::Static);
+        for words in [vec!["resume", "Al"], vec!["resume", "--retry", "Al"]] {
+            assert_eq!(
+                inspect(&words),
+                Context::Identities {
+                    prefix: "Al".into(),
+                    remembered: true
+                },
+                "{words:?}"
+            );
+        }
     }
 
     #[test]

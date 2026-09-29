@@ -119,6 +119,9 @@ pub struct RememberedSession {
     /// When a resume found the provider session gone. A stale session is not
     /// resumed again until the user retries, forgets it or starts fresh.
     pub stale_at_ms: Option<u64>,
+    /// When a resume of this session launched without a provider start
+    /// confirming it yet. A crash leaves only this harmless mark.
+    pub resume_pending_at_ms: Option<u64>,
 }
 
 impl SessionPreferences {
@@ -142,7 +145,33 @@ impl SessionPreferences {
             provider_session,
             state,
             stale_at_ms: None,
+            resume_pending_at_ms: None,
         });
+    }
+
+    /// Settle a resume launch of `launched` after its process exited. The
+    /// session goes stale only if no provider start confirmed it (the
+    /// pending mark survived for that exact session) and the caller found
+    /// the failure trustworthy; otherwise only the pending mark clears.
+    /// Returns whether the session was marked stale.
+    pub fn settle_resume(
+        &mut self,
+        launched: &ProviderSessionId,
+        failure_is_trustworthy: bool,
+        now_ms: u64,
+    ) -> bool {
+        let Some(remembered) = self
+            .remembered
+            .as_mut()
+            .filter(|remembered| &remembered.provider_session == launched)
+        else {
+            return false;
+        };
+        let stale = remembered.resume_pending_at_ms.take().is_some() && failure_is_trustworthy;
+        if stale {
+            remembered.stale_at_ms = Some(now_ms);
+        }
+        stale
     }
 
     /// A confirmed launch under a runtime driver becomes the preferred harness,
@@ -458,6 +487,7 @@ mod tests {
                 provider_session: ProviderSessionId::new("retained-history").unwrap(),
                 state: None,
                 stale_at_ms: None,
+                resume_pending_at_ms: None,
             }),
         };
         let state = BindingSessionState::default();
@@ -497,6 +527,58 @@ mod tests {
         let (harness, mode, id) = session("codex", "other");
         preferences.remember(harness, mode, id);
         assert_eq!(preferences.remembered.as_ref().unwrap().state, None);
+    }
+
+    #[test]
+    fn a_resume_goes_stale_only_when_no_start_confirmed_that_exact_session() {
+        let pending = |id: &str| {
+            let mut preferences = SessionPreferences::default();
+            let (harness, mode, provider_session) = session("claude", id);
+            preferences.remember(harness, mode, provider_session);
+            preferences
+                .remembered
+                .as_mut()
+                .unwrap()
+                .resume_pending_at_ms = Some(5);
+            preferences
+        };
+        let launched = ProviderSessionId::new("gone").unwrap();
+
+        let mut unconfirmed = pending("gone");
+        assert!(unconfirmed.settle_resume(&launched, true, 9));
+        let remembered = unconfirmed.remembered.unwrap();
+        assert_eq!(
+            (remembered.stale_at_ms, remembered.resume_pending_at_ms),
+            (Some(9), None)
+        );
+
+        // A signal exit or absent hooks make the failure untrustworthy.
+        let mut excluded = pending("gone");
+        assert!(!excluded.settle_resume(&launched, false, 9));
+        let remembered = excluded.remembered.unwrap();
+        assert_eq!(
+            (remembered.stale_at_ms, remembered.resume_pending_at_ms),
+            (None, None)
+        );
+
+        // A provider start confirmed it: `remember` cleared the pending mark.
+        let mut confirmed = pending("gone");
+        let (harness, mode, provider_session) = session("claude", "gone");
+        confirmed.remember(harness, mode, provider_session);
+        assert!(!confirmed.settle_resume(&launched, true, 9));
+        assert_eq!(confirmed.remembered.unwrap().stale_at_ms, None);
+
+        // /clear swapped the session mid-run: the new one is never misread.
+        let mut swapped = pending("gone");
+        let (harness, mode, provider_session) = session("claude", "after-clear");
+        swapped.remember(harness, mode, provider_session);
+        swapped.remembered.as_mut().unwrap().resume_pending_at_ms = Some(6);
+        assert!(!swapped.settle_resume(&launched, true, 9));
+        let remembered = swapped.remembered.unwrap();
+        assert_eq!(
+            (remembered.stale_at_ms, remembered.resume_pending_at_ms),
+            (None, Some(6))
+        );
     }
 
     #[test]
