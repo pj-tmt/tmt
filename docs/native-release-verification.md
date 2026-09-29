@@ -62,6 +62,16 @@ Verify uploaded SHA-256 digests before publishing each draft. Verify
 and `gh release verify-asset`). Never combine product manifests, replace an
 immutable release's assets or move its tag. A repair needs a new reviewed version.
 
+Also verify **upgrading from the last published release**, not only fresh installs.
+In an isolated HOME and prefix, install the previous published version with its
+own public installer. Then run the candidate installer's `__native-install` over
+that prefix, and run the candidate's `tmt upgrade` against a receipt with that
+version's online (`github-release`) provenance. Both must succeed and leave the
+superseded receipt unchanged. Receipts written by older releases stay readable:
+v5.0.0-alpha.2 through alpha.6 and Office 0.1.0-alpha.1 through alpha.3 record
+the pre-rename repository `wkh237/tmux-team`, which receipt reading accepts as
+the official one (#492).
+
 Before promoting README installation instructions, run the actual public script
 with an isolated HOME, application root and prefix, verify version, exact skill bundle,
 PATH selection and `tmt upgrade --json` against live immutable metadata. Do not

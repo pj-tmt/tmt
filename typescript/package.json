@@ -1,6 +1,6 @@
 {
   "name": "tmux-team",
-  "version": "5.0.0-alpha.7",
+  "version": "5.0.0-alpha.8",
   "description": "Private developer tooling for tmux-team",
   "private": true,
   "type": "module",
