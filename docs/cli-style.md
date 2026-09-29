@@ -45,6 +45,7 @@ Each mark has one meaning everywhere (`mark::Mark`). A row's leading state mark 
 | `✓`  | done                             |
 | `✗`  | failed                           |
 | `!`  | warning                          |
+| `◆`  | waits on your decision           |
 
 ## Lists
 
@@ -127,7 +128,11 @@ examples.
   be visible in help, such as which identities a command accepts or what it
   never creates. It sits just before `Examples`. It is rare by design: it is
   never a place for a longer description.
-- `-h`, `--help` and `tmt help <command>` print the same text (`help_text`).
+- `-h`, `--help` and `tmt help <command>` print the same text (`help_text`). A CLI
+  built with `command` has no `help` subcommand of its own; `route` resolves
+  `help <command>` to the command whose help to print (an unknown word is
+  reported, and nothing runs). `<command> -h` stays with clap, so an operand
+  that is data, such as a message after `--`, is never taken for help.
 - Each example is a comment line naming what it does, followed by the full
   command. Show the common use first. Examples must parse through the real
   grammar (`Example::argv`), so a renamed flag or missing operand fails a test.
@@ -211,8 +216,8 @@ the migration lists in the same change.
 1. **Help.** Build the command from a `CommandSpec`: a one-line summary and one
    to three examples, the common use first. A CLI that parses help itself (core)
    calls `apply` on its own `Command`; any other CLI calls `command`, which also
-   adds `-h`/`--help` and `--json`. Each example is the full command a user
-   types. The grammar walk parses it through the real parser, so run the walk
+   adds `-h`/`--help` and `--json`, and answers `help <command>` through
+   `route`. Each example is the full command a user types. The grammar walk parses it through the real parser, so run the walk
    until the command leaves its help list.
 2. **Streams.** Replace `io::stdout()`/`io::stderr()` and print macros with
    `stream::stdout(json)` and `stream::stderr()`. Pass `stream.terminal()` to

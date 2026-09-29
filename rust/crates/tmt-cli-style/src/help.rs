@@ -122,6 +122,51 @@ pub fn help_text(command: &Command, terminal: Terminal) -> String {
     }
 }
 
+/// What a `help [command...]` request resolves to.
+#[derive(Debug, Clone)]
+pub enum Route {
+    /// Not a `help` request; the words belong to the CLI's own parser.
+    Other,
+    /// Print this command's help: the text `-h` prints for it.
+    Help(Box<Command>),
+    /// `help` named a word that is no visible command at that point.
+    Unknown(String),
+}
+
+/// Resolves `help [command...]` for a CLI built with [`command`] that has no
+/// `help` subcommand of its own, so one route serves every such CLI and
+/// `<cli> help status` prints what `<cli> status -h` prints. `words` are the
+/// arguments after the program name; `root` is the CLI's whole grammar.
+///
+/// Only `help` followed by command names is resolved. `<command> -h` and
+/// `--help` stay with clap, so an operand that is data, such as a message
+/// that reads `-h`, is never mistaken for a help request. Hidden commands do
+/// not resolve.
+pub fn route(root: &Command, words: &[String]) -> Route {
+    let Some((first, path)) = words.split_first() else {
+        return Route::Other;
+    };
+    if first != "help" {
+        return Route::Other;
+    }
+    // Building propagates the program name and global options into every
+    // subcommand, so its usage line names the whole path, as `-h` does.
+    let mut root = root.clone();
+    root.build();
+    let mut command = &root;
+    for word in path {
+        let found = command.get_subcommands().find(|child| {
+            !child.is_hide_set()
+                && (child.get_name() == word || child.get_all_aliases().any(|alias| alias == word))
+        });
+        match found {
+            Some(child) => command = child,
+            None => return Route::Unknown(word.clone()),
+        }
+    }
+    Route::Help(Box::new(command.clone()))
+}
+
 /// Styled with the help palette; clap strips the codes for plain output.
 fn after_help(sections: &[HelpSection], details: &str, examples: &[Example]) -> String {
     let title = |text: &str| {

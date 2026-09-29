@@ -128,3 +128,86 @@ fn details_render_just_before_examples_and_only_when_set() {
     );
     assert!(!text.contains("Details:"));
 }
+
+fn nested() -> clap::Command {
+    let leaf = |name: &'static str| {
+        command(&CommandSpec {
+            name,
+            summary: "A leaf",
+            examples: &[Example {
+                command: "tmt hotkeys install",
+                note: "Install",
+            }],
+            outputs: OutputModes::Human,
+            details: "",
+        })
+    };
+    command(&spec(EXAMPLES, OutputModes::Human))
+        .name("tmt")
+        .bin_name("tmt")
+        .subcommand(leaf("hotkeys").subcommand(leaf("install").visible_alias("add")))
+        .subcommand(leaf("__complete").hide(true))
+}
+
+fn words(line: &str) -> Vec<String> {
+    line.split_whitespace().map(str::to_owned).collect()
+}
+
+fn routed(line: &str) -> String {
+    match route(&nested(), &words(line)) {
+        Route::Help(command) => help_text(&command, Terminal::PLAIN),
+        other => panic!("{line:?} did not resolve: {other:?}"),
+    }
+}
+
+fn dash_h(line: &str) -> String {
+    nested()
+        .try_get_matches_from(std::iter::once("tmt".to_owned()).chain(words(line)))
+        .unwrap_err()
+        .to_string()
+}
+
+#[test]
+fn help_resolves_to_the_text_dash_h_prints() {
+    assert_eq!(routed("help"), dash_h("-h"));
+    assert_eq!(routed("help hotkeys"), dash_h("hotkeys -h"));
+    assert_eq!(
+        routed("help hotkeys install"),
+        dash_h("hotkeys install --help")
+    );
+    assert!(routed("help hotkeys install").contains("Usage: tmt hotkeys install"));
+}
+
+#[test]
+fn help_follows_aliases_and_reports_the_first_unknown_word() {
+    assert_eq!(routed("help hotkeys add"), routed("help hotkeys install"));
+    for (line, word) in [
+        ("help nope", "nope"),
+        ("help hotkeys nope", "nope"),
+        ("help hotkeys install extra", "extra"),
+        ("help hotkeys -h", "-h"),
+        ("help --json", "--json"),
+        ("help __complete", "__complete"),
+    ] {
+        match route(&nested(), &words(line)) {
+            Route::Unknown(found) => assert_eq!(found, word, "{line}"),
+            other => panic!("{line:?}: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn only_help_first_is_a_help_request() {
+    for line in [
+        "",
+        "hotkeys -h",
+        "hotkeys help",
+        "nope help hotkeys",
+        "--help",
+    ] {
+        assert!(
+            matches!(route(&nested(), &words(line)), Route::Other),
+            "{line:?}"
+        );
+    }
+}

@@ -19,10 +19,13 @@ pub enum Mark {
     Failed,
     /// `!` needs attention.
     Warning,
+    /// `◆` waits on the reader's decision, such as a squad member that owes
+    /// the reader an answer.
+    Decision,
 }
 
 impl Mark {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Running,
         Self::Offline,
         Self::Idle,
@@ -30,6 +33,7 @@ impl Mark {
         Self::Done,
         Self::Failed,
         Self::Warning,
+        Self::Decision,
     ];
 
     pub fn symbol(self) -> &'static str {
@@ -41,12 +45,13 @@ impl Mark {
             Self::Done => "✓",
             Self::Failed => "✗",
             Self::Warning => "!",
+            Self::Decision => "◆",
         }
     }
 
     pub fn token(self) -> Token {
         match self {
-            Self::Running | Self::Resumable => Token::Accent,
+            Self::Running | Self::Resumable | Self::Decision => Token::Accent,
             Self::Done => Token::Ok,
             Self::Offline | Self::Idle => Token::Dim,
             Self::Failed => Token::Error,
@@ -64,6 +69,6 @@ mod tests {
     fn every_mark_has_its_own_symbol() {
         let symbols = Mark::ALL.map(Mark::symbol);
         assert_eq!(symbols.iter().collect::<BTreeSet<_>>().len(), symbols.len());
-        assert_eq!(symbols, ["●", "○", "◌", "↻", "✓", "✗", "!"]);
+        assert_eq!(symbols, ["●", "○", "◌", "↻", "✓", "✗", "!", "◆"]);
     }
 }
