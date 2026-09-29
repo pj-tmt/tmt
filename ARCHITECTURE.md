@@ -1978,8 +1978,10 @@ one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
 the single list, and rows that match none follow in one untitled section so
-nobody is hidden. The document carries the board's configured `columns`, which
-the text output renders. With `--squad`, `ls` returns that squad's document;
+nobody is hidden. The document carries the board's row grid (`rows`: `columns`
+and `lines`). The board sizes it with `tmt-cli-style`'s one solver
+(`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
+field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
 none), so a script's shape never depends on how many squads exist. Commands that
 change state still require `--squad` when several exist; `filter` owns a bounded boolean language over a row's text

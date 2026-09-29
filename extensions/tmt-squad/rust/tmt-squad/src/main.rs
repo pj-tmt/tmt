@@ -16,6 +16,7 @@ mod member_actions;
 mod membership;
 mod playbook;
 mod requests;
+mod rows;
 mod runner;
 mod send;
 mod specs;
@@ -823,7 +824,9 @@ fn ls_document(
         let mut document =
             status::document(squad, layout, &states, &sections, squad.members(core)?);
         requests::overlay(core, squad, you.as_ref().map(|(me, _)| me), &mut document)?;
-        document["columns"] = status::columns_value(&config.columns(&squad.name)?);
+        let rows = config.rows(&squad.name)?.value();
+        document["columns"] = rows["columns"].clone();
+        document["lines"] = rows["lines"].clone();
         documents.push(document);
     }
     let mut document = match (explicit, <[Value; 1]>::try_from(documents)) {

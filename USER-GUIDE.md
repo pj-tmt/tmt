@@ -443,18 +443,38 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 list (`/`), the ◆ rows that wait on you first in the crew layout, and each
 member's note under its row. It refreshes in the background every few seconds
 and re-reads `squad.toml`, so edits apply on the next refresh; `q` or Esc
-closes it. Without a terminal, or with `--json`, it prints `status`. Columns
-and state colors are configurable:
+closes it. Without a terminal, or with `--json`, it prints `status`. Rows and
+state colors are configurable. Every row sits on one grid of columns; a row can
+take more than one line, and on each line a cell can span columns:
 
 ```toml
-[squad.product.columns]
-show = ["member", "state", "task", "pr_link"]   # member is the name
-task = { width = 32, title = "WORK" }
+[squad.product.rows]
+columns = [
+  { name = "member", min = 10 },                  # member is the name
+  { name = "state",  width = 9 },
+  { name = "task",   grow = 1, min = 12, title = "WORK" },
+  { name = "pr_link", width = 12, truncate = "middle", priority = 1 },
+]
+lines = [
+  ["member", "state", "task", "pr_link"],
+  ["", { field = "pending", span = 3 }],          # what the member waits on you for
+]
 
 [squad.product.states]
 blocked = { color = "red", sort = 0 }   # colors: default, dim, red, amber, green,
                                         # cyan, blue, magenta; sort 0-999 orders states
 ```
+
+A column has a `width`, or `min`/`max` and a `grow` share of what is left;
+`align` (`left`, `right`, `center`); `truncate` at the `end` or the `middle`;
+and a `priority`. On a narrow board columns shrink to their `min` first; if the
+row still does not fit, the column with the highest `priority` steps aside, and
+columns without one never do. A cell never wraps: it is cut with `…` by display
+width. A later line with nothing to show is left out. `lines` defaults to one
+line of every column. The older `[squad.<name>.columns]` table (`show` plus a
+`title` and `width` per field) still works and means the same grid; set one of
+the two, not both. `tmt sq ls` is a list and stays complete: it takes the
+board's fields in order but never drops or cuts a column when piped.
 
 The board is made of panes: `rows`, `notes` (the lead's own notebook, the same
 file as `tmt notes`, read-only), `detail` (the selected row) and `replies`
