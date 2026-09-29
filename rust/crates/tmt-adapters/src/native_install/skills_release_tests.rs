@@ -235,6 +235,21 @@ fn an_invalid_skills_tree_rejects_the_whole_release_before_publication() {
             declared.clone(),
         ),
         (
+            "a regular file where the tree directory should be",
+            [
+                vec![Entry::File {
+                    path: format!("{root}/skills"),
+                    bytes: b"not a directory".to_vec(),
+                    mode: 0o644,
+                }],
+                skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            declared.clone(),
+        ),
+        (
             "missing SKILL.md",
             skill_entries(root, &[("skills/tmt-squad/README.md", b"r")]),
             declared.clone(),

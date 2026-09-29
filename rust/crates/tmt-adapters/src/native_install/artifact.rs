@@ -269,12 +269,15 @@ fn decode(
         let path = entry.path_bytes().into_owned();
         let path = std::str::from_utf8(&path)
             .map_err(|_| invalid("Native archive path must be ASCII."))?;
-        let in_tree = skills
-            && path
-                .strip_prefix(&tree)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
+        let below_tree = path.strip_prefix(&tree);
+        let tree_directory =
+            skills && below_tree.is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
+        // Only files strictly below the tree: `<root>/skills` itself is the
+        // tree's directory, never a file.
+        let in_tree =
+            skills && below_tree.is_some_and(|rest| rest.len() > 1 && rest.starts_with('/'));
         // Archivers record directories with or without a trailing slash.
-        if entry.header().entry_type().is_dir() && (path == format!("{root}/") || in_tree) {
+        if entry.header().entry_type().is_dir() && (path == format!("{root}/") || tree_directory) {
             if entry.header().mode()? & 0o7000 != 0 || entry.size() != 0 {
                 return Err(invalid("Native archive directory metadata is invalid."));
             }
