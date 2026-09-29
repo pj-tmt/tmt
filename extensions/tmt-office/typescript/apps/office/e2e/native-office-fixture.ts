@@ -3,6 +3,7 @@ import { readdirSync } from 'node:fs';
 import { expect } from '@playwright/test';
 import { createArtifact } from '../../../../../../typescript/test/support/native-artifact.js';
 import { runCli, type Sandbox } from '../../../../../../typescript/test/support/cli-process.js';
+import Database from '../../../../../../typescript/test/support/sqlite-oracle.js';
 
 export { unusedLoopbackPort } from '../../../../../../typescript/test/support/loopback-port.mjs';
 
@@ -76,5 +77,31 @@ export async function clearOfficeScopes(sandbox: Sandbox): Promise<void> {
   for (const key of officeScopeKeys(sandbox)) {
     expect((await protectedOfficeRecord(sandbox, key, 'clear')).status).toBe(0);
     expect((await protectedOfficeRecord(sandbox, key, 'lookup')).status).toBe(1);
+  }
+}
+
+/**
+ * Writes one board thread into the shared core file, as a pre-extraction Office
+ * did. A fresh install now switches to `office.db` on its first Office command, so
+ * only rows that already exist keep an install on the legacy store.
+ */
+export async function seedLegacyOfficeData(sandbox: Sandbox): Promise<void> {
+  const initialized = await runCli(sandbox, ['identity', 'list', '--json']);
+  expect(initialized.status, initialized.stdout + initialized.stderr).toBe(0);
+  const database = new Database(sandbox.database);
+  try {
+    const id = '11111111-1111-4111-8111-111111111111';
+    database
+      .prepare(
+        `INSERT INTO office_board_entries
+           (id, thread_id, is_root, category_kind, category_id, author_kind, author_id,
+            author_name, revision, deleted, created_sequence, activity_sequence,
+            created_at_ms, updated_at_ms, title, body)
+         VALUES (?, ?, 1, 'general', NULL, 'owner', 'owner', NULL, 1, 0, 1, 1, 1, 1, 'Hi', 'Data')`
+      )
+      .run(id, id);
+    database.prepare('UPDATE office_board_state SET revision = 1, next_sequence = 2').run();
+  } finally {
+    database.close();
   }
 }
