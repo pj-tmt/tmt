@@ -258,8 +258,10 @@ Confirmed live delivery does not leave duplicate incoming attention. Explicit
 `[tmt] reply from <name> to <id>: tmt result <id>` at their current verified
 binding. Read that result; do not reply to the hint or resend the request.
 A live blocking waiter receives the full response without an extra hint.
-The bounded detached timeout hint means still pending, not failed or cancelled.
-Anonymous and explicit queue-only requests do not push these hints.
+A `--detach` request gets the reply hint only, never a timeout hint. The bounded
+timeout hint sent for a non-detached request to an offline recipient means still
+pending, not failed or cancelled. Anonymous and explicit queue-only requests do not
+push these hints.
 
 Talk/send's command-local `--identity <existing-name>` attributes the originator,
 not the recipient. An explicit existing identity may be offline and overrides
