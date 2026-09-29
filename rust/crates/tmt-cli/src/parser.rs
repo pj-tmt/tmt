@@ -169,6 +169,12 @@ fn flag(matches: &ArgMatches, id: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn channel(matches: &ArgMatches) -> Option<tmt_core::native_install::Channel> {
+    text(matches, "channel").map(|value| {
+        tmt_core::native_install::Channel::parse(&value).expect("channel was validated by grammar")
+    })
+}
+
 fn text(matches: &ArgMatches, id: &str) -> Option<String> {
     matches.try_get_one::<String>(id).ok().flatten().cloned()
 }
@@ -376,6 +382,37 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             Invocation::ExtensionHooks(ExtensionHooksRequest::Disable(required(m, "name")))
         }
         ["extension", "hooks", "list"] => Invocation::ExtensionHooks(ExtensionHooksRequest::List),
+        ["extension", "install"] => {
+            Invocation::ExtensionInstall(ExtensionInstallRequest::Install {
+                name: required(m, "name"),
+                prefix: text(m, "prefix"),
+                channel: channel(m),
+                archive: text(m, "archive"),
+                manifest: text(m, "manifest"),
+                yes: flag(m, "yes"),
+            })
+        }
+        ["extension", "upgrade"] => {
+            Invocation::ExtensionInstall(ExtensionInstallRequest::Upgrade {
+                name: required(m, "name"),
+                prefix: text(m, "prefix"),
+                channel: channel(m),
+                to: text(m, "to"),
+                unpin: flag(m, "unpin"),
+                yes: flag(m, "yes"),
+            })
+        }
+        ["extension", "uninstall"] => {
+            Invocation::ExtensionInstall(ExtensionInstallRequest::Uninstall {
+                name: required(m, "name"),
+                prefix: text(m, "prefix"),
+                yes: flag(m, "yes"),
+            })
+        }
+        ["extension", "list"] => Invocation::ExtensionInstall(ExtensionInstallRequest::List {
+            prefix: text(m, "prefix"),
+            check: flag(m, "check"),
+        }),
         ["config"] | ["config", "show"] => Invocation::Config(ConfigRequest::Show),
         ["config", "set"] => Invocation::Config(ConfigRequest::Set {
             key: required(m, "key"),

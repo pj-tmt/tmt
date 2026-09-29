@@ -64,6 +64,7 @@ pub enum Invocation {
     FocusClient,
     Config(ConfigRequest),
     ExtensionHooks(ExtensionHooksRequest),
+    ExtensionInstall(ExtensionInstallRequest),
     Identity(IdentityRequest),
     Room(RoomOperation),
     NotesPath {
@@ -163,6 +164,35 @@ pub struct TalkOptions {
 }
 
 pub use tmt_command_output::ContentInput;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExtensionInstallRequest {
+    Install {
+        name: String,
+        prefix: Option<String>,
+        channel: Option<tmt_core::native_install::Channel>,
+        archive: Option<String>,
+        manifest: Option<String>,
+        yes: bool,
+    },
+    Upgrade {
+        name: String,
+        prefix: Option<String>,
+        channel: Option<tmt_core::native_install::Channel>,
+        to: Option<String>,
+        unpin: bool,
+        yes: bool,
+    },
+    Uninstall {
+        name: String,
+        prefix: Option<String>,
+        yes: bool,
+    },
+    List {
+        prefix: Option<String>,
+        check: bool,
+    },
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExtensionHooksRequest {

@@ -2,7 +2,7 @@
 
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::json;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, Write};
 use tmt_adapters::{
     setup::{self, Provider, SetupEnvironment},
     skill_installation::ProviderEnvironment,
@@ -90,22 +90,18 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
         writeln!(output, "{} {} SessionStart and SessionEnd hooks in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes. Provider hook trust review still applies.",
             if remove { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
     }
-    if !yes {
-        if mode.json || !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-            return Err(Failure::new(
-                "SETUP_CONSENT_REQUIRED",
-                "Review setup interactively, or pass --yes to approve the requested provider changes.",
-                1,
-            ));
-        }
-        write!(output, "Apply this plan? [y/N] ").map_err(failure)?;
-        output.flush().map_err(failure)?;
-        let mut answer = String::new();
-        io::stdin().read_line(&mut answer).map_err(failure)?;
-        if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-            writeln!(output, "No changes made.").map_err(failure)?;
-            return Ok(());
-        }
+    if !crate::consent::ask(
+        &mut output,
+        yes,
+        mode,
+        crate::consent::Consent {
+            code: "SETUP_CONSENT_REQUIRED",
+            refusal: "Review setup interactively, or pass --yes to approve the requested provider changes.",
+            question: "Apply this plan",
+        },
+        failure,
+    )? {
+        return Ok(());
     }
     let backup = setup::apply(&plan).map_err(failure)?;
     if mode.json {

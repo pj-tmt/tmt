@@ -1,6 +1,7 @@
 //! First installation through the same release verifier and activation owner as updates.
 
 use super::{ActivationRequest, InstallReport, Product, activate, artifact, release};
+use semver::Version;
 use std::{
     io,
     path::{Path, PathBuf},
@@ -30,6 +31,19 @@ pub fn install_release(
         checkpoint,
         |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
     )
+}
+
+/// The newest published version of `product` in `channel`, by bounded
+/// metadata discovery only: nothing is downloaded or installed.
+pub fn latest_release_version(product: Product, channel: Channel) -> io::Result<Version> {
+    let client = crate::release_http::Https::new();
+    release::discover_latest(
+        product,
+        channel,
+        Instant::now() + Duration::from_secs(10),
+        &mut |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
+    )
+    .map(|(_, version)| version)
 }
 
 fn install_release_with(

@@ -35,7 +35,7 @@ export async function createArtifact(
   sources: ArtifactSources,
   version: string,
   executableSuffix: Uint8Array = new Uint8Array(),
-  product: 'cli' | 'office' = 'cli',
+  product: 'cli' | 'office' | 'squad' = 'cli',
   companionExecutable = path.resolve('../rust/target/debug/tmt-office')
 ): Promise<ArtifactFixture> {
   const target = nativeTarget();
@@ -46,9 +46,14 @@ export async function createArtifact(
   const archive = path.join(fixtureRoot, name);
   const manifest = path.join(fixtureRoot, 'manifest.json');
   mkdirSync(root, { recursive: true });
-  const executableName = product === 'cli' ? 'tmt' : 'tmt-office';
-  // Office is built independently. Never substitute the CLI for a missing companion.
-  const source = product === 'cli' ? sources.cli?.executable : companionExecutable;
+  const executableName = product === 'cli' ? 'tmt' : `tmt-${product}`;
+  // Extensions are built independently. Never substitute the CLI for a missing one.
+  const source =
+    product === 'cli'
+      ? sources.cli?.executable
+      : product === 'office'
+        ? companionExecutable
+        : path.resolve('../rust/target/debug/tmt-squad');
   if (source === undefined) throw new Error(`Missing ${product} executable for artifact fixture.`);
   copyFileSync(source, path.join(root, executableName));
   const executable = path.join(root, executableName);
@@ -74,7 +79,7 @@ export async function createArtifact(
       },
       releases: [
         {
-          app_name: product === 'cli' ? 'tmt-cli' : 'tmt-office',
+          app_name: product === 'cli' ? 'tmt-cli' : `tmt-${product}`,
           app_version: version,
           artifacts: [name],
         },
