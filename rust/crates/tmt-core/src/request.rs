@@ -4,6 +4,7 @@
 pub mod attention;
 pub mod correlation;
 pub mod history;
+pub mod inbox;
 pub mod notification;
 mod service;
 pub use service::RequestService;
@@ -266,6 +267,11 @@ pub trait RequestRecords {
         &self,
         request_id: &str,
     ) -> Result<Option<attention::AttentionRecord>, Self::Error>;
+    fn list_open_requests(
+        &self,
+        query: &inbox::OpenQuery,
+        now_ms: u64,
+    ) -> Result<Vec<history::HistoryRecord>, Self::Error>;
     /// Read effective membership while holding the request preparation transaction.
     fn room_has_recipient(&self, room_id: &str, identity_id: &str) -> Result<bool, Self::Error>;
     fn find_attention(
@@ -457,6 +463,7 @@ pub enum RequestError<E> {
     RevisionExhausted,
     Response(ResponseRejection),
     Attention(attention::AttentionRejection),
+    Answer(inbox::AnswerRejection),
     Repository(E),
 }
 
@@ -483,6 +490,12 @@ impl<E> fmt::Display for RequestError<E> {
             }
             Self::Response(reason) => f.write_str(reason.code()),
             Self::Attention(reason) => reason.fmt(f),
+            Self::Answer(inbox::AnswerRejection::NotWaiting) => {
+                f.write_str("No open request from this originator is waiting on you.")
+            }
+            Self::Answer(inbox::AnswerRejection::Ambiguous(_)) => {
+                f.write_str("Several open requests from this originator are waiting on you.")
+            }
             Self::Repository(_) => f.write_str("Could not access request state."),
         }
     }

@@ -695,6 +695,22 @@ tmt reply <request-id> --receipt <receipt> --stdin < response.md
 Choose exactly one input source. Identical retries are safe while the body is
 retained; a different body conflicts and cannot replace the stored final.
 
+To answer requests addressed to you without a receipt, for example as a person
+at a shell, list what is waiting and answer by the sender's name:
+
+```bash
+tmt inbox --identity ben
+tmt answer reviewer "Yes, ship it." --identity ben
+```
+
+`tmt inbox` lists each open request with its sender, age, request ID and first
+line, oldest first. A request stays there until it has a final or its
+acceptance deadline passes; acknowledging it does not remove it. When the
+sender has several open requests, `tmt answer` sends nothing and lists them;
+choose one with `--request <request-id>`. Inside your own bound pane,
+`--identity` can be omitted. The [contract](REQUEST-RESPONSE.md#inbox-and-answer)
+defines selection, errors and JSON.
+
 ## Attribute and recover requests
 
 When the caller is not in a verified bound pane, select an existing durable

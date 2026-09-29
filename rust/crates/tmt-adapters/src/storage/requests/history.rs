@@ -3,7 +3,11 @@
 use super::{checked_i64, checked_limit, checked_now, rows};
 use crate::storage::{StorageError, errors::classify};
 use rusqlite::{Connection, OptionalExtension, params};
-use tmt_core::request::{attention::AttentionRecord, history::*};
+use tmt_core::request::{
+    attention::AttentionRecord,
+    history::*,
+    inbox::{ANSWERABLE, OpenQuery},
+};
 
 // Read a bounded UTF-8 prefix as bytes: SQLite TEXT substr stops at embedded NUL.
 const PREVIEW_BYTES: usize = HISTORY_PREVIEW_CHARS * 4;
@@ -113,6 +117,56 @@ pub(super) fn list_request_history(
         .map_err(|error| classify(error, "Read request history"))?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|error| classify(error, "Decode request history"))
+}
+
+/// Open requests to one recipient, oldest first. This narrows by the same
+/// columns the service's acceptance rule reads; the service decides.
+pub(super) fn list_open_requests(
+    connection: &Connection,
+    query: &OpenQuery,
+    now_ms: u64,
+) -> Result<Vec<HistoryRecord>, StorageError> {
+    let statuses = ANSWERABLE
+        .iter()
+        .map(|status| format!("'{}'", status.as_str()))
+        .collect::<Vec<_>>()
+        .join(",");
+    let select = history_select(
+        "request_attempts AS a INDEXED BY request_history_recipient",
+        &format!(
+            "a.recipient_identity_id=?1 AND (?2 IS NULL OR a.originator_identity_id=?2)
+             AND a.request_kind='request' AND a.response_submitted_at_ms IS NULL
+             AND a.status IN ({statuses}) AND a.retention_expires_at_ms > ?3
+             AND (a.expires_at_ms > ?3 OR a.prepared_at_ms > ?4)"
+        ),
+        &format!(
+            "CASE WHEN a.message_expires_at_ms > ?3 THEN substr(CAST(a.message_text AS BLOB),1,{PREVIEW_BYTES}) ELSE NULL END"
+        ),
+    );
+    let mut statement = connection
+        .prepare(&format!(
+            "{select} ORDER BY a.prepared_at_ms, a.request_id LIMIT ?5"
+        ))
+        .map_err(|error| classify(error, "Prepare open request query"))?;
+    statement
+        .query_map(
+            params![
+                query.recipient_identity_id,
+                query.originator_identity_id,
+                checked_now(now_ms, "Open request cutoff")?,
+                checked_i64(query.window_start_ms, "Open request window")?,
+                checked_limit(query.limit)?
+            ],
+            |row| {
+                Ok(HistoryRecord {
+                    attention: rows::recipient_attention_row(row)?,
+                    preview: history_preview(row)?,
+                })
+            },
+        )
+        .map_err(|error| classify(error, "Read open requests"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| classify(error, "Decode open requests"))
 }
 
 pub(super) fn find_request_history(
