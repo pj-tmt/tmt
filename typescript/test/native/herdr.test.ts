@@ -16,7 +16,10 @@ interface Herdr {
   readonly env: NodeJS.ProcessEnv;
   json(args: readonly string[]): Record<string, any>;
   /** Run a shell command in a pane; returns its stdout, stderr and status. */
-  inPane(pane: string, command: string): Promise<{ stdout: string; stderr: string; status: number }>;
+  inPane(
+    pane: string,
+    command: string
+  ): Promise<{ stdout: string; stderr: string; status: number }>;
   restart(): Promise<void>;
   stop(): void;
 }
@@ -82,7 +85,10 @@ async function startHerdr(sandbox: Sandbox): Promise<Herdr> {
         `${command} > '${tag}.out' 2> '${tag}.err'; echo $? > '${tag}.status'`,
       ]);
       expect(result.status, result.stderr).toBe(0);
-      await until(() => existsSync(`${tag}.status`) && readFileSync(`${tag}.status`, 'utf8').endsWith('\n'), command);
+      await until(
+        () => existsSync(`${tag}.status`) && readFileSync(`${tag}.status`, 'utf8').endsWith('\n'),
+        command
+      );
       return {
         stdout: readFileSync(`${tag}.out`, 'utf8'),
         stderr: readFileSync(`${tag}.err`, 'utf8'),
@@ -118,72 +124,68 @@ function tmt(sandbox: Sandbox): string {
 }
 
 describe.skipIf(!HERDR)('Herdr host (real server)', () => {
-  it(
-    'binds, lists, renames, unbinds and removes identities, and loses them with the server',
-    async () => {
-      await withSandbox(async (sandbox) => {
-        const tmuxLog = installTmuxTripwire(sandbox);
-        const herdr = await startHerdr(sandbox);
-        try {
-          herdr.json(['workspace', 'create', '--cwd', sandbox.cwd]);
-          herdr.json(['workspace', 'create', '--cwd', sandbox.cwd]);
-          const panes = herdr.json(['pane', 'list']).result.panes as { pane_id: string }[];
-          expect(panes.map((pane) => pane.pane_id)).toEqual(['w1:p1', 'w2:p1']);
+  it('binds, lists, renames, unbinds and removes identities, and loses them with the server', async () => {
+    await withSandbox(async (sandbox) => {
+      const tmuxLog = installTmuxTripwire(sandbox);
+      const herdr = await startHerdr(sandbox);
+      try {
+        herdr.json(['workspace', 'create', '--cwd', sandbox.cwd]);
+        herdr.json(['workspace', 'create', '--cwd', sandbox.cwd]);
+        const panes = herdr.json(['pane', 'list']).result.panes as { pane_id: string }[];
+        expect(panes.map((pane) => pane.pane_id)).toEqual(['w1:p1', 'w2:p1']);
 
-          // Caller-scoped commands inside a Herdr pane.
-          const named = await herdr.inPane('w1:p1', `${tmt(sandbox)} name worker`);
-          expect(named).toMatchObject({ status: 0 });
-          expect(named.stdout).toContain("Bound temporary identity 'worker' on pane w1:p1");
-          const whoami = await herdr.inPane('w1:p1', `${tmt(sandbox)} whoami`);
-          expect(whoami.stdout).toBe('worker (temporary) on pane w1:p1\n');
+        // Caller-scoped commands inside a Herdr pane.
+        const named = await herdr.inPane('w1:p1', `${tmt(sandbox)} name worker`);
+        expect(named).toMatchObject({ status: 0 });
+        expect(named.stdout).toContain("Bound temporary identity 'worker' on pane w1:p1");
+        const whoami = await herdr.inPane('w1:p1', `${tmt(sandbox)} whoami`);
+        expect(whoami.stdout).toBe('worker (temporary) on pane w1:p1\n');
 
-          // Outside any pane the caller's host is tmux; the Herdr binding is
-          // still probed on Herdr, and tmux is never run.
-          const listed = await runCli(sandbox, ['ls', '--json']);
-          expect(listed.status).toBe(0);
-          expect(parseWholeStdout(listed)).toMatchObject({
-            identities: [
-              {
-                name: 'worker',
-                presence: 'active',
-                target: 'w1:p1',
-                address: 'herdr:w1:p1',
-                driver: 'herdr',
-              },
-            ],
-          });
-          const tokens = herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens;
-          expect(tokens).toMatchObject({ tmt_name: 'worker', tmt_cname: 'worker' });
+        // Outside any pane the caller's host is tmux; the Herdr binding is
+        // still probed on Herdr, and tmux is never run.
+        const listed = await runCli(sandbox, ['ls', '--json']);
+        expect(listed.status).toBe(0);
+        expect(parseWholeStdout(listed)).toMatchObject({
+          identities: [
+            {
+              name: 'worker',
+              presence: 'active',
+              target: 'w1:p1',
+              address: 'herdr:w1:p1',
+              driver: 'herdr',
+            },
+          ],
+        });
+        const tokens = herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens;
+        expect(tokens).toMatchObject({ tmt_name: 'worker', tmt_cname: 'worker' });
 
-          // Explicit targets, rename (the marker follows), unbind and rm.
-          const added = await runCli(sandbox, ['add', '--save', 'w2:p1', 'reviewer']);
-          expect(added.status).toBe(0);
-          expect(added.stdout).toContain("Bound saved identity 'reviewer' on pane w2:p1");
-          const missing = await runCli(sandbox, ['add', 'w9:p9', 'nobody']);
-          expect(missing.status).toBe(3);
-          expect(missing.stderr).toContain("Pane target 'w9:p9' was not found");
-          expect((await runCli(sandbox, ['rename', 'worker', 'lead'])).status).toBe(0);
-          expect(herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens).toMatchObject({
-            tmt_name: 'lead',
-          });
-          const unbound = await herdr.inPane('w1:p1', `${tmt(sandbox)} unbind`);
-          expect(unbound.stdout).toContain("Unbound 'lead' from pane w1:p1; identity retired");
-          expect(herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens ?? {}).toEqual({});
+        // Explicit targets, rename (the marker follows), unbind and rm.
+        const added = await runCli(sandbox, ['add', '--save', 'w2:p1', 'reviewer']);
+        expect(added.status).toBe(0);
+        expect(added.stdout).toContain("Bound saved identity 'reviewer' on pane w2:p1");
+        const missing = await runCli(sandbox, ['add', 'w9:p9', 'nobody']);
+        expect(missing.status).toBe(3);
+        expect(missing.stderr).toContain("Pane target 'w9:p9' was not found");
+        expect((await runCli(sandbox, ['rename', 'worker', 'lead'])).status).toBe(0);
+        expect(herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens).toMatchObject({
+          tmt_name: 'lead',
+        });
+        const unbound = await herdr.inPane('w1:p1', `${tmt(sandbox)} unbind`);
+        expect(unbound.stdout).toContain("Unbound 'lead' from pane w1:p1; identity retired");
+        expect(herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens ?? {}).toEqual({});
 
-          // A server restart reuses pane IDs but not terminals: the saved
-          // identity goes offline and is never bound to the new terminal.
-          await herdr.restart();
-          const after = await runCli(sandbox, ['ls', '--json']);
-          expect(parseWholeStdout(after)).toMatchObject({
-            identities: [{ name: 'reviewer', presence: 'offline', pane: null }],
-          });
-          expect((await runCli(sandbox, ['rm', '--force', 'reviewer'])).status).toBe(0);
-          expect(existsSync(tmuxLog)).toBe(false);
-        } finally {
-          await stopHerdr(herdr);
-        }
-      });
-    },
-    60_000
-  );
+        // A server restart reuses pane IDs but not terminals: the saved
+        // identity goes offline and is never bound to the new terminal.
+        await herdr.restart();
+        const after = await runCli(sandbox, ['ls', '--json']);
+        expect(parseWholeStdout(after)).toMatchObject({
+          identities: [{ name: 'reviewer', presence: 'offline', pane: null }],
+        });
+        expect((await runCli(sandbox, ['rm', '--force', 'reviewer'])).status).toBe(0);
+        expect(existsSync(tmuxLog)).toBe(false);
+      } finally {
+        await stopHerdr(herdr);
+      }
+    });
+  }, 60_000);
 });
