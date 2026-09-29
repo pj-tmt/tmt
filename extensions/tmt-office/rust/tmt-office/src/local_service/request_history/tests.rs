@@ -4,6 +4,8 @@ use super::super::{
 };
 use super::*;
 use serde_json::{Value, json};
+use tmt_adapters::{request_runtime::wall_time_ms, storage::Storage};
+use tmt_core::request::RequestService;
 use tmt_core::{
     identity::{Lifetime, create_or_resolve},
     request::{ResponseProof, SubmitResponse, correlation},
@@ -165,4 +167,20 @@ fn history_routes_have_small_exact_body_budgets() {
     }
     assert!(!handles("/api/v1/local/requests/list/extra"));
     assert!(!handles("/api/v1/local/dispatch"));
+}
+
+#[test]
+fn every_history_error_code_has_an_explicit_status_and_unknown_codes_are_storage() {
+    assert_eq!(
+        status_for("API_INPUT_INVALID"),
+        (400, "REQUEST_HISTORY_INVALID")
+    );
+    assert_eq!(status_for("REQUEST_NOT_FOUND"), (404, "REQUEST_NOT_FOUND"));
+    assert_eq!(
+        status_for("DISPATCH_NOT_FOUND"),
+        (404, "DISPATCH_NOT_FOUND")
+    );
+    for code in ["CORE_UNAVAILABLE", "API_UNAVAILABLE", "SOMETHING_NEW"] {
+        assert_eq!(status_for(code), (500, "STORAGE_UNAVAILABLE"), "{code}");
+    }
 }

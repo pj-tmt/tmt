@@ -14,28 +14,34 @@ means the operation returned a resource; exit 1 returns
 interface, not remote authorization. The [architecture contract](../ARCHITECTURE.md#local-extension-api-v1)
 owns compatibility, transport and persistence rules.
 
-Every request has `version`, `operation` and `input`. Writes additionally require
-`identity`, an active identity UUID or name; reads omit it. Unknown request fields
+Every request has `version`, `operation` and `input`. Writes (`dispatch.create`,
+`rooms.write`, `rooms.retire`) additionally name exactly one originator: `identity`, an active
+identity UUID or name, or `"originator":"anonymous"`, which stores no writer identity,
+exactly like the CLI without `--identity`. Anonymous is not an authenticated owner and
+grants nothing beyond what same-user CLI calls without an identity can already do; both
+or neither is `API_INPUT_INVALID`. Reads name neither. Unknown request fields
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
 Clients must tolerate additive response fields.
 
-| Operation                | Input                                                                     | Result                                                                                             |
-| ------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `capabilities`           | `{}`                                                                      | Protocol range, operations, byte limits and ordinary commands                                      |
-| `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`              | `items`, `nextBefore`                                                                              |
-| `requests.show`          | `requestId`                                                               | Request detail including retained prompt/final state                                               |
-| `dispatch.show`          | `operationId`                                                             | Immutable acceptance receipt                                                                       |
-| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room`         | Acceptance receipt; optional independent `wake` on first direct request                            |
-| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                     | Room resource                                                                                      |
-| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`             | `room` resource and `members` with metadata and status                                             |
-| `notes.read`             | `identityId`                                                              | Saved identity's `identityId`, `name`, `content`                                                   |
-| `identityHooks.register` | `consumer`, `identityId`, `reference`                                     | `state`: `registered`, `pending` or `delivered`                                                    |
-| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count            |
-| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                     | `recorded`                                                                                         |
-| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                     | `acknowledged`                                                                                     |
-| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                      | `owner`, `published` targets                                                                       |
-| `skills.remove`          | `owner`, `consent: true`                                                  | `owner`, `removed` and `kept` targets                                                              |
-| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`) |
+| Operation                | Input                                                                     | Result                                                                                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities`           | `{}`                                                                      | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
+| `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`              | `items`, `nextBefore`                                                                                                                                             |
+| `requests.show`          | `requestId`                                                               | Request detail including retained prompt/final state                                                                                                              |
+| `dispatch.show`          | `operationId`                                                             | Immutable acceptance receipt                                                                                                                                      |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room`         | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
+| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                     | Room resource                                                                                                                                                     |
+| `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                   | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT` |
+| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`             | `room` resource and `members` with metadata and status                                                                                                            |
+| `notes.read`             | `identityId`                                                              | Saved identity's `identityId`, `name`, `content`                                                                                                                  |
+| `identityHooks.register` | `consumer`, `identityId`, `reference`                                     | `state`: `registered`, `pending` or `delivered`                                                                                                                   |
+| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count                                                                           |
+| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                     | `recorded`                                                                                                                                                        |
+| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                     | `acknowledged`                                                                                                                                                    |
+| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                      | `owner`, `published` targets                                                                                                                                      |
+| `skills.remove`          | `owner`, `consent: true`                                                  | `owner`, `removed` and `kept` targets                                                                                                                             |
+| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
+| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                              | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
 
 IDs are canonical UUIDs, except request IDs, which use TMT's `req_...` format.
 `dispatch.create.kind` defaults to `request`; `announcement` does not expect a
@@ -69,6 +75,12 @@ authentication: this local API cannot prove which extension is calling.
 return `{id, found:false}` entries rather than errors, so an absent ID is never
 confused with a failed lookup; more than 256 IDs or a non-canonical UUID is
 `API_INPUT_INVALID`. Retired identities and rooms are `found` with `retired:true`.
+
+`identities.status` returns self-reported status for many identities in one call,
+in input order. Core applies expiry: `status.stale` is computed at read time, and an
+expired status is still returned (stale) so a client can show it as such. Unknown IDs
+are `{id, found:false}` entries, not errors. It never reports presence; join it with
+`tmt list --json`, which verifies tmux endpoints.
 
 For room creation use a new UUID and `expectedRevision:0`; updates use the current
 revision. Refresh rather than blindly retrying a stale write. The returned resource

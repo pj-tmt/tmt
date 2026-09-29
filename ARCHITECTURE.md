@@ -648,7 +648,25 @@ supervised process runner, using `tmt --json identity list` and the
 the core database. The in-process `CoreStore` is compiled only for tests and the
 `in-process-core` feature, and a crate test forbids `Storage::open` and
 `CoreStore::open` anywhere else. Core sets `TMT_EXECUTABLE` for one-shot companion
-launches and for the local service when started from `tmt`.
+launches and for the local service when started from `tmt`: core declares its own
+executable at startup (`core_executable`), so a CLI installed under any name hands
+down its own path, and a non-core process (the companion's direct mode) passes on the
+`tmt` that launched it.
+
+The local service reaches core only through `local_service::core::LocalCore`, whose
+production implementation runs the same `tmt` through `CoreClient`
+(`tmt-office-storage::core_client`): startup readiness, request dispatch with its
+advisory wake, request history and receipts, room save/retire/list, notebooks, and
+profile presence and self-reported status. The browser is the local owner, so its
+writes use the API's `"originator":"anonymous"` (no writer identity, exactly like the
+CLI without `--identity`; it grants nothing beyond same-user CLI calls). Each handler
+maps core's error codes through an explicit status table and reports anything else as
+unavailable storage. Presence comes from `tmt list --json`, which verifies tmux
+endpoints, and status from the batch `identities.status` operation, so a profile poll
+is two processes. Unit tests run the same operations in-process behind `LocalCore`;
+a crate test forbids `Storage::open` and `tmt_adapters::storage` in service code.
+The one remaining path check, `retirement_consumer`'s "does core's file exist" stat,
+reads no contents so that `office sync` does not make core create it.
 Each write preflights its references and then commits in its own Office
 transaction; no Office SQL names a core table outside the migration modules, and a
 crate test enforces that. This accepts a window: a reference retired between
@@ -676,8 +694,7 @@ with `tmt --json identity show -- <uuid>` (accepting only the exact UUID) and
 pair-poll's claim reservation and completion, and the refresh and renewal on
 inspect and block operations) passes the fence under the same lock; only unpair
 and the consumer's own refresh, which reduce authority, are exempt, and a test
-pins those sites. Known debt owned by #355: the local service's direct core reads
-(A2), the `office_pairing` module still living in `tmt-adapters`, and removing the
+pins those sites. Known debt owned by #355: the `office_pairing` module still living in `tmt-adapters`, and removing the
 retained Office rows and fences from core. The migration coordinator is the single
 documented exception that opens the legacy core database (see below); it is a
 legacy path, removed after the release that stops shipping schema ≤ 35 upgrades.

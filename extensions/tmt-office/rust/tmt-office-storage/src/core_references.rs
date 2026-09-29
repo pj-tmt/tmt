@@ -8,16 +8,9 @@
 //! changes Office rows. Production reads go through the invoking `tmt`
 //! ([`ProcessReferences`]); Office never opens the core database for them.
 
+use crate::core_client::{CoreCallError, CoreClient};
 use serde_json::{Value, json};
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
-};
-use tmt_adapters::{
-    process::{CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner},
-    storage::{StorageError, StorageErrorCode},
-};
+use tmt_adapters::storage::{StorageError, StorageErrorCode};
 use tmt_core::identity::Lifetime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,86 +59,39 @@ pub trait CoreReferences {
 /// the active roster. `TMT_EXECUTABLE` selects the executable; a direct run
 /// falls back to `tmt` on PATH, never to this binary itself.
 pub struct ProcessReferences {
-    tmt: PathBuf,
+    client: CoreClient,
 }
 
-const CORE_DEADLINE: Duration = Duration::from_secs(30);
-const CORE_OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 const RESOLVE_LIMIT: usize = 256;
 
 fn unavailable(message: impl Into<String>) -> StorageError {
     StorageError::new(StorageErrorCode::Unknown, message.into())
 }
 
-fn executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
-        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+fn storage_error(error: CoreCallError) -> StorageError {
+    let code = if error.timed_out {
+        StorageErrorCode::Busy
+    } else {
+        StorageErrorCode::Unknown
+    };
+    StorageError::new(code, error.message)
 }
 
 impl ProcessReferences {
     pub fn discover() -> Result<Self, StorageError> {
-        let tmt = match std::env::var_os("TMT_EXECUTABLE").map(PathBuf::from) {
-            Some(path) if path.is_absolute() && executable(&path) => path,
-            Some(_) => {
-                return Err(unavailable(
-                    "TMT_EXECUTABLE must select an executable absolute tmt path.",
-                ));
-            }
-            None => std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-                .map(|directory| directory.join("tmt"))
-                .find(|candidate| executable(candidate))
-                .ok_or_else(|| {
-                    unavailable("Could not find tmt to read core identities and rooms.")
-                })?,
+        let references = Self {
+            client: CoreClient::discover().map_err(storage_error)?,
         };
-        if let (Ok(selected), Ok(this)) = (
-            std::fs::canonicalize(&tmt),
-            std::env::current_exe().and_then(std::fs::canonicalize),
-        ) && selected == this
-        {
-            return Err(unavailable(
-                "The selected tmt is this Office binary; refusing recursion.",
-            ));
-        }
-        let references = Self { tmt };
         // Core initializes and migrates its own storage on first use; Office
         // never creates or opens the core database for these reads.
         references.api("references.resolve", json!({}))?;
         Ok(references)
     }
 
-    fn run(&self, args: &[OsString], input: &[u8]) -> Result<Value, StorageError> {
-        let output = match UnixCommandRunner.execute(CommandRequest {
-            program: self.tmt.as_os_str(),
-            args,
-            input,
-            deadline: Instant::now() + CORE_DEADLINE,
-            max_output_bytes: CORE_OUTPUT_LIMIT,
-        }) {
-            Ok(output) => output.stdout,
-            Err(error) => {
-                let stdout = error.output.as_ref().map(|output| output.stdout.clone());
-                let message = stdout
-                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-                    .and_then(|value| value["error"]["message"].as_str().map(str::to_owned));
-                let code = if matches!(error.kind, CommandFailure::Timeout) {
-                    StorageErrorCode::Busy
-                } else {
-                    StorageErrorCode::Unknown
-                };
-                return Err(StorageError::new(
-                    code,
-                    message.unwrap_or_else(|| "Core could not be reached through tmt.".into()),
-                ));
-            }
-        };
-        serde_json::from_slice(&output).map_err(|_| unavailable("tmt returned no JSON document."))
-    }
-
     fn api(&self, operation: &str, input: Value) -> Result<Value, StorageError> {
-        let request = json!({"version": 1, "operation": operation, "input": input}).to_string();
-        self.run(&[OsString::from("api")], request.as_bytes())
+        self.client
+            .api(operation, input, None)
+            .map_err(storage_error)
     }
 }
 
@@ -177,8 +123,10 @@ impl CoreReferences for ProcessReferences {
     // Core's contract: `identity list` returns only non-retired identities (pinned by
     // the native identity test that retires one and lists the replacement alone).
     fn active_identities(&self) -> Result<Vec<CoreIdentity>, StorageError> {
-        let args: Vec<OsString> = ["--json", "identity", "list"].map(OsString::from).to_vec();
-        let value = self.run(&args, b"")?;
+        let value = self
+            .client
+            .command(&["identity", "list"])
+            .map_err(storage_error)?;
         value["identities"]
             .as_array()
             .ok_or_else(|| unavailable("Core identity list omitted identities."))?

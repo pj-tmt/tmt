@@ -2,6 +2,7 @@ use super::super::test_fixture::HttpFixture as Fixture;
 use super::super::tests::{parse_wire, response_value, test_receipt};
 use super::*;
 use serde_json::{Value, json};
+use tmt_adapters::{request_runtime::wall_time_ms, storage::Storage};
 use tmt_core::{
     identity::{Lifetime, create_or_resolve},
     request::{Originator, RequestService},
@@ -270,4 +271,27 @@ fn oversized_http_body_returns_shared_framing_error_before_dispatch_storage() {
         response_value(&accepted)["items"][0]["acceptance"],
         "recipientUnavailable"
     );
+}
+
+#[test]
+fn every_dispatch_error_code_has_an_explicit_status_and_unknown_codes_are_storage() {
+    use tmt_adapters::storage::DispatchError;
+    for (error, status) in [
+        (DispatchError::Invalid, 400),
+        (DispatchError::IdempotencyConflict, 409),
+        (DispatchError::RoomRosterChanged, 409),
+        (DispatchError::RoomRecipientNotMember, 409),
+    ] {
+        assert_eq!(failure(error.code()), (status, error.code()));
+    }
+    assert_eq!(failure("API_INPUT_INVALID"), (400, "DISPATCH_INVALID"));
+    assert_eq!(failure("CONFIG_ERROR"), (500, "CONFIG_ERROR"));
+    for code in [
+        "CORE_UNAVAILABLE",
+        "API_UNAVAILABLE",
+        "STORAGE_UNAVAILABLE",
+        "SOMETHING_NEW",
+    ] {
+        assert_eq!(failure(code), (500, "STORAGE_UNAVAILABLE"), "{code}");
+    }
 }
