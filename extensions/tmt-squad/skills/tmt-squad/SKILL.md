@@ -19,8 +19,10 @@ tmt squad ls --json [--squad <name>]
 
 With `--squad <name>` the document is that squad's; without it, it is always
 `{squads: [...], you}`, one document per squad in name order (even for one
-squad or none), so read `.squads[]` unless you pass `--squad`. `columns` lists
-the board's configured columns.
+squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
+`lines` are the board's row grid: each column's field, title and sizing, and
+the fields each line of a row shows (`{field, span}`, field null for an empty
+cell).
 
 - `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`) and
   `lead` (a row, or null).

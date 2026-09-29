@@ -586,6 +586,7 @@ describe('squad extension', () => {
       const one = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(Object.keys(one.body).sort()).toEqual([
         'columns',
+        'lines',
         'olderRequestsNotShown',
         'sections',
         'squad',
@@ -597,6 +598,13 @@ describe('squad extension', () => {
         'state',
         'task',
         'pr_link',
+      ]);
+      // The preset's grid: fixed widths, a growing task, and a link that
+      // steps aside first on a narrow board; one line per row.
+      expect(one.body.columns[2]).toMatchObject({ field: 'task', width: null, grow: 1 });
+      expect(one.body.columns[3]).toMatchObject({ field: 'pr_link', width: 12, priority: 1 });
+      expect(one.body.lines).toEqual([
+        ['member', 'state', 'task', 'pr_link'].map((field) => ({ field, span: 1 })),
       ]);
       for (const args of [
         ['sq', 'status', '--json'],

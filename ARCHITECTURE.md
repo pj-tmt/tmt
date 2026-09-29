@@ -574,10 +574,22 @@ scenario files avoid the Office web checks; prose that no job reads selects noth
 beyond `Code quality`. Shared or unknown paths (including lockfiles, security,
 contracts, workflows, the map itself and the E2E harness) fan out. Empty diffs fail
 closed to both. Diffs include deletions and both sides of renames. The selector writes
-a per-path evidence table (owner, rule, selection, map digest) to the run summary. Existing required check names
+a per-path evidence table (owner, rule, selection, map digest) to the run summary. When
+every path that selects native work is owned by Squad, the native scope is `squad`: the
+same job names run Squad's Cargo checks and architecture guard, its native tests and its
+E2E file, while the CLI runtime builds, packed installs and tooling unit tests are skipped
+because the CLI is unchanged (Squad cannot affect core: the architecture guard rejects any
+dependency in either direction). `Native package matrix` expects exactly that set of results
+for the scope; anything shared, CLI-owned or unrecognized runs the full set. Existing required check names
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
+Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
+Rust contracts` and the native runtime builds. Pull requests only restore them; they
+are written by non-pull-request runs of those two jobs alone, which run on a `main`
+push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
+(GitHub evicts unused caches after seven days) and on manual dispatch. No gate runs
+for them. A seeding run has no diff to select from, so it takes the full native scope.
 
 ## Runtime layers
 
@@ -1978,8 +1990,10 @@ one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
 the single list, and rows that match none follow in one untitled section so
-nobody is hidden. The document carries the board's configured `columns`, which
-the text output renders. With `--squad`, `ls` returns that squad's document;
+nobody is hidden. The document carries the board's row grid (`rows`: `columns`
+and `lines`). The board sizes it with `tmt-cli-style`'s one solver
+(`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
+field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
 none), so a script's shape never depends on how many squads exist. Commands that
 change state still require `--squad` when several exist; `filter` owns a bounded boolean language over a row's text
@@ -1988,7 +2002,11 @@ the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data; stale results for a squad the user left are dropped. `board`
+painted data. A switch never clears the view: `App` keeps the view of each
+visited squad, shows a cached one at once, and otherwise keeps the current
+frame (marked stale, so row actions refuse) until the new squad's snapshot
+swaps in whole; a result for a squad the user left only refreshes that cache.
+Tabs are the same width selected or not. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
@@ -2018,7 +2036,12 @@ a plain terminal: they open the row's action menu) into a fully filled request
 before anything runs; a missing value is a notice, not a partial action. Mouse
 capture is part of the terminal state the `Screen` guard restores; each draw
 records which screen lines show which row, so a click selects exactly the row
-drawn there. `run` fills one argv element per template and starts it like the
+drawn there. `board::scroll` is the one scroll owner: every pane hands its
+lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
+content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
+overflows, and records where the pane was drawn so the wheel scrolls the pane
+under the pointer. Panes keep no scroll state of their own; the rows pane only
+asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).
