@@ -10,6 +10,7 @@ pub mod access;
 mod catalog_replay;
 mod cells;
 pub mod context;
+pub mod core_client;
 pub mod core_references;
 pub mod migration;
 mod office_avatar;
