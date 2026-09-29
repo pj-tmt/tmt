@@ -578,6 +578,12 @@ a per-path evidence table (owner, rule, selection, map digest) to the run summar
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
+Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
+Rust contracts` and the native runtime builds. Pull requests only restore them; they
+are written by non-pull-request runs of those two jobs alone, which run on a `main`
+push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
+(GitHub evicts unused caches after seven days) and on manual dispatch. No gate runs
+for them.
 
 ## Runtime layers
 

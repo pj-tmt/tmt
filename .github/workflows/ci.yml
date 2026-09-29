@@ -2,13 +2,29 @@ name: CI
 
 on:
   pull_request:
+  # Cache seeding: the Rust caches are written only outside pull requests (see
+  # `save-if` below), so `main` runs the two cache-writing jobs when the inputs
+  # that key the caches change, weekly (GitHub evicts caches unused for 7 days)
+  # and on demand. A pull request restores them and never writes.
+  push:
+    branches: [main]
+    paths:
+      - rust/Cargo.lock
+      - rust/Cargo.toml
+      - rust/rust-toolchain.toml
+      - .github/workflows/ci.yml
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # A newer push replaces an older pull request run. A seed run is never
+  # cancelled, because a cancelled run writes no cache.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -16,8 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      native: ${{ steps.scope.outputs.native }}
-      office: ${{ steps.scope.outputs.office }}
+      native: ${{ steps.scope.outputs.native || steps.seed.outputs.native }}
+      office: ${{ steps.scope.outputs.office || steps.seed.outputs.office }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +42,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
+      - name: Select the cache-seeding jobs
+        if: github.event_name != 'pull_request'
+        id: seed
+        run: printf 'native=true\noffice=false\n' >> "$GITHUB_OUTPUT"
       - name: Select consumers from both sides of the diff
+        if: github.event_name == 'pull_request'
         id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -49,7 +70,7 @@ jobs:
   code-quality:
     name: Code quality
     needs: [changes, office]
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -88,6 +109,12 @@ jobs:
         run: |
           rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
           rustup toolchain install 1.88.0 --profile minimal
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Verify native quality and locked builds
         working-directory: rust
         run: |
@@ -136,7 +163,7 @@ jobs:
   unit-tests:
     name: Unit tests
     needs: [changes, native-runtime-build]
-    if: needs.changes.outputs.native == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -169,7 +196,7 @@ jobs:
   docker-e2e:
     name: Docker E2E
     needs: changes
-    if: needs.changes.outputs.native == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -217,14 +244,12 @@ jobs:
           packages: musl-tools
       - name: Install pinned Rust
         run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
-      - name: Cache locked native compilation
-        uses: actions/cache@v4
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            rust/target
-          key: runtime-${{ matrix.target }}-rust1.97-${{ hashFiles('rust/Cargo.lock') }}
+          workspaces: rust
+          shared-key: runtime-${{ matrix.target }}
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Build the reviewed native runtime
         working-directory: rust
         env:
@@ -249,7 +274,7 @@ jobs:
     # product. Each row now executes native linkage/skill/SQLite runtime proof.
     name: Packed install (${{ matrix.label }})
     needs: [changes, native-runtime-build]
-    if: needs.changes.outputs.native == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -325,7 +350,7 @@ jobs:
 
   native-install-gate:
     name: Native package matrix
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name == 'pull_request' }}
     needs:
       [changes, native-rust, unit-tests, docker-e2e, native-runtime-build, packed-native-install]
     runs-on: ubuntu-latest
