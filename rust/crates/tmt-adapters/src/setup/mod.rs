@@ -4,6 +4,7 @@ mod document;
 mod environment;
 mod publication;
 pub mod record;
+pub mod removal;
 
 pub use environment::{SetupEnvironment, provider_settings};
 pub use publication::{apply, read_settings};
@@ -89,12 +90,13 @@ pub fn plan(
         .to_str()
         .filter(|value| launcher.is_absolute() && !value.chars().any(char::is_control))
         .ok_or(PlanError::InvalidLauncher)?;
-    let after = document::settings(
-        provider,
-        before.as_deref().unwrap_or("{}"),
-        selected,
-        removing,
-    )?;
+    let text = before.as_deref().unwrap_or("{}");
+    // Removal is the exact inverse of setup's own edits where it can be.
+    let after = if removing {
+        document::removed(provider, text)?.unwrap_or_else(|| text.to_owned())
+    } else {
+        document::settings(provider, text, selected, false)?
+    };
     Ok(SetupPlan {
         provider: provider.name(),
         launcher,

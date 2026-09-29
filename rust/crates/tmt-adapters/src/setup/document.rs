@@ -196,8 +196,98 @@ pub(super) fn settings(
     Ok(result)
 }
 
+/// Removes the provider's TMT-owned hooks, then the keys setup inserted to
+/// hold them when removal left them empty, so a file setup only added to
+/// returns to its exact earlier bytes. `None` when there was nothing to remove.
+pub(super) fn removed(
+    provider: &DriverDefinition,
+    text: &str,
+) -> Result<Option<String>, PlanError> {
+    let mut result = settings(provider, text, "/", true)?;
+    if result == text {
+        return Ok(None);
+    }
+    let root = object(text)?;
+    let Some(original) = field(&root, "hooks") else {
+        return Ok(Some(result));
+    };
+    let original_hooks = object(original)?;
+    let mut hooks = field(&object(&result)?, "hooks").unwrap_or("{}").to_owned();
+    for event in ["SessionEnd", "SessionStart"] {
+        let emptied = field(&original_hooks, event).is_some_and(|value| value != "[]")
+            && field(&object(&hooks)?, event) == Some("[]");
+        if emptied && let Some(shorter) = unset_inserted(&hooks, event) {
+            hooks = shorter;
+        }
+    }
+    result = set(&result, "hooks", &hooks)?;
+    if hooks == "{}"
+        && original != "{}"
+        && let Some(shorter) = unset_inserted(&result, "hooks")
+    {
+        result = shorter;
+    }
+    Ok(Some(result))
+}
+
+/// The exact inverse of [`set`] adding `key` last: removes it only when it sits
+/// exactly where and how `set` inserts it. Otherwise the key stays.
+fn unset_inserted(text: &str, key: &str) -> Option<String> {
+    let fields = object(text).ok()?;
+    let value = field(&fields, key)?;
+    let start = value.as_ptr() as usize - text.as_ptr() as usize;
+    let end = start + value.len();
+    let last = text.rfind('}')?;
+    let head = format!("\n  {}: ", serde_json::to_string(key).ok()?);
+    if !text[..start].ends_with(&head) || text.get(end..last) != Some("\n") {
+        return None;
+    }
+    let mut cut = start - head.len();
+    if text[..cut].ends_with(',') {
+        cut -= 1;
+    } else if fields.0.len() != 1 {
+        return None;
+    }
+    Some(format!("{}{}", &text[..cut], &text[last..]))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn removal_restores_a_file_setup_only_added_to() {
+        let user_hook = r#"{ "hooks" : [{ "type": "command", "command": "user-command" }] }"#;
+        let originals = [
+            "{}".to_owned(),
+            "{\n \"permissions\": {\"allow\": []}\n}\n".to_owned(),
+            format!("{{\n \"hooks\": {{\"SessionStart\": [{user_hook}]}}\n}}\n"),
+            format!("{{\"hooks\":{{\"SessionStart\":[{user_hook}],\"SessionEnd\":[]}}}}"),
+        ];
+        for original in originals {
+            for driver in [&claude::DRIVER, &codex::DRIVER] {
+                let installed = settings(driver, &original, "/stable/tmt", false).unwrap();
+                assert_ne!(installed, original);
+                assert_eq!(
+                    removed(driver, &installed).unwrap().as_deref(),
+                    Some(original.as_str()),
+                    "{original}"
+                );
+                assert_eq!(removed(driver, &original).unwrap(), None);
+            }
+        }
+    }
+
+    #[test]
+    fn removal_keeps_keys_it_did_not_insert() {
+        let installed = settings(&claude::DRIVER, "{}", "/stable/tmt", false).unwrap();
+        // A user who reformatted the file keeps empty keys; nothing else moves.
+        let reformatted = installed.replace("\n  ", "\n    ");
+        let after = removed(&claude::DRIVER, &reformatted).unwrap().unwrap();
+        assert!(!after.contains("__hook"));
+        assert!(after.contains("\"SessionStart\""));
+        let edited = installed.replace("__hook claude", "__hook claude --edited");
+        assert!(removed(&claude::DRIVER, &edited).is_err());
+    }
+
     use super::*;
     use crate::drivers::{claude, codex};
 

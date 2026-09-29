@@ -217,6 +217,30 @@ directly without changing PATH. If PATH already contains that directory but
 another installation wins, follow the replacement guidance below rather than
 repeatedly adding directories.
 
+## Uninstall
+
+```sh
+tmt uninstall
+```
+
+This lists what it will remove and asks before changing anything; pass `--yes`
+to approve without a prompt. It removes, in this order:
+
+1. the lifecycle hooks `tmt setup` added to agent settings files;
+2. TMT's skill links;
+3. official extensions;
+4. the `tmt` command and its releases in the prefix.
+
+Anything that no longer matches what TMT wrote (an edited hook, a replaced
+skill, another program's `tmt` command) is kept and reported. Your identities,
+messages and notes stay in TMT's data directory
+(`~/.config/tmux-team` by default). `tmt uninstall --purge` deletes that
+directory too; `--yes` alone never does.
+
+If a step fails, fix the cause and run `tmt uninstall` again: completed steps
+are not repeated. Use `--prefix <folder>` for an installation in another
+prefix.
+
 ## Replacing npm or pnpm
 
 This is a fresh installation, not a data-transfer or compatibility tool. Stop old

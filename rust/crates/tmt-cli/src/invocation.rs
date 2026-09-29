@@ -115,6 +115,11 @@ pub enum Invocation {
         unpin: bool,
     },
     NativeRefreshSkills,
+    Uninstall {
+        purge: bool,
+        yes: bool,
+        prefix: Option<String>,
+    },
     Office {
         prefix: Option<String>,
         operation: OfficeOperation,

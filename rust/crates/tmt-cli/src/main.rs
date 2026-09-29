@@ -44,6 +44,7 @@ mod skill_refresh_command;
 mod skill_reminder;
 mod talk_command;
 mod target;
+mod uninstall_command;
 
 #[cfg(test)]
 mod cli_style_tests;
@@ -242,6 +243,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::NativeRefreshSkills => {
             return skill_refresh_command::execute(parsed.mode);
+        }
+        Invocation::Uninstall { purge, yes, prefix } => {
+            return uninstall_command::execute(purge, yes, prefix.as_deref(), parsed.mode);
         }
         Invocation::Office { prefix, operation } => {
             return office_facade::execute(prefix, operation, parsed.mode);

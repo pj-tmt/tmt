@@ -8,7 +8,9 @@ mod owned;
 mod providers;
 mod refresh;
 mod registry;
+mod uninstall;
 pub use refresh::{RefreshFailure, RefreshReport, RefreshedSkill, refresh};
+pub use uninstall::{SkillsRemoval, plan_uninstall, uninstall};
 #[cfg(test)]
 mod refresh_tests;
 pub use drift::inspect_local_drift;

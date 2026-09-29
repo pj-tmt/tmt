@@ -20,7 +20,7 @@ fn invalid() -> io::Error {
     )
 }
 
-fn path(global: &Path) -> PathBuf {
+pub(super) fn path(global: &Path) -> PathBuf {
     global.join("skill-installations.json")
 }
 

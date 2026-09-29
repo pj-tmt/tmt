@@ -284,7 +284,7 @@ struct OwnerRecord {
     targets: Vec<PathBuf>,
 }
 
-fn registry_path(global: &Path) -> PathBuf {
+pub(super) fn registry_path(global: &Path) -> PathBuf {
     global.join("skill-owners.json")
 }
 
@@ -670,6 +670,15 @@ pub fn owned_by(global: &Path, owner: &str) -> io::Result<BTreeMap<String, Vec<P
         .skills
         .into_iter()
         .filter(|(_, entry)| entry.owner == owner)
+        .map(|(name, entry)| (name, entry.targets))
+        .collect())
+}
+
+/// Each owned skill's recorded targets, by name.
+pub(super) fn owned_targets(global: &Path) -> io::Result<BTreeMap<String, Vec<PathBuf>>> {
+    Ok(read_owners(global)?
+        .skills
+        .into_iter()
         .map(|(name, entry)| (name, entry.targets))
         .collect())
 }

@@ -52,3 +52,69 @@ pub fn uninstall_extension(prefix: &Path, product: Product) -> io::Result<bool> 
     fs::File::open(&layout.root)?.sync_all()?;
     Ok(true)
 }
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ProductRemoval {
+    /// Command links and the product's directory that were removed.
+    pub removed: Vec<std::path::PathBuf>,
+    /// Same-named commands that are not TMT's links, left in place.
+    pub kept: Vec<std::path::PathBuf>,
+}
+
+/// Read-only: the links and directory [`remove_product`] would remove, and the
+/// foreign commands it would keep.
+pub fn plan_product_removal(prefix: &Path, product: Product) -> io::Result<ProductRemoval> {
+    let mut plan = ProductRemoval::default();
+    for name in product.links() {
+        let link = prefix.join("bin").join(name);
+        match fs::symlink_metadata(&link) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+            Ok(metadata)
+                if metadata.file_type().is_symlink()
+                    && fs::read_link(&link)? == Path::new(&product.link_target()) =>
+            {
+                plan.removed.push(link)
+            }
+            Ok(_) => plan.kept.push(link),
+        }
+    }
+    let root = prefix.join(product.namespace());
+    match fs::symlink_metadata(&root) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+        Ok(metadata) if metadata.is_dir() => plan.removed.push(root),
+        Ok(_) => {
+            return Err(invalid(&format!(
+                "{} is not a TMT directory.",
+                root.display()
+            )));
+        }
+    }
+    Ok(plan)
+}
+
+/// A full uninstall of one product, the CLI included: its own command links,
+/// then its whole directory (releases, receipts, `current`). A same-named
+/// command that does not link into the product is kept.
+pub fn remove_product(prefix: &Path, product: Product) -> io::Result<ProductRemoval> {
+    let plan = plan_product_removal(prefix, product)?;
+    let root = prefix.join(product.namespace());
+    if plan.removed.contains(&root) {
+        // Validates the layout: real directories, not symlink aliases.
+        let layout = Layout::existing_product(prefix, product)?;
+        let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
+        for link in plan.removed.iter().filter(|path| **path != root) {
+            match fs::remove_file(link) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                result => result?,
+            }
+        }
+        fs::remove_dir_all(&layout.root)?;
+    } else {
+        for link in &plan.removed {
+            fs::remove_file(link)?;
+        }
+    }
+    Ok(plan)
+}

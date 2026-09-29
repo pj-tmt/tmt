@@ -24,6 +24,13 @@ impl ManagedInstallation {
     }
 }
 
+impl ManagedInstallation {
+    /// The installation prefix this release belongs to.
+    pub fn prefix(&self) -> &Path {
+        &self.prefix
+    }
+}
+
 pub fn inspect(executable: &Path) -> io::Result<ManagedInstallation> {
     inspect_product(Product::Cli, executable)
 }
