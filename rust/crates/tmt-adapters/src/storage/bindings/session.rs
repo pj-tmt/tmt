@@ -2,8 +2,9 @@
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use tmt_core::binding::session::{
-    BindingSessionState, HarnessId, ObservedSessionKey, ProviderSessionId, RememberedSession,
-    RuntimeIncarnation, RuntimeMode, RuntimeState, SessionPreferences, SessionTransition,
+    BindingSessionState, DriverState, HarnessId, ObservedSessionKey, ProviderSessionId,
+    RememberedSession, RuntimeIncarnation, RuntimeMode, RuntimeState, SessionPreferences,
+    SessionTransition,
 };
 
 use super::super::{StorageError, errors::classify};
@@ -74,19 +75,29 @@ pub(super) fn preferences(
     identity_id: &str,
 ) -> Result<SessionPreferences, StorageError> {
     connection.query_row(
-        "SELECT p.preferred_harness, p.remembered_harness, p.runtime_mode, p.provider_session_id FROM identity_session_preferences p
+        "SELECT p.preferred_harness, p.remembered_harness, p.runtime_mode, p.provider_session_id,
+                p.driver_state_version, p.driver_state, p.stale_at_ms FROM identity_session_preferences p
          JOIN identities i ON i.id = p.identity_id WHERE p.identity_id = ? AND i.retired_at_ms IS NULL",
         [identity_id],
         |row| {
+            let invalid = |_| rusqlite::Error::InvalidQuery;
             let preferred_harness = row.get::<_, Option<String>>(0)?
-                .map(|value| HarnessId::new(&value).map_err(|_| rusqlite::Error::InvalidQuery))
+                .map(|value| HarnessId::new(&value).map_err(invalid))
                 .transpose()?;
             let remembered = match (row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?) {
                 (None, None, None) => None,
                 (Some(harness), Some(mode), Some(session)) => Some(RememberedSession {
-                    harness: HarnessId::new(&harness).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                    mode: RuntimeMode::new(&mode).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                    provider_session: ProviderSessionId::new(&session).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                    harness: HarnessId::new(&harness).map_err(invalid)?,
+                    mode: RuntimeMode::new(&mode).map_err(invalid)?,
+                    provider_session: ProviderSessionId::new(&session).map_err(invalid)?,
+                    state: match (row.get::<_, Option<u16>>(4)?, row.get::<_, Option<String>>(5)?) {
+                        (None, None) => None,
+                        (Some(version), Some(document)) => Some(DriverState::new(version, &document).map_err(invalid)?),
+                        _ => return Err(rusqlite::Error::InvalidQuery),
+                    },
+                    stale_at_ms: row.get::<_, Option<i64>>(6)?
+                        .map(|value| u64::try_from(value).map_err(|_| rusqlite::Error::InvalidQuery))
+                        .transpose()?,
                 }),
                 _ => return Err(rusqlite::Error::InvalidQuery),
             };
@@ -101,23 +112,79 @@ pub(super) fn set_preferences(
     identity_id: &str,
     value: &SessionPreferences,
 ) -> Result<bool, StorageError> {
+    let remembered = value.remembered.as_ref();
+    let state = remembered.and_then(|session| session.state.as_ref());
+    let stale_at_ms = remembered
+        .and_then(|session| session.stale_at_ms)
+        .map(|value| i64::try_from(value).map_err(|_| rusqlite::Error::InvalidQuery))
+        .transpose()
+        .map_err(|error| classify(error, "Validate stale time"))?;
     connection
         .execute(
-            "INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id)
-         SELECT id, ?, ?, ?, ? FROM identities WHERE id = ? AND retired_at_ms IS NULL
+            "INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode,
+             provider_session_id, driver_state_version, driver_state, stale_at_ms)
+         SELECT id, ?, ?, ?, ?, ?, ?, ? FROM identities WHERE id = ? AND retired_at_ms IS NULL
          ON CONFLICT(identity_id) DO UPDATE SET preferred_harness = excluded.preferred_harness,
              remembered_harness = excluded.remembered_harness, runtime_mode = excluded.runtime_mode,
-             provider_session_id = excluded.provider_session_id",
+             provider_session_id = excluded.provider_session_id,
+             driver_state_version = excluded.driver_state_version, driver_state = excluded.driver_state,
+             stale_at_ms = excluded.stale_at_ms",
             params![
                 value.preferred_harness.as_ref().map(HarnessId::as_str),
-                value.remembered.as_ref().map(|session| session.harness.as_str()),
-                value.remembered.as_ref().map(|session| session.mode.as_str()),
-                value.remembered.as_ref().map(|session| session.provider_session.as_str()),
+                remembered.map(|session| session.harness.as_str()),
+                remembered.map(|session| session.mode.as_str()),
+                remembered.map(|session| session.provider_session.as_str()),
+                state.map(DriverState::version),
+                state.map(DriverState::document),
+                stale_at_ms,
                 identity_id
             ],
         )
         .map(|changed| changed == 1)
         .map_err(|error| classify(error, "Write session preferences"))
+}
+
+/// Clears the remembered session and its driver state. Retirement calls this
+/// in the retiring transaction, whatever the lifetime.
+pub(super) fn forget(connection: &Connection, identity_id: &str) -> Result<(), StorageError> {
+    connection
+        .execute(
+            "UPDATE identity_session_preferences SET remembered_harness = NULL, runtime_mode = NULL,
+             provider_session_id = NULL, driver_state_version = NULL, driver_state = NULL, stale_at_ms = NULL
+             WHERE identity_id = ?",
+            [identity_id],
+        )
+        .map(drop)
+        .map_err(|error| classify(error, "Clear retired runtime session"))
+}
+
+pub(super) fn purge_unregistered(
+    connection: &Connection,
+    registered: &[&str],
+) -> Result<Vec<String>, StorageError> {
+    let orphaned = {
+        let mut statement = connection
+            .prepare(
+                "SELECT identity_id, remembered_harness FROM identity_session_preferences
+                 WHERE remembered_harness IS NOT NULL ORDER BY identity_id",
+            )
+            .map_err(|error| classify(error, "Find remembered sessions"))?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| classify(error, "Read remembered sessions"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| classify(error, "Decode remembered sessions"))?
+            .into_iter()
+            .filter(|(_, harness)| !registered.contains(&harness.as_str()))
+            .map(|(identity, _)| identity)
+            .collect::<Vec<_>>()
+    };
+    for identity in &orphaned {
+        forget(connection, identity)?;
+    }
+    Ok(orphaned)
 }
 
 pub(super) fn set_state(
@@ -206,6 +273,8 @@ mod tests {
                 harness: HarnessId::new("claude").unwrap(),
                 mode: RuntimeMode::new("default").unwrap(),
                 provider_session: ProviderSessionId::new("saved-session").unwrap(),
+                state: None,
+                stale_at_ms: None,
             }),
         }
     }
@@ -451,48 +520,160 @@ mod tests {
         storage.close().unwrap();
     }
 
+    fn with_state(mut preferences: SessionPreferences) -> SessionPreferences {
+        let session = preferences.remembered.as_mut().unwrap();
+        session.state = Some(DriverState::new(2, r#"{"model":"opus"}"#).unwrap());
+        session.stale_at_ms = Some(1_700_000_000_000);
+        preferences
+    }
+
+    fn stored_session(fixture: &Fixture, identity_id: &str) -> (Option<String>, Option<String>) {
+        Connection::open(&fixture.database)
+            .unwrap()
+            .query_row(
+                "SELECT preferred_harness, coalesce(provider_session_id, driver_state,
+                 CAST(stale_at_ms AS TEXT)) FROM identity_session_preferences WHERE identity_id = ?",
+                [identity_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
+    }
+
     #[test]
-    fn retirement_hides_preferences_without_deleting_or_resurrecting_them() {
+    fn retirement_clears_the_remembered_session_for_both_lifetimes() {
+        // Deliberate change (#420): retirement used to hide the retained session;
+        // it now deletes the session and driver state in the retiring transaction.
         let fixture = Fixture::new();
         let mut storage = fixture.open();
-        let identity = create_or_resolve(&mut storage, "Temporary", Lifetime::Temporary)
-            .unwrap()
-            .identity;
-        storage
-            .with_binding_transaction(|records| {
-                assert!(records.set_session_preferences(&identity.id, &remembered())?);
-                records.retire_identity(&identity, false)?;
-                assert_eq!(
-                    records.session_preferences(&identity.id)?,
-                    SessionPreferences::default()
-                );
-                assert!(
-                    !records
-                        .set_session_preferences(&identity.id, &SessionPreferences::default())?
-                );
-                Ok::<_, StorageError>(())
-            })
-            .unwrap();
-        let replacement = create_or_resolve(&mut storage, "Temporary", Lifetime::Temporary)
-            .unwrap()
-            .identity;
-        assert_ne!(replacement.id, identity.id);
-        storage
-            .with_binding_transaction(|records| {
-                assert_eq!(
-                    records.session_preferences(&replacement.id)?,
-                    SessionPreferences::default()
-                );
-                Ok::<_, StorageError>(())
-            })
-            .unwrap();
-        let connection = Connection::open(&fixture.database).unwrap();
-        let retained: String = connection.query_row(
-            "SELECT provider_session_id FROM identity_session_preferences WHERE identity_id = ?",
-            [&identity.id], |row| row.get(0),
-        ).unwrap();
-        assert_eq!(retained, "saved-session");
+        for (name, lifetime, remove_content) in [
+            ("Temporary", Lifetime::Temporary, false),
+            ("Saved", Lifetime::Saved, true),
+        ] {
+            let identity = create_or_resolve(&mut storage, name, lifetime)
+                .unwrap()
+                .identity;
+            storage
+                .with_binding_transaction(|records| {
+                    assert!(
+                        records.set_session_preferences(&identity.id, &with_state(remembered()))?
+                    );
+                    records.retire_identity(&identity, remove_content)?;
+                    assert_eq!(
+                        records.session_preferences(&identity.id)?,
+                        SessionPreferences::default()
+                    );
+                    assert!(
+                        !records.set_session_preferences(&identity.id, &remembered())?,
+                        "a retired identity cannot be given a session again"
+                    );
+                    Ok::<_, StorageError>(())
+                })
+                .unwrap();
+            assert_eq!(
+                stored_session(&fixture, &identity.id),
+                (Some("claude".into()), None),
+                "{name}: only the launch preference remains"
+            );
+            let replacement = create_or_resolve(&mut storage, name, lifetime)
+                .unwrap()
+                .identity;
+            assert_ne!(replacement.id, identity.id);
+            storage
+                .with_binding_transaction(|records| {
+                    assert_eq!(
+                        records.session_preferences(&replacement.id)?,
+                        SessionPreferences::default()
+                    );
+                    Ok::<_, StorageError>(())
+                })
+                .unwrap();
+        }
         storage.close().unwrap();
+    }
+
+    #[test]
+    fn driver_state_and_stale_marks_round_trip_within_their_constraints() {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let identity = create_or_resolve(&mut storage, "Stateful", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let preferences = with_state(remembered());
+        storage
+            .with_binding_transaction(|records| {
+                assert!(records.set_session_preferences(&identity.id, &preferences)?);
+                assert_eq!(records.session_preferences(&identity.id)?, preferences);
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let connection = Connection::open(&fixture.database).unwrap();
+        for update in [
+            "UPDATE identity_session_preferences SET driver_state = NULL",
+            "UPDATE identity_session_preferences SET driver_state_version = 0",
+            "UPDATE identity_session_preferences SET driver_state = zeroblob(8)",
+            "UPDATE identity_session_preferences SET driver_state = printf('%.*c', 1025, 'x')",
+            "UPDATE identity_session_preferences SET remembered_harness = NULL,
+             runtime_mode = NULL, provider_session_id = NULL",
+        ] {
+            assert!(connection.execute(update, []).is_err(), "{update}");
+        }
+        connection
+            .execute(
+                "UPDATE identity_session_preferences SET driver_state = NULL,
+                 driver_state_version = NULL, stale_at_ms = NULL",
+                [],
+            )
+            .unwrap();
+        let mut storage = fixture.open();
+        storage
+            .with_binding_transaction(|records| {
+                assert_eq!(records.session_preferences(&identity.id)?, remembered());
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn sessions_of_unregistered_drivers_are_purged_with_their_state() {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let mut ids = Vec::new();
+        for (name, harness) in [("Kept", "claude"), ("Orphan", "removed-driver")] {
+            let identity = create_or_resolve(&mut storage, name, Lifetime::Saved)
+                .unwrap()
+                .identity;
+            let mut preferences = with_state(remembered());
+            preferences.remembered.as_mut().unwrap().harness = HarnessId::new(harness).unwrap();
+            storage
+                .with_binding_transaction(|records| {
+                    records.set_session_preferences(&identity.id, &preferences)
+                })
+                .unwrap();
+            ids.push(identity.id);
+        }
+        assert_eq!(
+            storage
+                .purge_unregistered_sessions(&["claude", "codex"])
+                .unwrap(),
+            [ids[1].clone()]
+        );
+        assert!(
+            storage
+                .purge_unregistered_sessions(&["claude", "codex"])
+                .unwrap()
+                .is_empty()
+        );
+        storage.close().unwrap();
+        assert_eq!(
+            stored_session(&fixture, &ids[1]),
+            (Some("claude".into()), None)
+        );
+        assert_eq!(
+            stored_session(&fixture, &ids[0]),
+            (Some("claude".into()), Some("saved-session".into()))
+        );
     }
 
     #[test]

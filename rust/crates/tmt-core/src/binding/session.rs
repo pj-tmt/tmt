@@ -108,11 +108,89 @@ pub struct SessionPreferences {
 }
 
 /// Exact resume coordinates stay paired even when the preferred harness changes.
+/// The harness is also the driver that owns `state`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RememberedSession {
     pub harness: HarnessId,
     pub mode: RuntimeMode,
     pub provider_session: ProviderSessionId,
+    /// Driver-owned resume details; core stores them without interpreting them.
+    pub state: Option<DriverState>,
+    /// When a resume found the provider session gone. A stale session is not
+    /// resumed again until the user retries, forgets it or starts fresh.
+    pub stale_at_ms: Option<u64>,
+}
+
+impl SessionPreferences {
+    /// A starting provider event replaces the remembered session and clears a
+    /// stale mark. Driver state survives only within the same driver: one
+    /// identity has one current runtime.
+    pub fn remember(
+        &mut self,
+        harness: HarnessId,
+        mode: RuntimeMode,
+        provider_session: ProviderSessionId,
+    ) {
+        let state = self
+            .remembered
+            .take()
+            .filter(|previous| previous.harness == harness)
+            .and_then(|previous| previous.state);
+        self.remembered = Some(RememberedSession {
+            harness,
+            mode,
+            provider_session,
+            state,
+            stale_at_ms: None,
+        });
+    }
+
+    /// A confirmed launch under a runtime driver becomes the preferred harness,
+    /// and a session remembered by a different driver is dropped with its state.
+    pub fn launched(&mut self, harness: &HarnessId) {
+        self.preferred_harness = Some(harness.clone());
+        if self
+            .remembered
+            .as_ref()
+            .is_some_and(|remembered| &remembered.harness != harness)
+        {
+            self.remembered = None;
+        }
+    }
+}
+
+/// A driver's own resume details (for example a model choice), versioned by
+/// that driver and bounded. Core never parses the document; a driver that
+/// cannot read a version discards it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DriverState {
+    version: u16,
+    document: String,
+}
+
+impl DriverState {
+    pub const MAXIMUM_BYTES: usize = 1024;
+
+    pub fn new(version: u16, document: &str) -> Result<Self, SessionValueError> {
+        if version == 0
+            || !(1..=Self::MAXIMUM_BYTES).contains(&document.len())
+            || document.chars().any(char::is_control)
+        {
+            return Err(SessionValueError::DriverState);
+        }
+        Ok(Self {
+            version,
+            document: document.into(),
+        })
+    }
+
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+
+    pub fn document(&self) -> &str {
+        &self.document
+    }
 }
 
 /// Evidence belongs to one binding, unlike the identity's remembered preferences.
@@ -302,6 +380,7 @@ pub enum SessionValueError {
     ProviderSession,
     RuntimeMode,
     Incarnation,
+    DriverState,
 }
 
 impl fmt::Display for SessionValueError {
@@ -311,6 +390,7 @@ impl fmt::Display for SessionValueError {
             Self::ProviderSession => "Invalid provider session identifier.",
             Self::RuntimeMode => "Invalid runtime mode identifier.",
             Self::Incarnation => "Invalid runtime process incarnation.",
+            Self::DriverState => "Invalid or oversized driver state.",
         })
     }
 }
@@ -376,12 +456,78 @@ mod tests {
                 harness: HarnessId::new("codex").unwrap(),
                 mode: RuntimeMode::new("shared").unwrap(),
                 provider_session: ProviderSessionId::new("retained-history").unwrap(),
+                state: None,
+                stale_at_ms: None,
             }),
         };
         let state = BindingSessionState::default();
         assert!(preferences.remembered.is_some());
         assert_eq!(state.state, RuntimeState::Unknown);
         assert_eq!(state.last_transition, None);
+    }
+
+    fn session(harness: &str, id: &str) -> (HarnessId, RuntimeMode, ProviderSessionId) {
+        (
+            HarnessId::new(harness).unwrap(),
+            RuntimeMode::new("default").unwrap(),
+            ProviderSessionId::new(id).unwrap(),
+        )
+    }
+
+    #[test]
+    fn a_new_session_keeps_driver_state_only_within_the_same_driver() {
+        let mut preferences = SessionPreferences::default();
+        let (harness, mode, id) = session("claude", "first");
+        preferences.remember(harness, mode, id);
+        let remembered = preferences.remembered.as_mut().unwrap();
+        remembered.state = Some(DriverState::new(1, r#"{"model":"opus"}"#).unwrap());
+        remembered.stale_at_ms = Some(7);
+
+        // `/clear` starts a new session under the same driver.
+        let (harness, mode, id) = session("claude", "cleared");
+        preferences.remember(harness, mode, id);
+        let remembered = preferences.remembered.as_ref().unwrap();
+        assert_eq!(remembered.provider_session.as_str(), "cleared");
+        assert_eq!(
+            remembered.state.as_ref().unwrap().document(),
+            r#"{"model":"opus"}"#
+        );
+        assert_eq!(remembered.stale_at_ms, None, "a new session is not stale");
+
+        let (harness, mode, id) = session("codex", "other");
+        preferences.remember(harness, mode, id);
+        assert_eq!(preferences.remembered.as_ref().unwrap().state, None);
+    }
+
+    #[test]
+    fn launching_another_runtime_drops_the_previous_drivers_session() {
+        let mut preferences = SessionPreferences::default();
+        let (harness, mode, id) = session("claude", "kept");
+        preferences.remember(harness.clone(), mode, id);
+        preferences.launched(&harness);
+        assert!(preferences.remembered.is_some(), "same driver keeps it");
+        let codex = HarnessId::new("codex").unwrap();
+        preferences.launched(&codex);
+        assert_eq!(preferences.preferred_harness, Some(codex));
+        assert_eq!(preferences.remembered, None);
+    }
+
+    #[test]
+    fn driver_state_is_versioned_bounded_text() {
+        assert_eq!(DriverState::new(3, "{}").unwrap().version(), 3);
+        let largest = "x".repeat(DriverState::MAXIMUM_BYTES);
+        assert!(DriverState::new(1, &largest).is_ok());
+        for (version, document) in [
+            (0, "{}"),
+            (1, ""),
+            (1, "a\nb"),
+            (1, &*format!("{largest}x")),
+        ] {
+            assert_eq!(
+                DriverState::new(version, document),
+                Err(SessionValueError::DriverState)
+            );
+        }
     }
 
     #[test]

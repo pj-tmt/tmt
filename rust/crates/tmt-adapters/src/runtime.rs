@@ -8,7 +8,7 @@ use std::{
 };
 use tmt_core::{
     binding::BindingEntry,
-    binding::session::{HarnessId, RememberedSession},
+    binding::session::{HarnessId, RememberedSession, SessionPreferences},
     driver::{ActionResult, DeliveryAcceptance, Driver, HarnessResume, HarnessStart, SendFailure},
 };
 
@@ -215,6 +215,51 @@ impl RuntimeRegistry {
             session: &session.provider_session,
             mode: &session.mode,
         })
+    }
+}
+
+/// What reconciliation removed from a remembered session, for reporting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StateReconciliation {
+    /// The session's driver is not registered: session and state are purged.
+    UnregisteredDriver(HarnessId),
+    /// The driver cannot read this state version (or has no persistence):
+    /// the state is discarded and the session kept.
+    DiscardedState { harness: HarnessId, version: u16 },
+}
+
+impl RuntimeRegistry {
+    /// Apply the persistence rules before a remembered session is used or
+    /// updated: never force-read state a driver cannot read, and leave no
+    /// session behind for a driver that is gone. Callers persist the result.
+    pub fn reconcile(&self, preferences: &mut SessionPreferences) -> Option<StateReconciliation> {
+        let remembered = preferences.remembered.as_mut()?;
+        let harness = remembered.harness.clone();
+        if !self
+            .registrations
+            .iter()
+            .any(|entry| entry.harness == harness)
+        {
+            preferences.remembered = None;
+            return Some(StateReconciliation::UnregisteredDriver(harness));
+        }
+        let version = remembered.state.as_ref()?.version();
+        if self
+            .lifecycle(&harness)
+            .and_then(|lifecycle| lifecycle.state_version())
+            != Some(version)
+        {
+            remembered.state = None;
+            return Some(StateReconciliation::DiscardedState { harness, version });
+        }
+        None
+    }
+
+    /// Harness IDs with a registration, for purging sessions of removed drivers.
+    pub fn harnesses(&self) -> impl Iterator<Item = &str> {
+        self.registrations
+            .iter()
+            .map(|entry| entry.harness.as_str())
     }
 }
 
@@ -469,6 +514,8 @@ mod tests {
                 mode: RuntimeMode::new(mode).unwrap(),
                 provider_session: ProviderSessionId::new("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
                     .unwrap(),
+                state: None,
+                stale_at_ms: None,
             };
             assert_eq!(
                 registry.resume(&session),
@@ -482,12 +529,61 @@ mod tests {
             harness: id("codex"),
             mode: RuntimeMode::new("remote").unwrap(),
             provider_session: ProviderSessionId::new("--last").unwrap(),
+            state: None,
+            stale_at_ms: None,
         };
         assert_eq!(registry.resume(&session), ActionResult::Unsupported);
         session.mode = RuntimeMode::new("shared").unwrap();
         assert_eq!(
             registry.resume(&session),
             ActionResult::Failed(RuntimeError::InvalidSession)
+        );
+    }
+
+    #[test]
+    fn reconciliation_purges_unregistered_drivers_and_discards_unreadable_state() {
+        use tmt_core::binding::session::DriverState;
+        let registry = RuntimeRegistry::first_party();
+        let remembered = |harness: &str, state: Option<DriverState>| SessionPreferences {
+            preferred_harness: None,
+            remembered: Some(RememberedSession {
+                harness: id(harness),
+                mode: RuntimeMode::new("default").unwrap(),
+                provider_session: ProviderSessionId::new("kept").unwrap(),
+                state,
+                stale_at_ms: None,
+            }),
+        };
+        let mut clean = remembered("claude", None);
+        assert_eq!(registry.reconcile(&mut clean), None);
+        assert!(clean.remembered.is_some());
+
+        // First-party drivers read no state version yet, so any state is dropped.
+        let mut versioned = remembered("claude", Some(DriverState::new(9, "{}").unwrap()));
+        assert_eq!(
+            registry.reconcile(&mut versioned),
+            Some(StateReconciliation::DiscardedState {
+                harness: id("claude"),
+                version: 9
+            })
+        );
+        let session = versioned.remembered.unwrap();
+        assert_eq!(
+            (session.state, session.provider_session.as_str()),
+            (None, "kept")
+        );
+
+        let mut orphaned = remembered("removed-driver", None);
+        assert_eq!(
+            registry.reconcile(&mut orphaned),
+            Some(StateReconciliation::UnregisteredDriver(id(
+                "removed-driver"
+            )))
+        );
+        assert_eq!(orphaned.remembered, None);
+        assert_eq!(
+            registry.harnesses().collect::<Vec<_>>(),
+            ["claude", "codex"]
         );
     }
 }

@@ -1056,12 +1056,26 @@ from binding-owned runtime observations. Schema 33 retains the former independen
 of a binding row; deleting/replacing that row resets its observation to unknown.
 An idempotent bind retains the row and its observations. Updates use the existing
 immediate binding transaction and exact binding ID, so an observation for a removed
-binding cannot update its replacement. Retired identities retain preferences but
-cannot read or update them through the active-identity port. Neither a provider
+binding cannot update its replacement. Retiring an identity, for either lifetime,
+clears its remembered session and driver state in the retiring transaction; the
+launch preference stays hidden behind the active-identity port. Neither a provider
 session ID nor a running observation grants binding ownership or delivery authority.
 Resume coordinates pair the session ID with its harness and driver-owned runtime
 mode, separately from the preferred harness. Changing that preference cannot
 silently reinterpret a saved session as belonging to another runtime.
+
+Schema 37 keeps driver-owned resume state beside the remembered session: a
+bounded (1 KiB), versioned document that core stores but never parses, plus a
+stale mark for a session a resume found gone. The session and harness stay
+columns because core correlates hook events on them. One identity has one current
+runtime: only starting provider events replace the session (clearing a stale
+mark, and keeping driver state only under the same driver), and a confirmed
+launch under another runtime driver drops the previous driver's session and
+state. Persistence is an optional driver interface: `RuntimeLifecycle::state_version`
+names the version a driver reads, and `RuntimeRegistry::reconcile` discards state
+it cannot read and drops sessions of unregistered drivers, which
+`Storage::purge_unregistered_sessions` also sweeps. Driver state holds resume
+essentials only, never transcript content, arguments or secrets.
 Runtime observations retain a driver-supplied PID/start-identity pair and an
 optional provider session ID. Schema 34 additionally retains an optional launch
 owner PID/start-identity pair alongside the provider observation key in the binding
