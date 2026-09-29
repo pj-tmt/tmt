@@ -890,6 +890,36 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
             ]
         )).arg(operand("request-id", true)),
     )
+    .subcommand(with_options(
+        storage(spec!(
+            "inbox",
+            "List requests waiting on you for a final response",
+            details = "A request leaves only when it has a final response or its acceptance deadline passes; acknowledging it does not remove it.",
+            [
+                "What is waiting on you" => "tmt inbox",
+                "Only from one identity" => "tmt inbox --from reviewer",
+                "As a named identity outside its pane" => "tmt inbox --identity ben",
+            ]
+        )),
+        &["identity", "limit", "from"],
+    ))
+    .subcommand(
+        with_options(
+            storage(spec!(
+                "answer",
+                "Answer the request an identity is waiting on you for",
+                details = "With several open requests from that identity, nothing is sent until you choose one with --request. With --request the sender may be omitted, as for an anonymous one. If a request gave you a receipt, use tmt reply.",
+                [
+                    "Answer with a message" => "tmt answer reviewer \"Yes, ship it\"",
+                    "Choose one of several open requests" => "tmt answer reviewer \"Yes\" --request req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30",
+                    "Answer a request by ID, also one from an anonymous sender" => "tmt answer --request req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30 \"Done\"",
+                ]
+            )),
+            &["identity", "request", "file", "stdin"],
+        )
+        .arg(operand("from", false))
+        .arg(operand("content", false)),
+    )
     .subcommand(
         with_options(
             general(spec!(
@@ -1202,6 +1232,8 @@ fn option(id: &'static str) -> Arg {
         "limit" => value("Maximum exchanges, 1 through 200").global(true),
         "after" => value("List revisions after this cursor").global(true),
         "revision" => value("Observed revision to acknowledge"),
+        "from" => value("Only requests from this identity"),
+        "request" => value("Answer this open request ID"),
         "where" => Arg::new(id)
             .long(id)
             .help("Require exact metadata KEY=VALUE")

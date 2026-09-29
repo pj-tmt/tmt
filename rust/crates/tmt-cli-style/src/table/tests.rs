@@ -153,3 +153,56 @@ fn a_colored_first_column_keeps_its_gap_before_text_ending_in_m() {
         "\u{1b}[2mskill  \u{1b}[0m  ~/tmux-team"
     );
 }
+
+/// The layout before it moved onto the shared solver, kept as an oracle.
+fn legacy_layout(columns: &[Column], natural: &[usize], available: Option<usize>) -> Vec<usize> {
+    let mut widths = natural.to_vec();
+    let Some(budget) = available else {
+        return widths;
+    };
+    let total = |widths: &[usize]| widths.iter().sum::<usize>() + GAP * (widths.len() - 1);
+    for kind in [Column::Detail, Column::Name] {
+        while total(&widths) > budget {
+            let widest = (0..widths.len())
+                .filter(|&index| columns[index] == kind && widths[index] > MINIMUM)
+                .max_by_key(|&index| (widths[index], std::cmp::Reverse(index)));
+            let Some(index) = widest else { break };
+            let excess = total(&widths) - budget;
+            let next = (0..widths.len())
+                .filter(|&other| other != index && columns[other] == kind)
+                .map(|other| widths[other])
+                .filter(|&width| width < widths[index])
+                .max()
+                .unwrap_or(0)
+                .max(MINIMUM);
+            widths[index] -= excess.min(widths[index] - next).max(1);
+        }
+    }
+    widths
+}
+
+#[test]
+fn the_shared_solver_lays_out_exactly_as_the_table_did() {
+    let mut state = 512_u64;
+    let mut next = |bound: usize| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        ((state >> 33) % bound as u64) as usize
+    };
+    for _ in 0..3_000 {
+        let count = 1 + next(6);
+        let columns: Vec<Column> = (0..count)
+            .map(|_| [Column::Fixed, Column::Name, Column::Detail][next(3)])
+            .collect();
+        let natural: Vec<usize> = (0..count).map(|_| next(30)).collect();
+        let mut table = Table::new(&columns).indent(0);
+        table.row(natural.iter().map(|width| "x".repeat(*width)));
+        let available = (next(4) > 0).then(|| next(100));
+        assert_eq!(
+            layout(&[&table], available.map(|width| width as u16)),
+            legacy_layout(&columns, &natural, available),
+            "{columns:?} {natural:?} at {available:?}"
+        );
+    }
+}
