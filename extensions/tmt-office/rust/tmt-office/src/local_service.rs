@@ -15,11 +15,6 @@ use std::{
 use tmt_adapters::config::ConfigPaths;
 use tmt_adapters::office_service;
 use tmt_adapters::office_service::ServiceReceipt;
-use tmt_adapters::storage::Storage;
-use tmt_adapters::tmux::BindingSession;
-use tmt_adapters::tmux::CallerEnvironment;
-use tmt_adapters::tmux::Tmux;
-use tmt_core::binding;
 use tmt_office_model::codec::office_avatar::ValidatedAvatarPack;
 use tmt_office_model::codec::office_avatar::validate_pack as validate_avatar_pack;
 use tmt_office_model::codec::office_profile_wire;
@@ -33,6 +28,7 @@ use tmt_office_storage::{LocalProfileError, OfficeStore};
 
 use crate::local_assets;
 
+mod core;
 mod dispatch;
 mod notebooks;
 mod props;
@@ -194,8 +190,10 @@ fn serve() -> Result<(), ServeError> {
     let port = listener.local_addr()?.port();
     // Initialize the shared schema before concurrent browser requests arrive.
     // Readiness means storage is usable, not only that the port can accept a socket.
-    let mut storage = Storage::open(&paths.database).map_err(io::Error::other)?;
-    storage.close().map_err(io::Error::other)?;
+    // Core initializes its own storage on first use; Office only asks it.
+    core::open(&paths)
+        .and_then(|core| core.api("references.resolve", json!({}), None))
+        .map_err(|error| io::Error::other(error.code))?;
     reconcile(&paths);
     let receipt = ServiceReceipt {
         schema_version: 1,
@@ -712,39 +710,32 @@ fn profile_api(
     receipt: &ServiceReceipt,
 ) -> io::Result<()> {
     if request.method == "GET" && request.path == "/api/v1/local/profiles" {
-        let mut storage = match Storage::open(&paths.database) {
-            Ok(storage) => storage,
-            Err(_) => {
-                return response(
-                    stream,
-                    500,
-                    "application/json",
-                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-                );
-            }
+        let unavailable = |stream: &mut TcpStream, error: &'static [u8]| {
+            response(stream, 500, "application/json", error)
         };
-        // A persisted binding is not presence: verify the recorded tmux
+        let core = match core::open(paths) {
+            Ok(core) => core,
+            Err(_) => return unavailable(stream, br#"{"error":"STORAGE_UNAVAILABLE"}"#),
+        };
+        // A persisted binding is not presence: core verifies the recorded tmux
         // endpoints without collapsing unavailable evidence into offline.
-        let tmux = Tmux::default();
-        let environment = CallerEnvironment::current();
-        let mut endpoint = BindingSession::new(&tmux);
-        let presence = match binding::list_presence(
-            &mut storage,
-            &mut endpoint,
-            environment.selected_socket(),
-        ) {
-            Ok(rows) => rows
-                .into_iter()
-                .map(|row| (row.identity.id, (row.presence, row.identity.lifetime)))
-                .collect::<HashMap<_, _>>(),
-            Err(_) => {
-                return response(
-                    stream,
-                    500,
-                    "application/json",
-                    br#"{"error":"PRESENCE_UNAVAILABLE"}"#,
-                );
-            }
+        let presence = match core.command(&["list"]).ok().and_then(|value| {
+            value["identities"]
+                .as_array()?
+                .iter()
+                .map(|row| {
+                    Some((
+                        row["id"].as_str()?.to_owned(),
+                        (
+                            row["presence"].as_str()?.to_owned(),
+                            row["lifetime"].as_str()?.to_owned(),
+                        ),
+                    ))
+                })
+                .collect::<Option<HashMap<_, _>>>()
+        }) {
+            Some(rows) => rows,
+            None => return unavailable(stream, br#"{"error":"PRESENCE_UNAVAILABLE"}"#),
         };
         let profiles =
             match OfficeStore::open_configured(&tmt_office_storage::StorageLayout::new(paths))
@@ -755,27 +746,22 @@ fn profile_api(
                     profiles
                 }) {
                 Ok(profiles) => profiles,
-                Err(_) => {
-                    return response(
-                        stream,
-                        500,
-                        "application/json",
-                        br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-                    );
-                }
+                Err(_) => return unavailable(stream, br#"{"error":"STORAGE_UNAVAILABLE"}"#),
             };
-        let statuses = match storage.list_active_identity_statuses() {
-            Ok(statuses) => statuses,
-            Err(_) => {
-                return response(
-                    stream,
-                    500,
-                    "application/json",
-                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-                );
+        let ids: Vec<&str> = profiles.iter().map(|p| p.identity_id.as_str()).collect();
+        let mut statuses: HashMap<String, Value> = HashMap::new();
+        for chunk in ids.chunks(256) {
+            match core.api("identities.status", json!({"identityIds": chunk}), None) {
+                Ok(page) => {
+                    for entry in page["identities"].as_array().into_iter().flatten() {
+                        if let Some(id) = entry["id"].as_str() {
+                            statuses.insert(id.to_owned(), entry["status"].clone());
+                        }
+                    }
+                }
+                Err(_) => return unavailable(stream, br#"{"error":"STORAGE_UNAVAILABLE"}"#),
             }
-        };
-        let observed_at_ms = tmt_adapters::request_runtime::wall_time_ms();
+        }
         let mut values = Vec::with_capacity(profiles.len());
         for profile in profiles {
             let Some((observation, lifetime)) = presence.get(&profile.identity_id) else {
@@ -786,25 +772,17 @@ fn profile_api(
                     br#"{"error":"IDENTITY_DIRECTORY_CHANGED"}"#,
                 );
             };
-            let status = tmt_adapters::identity_status::status_value(
-                statuses.get(&profile.identity_id),
-                observed_at_ms,
-            );
+            let status = statuses
+                .get(&profile.identity_id)
+                .cloned()
+                .unwrap_or(Value::Null);
             let mut value = local_profile_snapshot(profile);
-            value["presence"] = json!(observation.as_str());
-            value["lifetime"] = json!(lifetime.as_str());
+            value["presence"] = json!(observation);
+            value["lifetime"] = json!(lifetime);
             value["selfReportedStatus"] = status;
             values.push(value);
         }
         let body = serde_json::to_vec(&values)?;
-        if storage.close().is_err() {
-            return response(
-                stream,
-                500,
-                "application/json",
-                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-            );
-        }
         return response(stream, 200, "application/json", &body);
     }
     let Some(identity_id) = request.path.strip_prefix("/api/v1/local/profiles/") else {
@@ -1190,6 +1168,7 @@ fn secret() -> io::Result<String> {
 mod tests {
     use super::*;
     use std::{collections::BTreeSet, thread};
+    use tmt_adapters::storage::Storage;
 
     pub(super) fn test_receipt() -> ServiceReceipt {
         ServiceReceipt {

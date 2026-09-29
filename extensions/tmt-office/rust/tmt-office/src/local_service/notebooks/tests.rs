@@ -1,6 +1,6 @@
 use super::super::{test_fixture::HttpFixture, tests::response_value};
 use super::*;
-use tmt_adapters::storage::Storage;
+use tmt_adapters::{notes, storage::Storage};
 use tmt_core::identity::{Lifetime, NotesIdentityId, create_or_resolve};
 
 fn request(method: &str, path: &str) -> Request {
@@ -80,4 +80,27 @@ fn notebook_route_reads_existing_text_without_rendering_or_creating_content() {
         json!({ "identityId": saved.id, "name": "Alice", "content": content })
     );
     assert_eq!(std::fs::read(file).unwrap(), content.as_bytes());
+}
+
+#[test]
+fn every_notebook_error_code_has_an_explicit_status_and_unknown_codes_are_unavailable() {
+    use tmt_adapters::notes::NotebookError;
+    for (error, status) in [
+        (NotebookError::InvalidIdentity, 400),
+        (NotebookError::IdentityNotFound, 404),
+        (NotebookError::Missing, 404),
+        (NotebookError::SavedIdentityRequired, 403),
+        (NotebookError::TooLarge, 413),
+        (NotebookError::InvalidText, 422),
+        (NotebookError::Unavailable, 500),
+    ] {
+        assert_eq!(status_for(error.code()), (status, error.code()));
+    }
+    assert_eq!(
+        status_for("API_INPUT_INVALID"),
+        (400, "NOTEBOOK_INVALID_IDENTITY")
+    );
+    for code in ["CORE_UNAVAILABLE", "API_UNAVAILABLE", "SOMETHING_NEW"] {
+        assert_eq!(status_for(code), (500, "NOTEBOOK_UNAVAILABLE"), "{code}");
+    }
 }

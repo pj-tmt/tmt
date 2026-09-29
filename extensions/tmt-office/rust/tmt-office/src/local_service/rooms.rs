@@ -1,15 +1,15 @@
 //! Room definition and membership endpoints use the existing local owner authority.
 
 use super::{Request, require_json_origin, response};
+use serde_json::{Value, json};
 use std::{io, net::TcpStream};
 use tmt_adapters::{
     config::ConfigPaths,
     office_service::ServiceReceipt,
-    room::{decode_retire, decode_write, encode_room, encode_rooms},
-    storage::{RoomStoreError, Storage},
+    room::{decode_retire, decode_write},
 };
 use tmt_core::dispatch::canonical_id;
-use tmt_core::room::{RoomRepository, RoomWrite};
+use tmt_office_storage::core_client::Originator;
 
 pub(super) const PATH: &str = "/api/v1/local/rooms";
 fn room_id(path: &str) -> Option<&str> {
@@ -23,7 +23,7 @@ pub(super) fn input_limit(method: &str, path: &str) -> Option<usize> {
 }
 
 enum Mutation<'a> {
-    Save(&'a str, RoomWrite),
+    Save(&'a str, Value),
     Retire(&'a str, u64),
 }
 
@@ -59,7 +59,9 @@ pub(super) fn api(
         let mutation = if retiring {
             decode_retire(&request.body).map(|revision| Mutation::Retire(id, revision))
         } else {
-            decode_write(&request.body).map(|input| Mutation::Save(id, input))
+            decode_write(&request.body)
+                .and_then(|_| serde_json::from_slice(&request.body).ok())
+                .map(|room| Mutation::Save(id, room))
         };
         let Some(mutation) = mutation else {
             return response(
@@ -73,53 +75,77 @@ pub(super) fn api(
     } else {
         return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
     };
-    let mut storage = match Storage::open(&paths.database) {
-        Ok(storage) => storage,
-        Err(_) => {
-            return response(
-                stream,
-                500,
-                "application/json",
-                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-            );
-        }
+    let core = match super::core::open(paths) {
+        Ok(core) => core,
+        Err(_) => return storage_unavailable(stream),
     };
+    // The browser is the local owner: writes are anonymous, like the CLI without
+    // an identity, and carry the browser's expected revision.
     let result = match write {
-        Some(Mutation::Save(id, input)) => storage
-            .save_meeting_room(id, input)
-            .map(|room| encode_room(&room)),
-        Some(Mutation::Retire(id, revision)) => storage
-            .retire_meeting_room(id, revision)
-            .map(|room| encode_room(&room)),
-        None => storage
-            .list_meeting_rooms()
-            .map(|rooms| encode_rooms(&rooms)),
-    };
-    let closed = storage.close();
-    match result {
-        Ok(body) if closed.is_ok() => response(stream, 200, "application/json", &body),
-        Ok(_) => response(
-            stream,
-            500,
-            "application/json",
-            br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+        Some(Mutation::Save(id, input)) => core.api(
+            "rooms.write",
+            json!({"roomId": id, "room": input}),
+            Some(Originator::Anonymous),
         ),
+        Some(Mutation::Retire(id, revision)) => core.api(
+            "rooms.retire",
+            json!({"roomId": id, "expectedRevision": revision}),
+            Some(Originator::Anonymous),
+        ),
+        None => core
+            .command(&["room", "list"])
+            .map(|value| value["rooms"].clone()),
+    };
+    match result {
+        Ok(body) => response(stream, 200, "application/json", &serde_json::to_vec(&body)?),
         Err(error) => {
-            let status = match error {
-                RoomStoreError::Invalid => 400,
-                RoomStoreError::NotFound => 404,
-                RoomStoreError::RevisionConflict
-                | RoomStoreError::IdentityInactive
-                | RoomStoreError::Retired => 409,
-                RoomStoreError::Storage(_) => 500,
-            };
+            let status = status_for(&error.code);
             response(
                 stream,
                 status,
                 "application/json",
-                &serde_json::to_vec(&serde_json::json!({"error":error.code()}))?,
+                &serde_json::to_vec(&json!({"error": error_code(&error.code)}))?,
             )
         }
+    }
+}
+
+fn storage_unavailable(stream: &mut TcpStream) -> io::Result<()> {
+    response(
+        stream,
+        500,
+        "application/json",
+        br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+    )
+}
+
+/// Every room code core can answer with has an explicit HTTP status; anything
+/// else is reported as unavailable storage rather than passed through.
+const ROOM_STATUSES: &[(&str, u16)] = &[
+    ("ROOM_INVALID", 400),
+    ("ROOM_NOT_FOUND", 404),
+    ("ROOM_REVISION_CONFLICT", 409),
+    ("ROOM_IDENTITY_INACTIVE", 409),
+    ("ROOM_RETIRED", 409),
+    ("API_INPUT_INVALID", 400),
+];
+
+fn status_for(code: &str) -> u16 {
+    ROOM_STATUSES
+        .iter()
+        .find(|(known, _)| *known == code)
+        .map_or(500, |(_, status)| *status)
+}
+
+fn error_code(code: &str) -> &str {
+    if ROOM_STATUSES.iter().any(|(known, _)| *known == code) {
+        if code == "API_INPUT_INVALID" {
+            "ROOM_INVALID"
+        } else {
+            code
+        }
+    } else {
+        "STORAGE_UNAVAILABLE"
     }
 }
 

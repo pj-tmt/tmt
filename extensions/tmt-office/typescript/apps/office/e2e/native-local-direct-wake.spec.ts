@@ -61,7 +61,7 @@ test('a direct Office request wakes only the verified recipient once while inbox
             (event) => event.event === 'input' && event.line?.includes(requestId) === true
           );
           expect(input.line).toBe(
-            `Office request ${requestId} is queued. Read it with: tmt x show ${requestId} --incoming --identity ${alice.id} --json`
+            `[tmt] request ${requestId} is queued: tmt x show ${requestId} --incoming --identity ${alice.id} --json`
           );
           await fixture.waitForEvent(
             (event) => event.event === 'input' && event.pid === input.pid && event.line === ''

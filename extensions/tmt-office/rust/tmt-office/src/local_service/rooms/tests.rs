@@ -1,6 +1,7 @@
 use super::super::{test_fixture::HttpFixture, tests::response_value};
 use super::*;
 use serde_json::json;
+use tmt_adapters::storage::Storage;
 use tmt_core::identity::{Lifetime, create_or_resolve};
 
 const ROOM: &str = "11111111-1111-4111-8111-111111111111";
@@ -150,4 +151,39 @@ fn room_dispatch_checks_current_membership_under_the_shared_owner_route() {
         response_value(&rejected),
         json!({"error":"ROOM_ROSTER_CHANGED"})
     );
+}
+
+#[test]
+fn every_room_error_code_has_an_explicit_status_and_unknown_codes_are_storage() {
+    use tmt_adapters::storage::RoomStoreError;
+    for (error, status) in [
+        (RoomStoreError::Invalid, 400),
+        (RoomStoreError::NotFound, 404),
+        (RoomStoreError::RevisionConflict, 409),
+        (RoomStoreError::IdentityInactive, 409),
+        (RoomStoreError::Retired, 409),
+    ] {
+        assert_eq!(status_for(error.code()), status, "{}", error.code());
+        assert_eq!(error_code(error.code()), error.code());
+    }
+    // The API reports malformed input under its own code.
+    assert_eq!(
+        (
+            status_for("API_INPUT_INVALID"),
+            error_code("API_INPUT_INVALID")
+        ),
+        (400, "ROOM_INVALID")
+    );
+    for code in [
+        "CORE_UNAVAILABLE",
+        "API_UNAVAILABLE",
+        "STORAGE_UNAVAILABLE",
+        "SOMETHING_NEW",
+    ] {
+        assert_eq!(
+            (status_for(code), error_code(code)),
+            (500, "STORAGE_UNAVAILABLE"),
+            "{code}"
+        );
+    }
 }
