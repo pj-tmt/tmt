@@ -345,7 +345,16 @@ impl App {
                 }
                 self.error = None;
             }
-            Err(error) => self.error = Some(error),
+            Err(error) => {
+                // The switch failed: the error is the state, not a stale frame
+                // that keeps saying it is loading. The old view stays cached.
+                if self.stale()
+                    && let (Some(previous), Some(name)) = (self.view.take(), self.shown.take())
+                {
+                    self.cache.entry(name).or_insert(previous);
+                }
+                self.error = Some(error);
+            }
         }
         self.clamp();
     }
@@ -939,6 +948,29 @@ pub(crate) mod tests {
         );
         assert_eq!(names(&app), ["late"]);
         assert!(!app.stale(), "a cached squad is the current one at once");
+    }
+
+    #[test]
+    fn a_failed_switch_shows_its_error_instead_of_a_stale_loading_frame() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot(
+            "product",
+            json!([{"title": null, "rows": [row("a", "")]}]),
+        ));
+        press(&mut app, KeyCode::Right);
+        app.apply(Snapshot {
+            squads: vec!["product".into(), "infra".into()],
+            squad: Some("infra".into()),
+            view: Err("infra: room not found".into()),
+        });
+        assert!(!app.stale() && app.loading_since.is_none());
+        assert!(app.view.is_none());
+        assert_eq!(app.error.as_deref(), Some("infra: room not found"));
+        press(&mut app, KeyCode::Enter);
+        assert_ne!(app.notice.as_deref(), Some("Loading infra…"));
+        // The squad it came from is still one key away, from the cache.
+        press(&mut app, KeyCode::Left);
+        assert_eq!(names(&app), ["a"]);
     }
 
     fn member(name: &str, fields: Value) -> Value {
