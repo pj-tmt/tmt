@@ -587,7 +587,8 @@ The Rust crates have deliberately narrow responsibilities:
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
 implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
-messages, lists, tables, the help registration contract and the one
+messages, lists, tables, the one column-width solver `grid` that tables and
+extension boards share, the help registration contract and the one
 interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
 `whoami`, `unbind`), also render through it directly and write through its
