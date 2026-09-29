@@ -451,9 +451,14 @@ test('native pairing resumes its protected proof and a separate process uses the
         expect(
           readFileSync(path.join(sandbox.globalDir, 'office', 'installation-id'), 'utf8')
         ).toBe(installationId);
+        // No pairing material reaches the Office directory: only the installation
+        // ID, locks and Office's own storage (`office.db`, switched on first use).
         expect(
           readdirSync(path.join(sandbox.globalDir, 'office')).every(
-            (name) => name === 'installation-id' || name.endsWith('.lock')
+            (name) =>
+              name === 'installation-id' ||
+              name.endsWith('.lock') ||
+              /^office\.db(-wal|-shm)?$/.test(name)
           )
         ).toBe(true);
         for (const result of [
