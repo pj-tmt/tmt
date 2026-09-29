@@ -775,6 +775,16 @@ Product identity proofs are package-scoped, matching per-product release builds:
 compare `cargo build --locked --release -p tmt-cli` alone, at the same checkout
 path, before and after a change.
 
+A fixture that writes an executable and then runs it, directly or through an
+installer's verifier, can be refused with ETXTBSY ("Text file busy") in a
+multi-test binary: another test thread's `fork` holds a copy of the write
+descriptor until the child's `exec`, and nothing the writer does closes that
+window. Fixtures wait it out with a bounded retry of only that error; production
+code never retries. `tmt-office-command` does this in `test_support::install_office`
+(`retry_on_text_file_busy`). The opt-in stress test `cargo test -p
+tmt-office-command text_file_busy_stress -- --ignored --nocapture` reproduces the
+race and reports failures with and without the retry.
+
 Human output and help snapshots (`insta`, a dev-dependency) live beside the
 tests that assert them, such as `rust/crates/tmt-cli-style/tests/snapshots/`.
 After an intended change, regenerate with `INSTA_UPDATE=always cargo test -p
