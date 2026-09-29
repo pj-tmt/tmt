@@ -707,6 +707,92 @@ mod tests {
         row
     }
 
+    /// The board as every preset draws it: the default columns, read from
+    /// an empty config.
+    fn preset_board() -> App {
+        let path = std::env::temp_dir().join(format!("squad-golden-{}.toml", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let config = crate::config::Config::read(path).unwrap();
+        let mut app = board(json!([
+            {"title": "Needs me", "rows": [
+                row("auth-fix", "blocked", "rotate session tokens without logging everyone out", json!({
+                    "pending": "approve", "note": "needs a call",
+                    "fields": {"state": "blocked", "task": "rotate session tokens without logging everyone out", "pr_link": "https://github.com/wkh237/tmt/pull/4242"}
+                }))
+            ]},
+            {"title": "Everyone", "rows": [
+                row("文件-sweep-long-name", "working", "整理安装指南和常见问题", json!({})),
+                row("perf", "", "", json!({"fields": {}, "annotation": {"to": "sol", "text": "check the cache hit rate"}})),
+            ]}
+        ]));
+        app.view.as_mut().unwrap().columns = config.columns("product").unwrap();
+        app
+    }
+
+    /// Golden: every preset's board as drawn before the rows moved onto the
+    /// shared grid solver. The layout engine must keep these byte for byte.
+    #[test]
+    fn preset_columns_draw_exactly_as_before_at_every_width() {
+        let app = preset_board();
+        let golden: [(u16, [&str; 8]); 4] = [
+            (
+                48,
+                [
+                    "  MEMBER         STATE      TASK    PR",
+                    "NEEDS ME",
+                    "◆ auth-fix       blocked    rotate… https://git…",
+                    "    note needs a call",
+                    "EVERYONE",
+                    "  文件-sweep-lo… working    整理安… –",
+                    "  perf           –          –       –",
+                    "    ✎ sent to sol: check the cache hit rate",
+                ],
+            ),
+            (
+                60,
+                [
+                    "  MEMBER         STATE      TASK                PR",
+                    "NEEDS ME",
+                    "◆ auth-fix       blocked    rotate session tok… https://git…",
+                    "    note needs a call",
+                    "EVERYONE",
+                    "  文件-sweep-lo… working    整理安装指南和常见… –",
+                    "  perf           –          –                   –",
+                    "    ✎ sent to sol: check the cache hit rate",
+                ],
+            ),
+            (
+                80,
+                [
+                    "  MEMBER         STATE      TASK                                    PR",
+                    "NEEDS ME",
+                    "◆ auth-fix       blocked    rotate session tokens without logging … https://git…",
+                    "    note needs a call",
+                    "EVERYONE",
+                    "  文件-sweep-lo… working    整理安装指南和常见问题                  –",
+                    "  perf           –          –                                       –",
+                    "    ✎ sent to sol: check the cache hit rate",
+                ],
+            ),
+            (
+                120,
+                [
+                    "  MEMBER         STATE      TASK                                                                            PR",
+                    "NEEDS ME",
+                    "◆ auth-fix       blocked    rotate session tokens without logging everyone out                              https://git…",
+                    "    note needs a call",
+                    "EVERYONE",
+                    "  文件-sweep-lo… working    整理安装指南和常见问题                                                          –",
+                    "  perf           –          –                                                                               –",
+                    "    ✎ sent to sol: check the cache hit rate",
+                ],
+            ),
+        ];
+        for (width, lines) in golden {
+            assert_eq!(draw(&app, width, 10)[1..9], lines, "at {width} columns");
+        }
+    }
+
     #[test]
     fn rows_show_pending_marker_notes_sections_and_aligned_wide_text() {
         let app = board(json!([
