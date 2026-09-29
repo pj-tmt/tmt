@@ -19,23 +19,23 @@ Every request has `version`, `operation` and `input`. Writes additionally requir
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
 Clients must tolerate additive response fields.
 
-| Operation                | Input                                                             | Result                                                                                  |
-| ------------------------ | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `capabilities`           | `{}`                                                              | Protocol range, operations, byte limits and ordinary commands                           |
-| `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`      | `items`, `nextBefore`                                                                   |
-| `requests.show`          | `requestId`                                                       | Request detail including retained prompt/final state                                    |
-| `dispatch.show`          | `operationId`                                                     | Immutable acceptance receipt                                                            |
-| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room` | Acceptance receipt; optional independent `wake` on first direct request                 |
-| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`             | Room resource                                                                           |
-| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`     | `room` resource and `members` with metadata and status                                  |
-| `notes.read`             | `identityId`                                                      | Saved identity's `identityId`, `name`, `content`                                        |
-| `identityHooks.register` | `consumer`, `identityId`, `reference`                             | `state`: `registered`, `pending` or `delivered`                                         |
-| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                        | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count |
-| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                             | `recorded`                                                                              |
-| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                             | `acknowledged`                                                                          |
-| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`              | `owner`, `published` targets                                                            |
-| `skills.remove`          | `owner`, `consent: true`                                          | `owner`, `removed` and `kept` targets                                                   |
-| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                 | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)        |
+| Operation                | Input                                                                     | Result                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `capabilities`           | `{}`                                                                      | Protocol range, operations, byte limits and ordinary commands                                      |
+| `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`              | `items`, `nextBefore`                                                                              |
+| `requests.show`          | `requestId`                                                               | Request detail including retained prompt/final state                                               |
+| `dispatch.show`          | `operationId`                                                             | Immutable acceptance receipt                                                                       |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room`         | Acceptance receipt; optional independent `wake` on first direct request                            |
+| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                     | Room resource                                                                                      |
+| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`             | `room` resource and `members` with metadata and status                                             |
+| `notes.read`             | `identityId`                                                              | Saved identity's `identityId`, `name`, `content`                                                   |
+| `identityHooks.register` | `consumer`, `identityId`, `reference`                                     | `state`: `registered`, `pending` or `delivered`                                                    |
+| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count            |
+| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                     | `recorded`                                                                                         |
+| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                     | `acknowledged`                                                                                     |
+| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                      | `owner`, `published` targets                                                                       |
+| `skills.remove`          | `owner`, `consent: true`                                                  | `owner`, `removed` and `kept` targets                                                              |
+| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`) |
 
 IDs are canonical UUIDs, except request IDs, which use TMT's `req_...` format.
 `dispatch.create.kind` defaults to `request`; `announcement` does not expect a
