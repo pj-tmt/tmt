@@ -271,6 +271,11 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             operation: crate::office_facade::parser::translate(path, m)?,
         },
         ["__native-refresh-skills"] => Invocation::NativeRefreshSkills,
+        ["uninstall"] => Invocation::Uninstall {
+            purge: flag(m, "purge"),
+            yes: flag(m, "yes"),
+            prefix: text(m, "prefix"),
+        },
         ["__native-install"] => Invocation::NativeInstall {
             product: tmt_core::native_install::Product::parse(&required(m, "product"))
                 .expect("product was validated by grammar"),

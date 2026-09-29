@@ -15,6 +15,10 @@ pub(crate) fn release_verifier(
     }
 }
 
+/// Office's local service, for core's uninstall: checked in its plan and
+/// stopped before any Office file is removed.
+pub(crate) use tmt_office_command::service_control;
+
 pub(crate) fn execute(
     prefix: Option<String>,
     operation: invocation::OfficeOperation,

@@ -4,7 +4,7 @@ mod artifact;
 mod online;
 mod remove;
 pub use online::{default_install_prefix, install_release, latest_release_version};
-pub use remove::uninstall_extension;
+pub use remove::{ProductRemoval, plan_product_removal, remove_product, uninstall_extension};
 pub use tmt_core::native_install::Product;
 mod managed;
 pub use managed::{

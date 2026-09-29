@@ -959,6 +959,24 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
         .arg(Arg::new("to").long("to").conflicts_with("unpin"))
         .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
     )
+    .subcommand(
+        general(spec!(
+            "uninstall",
+            "Remove TMT from this machine; your data is kept unless --purge",
+            [
+                "Review and remove TMT" => "tmt uninstall",
+                "Also delete identities, messages and notes" => "tmt uninstall --purge",
+            ]
+        ))
+        .arg(
+            Arg::new("purge")
+                .long("purge")
+                .help("Also delete TMT's data directory")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(Arg::new("yes").long("yes").help("Approve without a prompt").action(ArgAction::SetTrue))
+        .arg(Arg::new("prefix").long("prefix").help("The installation prefix (default: this installation's)")),
+    )
     .subcommand(internal("__native-refresh-skills", "Internal managed skill refresh").hide(true))
     .subcommand(
         internal("__native-install", "Internal offline native installation")
