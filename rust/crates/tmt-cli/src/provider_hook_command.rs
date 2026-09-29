@@ -18,7 +18,7 @@ use tmt_adapters::{
 use tmt_core::{
     binding::{
         BindingEvidence, BindingRepository, evaluate_binding,
-        session::{HarnessId, RememberedSession, RuntimeLiveness},
+        session::{HarnessId, RuntimeLiveness},
     },
     endpoint::EndpointProbe,
 };
@@ -228,11 +228,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             if event.starting() {
                 let mut preferences = records.session_preferences(&binding.identity_id)?;
                 preferences.preferred_harness = Some(harness.clone());
-                preferences.remembered = Some(RememberedSession {
-                    harness: harness.clone(),
-                    mode: mode.clone(),
-                    provider_session: event.session().clone(),
-                });
+                preferences.remember(harness.clone(), mode.clone(), event.session().clone());
                 return records.set_session_preferences(&binding.identity_id, &preferences);
             }
             Ok(true)

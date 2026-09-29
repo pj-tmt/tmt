@@ -68,6 +68,8 @@ fn check() -> Result<(), String> {
                 mode: RuntimeMode::new(mode).map_err(|error| error.to_string())?,
                 provider_session: ProviderSessionId::new("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
                     .map_err(|error| error.to_string())?,
+                state: None,
+                stale_at_ms: None,
             };
             let ActionResult::Completed(mut command) = registry.resume(&session) else {
                 return Err(format!("{harness}/{mode}: resume mapping unavailable"));

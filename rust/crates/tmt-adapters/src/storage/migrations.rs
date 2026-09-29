@@ -196,6 +196,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "record extension storage cutovers and fence moved Office rows",
         sql: include_str!("schema/036.sql"),
     },
+    Migration {
+        name: "keep driver-owned resume state beside remembered sessions",
+        sql: include_str!("schema/037.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

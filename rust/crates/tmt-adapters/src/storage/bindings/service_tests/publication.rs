@@ -55,6 +55,8 @@ fn same_interface_rebind_retains_runtime_observation_and_preferences() {
             harness: HarnessId::new("codex").unwrap(),
             mode: RuntimeMode::new("shared").unwrap(),
             provider_session: ProviderSessionId::new("remembered-session").unwrap(),
+            state: None,
+            stale_at_ms: None,
         }),
     };
     storage

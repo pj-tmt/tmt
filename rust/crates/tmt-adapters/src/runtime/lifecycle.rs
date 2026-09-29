@@ -98,6 +98,12 @@ pub trait RuntimeLifecycle {
         current.record_launched_exit(key, owner)
     }
 
+    /// The driver-state version this driver reads. A driver without the
+    /// persistence interface reads none, so any stored state is discarded.
+    fn state_version(&self) -> Option<u16> {
+        None
+    }
+
     /// An admitted runtime may outlive its owned foreground client. None keeps
     /// the generic exact-child exit path; a value is the driver's disconnect state.
     fn disconnected(

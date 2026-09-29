@@ -404,11 +404,12 @@ fn run_bound(
                 return Ok(None);
             }
             // A confirmed spawn remembers the pure driver claim even when
-            // the process exits before live admission. It never replaces
-            // the independently hook-owned remembered session.
+            // the process exits before live admission. It never writes a
+            // session (hooks own that), but a session another driver
+            // remembered is dropped: one identity has one current runtime.
             if let Some(harness) = &claim {
                 let mut preferences = records.session_preferences(&binding.identity_id)?;
-                preferences.preferred_harness = Some(harness.clone());
+                preferences.launched(harness);
                 records.set_session_preferences(&binding.identity_id, &preferences)?;
             }
             let (true, Some(owner), Some(child)) = (can_admit, &owner, &child_incarnation) else {
@@ -665,6 +666,8 @@ mod tests {
                 harness: HarnessId::new(harness).unwrap(),
                 mode: RuntimeMode::new(mode).unwrap(),
                 provider_session: ProviderSessionId::new(session).unwrap(),
+                state: None,
+                stale_at_ms: None,
             }),
         }
     }

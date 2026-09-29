@@ -123,7 +123,7 @@ fn session_upgrade_preserves_binding_and_rolls_back_observations_with_history() 
         .execute_batch("DROP TRIGGER reject_session_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 36);
+    assert_eq!(storage.health().unwrap().schema_version, 37);
     let row = oracle.query_row(
         "SELECT id, identity_id, pane_id, bound_at, last_verified_at, runtime_state, last_transition FROM bindings",
         [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?)),
@@ -161,4 +161,35 @@ fn session_upgrade_preserves_binding_and_rolls_back_observations_with_history() 
         "original role"
     );
     storage.close().unwrap();
+}
+
+#[test]
+fn driver_state_upgrade_keeps_remembered_sessions_without_state() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("schema36.db");
+    let mut old = Connection::open(&path).unwrap();
+    test_support::seed_history(&mut old);
+    apply_identity_lifetime(&mut old, &MIGRATIONS[8]).unwrap();
+    for (index, migration) in MIGRATIONS[9..36].iter().enumerate() {
+        apply_version(&mut old, index as u32 + 10, migration).unwrap();
+    }
+    old.execute(
+        "INSERT INTO identity_session_preferences VALUES ('old-id','claude','claude','default','session')",
+        [],
+    )
+    .unwrap();
+    old.close().unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 37);
+    storage.close().unwrap();
+    let oracle = Connection::open(&path).unwrap();
+    let row: (String, Option<String>, Option<i64>, Option<i64>) = oracle
+        .query_row(
+            "SELECT provider_session_id, driver_state, driver_state_version, stale_at_ms
+             FROM identity_session_preferences WHERE identity_id = 'old-id'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(row, ("session".into(), None, None, None));
 }

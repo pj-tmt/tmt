@@ -216,6 +216,7 @@ impl BindingRecords for BindingRows<'_> {
         self.0
             .execute("DELETE FROM bindings WHERE identity_id = ?", [&identity.id])
             .map_err(|error| classify(error, "Detach identity binding"))?;
+        session::forget(self.0, &identity.id)?;
         if remove_content {
             self.0
                 .execute(
@@ -260,6 +261,20 @@ impl BindingRepository for Storage {
     ) -> Result<T, E> {
         with_immediate_transaction(self, "binding", |transaction| {
             operation(&mut BindingRows(transaction))
+        })
+    }
+}
+
+impl Storage {
+    /// Purge remembered sessions, with their driver state, whose driver is not
+    /// registered, so no state outlives its driver. Returns the affected
+    /// identity IDs for reporting.
+    pub fn purge_unregistered_sessions(
+        &mut self,
+        registered: &[&str],
+    ) -> Result<Vec<String>, StorageError> {
+        with_immediate_transaction(self, "session purge", |transaction| {
+            session::purge_unregistered(transaction, registered)
         })
     }
 }

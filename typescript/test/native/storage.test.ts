@@ -91,6 +91,7 @@ function expectNativeSchema(
     },
     { version: 35, name: 'claim originator reply and detached timeout hints' },
     { version: 36, name: 'record extension storage cutovers and fence moved Office rows' },
+    { version: 37, name: 'keep driver-owned resume state beside remembered sessions' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -150,6 +151,9 @@ function expectNativeSchema(
         'remembered_harness',
         'runtime_mode',
         'provider_session_id',
+        'driver_state',
+        'driver_state_version',
+        'stale_at_ms',
       ],
     ],
     ['identity_status', ['identity_id', 'activity', 'mood', 'updated_at_ms', 'expires_at_ms']],

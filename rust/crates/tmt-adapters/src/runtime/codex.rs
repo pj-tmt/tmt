@@ -347,6 +347,8 @@ mod tests {
                 harness: HarnessId::new("codex").unwrap(),
                 mode: RuntimeMode::new(super::super::CODEX_MODE_SHARED).unwrap(),
                 provider_session: session.clone(),
+                state: None,
+                stale_at_ms: None,
             }),
         };
         let launched = BindingSessionState::default()
