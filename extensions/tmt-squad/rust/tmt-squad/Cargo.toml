@@ -8,9 +8,16 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 
-# Distribution arrives with the generic extension installer (#387).
+# Released as its own product (tmt-squad-v<version>), installed with `tmt extension install squad`.
 [package.metadata.dist]
-dist = false
+dist = true
+# A package list replaces the workspace list, so it repeats the shared files.
+include = [
+    "../../../../LICENSE",
+    "../../../../docs/NATIVE-INSTALL.md",
+    "../../../../rust/target/native-notices/THIRD-PARTY-NOTICES.txt",
+    "../../skills",
+]
 
 # Squad reaches core only through public commands and `tmt api`; the
 # architecture guard rejects any TMT crate dependency in either direction.

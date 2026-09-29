@@ -42,6 +42,8 @@ COPY skills/tmux-team/SKILL.md expected-skill.md
 COPY skills/tmux-team/SKILL.md skills/tmux-team/SKILL.md
 COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
 COPY extensions/tmt-office/skills/tmt-office/SKILL.md extensions/tmt-office/skills/tmt-office/SKILL.md
+# Squad archives are compared byte for byte with these sources (--skills).
+COPY extensions/tmt-squad/skills/ expected-squad-skills/
 COPY --from=build /workspace/native-manifest.json ./
 COPY --from=build /workspace/rust/target/native-notices/THIRD-PARTY-NOTICES.txt expected-notices.txt
 COPY LICENSE expected-license.txt

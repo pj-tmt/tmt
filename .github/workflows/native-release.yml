@@ -13,6 +13,7 @@ on:
         options:
           - cli
           - office
+          - squad
 
 permissions:
   contents: read
@@ -138,7 +139,7 @@ jobs:
           export PACKAGE="$package"
           version=$(cargo metadata --manifest-path rust/Cargo.toml --locked --no-deps --format-version 1 | node -pe 'const p=process.env.PACKAGE; JSON.parse(require("fs").readFileSync(0,"utf8")).packages.find(x => x.name === p).version')
           tag="v$version"
-          if [ "$PRODUCT" = office ]; then tag="tmt-office-v$version"; fi
+          if [ "$PRODUCT" != cli ]; then tag="tmt-$PRODUCT-v$version"; fi
           dist plan --tag "$tag" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
           dist build --tag "$tag" --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
           cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
@@ -202,6 +203,13 @@ jobs:
               --skill skills/tmux-team/SKILL.md
             node typescript/scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib > "$RUNNER_TEMP/installer.sh"
             cmp "$RUNNER_TEMP/installer.sh" target/distrib/tmt-installer.sh
+          elif [ "$PRODUCT" = squad ]; then
+            node typescript/scripts/verify-native-artifact.mjs \
+              --product squad \
+              --manifest target/distrib/dist-manifest.json \
+              --archive "target/distrib/tmt-squad-$TARGET.tar.gz" --target "$TARGET" \
+              --skills extensions/tmt-squad/skills --license LICENSE \
+              --notices "target/distrib/$TARGET-notices.txt"
           else
             node typescript/scripts/verify-native-artifact.mjs \
               --product office \
