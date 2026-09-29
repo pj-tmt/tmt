@@ -2314,3 +2314,54 @@ fn rename_takes_two_names_at_the_top_level_and_under_identity() {
     parse_error(&["rename", "only-one"]);
     parse_error(&["identity", "rename"]);
 }
+
+#[test]
+fn inbox_and_answer_select_an_identity_and_one_body_source() {
+    assert_eq!(
+        parsed(&[
+            "inbox",
+            "--from",
+            "alice",
+            "--limit",
+            "5",
+            "--identity",
+            "ben"
+        ])
+        .invocation,
+        Invocation::Inbox {
+            identity: Some("ben".into()),
+            from: Some("alice".into()),
+            limit: Some(5),
+        }
+    );
+    assert_eq!(
+        parsed(&["answer", "alice", "yes", "--request", "req_1"]).invocation,
+        Invocation::Answer {
+            identity: None,
+            from: "alice".into(),
+            request: Some("req_1".into()),
+            input: ContentInput::Inline("yes".into()),
+        }
+    );
+    assert_eq!(
+        parsed(&["answer", "alice", "--stdin"]).invocation,
+        Invocation::Answer {
+            identity: None,
+            from: "alice".into(),
+            request: None,
+            input: ContentInput::Stdin,
+        }
+    );
+    for argv in [
+        &["answer", "alice"][..],
+        &["answer", "alice", "yes", "--file", "/tmp/a.md"][..],
+    ] {
+        assert_usage_error(argv, "exactly one inline content", OutputMode::default());
+    }
+    for argv in [
+        &["inbox", "--limit", "0"][..],
+        &["inbox", "--limit", "201"][..],
+    ] {
+        assert_eq!(parse_error(argv).code, "USAGE_ERROR", "arguments: {argv:?}");
+    }
+}

@@ -16,6 +16,7 @@ const IDENTITY_OPERANDS: &[(&[&str], &str)] = &[
     (&["check"], "target"),
     (&["focus"], "target"),
     (&["list"], "target"),
+    (&["answer"], "from"),
     (&["identity", "show"], "name"),
     (&["preamble", "show"], "agent"),
     (&["preamble", "set"], "agent"),

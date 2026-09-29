@@ -50,7 +50,7 @@ fn input_failure(error: ResponseInputError) -> Failure {
     Failure::new(error.code(), error.to_string(), status).caused_by(error)
 }
 
-fn response_failure(
+pub(crate) fn response_failure(
     error: RequestError<StorageError>,
     directory: &Path,
     is_reply: bool,
@@ -97,7 +97,7 @@ fn response_failure(
     Failure::new(reason.code(), message, status).caused_by(error)
 }
 
-fn body(input: ContentInput) -> Result<String, Failure> {
+pub(crate) fn body(input: ContentInput) -> Result<String, Failure> {
     match input {
         ContentInput::Inline(text) => {
             validate_exact_text(text.as_bytes()).map_err(|_| {

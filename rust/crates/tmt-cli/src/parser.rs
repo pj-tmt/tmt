@@ -605,6 +605,26 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["result"] => Invocation::Result {
             request_id: request_id(m)?,
         },
+        ["inbox"] => Invocation::Inbox {
+            identity: text(m, "identity"),
+            from: text(m, "from"),
+            limit: text(m, "limit")
+                .map(|value| {
+                    integer(
+                        &value,
+                        "--limit",
+                        1,
+                        tmt_core::request::inbox::INBOX_MAX_LIMIT,
+                    )
+                })
+                .transpose()?,
+        },
+        ["answer"] => Invocation::Answer {
+            identity: text(m, "identity"),
+            from: required(m, "from"),
+            request: text(m, "request"),
+            input: content(m, "content", true)?,
+        },
         ["install"] => {
             let target = text(m, "agent");
             let directory = text(m, "dir");
