@@ -220,9 +220,9 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         // Resume replays the exact session with the model its hooks reported.
         expect(JSON.parse(fs.readFileSync(resumed, 'utf8'))).toEqual([
           'resume',
-          session,
           '-m',
           'gpt-5.3-codex',
+          session,
         ]);
         expect(read()).toEqual({ ...before, runtime_state: 'running', runtime_mode: 'shared' });
         fs.writeFileSync(release, 'exit');

@@ -307,24 +307,24 @@ impl Driver for FirstParty {
         if uuid::Uuid::parse_str(resume.session.as_str()).is_err() {
             return ActionResult::Failed(RuntimeError::InvalidSession);
         }
-        let mut args = match self {
-            Self::Claude => vec![
-                OsString::from("--resume"),
-                OsString::from(resume.session.as_str()),
-            ],
-            Self::Codex => vec![
-                OsString::from("resume"),
-                OsString::from(resume.session.as_str()),
-            ],
-        };
         // Only a model the provider reported is replayed; unreadable state
-        // resumes with the provider's default rather than a guess.
-        if let Some(model) = resume.state.and_then(model_state::state_model) {
+        // resumes with the provider's default rather than a guess. Placement
+        // follows each CLI's recorded usage (runtime/fixtures/README.md).
+        let model = resume.state.and_then(model_state::state_model);
+        let session = OsString::from(resume.session.as_str());
+        let mut args = match self {
+            Self::Claude => vec![OsString::from("--resume"), session],
+            Self::Codex => vec![OsString::from("resume")],
+        };
+        if let Some(model) = model {
             args.push(match self {
                 Self::Claude => "--model".into(),
                 Self::Codex => "-m".into(),
             });
             args.push(model.into());
+        }
+        if let Self::Codex = self {
+            args.push(OsString::from(resume.session.as_str()));
         }
         if mode == CODEX_MODE_EMBEDDED {
             args.push("--no-daemon".into());
@@ -656,16 +656,15 @@ mod tests {
                 None,
                 "readable state is kept"
             );
-            let (flag, resume) = if harness == "claude" {
-                ("--model", vec!["--resume"])
+            let id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+            // `claude [options]`; `codex resume [OPTIONS] [SESSION_ID]`.
+            let (expected, bare): (Vec<&str>, Vec<&str>) = if harness == "claude" {
+                (vec!["--resume", id, "--model", model], vec!["--resume", id])
             } else {
-                ("-m", vec!["resume"])
+                (vec!["resume", "-m", model, id], vec!["resume", id])
             };
-            let expected = resume
-                .into_iter()
-                .chain(["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", flag, model])
-                .map(OsString::from)
-                .collect::<Vec<_>>();
+            let expected = expected.into_iter().map(OsString::from).collect::<Vec<_>>();
+            let bare = bare.into_iter().map(OsString::from).collect::<Vec<_>>();
             let session = preferences.remembered.as_mut().unwrap();
             let mut registry = RuntimeRegistry::first_party();
             assert_eq!(
@@ -681,7 +680,7 @@ mod tests {
                 registry.resume(session),
                 ActionResult::Completed(RuntimeCommand {
                     executable: harness.into(),
-                    args: expected[..expected.len() - 2].to_vec(),
+                    args: bare,
                 })
             );
         }

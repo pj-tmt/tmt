@@ -16,3 +16,15 @@ its source listed here.
   `hook_event_name` and `model` ("Codex-specific extension. Active model slug")
   appear together with SessionStart's `source` and `permission_mode`. The IDs and
   values are placeholders, because the documentation gives no example payload.
+
+## Resume argv placement
+
+The resume commands follow each CLI's usage line. These were observed read-only
+with `--help` under a disposable `HOME` (and `CODEX_HOME`) on 2026-09-29:
+
+- codex-cli 0.158.0, `codex resume --help`: `Usage: codex resume [OPTIONS]
+  [SESSION_ID] [PROMPT]`, with `-m, --model <MODEL>` among the resume options.
+  The driver emits `codex resume -m <model> <session>`.
+- Claude Code 2.1.284, `claude --help`: `Usage: claude [options] [command]
+  [prompt]`, with the `--model <model>` and `-r, --resume [value]` options. The
+  driver emits `claude --resume <session> --model <model>`.

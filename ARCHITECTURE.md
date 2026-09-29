@@ -1092,12 +1092,14 @@ essentials only, never transcript content, arguments or secrets.
 The claude and codex drivers implement persistence with a version 1 document,
 `{"model": <slug>}` (`runtime::model_state`). Its only source is the `model` field
 of a starting hook event, which both providers document (see
-`runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`,
-and then the previous model stays. When a provider sends no model, nothing is
-stored. Drivers never read transcripts or session files, and never infer a model
-from arguments. Resume replays a stored model (`claude --resume <id> --model <m>`,
-`codex resume <id> -m <m>`) only when the document is readable and the slug is a
-safe single argv value. Otherwise it resumes with the provider's default.
+`runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
+then the previous model stays. When a provider sends no model, nothing is stored.
+Drivers never read transcripts or session files, and never infer a model from
+arguments. Resume replays a stored model (`claude --resume <id> --model <m>`,
+`codex resume -m <m> <id>`, following each CLI's recorded usage) only when the
+document is readable and the slug is a safe single argv value. Otherwise it
+resumes with the provider's default.
+
 Runtime observations retain a driver-supplied PID/start-identity pair and an
 optional provider session ID. Schema 34 additionally retains an optional launch
 owner PID/start-identity pair alongside the provider observation key in the binding
