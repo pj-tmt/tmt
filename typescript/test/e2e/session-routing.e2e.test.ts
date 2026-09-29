@@ -361,6 +361,66 @@ describe.sequential('session-aware durable routing', () => {
     );
   });
 
+  it('losing the offline timeout observer does not resend or suppress the later reply callback', async () => {
+    await withE2EFixture(async (fixture) => {
+      expectJsonResult(await fixture.runJsonCli(['name', 'sender']));
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'offline']));
+      const sent = expectJsonResult(
+        await fixture.runJsonCli(['talk', 'offline', 'worker crash', '--timeout', '60'])
+      );
+      expect(sent).toMatchObject({ status: 'queued', offline: true, target: 'offline' });
+      const id = String(sent.requestId);
+      const pid = observerPid(fixture, id);
+      const args = execFileSync('ps', ['-p', String(pid), '-o', 'args='], {
+        encoding: 'utf8',
+      }).trim();
+      expect(args.endsWith(`__request-observer ${id}`)).toBe(true);
+      const group = execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], {
+        encoding: 'utf8',
+      }).trim();
+      expect(Number(group)).toBe(pid);
+      process.kill(-pid, 'SIGKILL');
+      await observerGone(fixture, pid);
+      // A crashed observer never reaches cleanup; its log remains evidence.
+      expect(fs.readFileSync(observerLog(fixture, id), 'utf8')).toMatch(/^observer_pid=/m);
+
+      const recipient = await fixture.createMockPane('offline');
+      expectJsonResult(await fixture.runJsonCli(['name', 'offline'], { pane: recipient.pane }));
+      const detail = expectJsonResult<{ exchange: { reply: { receipt: string } } }>(
+        await fixture.runJsonCli(['x', 'show', id, '--incoming', '--identity', 'offline'], {
+          withoutTmux: true,
+        })
+      );
+      // The reply command pastes the originator hint through tmux, so it runs
+      // from the recipient's pane like an agent would.
+      expectJsonResult(
+        await fixture.runJsonCli(
+          ['reply', id, '--receipt', detail.exchange.reply.receipt, '--message', 'late answer'],
+          { pane: recipient.pane }
+        )
+      );
+      const hint = `[tmt] reply from offline to ${id}: tmt result ${id}`;
+      await fixture.waitForEvent((event) => event.event === 'input' && event.line === hint);
+      await fixture.waitFor(
+        () => rows(fixture)[0]?.reply_state === 'sent',
+        5000,
+        'originator reply hint'
+      );
+      expect(rows(fixture)[0]).toMatchObject({
+        timeout_state: 'not_attempted',
+        reply_state: 'sent',
+      });
+      expect(
+        fixture.events().filter((event) => event.event === 'input' && event.line === hint)
+      ).toHaveLength(1);
+      // Neither the crash nor the later binding resends or re-wakes the request.
+      expect(fixture.events().filter((event) => event.event === 'request')).toEqual([]);
+      expect(expectJsonResult(await fixture.runJsonCli(['result', id]))).toMatchObject({
+        response: 'late answer',
+      });
+    });
+  });
+
   it('queues an offline recipient, emits a bounded timeout hint and never re-wakes after binding', async () => {
     await withE2EFixture(async (fixture) => {
       expectJsonResult(await fixture.runJsonCli(['name', 'sender']));
