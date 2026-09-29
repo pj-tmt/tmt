@@ -240,8 +240,19 @@ describe('consented extension hooks', () => {
       const enabled = await cli(sandbox, ['extension', 'hooks', 'enable', 'office']);
       expect(enabled.enabled).toMatchObject({
         name: 'office',
-        capabilities: ['lifecycle_observations_v1'],
+        capabilities: ['context_v1', 'lifecycle_observations_v1'],
       });
+      // Context is a read-only protocol reply; Bea has no desk yet, so no line.
+      const bea = ((await cli(sandbox, ['identity', 'show', 'Bea'])).identity as { id: string }).id;
+      const context = execFileSync(
+        path.join(prefix, 'bin', 'tmt-office'),
+        ['__tmt-hooks', '1', 'context'],
+        {
+          input: JSON.stringify({ version: 1, identityId: bea }),
+          env: { ...sandbox.env, TMT_HOOK_DELIVERY: '1' },
+        }
+      ).toString();
+      expect(JSON.parse(context)).toEqual({ summary: null });
       await cli(sandbox, ['rm', 'Bea', '--force']);
       // The retirement observation made Office reconcile before any Office command ran.
       const marker = new Database(path.join(sandbox.globalDir, 'office', 'office.db'), {

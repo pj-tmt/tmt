@@ -105,6 +105,16 @@ user runs `tmt extension hooks enable <name>`. Core then invokes the resolved
   (`identityId`, `lifetime`, `retired`) and `room.created`, `room.updated` and
   `room.retired` (`roomId`, `revision`, `retired`).
 
+- `__tmt-hooks 1 context` (capability `context_v1`): read
+  `{"version":1,"identityId":"<uuid>"}` and print `{"summary":"<text>"}` (at most
+  240 characters) or `{"summary":null}` within the shared 300 ms deadline. It is
+  asked only for a verified, bound identity and must be read-only: do not write,
+  migrate or start anything.
+
+Summaries are untrusted informational text. TMT attributes them by extension name,
+escapes them and labels them `(informational)` when they reach an agent's
+context; never phrase a summary as an instruction.
+
 Observations may be dropped, repeated or delivered after later changes; treat
 them as a prompt to reconcile, not as a log. Output is ignored, and the exit
 status never affects the command. All observers of one command share a 500 ms

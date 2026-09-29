@@ -215,6 +215,11 @@ pub fn status(layout: &StorageLayout) -> Result<Status> {
     })
 }
 
+/// Whether core recorded the Office storage switch, read query-only.
+pub(crate) fn switched(layout: &StorageLayout) -> Result<bool> {
+    switch::read_receipt(&layout.source).map(|receipt| receipt.is_some())
+}
+
 const BACKUP_PREFIX: &str = "office-storage-";
 
 fn backups(layout: &StorageLayout) -> Result<Vec<Backup>> {

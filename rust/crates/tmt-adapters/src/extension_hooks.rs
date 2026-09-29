@@ -493,5 +493,84 @@ pub fn deliver_pending() -> usize {
     delivered
 }
 
+// ---- Context contributions --------------------------------------------
+
+/// One budget for every extension contribution to one context rendering.
+pub const CONTEXT_DEADLINE: Duration = Duration::from_millis(300);
+const CONTEXT_OUTPUT_LIMIT: usize = 1024;
+pub const SUMMARY_CHARACTER_LIMIT: usize = 240;
+
+/// An extension's untrusted, informational line for a verified identity. The
+/// host attributes it by the consented name; it is data, never an instruction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Contribution {
+    pub extension: String,
+    pub summary: String,
+}
+
+/// Asks each enabled `context_v1` extension for one summary, sharing one
+/// deadline. Anything invalid, late, absent or changed is omitted. With no
+/// such extension this reads the consent file once and spawns nothing.
+pub fn context_contributions(
+    global_dir: &Path,
+    identity_id: &str,
+    deadline: Instant,
+) -> Vec<Contribution> {
+    if std::env::var_os(DELIVERY_MARKER).is_some() {
+        return Vec::new();
+    }
+    let consents = read_consents(&consent_path(global_dir)).unwrap_or_default();
+    if !consents.iter().any(|consent| {
+        consent
+            .capabilities
+            .iter()
+            .any(|value| value == CONTEXT_CAPABILITY)
+    }) {
+        return Vec::new();
+    }
+    let Ok(tmt) = std::env::current_exe() else {
+        return Vec::new();
+    };
+    let deadline = deadline.min(Instant::now() + CONTEXT_DEADLINE);
+    let input = serde_json::json!({"version": 1, "identityId": identity_id}).to_string();
+    let mut contributions = Vec::new();
+    for consent in verified(consents, CONTEXT_CAPABILITY) {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let args = invocation(&consent.path, &tmt, "context");
+        let Ok(output) = UnixCommandRunner.execute(CommandRequest {
+            program: OsStr::new(ENV),
+            args: &args,
+            input: input.as_bytes(),
+            deadline,
+            max_output_bytes: CONTEXT_OUTPUT_LIMIT,
+        }) else {
+            continue;
+        };
+        if let Some(summary) = decode_summary(&output.stdout) {
+            contributions.push(Contribution {
+                extension: consent.name,
+                summary,
+            });
+        }
+    }
+    contributions
+}
+
+/// Exactly `{"summary": "<non-empty, at most 240 characters>"}`; `null` or
+/// anything else means no contribution.
+pub fn decode_summary(bytes: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Reply {
+        summary: Option<String>,
+    }
+    let reply: Reply = serde_json::from_slice(bytes).ok()?;
+    reply.summary.filter(|summary| {
+        !summary.trim().is_empty() && summary.chars().count() <= SUMMARY_CHARACTER_LIMIT
+    })
+}
+
 #[cfg(test)]
 mod tests;

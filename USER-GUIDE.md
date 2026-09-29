@@ -323,7 +323,9 @@ Enabling requires an executable you own that no one else can modify, and records
 exactly that file; after an upgrade or any change, enable it again. Hooks receive
 only UUIDs and states, never names or messages, and cannot block or change a
 command. For Office, enabling hooks keeps retired identities and rooms marked
-without waiting for the next Office command.
+without waiting for the next Office command. An extension that offers context
+adds one labelled, informational line to `tmt whoami --context` and to the
+context agents receive; Office describes the identity's desk.
 
 ## Optional squad extension
 
