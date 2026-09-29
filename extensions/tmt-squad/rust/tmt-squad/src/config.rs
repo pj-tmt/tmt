@@ -280,31 +280,6 @@ impl States {
     }
 }
 
-/// One board column: a row field (`member` is the name), its title and width.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Column {
-    pub field: String,
-    pub title: String,
-    /// Display cells; None shares the remaining width.
-    pub width: Option<u16>,
-}
-
-fn default_columns() -> Vec<Column> {
-    [
-        ("member", "MEMBER", Some(14)),
-        ("state", "STATE", Some(10)),
-        ("task", "TASK", None),
-        ("pr_link", "PR", Some(12)),
-    ]
-    .into_iter()
-    .map(|(field, title, width)| Column {
-        field: field.into(),
-        title: title.into(),
-        width,
-    })
-    .collect()
-}
-
 fn field_name(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -572,98 +547,10 @@ impl Config {
             .collect()
     }
 
-    /// `[squad.<name>.columns]`: `show` lists fields in order; a table named
-    /// after a field sets its `title` and `width`.
-    pub fn columns(&self, squad: &str) -> Result<Vec<Column>, SquadError> {
-        let place = format!("squad.{squad}.columns");
-        let Some(item) = self
-            .squad_table(squad)?
-            .and_then(|table| table.get("columns"))
-        else {
-            return Ok(default_columns());
-        };
-        let table = item
-            .as_table_like()
-            .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
-        let defaults = default_columns();
-        let show: Vec<String> = match table.get("show") {
-            None => defaults.iter().map(|column| column.field.clone()).collect(),
-            Some(show) => show
-                .as_array()
-                .filter(|fields| (1..=12).contains(&fields.len()))
-                .ok_or_else(|| invalid(format!("`{place}.show` must list 1-12 fields.")))?
-                .iter()
-                .map(|field| {
-                    field
-                        .as_str()
-                        .filter(|field| field_name(field))
-                        .map(str::to_owned)
-                        .ok_or_else(|| invalid(format!("`{place}.show` entries are field names.")))
-                })
-                .collect::<Result<_, _>>()?,
-        };
-        for (key, _) in table.iter() {
-            if key != "show" && !show.iter().any(|field| field == key) {
-                return Err(invalid(format!(
-                    "`{place}.{key}` configures a column that is not shown."
-                )));
-            }
-        }
-        show.into_iter()
-            .map(|field| {
-                let default = defaults.iter().find(|column| column.field == field);
-                let mut column = Column {
-                    title: default
-                        .map_or_else(|| field.to_uppercase(), |column| column.title.clone()),
-                    width: default.and_then(|column| column.width),
-                    field,
-                };
-                if let Some(settings) = table.get(&column.field) {
-                    let settings = settings.as_table_like().ok_or_else(|| {
-                        invalid(format!("`{place}.{}` must be a table.", column.field))
-                    })?;
-                    for (key, value) in settings.iter() {
-                        match key {
-                            "title" => {
-                                column.title = value
-                                    .as_str()
-                                    .filter(|title| {
-                                        title.len() <= 40 && !title.chars().any(char::is_control)
-                                    })
-                                    .ok_or_else(|| {
-                                        invalid(format!(
-                                            "`{place}.{}.title` must be one short line.",
-                                            column.field
-                                        ))
-                                    })?
-                                    .into();
-                            }
-                            "width" => {
-                                column.width = Some(
-                                    value
-                                        .as_integer()
-                                        .and_then(|width| u16::try_from(width).ok())
-                                        .filter(|width| (1..=200).contains(width))
-                                        .ok_or_else(|| {
-                                            invalid(format!(
-                                                "`{place}.{}.width` must be 1-200.",
-                                                column.field
-                                            ))
-                                        })?,
-                                );
-                            }
-                            other => {
-                                return Err(invalid(format!(
-                                    "`{place}.{}.{other}` is not a column setting.",
-                                    column.field
-                                )));
-                            }
-                        }
-                    }
-                }
-                Ok(column)
-            })
-            .collect()
+    /// How rows are laid out: `[squad.<name>.rows]`, the older `columns`
+    /// table, or the preset.
+    pub fn rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
+        crate::rows::read(self.squad_table(squad)?, squad)
     }
 
     /// `[squad.<name>.board]` over the layout's preset. Validated before the
@@ -1253,7 +1140,7 @@ sort = ["state", "-name"]
         )
         .unwrap();
         let config = Config::read(path.clone()).unwrap();
-        let defaults = config.columns("other").unwrap();
+        let defaults = config.rows("other").unwrap().columns;
         assert_eq!(
             defaults
                 .iter()
@@ -1261,15 +1148,12 @@ sort = ["state", "-name"]
                 .collect::<Vec<_>>(),
             ["member", "state", "task", "pr_link"]
         );
-        let columns = config.columns("product").unwrap();
+        let columns = config.rows("product").unwrap().columns;
         assert_eq!(
-            columns[2],
-            Column {
-                field: "note".into(),
-                title: "WHY".into(),
-                width: Some(30)
-            }
+            (columns[2].field.as_str(), columns[2].title.as_str()),
+            ("note", "WHY")
         );
+        assert_eq!((columns[2].width, columns[2].grow), (Some(30), 0));
         assert_eq!(columns[0].title, "MEMBER");
         let colors = config.states("product", Layout::Crew).unwrap().colors;
         assert_eq!(colors["blocked"], "red");
@@ -1296,7 +1180,7 @@ sort = ["state", "-name"]
             fs::write(&path, body).unwrap();
             let config = Config::read(path.clone()).unwrap();
             let code = config
-                .columns("x")
+                .rows("x")
                 .and_then(|_| config.states("x", Layout::Crew))
                 .err()
                 .map(|error| error.code);

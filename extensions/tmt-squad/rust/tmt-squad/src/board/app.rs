@@ -4,7 +4,7 @@
 
 use crate::{
     action::{Action, Bindings, Verb},
-    config::{Board, Column, NotesRender, Pane},
+    config::{Board, NotesRender, Pane},
     effects,
 };
 use ratatui::crossterm::event::{
@@ -21,7 +21,7 @@ use std::{
 pub struct View {
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
-    pub columns: Vec<Column>,
+    pub rows: crate::rows::Rows,
     pub colors: BTreeMap<String, String>,
     pub board: Board,
     pub notes: Notes,
@@ -728,7 +728,7 @@ pub(crate) mod tests {
     fn view(sections: Value) -> View {
         View {
             document: json!({"squad": {"name": "product"}, "sections": sections}),
-            columns: Vec::new(),
+            rows: crate::rows::Rows::preset(),
             colors: BTreeMap::new(),
             board: crate::config::Board {
                 mode: crate::config::BoardMode::Split,
