@@ -93,14 +93,20 @@ Human output shows readable forms (`value`). `--json` always keeps the full valu
 
 ## Help
 
-Every command is built by `tmt_cli_style::command` from a `CommandSpec`: summary,
-examples, output modes (`Human`, `Json`, `HumanAndJson`, where the last adds
-`--json`). Registration panics without a summary, or with fewer than one or more
-than three examples.
+Every command is built from a `CommandSpec`: summary, examples, output modes
+(`Human`, `Json`, `HumanAndJson`, where the last adds `--json`) and optional
+details. `tmt_cli_style::command` builds a whole command; `apply` puts the same
+help on a command whose CLI parses help and `--json` itself, as core does.
+Registration panics without a summary, or with fewer than one or more than three
+examples.
 
 - Sections, in order: summary, `Usage`, `Commands`, `Arguments`, `Options` (the
   order clap renders them), any discovered sections (such as the root's
-  `Extensions`), then `Examples`.
+  `Extensions`), an optional `Details`, then `Examples`.
+- `Details` (`CommandSpec::details`) holds safety and boundary facts that must
+  be visible in help, such as which identities a command accepts or what it
+  never creates. It sits just before `Examples`. It is rare by design: it is
+  never a place for a longer description.
 - `-h`, `--help` and `tmt help <command>` print the same text (`help_text`).
 - Each example is a comment line naming what it does, followed by the full
   command. Show the common use first. Examples must parse through the real
@@ -167,3 +173,26 @@ entries. Both lists are empty when #436 closes.
   Squad board) is exempt by name, with a reason. The rest of its file is still
   checked. The lists are in
   `rust/crates/tmt-cli/tests/architecture/output_allowlist.rs`.
+
+## Migrating a command
+
+Each step leaves the command's tests passing; delete the command's entries from
+the migration lists in the same change.
+
+1. **Help.** Build the command from a `CommandSpec`: a one-line summary and one
+   to three examples, the common use first. A CLI that parses help itself (core)
+   calls `apply` on its own `Command`; any other CLI calls `command`, which also
+   adds `-h`/`--help` and `--json`. Each example is the full command a user
+   types. The grammar walk parses it through the real parser, so run the walk
+   until the command leaves its help list.
+2. **Streams.** Replace `io::stdout()`/`io::stderr()` and print macros with
+   `stream::stdout(json)` and `stream::stderr()`. Pass `stream.terminal()` to
+   every renderer.
+3. **Output.** Write outcomes with `message::success`, `message::error` and
+   `message::hint`, lists with `list::Section`, and values with `value`. Output
+   that must be an exact byte stream (a stored response, a script, a protocol)
+   moves into a function of its own and becomes an exact-body exemption with a
+   reason.
+4. **JSON proof.** `--json` never changes. Capture the command's `--json` output
+   before and after the change in the same sandbox, and show the byte-equal
+   comparison in the pull request.

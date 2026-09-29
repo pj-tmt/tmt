@@ -3,22 +3,19 @@
 
 use crate::{extension_command::Discovered, grammar};
 use std::io::{self, Write};
+use tmt_cli_style::Terminal;
 
 /// Root help also lists `discovered`; dispatch passes the real `PATH`
 /// discovery, and tests pass a fixed list so help never depends on the machine.
-pub fn write(path: &[String], discovered: &Discovered, output: &mut impl Write) -> io::Result<()> {
+pub fn write(
+    path: &[String],
+    discovered: &Discovered,
+    terminal: Terminal,
+    output: &mut impl Write,
+) -> io::Result<()> {
+    let mut command = grammar::help_command(path).map_err(io::Error::other)?;
     if path.is_empty() {
-        writeln!(
-            output,
-            "TMT native alpha — collaborate with terminal agents through durable exchanges.\nRun tmt install to set up agent skills; managed installations use tmt upgrade.\n"
-        )?;
+        command = tmt_cli_style::apply(command, grammar::ROOT, &discovered.sections());
     }
-    grammar::help_command(path)
-        .map_err(io::Error::other)?
-        .write_help(output)?;
-    writeln!(output)?;
-    if path.is_empty() {
-        discovered.write(output)?;
-    }
-    Ok(())
+    output.write_all(tmt_cli_style::help_text(&command, terminal).as_bytes())
 }

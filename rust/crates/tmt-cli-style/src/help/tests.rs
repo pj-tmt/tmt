@@ -11,6 +11,7 @@ fn spec(examples: &'static [Example], outputs: OutputModes) -> CommandSpec {
         summary: "List agents",
         examples,
         outputs,
+        details: "",
     }
 }
 
@@ -111,4 +112,19 @@ fn a_malformed_or_missing_examples_section_is_reported() {
     assert!(examples("Examples:\n  # List agents\n").is_err());
     assert!(examples("Examples:\n  # List agents\n  # again\n").is_err());
     assert_eq!(examples("Examples:\n").unwrap(), []);
+}
+
+#[test]
+fn details_render_just_before_examples_and_only_when_set() {
+    let mut with = spec(EXAMPLES, OutputModes::Human);
+    with.details = "Saved identities only.\nEdit the file directly.";
+    let text = help_text(&command(&with), Terminal::PLAIN);
+    assert!(text.ends_with(
+        "Details:\n  Saved identities only.\n  Edit the file directly.\n\nExamples:\n  # List every agent\n  tmt ls\n"
+    ));
+    let text = help_text(
+        &command(&spec(EXAMPLES, OutputModes::Human)),
+        Terminal::PLAIN,
+    );
+    assert!(!text.contains("Details:"));
 }

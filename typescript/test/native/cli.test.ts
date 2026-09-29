@@ -161,7 +161,7 @@ describe('native grammar process contract', () => {
       expect(help.status).toBe(0);
       expect(help.stderr).toBe('');
       expect(help.stdout).toContain('TMT native alpha');
-      expect(help.stdout).toContain('managed installations use tmt upgrade');
+      expect(help.stdout).toContain('# Update a managed installation\n  tmt upgrade');
       for (const command of [
         'talk',
         'reply',

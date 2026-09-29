@@ -106,7 +106,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             } else {
                 extension_command::Discovered::default()
             };
-            help_output::write(&path, &discovered, &mut stdout)?;
+            help_output::write(
+                &path,
+                &discovered,
+                tmt_cli_style::Terminal::stdout(false),
+                &mut stdout,
+            )?;
         }
         Invocation::Version => writeln!(stdout, "{}", env!("CARGO_PKG_VERSION"))?,
         Invocation::Complete(words) => completion::query(&words, &mut stdout)?,

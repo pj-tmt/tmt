@@ -55,9 +55,12 @@ describe('PATH extension command contract', () => {
       expect((await runCli(sandbox, ['ls', '--help'])).stdout).not.toContain('WRONG EXTENSION');
       expect((await runCli(sandbox, ['__complete', '--', 'run', ''])).stdout).toBe('identities\n');
       const help = await runCli(sandbox, ['help']);
-      expect(help.stdout).toContain('Extension example:');
+      expect(help.stdout).toContain('\nExtensions:\n');
+      expect(help.stdout).toMatch(/^ {2}example +\S/m);
       for (const name of ['office', 'ls', '__complete']) {
-        expect(help.stdout).toContain(`Ignored tmt-${name}: reserved core command`);
+        expect(help.stdout).toMatch(
+          new RegExp(`^ {2}tmt-${name} +ignored: reserved core command`, 'm')
+        );
       }
       const root = await runCli(sandbox, ['__complete', '--', 'exa']);
       expect(root.stdout).toBe('root\nexample\n');

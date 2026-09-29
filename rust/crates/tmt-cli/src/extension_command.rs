@@ -77,25 +77,38 @@ pub fn discover() -> io::Result<Discovered> {
 }
 
 impl Discovered {
-    pub fn write(&self, output: &mut impl Write) -> io::Result<()> {
-        for (name, path) in &self.ignored {
-            writeln!(
-                output,
-                "Ignored tmt-{name}: reserved core command ({path:?})"
-            )?;
+    /// Root help's `Extensions` section; none when nothing was discovered.
+    pub fn sections(&self) -> Vec<tmt_cli_style::HelpSection> {
+        let home = std::env::home_dir();
+        let path = |path: &std::path::Path| {
+            tmt_cli_style::table::escape(&tmt_cli_style::value::home_path(path, home.as_deref()))
+        };
+        let mut entries: Vec<(String, String)> = self
+            .extensions
+            .iter()
+            .filter_map(|(names, file)| {
+                let (name, aliases) = names.split_first()?;
+                let label = if aliases.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{name} (also: {})", aliases.join(", "))
+                };
+                Some((label, path(file)))
+            })
+            .collect();
+        entries.extend(self.ignored.iter().map(|(name, file)| {
+            (
+                format!("tmt-{name}"),
+                format!("ignored: reserved core command ({})", path(file)),
+            )
+        }));
+        if entries.is_empty() {
+            return Vec::new();
         }
-        for (names, path) in &self.extensions {
-            match names.split_first() {
-                Some((name, [])) => writeln!(output, "Extension {name}: {path:?}")?,
-                Some((name, aliases)) => writeln!(
-                    output,
-                    "Extension {name} (also: {}): {path:?}",
-                    aliases.join(", ")
-                )?,
-                None => {}
-            }
-        }
-        Ok(())
+        vec![tmt_cli_style::HelpSection {
+            title: "Extensions".into(),
+            entries,
+        }]
     }
 }
 

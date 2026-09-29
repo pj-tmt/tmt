@@ -861,7 +861,9 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 ## Public command boundary
 
 `rust/crates/tmt-cli/src/grammar.rs` owns core syntax/help/completion and mounts
-the Office subtree from `tmt-office-command::grammar`. Each owner's parser turns
+the Office subtree from `tmt-office-command::grammar`. Each visible core command
+is registered from a `CommandSpec` (summary and examples) through
+`tmt_cli_style::apply`; hidden internal commands have no help page. Each owner's parser turns
 its grammar into typed invocations; both publish through `tmt-command-output`.
 Hidden commands are still
 parsed for controlled internal workflows but are omitted from public help and
@@ -892,8 +894,8 @@ arguments; TMT does not interpret their options. Root options before an extensio
 are rejected with an option-placement hint when the extension exists. A missing
 executable retains the existing unknown-command diagnostic and presentation mode.
 `tmt help <extension>` executes
-`tmt-<extension> --help`. Root help lists discovered extensions and notes executable
-names shadowed by core. PATH directory enumeration happens only for root help,
+`tmt-<extension> --help`. Root help lists discovered extensions in its `Extensions`
+section, including executable names shadowed by core, which it marks ignored. PATH directory enumeration happens only for root help,
 root completion and unknown-command suggestions; exact extension dispatch probes
 only the requested filename. Ordinary core commands do not enumerate PATH.
 
