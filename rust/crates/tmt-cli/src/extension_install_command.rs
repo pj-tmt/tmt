@@ -252,10 +252,8 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             }
             let executable = prefix.join("bin").join(product.executable());
             // The skills the replaced release carried: only those may be pruned.
-            let previous = skill_names(
-                &native_install::release_skills(product, &executable)
-                    .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?,
-            );
+            let previous = native_install::release_skill_names(product, &executable)
+                .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
             let report = native_install::upgrade_product(
                 product,
                 UpgradeRequest {
@@ -412,10 +410,8 @@ fn install(
     };
     // The skills the replaced release carried: only those may be pruned.
     let previous = match &current {
-        Some(_) => skill_names(
-            &native_install::release_skills(product, &executable)
-                .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?,
-        ),
+        Some(_) => native_install::release_skill_names(product, &executable)
+            .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?,
         None => Vec::new(),
     };
     let channel = channel

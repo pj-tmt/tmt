@@ -495,3 +495,21 @@ fn release_skills_are_exactly_the_verified_tree_or_nothing() {
     .unwrap();
     assert!(super::super::release_skills(Product::Squad, &report.executable).is_err());
 }
+
+#[test]
+fn release_skill_names_are_the_receipt_names_of_a_verified_tree() {
+    let fixture = with_skills();
+    let prefix = fixture.directory.path.join("prefix");
+    let report = install(&fixture, &prefix).unwrap();
+    assert_eq!(
+        super::super::release_skill_names(Product::Squad, &report.executable).unwrap(),
+        ["tmt-squad"]
+    );
+    // Like every receipt read, a damaged tree fails closed.
+    fs::write(
+        release_dir(&report).join("skills/tmt-squad/SKILL.md"),
+        b"tampered",
+    )
+    .unwrap();
+    assert!(super::super::release_skill_names(Product::Squad, &report.executable).is_err());
+}

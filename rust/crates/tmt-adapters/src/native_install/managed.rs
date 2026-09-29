@@ -91,23 +91,10 @@ pub fn release_skills(
     product: Product,
     executable: &Path,
 ) -> io::Result<Vec<crate::skill_installation::OwnedSkill>> {
-    with_active_product(product, executable, |installation| {
-        let directory = installation
-            .active_executable
-            .parent()
-            .ok_or_else(unmanaged)?;
-        let receipt = super::receipt::Receipt::read_product(
-            product,
-            directory,
-            &installation.prefix,
-            installation.id,
-        )?;
+    with_release_receipt(product, executable, |directory, receipt| {
         let mut skills = std::collections::BTreeMap::<String, Vec<(String, Vec<u8>)>>::new();
         for (path, digest) in &receipt.file_hashes {
-            let Some((name, file)) = path
-                .strip_prefix("skills/")
-                .and_then(|rest| rest.split_once('/'))
-            else {
+            let Some((name, file)) = release_skill_file(path) else {
                 continue;
             };
             let bytes = crate::bounded_file::read_no_follow(
@@ -117,7 +104,7 @@ pub fn release_skills(
             .map_err(io::Error::other)?;
             if &super::artifact::digest(&bytes) != digest {
                 return Err(invalid(
-                    "An installed agent skill file has changed; reinstall the extension.",
+                    "An installed agent skill file has changed; TMT will not use or replace this release.",
                 ));
             }
             skills
@@ -129,5 +116,44 @@ pub fn release_skills(
             .into_iter()
             .map(|(name, files)| crate::skill_installation::OwnedSkill { name, files })
             .collect())
+    })
+}
+
+/// The names of the agent skills the active release's receipt records. The
+/// receipt read itself verifies the tree; the files are not loaded again.
+pub fn release_skill_names(product: Product, executable: &Path) -> io::Result<Vec<String>> {
+    with_release_receipt(product, executable, |_, receipt| {
+        let names: std::collections::BTreeSet<&str> = receipt
+            .file_hashes
+            .keys()
+            .filter_map(|path| release_skill_file(path).map(|(name, _)| name))
+            .collect();
+        Ok(names.into_iter().map(str::to_owned).collect())
+    })
+}
+
+/// Splits a receipt path under `skills/` into the skill name and its file.
+fn release_skill_file(path: &str) -> Option<(&str, &str)> {
+    path.strip_prefix("skills/")
+        .and_then(|rest| rest.split_once('/'))
+}
+
+fn with_release_receipt<T>(
+    product: Product,
+    executable: &Path,
+    read: impl FnOnce(&Path, &super::receipt::Receipt) -> io::Result<T>,
+) -> io::Result<T> {
+    with_active_product(product, executable, |installation| {
+        let directory = installation
+            .active_executable
+            .parent()
+            .ok_or_else(unmanaged)?;
+        let receipt = super::receipt::Receipt::read_product(
+            product,
+            directory,
+            &installation.prefix,
+            installation.id,
+        )?;
+        read(directory, &receipt)
     })?
 }
