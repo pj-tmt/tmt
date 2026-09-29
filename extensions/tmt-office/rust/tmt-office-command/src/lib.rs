@@ -6,6 +6,7 @@ pub mod invocation;
 pub mod parser;
 pub mod process_core_access;
 pub mod public;
+pub mod service_control;
 
 mod office_avatar_command;
 mod office_block_command;

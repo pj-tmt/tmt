@@ -1209,8 +1209,12 @@ setup finds exactly what it generates. An invalid record is preserved and
 stops setup before any provider file changes.
 
 `tmt uninstall` (`uninstall_command`) plans every removal read-only, then
-asks once; `--yes` never implies `--purge`. It removes, in order:
+asks once; `--yes` never implies `--purge`. A running local Office service is
+found in the plan; if its state cannot be confirmed, the plan stops with a
+`tmt office stop` hint. Uninstall then works in order:
 
+0. stops that service through Office's own stop path
+   (`office_facade::service_control`);
 1. hooks: the recorded ones, plus exact TMT hooks found without a record
    (`setup::removal`); removal is the exact inverse of setup's own edits, and
    a file left holding only `{}` is deleted;
@@ -1222,7 +1226,8 @@ asks once; `--yes` never implies `--purge`. It removes, in order:
 5. with `--purge`, the data directory.
 
 An unreadable record stops the run before any change. Anything that differs
-from what TMT wrote is kept and reported. A failed step stops the run, and
+from what TMT wrote is kept and reported, and so are the settings backups
+(`settings.tmt-backup-*.json`) that setup and uninstall write. A failed step stops the run, and
 running it again resumes.
 
 Claude SessionStart/SessionEnd decoding, context encoding and runtime ancestry

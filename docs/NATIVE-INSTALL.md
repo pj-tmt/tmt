@@ -224,7 +224,8 @@ tmt uninstall
 ```
 
 This lists what it will remove and asks before changing anything; pass `--yes`
-to approve without a prompt. It removes, in this order:
+to approve without a prompt. It first stops a running local Office service,
+then removes, in this order:
 
 1. the lifecycle hooks `tmt setup` added to agent settings files;
 2. TMT's skill links;
@@ -232,7 +233,8 @@ to approve without a prompt. It removes, in this order:
 4. the `tmt` command and its releases in the prefix.
 
 Anything that no longer matches what TMT wrote (an edited hook, a replaced
-skill, another program's `tmt` command) is kept and reported. Your identities,
+skill, another program's `tmt` command) is kept and reported, as are the
+backups of your agent settings files. Your identities,
 messages and notes stay in TMT's data directory
 (`~/.config/tmux-team` by default). `tmt uninstall --purge` deletes that
 directory too; `--yes` alone never does.

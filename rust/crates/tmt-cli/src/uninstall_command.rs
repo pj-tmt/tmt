@@ -1,6 +1,7 @@
 //! `tmt uninstall`: plan every removal read-only, ask once, then remove in a
-//! fixed order with the running CLI last: hooks, skills, extensions, the CLI,
-//! the setup record, and the data directory only with `--purge`. Anything that
+//! fixed order with the running CLI last: a running Office service is stopped,
+//! then hooks, skills, extensions, the CLI, the setup record, and the data
+//! directory only with `--purge`. Anything that
 //! is no longer what TMT wrote is kept and reported. A failed step stops the
 //! run; running it again resumes, because every step is idempotent.
 
@@ -43,6 +44,8 @@ fn failure(error: impl std::error::Error + 'static) -> Failure {
 }
 
 struct Plan {
+    /// A running local Office service, stopped before any file is removed.
+    office_running: bool,
     hooks: Vec<HookStep>,
     skills: SkillsRemoval,
     products: Vec<(Product, ProductRemoval)>,
@@ -54,6 +57,9 @@ struct Plan {
 impl Plan {
     fn removals(&self) -> Vec<(&'static str, PathBuf)> {
         let mut rows = Vec::new();
+        if self.office_running {
+            rows.push(("stop", PathBuf::from("the local Office service")));
+        }
         for step in &self.hooks {
             if let HookStep::Remove(planned) = step {
                 rows.push(("hooks", planned.change.path.clone()));
@@ -74,6 +80,8 @@ impl Plan {
         rows
     }
 
+    /// What stays, with why. Settings backups are listed as they are on disk
+    /// now, so a call after removal includes the ones it wrote.
     fn kept(&self) -> Vec<(PathBuf, String)> {
         let mut rows = Vec::new();
         for step in &self.hooks {
@@ -98,7 +106,43 @@ impl Plan {
                     .map(|path| (path.clone(), "it is not TMT's command".into())),
             );
         }
+        rows.extend(self.backups().into_iter().map(|path| {
+            (
+                path,
+                "backup of your settings before TMT removed its hooks".into(),
+            )
+        }));
         rows
+    }
+
+    /// `settings.tmt-backup-*.json` beside each hooks file.
+    fn backups(&self) -> Vec<PathBuf> {
+        let mut directories: Vec<PathBuf> = self
+            .hooks
+            .iter()
+            .filter_map(|step| match step {
+                HookStep::Remove(planned) => planned.change.path.parent().map(Path::to_path_buf),
+                HookStep::Forget { settings, .. } | HookStep::Keep { settings, .. } => {
+                    settings.parent().map(Path::to_path_buf)
+                }
+            })
+            .collect();
+        directories.sort();
+        directories.dedup();
+        let mut backups: Vec<PathBuf> = directories
+            .iter()
+            .filter_map(|directory| fs::read_dir(directory).ok())
+            .flatten()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry.file_name().to_str().is_some_and(|name| {
+                    name.starts_with("settings.tmt-backup-") && name.ends_with(".json")
+                })
+            })
+            .map(|entry| entry.path())
+            .collect();
+        backups.sort();
+        backups
     }
 
     fn is_empty(&self) -> bool {
@@ -128,7 +172,19 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
     let drivers = Registry::builtin();
     let prefix = prefix(requested).map_err(failure)?;
     // Read-only: an unreadable record stops here, before anything changes.
+    // A service whose state cannot be confirmed stops the plan: removing its
+    // files underneath it could leave a process without its installation.
+    let office_running =
+        crate::office_facade::service_control::running(&paths).map_err(|error| {
+            Failure::new(
+                "UNINSTALL_ERROR",
+                format!("Could not confirm whether local Office is running: {error}"),
+                1,
+            )
+            .suggestion("run tmt office stop, then tmt uninstall again".into())
+        })?;
     let plan = Plan {
+        office_running,
         hooks: removal::plan_hook_removal(&paths.global_dir, &environment, &drivers)
             .map_err(failure)?,
         skills: skill_installation::plan_uninstall(&environment, &paths.global_dir)
@@ -144,7 +200,7 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
             .collect::<io::Result<_>>()
             .map_err(failure)?,
         data_exists: paths.global_dir.is_dir(),
-        data: paths.global_dir,
+        data: paths.global_dir.clone(),
         purge,
     };
     let mut output = tmt_cli_style::stream::stdout(mode.json);
@@ -180,7 +236,7 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
         return Ok(());
     }
     let mut removed = Vec::new();
-    let result = remove(&plan, &environment, &prefix, &mut removed);
+    let result = remove(&plan, &paths, &environment, &prefix, &mut removed);
     let deleted = result.as_ref().is_ok_and(|deleted| *deleted);
     if let Err(error) = result {
         return Err(Failure::new(
@@ -227,10 +283,14 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
 /// The fixed order. Returns whether the data directory was deleted.
 fn remove(
     plan: &Plan,
+    paths: &ConfigPaths,
     environment: &ProviderEnvironment,
     prefix: &Path,
     removed: &mut Vec<PathBuf>,
 ) -> io::Result<bool> {
+    if plan.office_running {
+        crate::office_facade::service_control::stop(paths)?;
+    }
     for step in &plan.hooks {
         removal::remove_hooks(&plan.data, step)?;
         if let HookStep::Remove(planned) = step {
@@ -330,6 +390,7 @@ fn report(plan: &Plan, removed: &[PathBuf], deleted: bool) -> serde_json::Value 
     json!({
         "removed": removed,
         "kept": plan.kept().into_iter().map(|(path, reason)| json!({"path": path, "reason": reason})).collect::<Vec<_>>(),
+        "officeStopped": plan.office_running,
         "data": {"path": plan.data, "deleted": deleted},
     })
 }

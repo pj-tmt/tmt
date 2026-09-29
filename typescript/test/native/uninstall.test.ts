@@ -115,7 +115,15 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
       });
       expect(result.status, result.stdout + result.stderr).toBe(0);
       const report = parseWholeStdout(result);
-      expect(report.kept).toEqual([]);
+      // Setup and uninstall each back up the Claude settings they changed.
+      const backup = 'backup of your settings before TMT removed its hooks';
+      const kept = report.kept as { path: string; reason: string }[];
+      expect(kept.map((item) => item.reason)).toEqual([backup, backup]);
+      for (const item of kept) {
+        expect(path.dirname(item.path)).toBe(path.dirname(claudeSettings));
+        expect(existsSync(item.path)).toBe(true);
+      }
+      expect(report.officeStopped).toBe(false);
       expect(report.data).toEqual({ path: sandbox.globalDir, deleted: false });
 
       expect(readFileSync(claudeSettings, 'utf8')).toBe(CLAUDE_ORIGINAL);
@@ -190,13 +198,52 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
         deadlineMs: INSTALL_BUDGET_MS,
       });
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(parseWholeStdout(result).kept).toEqual([
-        { path: claudeSettings, reason: 'a TMT hook in it was edited' },
-      ]);
+      expect(parseWholeStdout(result).kept).toContainEqual({
+        path: claudeSettings,
+        reason: 'a TMT hook in it was edited',
+      });
       expect(readFileSync(claudeSettings, 'utf8')).toBe(edited);
       expect(existsSync(codexHooks)).toBe(false);
       expect(tree(prefix)).toEqual({});
       expect(recordBytes).toContain('"codex"');
+    });
+  });
+
+  it('stops a running Office service before removing its files', async () => {
+    await withSandbox(async (sandbox) => {
+      const tmt = await setUpMachine(sandbox);
+      const { prefix } = paths(sandbox);
+      const office = (args: string[]) =>
+        runCli(tmt, ['office', '--prefix', prefix, ...args, '--json'], {
+          deadlineMs: INSTALL_BUDGET_MS,
+        });
+      const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
+      try {
+        const installedOffice = await office([
+          'install',
+          '--yes',
+          '--archive',
+          artifact.archive,
+          '--manifest',
+          artifact.manifest,
+        ]);
+        expect(installedOffice.status, installedOffice.stdout + installedOffice.stderr).toBe(0);
+        const started = await office(['start']);
+        expect(started.status, started.stdout + started.stderr).toBe(0);
+        const receipt = path.join(sandbox.globalDir, 'office', 'runtime', 'service-v1.json');
+        expect(existsSync(receipt)).toBe(true);
+
+        const result = await runCli(tmt, ['uninstall', '--yes', '--json'], {
+          deadlineMs: INSTALL_BUDGET_MS,
+        });
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        expect(parseWholeStdout(result).officeStopped).toBe(true);
+        expect(existsSync(receipt)).toBe(false);
+        expect(tree(prefix)).toEqual({});
+      } finally {
+        // The in-process stop path needs no installed companion.
+        await runCli(sandbox, ['office', 'stop', '--json']);
+      }
     });
   });
 
