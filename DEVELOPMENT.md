@@ -862,6 +862,23 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
   pnpm test:native
 ```
 
+The real-Herdr host test (`test/native/herdr.test.ts`) is skipped unless
+`TMT_TEST_HERDR` names a pinned `herdr` binary (0.9.1). Download the release
+asset into a scratch directory, never an install path, and check it against its
+GitHub digest before use:
+
+```bash
+gh release download v0.9.1 -R herdrdev/herdr -p herdr-macos-aarch64 -D /tmp/hdrbin
+gh api repos/herdrdev/herdr/releases/tags/v0.9.1 \
+  -q '.assets[]|select(.name=="herdr-macos-aarch64")|.digest'   # compare:
+shasum -a 256 /tmp/hdrbin/herdr-macos-aarch64
+mv /tmp/hdrbin/herdr-macos-aarch64 /tmp/hdrbin/herdr && chmod 755 /tmp/hdrbin/herdr
+TMT_TEST_HERDR=/tmp/hdrbin/herdr pnpm exec vitest run --config test/native/vitest.config.ts test/native/herdr.test.ts
+```
+
+It starts a headless server on a short private socket with update checks off,
+runs commands inside its panes, and fails if any server process remains.
+
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
 local Office board grammar/persistence, managed skills and native installation. It uses bounded process budgets,

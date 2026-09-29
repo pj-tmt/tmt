@@ -1,27 +1,17 @@
 use super::evidence::wire_integer as number;
 use super::valid_pane_id;
 use super::{CommandRunner, OPERATION_TIMEOUT, Tmux, TmuxError, TmuxFailure};
+use crate::host::CallerEnvironment;
+use crate::process::ancestry::AncestryError;
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsString,
     time::Instant,
 };
-use tmt_core::{
-    host::{HostKind, ServerSelector},
-    limits::MAX_JS_SAFE_INTEGER,
-};
+use tmt_core::host::{HostKind, ServerSelector};
 
 const SEPARATOR: &str = "__TMT_CALLER_PANE_4f1c__";
-const MAX_DEPTH: usize = 64;
 const DISCOVERY_MAX_OUTPUT: usize = 64 * 1024;
 const VERIFY_MAX_OUTPUT: usize = 4096;
-
-/// Invocation-owned observations; tests never mutate process-global variables.
-pub struct CallerEnvironment {
-    pub tmux: Option<OsString>,
-    pub pane: Option<OsString>,
-    pub process_id: u64,
-}
 
 impl CallerEnvironment {
     /// A scheduling preference only, not verified caller or routing authority.
@@ -52,14 +42,6 @@ impl CallerEnvironment {
     /// `TMUX_PANE` names the popup's own pane, which belongs to no session.
     pub fn selected_session(&self) -> Option<String> {
         context(self.tmux.as_ref()?.to_str()?).map(|context| format!("${}", context.session))
-    }
-
-    pub fn current() -> Self {
-        Self {
-            tmux: std::env::var_os("TMUX"),
-            pane: std::env::var_os("TMUX_PANE"),
-            process_id: u64::from(std::process::id()),
-        }
     }
 }
 
@@ -192,37 +174,44 @@ fn ancestry<R: CommandRunner>(
     first: u64,
     deadline: Instant,
 ) -> Result<HashSet<u64>, TmuxError> {
-    let mut ancestry = HashSet::new();
-    let mut pid = first;
-    for _ in 0..MAX_DEPTH {
-        if pid == 0 || pid > MAX_JS_SAFE_INTEGER || !ancestry.insert(pid) {
-            return Err(unavailable());
-        }
-        let output = tmux.run(
-            "ps",
-            vec![
-                "-o".into(),
-                "pid=,ppid=".into(),
-                "-p".into(),
-                pid.to_string(),
-            ],
-            deadline,
-            DISCOVERY_MAX_OUTPUT,
-            TmuxFailure::Command,
-        )?;
-        let lines: Vec<_> = output.trim().lines().collect();
-        if lines.len() != 1 {
-            return Err(unavailable());
-        }
-        let fields: Vec<_> = lines[0].split_whitespace().collect();
-        if fields.len() != 2 || number(fields[0]) != Some(pid) {
-            return Err(unavailable());
-        }
-        let parent = number(fields[1]).ok_or_else(unavailable)?;
-        if parent == 0 {
-            return Ok(ancestry);
-        }
-        pid = parent;
+    match crate::process::ancestry::chain(&tmux.runner, first, deadline) {
+        Ok(chain) => Ok(chain.into_iter().collect()),
+        Err(AncestryError::Command(cause)) => Err(TmuxError::command(TmuxFailure::Command, cause)),
+        Err(AncestryError::Unavailable) => Err(unavailable()),
     }
-    Err(unavailable())
+}
+
+/// The caller's pane shell's position in the caller's ancestry.
+pub(super) fn depth<R: CommandRunner>(
+    tmux: &Tmux<R>,
+    environment: &CallerEnvironment,
+) -> Result<Option<usize>, TmuxError> {
+    let pane = resolve(tmux, environment)?;
+    let deadline = Instant::now() + OPERATION_TIMEOUT;
+    let socket = environment.selected_server_socket()?;
+    let mut args = socket.map_or_else(Vec::new, |socket| vec!["-S".into(), socket.into()]);
+    args.extend([
+        "display-message".into(),
+        "-p".into(),
+        "-t".into(),
+        pane,
+        "#{pane_pid}".into(),
+    ]);
+    let output = tmux.run(
+        "tmux",
+        args,
+        deadline,
+        VERIFY_MAX_OUTPUT,
+        TmuxFailure::Command,
+    )?;
+    let pane_pid = number(output.trim()).ok_or_else(unavailable)?;
+    let chain =
+        match crate::process::ancestry::chain(&tmux.runner, environment.process_id, deadline) {
+            Ok(chain) => chain,
+            Err(AncestryError::Command(cause)) => {
+                return Err(TmuxError::command(TmuxFailure::Command, cause));
+            }
+            Err(AncestryError::Unavailable) => return Err(unavailable()),
+        };
+    Ok(chain.iter().position(|pid| *pid == pane_pid))
 }

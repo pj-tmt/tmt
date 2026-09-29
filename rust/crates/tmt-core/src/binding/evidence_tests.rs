@@ -2,11 +2,11 @@ use super::*;
 use crate::{
     endpoint::{BindingMarker, EndpointSnapshot, PaneObservation, ServerEvidence},
     identity::Lifetime,
-    names::validate_name,
+    names::validate_existing_name,
 };
 
 fn fixture(name: &str) -> (Identity, Binding, EndpointSnapshot) {
-    let validated = validate_name(name).expect("fixture identity name must be valid");
+    let validated = validate_existing_name(name).expect("fixture identity name must be valid");
     let identity = Identity {
         id: "identity-1".into(),
         name: validated.display_name().into(),
@@ -65,6 +65,16 @@ fn active_requires_agreement_between_server_pane_and_marker() {
     let (identity, binding, snapshot) = fixture("Alice");
     let expected = snapshot.panes[0].clone();
 
+    assert_eq!(
+        evaluate_binding(&entry(&identity, &binding), &live(snapshot)),
+        BindingEvidence::Active(Box::new(expected))
+    );
+}
+
+#[test]
+fn a_tmux_binding_whose_name_now_reads_as_a_herdr_target_stays_active() {
+    let (identity, binding, snapshot) = fixture("w1:p2");
+    let expected = snapshot.panes[0].clone();
     assert_eq!(
         evaluate_binding(&entry(&identity, &binding), &live(snapshot)),
         BindingEvidence::Active(Box::new(expected))

@@ -45,6 +45,49 @@ pub fn observe_runtime_process<R: CommandRunner>(
     })
 }
 
+/// Runtime liveness of a binding whose endpoint the caller has verified. This
+/// neither establishes presence nor grants routing authority; every host uses
+/// it after its own endpoint check.
+pub fn binding_runtime<R: CommandRunner>(
+    runner: &R,
+    binding: &tmt_core::binding::Binding,
+    deadline: Instant,
+) -> Result<tmt_core::binding::session::RuntimeState, CommandError> {
+    use tmt_core::binding::session::RuntimeState;
+    let mut runtime = binding.session.state;
+    if runtime == RuntimeState::Ended {
+        return Ok(runtime);
+    }
+    if let Some(key) = &binding.session.key {
+        let observation = observe_runtime_process(runner, key.incarnation.pid(), deadline)?;
+        runtime = match observation.matches(&key.incarnation) {
+            RuntimeLiveness::Alive => runtime,
+            RuntimeLiveness::Gone => RuntimeState::Ended,
+            RuntimeLiveness::Unknown => RuntimeState::Unknown,
+        };
+        if runtime == RuntimeState::Running
+            && let Some(owner) = &binding.session.launch_owner
+        {
+            let observation = observe_runtime_process(runner, owner.pid(), deadline)?;
+            if observation.matches(owner) != RuntimeLiveness::Alive {
+                runtime = RuntimeState::Unknown;
+            }
+        }
+    } else if runtime == RuntimeState::Running {
+        runtime = RuntimeState::Unknown;
+    }
+    Ok(runtime)
+}
+
+/// Whether a recorded process is conclusively gone (`ESRCH`); anything else,
+/// including a reused PID we cannot tell apart, is not proof of loss.
+pub fn recorded_process_gone(pid: u64) -> bool {
+    i32::try_from(pid)
+        .ok()
+        .filter(|pid| *pid > 0)
+        .is_some_and(|pid| kill(Pid::from_raw(pid), None) == Err(Errno::ESRCH))
+}
+
 /// Called only while InteractiveChild still owns an unreaped PID. This is not
 /// a general routing probe: retained zombie evidence is lifecycle-only.
 pub(super) fn observe_owned_child<R: CommandRunner>(

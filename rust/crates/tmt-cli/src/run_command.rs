@@ -338,6 +338,7 @@ fn run_bound(
         .as_ref()
         .and_then(|harness| registry.lifecycle(harness))
         .unwrap_or(&NoLifecycle);
+    host.resolve_servers(storage).map_err(endpoint_failure)?;
     let bound =
         binding::bind_identity_with_creation(storage, &mut host.session(), pane, name, save)
             .map_err(binding_failure)?;

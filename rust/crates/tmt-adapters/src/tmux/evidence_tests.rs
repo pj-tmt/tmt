@@ -61,7 +61,8 @@ fn marker() -> BindingMarker {
 
 #[test]
 fn read_only_snapshot_never_initializes_server_metadata() {
-    use super::{OperationOptions, Tmux, test_support::ScriptedRunner};
+    use super::{OperationOptions, Tmux};
+    use crate::scripted_runner::ScriptedRunner;
     for (row, valid) in [(valid_endpoint_row(), true), (String::new(), false)] {
         let runner = ScriptedRunner::default();
         runner.push_output(row.into_bytes(), Vec::new());
