@@ -457,4 +457,46 @@ describe('required CI gate', () => {
       false
     );
   });
+
+  it('runs the advisory browser partitions in their own workflow from one shared image', () => {
+    const read = (name: string) =>
+      readFileSync(
+        fileURLToPath(new URL(`../../../.github/workflows/${name}`, import.meta.url)),
+        'utf8'
+      );
+    const ci = read('ci.yml');
+    const browser = read('office-browser.yml');
+    const job = (workflow: string, name: string) => {
+      const start = workflow.indexOf(`\n  ${name}:\n`);
+      const next = workflow.slice(start + 1).search(/\n {2}[a-z-]+:\n/);
+      return workflow.slice(start, next < 0 ? undefined : start + 1 + next);
+    };
+
+    // CI keeps only what its required results depend on, so a red run means a
+    // required or selected check failed.
+    expect(ci).not.toContain('office-browser:');
+    expect(ci).not.toContain('native-office-browser');
+    expect(ci).not.toContain('native_office');
+    expect(ci).not.toContain('tmt-office-browser');
+
+    // The image is built exactly once, and no partition builds it again.
+    expect(browser.match(/docker build /g)).toHaveLength(1);
+    expect(job(browser, 'image')).toContain('docker build --target browser-tests');
+    expect(job(browser, 'image')).toContain('docker save tmt-office-browser:ci');
+    for (const partitions of ['office-browser', 'native-office-browser']) {
+      const body = job(browser, partitions);
+      expect(body).toContain('needs: [changes, image]');
+      expect(body).toContain('actions/download-artifact');
+      expect(body).toContain('docker load');
+      expect(body).not.toContain('docker build');
+    }
+    // The same selector outputs decide which partitions run as before.
+    expect(job(browser, 'office-browser')).toContain("needs.changes.outputs.office == 'true'");
+    expect(job(browser, 'native-office-browser')).toContain(
+      "needs.changes.outputs.native_office == 'true'"
+    );
+    expect(job(browser, 'image')).toContain(
+      "needs.changes.outputs.office == 'true' || needs.changes.outputs.native_office == 'true'"
+    );
+  });
 });
