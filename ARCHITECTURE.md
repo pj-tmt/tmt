@@ -1188,6 +1188,12 @@ atomic replacement. Independent editors do not participate in that advisory
 lock; setup rechecks immediately before publication but is not a filesystem-wide
 transaction. The selected PATH launcher remains an unresolved stable symlink,
 never a resolved release path. Re-running setup repairs an obsolete owned path.
+After publishing, setup records the driver, settings file and launcher in
+`<global>/setup-record.json` (`setup::record`), and `setup --remove` drops that
+entry. An entry is fully determined by driver and launcher, so the record
+stores no JSON. Hooks installed before the record existed are adopted when
+setup finds exactly what it generates. An invalid record is preserved and
+stops setup before any provider file changes. Uninstall reverses the record.
 
 Claude SessionStart/SessionEnd decoding, context encoding and runtime ancestry
 belong to `drivers::claude`. A hook supplies observation only: an existing binding

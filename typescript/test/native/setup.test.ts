@@ -45,10 +45,23 @@ describe('consented provider setup and bounded hook boundary', () => {
         expect(installed).toContain('"future": 1.000e+100');
         expect(installed).toContain(`${launcher}' __hook ${name}`);
         expect(installed).not.toContain(fs.realpathSync(launcher));
+        const record = path.join(sandbox.globalDir, 'setup-record.json');
+        const recorded = { driver: name, settings, launcher };
+        expect(JSON.parse(fs.readFileSync(record, 'utf8'))).toEqual({
+          version: 1,
+          hooks: [recorded],
+        });
+        const recordBytes = fs.readFileSync(record);
         const again = await runCli(sandbox, ['setup', name, '--yes', '--json']);
         expect(again.status, again.stderr).toBe(0);
         expect(JSON.parse(again.stdout)).toMatchObject({ changed: false, backup: null });
         expect(fs.readFileSync(settings, 'utf8')).toBe(installed);
+        expect(fs.readFileSync(record)).toEqual(recordBytes);
+        // Exact hooks written before the record existed are adopted.
+        fs.rmSync(record);
+        expect((await runCli(sandbox, ['setup', name, '--yes', '--json'])).status).toBe(0);
+        expect(fs.readFileSync(settings, 'utf8')).toBe(installed);
+        expect(fs.readFileSync(record)).toEqual(recordBytes);
         fs.writeFileSync(settings, installed.replaceAll(launcher, '/old/release/tmt'));
         expect((await runCli(sandbox, ['setup', name, '--yes', '--json'])).status).toBe(0);
         expect(fs.readFileSync(settings, 'utf8')).toBe(installed);
@@ -58,10 +71,29 @@ describe('consented provider setup and bounded hook boundary', () => {
         expect(removed).toContain(userHook);
         expect(removed).not.toContain('__hook');
         expect(JSON.parse(removed).permissions).toEqual(JSON.parse(original).permissions);
+        expect(JSON.parse(fs.readFileSync(record, 'utf8'))).toEqual({ version: 1, hooks: [] });
         expect(fs.existsSync(sandbox.database)).toBe(false);
       });
     }
   );
+
+  it('stops before changing settings when the setup record is invalid', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = path.join(sandbox.root, 'bin');
+      fs.mkdirSync(bin);
+      fs.symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+      sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+      fs.mkdirSync(path.join(sandbox.home, '.claude'));
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      const record = path.join(sandbox.globalDir, 'setup-record.json');
+      fs.writeFileSync(record, '{"version":9}');
+      const before = fileSnapshot(sandbox.root);
+      const result = await runCli(sandbox, ['setup', 'claude', '--yes', '--json']);
+      expect(result.status).toBe(1);
+      expect(JSON.parse(result.stdout).error.code).toBe('SETUP_ERROR');
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+    });
+  });
 
   it('does not rewrite malformed settings', async () => {
     await withSandbox(async (sandbox) => {
