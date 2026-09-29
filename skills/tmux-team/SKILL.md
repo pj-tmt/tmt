@@ -215,6 +215,26 @@ expired bodies. Input errors exit 1, input timeout is `RESPONSE_INPUT_TIMEOUT`
 (exit 4), and conflicts exit 5. Receipts, endpoints, and raw bodies are not
 echoed in acknowledgements.
 
+### Answering without a receipt
+
+When you were given a receipt, use `tmt reply` with it. When you were not, for
+example the user asks you to answer a request someone sent your identity, list
+and answer by name:
+
+```bash
+tmt inbox --json
+tmt answer reviewer 'Yes, ship it.' --json
+tmt answer reviewer --file answer.md --request <request-id> --json
+```
+
+`inbox` lists requests still waiting on you for a final, oldest first; reading
+never acknowledges. `answer <from>` answers the one request `<from>` is waiting on
+you for. With several it sends nothing (`ANSWER_AMBIGUOUS`, exit 1) and lists
+their IDs: read them, then choose with `--request`; never pick one to make the
+command succeed. `ANSWER_NOT_WAITING` (exit 3) means nothing is open from that
+identity. Body sources and rules are those of `reply`. Use `--identity` only with
+your own identity; answering as someone else is attribution misuse.
+
 ## Calling an agent
 
 For Claude/Codex lifecycle integration, `tmt setup` shows every detected agent and
