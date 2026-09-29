@@ -26,7 +26,7 @@ enum Report {
     Status(status::Report),
     Created(identity::CreatedIdentity),
     /// The identity with its remembered-session projection (JSON only).
-    Shown(Identity, serde_json::Value),
+    Shown(Identity, Option<serde_json::Value>),
     Listed(Vec<Identity>),
     MetadataSet {
         identity_id: String,
@@ -259,7 +259,11 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                 json!({"identity": identity_document(&result.identity), "created": result.created})
             }
             Report::Shown(identity, resume) => {
-                json!({"identity": identity_document(&identity), "resume": resume})
+                let mut document = json!({"identity": identity_document(&identity)});
+                if let Some(resume) = resume {
+                    document["resume"] = resume;
+                }
+                document
             }
             Report::Listed(identities) => {
                 json!({"identities": identities.iter().map(identity_document).collect::<Vec<_>>()})

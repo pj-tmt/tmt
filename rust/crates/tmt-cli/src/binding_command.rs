@@ -43,7 +43,7 @@ enum Report {
     },
     Removed(BindingEntry),
     /// Each row with its remembered-session projection (JSON only).
-    Listed(Vec<(IdentityPresence, serde_json::Value)>),
+    Listed(Vec<(IdentityPresence, Option<serde_json::Value>)>),
     Named {
         target: String,
         row: IdentityPresence,

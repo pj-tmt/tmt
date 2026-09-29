@@ -68,7 +68,9 @@ pub(super) fn document(report: &Report) -> Value {
         }
         Report::Listed(rows) => json!({"identities": rows.iter().map(|(row, resume)| {
             let mut value = presence_document(row);
-            value["resume"] = resume.clone();
+            if let Some(resume) = resume {
+                value["resume"] = resume.clone();
+            }
             value
         }).collect::<Vec<_>>()}),
         Report::Named { target, row } => {

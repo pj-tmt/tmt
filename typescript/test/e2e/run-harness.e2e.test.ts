@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 
@@ -120,8 +121,27 @@ describe.sequential('foreground identity launch', () => {
       });
       const staleAt = () => preferences(fixture)[0]?.stale_at_ms;
 
-      // Without the provider's TMT start hook installed, a failure is not trusted.
+      // Read-only projections show the remembered session; nothing else is exposed.
       seed('claude', 'default');
+      const resume = {
+        driver: 'claude',
+        mode: 'default',
+        session,
+        model: null,
+        staleAtMs: null,
+      };
+      const shown = expectJsonResult(
+        await fixture.runJsonCli<{ resume?: unknown }>(['identity', 'show', 'Resume'], {
+          withoutTmux: true,
+        })
+      );
+      expect(shown.resume).toEqual(resume);
+      const listed = expectJsonResult(
+        await fixture.runJsonCli<{ identities: Array<{ name: string; resume?: unknown }> }>(['ls'])
+      );
+      expect(listed.identities.find((row) => row.name === 'Resume')?.resume).toEqual(resume);
+
+      // Without the provider's TMT start hook installed, a failure is not trusted.
       await run('hooks-absent', ['resume', 'Resume'], 31);
       expect(calls()).toEqual([[], ['--resume', session]]);
       expect(preferences(fixture)).toEqual([row()]);

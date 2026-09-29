@@ -1106,6 +1106,19 @@ it cannot read and drops sessions of unregistered drivers, which
 `Storage::purge_unregistered_sessions` also sweeps. Driver state holds resume
 essentials only, never transcript content, arguments or secrets.
 
+Schema 38 adds a resume-pending mark. A resume launch sets it on the exact
+remembered session before the child starts, and any starting provider event clears
+it with the stale mark. At exit, in one transaction, the session goes stale only
+if that same session is still pending, the exit was non-zero and not 128+n, and
+the provider's TMT SessionStart hook was installed at launch
+(`setup::start_hook_installed`, read-only). Otherwise only the mark clears, so a
+crashed launcher leaves a harmless pending mark, never a false stale one.
+`tmt resume` and its `run --resume` alias never fall back to a fresh start. Only
+that resume path purges unregistered drivers' sessions and reconciles unreadable
+state, and it reports each change once. Read-only projections (`identity show`,
+`ls --json`) read preferences without a write transaction and ask the session's
+own driver for its model.
+
 The claude and codex drivers implement persistence with a version 1 document,
 `{"model": <slug>}` (`runtime::model_state`). Its only source is the `model` field
 of a starting hook event, which both providers document (see

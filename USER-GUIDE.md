@@ -184,12 +184,12 @@ Inside a tmux pane, use `run` to bind an identity and start a foreground command
 tmt run reviewer claude --model sonnet
 tmt run -s coordinator codex
 tmt run coordinator
-tmt run --resume coordinator
+tmt resume coordinator
 ```
 
 TMT options go before the name. Everything after it is the command and its exact
 arguments; no `--` separator is needed. TMT does not insert a provider session ID
-or store arguments, model choices, secrets or executable paths. A new identity is
+or store arguments, secrets or executable paths. A new identity is
 temporary unless `-s`/`--save` is supplied; an existing saved identity stays saved.
 The ordinary binding conflict rules still apply.
 The executable word cannot start with `-`: `tmt run Alice -s` is rejected before
@@ -201,13 +201,37 @@ passes no arguments. Without a remembered harness, specify a command. An
 unrecognized command still runs with the same binding and lifetime tracking,
 without replacing a previously remembered harness.
 
-`--resume` uses an exact remembered provider session and runtime mode, not a
-provider's "last session" shortcut. Session capture belongs to provider hooks;
-`run` alone does not capture it or inject initial context. Without a supported
-remembered session, it reports that fact and starts the remembered harness bare.
-This fallback occurs only before launch. A failed resume process is never
-automatically replaced by a fresh session. Do not combine `--resume` with an
+### Resume a remembered session
+
+```bash
+tmt resume coordinator           # in the pane where it should run
+tmt resume --retry coordinator   # try a session marked stale once more
+tmt resume --forget coordinator  # clear the remembered session
+```
+
+`tmt resume <name>` resumes the identity's exact remembered provider session in
+the current pane, with the model its provider last reported. `tmt run --resume
+<name>` is the same command. It never uses a provider's "last session" shortcut,
+and it never starts fresh: when nothing is remembered, or the session's driver
+cannot resume it, the command reports why and ends with
+`Start fresh with: tmt run <name>`. A fresh start is always explicit.
+
+Provider hooks (`tmt setup`) record the session, runtime mode and reported model
+whenever the provider starts a session, and `/clear` makes the new session the
+one to resume. A model is kept only when the provider reports it. `run` alone
+records nothing, and a launch under a different runtime drops the previous
+runtime's session. Retiring an identity clears its remembered session.
+
+A resume that exits with an error before the provider confirms the session
+marks it stale. This happens only when the provider's TMT hooks are installed,
+so a confirmation would have been seen. A Ctrl-C or other signal exit never
+marks it stale. A stale session is not resumed again until you retry it, forget
+it, or start fresh. If a remembered session's driver is no longer registered,
+the next resume forgets it and says so. Do not combine `--resume` with an
 explicit command.
+
+While a session is remembered, `tmt identity show --json` and `tmt ls --json`
+include a `resume` object with the driver, mode, session, model and `staleAtMs`.
 
 The command inherits the terminal and foreground job control. Ctrl-C reaches the
 command; Ctrl-Z suspends it together with TMT, and `fg` resumes both. TMT returns
@@ -232,8 +256,8 @@ tmt completion fish | source
 ```
 
 Identity completion is storage-only: it does not inspect tmux or create a
-database. Saved identities appear before temporary ones; `run --resume` offers
-identities with a remembered session. After the identity, completion belongs to
+database. Saved identities appear before temporary ones; `resume` and
+`run --resume` offer identities with a remembered session. After the identity, completion belongs to
 the selected command and uses that shell's installed command completions. TMT
 does not install provider completion scripts. Bash integrates with bash-completion
 when it is loaded and can also use already registered function completions.
