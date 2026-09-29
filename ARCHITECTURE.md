@@ -1922,19 +1922,23 @@ through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 
 Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
-squads and removal clears exactly one namespace. `status` joins one
-`rooms.roster` snapshot with `ls --room` presence. It always returns one
+squads and removal clears exactly one namespace. `ls` (alias `status`) joins
+one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
-the single list; `filter` owns a bounded boolean language over a row's text
+the single list, and rows that match none follow in one untitled section so
+nobody is hidden. The document carries the board's configured `columns`, which
+the text output renders; without `--squad` and with several squads, `ls` returns
+`{squads: [...]}` in name order, while commands that change state still require
+`--squad`; `filter` owns a bounded boolean language over a row's text
 fields, and every section is validated before output. `tmt squad board` renders
-the same status document with ratatui over crossterm; `board::terminal` owns raw
+the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
 painted data; stale results for a squad the user left are dropped. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
-once in `main`); otherwise it is `status`. Consent for hotkeys and playbooks is
+once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
 split or tabs panes (rows, notes, detail, replies) over a per-layout preset,
 validated before raw mode. The notes pane reads the lead's notebook only through
@@ -1943,7 +1947,7 @@ every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
 pulldown-cmark view over that sanitized text: it styles headings, lists,
 emphasis, inline code and links, and shows every other construct as its source.
-State `sort` overrides reorder the vocabulary for both `status` and the board.
+State `sort` overrides reorder the vocabulary for both `ls` and the board.
 `effects` holds the row actions behind the plain `jump`, `open` and `copy`
 commands and the board. `template` fills `{field}` placeholders into one value and refuses
 empty values. Programs run as argv, never through a shell: the configured
@@ -1990,9 +1994,9 @@ an explicit `--identity`, otherwise the identity core attributes the call to
 names both ways to set one. `whoami`'s `PANE_NOT_FOUND` and an unbound pane mean
 "no caller"; any other core error, such as `CALLER_IDENTITY_AMBIGUOUS` on a shared
 runtime host, fails the command rather than falling back to the user. "You" for
-`waitingOnYou`, `status` and the board (`me::you`) is the recorded user,
+`waitingOnYou`, `ls` and the board (`me::you`) is the recorded user,
 otherwise the saved identity bound to the calling pane (the board reads it once
-per worker); when neither exists, `status` and the board footer show one hint
+per worker); when neither exists, `ls` and the board footer show one hint
 line. The board also sends as "you", because a popup's pane is not its operator.
 `requests` derives each
 row's `annotation` (the sender's newest open tagged request) and `waitingOnYou`

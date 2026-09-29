@@ -74,8 +74,6 @@ fn grammar() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         // The release proof expects exactly `squad <version>`.
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
-        .subcommand_required(true)
-        .arg_required_else_help(true)
         .arg(
             Arg::new("json")
                 .long("json")
@@ -129,7 +127,8 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
-            build(specs::STATUS)
+            build(specs::LS)
+                .alias("status")
                 .arg(squad_option()),
         )
         .subcommand(
@@ -535,7 +534,7 @@ fn done(terminal: Terminal, text: &str) -> String {
 fn human(command: &str, document: &Value, terminal: Terminal) -> String {
     let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     match command {
-        "status" | "board" => status::text(document, terminal),
+        "ls" | "board" => status::text(document, terminal),
         "hotkeys" => hotkeys_text(document, terminal),
         "playbook" => playbook::text(document, terminal),
         "jump" => {
@@ -855,6 +854,9 @@ fn run(
     if command == "me" {
         return me_command(&core, &mut config, text("name"), matches.get_flag("clear"));
     }
+    if matches!(command, "ls" | "board") {
+        return ls_document(&core, &mut config, text("squad"));
+    }
     let squad = Squad::resolve(&core, text("squad"))?;
     match command {
         "lead" => membership::lead(&core, &squad, text("name").unwrap_or_default()),
@@ -908,21 +910,65 @@ fn run(
             text("to") == Some("lead"),
             text("text").unwrap_or_default(),
         ),
-        _ => {
-            let layout = config.layout(&squad.name)?;
-            let sections = config.sections(&squad.name)?;
-            let states = config.states(&squad.name, layout)?;
-            let mut document =
-                status::document(&squad, layout, &states, &sections, squad.members(&core)?);
-            let you = me::resolve_you(&core, &mut config)?;
-            requests::overlay(&core, &squad, you.as_ref().map(|(me, _)| me), &mut document)?;
-            document["you"] = you.map_or(
-                Value::Null,
-                |(me, source)| json!({"id": me.id, "name": me.name, "source": source.as_str()}),
-            );
-            Ok(document.into())
-        }
+        _ => unreachable!("tmt squad {command} is dispatched above"),
     }
+}
+
+/// `ls` (and `board` without a person at a terminal): one squad's document,
+/// or with several squads and no `--squad`, `{squads: [...]}` in name order.
+/// "You" is resolved once for all of them.
+fn ls_document(
+    core: &Core,
+    config: &mut Config,
+    explicit: Option<&str>,
+) -> Result<Outcome, SquadError> {
+    let squads = match explicit {
+        Some(_) => vec![Squad::resolve(core, explicit)?],
+        None => {
+            let mut squads = Squad::list(core)?;
+            if squads.is_empty() {
+                // The one-squad path owns the not-found error and its hint.
+                squads.push(Squad::resolve(core, None)?);
+            }
+            squads.sort_by(|a, b| a.name.cmp(&b.name));
+            squads
+        }
+    };
+    let you = me::resolve_you(core, config)?;
+    let mut documents = Vec::with_capacity(squads.len());
+    for squad in &squads {
+        let layout = config.layout(&squad.name)?;
+        let sections = config.sections(&squad.name)?;
+        let states = config.states(&squad.name, layout)?;
+        let mut document =
+            status::document(squad, layout, &states, &sections, squad.members(core)?);
+        requests::overlay(core, squad, you.as_ref().map(|(me, _)| me), &mut document)?;
+        document["columns"] = status::columns_value(&config.columns(&squad.name)?);
+        documents.push(document);
+    }
+    let mut document = match <[Value; 1]>::try_from(documents) {
+        Ok([one]) => one,
+        Err(several) => json!({"squads": several}),
+    };
+    document["you"] = you.map_or(
+        Value::Null,
+        |(me, source)| json!({"id": me.id, "name": me.name, "source": source.as_str()}),
+    );
+    Ok(document.into())
+}
+
+/// `tmt squad` with no command (options such as `--json` aside) is `board`,
+/// which is the board for a person at a terminal and `ls` anywhere else.
+fn bare_is_board(argv: Vec<OsString>) -> Vec<OsString> {
+    if argv.iter().skip(1).all(|word| {
+        word.to_str().is_some_and(|word| word.starts_with('-'))
+            && !matches!(word.to_str(), Some("-h" | "--help" | "-V" | "--version"))
+    }) {
+        let mut words = argv;
+        words.insert(1.min(words.len()), "board".into());
+        return words;
+    }
+    argv
 }
 
 fn main() -> ExitCode {
@@ -935,7 +981,7 @@ fn main() -> ExitCode {
         return hook_protocol::run(&argv[1..]);
     }
     let json = argv.iter().skip(1).any(|arg| arg == "--json");
-    let matches = match request(&argv) {
+    let matches = match request(&bare_is_board(argv)) {
         Ok(Request::Run(matches)) => matches,
         Ok(Request::Help(command)) => {
             let mut out = tmt_cli_style::stream::stdout(json);
@@ -970,7 +1016,7 @@ fn main() -> ExitCode {
     }
     // Decided once: whether a person can see the board or answer a question.
     let interaction = Interaction::detect(json);
-    // The board needs a person at a terminal; otherwise it is `status`.
+    // The board needs a person at a terminal; otherwise it is `ls`.
     if command == "board" && interaction.view() == Mode::Interactive {
         let squad = sub.get_one::<String>("squad").cloned();
         let popup = sub.get_flag("popup");
@@ -1153,13 +1199,14 @@ mod tests {
 
     #[test]
     fn completion_offers_literal_subcommands_and_options_only() {
-        assert_eq!(complete(&words("-- s")), ["set", "skill", "status"]);
+        assert_eq!(complete(&words("-- s")), ["set", "skill"]);
+        assert_eq!(complete(&words("-- l")), ["lead", "ls"]);
         assert_eq!(
             complete(&words("-- ")),
             [
                 "add", "annotate", "back", "board", "copy", "help", "hotkeys", "init", "jump",
-                "lead", "me", "open", "playbook", "remove", "replies", "reply", "set", "skill",
-                "status", "talk"
+                "lead", "ls", "me", "open", "playbook", "remove", "replies", "reply", "set",
+                "skill", "talk"
             ]
         );
         assert_eq!(complete(&words("-- h")), ["help", "hotkeys"]);
@@ -1275,10 +1322,32 @@ mod tests {
     }
 
     #[test]
+    fn a_bare_invocation_is_the_board_but_help_and_version_are_not() {
+        let argv = |words: &[&str]| -> Vec<OsString> {
+            std::iter::once("tmt-squad")
+                .chain(words.iter().copied())
+                .map(Into::into)
+                .collect()
+        };
+        assert_eq!(bare_is_board(argv(&[])), argv(&["board"]));
+        assert_eq!(bare_is_board(argv(&["--json"])), argv(&["board", "--json"]));
+        for kept in [
+            &["-h"][..],
+            &["--help"],
+            &["-V"],
+            &["--version"],
+            &["ls"],
+            &["help"],
+        ] {
+            assert_eq!(bare_is_board(argv(kept)), argv(kept), "{kept:?}");
+        }
+    }
+
+    #[test]
     fn help_names_the_command_not_the_executable() {
         let help = grammar().render_help().to_string();
         assert!(
-            help.contains("Usage: tmt squad [OPTIONS] <COMMAND>"),
+            help.contains("Usage: tmt squad [OPTIONS] [COMMAND]"),
             "{help}"
         );
         assert!(help.contains("alias: tmt sq"));

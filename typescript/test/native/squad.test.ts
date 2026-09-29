@@ -145,7 +145,7 @@ describe('squad extension', () => {
         });
       }
       const help = await runCli(sandbox, ['squad', '--help']);
-      expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] <COMMAND>');
+      expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
       const routed = await runCli(sandbox, ['squad', 'help', 'hotkeys', 'install']);
       expect(routed.status).toBe(0);
       expect(routed.stdout).toContain('Usage: tmt squad hotkeys install [OPTIONS]');
@@ -161,7 +161,7 @@ describe('squad extension', () => {
         const direct = { ...sandbox, cli: { executable: path.join(bin, name), args: [] } };
         completions.push(await runCli(direct, ['__complete', '--', 's']));
       }
-      expect(completions[0].stdout).toBe('set\nskill\nstatus\n');
+      expect(completions[0].stdout).toBe('set\nskill\n');
       expect(completions[1].stdout).toBe(completions[0].stdout);
       const skill = await runCli(sandbox, ['sq', 'skill', 'show']);
       expect(skill.stdout).toBe(
@@ -537,7 +537,46 @@ describe('squad extension', () => {
     });
   });
 
-  it('keeps several squads apart and requires a choice when ambiguous', async () => {
+  it('lists members with ls; status and a bare tmt sq without a terminal are the same list', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'auth-fix']) await identity(sandbox, name);
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['add', 'auth-fix']);
+      await squad(sandbox, ['set', 'auth-fix', 'task=rotate session tokens']);
+      const ls = await runCli(sandbox, ['sq', 'ls']);
+      expect(ls.status).toBe(0);
+      // The board's default columns: member, state, task, PR.
+      expect(ls.stdout).toContain('auth-fix  working  rotate session tokens');
+      for (const args of [['sq', 'status'], ['sq'], ['squad'], ['sq', 'board']]) {
+        const same = await runCli(sandbox, args);
+        expect({ status: same.status, stdout: same.stdout }, args.join(' ')).toEqual({
+          status: 0,
+          stdout: ls.stdout,
+        });
+      }
+      const json = await squad(sandbox, ['ls']);
+      expect(json.body.columns.map((column: { field: string }) => column.field)).toEqual([
+        'member',
+        'state',
+        'task',
+        'pr_link',
+      ]);
+      for (const args of [
+        ['sq', 'status', '--json'],
+        ['sq', '--json'],
+      ]) {
+        const same = await runCli(sandbox, args);
+        expect(JSON.parse(same.stdout), args.join(' ')).toEqual(json.body);
+      }
+      const help = await runCli(sandbox, ['sq', '--help']);
+      expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
+      expect(help.stdout).toMatch(/\n {2}ls +List the members/);
+      expect(help.stdout).not.toMatch(/\n {2}status /);
+    });
+  });
+
+  it('keeps several squads apart: ls lists each, changes require a choice', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       for (const name of ['Ben', 'worker']) await identity(sandbox, name);
@@ -547,7 +586,15 @@ describe('squad extension', () => {
         path.join(sandbox.globalDir, 'squad.toml'),
         'me = "Ben"\n[squad.reviews]\nlayout = "pr-queue"\n'
       );
-      expect((await squad(sandbox, ['status'])).body.error.code).toBe('SQUAD_AMBIGUOUS');
+      const both = await squad(sandbox, ['ls']);
+      expect(both.status).toBe(0);
+      expect(both.body.squads.map((one: { squad: { name: string } }) => one.squad.name)).toEqual([
+        'product',
+        'reviews',
+      ]);
+      const bothText = (await runCli(sandbox, ['sq', 'ls'])).stdout;
+      expect(bothText).toMatch(/^squad product · .*\n[\s\S]*\n\nsquad reviews · /);
+      expect((await squad(sandbox, ['add', 'worker'])).body.error.code).toBe('SQUAD_AMBIGUOUS');
       await squad(sandbox, ['add', 'worker', '--squad', 'product']);
       await squad(sandbox, ['add', 'worker', '--squad', 'reviews']);
       await squad(sandbox, ['remove', 'worker', '--squad', 'product']);
