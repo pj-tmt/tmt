@@ -65,14 +65,16 @@ is not implemented. Denied kernel statistics are a measurement failure, not zero
 
 ## Private-tmux latency (Docker)
 
-Use a task-owned image; never run these tmux scenarios on the host:
+Use a task-owned image, tagged for the worktree as described in
+[DEVELOPMENT.md](../DEVELOPMENT.md#keep-local-development-from-filling-the-disk);
+never run these tmux scenarios on the host:
 
 ```sh
-docker build --build-arg TMT_NATIVE_PROFILE=release -f typescript/test/e2e/Dockerfile -t tmt-performance-local .
+docker build --build-arg TMT_NATIVE_PROFILE=release -f typescript/test/e2e/Dockerfile -t "tmt-performance:$worktree" .
 docker run --rm --init --network none \
-  -e TMT_PERFORMANCE_BASELINE=1 tmt-performance-local \
+  -e TMT_PERFORMANCE_BASELINE=1 "tmt-performance:$worktree" \
   sh -c 'cd /workspace/typescript && pnpm exec vitest run --config test/e2e/vitest.config.ts test/e2e/performance-baseline.e2e.test.ts'
-docker image rm tmt-performance-local
+docker image rm "tmt-performance:$worktree"
 ```
 
 Repeat the run before removing the image. Add

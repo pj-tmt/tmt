@@ -48,6 +48,69 @@ If `better-sqlite3` is used by retained tooling, it is a development-only
 independent SQLite oracle. It is not the Rust runtime, a product dependency or
 an excuse to reopen native schema state through Node.
 
+## Keep local development from filling the disk
+
+Local builds and browser runs are the largest source of waste on a developer
+machine: Docker's build cache and image tags, and one Cargo `target` per
+worktree. These rules bound them, and the other sections link here instead of
+repeating them.
+
+Before starting a Docker suite, run the read-only check. It prints free disk
+space (a warning below `TMT_DISK_WARN_GB`, default 30) and `docker system df`,
+and deletes nothing:
+
+```sh
+scripts/dev-disk-check.sh
+```
+
+Below the threshold, stop and tell the maintainer. Delete only what you
+created, and never restart Docker Desktop; ask the maintainer instead.
+
+**One image tag per worktree.** Name every local verification image after the
+worktree, so a rerun replaces the image instead of adding another. Worktrees
+are reused across tasks, so a tag never names a PR or an issue:
+
+```sh
+worktree=$(printf %s "$(basename "$(git rev-parse --show-toplevel)")" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_.-' '-')
+```
+
+The commands in this guide use `tmt-office-browser:$worktree`, its
+`-capacity` variant and `tmt-office-check:$worktree`. `pnpm test:e2e` already
+uses a per-run tag and removes it when it exits. Do not create ad hoc tags such
+as `pr423` or `c1b-<sha>`.
+
+**Prune the build cache periodically.** Whoever runs the suites runs this
+about once a day of use. It removes only build cache older than 24 hours, never
+images or volumes, and no other `docker ... prune` is part of this workflow:
+
+```sh
+docker builder prune --filter until=24h -f
+```
+
+**Each worktree keeps its own `rust/target`.** Native selectors, the Nx
+targets, `scripts/tmt-dev.sh` and the Docker fixtures all read
+`rust/target/debug/...`, and a directory shared between worktrees would let a
+test run another worktree's binary. Do not point `CARGO_TARGET_DIR` at `/tmp`
+or anywhere else. To avoid adding a worktree (and a fresh compile) for every
+task, reuse a clean one: check that `git status --short` is empty and the
+branch is pushed or merged, then `git fetch origin` and
+`git switch -c <new-branch> origin/main`.
+
+**Remove a worktree when its PR merges**, in the same turn, as AGENTS.md
+requires. Verify it is clean and safely pushed first, then remove its images:
+
+```sh
+git -C <worktree-path> status --short          # must print nothing
+git -C <worktree-path> log --oneline @{u}..    # must print nothing (or the branch is merged)
+git worktree remove <worktree-path>
+git worktree prune
+worktree=<worktree-name>                       # as defined above, for that worktree
+docker image rm "tmt-office-browser:$worktree" "tmt-office-browser:$worktree-capacity" \
+  "tmt-office-check:$worktree"                 # images that were never built are reported and skipped
+```
+
+Removing the worktree deletes its `rust/target` with it.
+
 ## Run the workspace CLI
 
 From this checkout's root:
@@ -142,13 +205,14 @@ the root SQLite oracle nor a native TMT executable. It runs quality, DOM tests
 and a production build with networking disabled:
 
 ```sh
-docker build -f extensions/tmt-office/typescript/apps/office/Dockerfile -t tmt-office-check:local .
-docker run --rm --init --network none tmt-office-check:local
-docker image rm tmt-office-check:local
+docker build -f extensions/tmt-office/typescript/apps/office/Dockerfile -t "tmt-office-check:$worktree" .
+docker run --rm --init --network none "tmt-office-check:$worktree"
+docker image rm "tmt-office-check:$worktree"
 ```
 
-Choose an unused task-owned image tag; remove only that verification image.
-This is not a deployment image or a browser/Firebase E2E claim.
+Use the worktree tag from [Keep local development from filling the
+disk](#keep-local-development-from-filling-the-disk); remove only that
+verification image. This is not a deployment image or a browser/Firebase E2E claim.
 
 For native-only fixtures, `pnpm --filter tmux-team install --frozen-lockfile`
 installs only tooling dependencies; Docker copies workspace/package metadata before
@@ -199,9 +263,14 @@ Do not point automated tests at a real project.
 Run the real-browser suite with the same emulator owner:
 
 ```sh
-docker build --target browser-tests -f extensions/tmt-office/typescript/services/office/Dockerfile -t tmt-office-browser:local .
-docker run --rm --init --shm-size=256m tmt-office-browser:local
+docker build --target browser-tests -f extensions/tmt-office/typescript/services/office/Dockerfile -t "tmt-office-browser:$worktree" .
+docker run --rm --init --shm-size=256m "tmt-office-browser:$worktree"
 ```
+
+The tag is per worktree (see [Keep local development from filling the
+disk](#keep-local-development-from-filling-the-disk)), so a rerun replaces the
+image. Remove it with `docker image rm "tmt-office-browser:$worktree"` when the
+worktree is done.
 
 The image installs pinned Chromium, checks the app, runs DOM/session tests and
 builds preview, emulator and unconfigured cloud variants. The container starts
@@ -262,10 +331,10 @@ cannot go stale.
 Capacity diagnostics are preserved as explicit opt-in runs and are not required CI:
 
 ```bash
-docker build --target browser-tests -f extensions/tmt-office/typescript/services/office/Dockerfile -t tmt-office-browser:capacity .
+docker build --target browser-tests -f extensions/tmt-office/typescript/services/office/Dockerfile -t "tmt-office-browser:$worktree-capacity" .
 docker run --rm --init --shm-size=256m --network none \
   --env TMT_TEST_BROWSER_CHANNEL=chromium \
-  tmt-office-browser:capacity \
+  "tmt-office-browser:$worktree-capacity" \
   sh /workspace/extensions/tmt-office/typescript/services/office/with-test-keyring.sh \
   pnpm --filter @tmt/office test:browser:capacity
 ```
