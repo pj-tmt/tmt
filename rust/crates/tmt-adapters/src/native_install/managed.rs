@@ -83,3 +83,51 @@ fn unmanaged() -> io::Error {
         "This executable is not a managed native installation. Use its original package manager (for example brew upgrade tmux-team), or install the official native release into a separate prefix. Do not overwrite npm/pnpm/brew files.",
     )
 }
+
+/// The agent skills the active release carries, read under the installation
+/// lock and checked byte for byte against its receipt, so what is published
+/// is exactly what was verified. A damaged tree yields an error, not a subset.
+pub fn release_skills(
+    product: Product,
+    executable: &Path,
+) -> io::Result<Vec<crate::skill_installation::OwnedSkill>> {
+    with_active_product(product, executable, |installation| {
+        let directory = installation
+            .active_executable
+            .parent()
+            .ok_or_else(unmanaged)?;
+        let receipt = super::receipt::Receipt::read_product(
+            product,
+            directory,
+            &installation.prefix,
+            installation.id,
+        )?;
+        let mut skills = std::collections::BTreeMap::<String, Vec<(String, Vec<u8>)>>::new();
+        for (path, digest) in &receipt.file_hashes {
+            let Some((name, file)) = path
+                .strip_prefix("skills/")
+                .and_then(|rest| rest.split_once('/'))
+            else {
+                continue;
+            };
+            let bytes = crate::bounded_file::read_no_follow(
+                &directory.join(path),
+                crate::skill_installation::MAXIMUM_FILE_BYTES,
+            )
+            .map_err(io::Error::other)?;
+            if &super::artifact::digest(&bytes) != digest {
+                return Err(invalid(
+                    "An installed agent skill file has changed; reinstall the extension.",
+                ));
+            }
+            skills
+                .entry(name.to_owned())
+                .or_default()
+                .push((file.to_owned(), bytes));
+        }
+        Ok(skills
+            .into_iter()
+            .map(|(name, files)| crate::skill_installation::OwnedSkill { name, files })
+            .collect())
+    })?
+}

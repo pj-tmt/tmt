@@ -460,3 +460,38 @@ fn a_real_cargo_dist_squad_manifest_installs_its_archived_skills_tree() {
     inspect_product(Product::Squad, &report.executable).unwrap();
     assert!(!install_on(&fixture, &prefix, alpha).unwrap().changed);
 }
+
+#[test]
+fn release_skills_are_exactly_the_verified_tree_or_nothing() {
+    let fixture = with_skills();
+    let prefix = fixture.directory.path.join("prefix");
+    let report = install(&fixture, &prefix).unwrap();
+    let skills = super::super::release_skills(Product::Squad, &report.executable).unwrap();
+    assert_eq!(skills.len(), 1);
+    assert_eq!(skills[0].name, "tmt-squad");
+    let mut files = skills[0].files.clone();
+    files.sort();
+    assert_eq!(
+        files,
+        [
+            ("SKILL.md".to_owned(), SKILL.to_vec()),
+            ("references/usage.md".to_owned(), b"usage\n".to_vec()),
+        ]
+    );
+    // A release without a tree offers nothing.
+    let bare = squad_release(Vec::new(), &[]);
+    let bare_prefix = bare.directory.path.join("prefix");
+    let bare_report = install(&bare, &bare_prefix).unwrap();
+    assert!(
+        super::super::release_skills(Product::Squad, &bare_report.executable)
+            .unwrap()
+            .is_empty()
+    );
+    // A changed byte fails the whole read: nothing partial to publish.
+    fs::write(
+        release_dir(&report).join("skills/tmt-squad/references/usage.md"),
+        b"tampered",
+    )
+    .unwrap();
+    assert!(super::super::release_skills(Product::Squad, &report.executable).is_err());
+}

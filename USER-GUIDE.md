@@ -610,10 +610,10 @@ opener    = ["firefox", "--new-tab"]    # top level of squad.toml
 clipboard = ["pbcopy"]                  # or ["wl-copy"], ["xclip", "-selection", "clipboard"]
 ```
 
-The lead's skill is embedded in the extension. Until `tmt extension install
-squad` offers it, copy it into your lead agent's skills directory yourself, for
-example `tmt sq skill show > ~/.claude/skills/tmt-squad/SKILL.md` (create the
-directory first). A manually copied skill is not drift-checked or upgraded.
+The lead's skill ships with the extension. Publish it into your agents' skill
+folders with `tmt extension install squad --skills` (an interactive install
+asks); updates keep it current and `tmt extension uninstall squad` removes it.
+`tmt sq skill show` prints the same skill.
 
 Playbooks are optional guidance your lead agent can follow to lay a squad out on a
 host. The first, `tmux-squad`, suggests a `leads` session, a `crew` session with one

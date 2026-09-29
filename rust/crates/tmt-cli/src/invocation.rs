@@ -175,6 +175,8 @@ pub enum ExtensionInstallRequest {
         archive: Option<String>,
         manifest: Option<String>,
         yes: bool,
+        /// Publish the release's agent skills without asking.
+        skills: bool,
     },
     Upgrade {
         name: String,

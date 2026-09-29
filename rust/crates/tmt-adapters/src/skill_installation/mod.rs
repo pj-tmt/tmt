@@ -18,8 +18,8 @@ pub(crate) use owned::{
     valid_name as valid_skill_name,
 };
 pub use owned::{
-    OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned, owners, refusal,
-    remove_owned,
+    OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned, owned_by,
+    owned_roots, owners, refusal, remove_owned,
 };
 #[cfg(test)]
 mod owned_tests;

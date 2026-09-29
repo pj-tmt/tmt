@@ -13,10 +13,18 @@ pub struct Consent<'a> {
     pub refusal: &'a str,
     /// The yes/no question, without the "[y/N]" suffix.
     pub question: &'a str,
+    /// What a decline prints.
+    pub declined: &'a str,
+}
+
+/// Whether a question can be asked on `output`: stdin and that stream are
+/// terminals and output is not JSON.
+pub fn interactive<W: Write>(mode: OutputMode, output: &Stream<W>) -> bool {
+    !mode.json && io::stdin().is_terminal() && output.is_terminal()
 }
 
 /// Asks on `output` (the caller's stdout) only when stdin and that stream are
-/// both terminals and output is not JSON. A decline prints "No changes made." and
+/// both terminals and output is not JSON. A decline prints `declined` and
 /// returns false. The answer is bounded to 256 bytes.
 pub fn ask(
     output: &mut Stream<impl Write>,
@@ -28,7 +36,7 @@ pub fn ask(
     if yes {
         return Ok(true);
     }
-    if mode.json || !io::stdin().is_terminal() || !output.is_terminal() {
+    if !interactive(mode, output) {
         return Err(Failure::new(consent.code, consent.refusal, 1));
     }
     write!(output, "{}? [y/N] ", consent.question)
@@ -49,7 +57,7 @@ pub fn ask(
         "y" | "yes"
     );
     if !accepted {
-        writeln!(output, "No changes made.").map_err(&io_failure)?;
+        writeln!(output, "{}", consent.declined).map_err(&io_failure)?;
     }
     Ok(accepted)
 }

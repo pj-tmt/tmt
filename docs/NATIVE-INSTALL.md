@@ -138,13 +138,20 @@ unreachable release then shows as `unknown`. The listing also reports any other
 `tmt-<name>` command on your PATH that would shadow the installed one; it never
 runs that command.
 
-`uninstall` removes only the extension's own command links. It keeps the
-retained releases, the agent skills the extension installed, its lifecycle hook
-consent and, for Office, `office.db` and its backups. It prints where each is
-and how to remove it yourself.
+An extension release may bundle agent skills, such as Squad's `tmt-squad` lead
+skill. `install --skills` publishes them into your agents' skill folders. An
+interactive install without `--skills` asks first; `--yes` alone installs the
+extension and prints the skills it offers and how to publish them. Updates keep
+published skills current and remove any the new release no longer ships;
+skills you did not publish stay unpublished. A folder you manage yourself at a
+skill's name is never replaced: publishing reports it and the extension stays
+installed.
 
-This command does not install agent skills yet. For Office, `tmt office install`
-still manages its skills.
+`uninstall` removes the extension's command links and every agent skill the
+extension installed, from every agent's skill folder; the prompt lists them. It
+keeps the retained releases, its lifecycle hook consent and, for Office,
+`office.db` and its backups, and prints where each is and how to remove it
+yourself. For Office, `tmt office install` still manages its skills.
 
 An extension release may bundle agent skills. If a newer `tmt` installed such a
 release and you then downgrade the CLI, the older `tmt` reports "Installed release

@@ -15,8 +15,10 @@ use std::{
     path::{Path, PathBuf},
 };
 use tmt_adapters::{
+    config::ConfigPaths,
     interrupt::Interrupt,
     native_install::{self, InstallRequest, Product, UpgradeRequest},
+    skill_installation::{self, OwnedReport, OwnedSkill, ProviderEnvironment},
 };
 use tmt_core::native_install::{Channel, PinAction};
 
@@ -24,6 +26,15 @@ const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 
 /// Consent for one change to the user's installation.
 fn ask(yes: bool, mode: OutputMode, action: &str) -> Result<bool, Failure> {
+    ask_declining(yes, mode, action, "No changes made.")
+}
+
+fn ask_declining(
+    yes: bool,
+    mode: OutputMode,
+    action: &str,
+    declined: &str,
+) -> Result<bool, Failure> {
     consent::ask(
         &mut tmt_cli_style::stream::stdout(mode.json),
         yes,
@@ -32,6 +43,7 @@ fn ask(yes: bool, mode: OutputMode, action: &str) -> Result<bool, Failure> {
             code: CONSENT,
             refusal: &format!("{action} requires explicit --yes; no changes were made."),
             question: action,
+            declined,
         },
         |error| {
             Failure::new("EXTENSION_IO_ERROR", "Could not ask for consent.", 1).caused_by(error)
@@ -159,6 +171,13 @@ impl Human {
         Self { done: false, text }
     }
 
+    fn push(&mut self, line: String) {
+        if !self.text.is_empty() {
+            self.text.push('\n');
+        }
+        self.text.push_str(&line);
+    }
+
     fn write(&self, output: &mut impl Write, terminal: tmt_cli_style::Terminal) -> io::Result<()> {
         let mut lines = self.text.lines();
         if self.done {
@@ -183,19 +202,31 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             archive,
             manifest,
             yes,
+            skills,
         } => {
             let product = extension(&name)?;
             let prefix = prefix(selected.as_deref())?;
             if !ask(yes, mode, &format!("Install the verified {name} extension"))? {
                 return Ok(None);
             }
-            install(
+            let (mut document, human, executable, previous) = install(
                 product,
                 &prefix,
                 channel,
                 archive.as_deref(),
                 manifest.as_deref(),
-            )
+            )?;
+            let mut human = human;
+            settle_skills(
+                product,
+                &executable,
+                &previous,
+                skills,
+                Some(mode),
+                &mut document,
+                &mut human,
+            )?;
+            Ok(Some((document, human)))
         }
         ExtensionInstallRequest::Upgrade {
             name,
@@ -220,6 +251,11 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
                 return Ok(None);
             }
             let executable = prefix.join("bin").join(product.executable());
+            // The skills the replaced release carried: only those may be pruned.
+            let previous = skill_names(
+                &native_install::release_skills(product, &executable)
+                    .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?,
+            );
             let report = native_install::upgrade_product(
                 product,
                 UpgradeRequest {
@@ -247,12 +283,23 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             } else {
                 Human::plain(format!("{name} {version} is current."))
             };
-            Ok(Some((
-                json!({"extension": name, "installed": true, "changed": report.installation.changed,
-                    "version": version, "skippedPinned": report.skipped_pinned,
-                    "executable": report.installation.executable}),
-                human,
-            )))
+            let mut document = json!({"extension": name, "installed": true,
+                "changed": report.installation.changed, "version": version,
+                "skippedPinned": report.skipped_pinned,
+                "executable": report.installation.executable});
+            let mut human = human;
+            if report.installation.changed {
+                settle_skills(
+                    product,
+                    &executable,
+                    &previous,
+                    false,
+                    None,
+                    &mut document,
+                    &mut human,
+                )?;
+            }
+            Ok(Some((document, human)))
         }
         ExtensionInstallRequest::Uninstall {
             name,
@@ -261,24 +308,62 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
         } => {
             let product = extension(&name)?;
             let prefix = prefix(selected.as_deref())?;
-            if !ask(
-                yes,
-                mode,
-                &format!("Remove the {name} extension's commands (releases and data are kept)"),
-            )? {
+            let global = global_dir()?;
+            // Every skill the extension's owner holds goes with its commands:
+            // a skill that points at a removed command is broken guidance.
+            let owned = skill_installation::owned_by(&global, product.as_str())
+                .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
+            let mut question =
+                format!("Remove the {name} extension's commands (releases and data are kept)");
+            if !owned.is_empty() {
+                question.push_str(&format!(
+                    " and its agent skills {} from {}",
+                    owned.keys().cloned().collect::<Vec<_>>().join(", "),
+                    owned
+                        .values()
+                        .flatten()
+                        .map(|target| target.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            if !ask(yes, mode, &question)? {
                 return Ok(None);
             }
             let changed = native_install::uninstall_extension(&prefix, product)
                 .map_err(|error| failure("EXTENSION_UNINSTALL_FAILED", error))?;
+            let skills = skill_installation::remove_owned(&global, product.as_str(), None)
+                .map_err(|failure| {
+                    Failure::new(
+                        "EXTENSION_SKILLS_FAILED",
+                        format!(
+                            "Removed the {name} extension's commands, but not all of its agent skills: {failure}"
+                        ),
+                        1,
+                    )
+                })?;
             let kept = kept(product, &prefix);
-            let text = std::iter::once(if changed {
-                format!("Removed the {name} extension's commands; kept:")
+            let mut lines = std::iter::once(if changed {
+                format!("Removed the {name} extension's commands.")
             } else {
-                format!("{name} was not installed; nothing changed. Kept, if present:")
+                format!("{name} was not installed; its commands were already gone.")
             })
-            .chain(kept.iter().map(|(_, how)| format!("  - {how}")))
-            .collect::<Vec<_>>()
-            .join("\n");
+            .chain(
+                skills
+                    .removed
+                    .iter()
+                    .map(|target| format!("Removed agent skill {}", target.display())),
+            )
+            .chain(skills.kept.iter().map(|target| {
+                format!(
+                    "Left {} alone: it no longer points at the {name} skill",
+                    target.display()
+                )
+            }))
+            .collect::<Vec<_>>();
+            lines.push("Kept:".into());
+            lines.extend(kept.iter().map(|(_, how)| format!("  - {how}")));
+            let text = lines.join("\n");
             let human = if changed {
                 Human::done(text)
             } else {
@@ -286,6 +371,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             };
             Ok(Some((
                 json!({"extension": name, "installed": false, "changed": changed,
+                    "skillsRemoved": skills.removed, "skillsKept": skills.kept,
                     "kept": kept.iter().map(|(what, _)| *what).collect::<Vec<_>>()}),
                 human,
             )))
@@ -298,13 +384,14 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
     }
 }
 
+/// The installed extension's report and its active command link.
 fn install(
     product: Product,
     prefix: &Path,
     channel: Option<Channel>,
     archive: Option<&str>,
     manifest: Option<&str>,
-) -> Result<Outcome, Failure> {
+) -> Result<(Value, Human, PathBuf, Vec<String>), Failure> {
     let name = product.as_str();
     let target = tmt_core::native_install::native_target(env::consts::OS, env::consts::ARCH)
         .ok_or_else(|| {
@@ -322,6 +409,14 @@ fn install(
         )
     } else {
         None
+    };
+    // The skills the replaced release carried: only those may be pruned.
+    let previous = match &current {
+        Some(_) => skill_names(
+            &native_install::release_skills(product, &executable)
+                .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?,
+        ),
+        None => Vec::new(),
     };
     let channel = channel
         .or_else(|| current.as_ref().map(|current| current.state.channel))
@@ -389,15 +484,199 @@ fn install(
     } else {
         Human::plain(format!("{name} {} is already installed.", report.version))
     };
-    Ok(Some((
+    Ok((
         json!({"extension": name, "installed": true, "changed": report.changed,
             "version": report.version, "executable": report.executable}),
         human,
-    )))
+        report.executable,
+        previous,
+    ))
+}
+
+fn global_dir() -> Result<PathBuf, Failure> {
+    ConfigPaths::discover()
+        .map(|paths| paths.global_dir)
+        .map_err(Failure::from)
+}
+
+fn skill_names(skills: &[OwnedSkill]) -> Vec<String> {
+    skills.iter().map(|skill| skill.name.clone()).collect()
+}
+
+fn published_document(report: &OwnedReport) -> Value {
+    report
+        .published
+        .iter()
+        .map(|item| {
+            json!({"name": item.name, "agent": item.agent.map(|agent| agent.name()),
+                "target": item.target, "changed": item.changed, "backup": item.backup})
+        })
+        .collect()
+}
+
+fn published_lines(report: &OwnedReport) -> impl Iterator<Item = String> + '_ {
+    report.published.iter().map(|item| {
+        let mut line = format!(
+            "{} agent skill {} at {}",
+            if item.changed {
+                "Published"
+            } else {
+                "Kept current"
+            },
+            item.name,
+            item.target.display()
+        );
+        if let Some(backup) = &item.backup {
+            line.push_str(&format!(
+                " (previous folder backed up to {})",
+                backup.display()
+            ));
+        }
+        line
+    })
+}
+
+fn publish(product: Product, skills: &[OwnedSkill]) -> Result<OwnedReport, Failure> {
+    let env = ProviderEnvironment::capture()
+        .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
+    let global = global_dir()?;
+    let name = product.as_str();
+    skill_installation::install_owned(&env, &global, name, skills, false).map_err(|failure| {
+        Failure::new(
+            "EXTENSION_SKILLS_FAILED",
+            format!("{name} is installed, but its agent skills were not published: {failure}"),
+            1,
+        )
+    })
+}
+
+/// After activation, the release's agent skills, under one owner named after
+/// the extension:
+/// - `--skills` publishes every skill in the release tree.
+/// - Skills the owner already holds from the tree are refreshed, and those the
+///   new release dropped are removed by name. Other skills the owner holds,
+///   such as playbooks, are never touched.
+/// - Otherwise a terminal install asks once; any other run names the skills
+///   and how to publish them.
+///
+/// Declining, or a refused publication, leaves the activated extension installed.
+fn settle_skills(
+    product: Product,
+    executable: &Path,
+    previous: &[String],
+    requested: bool,
+    offer: Option<OutputMode>,
+    document: &mut Value,
+    human: &mut Human,
+) -> Result<(), Failure> {
+    let name = product.as_str();
+    let skills = native_install::release_skills(product, executable)
+        .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
+    let current = skill_names(&skills);
+    let global = global_dir()?;
+    let owned = skill_installation::owned_by(&global, name)
+        .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
+    let dropped: Vec<String> = previous
+        .iter()
+        .filter(|skill| owned.contains_key(*skill) && !current.contains(skill))
+        .cloned()
+        .collect();
+    let held = current.iter().any(|skill| owned.contains_key(skill));
+    let mut selected: Vec<OwnedSkill> = if requested {
+        skills
+    } else {
+        skills
+            .into_iter()
+            .filter(|skill| owned.contains_key(&skill.name))
+            .collect()
+    };
+    if !requested && !held && dropped.is_empty() && !current.is_empty() {
+        let accepted = match offer {
+            Some(mode) if consent::interactive(mode, &tmt_cli_style::stream::stdout(mode.json)) => {
+                let env = ProviderEnvironment::capture()
+                    .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
+                let roots = skill_installation::owned_roots(&env, &global)
+                    .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
+                // The install result first, then the question about skills.
+                let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+                let terminal = stdout.terminal();
+                std::mem::replace(human, Human::plain(String::new()))
+                    .write(&mut stdout, terminal)
+                    .map_err(|error| {
+                        Failure::new("EXTENSION_IO_ERROR", "Could not write output.", 1)
+                            .caused_by(error)
+                    })?;
+                drop(stdout);
+                ask_declining(
+                    false,
+                    mode,
+                    &format!(
+                        "Publish its agent skills {} into {}",
+                        current.join(", "),
+                        roots
+                            .iter()
+                            .map(|root| root.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    "Skipped the agent skills; the extension is installed.",
+                )?
+            }
+            _ => false,
+        };
+        if accepted {
+            selected = native_install::release_skills(product, executable)
+                .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
+        }
+    }
+    let mut published = Value::Array(Vec::new());
+    if !selected.is_empty() {
+        let report = publish(product, &selected)?;
+        published_lines(&report).for_each(|line| human.push(line));
+        published = published_document(&report);
+    }
+    let mut removed = Vec::new();
+    if !dropped.is_empty() {
+        let report = skill_installation::remove_owned(&global, name, Some(&dropped))
+            .map_err(|failure| {
+                Failure::new(
+                    "EXTENSION_SKILLS_FAILED",
+                    format!(
+                        "{name} is installed, but its retired agent skills were not removed: {failure}"
+                    ),
+                    1,
+                )
+            })?;
+        for target in &report.removed {
+            human.push(format!("Removed retired agent skill {}", target.display()));
+        }
+        removed = report.removed;
+    }
+    let unpublished: Vec<&String> = current
+        .iter()
+        .filter(|skill| !selected.iter().any(|chosen| &chosen.name == *skill))
+        .collect();
+    if !unpublished.is_empty() {
+        human.push(format!(
+            "{} agent skill{} available ({}); publish with: tmt extension install {name} --skills",
+            unpublished.len(),
+            if unpublished.len() == 1 { "" } else { "s" },
+            unpublished
+                .iter()
+                .map(|skill| skill.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !current.is_empty() || !removed.is_empty() {
+        document["skills"] =
+            json!({"available": current, "published": published, "removed": removed});
+    }
+    Ok(())
 }
 
 /// What uninstall keeps, with how to remove each explicitly. This command
-/// never deletes data.
+/// never deletes data; the extension's own agent skills are not data.
 fn kept(product: Product, prefix: &Path) -> Vec<(&'static str, String)> {
     let name = product.as_str();
     let mut kept = vec![
@@ -406,12 +685,6 @@ fn kept(product: Product, prefix: &Path) -> Vec<(&'static str, String)> {
             format!(
                 "releases in {}; delete that folder to reclaim space",
                 prefix.join(product.namespace()).join("releases").display()
-            ),
-        ),
-        (
-            "skills",
-            format!(
-                "agent skills it installed, in your agents' skill folders (for example ~/.claude/skills/tmt-{name}); delete those folders to remove them"
             ),
         ),
         (
@@ -590,10 +863,11 @@ mod tests {
         let squad = kept(Product::Squad, prefix);
         assert_eq!(
             squad.iter().map(|(what, _)| *what).collect::<Vec<_>>(),
-            ["releases", "skills", "hookConsent"]
+            ["releases", "hookConsent"],
+            "the extension's agent skills are removed, not kept"
         );
         assert!(squad[0].1.contains("/p/lib/tmt-squad/releases"));
-        assert!(squad[2].1.contains("tmt extension hooks disable squad"));
+        assert!(squad[1].1.contains("tmt extension hooks disable squad"));
         let office = kept(Product::Office, prefix);
         assert_eq!(office.last().unwrap().0, "officeData");
         assert!(
