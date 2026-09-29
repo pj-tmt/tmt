@@ -240,13 +240,14 @@ the partition count alone.
 
 A change affects Office when `typescript/scripts/ci-scope.mjs` selects
 `native_office` for it: Office's own app, service, crates, contracts and skills;
-the shared core crates (`tmt-core`, `tmt-adapters`) except the modules the script's
-verified denylist names; the CLI Office facade, API command and native install
+every workspace crate under `rust/crates/` other than `tmt-cli`, except the modules
+the script's verified denylist names; the CLI Office facade, API command and native install
 commands; workspace build inputs; the shared test support and E2E harness the
 image reads; and any path the script does not recognize. Squad, core skills, other
 CLI code, prose outside Office, core-only test suites and E2E scenarios do not
 affect it. `ci-scope.mjs` owns this mapping; its tests recompute what the Office
-crates and the API module reach so the denylist cannot go stale.
+crates and the API module reach across the workspace crates so the denylist
+cannot go stale.
 
 - Run the local browser suite above before opening a PR for an Office-affecting
   change, and record the result in the PR.

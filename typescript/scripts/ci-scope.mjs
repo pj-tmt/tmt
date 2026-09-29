@@ -3,14 +3,14 @@ import { resolve } from 'node:path';
 import { runPackedCommand } from './packed-command.mjs';
 
 /**
- * The shared core crates are Office-affecting by default: the Office crates
- * import most of them and call `tmt api` at runtime. Only these top-level
- * modules are verified unreachable from the Office crates and the API module;
- * ci-scope.test.ts recomputes that closure so the list cannot silently rot.
+ * Every workspace crate except tmt-cli is Office-affecting by default: the
+ * Office crates import the shared crates and call `tmt api` at runtime. Only
+ * these top-level modules are verified unreachable from the Office crates and
+ * the API module; ci-scope.test.ts recomputes that closure so the list cannot
+ * silently rot.
  */
 export const NATIVE_OFFICE_UNREACHABLE = {
   'tmt-adapters': ['setup'],
-  'tmt-core': [],
 };
 
 /** CLI surfaces Office drives: its facade, the API command, native install. */
@@ -21,11 +21,12 @@ const NATIVE_OFFICE_CLI = [
   'rust/crates/tmt-cli/src/native_upgrade_command.rs',
 ];
 
-function consumedCorePath(path) {
-  const shared = /^rust\/crates\/(tmt-adapters|tmt-core)\/src\/([^/.]+)/.exec(path);
-  if (shared) return !NATIVE_OFFICE_UNREACHABLE[shared[1]].includes(shared[2]);
-  if (/^rust\/crates\/(?:tmt-adapters|tmt-core)\//.test(path)) return true;
-  return NATIVE_OFFICE_CLI.includes(path);
+function consumedCratePath(path) {
+  const [, crate, rest] = /^rust\/crates\/([^/]+)\/(.*)$/.exec(path) ?? [];
+  if (!crate) return true;
+  if (crate === 'tmt-cli') return NATIVE_OFFICE_CLI.includes(path);
+  const module = /^src\/([^/.]+)/.exec(rest)?.[1];
+  return !(module && (NATIVE_OFFICE_UNREACHABLE[crate] ?? []).includes(module));
 }
 
 /**
@@ -41,7 +42,7 @@ const NATIVE_OFFICE_UNRELATED = [
 
 /** Unknown paths fail closed, as they do for the other areas. */
 function consumedByNativeOffice(path) {
-  if (path.startsWith('rust/crates/')) return consumedCorePath(path);
+  if (path.startsWith('rust/crates/')) return consumedCratePath(path);
   if (path.startsWith('rust/')) return true;
   if (path.startsWith('skills/') || path.startsWith('extensions/tmt-squad/')) return false;
   return !NATIVE_OFFICE_UNRELATED.some((pattern) => pattern.test(path));

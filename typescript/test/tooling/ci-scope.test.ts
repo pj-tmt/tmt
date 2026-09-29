@@ -100,6 +100,8 @@ describe('CI area selection', () => {
       'rust/crates/tmt-adapters/src/runtime/claude.rs',
       'rust/crates/tmt-adapters/src/runtime_caller/probe.rs',
       'rust/crates/tmt-adapters/Cargo.toml',
+      'rust/crates/tmt-command-output/src/lib.rs',
+      'rust/crates/tmt-future/src/lib.rs',
       'rust/crates/tmt-cli/src/api_command.rs',
       'rust/crates/tmt-cli/src/native_upgrade_command.rs',
       'rust/crates/tmt-adapters/src/storage/migrations.rs',
@@ -149,15 +151,20 @@ describe('CI area selection', () => {
     });
   });
 
-  it('denies only core modules unreachable from the Office crates and the API', () => {
+  it('denies only crate modules unreachable from the Office crates and the API', () => {
     const repository = fileURLToPath(new URL('../../../', import.meta.url));
-    const crates = { a: 'rust/crates/tmt-adapters/src', c: 'rust/crates/tmt-core/src' };
+    const read = (file: string) => readFileSync(path.join(repository, file), 'utf8');
     const rustFiles = (directory: string): string[] =>
       readdirSync(path.join(repository, directory), { recursive: true, encoding: 'utf8' })
         .filter((file) => file.endsWith('.rs'))
         .map((file) => path.join(directory, file));
-    const moduleOf = (file: string, root: string) =>
-      path.relative(root, file).split(path.sep)[0].replace(/\.rs$/, '');
+    // Every shared workspace crate; tmt-cli keeps its explicit path list instead.
+    const crates = readdirSync(path.join(repository, 'rust/crates')).filter(
+      (crate) => crate !== 'tmt-cli'
+    );
+    const identifier = (crate: string) => crate.replaceAll('-', '_');
+    const moduleOf = (file: string, crate: string) =>
+      path.relative(`rust/crates/${crate}/src`, file).split(path.sep)[0].replace(/\.rs$/, '');
     // Top-level modules named by `prefix::module` or a (nested) `prefix::{...}` group.
     const referenced = (text: string, prefix: string) =>
       [...text.matchAll(new RegExp(`\\b${prefix}::(\\{|\\w+)`, 'g'))].flatMap((match) => {
@@ -175,47 +182,56 @@ describe('CI area selection', () => {
         }
         return [...names, item].map((part) => /\w+/.exec(part)?.[0] ?? '').filter(Boolean);
       });
-    const sources = (crate: 'a' | 'c', name: string) =>
-      rustFiles(crates[crate])
-        .filter((file) => moduleOf(file, crates[crate]) === name)
-        .map((file) => readFileSync(path.join(repository, file), 'utf8'))
+    const sources = (crate: string, name: string) =>
+      rustFiles(`rust/crates/${crate}/src`)
+        .filter((file) => moduleOf(file, crate) === name)
+        .map(read)
         .join('\n');
-    const office = rustFiles('extensions/tmt-office/rust')
-      .map((file) => readFileSync(path.join(repository, file), 'utf8'))
-      .join('\n');
-    // Office also reaches the API module at runtime through `tmt api`.
-    // Crate roots re-export items, so they count as reached too.
-    const pending: ['a' | 'c', string][] = [
-      ['a', 'lib'],
-      ['c', 'lib'],
-      ['a', 'api'],
-      ...referenced(office, 'tmt_adapters').map((name) => ['a', name] as ['a', string]),
-      ...referenced(office, 'tmt_core').map((name) => ['c', name] as ['c', string]),
+    const workspaceReferences = (text: string, self?: string) => [
+      ...(self ? referenced(text, 'crate').map((name) => [self, name] as [string, string]) : []),
+      ...crates.flatMap((crate) =>
+        referenced(text, identifier(crate)).map((name) => [crate, name] as [string, string])
+      ),
     ];
-    const reached = { a: new Set<string>(), c: new Set<string>() };
+    const officeCrates = readdirSync(path.join(repository, 'extensions/tmt-office/rust'));
+    // Office declares workspace crates as `name.workspace = true` (or inline).
+    const workspaceCrates = readdirSync(path.join(repository, 'rust/crates'));
+    const workspaceDependencies = officeCrates.flatMap((crate) =>
+      [
+        ...read(`extensions/tmt-office/rust/${crate}/Cargo.toml`).matchAll(
+          /^([\w-]+)(?:\.workspace\s*=\s*true|\s*=\s*\{[^}]*\bworkspace\s*=\s*true)/gm
+        ),
+      ]
+        .map((match) => match[1])
+        .filter((name) => workspaceCrates.includes(name))
+    );
+    expect(workspaceDependencies).toContain('tmt-command-output');
+    expect(workspaceDependencies).not.toContain('tmt-cli');
+    for (const dependency of workspaceDependencies) expect(crates).toContain(dependency);
+    const office = rustFiles('extensions/tmt-office/rust').map(read).join('\n');
+    // Crate roots re-export items, and Office reaches the API module at
+    // runtime through `tmt api`.
+    const pending: [string, string][] = [
+      ...crates.map((crate) => [crate, 'lib'] as [string, string]),
+      ['tmt-adapters', 'api'],
+      ...workspaceReferences(office),
+    ];
+    const reached = new Set<string>();
     for (let next = pending.pop(); next; next = pending.pop()) {
       const [crate, name] = next;
-      if (reached[crate].has(name)) continue;
+      if (reached.has(`${crate}/${name}`)) continue;
       const text = sources(crate, name);
       if (!text) continue;
-      reached[crate].add(name);
-      pending.push(
-        ...referenced(text, 'crate').map((module) => [crate, module] as ['a' | 'c', string])
-      );
-      if (crate === 'a') {
-        pending.push(
-          ...referenced(text, 'tmt_core').map((module) => ['c', module] as ['c', string])
-        );
-      }
+      reached.add(`${crate}/${name}`);
+      pending.push(...workspaceReferences(text, crate));
     }
-    expect(reached.a.has('storage') && reached.c.has('room')).toBe(true);
-    for (const [crate, key] of [
-      ['a', 'tmt-adapters'],
-      ['c', 'tmt-core'],
-    ] as const) {
-      for (const name of NATIVE_OFFICE_UNREACHABLE[key]) {
-        expect(sources(crate, name), `${key}/${name} exists`).not.toBe('');
-        expect(reached[crate].has(name), `${key}/${name} is reachable from Office`).toBe(false);
+    expect(reached).toContain('tmt-adapters/storage');
+    expect(reached).toContain('tmt-core/room');
+    for (const [crate, names] of Object.entries(NATIVE_OFFICE_UNREACHABLE)) {
+      expect(crates).toContain(crate);
+      for (const name of names) {
+        expect(sources(crate, name), `${crate}/${name} exists`).not.toBe('');
+        expect(reached.has(`${crate}/${name}`), `${crate}/${name} is reachable`).toBe(false);
       }
     }
   });
