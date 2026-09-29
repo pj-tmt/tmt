@@ -105,10 +105,13 @@ fn caller_label(host: &Host, environment: &CallerEnvironment, id: &str) -> Strin
     host.kind().pane_address(id, herdr).to_owned()
 }
 
+/// `listed_pane`: whether `ls <text>` addresses a pane, decided once by
+/// [`listed_target`] before any host is resolved.
 fn preflight(
     request: &Invocation,
     host: &Host,
     environment: &CallerEnvironment,
+    listed_pane: bool,
 ) -> Result<Option<ResolvedPane>, Failure> {
     let target = match request {
         Invocation::BindMarked { .. } => {
@@ -148,7 +151,7 @@ fn preflight(
         Invocation::List {
             target: Some(target),
             ..
-        } if is_pane_target(target) => Some(target.as_str()),
+        } if listed_pane => Some(target.as_str()),
         Invocation::List {
             target: None,
             scope: ListScope { here: true, .. },
@@ -199,27 +202,11 @@ fn preflight(
         }
         _ => None,
     };
-    // `ls` also accepts a name, and an existing identity may hold a name that
-    // now reads as a Herdr target: a missing Herdr pane is looked up by name.
-    let listing = matches!(request, Invocation::List { .. });
     target
-        .and_then(|target| {
-            let found = Host::for_target(target)
+        .map(|target| {
+            Host::for_target(target)
                 .resolve_target(target, OperationOptions::default())
-                .map_err(endpoint_failure);
-            match found {
-                Ok(None)
-                    if listing
-                        && tmt_core::host::HostKind::Herdr
-                            .is_target(&tmt_core::names::normalize_name(target)) =>
-                {
-                    None
-                }
-                found => Some((target, found)),
-            }
-        })
-        .map(|(target, found)| {
-            found?
+                .map_err(endpoint_failure)?
                 .ok_or_else(|| {
                     Failure::new(
                         "PANE_NOT_FOUND",
@@ -237,17 +224,66 @@ fn preflight(
         .transpose()
 }
 
+fn open_storage(paths: &ConfigPaths) -> Result<Storage, Failure> {
+    Storage::open(&paths.database).map_err(|error| {
+        Failure::new("IDENTITY_ERROR", "Could not open identity storage.", 1).caused_by(error)
+    })
+}
+
+/// Whether `ls <text>` addresses a pane rather than an identity, decided
+/// once before any host is resolved. Only text an existing identity could
+/// hold (a Herdr target) needs storage, which is then kept for the command;
+/// other requests open storage only after their preflight, as before.
+struct ListedTarget {
+    pane: bool,
+    opened: Option<(ConfigPaths, Storage)>,
+}
+
+fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
+    let target = match request {
+        Invocation::List {
+            target: Some(target),
+            ..
+        } if is_pane_target(target) => target,
+        _ => {
+            return Ok(ListedTarget {
+                pane: false,
+                opened: None,
+            });
+        }
+    };
+    if tmt_core::names::validate_existing_name(target).is_err() {
+        return Ok(ListedTarget {
+            pane: true,
+            opened: None,
+        });
+    }
+    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let storage = open_storage(&paths)?;
+    let pane = tmt_core::identity::addresses_pane(&storage, target).map_err(|error| {
+        Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)
+    })?;
+    Ok(ListedTarget {
+        pane,
+        opened: Some((paths, storage)),
+    })
+}
+
 fn run(request: Invocation) -> Result<Report, Failure> {
     let environment = CallerEnvironment::current();
     let caller = Host::for_caller(&environment);
-    let pane = preflight(&request, &caller, &environment)?;
+    let listed = listed_target(&request)?;
+    let pane = preflight(&request, &caller, &environment, listed.pane)?;
     // An explicit target's own host observes it; stored bindings are always
     // probed on theirs.
     let host = match pane.as_ref().and_then(|pane| pane.target.as_deref()) {
         Some(target) => Host::for_target(target),
         None => caller,
     };
-    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let (paths, storage) = match listed.opened {
+        Some((paths, storage)) => (paths, Some(storage)),
+        None => (ConfigPaths::discover().map_err(Failure::from)?, None),
+    };
     let badge = if matches!(
         request,
         Invocation::Bind { .. } | Invocation::BindMarked { .. } | Invocation::Rename { .. }
@@ -262,25 +298,9 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     } else {
         PaneBadge::Off
     };
-    let mut storage = Storage::open(paths.database).map_err(|error| {
-        Failure::new("IDENTITY_ERROR", "Could not open identity storage.", 1).caused_by(error)
-    })?;
-    // An existing identity keeps a name that now reads as a Herdr target.
-    let pane = match (&request, pane) {
-        (
-            Invocation::List {
-                target: Some(target),
-                ..
-            },
-            Some(_),
-        ) if matches!(
-            tmt_core::identity::addresses_pane(&storage, target),
-            Ok(false)
-        ) =>
-        {
-            None
-        }
-        (_, pane) => pane,
+    let mut storage = match storage {
+        Some(storage) => storage,
+        None => open_storage(&paths)?,
     };
     // A pane observation needs its server resolved before any binding
     // transaction; listing and name operations only probe stored bindings.

@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { installTmuxTripwire } from './tmux-tripwire.js';
@@ -201,4 +202,52 @@ describe.skipIf(!HERDR)('Herdr host (real server)', () => {
       }
     });
   }, 60_000);
+});
+
+// Runs without Herdr: `ls <text>` decides name-versus-target once, from
+// storage, before any host is resolved (#498 decision 1).
+describe('ls with Herdr target-shaped text', () => {
+  it('lists an existing identity that holds the name without running Herdr', async () => {
+    await withSandbox(async (sandbox) => {
+      const tmuxLog = installTmuxTripwire(sandbox);
+      const herdrLog = path.join(sandbox.root, 'herdr-invocations.log');
+      const tripwire = path.join(sandbox.root, 'herdr-tripwire');
+      mkdirSync(tripwire);
+      writeFileSync(
+        path.join(tripwire, 'herdr'),
+        `#!/bin/sh\nprintf "%s\\n" "$*" >> '${herdrLog}'\nexit 97\n`,
+        { mode: 0o755 }
+      );
+      sandbox.env.PATH = `${tripwire}${path.delimiter}${sandbox.env.PATH}`;
+      delete sandbox.env.HERDR_PANE_ID;
+      delete sandbox.env.HERDR_SOCKET_PATH;
+      expect((await runCli(sandbox, ['identity', 'create', 'legacy'])).status).toBe(0);
+      // Names like this were accepted before Herdr targets existed.
+      const database = new Database(sandbox.database);
+      try {
+        database
+          .prepare(
+            "UPDATE identities SET name = 'w1:p2', canonical_name = 'w1:p2' WHERE canonical_name = 'legacy'"
+          )
+          .run();
+      } finally {
+        database.close();
+      }
+
+      const listed = await runCli(sandbox, ['ls', '--json', 'w1:p2']);
+      expect(listed.status, listed.stderr).toBe(0);
+      expect(parseWholeStdout(listed)).toMatchObject({
+        identity: { name: 'w1:p2' },
+        presence: 'offline',
+      });
+      expect((await runCli(sandbox, ['ls', 'w1:p2'])).status).toBe(0);
+      expect(existsSync(herdrLog)).toBe(false);
+
+      // Text no identity holds addresses a Herdr pane.
+      const target = await runCli(sandbox, ['ls', 'w1:p3']);
+      expect(target.status).not.toBe(0);
+      expect(existsSync(herdrLog)).toBe(true);
+      expect(existsSync(tmuxLog)).toBe(false);
+    });
+  });
 });
