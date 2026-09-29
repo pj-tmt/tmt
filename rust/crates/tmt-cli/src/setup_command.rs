@@ -9,32 +9,50 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::ConfigPaths,
     drivers::Registry,
-    setup::{self, SetupEnvironment, record},
+    setup::{self, SetupEnvironment, UsageHook, record},
 };
 
 pub fn execute(
     provider: Option<String>,
     remove: bool,
+    usage: UsageHook,
     yes: bool,
     mode: OutputMode,
 ) -> io::Result<u8> {
-    match run(provider.as_deref(), remove, yes, mode) {
+    match run(provider.as_deref(), remove, usage, yes, mode) {
         Ok(()) => Ok(0),
         Err(error) => error.publish(mode),
     }
 }
 
+/// What the opt-in usage hook reads, shown wherever setup plans it.
+const USAGE_NOTE: &str = "Usage: after each turn, TMT reads token counts from the end of the agent's own transcript; no transcript content is stored.";
+
 fn failure(error: impl std::error::Error + 'static) -> Failure {
     Failure::new("SETUP_ERROR", error.to_string(), 1).caused_by(error)
 }
 
-fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Result<(), Failure> {
+fn run(
+    provider: Option<&str>,
+    remove: bool,
+    usage: UsageHook,
+    yes: bool,
+    mode: OutputMode,
+) -> Result<(), Failure> {
     let drivers = Registry::builtin();
     let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
     if provider.is_none() {
         let mut output = tmt_cli_style::stream::stdout(mode.json);
         let terminal = output.terminal();
-        return guided::run(&drivers, &environment, yes, mode, &mut output, terminal);
+        return guided::run(
+            &drivers,
+            &environment,
+            usage,
+            yes,
+            mode,
+            &mut output,
+            terminal,
+        );
     }
     let selected = provider.and_then(|name| drivers.find(name));
     let plans = selected
@@ -46,8 +64,15 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
                 .map_err(failure)?
                 .to_path_buf();
             let before = setup::read_settings(&path).map_err(failure)?;
-            setup::plan(provider, path, before, environment.launcher.clone(), remove)
-                .map_err(failure)
+            setup::plan(
+                provider,
+                path,
+                before,
+                environment.launcher.clone(),
+                remove,
+                usage,
+            )
+            .map_err(failure)
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut output = tmt_cli_style::stream::stdout(mode.json);
@@ -59,9 +84,14 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
     // An unreadable record is preserved and stops setup before any change.
     let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
     record::read(&global).map_err(failure)?;
+    // Removing only the usage hook is a removal too.
+    let removing = remove || (plan.usage_before && !plan.usage);
     if !mode.json {
-        writeln!(output, "{} {} SessionStart and SessionEnd hooks in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes. Provider hook trust review still applies.",
-            if remove { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
+        writeln!(output, "{} {} {} in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes. Provider hook trust review still applies.",
+            if removing { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.events(), plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
+        if plan.usage {
+            writeln!(output, "{USAGE_NOTE}").map_err(failure)?;
+        }
     }
     if !crate::consent::ask(
         &mut output,
@@ -102,9 +132,14 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
         .suggestion(format!("run tmt setup {} again", plan.provider))
     })?;
     if mode.json {
-        writeln!(output, "{}", json!({"provider": plan.provider, "changed": plan.change.changed(),
+        let mut document = json!({"provider": plan.provider, "changed": plan.change.changed(),
             "removed": remove, "settingsPath": plan.change.path, "launcher": plan.launcher, "backup": backup
-        })).map_err(failure)?;
+        });
+        // Additive: present only while the usage hook is installed.
+        if plan.usage {
+            document["usage"] = json!(true);
+        }
+        writeln!(output, "{document}").map_err(failure)?;
     } else {
         if plan.change.changed() {
             tmt_cli_style::message::success(

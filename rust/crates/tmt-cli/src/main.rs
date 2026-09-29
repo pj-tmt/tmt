@@ -180,9 +180,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Setup {
             provider,
             remove,
+            usage,
             yes,
         } => {
-            return setup_command::execute(provider, remove, yes, parsed.mode);
+            return setup_command::execute(provider, remove, usage, yes, parsed.mode);
         }
         Invocation::ProviderHook { provider, worker } => {
             return provider_hook_command::execute(&provider, worker);

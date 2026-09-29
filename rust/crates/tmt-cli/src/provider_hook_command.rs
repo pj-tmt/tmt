@@ -12,15 +12,19 @@ use tmt_adapters::{
         runtime::observe_runtime_process,
     },
     response_input::read_stdin_bounded,
-    runtime::{RuntimeRegistry, lifecycle::HostEvidence},
-    storage::{Storage, StorageError},
+    runtime::{
+        RuntimeRegistry,
+        lifecycle::{HostEvidence, RuntimeLifecycle, TurnEnd},
+    },
+    skill_installation::ProviderEnvironment,
+    storage::{IdentityContextSnapshot, Storage, StorageError},
 };
 use tmt_core::{
     binding::{
         BindingEvidence, BindingRepository, evaluate_binding,
-        session::{HarnessId, RuntimeLiveness},
+        session::{HarnessId, ProviderSessionId, RuntimeIncarnation, RuntimeLiveness},
     },
-    endpoint::EndpointProbe,
+    endpoint::{EndpointProbe, EndpointSnapshot},
 };
 
 const BUDGET: Duration = Duration::from_secs(2);
@@ -31,12 +35,17 @@ const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without
 /// unbounded background thread or potentially late context write is introduced.
 pub fn execute(provider: &str, worker: bool) -> io::Result<u8> {
     let deadline = Instant::now() + BUDGET;
+    // A turn end fires after every turn; its failures stay silent.
+    let mut turn_end = false;
     let result = (|| {
         let input = read_stdin_bounded(
             BUDGET,
             tmt_adapters::runtime::hook_protocol::HOOK_INPUT_LIMIT,
         )
         .map_err(|_| ())?;
+        turn_end = RuntimeRegistry::first_party()
+            .lifecycle(&HarnessId::new(provider).map_err(|_| ())?)
+            .is_some_and(|lifecycle| lifecycle.decode_turn(input.as_bytes()).is_some());
         if worker {
             return observe(provider, &input, deadline);
         }
@@ -66,7 +75,9 @@ pub fn execute(provider: &str, worker: bool) -> io::Result<u8> {
                 // safely signal a group after reaping its numeric leader.
                 let _ = SupervisedProbeRunner::abort_worker_group();
             }
-            let _ = writeln!(io::stderr().lock(), "{ERROR_LINE}");
+            if !turn_end {
+                let _ = writeln!(io::stderr().lock(), "{ERROR_LINE}");
+            }
         }
     }
     // Only the internal worker reports failure to its group-owning supervisor.
@@ -74,28 +85,115 @@ pub fn execute(provider: &str, worker: bool) -> io::Result<u8> {
     Ok(u8::from(worker && failed))
 }
 
-fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()> {
-    let registry = RuntimeRegistry::first_party();
-    let harness = HarnessId::new(provider).map_err(|_| ())?;
-    let lifecycle = registry.lifecycle(&harness).ok_or(())?;
-    let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
+/// A turn end refreshes only the remembered session's driver state (#519).
+/// It needs the same verified, active binding as a lifecycle event, and the
+/// binding's current conversation must be the remembered one it names: a late
+/// turn end from an earlier conversation writes nothing. The write is a
+/// compare-and-set on the preferences read with the binding.
+fn observe_turn(
+    provider: &str,
+    harness: &HarnessId,
+    lifecycle: &dyn RuntimeLifecycle,
+    turn: &TurnEnd,
+    deadline: Instant,
+) -> Result<(), ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
-        return Ok(String::new());
+        return Ok(());
     }
-    let shared = host.shared();
+    let Caller::Bound(bound) = verified_caller(provider, lifecycle, host, &turn.session, deadline)?
+    else {
+        return Ok(());
+    };
+    let BoundCaller {
+        paths,
+        stored,
+        snapshot,
+        process,
+        ..
+    } = *bound;
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
+    if !matches!(
+        evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot)),
+        BindingEvidence::Active(_)
+    ) {
+        return Err(());
+    }
+    let current = binding.session.key.as_ref().is_some_and(|key| {
+        key.incarnation == process && key.provider_session.as_ref() == Some(&turn.session)
+    });
+    let Some(remembered) = stored.preferences.remembered.as_ref().filter(|remembered| {
+        current && &remembered.harness == harness && remembered.provider_session == turn.session
+    }) else {
+        return Ok(());
+    };
+    let environment = ProviderEnvironment::capture().map_err(|_| ())?;
+    let Some(next) = lifecycle.turn_state(
+        turn,
+        &environment,
+        remembered.state.as_ref(),
+        tmt_adapters::request_runtime::wall_time_ms(),
+    ) else {
+        return Ok(());
+    };
+    if Instant::now() >= deadline {
+        return Err(());
+    }
+    let mut storage = Storage::open_hook(&paths.database).map_err(|_| ())?;
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            let current = records
+                .entry_by_id(&binding.identity_id)?
+                .and_then(|entry| entry.binding);
+            let mut preferences = records.session_preferences(&binding.identity_id)?;
+            if current.as_ref() != Some(binding) || preferences != stored.preferences {
+                return Ok(false);
+            }
+            if let Some(remembered) = preferences.remembered.as_mut() {
+                remembered.state = Some(next);
+            }
+            records.set_session_preferences(&binding.identity_id, &preferences)
+        })
+        .map_err(|_| ())?;
+    storage.close().map_err(|_| ())
+}
+
+/// The caller a hook event came from, verified the same way for every event.
+enum Caller {
+    /// No pane (or, in shared mode, no stored session) to attribute it to.
+    Unobserved,
+    /// A verified pane with no stored identity; `marked` when it still holds
+    /// a TMT marker, which is inconsistent evidence.
+    Unbound {
+        marked: bool,
+    },
+    Bound(Box<BoundCaller>),
+}
+
+struct BoundCaller {
+    host: HostEvidence,
+    paths: ConfigPaths,
+    stored: IdentityContextSnapshot,
+    snapshot: EndpointSnapshot,
+    process: RuntimeIncarnation,
+}
+
+fn verified_caller(
+    provider: &str,
+    lifecycle: &dyn RuntimeLifecycle,
+    host: HostEvidence,
+    session: &ProviderSessionId,
+    deadline: Instant,
+) -> Result<Caller, ()> {
     let paths = ConfigPaths::discover().map_err(|_| ())?;
     let now = tmt_adapters::request_runtime::wall_time_ms();
+    let shared = host.shared();
     let (stored, snapshot, process) = if shared {
-        let Some(stored) = Storage::context_by_provider_session(
-            &paths.database,
-            provider,
-            event.session().as_str(),
-            now,
-        )
-        .map_err(|_| ())?
+        let Some(stored) =
+            Storage::context_by_provider_session(&paths.database, provider, session.as_str(), now)
+                .map_err(|_| ())?
         else {
-            return Ok(String::new());
+            return Ok(Caller::Unobserved);
         };
         let binding = stored.entry.binding.as_ref().ok_or(())?;
         let pane = &binding.pane_id;
@@ -124,7 +222,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         let panes = Host::for_caller_with(&environment, SupervisedProbeRunner);
         let Some(pane) = panes.caller_pane(&environment).map_err(|_| ())? else {
             return if Instant::now() < deadline {
-                Ok(String::new())
+                Ok(Caller::Unobserved)
             } else {
                 Err(())
             };
@@ -162,12 +260,47 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         )
         .map_err(|_| ())?;
         let Some(stored) = stored else {
-            // With no stored identity, only emit the fixed naming hint. The
-            // command-derived suggested_name (for example "claude") is not a
-            // binding marker and supplies no identity or context to this branch.
-            if observed_pane.marker.is_some() {
-                return Err(());
-            }
+            return Ok(Caller::Unbound {
+                marked: observed_pane.marker.is_some(),
+            });
+        };
+        (stored, snapshot, process)
+    };
+    Ok(Caller::Bound(Box::new(BoundCaller {
+        host,
+        paths,
+        stored,
+        snapshot,
+        process,
+    })))
+}
+
+fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()> {
+    let registry = RuntimeRegistry::first_party();
+    let harness = HarnessId::new(provider).map_err(|_| ())?;
+    let lifecycle = registry.lifecycle(&harness).ok_or(())?;
+    if let Some(turn) = lifecycle.decode_turn(input.as_bytes()) {
+        return observe_turn(provider, &harness, lifecycle, &turn, deadline)
+            .map(|()| String::new());
+    }
+    let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
+    let host = lifecycle.host_evidence().map_err(|_| ())?;
+    if matches!(host, HostEvidence::Unsupported) {
+        return Ok(String::new());
+    }
+    let BoundCaller {
+        host,
+        paths,
+        stored,
+        snapshot,
+        process,
+    } = match verified_caller(provider, lifecycle, host, event.session(), deadline)? {
+        Caller::Unobserved => return Ok(String::new()),
+        // With no stored identity, only emit the fixed naming hint. The
+        // command-derived suggested_name (for example "claude") is not a
+        // binding marker and supplies no identity or context to this branch.
+        Caller::Unbound { marked: true } => return Err(()),
+        Caller::Unbound { marked: false } => {
             return if event.starting() {
                 Ok(lifecycle
                     .encode_context(&crate::context_command::unbound_text().map_err(|_| ())?)
@@ -175,8 +308,8 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             } else {
                 Ok(String::new())
             };
-        };
-        (stored, snapshot, process)
+        }
+        Caller::Bound(bound) => *bound,
     };
     let binding = stored.entry.binding.as_ref().ok_or(())?;
     let pane = binding.pane_id.clone();
@@ -231,7 +364,10 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
                 // Only this starting event's reported fields update driver
                 // state; `remember` kept the same driver's previous state.
                 if let Some(remembered) = preferences.remembered.as_mut() {
-                    remembered.state = event.driver_state(remembered.state.as_ref());
+                    remembered.state = event.driver_state(
+                        remembered.state.as_ref(),
+                        tmt_adapters::request_runtime::wall_time_ms(),
+                    );
                 }
                 return records.set_session_preferences(&binding.identity_id, &preferences);
             }
