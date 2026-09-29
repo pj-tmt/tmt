@@ -232,7 +232,8 @@ never acknowledges. `answer <from>` answers the one request `<from>` is waiting 
 you for. With several it sends nothing (`ANSWER_AMBIGUOUS`, exit 1) and lists
 their IDs: read them, then choose with `--request`; never pick one to make the
 command succeed. `ANSWER_NOT_WAITING` (exit 3) means nothing is open from that
-identity. Body sources and rules are those of `reply`. Use `--identity` only with
+identity. A request from an anonymous sender (`from: null`) is answered by ID alone:
+`tmt answer --request <request-id> 'text'`. Body sources and rules are those of `reply`. Use `--identity` only with
 your own identity; answering as someone else is attribution misuse.
 
 ## Calling an agent

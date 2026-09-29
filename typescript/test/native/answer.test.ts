@@ -162,6 +162,48 @@ describe('tmt inbox and tmt answer', () => {
       const anonymous = await runCli(sandbox, ['inbox', '--json'], { deadlineMs: 5_000 });
       expect(anonymous.status).toBe(1);
       expectError(anonymous, 'IDENTITY_REQUIRED');
+
+      // An anonymous sender's request is listed, cannot be chosen by name,
+      // and is answered by its request ID alone.
+      const anonymousTalk = await runCli(
+        sandbox,
+        ['talk', 'ben', 'who am I?', '--inbox', '--detach', '--json'],
+        {
+          deadlineMs: 5_000,
+        }
+      );
+      expect(anonymousTalk.status).toBe(0);
+      const anonymousId = parseWholeStdout(anonymousTalk).requestId as string;
+      expect(await json(sandbox, ['inbox', '--identity', 'ben'])).toMatchObject({
+        items: [{ requestId: anonymousId, from: null, preview: 'who am I?' }],
+      });
+      const byName = await runCli(
+        sandbox,
+        ['answer', 'alice', 'x', '--identity', 'ben', '--json'],
+        {
+          deadlineMs: 5_000,
+        }
+      );
+      expect(byName.status).toBe(3);
+      expectError(byName, 'ANSWER_NOT_WAITING');
+      expect(
+        await json(sandbox, [
+          'answer',
+          '--request',
+          anonymousId,
+          'nobody knows',
+          '--identity',
+          'ben',
+        ])
+      ).toMatchObject({
+        status: 'submitted',
+        requestId: anonymousId,
+        from: null,
+      });
+      expect(await json(sandbox, ['result', anonymousId])).toMatchObject({
+        response: 'nobody knows',
+      });
+      expect(await json(sandbox, ['inbox', '--identity', 'ben'])).toMatchObject({ items: [] });
     });
   });
 });

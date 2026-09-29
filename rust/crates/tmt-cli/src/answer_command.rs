@@ -38,7 +38,8 @@ enum Report {
         names: Vec<(String, Identity)>,
     },
     Answered {
-        from: Identity,
+        /// None for an anonymous originator.
+        from: Option<Identity>,
         response: Box<FinalResponse>,
         notification: Option<WakeState>,
     },
@@ -79,7 +80,11 @@ fn answer_failure(error: RequestError<StorageError>, from: &str, paths: &ConfigP
         },
         RequestError::Attention(AttentionRejection::NotFound) => Failure::new(
             "X_NOT_FOUND",
-            format!("That request is not one {from} sent you."),
+            if from.is_empty() {
+                "That request is not addressed to you.".to_owned()
+            } else {
+                format!("That request is not one {from} sent you.")
+            },
             3,
         ),
         RequestError::Invalid(message) => Failure::new("ANSWER_INPUT_INVALID", message, 1),
@@ -143,11 +148,24 @@ fn run(request: Invocation) -> Result<(Identity, Report), Failure> {
                 Report::Inbox { page, names }
             }
             Invocation::Answer { from, request, .. } => {
-                let from = identity(&storage, &from)?;
-                let fail = |error| answer_failure(error, &from.canonical_name, &paths);
-                let (request_id, proof) = RequestService::new(&mut storage, wall_time_ms)
-                    .answer_target(&me.id, &from.id, request.as_deref())
-                    .map_err(fail)?;
+                let named = from.map(|name| identity(&storage, &name)).transpose()?;
+                let label = named
+                    .as_ref()
+                    .map_or(String::new(), |from| from.canonical_name.clone());
+                let fail = |error| answer_failure(error, &label, &paths);
+                let (request_id, proof, originator) =
+                    RequestService::new(&mut storage, wall_time_ms)
+                        .answer_target(
+                            &me.id,
+                            named.as_ref().map(|from| from.id.as_str()),
+                            request.as_deref(),
+                        )
+                        .map_err(fail)?;
+                let from = match (named, originator.identity_id()) {
+                    (Some(named), _) => Some(named),
+                    (None, Some(id)) => storage.find_identity_by_id(id).map_err(unavailable)?,
+                    (None, None) => None,
+                };
                 let gone_waiter = tmt_adapters::delivery::gone_waiter(&mut storage, &request_id);
                 let (response, hint) = RequestService::new(&mut storage, wall_time_ms)
                     .submit_response_with_hint(
@@ -220,7 +238,7 @@ fn document(me: &Identity, report: &Report) -> Value {
         } => {
             value["status"] = json!("submitted");
             value["requestId"] = json!(response.request_id);
-            value["from"] = party(from);
+            value["from"] = from.as_ref().map_or(Value::Null, party);
             value["bodyBytes"] = json!(response.body_bytes);
             value["submittedAtMs"] = json!(response.submitted_at_ms);
             if let Some(notification) = notification {
@@ -287,7 +305,8 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
             terminal,
             &format!(
                 "Answered {} ({}){}",
-                from.canonical_name,
+                from.as_ref()
+                    .map_or("an anonymous sender", |from| from.canonical_name.as_str()),
                 response.request_id,
                 notification
                     .map(|value| format!("; originator notification {}", value.as_str()))

@@ -140,6 +140,7 @@ after process loss is uncertain, never permission to send again.
 ```text
 tmt inbox [--from <name>] [--limit <1-200>] [--identity <name>] [--json]
 tmt answer <from> (<text> | --file <path> | --stdin) [--request <request-id>] [--identity <name>] [--json]
+tmt answer --request <request-id> [<from>] (<text> | --file <path> | --stdin) [--identity <name>] [--json]
 ```
 
 These are the recipient's side of a request, selected by identity instead of a
@@ -165,19 +166,22 @@ There is no dismiss or decline.
 once the prompt is no longer retained) and `roomId` when scoped. `more` means
 newer open requests exist beyond the limit.
 
-`answer <from>` answers the request `<from>` is waiting on you for. Requests from
-an anonymous originator are listed but cannot be selected by name. With one
+`answer <from>` answers the request `<from>` is waiting on you for. With one
 open request it answers that one. With several it sends nothing and fails with
 `ANSWER_AMBIGUOUS` (exit 1), listing each request ID and preview; choose one
 with `--request`. With none it fails with `ANSWER_NOT_WAITING` (exit 3), which
 also covers answered and expired requests. An explicit `--request` must be a
-retained request from `<from>` to you, otherwise `X_NOT_FOUND` (exit 3); it then
+retained request to you, and from `<from>` when one is named, otherwise
+`X_NOT_FOUND` (exit 3). With `--request` the sender may be omitted, which is the
+only way to answer an anonymous originator; one operand is then the text unless
+`--file` or `--stdin` supplies the body. The request then
 behaves like `reply`, so an identical retry is idempotent and a different body
 is `RESPONSE_CONFLICT` (exit 5). Body sources, limits and exact-text rules are
 those of `reply`. The proof is derived in-process from the recorded attempt and
 route, exactly the receipt `talk` gave the recipient; no receipt is shown or
 stored, and no incoming attention is acknowledged. Success returns
-`{identity,status:"submitted",requestId,from,bodyBytes,submittedAtMs}` plus
+`{identity,status:"submitted",requestId,from,bodyBytes,submittedAtMs}` (`from` is
+null for an anonymous originator) plus
 `notification` when an originator callback was claimed, as for `reply`.
 
 A default user identity, so a person outside a named pane need not pass

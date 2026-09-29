@@ -2338,7 +2338,7 @@ fn inbox_and_answer_select_an_identity_and_one_body_source() {
         parsed(&["answer", "alice", "yes", "--request", "req_1"]).invocation,
         Invocation::Answer {
             identity: None,
-            from: "alice".into(),
+            from: Some("alice".into()),
             request: Some("req_1".into()),
             input: ContentInput::Inline("yes".into()),
         }
@@ -2347,11 +2347,42 @@ fn inbox_and_answer_select_an_identity_and_one_body_source() {
         parsed(&["answer", "alice", "--stdin"]).invocation,
         Invocation::Answer {
             identity: None,
-            from: "alice".into(),
+            from: Some("alice".into()),
             request: None,
             input: ContentInput::Stdin,
         }
     );
+    // With --request the sender is optional: one operand is the text unless
+    // --file or --stdin supplies the body.
+    for (argv, from, input) in [
+        (
+            &["answer", "--request", "req_1", "done"][..],
+            None,
+            ContentInput::Inline("done".into()),
+        ),
+        (
+            &["answer", "--request", "req_1", "alice", "--stdin"][..],
+            Some("alice"),
+            ContentInput::Stdin,
+        ),
+        (
+            &["answer", "--request", "req_1", "--file", "/tmp/a.md"][..],
+            None,
+            ContentInput::File("/tmp/a.md".into()),
+        ),
+    ] {
+        assert_eq!(
+            parsed(argv).invocation,
+            Invocation::Answer {
+                identity: None,
+                from: from.map(str::to_owned),
+                request: Some("req_1".into()),
+                input,
+            },
+            "arguments: {argv:?}"
+        );
+    }
+    assert_usage_error(&["answer"], "choose --request", OutputMode::default());
     for argv in [
         &["answer", "alice"][..],
         &["answer", "alice", "yes", "--file", "/tmp/a.md"][..],

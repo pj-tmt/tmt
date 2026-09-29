@@ -908,16 +908,16 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
             storage(spec!(
                 "answer",
                 "Answer the request an identity is waiting on you for",
-                details = "With several open requests from that identity, nothing is sent until you choose one with --request. If a request gave you a receipt, use tmt reply.",
+                details = "With several open requests from that identity, nothing is sent until you choose one with --request. With --request the sender may be omitted, as for an anonymous one. If a request gave you a receipt, use tmt reply.",
                 [
                     "Answer with a message" => "tmt answer reviewer \"Yes, ship it\"",
                     "Choose one of several open requests" => "tmt answer reviewer \"Yes\" --request req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30",
-                    "Answer with a file's content" => "tmt answer reviewer --file answer.md",
+                    "Answer a request by ID, also one from an anonymous sender" => "tmt answer --request req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30 \"Done\"",
                 ]
             )),
             &["identity", "request", "file", "stdin"],
         )
-        .arg(operand("from", true))
+        .arg(operand("from", false))
         .arg(operand("content", false)),
     )
     .subcommand(

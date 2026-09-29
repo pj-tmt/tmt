@@ -21,13 +21,17 @@ fn asker(fixture: &mut Fixture, name: &str) -> String {
 /// Queues a request from `from` to the fixture identity, one millisecond
 /// after the previous one so the order is deterministic.
 fn ask(fixture: &mut Fixture, id: &str, from: &str, kind: RequestKind) {
+    ask_as(fixture, id, Originator::Explicit(from.into()), kind);
+}
+
+fn ask_as(fixture: &mut Fixture, id: &str, originator: Originator, kind: RequestKind) {
     let mut input = prepare_input(
         fixture,
         id,
         endpoint("%1", 42),
         false,
         NOW_MS + 3_600_000,
-        Originator::Explicit(from.into()),
+        originator,
         false,
     );
     input.route = RequestRoute::Inbox {
@@ -60,8 +64,17 @@ fn answer(
     request: Option<&str>,
     body: &str,
 ) -> Result<(String, u64), RequestError<crate::storage::StorageError>> {
+    answer_as(fixture, Some(from), request, body)
+}
+
+fn answer_as(
+    fixture: &mut Fixture,
+    from: Option<&str>,
+    request: Option<&str>,
+    body: &str,
+) -> Result<(String, u64), RequestError<crate::storage::StorageError>> {
     let me = fixture.identity_id.clone();
-    let (request_id, proof) = service(fixture).answer_target(&me, from, request)?;
+    let (request_id, proof, _) = service(fixture).answer_target(&me, from, request)?;
     let (response, _) = service(fixture).submit_response_with_hint(
         SubmitResponse {
             request_id: request_id.clone(),
@@ -157,7 +170,7 @@ fn an_explicit_request_must_be_from_that_originator_to_you() {
     }
     let me = fixture.identity_id.clone();
     assert!(matches!(
-        service(&mut fixture).answer_target(&alice, &me, Some("a1")),
+        service(&mut fixture).answer_target(&alice, Some(&me), Some("a1")),
         Err(RequestError::Attention(AttentionRejection::NotFound))
     ));
     assert_eq!(open(&mut fixture, None), ["a1"]);
@@ -302,4 +315,54 @@ fn the_inbox_limit_reports_more_and_rejects_invalid_input() {
         service(&mut fixture).open_requests(&me, Some(""), None),
         Err(RequestError::Invalid(_))
     ));
+}
+
+#[test]
+fn an_anonymous_request_is_answered_only_by_its_request_id() {
+    let mut fixture = Fixture::new();
+    let alice = asker(&mut fixture, "alice");
+    ask_as(
+        &mut fixture,
+        "anon",
+        Originator::Unknown,
+        RequestKind::Request,
+    );
+    let me = fixture.identity_id.clone();
+    let page = service(&mut fixture)
+        .open_requests(&me, None, None)
+        .unwrap();
+    assert_eq!(page.items[0].originator, Originator::Unknown);
+    assert!(matches!(
+        answer(&mut fixture, &alice, None, "by name"),
+        Err(RequestError::Answer(AnswerRejection::NotWaiting))
+    ));
+    assert!(matches!(
+        answer(&mut fixture, &alice, Some("anon"), "wrong sender"),
+        Err(RequestError::Attention(AttentionRejection::NotFound))
+    ));
+    assert!(matches!(
+        answer_as(&mut fixture, None, None, "neither"),
+        Err(RequestError::Invalid(_))
+    ));
+    let (id, _) = answer_as(&mut fixture, None, Some("anon"), "done").unwrap();
+    assert_eq!(id, "anon");
+    assert!(open(&mut fixture, None).is_empty());
+}
+
+#[test]
+fn a_request_id_alone_must_still_be_addressed_to_you() {
+    let mut fixture = Fixture::new();
+    let alice = asker(&mut fixture, "alice");
+    ask(&mut fixture, "a1", &alice, RequestKind::Request);
+    assert!(matches!(
+        service(&mut fixture).answer_target(&alice, None, Some("a1")),
+        Err(RequestError::Attention(AttentionRejection::NotFound))
+    ));
+    let (_, _, originator) = {
+        let me = fixture.identity_id.clone();
+        service(&mut fixture)
+            .answer_target(&me, None, Some("a1"))
+            .unwrap()
+    };
+    assert_eq!(originator, Originator::Explicit(alice));
 }

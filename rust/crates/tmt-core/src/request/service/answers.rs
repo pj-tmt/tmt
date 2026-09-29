@@ -66,22 +66,29 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     /// `talk` gave the recipient. The proof never leaves the process; the
     /// caller submits it through [`Self::submit_response_with_hint`].
     ///
-    /// Without `request`, exactly one open request must exist. An explicit
-    /// `request` must be addressed to `recipient` by `originator`; submission
-    /// then decides between acceptance, an identical retry and a conflict.
+    /// Without `request`, exactly one open request from `originator` must
+    /// exist. An explicit `request` must be addressed to `recipient`, and by
+    /// `originator` when one is given; it is the only way to answer an
+    /// anonymous originator. Submission then decides between acceptance, an
+    /// identical retry and a conflict. Returns the request's originator.
     pub fn answer_target(
         &mut self,
         recipient: &str,
-        originator: &str,
+        originator: Option<&str>,
         request: Option<&str>,
-    ) -> Result<(String, ResponseProof), RequestError<R::Error>> {
+    ) -> Result<(String, ResponseProof, Originator), RequestError<R::Error>> {
         nonempty(recipient)?;
-        nonempty(originator)?;
+        originator.map(nonempty).transpose()?;
         request.map(nonempty).transpose()?;
         self.read(|records, now| {
-            let request_id = match request {
-                Some(id) => id.to_owned(),
-                None => {
+            let request_id = match (request, originator) {
+                (Some(id), _) => id.to_owned(),
+                (None, None) => {
+                    return Err(RequestError::Invalid(
+                        "Name the originator or the request to answer.",
+                    ));
+                }
+                (None, Some(originator)) => {
                     let query = query(recipient, Some(originator), INBOX_LIMIT, now);
                     let mut open = open_items(records, &query, now)?;
                     match open.len() {
@@ -96,7 +103,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 .filter(|attempt| {
                     now < attempt.retention_expires_at_ms
                         && attempt.recipient_identity_id.as_deref() == Some(recipient)
-                        && attempt.originator.identity_id() == Some(originator)
+                        && originator.is_none_or(|id| attempt.originator.identity_id() == Some(id))
                 })
                 .ok_or(RequestError::Attention(AttentionRejection::NotFound))?;
             let token = correlation::response_token(
@@ -104,7 +111,11 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 &attempt.attempt_id,
                 &attempt.route,
             );
-            Ok((attempt.request_id, ResponseProof::Compact(token)))
+            Ok((
+                attempt.request_id,
+                ResponseProof::Compact(token),
+                attempt.originator,
+            ))
         })
     }
 }

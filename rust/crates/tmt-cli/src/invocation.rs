@@ -98,10 +98,11 @@ pub enum Invocation {
         from: Option<String>,
         limit: Option<u64>,
     },
-    /// Answers what `from` waits on the selected identity for; no receipt.
+    /// Answers what `from` waits on the selected identity for, or the
+    /// explicit `request`; no receipt.
     Answer {
         identity: Option<String>,
-        from: String,
+        from: Option<String>,
         request: Option<String>,
         input: ContentInput,
     },
