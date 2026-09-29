@@ -370,31 +370,26 @@ describe.sequential('binding publication, reconciliation and presentation', () =
     }, inputLog);
   });
 
-  it('retains separately committed creation on an occupied pane and permits an explicit retry', async () => {
+  it('retires the identity a refused bind created on an occupied pane and lets the name be reused', async () => {
     await withE2EFixture(async (fixture) => {
       const owner = expectJsonResult(await fixture.runJsonCli<Bound>(['name', 'Owner']));
       const failed = await fixture.runJsonCli<{ error: { code: string } }>(['name', 'Retry']);
       expect(failed.code).toBe(5);
       expect(failed.json?.error.code).toBe('PANE_ALREADY_BOUND');
       const state = durableState(fixture);
-      const retry = state.identities.find((row) => row.canonical_name === 'retry')!;
-      expect(retry).toMatchObject({
-        id: expect.any(String),
-        lifetime: 'temporary',
-        retired_at_ms: null,
-      });
+      const refused = state.identities.find((row) => row.canonical_name === 'retry')!;
+      // The creation committed separately, but the refusal retired it at once.
+      expect(refused).toMatchObject({ lifetime: 'temporary' });
+      expect(typeof refused.retired_at_ms).toBe('number');
       expect(state.bindings).toEqual([expect.objectContaining({ identity_id: owner.id })]);
       const listing = expectJsonResult(await fixture.runJsonCli<Listing>(['ls']));
-      expect(listing.identities[1]).toMatchObject({
-        id: retry.id,
-        presence: 'offline',
-        pane: null,
-        command: '',
-      });
+      expect(listing.identities.map((row) => row.name)).toEqual(['Owner']);
       const peer = await fixture.createMockPane('retry');
-      expect(
-        expectJsonResult(await fixture.runJsonCli<Bound>(['add', peer.pane, 'retry'])).id
-      ).toBe(retry.id);
+      const rebound = expectJsonResult(
+        await fixture.runJsonCli<Bound>(['add', peer.pane, 'retry'])
+      );
+      expect(rebound.id).not.toBe(refused.id);
+      expect(rebound).toMatchObject({ lifetime: 'temporary', pane: peer.pane });
     }, inputLog);
   });
 

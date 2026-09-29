@@ -65,6 +65,18 @@ function durableIdentity(fixture: E2EFixture, canonicalName: string): DurableIde
   }
 }
 
+function identityIsRetired(fixture: E2EFixture, canonicalName: string): boolean {
+  const database = new Database(databaseFile(fixture), { readonly: true, timeout: 0 });
+  try {
+    const row = database
+      .prepare('SELECT retired_at_ms FROM identities WHERE canonical_name = ?')
+      .get(canonicalName) as { retired_at_ms: number | null } | undefined;
+    return typeof row?.retired_at_ms === 'number';
+  } finally {
+    database.close();
+  }
+}
+
 function durableProfile(fixture: E2EFixture, identityId: string): DurableProfile {
   const database = new Database(databaseFile(fixture), { readonly: true, timeout: 0 });
   try {
@@ -244,6 +256,10 @@ describe.sequential('crash-safe identity publication', () => {
             bindings: expectedBindings,
           });
           expect(durableIdentity(fixture, 'anchor').id).toBe(winner.id);
+          if (expectedCode === 'PANE_ALREADY_BOUND') {
+            // The refused contender's separately committed creation is retired.
+            expect(identityIsRetired(fixture, 'challenger')).toBe(true);
+          }
           await assertPublished(fixture, 'Anchor');
         },
         { metadataBarrier: { phase: 'before' } }

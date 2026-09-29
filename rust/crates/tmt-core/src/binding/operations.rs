@@ -87,7 +87,7 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
     })?;
     // Everything below may fail without undoing the separately committed
     // creation/promotion. Re-read ownership after acquiring this second lock.
-    repository.with_binding_transaction(|records| {
+    let bound = repository.with_binding_transaction(|records| {
         endpoint.begin_coordination();
         let selected = records
             .entry_by_id(&created.identity.id)?
@@ -180,7 +180,47 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
             },
             created: created.created,
         })
-    })
+    });
+    bound.map_err(|error| abandon_creation(repository, &created, error))
+}
+
+/// A deterministic refusal (the pane or name is taken, or the pane changed)
+/// must not leave the identity this invocation created behind: no binding
+/// row exists, so no later observation would ever retire it. Uncertain
+/// outcomes (`Unverified`, publication, deadline) keep it for a retry.
+/// Retirement re-checks, in one transaction, that the identity is still
+/// temporary, unretired and unbound, so a concurrent successful bind wins.
+fn abandon_creation<R: BindingRepository, O>(
+    repository: &mut R,
+    created: &identity::CreatedIdentity,
+    error: BindingError<R::Error, O>,
+) -> BindingError<R::Error, O> {
+    let refused = matches!(
+        error,
+        BindingError::PaneAlreadyBound
+            | BindingError::NameAlreadyActive
+            | BindingError::PaneNotFound(_)
+            | BindingError::TargetChanged(_)
+    );
+    if !refused || !created.created || created.identity.lifetime != Lifetime::Temporary {
+        return error;
+    }
+    let retired = repository.with_binding_transaction(|records| {
+        if let Some(entry) = records.entry_by_id(&created.identity.id)?
+            && entry.binding.is_none()
+            && entry.identity.lifetime == Lifetime::Temporary
+        {
+            records.retire_identity(&entry.identity, true)?;
+        }
+        Ok::<_, R::Error>(())
+    });
+    match retired {
+        Ok(()) => error,
+        Err(cleanup) => BindingError::CleanupFailed {
+            error: Box::new(error),
+            cleanup,
+        },
+    }
 }
 
 fn target_pane<'a, R, O>(

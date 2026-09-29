@@ -1371,6 +1371,15 @@ evidence through the existing binding coordination. Later focus or mark changes
 cannot redirect the operation; lost, replaced or conflicting endpoint evidence
 fails closed. The resolver never substitutes a caller/active pane, searches a
 different server or mutates the user's mark.
+A bind commits identity creation before its binding transaction. When that second
+step is refused deterministically (`PaneAlreadyBound`, `NameAlreadyActive`,
+`PaneNotFound`, `TargetChanged`), core retires the temporary identity this
+invocation created, in one transaction that re-checks it is still temporary,
+unretired and unbound, through the ordinary retirement path (role/preamble
+removed, exchanges kept). Existing and saved identities are never touched, and
+uncertain outcomes (`Unverified`, endpoint failure, deadline) keep the row for a
+retry. A failed retirement is reported as a secondary diagnostic
+(`BindingError::CleanupFailed`), never in place of the bind error.
 Conclusive pane/server death or explicit unbind retires temporary names without
 erasing retained exchanges; saved identities remain available offline. Saved
 removal requires explicit force. Neither removal nor unbind kills a pane.

@@ -192,6 +192,12 @@ pub enum BindingError<R, O> {
     Deadline,
     Repository(R),
     Endpoint(O),
+    /// The binding failed with `error`, and retiring the temporary identity
+    /// this invocation had just created failed too (`cleanup`).
+    CleanupFailed {
+        error: Box<BindingError<R, O>>,
+        cleanup: R,
+    },
 }
 
 impl<R, O> From<R> for BindingError<R, O> {
@@ -217,6 +223,7 @@ impl<R, O: fmt::Display> fmt::Display for BindingError<R, O> {
             Self::Deadline => output.write_str("Identity coordination deadline exceeded."),
             Self::Repository(_) => output.write_str("Could not update identity state."),
             Self::Endpoint(error) => error.fmt(output),
+            Self::CleanupFailed { error, .. } => error.fmt(output),
         }
     }
 }
@@ -227,6 +234,7 @@ impl<R: Error + 'static, O: Error + 'static> Error for BindingError<R, O> {
             Self::InvalidName(error) => Some(error),
             Self::Repository(error) => Some(error),
             Self::Endpoint(error) => Some(error),
+            Self::CleanupFailed { error, .. } => Some(error.as_ref()),
             _ => None,
         }
     }

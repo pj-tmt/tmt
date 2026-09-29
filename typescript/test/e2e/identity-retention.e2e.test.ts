@@ -15,8 +15,22 @@ function identities(fixture: E2EFixture): IdentityRow[] {
   const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
   try {
     return database
-      .prepare('SELECT id, name, canonical_name FROM identities ORDER BY canonical_name')
+      .prepare(
+        'SELECT id, name, canonical_name FROM identities WHERE retired_at_ms IS NULL ORDER BY canonical_name'
+      )
       .all() as IdentityRow[];
+  } finally {
+    database.close();
+  }
+}
+
+function durableRetired(fixture: E2EFixture, canonicalName: string): boolean {
+  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  try {
+    const row = database
+      .prepare('SELECT retired_at_ms FROM identities WHERE canonical_name = ?')
+      .get(canonicalName) as { retired_at_ms: number | null } | undefined;
+    return typeof row?.retired_at_ms === 'number';
   } finally {
     database.close();
   }
@@ -35,7 +49,7 @@ function bindingOwners(fixture: E2EFixture): string[] {
 }
 
 describe.sequential('committed identity retention', () => {
-  it('retains a failed binding as offline data and reuses its UUID on a later verified binding', async () => {
+  it('keeps an existing offline identity through a refused binding and reuses its UUID on a later verified binding', async () => {
     await withE2EFixture(async (fixture) => {
       expectJsonResult(await fixture.runJsonCli(['name', 'Occupied']));
       const initial = identities(fixture);
@@ -51,6 +65,21 @@ describe.sequential('committed identity retention', () => {
       expect(missing.json).toMatchObject({ error: { code: 'PANE_NOT_FOUND' } });
       expect(identities(fixture)).toEqual(initial);
 
+      // A refused bind of a brand-new name must not leave a never-bound row behind.
+      const fresh = await fixture.runJsonCli(['name', 'Fresh']);
+      expect(fresh.code).toBe(5);
+      expect(fresh.json).toMatchObject({ error: { code: 'PANE_ALREADY_BOUND' } });
+      expect(identities(fixture)).toEqual(initial);
+      const retiredFresh = durableRetired(fixture, 'fresh');
+      expect(retiredFresh).toBe(true);
+      // `run` binds through the same path and is refused without launching anything.
+      const refusedRun = await fixture.runCli(['run', 'FreshRun', '/bin/sh', '-c', 'exit 0']);
+      expect(refusedRun.code).toBe(5);
+      expect(identities(fixture)).toEqual(initial);
+      expect(durableRetired(fixture, 'freshrun')).toBe(true);
+
+      // An identity that already exists survives the same refusal, keeping its UUID.
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Retained']));
       const conflict = await fixture.runJsonCli(['name', 'Retained']);
       expect(conflict.code).toBe(5);
       expect(conflict.stderr).toBe('');
