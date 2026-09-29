@@ -274,6 +274,7 @@ fn marker_names_use_core_name_normalization_and_reject_malformed_values() {
         );
     }
 
+    // A name inconsistent with its own canonical form is malformed.
     let mut canonical_mismatch = snapshot;
     canonical_mismatch.panes[0].marker = Some(BindingMarker {
         canonical_name: "other".into(),
@@ -282,5 +283,21 @@ fn marker_names_use_core_name_normalization_and_reject_malformed_values() {
     assert_eq!(
         evaluate_binding(&entry(&identity, &binding), &live(canonical_mismatch)),
         BindingEvidence::MarkerMismatch
+    );
+}
+
+#[test]
+fn a_marker_still_carrying_the_name_before_a_rename_stays_active() {
+    let (identity, binding, snapshot) = fixture("Alice");
+    let mut observed = snapshot;
+    observed.panes[0].marker = Some(BindingMarker {
+        name: "Old Name".into(),
+        canonical_name: "old name".into(),
+        ..binding.marker(&identity)
+    });
+    let expected = observed.panes[0].clone();
+    assert_eq!(
+        evaluate_binding(&entry(&identity, &binding), &live(observed)),
+        BindingEvidence::Active(Box::new(expected))
     );
 }

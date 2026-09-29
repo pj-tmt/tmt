@@ -153,7 +153,7 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 let next = page.next_after.map(|after| {
                     format!(
                         "more with tmt x list --after {after} --identity {}",
-                        super::listen::shell_word(&report.identity.canonical_name)
+                        crate::output::shell_word(&report.identity.canonical_name)
                     )
                 });
                 list::write(

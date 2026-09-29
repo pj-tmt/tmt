@@ -465,3 +465,41 @@ fn empty_scope_reads_server_only_and_never_enumerates_panes() {
             .all(|call| !call.args.iter().any(|arg| arg == "list-panes"))
     );
 }
+
+#[test]
+fn a_marker_refresh_rewrites_only_this_bindings_marker_and_keeps_opaque_data() {
+    let renamed = BindingMarker {
+        name: "Ada".into(),
+        canonical_name: "ada".into(),
+        identity_id: "identity".into(),
+        binding_id: "binding".into(),
+        server_id: SERVER_ID.into(),
+        pane_pid: 654,
+    };
+    let tmux = Tmux::new(ScriptedRunner::new([
+        Ok(
+            r#"{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice","identityId":"identity","bindingId":"binding","serverId":"123e4567-e89b-42d3-a456-426614174000","panePid":654},"opaque":1}"#,
+        ),
+        Ok(""),
+    ]));
+    assert!(
+        tmux.refresh_marker_on(None, "%9", &renamed, OperationOptions::default())
+            .unwrap()
+    );
+    let calls = tmux.runner.calls.borrow();
+    let written: serde_json::Value = serde_json::from_str(calls[1].args.last().unwrap()).unwrap();
+    assert_eq!(written["globalIdentity"]["name"], "Ada");
+    assert_eq!(written["globalIdentity"]["canonicalName"], "ada");
+    assert_eq!(written["opaque"], 1);
+
+    // Another binding took the pane after the probe: no write.
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(
+        r#"{"version":1,"globalIdentity":{"bindingId":"other"}}"#,
+    )]));
+    assert!(
+        !tmux
+            .refresh_marker_on(None, "%9", &renamed, OperationOptions::default())
+            .unwrap()
+    );
+    assert_eq!(tmux.runner.calls.borrow().len(), 1);
+}

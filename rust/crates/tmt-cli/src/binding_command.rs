@@ -12,12 +12,13 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
     storage::Storage,
-    tmux::{BindingSession, CallerEnvironment, OperationOptions, Tmux},
+    tmux::{BindingSession, CallerEnvironment, OperationOptions, PaneCosmetics, PaneRefresh, Tmux},
 };
 use tmt_core::{
     binding::session::{RememberedSession, RuntimeState},
     binding::{
-        self, BindingEntry, BindingTargetEvidence, BoundIdentity, IdentityPresence, UnboundIdentity,
+        self, BindingEntry, BindingTargetEvidence, BoundIdentity, IdentityPresence,
+        RenamedIdentity, UnboundIdentity,
     },
     endpoint::PaneObservation,
     identity::Identity,
@@ -50,6 +51,11 @@ enum Report {
         result: UnboundIdentity,
     },
     Removed(BindingEntry),
+    /// `pane` is set after commit when a live pane showed the identity.
+    Renamed {
+        result: RenamedIdentity,
+        pane: Option<(String, PaneRefresh)>,
+    },
     /// The rows `tmt ls` shows, after its filters, in storage order.
     Listed {
         rows: Vec<ListedRow>,
@@ -182,7 +188,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let badge = if matches!(
         request,
-        Invocation::Bind { .. } | Invocation::BindMarked { .. }
+        Invocation::Bind { .. } | Invocation::BindMarked { .. } | Invocation::Rename { .. }
     ) {
         ConfigFiles {
             paths: paths.clone(),
@@ -198,24 +204,70 @@ fn run(request: Invocation) -> Result<Report, Failure> {
         Failure::new("IDENTITY_ERROR", "Could not open identity storage.", 1).caused_by(error)
     })?;
     let mut endpoint = BindingSession::new(&tmux);
-    let pending = operation(&mut storage, &mut endpoint, request, pane, environment.selected_socket())
-        .and_then(|report| {
-            // Presentation follows successful durable effects, never decides
-            // them. The adapter preserves user themes and changed endpoints.
-            let update = match &report {
-                Report::Bound(result) => result.presence.binding.as_ref().map(|binding|
-                    (binding, (badge == PaneBadge::On).then_some(result.presence.identity.name.as_str()))),
-                Report::Unbound { result, .. } => result.binding.as_ref().map(|binding| (binding, None)),
-                Report::Removed(entry) => entry.binding.as_ref().map(|binding| (binding, None)),
-                _ => None,
+    let pending = operation(
+        &mut storage,
+        &mut endpoint,
+        request,
+        pane,
+        environment.selected_socket(),
+    )
+    .and_then(|mut report| {
+        // Presentation follows successful durable effects, never decides
+        // them. The adapter preserves user themes and changed endpoints.
+        let badge = badge == PaneBadge::On;
+        let update = match &report {
+            Report::Bound(result) => result.presence.binding.as_ref().map(|binding| {
+                (
+                    binding,
+                    PaneCosmetics::Bound {
+                        identity: &result.presence.identity,
+                        badge,
+                    },
+                )
+            }),
+            Report::Unbound { result, .. } => result
+                .binding
+                .as_ref()
+                .map(|binding| (binding, PaneCosmetics::Ended)),
+            Report::Removed(entry) => entry
+                .binding
+                .as_ref()
+                .map(|binding| (binding, PaneCosmetics::Ended)),
+            _ => None,
+        };
+        if let Some((binding, cosmetics)) = update {
+            tmux.update_binding_cosmetics(binding, cosmetics)
+                .map_err(cosmetic_cleanup)?;
+        }
+        // The rename is committed; its pane only shows it, and a stale
+        // marker name never detaches, so a failure here is a warning.
+        if let Report::Renamed { result, pane } = &mut report
+            && result.changed()
+            && let Some(binding) = &result.binding
+        {
+            let cosmetics = PaneCosmetics::Bound {
+                identity: &result.identity,
+                badge,
             };
-            if let Some((binding, name)) = update {
-                tmux.update_binding_badge(binding, name).map_err(|error|
-                    Failure::new("CLEANUP_ERROR", "Could not clean up cosmetic operation resources. Effects may already have occurred.", 1).caused_by(error))?;
+            let refresh = tmux
+                .update_binding_cosmetics(binding, cosmetics)
+                .map_err(cosmetic_cleanup)?;
+            if refresh != PaneRefresh::Absent {
+                *pane = Some((binding.pane_id.clone(), refresh));
             }
-            Ok(report)
-        });
+        }
+        Ok(report)
+    });
     after_cleanup(pending, || storage.close())
+}
+
+fn cosmetic_cleanup(error: tmt_adapters::tmux::TmuxError) -> Failure {
+    Failure::new(
+        "CLEANUP_ERROR",
+        "Could not clean up cosmetic operation resources. Effects may already have occurred.",
+        1,
+    )
+    .caused_by(error)
 }
 
 fn operation(
@@ -277,6 +329,9 @@ fn operation(
                 .map(Report::Removed)
                 .map_err(binding_failure)
         }
+        Invocation::Rename { old, new } => binding::rename_identity(storage, &old, &new)
+            .map(|result| Report::Renamed { result, pane: None })
+            .map_err(binding_failure),
         Invocation::List {
             target: None,
             room,
@@ -381,6 +436,9 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         presentation::text(&mut stdout, terminal, &report)?;
     }
     drop(stdout);
+    if !mode.json {
+        presentation::warnings(&mut tmt_cli_style::stream::stderr(), &report)?;
+    }
     use crate::skill_reminder::Outcome;
     let outcome = match &report {
         Report::Bound(result) if result.created => {

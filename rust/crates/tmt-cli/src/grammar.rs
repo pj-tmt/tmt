@@ -315,6 +315,17 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
         .arg(operand("name", true)),
     )
     .subcommand(
+        storage(spec!(
+            "rename",
+            "Rename an identity; its UUID, session, profile, notes and history stay",
+            [
+                "Give an identity a new name" => "tmt rename worker reviewer",
+            ]
+        ))
+        .arg(operand("old", true))
+        .arg(operand("new", true)),
+    )
+    .subcommand(
         with_options(
             general(spec!(
                 "talk",
@@ -660,6 +671,17 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
                 "Create a saved identity" => "tmt identity create reviewer",
             ]
         )).arg(operand("name", true)))
+        .subcommand(
+            storage(spec!(
+                "rename",
+                "Rename an identity; its UUID, session, profile, notes and history stay",
+                [
+                    "Give an identity a new name" => "tmt identity rename worker reviewer",
+                ]
+            ))
+            .arg(operand("old", true))
+            .arg(operand("new", true)),
+        )
         .subcommand(storage(spec!(
             "show",
             "Show an identity by name or UUID, or the verified caller",

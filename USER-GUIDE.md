@@ -30,7 +30,10 @@ it does not reload an already running agent session.
 
 Native `name` and `add` bindings are temporary by default. Add `-s`/`--save`
 to preserve an identity, and use `tmt rm <name>` to retire a temporary identity
-(`--force` is required for a saved identity). Switching from npm or pnpm is a
+(`--force` is required for a saved identity). `tmt rename <old> <new>` (also
+`tmt identity rename`) gives an identity a new name and keeps its UUID, and with
+it the remembered session, profile, notes, metadata, rooms and history. Requests
+sent before the rename still reach it; new ones must use the new name. Switching from npm or pnpm is a
 fresh installation: stop old writers first; no configuration, database or
 historical exchange is migrated or deleted. Native schema migrations are forward-only,
 so never use the old TypeScript writer on a native database.

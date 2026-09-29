@@ -12,13 +12,13 @@ pub use observation::{
 };
 pub use operations::{
     bind_identity, bind_identity_at, bind_identity_with_creation, bind_identity_with_creation_at,
-    remove_identity, unbind_identity,
+    remove_identity, rename_identity, unbind_identity,
 };
 
 use crate::{
     endpoint::{BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence},
     identity::{Identity, IdentityReader, IdentityRepository},
-    names::NameError,
+    names::{NameError, ValidatedName},
 };
 use std::{error::Error, fmt};
 
@@ -111,6 +111,21 @@ pub struct PaneIdentity {
     pub binding: Option<Binding>,
 }
 
+/// An identity under a new name, with its UUID and everything keyed by it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenamedIdentity {
+    pub previous: Identity,
+    pub identity: Identity,
+    /// The stored binding, whose pane may still show the previous name.
+    pub binding: Option<Binding>,
+}
+
+impl RenamedIdentity {
+    pub fn changed(&self) -> bool {
+        self.previous.name != self.identity.name
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnboundIdentity {
     pub identity: Identity,
@@ -154,6 +169,12 @@ pub trait BindingRecords: IdentityReader {
         identity: &Identity,
         remove_content: bool,
     ) -> Result<(), Self::Error>;
+    /// Gives an unretired identity a new name in place; its UUID stays.
+    fn rename_identity(
+        &mut self,
+        identity: &Identity,
+        name: &ValidatedName,
+    ) -> Result<Identity, Self::Error>;
 }
 
 pub trait BindingRepository: IdentityRepository {
@@ -187,6 +208,8 @@ pub enum BindingError<R, O> {
     TargetChanged(String),
     PaneAlreadyBound,
     NameAlreadyActive,
+    /// Another unretired identity already holds the requested name.
+    NameTaken(String),
     ConfirmationRequired,
     Unverified,
     Deadline,
@@ -218,6 +241,7 @@ impl<R, O: fmt::Display> fmt::Display for BindingError<R, O> {
             ),
             Self::PaneAlreadyBound => output.write_str("Pane is already bound to another name."),
             Self::NameAlreadyActive => output.write_str("Name is already active on another pane."),
+            Self::NameTaken(name) => write!(output, "Another identity is already named '{name}'."),
             Self::ConfirmationRequired => output.write_str("Saved identity removal requires --force. Its role and preamble will be removed; exchanges are retained."),
             Self::Unverified => output.write_str("Could not verify the identity binding. No successful binding change is claimed."),
             Self::Deadline => output.write_str("Identity coordination deadline exceeded."),

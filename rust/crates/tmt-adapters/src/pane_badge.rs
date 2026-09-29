@@ -4,7 +4,7 @@ use crate::{
     config::{ConfigFiles, ConfigPaths},
     process::CommandRunner,
     storage::Storage,
-    tmux::Tmux,
+    tmux::{PaneCosmetics, Tmux},
 };
 use std::time::{Duration, Instant};
 use tmt_core::{binding::Binding, settings::PaneBadge};
@@ -44,7 +44,9 @@ pub fn refresh<R: CommandRunner>(
     else {
         return;
     };
-    let name = (settings.settings.pane_badge == PaneBadge::On)
-        .then_some(context.entry.identity.name.as_str());
-    let _ = tmux.update_binding_badge_until(binding, name, deadline);
+    let cosmetics = PaneCosmetics::Bound {
+        identity: &context.entry.identity,
+        badge: settings.settings.pane_badge == PaneBadge::On,
+    };
+    let _ = tmux.update_binding_cosmetics_until(binding, cosmetics, deadline);
 }

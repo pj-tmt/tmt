@@ -25,7 +25,7 @@ use tmt_adapters::{
     },
     setup::start_hook_installed,
     storage::{Storage, StorageError},
-    tmux::{BindingSession, CallerEnvironment, Tmux},
+    tmux::{BindingSession, CallerEnvironment, PaneCosmetics, Tmux},
 };
 use tmt_core::{
     binding::{
@@ -418,9 +418,12 @@ fn run_bound(
         true
     };
     if tmux
-        .update_binding_badge(
+        .update_binding_cosmetics(
             binding,
-            (badge == PaneBadge::On).then_some(bound.presence.identity.name.as_str()),
+            PaneCosmetics::Bound {
+                identity: &bound.presence.identity,
+                badge: badge == PaneBadge::On,
+            },
         )
         .is_err()
     {

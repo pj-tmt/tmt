@@ -55,10 +55,11 @@ pub fn evaluate_binding(entry: &BindingEntry, probe: &EndpointProbe) -> BindingE
     let Some(marker) = &pane.marker else {
         return BindingEvidence::MarkerMismatch;
     };
-    let valid = validate_name(&marker.name).is_ok_and(|name| {
-        name.canonical_name() == marker.canonical_name
-            && marker.canonical_name == entry.identity.canonical_name
-    });
+    // The IDs prove ownership. The name is informational: it must be a
+    // well-formed, self-consistent name, but a rename leaves it stale until the
+    // next cosmetic refresh rewrites it, and a stale name never detaches.
+    let valid = validate_name(&marker.name)
+        .is_ok_and(|name| name.canonical_name() == marker.canonical_name);
     if !valid
         || binding.identity_id != entry.identity.id
         || marker.identity_id != entry.identity.id

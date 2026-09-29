@@ -7,7 +7,7 @@ mod evidence;
 mod focus;
 mod metadata;
 mod transport;
-pub use binding::{ActionError, BindingSession};
+pub use binding::{ActionError, BindingSession, PaneCosmetics, PaneRefresh};
 pub use focus::{ClientView, FocusError, Invoker};
 pub use transport::{DeliveryError, DeliveryStage};
 
@@ -521,6 +521,25 @@ impl<R: CommandRunner> Tmux<R> {
         let mut document = self.read_metadata(socket, pane, options)?;
         metadata::replace(&mut document, marker);
         self.write_metadata(socket, pane, &document, options)
+    }
+
+    /// Rewrites this binding's own marker in place; a marker another binding
+    /// now owns is left alone and reported as `false`.
+    fn refresh_marker_on(
+        &self,
+        socket: Option<&str>,
+        pane: &str,
+        marker: &BindingMarker,
+        options: OperationOptions<'_>,
+    ) -> Result<bool, TmuxError> {
+        let mut document = self.read_metadata(socket, pane, options)?;
+        if metadata::marker(&document).is_none_or(|current| current.binding_id != marker.binding_id)
+        {
+            return Ok(false);
+        }
+        metadata::replace(&mut document, marker);
+        self.write_metadata(socket, pane, &document, options)?;
+        Ok(true)
     }
 
     pub fn clear_marker(

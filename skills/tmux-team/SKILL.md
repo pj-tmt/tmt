@@ -348,8 +348,11 @@ Create requires a name. Explicit create/show names return `INVALID_NAME`
 (exit 1) when invalid; valid missing show names return `NAME_NOT_FOUND`
 (exit 3). Omitting the show name uses only the verified bound caller described
 above, never an active-pane or sole-identity fallback. Creation does not alter
-anonymous talk or request-ID result access. Use `rm <name>` for removal; no
-identity rename exists.
+anonymous talk or request-ID result access. Use `rm <name>` for removal and
+`rename <old> <new>` to rename: the UUID, remembered session, profile, notes and
+history stay, requests already sent still arrive, and the old name returns
+`NAME_NOT_FOUND` (exit 3). A name another unretired identity holds is refused
+with `NAME_ALREADY_ACTIVE` (exit 5).
 
 ## Self-reported activity and mood
 

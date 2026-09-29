@@ -229,6 +229,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         | Invocation::Whoami
         | Invocation::Unbind
         | Invocation::Remove { .. }
+        | Invocation::Rename { .. }
         | Invocation::List { .. }) => {
             return binding_command::execute(request, parsed.mode);
         }

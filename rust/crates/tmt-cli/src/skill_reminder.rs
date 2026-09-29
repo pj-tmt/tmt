@@ -66,6 +66,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::WhoamiContext
                 | Invocation::Unbind
                 | Invocation::Remove { .. }
+                | Invocation::Rename { .. }
                 | Invocation::List { .. }
         )
 }

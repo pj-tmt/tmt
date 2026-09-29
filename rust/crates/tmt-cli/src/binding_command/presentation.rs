@@ -9,6 +9,7 @@ use std::{
     io::{self, Write},
     path::Path,
 };
+use tmt_adapters::tmux::PaneRefresh;
 use tmt_cli_style::{
     Terminal, Token,
     list::{self, Section},
@@ -83,6 +84,14 @@ pub(super) fn document(report: &Report) -> Value {
         Report::Removed(entry) => {
             json!({"removed": true, "identity": identity_document(&entry.identity)})
         }
+        Report::Renamed { result, pane } => json!({
+            "renamed": result.changed(),
+            "previousName": result.previous.name,
+            "identity": identity_document(&result.identity),
+            "pane": pane.as_ref().map(|(id, refresh)| json!({
+                "id": id, "updated": *refresh == PaneRefresh::Updated,
+            })),
+        }),
         Report::Listed { rows, .. } => json!({"identities": rows.iter().map(|row| {
             let mut value = presence_document(&row.presence);
             if let Some(resume) = &row.resume {
@@ -120,6 +129,8 @@ fn with_address(mut value: Value, address: Option<Address>) -> Value {
 mod caller_tests;
 #[cfg(test)]
 mod list_tests;
+#[cfg(test)]
+mod rename_tests;
 
 /// Foreground commands that mean a bound pane has no agent in it. A pane
 /// running anything else is treated as an agent, even one started without
@@ -364,6 +375,19 @@ fn identity_fields(
 
 pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report) -> io::Result<()> {
     match report {
+        Report::Renamed { result, .. } if result.changed() => message::success(
+            output,
+            terminal,
+            &format!(
+                "Renamed {} to {}",
+                result.previous.name, result.identity.name
+            ),
+        ),
+        Report::Renamed { result, .. } => writeln!(
+            output,
+            "{} already has this name",
+            tmt_cli_style::table::escape(&result.identity.name)
+        ),
         Report::Bound(result) => message::success(
             output,
             terminal,
@@ -459,5 +483,31 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                 message::hint(output, terminal, &format!("tmt add {} <name>", pane.id))
             }
         },
+    }
+}
+
+/// Non-fatal problems after a committed change, for standard error.
+pub(super) fn warnings(
+    output: &mut tmt_cli_style::stream::Stream<impl Write>,
+    report: &Report,
+) -> io::Result<()> {
+    let terminal = output.terminal();
+    match report {
+        Report::Renamed {
+            result,
+            pane: Some((pane, PaneRefresh::Failed)),
+        } => message::warning(
+            output,
+            terminal,
+            &format!(
+                "Pane {pane} still shows the previous name {}.",
+                result.previous.name
+            ),
+            Some(&format!(
+                "In pane {pane}, run: tmt this {}",
+                crate::output::shell_word(&result.identity.name)
+            )),
+        ),
+        _ => Ok(()),
     }
 }
