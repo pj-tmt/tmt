@@ -1,9 +1,22 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, renameSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+  rmSync,
+  renameSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ciGatePasses, readChangedCiAreas, selectCiAreas } from '../../scripts/ci-scope.mjs';
+import {
+  NATIVE_OFFICE_UNREACHABLE,
+  ciGatePasses,
+  readChangedCiAreas,
+  selectCiAreas,
+} from '../../scripts/ci-scope.mjs';
 
 const { runPackedCommand } = await import(
   new URL('../../scripts/packed-command.mjs', import.meta.url).href
@@ -24,9 +37,9 @@ describe('CI area selection', () => {
   });
 
   it('selects native code and embedded skill consumers without Office', () => {
-    expect(selectCiAreas(['rust/crates/tmt-core/src/lib.rs', 'skills/tmux-team/SKILL.md'])).toEqual(
-      { native: true, office: false, nativeOffice: false }
-    );
+    expect(
+      selectCiAreas(['rust/crates/tmt-adapters/src/setup.rs', 'skills/tmux-team/SKILL.md'])
+    ).toEqual({ native: true, office: false, nativeOffice: false });
   });
 
   it('treats the squad extension as native-only, not a prefix look-alike', () => {
@@ -70,13 +83,25 @@ describe('CI area selection', () => {
     ).toEqual(coreOnly);
     expect(
       selectCiAreas([
-        'rust/crates/tmt-adapters/src/skill_installation/owned.rs',
-        'rust/crates/tmt-core/src/request.rs',
+        'rust/crates/tmt-adapters/src/setup/providers.rs',
         'rust/crates/tmt-cli/src/main.rs',
-        'rust/crates/tmt-adapters/src/storage_like.rs',
+        'rust/crates/tmt-cli/src/install_command.rs',
       ])
     ).toEqual(coreOnly);
     for (const consumed of [
+      'rust/crates/tmt-core/src/request.rs',
+      'rust/crates/tmt-core/src/room.rs',
+      'rust/crates/tmt-adapters/src/room.rs',
+      'rust/crates/tmt-adapters/src/api.rs',
+      'rust/crates/tmt-adapters/src/delivery.rs',
+      'rust/crates/tmt-adapters/src/pane_badge.rs',
+      'rust/crates/tmt-adapters/src/skill_installation/owned.rs',
+      'rust/crates/tmt-adapters/src/runtime_like.rs',
+      'rust/crates/tmt-adapters/src/runtime/claude.rs',
+      'rust/crates/tmt-adapters/src/runtime_caller/probe.rs',
+      'rust/crates/tmt-adapters/Cargo.toml',
+      'rust/crates/tmt-cli/src/api_command.rs',
+      'rust/crates/tmt-cli/src/native_upgrade_command.rs',
       'rust/crates/tmt-adapters/src/storage/migrations.rs',
       'rust/crates/tmt-adapters/src/office_service.rs',
       'rust/crates/tmt-adapters/src/office_companion/process.rs',
@@ -122,6 +147,77 @@ describe('CI area selection', () => {
       office: true,
       nativeOffice: true,
     });
+  });
+
+  it('denies only core modules unreachable from the Office crates and the API', () => {
+    const repository = fileURLToPath(new URL('../../../', import.meta.url));
+    const crates = { a: 'rust/crates/tmt-adapters/src', c: 'rust/crates/tmt-core/src' };
+    const rustFiles = (directory: string): string[] =>
+      readdirSync(path.join(repository, directory), { recursive: true, encoding: 'utf8' })
+        .filter((file) => file.endsWith('.rs'))
+        .map((file) => path.join(directory, file));
+    const moduleOf = (file: string, root: string) =>
+      path.relative(root, file).split(path.sep)[0].replace(/\.rs$/, '');
+    // Top-level modules named by `prefix::module` or a (nested) `prefix::{...}` group.
+    const referenced = (text: string, prefix: string) =>
+      [...text.matchAll(new RegExp(`\\b${prefix}::(\\{|\\w+)`, 'g'))].flatMap((match) => {
+        if (match[1] !== '{') return [match[1]];
+        const names: string[] = [];
+        let depth = 0;
+        let item = '';
+        for (const character of text.slice(match.index + match[0].length - 1)) {
+          if (character === '{' && depth++ === 0) continue;
+          if (character === '}' && --depth === 0) break;
+          if (depth === 1 && character === ',') {
+            names.push(item);
+            item = '';
+          } else if (depth === 1) item += character;
+        }
+        return [...names, item].map((part) => /\w+/.exec(part)?.[0] ?? '').filter(Boolean);
+      });
+    const sources = (crate: 'a' | 'c', name: string) =>
+      rustFiles(crates[crate])
+        .filter((file) => moduleOf(file, crates[crate]) === name)
+        .map((file) => readFileSync(path.join(repository, file), 'utf8'))
+        .join('\n');
+    const office = rustFiles('extensions/tmt-office/rust')
+      .map((file) => readFileSync(path.join(repository, file), 'utf8'))
+      .join('\n');
+    // Office also reaches the API module at runtime through `tmt api`.
+    // Crate roots re-export items, so they count as reached too.
+    const pending: ['a' | 'c', string][] = [
+      ['a', 'lib'],
+      ['c', 'lib'],
+      ['a', 'api'],
+      ...referenced(office, 'tmt_adapters').map((name) => ['a', name] as ['a', string]),
+      ...referenced(office, 'tmt_core').map((name) => ['c', name] as ['c', string]),
+    ];
+    const reached = { a: new Set<string>(), c: new Set<string>() };
+    for (let next = pending.pop(); next; next = pending.pop()) {
+      const [crate, name] = next;
+      if (reached[crate].has(name)) continue;
+      const text = sources(crate, name);
+      if (!text) continue;
+      reached[crate].add(name);
+      pending.push(
+        ...referenced(text, 'crate').map((module) => [crate, module] as ['a' | 'c', string])
+      );
+      if (crate === 'a') {
+        pending.push(
+          ...referenced(text, 'tmt_core').map((module) => ['c', module] as ['c', string])
+        );
+      }
+    }
+    expect(reached.a.has('storage') && reached.c.has('room')).toBe(true);
+    for (const [crate, key] of [
+      ['a', 'tmt-adapters'],
+      ['c', 'tmt-core'],
+    ] as const) {
+      for (const name of NATIVE_OFFICE_UNREACHABLE[key]) {
+        expect(sources(crate, name), `${key}/${name} exists`).not.toBe('');
+        expect(reached[crate].has(name), `${key}/${name} is reachable from Office`).toBe(false);
+      }
+    }
   });
 
   it('does not confuse similar prefixes and fails closed on an empty diff', () => {
