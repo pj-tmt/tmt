@@ -74,7 +74,8 @@ fn rows(members: &[&Member]) -> Vec<Value> {
 /// Without user-defined sections, `sections` holds exactly one untitled
 /// section with every non-lead member; scripts never depend on the layout.
 /// A user section shows every matching row (a row may appear in several),
-/// ordered by its sort keys over the layout's default order.
+/// ordered by its sort keys over the layout's default order; rows that match
+/// no section follow in one untitled section, so nobody is hidden.
 pub fn document(
     squad: &Squad,
     layout: Layout,
@@ -106,6 +107,15 @@ pub fn document(
                 });
                 json!({"title": section.title, "rows": rows(&matching)})
             })
+            .chain({
+                // Nobody is hidden: rows no section matched follow, untitled.
+                let rest: Vec<&Member> = all
+                    .iter()
+                    .copied()
+                    .filter(|member| !sections.iter().any(|section| section.includes(*member)))
+                    .collect();
+                (!rest.is_empty()).then(|| json!({"title": null, "rows": rows(&rest)}))
+            })
             .collect()
     };
     json!({
@@ -121,7 +131,23 @@ fn cell(value: &Value) -> &str {
     value.as_str().unwrap_or("-")
 }
 
-const COLUMNS: [Column; 4] = [Column::Fixed, Column::Name, Column::Fixed, Column::Detail];
+/// The configured columns as `ls` shows them: `{field, title, width}`.
+pub fn columns_value(columns: &[crate::config::Column]) -> Value {
+    columns
+        .iter()
+        .map(|column| json!({"field": column.field, "title": column.title, "width": column.width}))
+        .collect()
+}
+
+/// A column's value in a row: `member` is the name, `state` shows `-` when
+/// unset, and any other unset field stays empty so sparse columns stay quiet.
+fn column_cell<'a>(row: &'a Value, field: &str) -> &'a str {
+    match field {
+        "member" => cell(&row["name"]),
+        "state" => cell(&row["state"]),
+        field => row["fields"][field].as_str().unwrap_or_default(),
+    }
+}
 
 /// One leading mark: `◆` when the member waits on the reader's decision,
 /// otherwise its presence.
@@ -153,10 +179,34 @@ fn detail(row: &Value) -> String {
     parts.join(" · ")
 }
 
-/// Plain or styled for `terminal`; the same parts as every TMT list.
+/// Plain or styled for `terminal`; the same parts as every TMT list. One
+/// squad's document, or `{squads: [...]}` for every squad in turn.
 pub fn text(document: &Value, terminal: Terminal) -> String {
-    let squad = &document["squad"];
     let mut output = Vec::new();
+    let squads: Vec<&Value> = match document["squads"].as_array() {
+        Some(squads) => squads.iter().collect(),
+        None => vec![document],
+    };
+    if squads.is_empty() {
+        let _ = writeln!(output, "No squad exists yet.");
+        let _ = tmt_cli_style::message::hint(&mut output, terminal, "tmt squad init <name>");
+    }
+    for (index, squad) in squads.iter().enumerate() {
+        if index > 0 {
+            let _ = writeln!(output);
+        }
+        squad_text(squad, terminal, &mut output);
+    }
+    if !squads.is_empty() && document.get("you").is_some_and(Value::is_null) {
+        let _ = writeln!(output, "\n{}", terminal.paint(Token::Dim, UNKNOWN_YOU));
+    }
+    String::from_utf8(output).unwrap_or_default()
+}
+
+/// One squad: its header, then each section with the configured columns (the
+/// board's), a leading mark and a trailing detail.
+fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
+    let squad = &document["squad"];
     let header = format!(
         "squad {} · lead {} · layout {}",
         cell(&squad["name"]),
@@ -164,27 +214,42 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
         cell(&squad["layout"]),
     );
     let _ = writeln!(output, "{}\n", terminal.paint(Token::Dim, &escape(&header)));
-    let sections: Vec<&Value> = document["sections"]
+    let fields: Vec<(&str, Option<u64>)> = document["columns"]
+        .as_array()
+        .map(|columns| {
+            columns
+                .iter()
+                .filter_map(|column| Some((column["field"].as_str()?, column["width"].as_u64())))
+                .collect()
+        })
+        .unwrap_or_else(|| vec![("member", None), ("state", Some(10))]);
+    let layout: Vec<Column> = std::iter::once(Column::Fixed)
+        .chain(fields.iter().map(|(field, width)| match (*field, width) {
+            ("member", _) => Column::Name,
+            (_, None) => Column::Detail,
+            (_, Some(_)) => Column::Fixed,
+        }))
+        .chain(std::iter::once(Column::Detail))
+        .collect();
+    let built: Vec<(String, usize, Table)> = document["sections"]
         .as_array()
         .into_iter()
         .flatten()
-        .collect();
-    let built: Vec<(String, usize, Table)> = sections
-        .iter()
         .map(|section| {
             let rows = section["rows"]
                 .as_array()
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            let mut table = Table::new(&COLUMNS);
+            let mut table = Table::new(&layout);
             for row in rows {
                 let mark = mark(row);
-                table.row([
-                    Cell::styled(mark.symbol(), mark.token()),
-                    cell(&row["name"]).into(),
-                    Cell::styled(cell(&row["state"]), Token::Dim),
-                    detail(row).into(),
-                ]);
+                let cells = std::iter::once(Cell::styled(mark.symbol(), mark.token()))
+                    .chain(fields.iter().map(|(field, _)| match *field {
+                        "state" => Cell::styled(column_cell(row, "state"), Token::Dim),
+                        field => column_cell(row, field).into(),
+                    }))
+                    .chain(std::iter::once(detail(row).into()));
+                table.row(cells.collect::<Vec<Cell>>());
             }
             let title = section["title"].as_str().unwrap_or("members").to_owned();
             (title, rows.len(), table)
@@ -209,11 +274,7 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
             hint: None,
         })
         .collect();
-    let _ = list::write(&mut output, terminal, &list);
-    if document.get("you").is_some_and(Value::is_null) {
-        let _ = writeln!(output, "\n{}", terminal.paint(Token::Dim, UNKNOWN_YOU));
-    }
-    String::from_utf8(output).unwrap_or_default()
+    let _ = list::write(output, terminal, &list);
 }
 
 /// Shown when no one is "you": ◆ for requests needs a recorded identity or a
@@ -384,5 +445,131 @@ mod tests {
         let rendered = text(&document, Terminal::PLAIN);
         assert!(rendered.contains("NEEDS ME 1\n  ◆  bob  blocked  waiting on you"));
         assert!(rendered.ends_with("EMPTY 0\n    (no members)\n"));
+    }
+
+    #[test]
+    fn rows_no_section_matches_follow_untitled_so_nobody_is_hidden() {
+        let squad = Squad {
+            name: "product".into(),
+            room_id: "room".into(),
+        };
+        let path = std::env::temp_dir().join(format!("tmt-squad-rest-{}.toml", std::process::id()));
+        std::fs::write(
+            &path,
+            "[[squad.product.section]]\ntitle = \"Needs me\"\nfilter = \"pending\"\n",
+        )
+        .unwrap();
+        let sections = crate::config::Config::read(path.clone())
+            .unwrap()
+            .sections("product")
+            .unwrap();
+        let _ = std::fs::remove_file(&path);
+        let document = document(
+            &squad,
+            Layout::Crew,
+            &states(Layout::Crew),
+            &sections,
+            members(),
+        );
+        let listed: Vec<(Value, Vec<&str>)> = document["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|section| {
+                (
+                    section["title"].clone(),
+                    section["rows"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|row| row["name"].as_str().unwrap())
+                        .collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (json!("Needs me"), vec!["bob"]),
+                (Value::Null, vec!["zed", "amy", "kai"]),
+            ]
+        );
+        let all_matched = super::document(
+            &squad,
+            Layout::Crew,
+            &states(Layout::Crew),
+            &sections,
+            vec![member("bob", &[("pending", "x")])],
+        );
+        assert_eq!(
+            all_matched["sections"].as_array().unwrap().len(),
+            1,
+            "no empty trailing section"
+        );
+    }
+
+    #[test]
+    fn ls_text_uses_the_configured_columns_and_lists_several_squads_in_turn() {
+        let squad = |name: &str| Squad {
+            name: name.into(),
+            room_id: format!("room-{name}"),
+        };
+        let columns = columns_value(&[
+            crate::config::Column {
+                field: "member".into(),
+                title: "MEMBER".into(),
+                width: Some(14),
+            },
+            crate::config::Column {
+                field: "state".into(),
+                title: "STATE".into(),
+                width: Some(10),
+            },
+            crate::config::Column {
+                field: "task".into(),
+                title: "TASK".into(),
+                width: None,
+            },
+        ]);
+        let with_columns = |name: &str, members: Vec<Member>| {
+            let mut document = document(
+                &squad(name),
+                Layout::Crew,
+                &states(Layout::Crew),
+                &[],
+                members,
+            );
+            document["columns"] = columns.clone();
+            document
+        };
+        let product = with_columns(
+            "product",
+            vec![member(
+                "zed",
+                &[("state", "working"), ("task", "cache room reads")],
+            )],
+        );
+        assert_eq!(
+            text(&product, Terminal::PLAIN),
+            "squad product · lead - · layout crew\n\n\
+             MEMBERS 1\n\
+             \x20 ○  zed  working  cache room reads\n"
+        );
+        let both = json!({
+            "squads": [product, with_columns("reviews", vec![member("amy", &[("state", "review")])])],
+            "you": null,
+        });
+        let rendered = text(&both, Terminal::PLAIN);
+        assert_eq!(
+            rendered,
+            "squad product · lead - · layout crew\n\n\
+             MEMBERS 1\n\
+             \x20 ○  zed  working  cache room reads\n\
+             \n\
+             squad reviews · lead - · layout crew\n\n\
+             MEMBERS 1\n\
+             \x20 ○  amy  review\n\
+             \n◆ needs to know who you are: tmt squad me <name>\n"
+        );
     }
 }

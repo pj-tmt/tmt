@@ -31,9 +31,9 @@ pub const ROOT: &CommandSpec = spec!(
     "squad",
     "Leads, members and one board for a team of agents (alias: tmt sq)",
     [
+        "Open the board, or list the members without a terminal" => "tmt squad",
         "Create a squad" => "tmt squad init product",
-        "See every member and what it needs from you" => "tmt squad status",
-        "Open the terminal board" => "tmt squad board",
+        "List every member and what it needs from you" => "tmt squad ls",
     ]
 );
 
@@ -94,18 +94,18 @@ pub const SET: &CommandSpec = spec!(
     ]
 );
 
-pub const STATUS: &CommandSpec = spec!(
-    "status",
-    "Show the squad as text, or JSON with --json",
+pub const LS: &CommandSpec = spec!(
+    "ls",
+    "List the members as text, or JSON with --json (alias: status)",
     [
-        "Show every member and what needs you" => "tmt squad status",
-        "Read the squad from a script" => "tmt squad status --json",
+        "List every member and what needs you" => "tmt squad ls",
+        "Read the squad from a script" => "tmt squad ls --json",
     ]
 );
 
 pub const BOARD: &CommandSpec = spec!(
     "board",
-    "Open the terminal board (prints status without a terminal)",
+    "Open the terminal board (lists the members without a terminal)",
     [
         "Open the board in this terminal" => "tmt squad board",
         "Close after a successful jump, for a tmux popup" => "tmt squad board --popup",

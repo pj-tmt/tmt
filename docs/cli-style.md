@@ -167,6 +167,9 @@ Examples:
   `Plain`. `Plain` prints the plain result and never asks: a view falls back to
   its text or JSON output, and a question needs its flag (`--yes`). Commands
   never test a handle themselves.
+- A command whose main view is interactive may run as the CLI's bare command
+  (`tmt squad`): it opens the view when `view()` is `Interactive` and prints its
+  list otherwise, so scripts and pipes get the same list as its `ls`.
 - Text that must reach the reader unchanged (a stored response, a prompt,
   captured pane text, a path a script reads) is written through the stream by a
   function of its own that neither styles nor escapes it. Only output that
