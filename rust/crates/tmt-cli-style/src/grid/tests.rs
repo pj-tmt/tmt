@@ -241,3 +241,20 @@ fn solved_rows_never_exceed_the_width_unless_nothing_more_can_give_way() {
         }
     }
 }
+
+#[test]
+fn fit_escapes_control_characters_before_measuring() {
+    for (raw, shown) in [
+        ("a\u{1b}[31mb", "a\\u{1b}[31mb"),
+        ("a\rb", "a\\rb"),
+        ("a\tb", "a\\tb"),
+        ("a\u{2028}b", "a\\u{2028}b"),
+    ] {
+        assert_eq!(fit(raw, 20, Align::Left, Truncate::End).trim_end(), shown);
+        let cut = fit(raw, 5, Align::Left, Truncate::End);
+        assert_eq!(cut.width(), 5, "{raw:?}");
+        assert!(!cut.chars().any(|c| c.is_control()), "{raw:?}: {cut:?}");
+        // Idempotent: fitting already escaped text changes nothing more.
+        assert_eq!(fit(shown, 20, Align::Left, Truncate::End).trim_end(), shown);
+    }
+}

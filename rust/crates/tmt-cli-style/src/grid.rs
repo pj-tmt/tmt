@@ -183,10 +183,15 @@ pub fn span(widths: &[Option<usize>], columns: std::ops::Range<usize>, gap: usiz
     shown.iter().sum::<usize>() + gap * shown.len().saturating_sub(1)
 }
 
-/// Exactly `width` display cells: padded by `align`, or cut with `…` where
+/// Exactly `width` display cells of escaped text (control and line-separator
+/// characters shown escaped, as in [`crate::table::escape`]): padded by
+/// `align`, or cut with `…` where
 /// `truncate` says. A wide character that would cross the cut is left out
 /// and the cell padded, so every result is exactly `width` cells.
 pub fn fit(text: &str, width: usize, align: Align, truncate: Truncate) -> String {
+    // Cells hold user and agent data: control characters never reach the
+    // terminal (escaping is idempotent, so escaped input is unchanged).
+    let text = crate::table::escape(text);
     let used = text.width();
     if used <= width {
         let pad = width - used;
@@ -201,20 +206,16 @@ pub fn fit(text: &str, width: usize, align: Align, truncate: Truncate) -> String
         return String::new();
     }
     let room = width - 1;
-    let cut = match truncate {
-        Truncate::End => format!("{}…", head(text, room)),
-        Truncate::Middle => {
-            let front = head(text, room - room / 2);
-            let back = tail(text, room / 2);
-            format!("{front}…{back}")
-        }
-    };
-    let pad = width - cut.width();
     match truncate {
-        Truncate::End => format!("{cut}{}", " ".repeat(pad)),
-        // The gap sits at the cut, so the kept ends stay at the edges.
+        Truncate::End => {
+            let front = head(&text, room);
+            format!("{front}…{}", " ".repeat(room - front.width()))
+        }
+        // The pad sits at the cut, so the kept ends stay at the edges.
         Truncate::Middle => {
-            let (front, back) = cut.split_once('…').expect("the cut has an ellipsis");
+            let front = head(&text, room - room / 2);
+            let back = tail(&text, room / 2);
+            let pad = room - front.width() - back.width();
             format!("{front}{}…{back}", " ".repeat(pad))
         }
     }
