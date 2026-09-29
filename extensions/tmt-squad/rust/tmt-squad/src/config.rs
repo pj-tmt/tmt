@@ -416,6 +416,7 @@ impl Config {
             document,
         };
         config.me()?;
+        config.me_id()?;
         Ok(config)
     }
 
@@ -496,6 +497,19 @@ impl Config {
                 .filter(|name| !name.trim().is_empty())
                 .map(Some)
                 .ok_or_else(|| invalid("`me` must be a non-empty identity name.")),
+        }
+    }
+
+    /// Top-level `me_id`: the UUID `me` named when it was recorded, so `me`
+    /// follows an identity rename. Written by squad, never needed by hand.
+    pub fn me_id(&self) -> Result<Option<&str>, SquadError> {
+        match self.document.get("me_id") {
+            None => Ok(None),
+            Some(item) => item
+                .as_str()
+                .filter(|id| uuid_like(id))
+                .map(Some)
+                .ok_or_else(|| invalid("`me_id` must be the UUID of a saved identity.")),
         }
     }
 
@@ -853,9 +867,10 @@ impl Config {
         })
     }
 
-    /// Writes `me` by replacing the file atomically. Refuses if another editor
-    /// changed the file since it was read, rather than overwriting their edit.
-    pub fn set_me(&mut self, name: &str) -> Result<(), SquadError> {
+    /// Writes `me` and its UUID `me_id` together by replacing the file
+    /// atomically. Refuses if another editor changed the file since it was
+    /// read, rather than overwriting their edit.
+    pub fn set_me(&mut self, name: &str, id: &str) -> Result<(), SquadError> {
         let current = read_bounded(&self.path).map_err(|error| write_failed(&self.path, error))?;
         if current != self.original {
             return Err(SquadError::new(
@@ -870,11 +885,27 @@ impl Config {
             "me",
             Item::Value(value(name).into_value().expect("string value")),
         );
+        self.document.insert(
+            "me_id",
+            Item::Value(value(id).into_value().expect("string value")),
+        );
         let bytes = self.document.to_string().into_bytes();
         publish(&self.path, &bytes).map_err(|error| write_failed(&self.path, error))?;
         self.original = Some(bytes);
         Ok(())
     }
+}
+
+/// The shape core gives identity UUIDs; anything else is a hand edit.
+pub fn uuid_like(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
 }
 
 fn write_failed(path: &Path, error: io::Error) -> SquadError {
@@ -943,19 +974,26 @@ mod tests {
         assert_eq!(config.me().unwrap(), None);
         assert_eq!(config.layout("product").unwrap(), Layout::PrQueue);
         assert_eq!(config.layout("other").unwrap(), Layout::Crew);
-        config.set_me("Ben").unwrap();
+        config
+            .set_me("ada", "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f")
+            .unwrap();
         let written = fs::read_to_string(&path).unwrap();
         assert!(
             written.contains(original),
             "user bytes are preserved: {written}"
         );
+        let reread = Config::read(path.clone()).unwrap();
+        assert_eq!(reread.me().unwrap(), Some("ada"));
         assert_eq!(
-            Config::read(path.clone()).unwrap().me().unwrap(),
-            Some("Ben")
+            reread.me_id().unwrap(),
+            Some("7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f")
         );
         fs::write(&path, "me = \"Someone\"\n").unwrap();
         assert_eq!(
-            config.set_me("Ben").unwrap_err().code,
+            config
+                .set_me("ada", "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f")
+                .unwrap_err()
+                .code,
             "SQUAD_CONFIG_CHANGED"
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), "me = \"Someone\"\n");
@@ -966,7 +1004,13 @@ mod tests {
     fn invalid_documents_and_values_are_rejected_before_use() {
         let path = temp("invalid");
         assert_eq!(Config::read(path.clone()).unwrap().me().unwrap(), None);
-        for text in ["me = 3\n", "me = \"\"\n", "[squad\n", "squad = 1\n"] {
+        for text in [
+            "me = 3\n",
+            "me = \"\"\n",
+            "me_id = \"not-a-uuid\"\n",
+            "[squad\n",
+            "squad = 1\n",
+        ] {
             fs::write(&path, text).unwrap();
             let result = Config::read(path.clone()).and_then(|config| config.layout("x"));
             assert_eq!(result.unwrap_err().code, "SQUAD_CONFIG_INVALID", "{text}");

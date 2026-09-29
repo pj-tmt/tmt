@@ -9,7 +9,9 @@ mod consent;
 mod core;
 mod effects;
 mod filter;
+mod hook_protocol;
 mod hotkeys;
+mod me;
 mod member_actions;
 mod membership;
 mod playbook;
@@ -643,18 +645,18 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             text("member").unwrap_or_default(),
             &many("fields"),
         ),
-        "replies" => member_actions::replies(&core, &squad, &config),
+        "replies" => member_actions::replies(&core, &squad, &mut config),
         "talk" => member_actions::talk(
             &core,
             &squad,
-            &config,
+            &mut config,
             text("member").unwrap_or_default(),
             text("text").unwrap_or_default(),
         ),
         "reply" => member_actions::answer(
             &core,
             &squad,
-            &config,
+            &mut config,
             text("member").unwrap_or_default(),
             text("request"),
             text("text").unwrap_or_default(),
@@ -662,7 +664,7 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
         "annotate" => member_actions::annotate(
             &core,
             &squad,
-            &config,
+            &mut config,
             text("member").unwrap_or_default(),
             text("to") == Some("lead"),
             text("text").unwrap_or_default(),
@@ -673,7 +675,8 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             let states = config.states(&squad.name, layout)?;
             let mut document =
                 status::document(&squad, layout, &states, &sections, squad.members(&core)?);
-            requests::overlay(&core, &squad, config.me()?, &mut document)?;
+            let me = me::resolve(&core, &mut config)?;
+            requests::overlay(&core, &squad, me.as_ref(), &mut document)?;
             Ok(document.into())
         }
     }
@@ -681,6 +684,13 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
 
 fn main() -> ExitCode {
     let argv: Vec<OsString> = std::env::args_os().collect();
+    // Core's hook protocol, before the grammar: never a user command.
+    if argv
+        .get(1)
+        .is_some_and(|argument| argument == hook_protocol::PREFIX)
+    {
+        return hook_protocol::run(&argv[1..]);
+    }
     let json = argv.iter().skip(1).any(|arg| arg == "--json");
     let matches = match request(&argv) {
         Ok(Request::Run(matches)) => matches,

@@ -143,6 +143,70 @@ describe('squad extension', () => {
     });
   });
 
+  it('follows a renamed user through me_id, with hooks off and then on', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = installSquad(sandbox);
+      const ada = await identity(sandbox, 'ada');
+      const rin = await identity(sandbox, 'rin');
+      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const me = () => {
+        const text = readFileSync(squadToml, 'utf8');
+        return {
+          me: /^me = "([^"]*)"$/m.exec(text)?.[1],
+          id: /^me_id = "([^"]*)"$/m.exec(text)?.[1],
+        };
+      };
+      expect((await squad(sandbox, ['init', 'product', '--me', 'ada'])).status).toBe(0);
+      expect(me()).toEqual({ me: 'ada', id: ada });
+
+      // Hooks off: the next command that needs `me` repairs it.
+      expect((await runCli(sandbox, ['rename', 'ada', 'ada-2', '--json'])).status).toBe(0);
+      expect(me()).toEqual({ me: 'ada', id: ada });
+      const healed = await squad(sandbox, ['status']);
+      expect(healed.status).toBe(0);
+      expect(healed.stderr).toBe('');
+      expect(me()).toEqual({ me: 'ada-2', id: ada });
+
+      // The UUID decides: a reused old name never moves the user.
+      expect((await runCli(sandbox, ['rename', 'ada-2', 'ada-3', '--json'])).status).toBe(0);
+      await identity(sandbox, 'ada-2');
+      const reused = await squad(sandbox, ['status']);
+      expect(reused.status).toBe(0);
+      expect(reused.stderr).toContain('still acting as ada-3');
+      expect(me()).toEqual({ me: 'ada-3', id: ada });
+
+      // A hand edit naming someone else is reported, not followed.
+      writeFileSync(
+        squadToml,
+        readFileSync(squadToml, 'utf8').replace('me = "ada-3"', 'me = "rin"')
+      );
+      const edited = await squad(sandbox, ['status']);
+      expect(edited.status).toBe(0);
+      expect(edited.stderr).toContain(
+        "warning: squad.toml named 'rin' as you, but me_id is ada-3; still acting as ada-3"
+      );
+      expect(edited.stderr).toContain('hint: tmt squad init <squad> --me rin');
+      expect(me()).toEqual({ me: 'ada-3', id: ada });
+      expect((await squad(sandbox, ['init', 'product', '--me', 'rin'])).status).toBe(0);
+      expect(me()).toEqual({ me: 'rin', id: rin });
+
+      // Hooks on: the rename observation follows the user at once.
+      const capabilities = await runCli(sandbox, ['squad', '__tmt-hooks', '1', 'capabilities']);
+      expect(capabilities.stdout).toBe('TMT-HOOKS/1\nlifecycle_observations_v1\n');
+      const enabled = await runCli(sandbox, ['extension', 'hooks', 'enable', 'squad', '--json']);
+      expect(enabled.status, enabled.stdout + enabled.stderr).toBe(0);
+      expect(realpathSync(path.join(bin, 'tmt-squad'))).toBe(realpathSync(squadExecutable));
+      expect((await runCli(sandbox, ['rename', 'rin', 'rin-2', '--json'])).status).toBe(0);
+      expect(me()).toEqual({ me: 'rin-2', id: rin });
+
+      // Someone else's rename leaves the file alone.
+      const before = readFileSync(squadToml, 'utf8');
+      await identity(sandbox, 'sol');
+      expect((await runCli(sandbox, ['rename', 'sol', 'sol-2', '--json'])).status).toBe(0);
+      expect(readFileSync(squadToml, 'utf8')).toBe(before);
+    });
+  });
+
   it('initializes only after settling who the user is, preserving squad.toml', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
