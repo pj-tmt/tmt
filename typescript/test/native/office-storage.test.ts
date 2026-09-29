@@ -36,6 +36,10 @@ it(
         '--manifest',
         artifact.manifest,
       ]);
+      // A fresh install holds only seeded catalogs: nothing to move, no hint.
+      const fresh = await run(['status']);
+      expect(fresh.status, fresh.stderr).toBe(0);
+      expect(fresh.stderr).not.toContain('migration available');
       const post = await office([
         'board',
         'post',

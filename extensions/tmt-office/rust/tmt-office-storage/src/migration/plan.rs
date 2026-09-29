@@ -9,6 +9,14 @@ use crate::{StorageLayout, schema};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
+/// Singleton tables core seeds on every install, so a fresh install has rows
+/// here without any user data.
+const SEEDED: &[&str] = &[
+    "office_board_state",
+    "office_prop_catalog",
+    "office_avatar_catalog",
+];
+
 /// What a migration would do now. Computing it takes no lock and creates or
 /// changes nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +26,9 @@ pub struct Plan {
     pub destination: PathBuf,
     pub backups_directory: PathBuf,
     pub office_rows: u64,
+    /// Rows beyond the singleton catalogs core seeds on every install; zero
+    /// means there is no user Office data to move yet.
+    pub user_rows: u64,
     pub office_bytes: u64,
     /// Space the backup needs: the whole core database.
     pub backup_bytes: u64,
@@ -60,6 +71,12 @@ pub fn plan(layout: &StorageLayout, service_running: Option<bool>) -> Result<Pla
         .map_err(source_error("Open source snapshot"))?;
     let (manifest, _) = office_manifest(&snapshot)?;
     let office_rows = manifest.rows.iter().map(|(_, count)| count).sum();
+    let user_rows = manifest
+        .rows
+        .iter()
+        .filter(|(table, _)| !SEEDED.contains(table))
+        .map(|(_, count)| count)
+        .sum();
     let mut office_bytes = 0;
     for table in schema::OFFICE_TABLES {
         office_bytes += table_bytes(&snapshot, table)?;
@@ -99,6 +116,7 @@ pub fn plan(layout: &StorageLayout, service_running: Option<bool>) -> Result<Pla
         destination: layout.database.clone(),
         backups_directory: layout.backups.clone(),
         office_rows,
+        user_rows,
         office_bytes,
         backup_bytes: (pages * page_size).max(0) as u64,
         service_running,
@@ -180,6 +198,7 @@ impl Plan {
             "destination": self.destination,
             "backupsDirectory": self.backups_directory,
             "officeRows": self.office_rows,
+            "userRows": self.user_rows,
             "officeBytes": self.office_bytes,
             "backupBytes": self.backup_bytes,
             "serviceRunning": self.service_running,

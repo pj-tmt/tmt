@@ -73,6 +73,40 @@ test('human Office start gives one private browser hint while reuse and JSON pre
   });
 });
 
+test('human Office start also mentions a pending storage migration once user Office data exists', async () => {
+  await withSandbox(async (sandbox) => {
+    delete sandbox.env.TMT_HINTS;
+    const prefix = await installNativeOffice(sandbox);
+    const office = (args: string[]) =>
+      runCli(sandbox, ['office', '--prefix', prefix, ...args], { deadlineMs: 30_000 });
+    const posted = await office([
+      'board',
+      'post',
+      '--general',
+      '--owner',
+      '--title',
+      'Hi',
+      '--body',
+      'Data',
+      '--json',
+    ]);
+    expect(posted.status, posted.stdout + posted.stderr).toBe(0);
+    try {
+      const started = await office(['start', '--port', String(await unusedLoopbackPort())]);
+      expect(started.status, started.stdout + started.stderr).toBe(0);
+      expect(started.stderr).toBe(
+        'Hint: Open the URL above in your local browser. Its private link belongs to the running service; use `tmt office start` to retrieve it later.\n' +
+          "Office storage migration available: run 'tmt office storage migrate' (the current storage keeps working until you do).\n"
+      );
+      const machine = await office(['start', '--json']);
+      expect(machine.stderr).toBe('');
+    } finally {
+      const stopped = await office(['stop', '--json']);
+      expect(stopped.status, stopped.stdout + stopped.stderr).toBe(0);
+    }
+  });
+});
+
 test('installed service reuses its session, isolates control authority and stops with an incomplete write', async () => {
   await withSandbox(async (sandbox) => {
     const prefix = await installNativeOffice(sandbox);
