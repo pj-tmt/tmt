@@ -32,11 +32,16 @@ impl Worker {
         std::thread::spawn(move || {
             // Reply bodies never change once submitted; keep them per worker.
             let mut bodies = BTreeMap::new();
+            // The board's pane never changes, so its identity is read once.
+            let caller = crate::me::caller(&core).ok().flatten();
             while let Ok(mut wanted) = pending.recv() {
                 while let Ok(newer) = pending.try_recv() {
                     wanted = newer;
                 }
-                if sender.send(load(&core, tmux, wanted, &mut bodies)).is_err() {
+                if sender
+                    .send(load(&core, tmux, caller.as_ref(), wanted, &mut bodies))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -53,6 +58,7 @@ impl Worker {
 fn load(
     core: &Core,
     tmux: bool,
+    caller: Option<&crate::me::Caller>,
     wanted: Option<String>,
     bodies: &mut BTreeMap<String, String>,
 ) -> Snapshot {
@@ -87,7 +93,7 @@ fn load(
         let states = config.states(&squad.name, layout)?;
         let board = config.board(&squad.name, layout)?;
         let sections = config.sections(&squad.name)?;
-        let me = crate::me::current(core, &config)?;
+        let me = crate::me::you(crate::me::current(core, &config)?, caller);
         let mut document =
             status::document(&squad, layout, &states, &sections, squad.members(core)?);
         let sent = requests::overlay(core, &squad, me.as_ref(), &mut document)?;

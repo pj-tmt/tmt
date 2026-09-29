@@ -31,7 +31,7 @@ pub const ROOT: &CommandSpec = spec!(
     "squad",
     "Leads, members and one board for a team of agents (alias: tmt sq)",
     [
-        "Create a squad and record which saved identity is you" => "tmt squad init product --me ada",
+        "Create a squad" => "tmt squad init product",
         "See every member and what it needs from you" => "tmt squad status",
         "Open the terminal board" => "tmt squad board",
     ]
@@ -39,10 +39,22 @@ pub const ROOT: &CommandSpec = spec!(
 
 pub const INIT: &CommandSpec = spec!(
     "init",
-    "Create the squad room squad-<name>; record which saved identity is you",
+    "Create the squad room squad-<name>; never asks anything",
     [
-        "Create a squad and say which saved identity is you" => "tmt squad init product --me ada",
-        "Create another squad; your identity is already recorded" => "tmt squad init reviews",
+        "Create a squad" => "tmt squad init product",
+        "Create one and record your saved identity, for a script" => "tmt squad init product --me ada",
+    ]
+);
+
+pub const ME: &CommandSpec = spec!(
+    "me",
+    "Show, set or clear which saved identity is you (for ◆ waiting on you)",
+    details = "Without a recorded identity, ◆ uses the saved identity bound to your pane, and
+talk, reply, annotate and replies act as the pane's identity. It follows tmt rename.",
+    [
+        "See who you are" => "tmt squad me",
+        "Record your saved identity" => "tmt squad me ada",
+        "Stop recording one" => "tmt squad me --clear",
     ]
 );
 
@@ -153,6 +165,7 @@ pub const TALK: &CommandSpec = spec!(
     [
         "Send a request without waiting for the answer" => "tmt squad talk auth-fix \"Check the retry path\"",
         "Ask the lead of a chosen squad" => "tmt squad talk sol \"Summarize the open PRs\" --squad product",
+        "Send as a named identity" => "tmt squad talk auth-fix \"Rebase first\" --identity sol",
     ]
 );
 

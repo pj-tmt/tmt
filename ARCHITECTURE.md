@@ -1978,12 +1978,22 @@ the running server come from `list-keys -N -P "" -T prefix` (notes) and
 `list-keys -T prefix` (commands), because `list-keys -F` postdates tmux 3.2;
 squad unbinds only keys whose note is its own. `board --popup` ends the session
 after a successful jump.
-`send` sends as the user's saved identity through public commands only: detached
-`talk --identity <me> --room squad-<name>` with operands after `--`, annotations
+`send` sends through public commands only: detached `talk --identity <sender>
+--room squad-<name>` with operands after `--`, annotations
 as a talk tagged `[<squad> · <row>]`, and replies with the receipt that `x show
---incoming` gives the recipient; nothing acknowledges. `requests` derives each
-row's `annotation` (the user's newest open tagged request) and `waitingOnYou`
-(open requests to the user) per load from `requests.list`, at most four pages
+--incoming` gives the recipient; nothing acknowledges. The sender (`me::resolve_sender`) is
+an explicit `--identity`, otherwise the identity core attributes the call to
+(`tmt whoami`), otherwise the recorded user; with none, `SQUAD_SENDER_UNKNOWN`
+names both ways to set one. `whoami`'s `PANE_NOT_FOUND` and an unbound pane mean
+"no caller"; any other core error, such as `CALLER_IDENTITY_AMBIGUOUS` on a shared
+runtime host, fails the command rather than falling back to the user. "You" for
+`waitingOnYou`, `status` and the board (`me::you`) is the recorded user,
+otherwise the saved identity bound to the calling pane (the board reads it once
+per worker); when neither exists, `status` and the board footer show one hint
+line. The board also sends as "you", because a popup's pane is not its operator.
+`requests` derives each
+row's `annotation` (the sender's newest open tagged request) and `waitingOnYou`
+(open requests to "you") per load from `requests.list`, at most four pages
 of 50, and marks the document `olderRequestsNotShown` when a window is cut off.
 The same room window yields the replies list (finals to the user's requests,
 newest first); bodies come from `requests.show` for the newest eight only, and
@@ -1994,16 +2004,18 @@ transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
 Squad writes only the top-level `me` and `me_id` (the UUID `me` named), together,
 with a changed-input check and atomic replacement that preserves the rest of the
-document. `init` settles `me` before creating the room. The UUID decides, as it
+document. Nothing asks for `me`: `init` only creates the room (`--me`, for
+scripts, is checked before any effect), and `tmt squad me [<name>|--clear]`
+shows, records or removes it. The UUID decides, as it
 does for binding markers: while `me_id` names an active identity, that identity is
 the user and `me::resolve` rewrites `me` to its current name. Only when `me_id` is
 missing or no longer active does the name decide, and its UUID is recorded. An
 edited `me` that names a different identity is reported with a warning, never
-followed, so a reused name cannot make squad act as someone else; `tmt squad init
---me` changes the user. A failed write never fails the command, and the board's
+followed, so a reused name cannot make squad act as someone else; `tmt squad me`
+changes the user. A failed write never fails the command, and the board's
 refresh (`me::current`) neither writes nor prints. With hooks enabled, `tmt-squad __tmt-hooks 1 observe` applies an `identity.renamed`
 observation for `me_id` at once; the hooks are optional, and the same repair
-happens on the next command that needs `me`. The `tmt-squad` lead skill source lives under
+happens on the next command that reads `me`. The `tmt-squad` lead skill source lives under
 `extensions/tmt-squad/skills/` and is embedded only in the squad executable,
 never in the core skill bundle. Optional playbooks (`tmt squad playbook
 list|show|install|remove`, first `tmux-squad`) live beside it in

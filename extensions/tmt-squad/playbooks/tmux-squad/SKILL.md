@@ -36,7 +36,7 @@ Skip this if you already run in the session the user wants as `leads`.
 ```sh
 tmux new-session -d -s leads -n lead -c "$(git rev-parse --show-toplevel)"
 tmux send-keys -t "leads:=lead" "tmt run -s lead claude" Enter
-tmt squad init product --me <the user's saved identity>   # once per squad
+tmt squad init product   # once per squad; it never asks
 tmt squad lead lead
 ```
 

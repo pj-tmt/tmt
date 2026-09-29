@@ -41,6 +41,9 @@ fn hints(app: &App) -> String {
         })
         .collect();
     hints.extend(["/ search", "←→ squad", "? more", "q quit"].map(str::to_owned));
+    if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
+        hints.push(crate::status::UNKNOWN_YOU.to_owned());
+    }
     hints.join("  ")
 }
 
@@ -418,7 +421,7 @@ fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
     let lines = if view.replies.is_empty() {
         vec![Line::styled(
             if view.me.is_none() {
-                "(record `me` in squad.toml to see replies to your requests)"
+                "(tmt squad me <name> shows the replies to your requests)"
             } else {
                 "(no replies to your squad requests yet)"
             },
@@ -957,7 +960,7 @@ mod tests {
         assert!(
             screen
                 .iter()
-                .any(|line| line.contains("record `me` in squad.toml"))
+                .any(|line| line.contains("tmt squad me <name> shows the replies"))
         );
         tab(&mut app);
         assert!(

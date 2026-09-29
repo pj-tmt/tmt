@@ -25,12 +25,8 @@ mod template;
 
 use crate::{config::Config, core::Core, core::SquadError, membership::Outcome, squad::Squad};
 use clap::{Arg, ArgAction, ArgMatches, Command, error::ErrorKind};
-use serde_json::Value;
-use std::{
-    ffi::OsString,
-    io::{IsTerminal, Write},
-    process::ExitCode,
-};
+use serde_json::{Value, json};
+use std::{ffi::OsString, io::Write, process::ExitCode};
 use tmt_cli_style::Route;
 use tmt_cli_style::{
     Terminal, Token,
@@ -48,6 +44,14 @@ fn squad_option() -> Arg {
         .long("squad")
         .value_name("NAME")
         .help("Select a squad; optional when exactly one exists")
+}
+
+/// Who sends, when it should not be the caller's own identity.
+fn identity_option() -> Arg {
+    Arg::new("identity")
+        .long("identity")
+        .value_name("NAME")
+        .help("Act as this identity [default: this pane's identity, then `tmt squad me`]")
 }
 
 fn message() -> Arg {
@@ -86,7 +90,18 @@ fn grammar() -> Command {
                     Arg::new("me")
                         .long("me")
                         .value_name("NAME")
-                        .help("Your saved identity (asked interactively when unset)"),
+                        .help("Also record your saved identity (same as tmt squad me <name>)"),
+                ),
+        )
+        .subcommand(
+            build(specs::ME)
+                .arg(Arg::new("name").help("Saved identity that is you"))
+                .arg(
+                    Arg::new("clear")
+                        .long("clear")
+                        .action(ArgAction::SetTrue)
+                        .conflicts_with("name")
+                        .help("Stop recording who you are"),
                 ),
         )
         .subcommand(
@@ -168,6 +183,7 @@ fn grammar() -> Command {
             build(specs::TALK)
                 .arg(operand("member", "Member or lead"))
                 .arg(message())
+                .arg(identity_option())
                 .arg(squad_option()),
         )
         .subcommand(
@@ -180,6 +196,7 @@ fn grammar() -> Command {
                         .value_name("ID")
                         .help("Which open request, when the member waits on several"),
                 )
+                .arg(identity_option())
                 .arg(squad_option()),
         )
         .subcommand(
@@ -194,10 +211,12 @@ fn grammar() -> Command {
                         .default_value("lead")
                         .help("Send to the squad's lead or to the member"),
                 )
+                .arg(identity_option())
                 .arg(squad_option()),
         )
         .subcommand(
             build(specs::REPLIES)
+                .arg(identity_option())
                 .arg(squad_option()),
         )
         .subcommand(
@@ -479,6 +498,30 @@ fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
     String::from_utf8(output).unwrap_or_default()
 }
 
+/// `me`: who "you" is and where it comes from, or the one step to set it.
+fn me_text(document: &Value, terminal: Terminal) -> String {
+    let name = document["me"]["name"].as_str().unwrap_or_default();
+    let path = document["path"].as_str().unwrap_or_default();
+    match (document["action"].as_str(), document["source"].as_str()) {
+        (Some("set"), _) => done(terminal, &format!("You are {name}; recorded in {path}")),
+        (Some("clear"), _) if document["changed"] == true => done(
+            terminal,
+            &format!("Stopped recording who you are in {path}"),
+        ),
+        (Some("clear"), _) => "No identity was recorded; nothing changed.\n".into(),
+        (_, Some("recorded")) => format!("You are {name} (recorded in {path}).\n"),
+        (_, Some("pane")) => {
+            format!("You are {name}: this pane's saved identity. Nothing is recorded.\n")
+        }
+        _ => {
+            let mut output =
+                b"No identity is recorded as you, and this pane has no saved identity.\n".to_vec();
+            let _ = message::hint(&mut output, terminal, "tmt squad me <name>");
+            String::from_utf8(output).unwrap_or_default()
+        }
+    }
+}
+
 /// One `✓ <past tense> <object>` line, rendered for `terminal`.
 fn done(terminal: Terminal, text: &str) -> String {
     let mut line = Vec::new();
@@ -511,8 +554,9 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "talk" | "annotate" => done(
             terminal,
             &format!(
-                "Sent to {} ({})",
+                "Sent to {} as {} ({})",
                 text(&document["to"]),
+                text(&document["as"]),
                 text(&document["requestId"])
             ),
         ),
@@ -520,8 +564,9 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "reply" => done(
             terminal,
             &format!(
-                "Replied to {} ({})",
+                "Replied to {} as {} ({})",
                 text(&document["from"]),
+                text(&document["as"]),
                 text(&document["requestId"])
             ),
         ),
@@ -531,19 +576,21 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         },
         "open" => done(terminal, &format!("Opened {}", text(&document["opened"]))),
         "copy" => done(terminal, &text(&document["message"])),
-        "init" if document["created"] == true => done(
-            terminal,
-            &format!(
-                "Created squad {name} (room squad-{name}); you are {}",
-                document["me"].as_str().unwrap_or("unset"),
-                name = text(&document["squad"]["name"]),
-            ),
-        ),
-        "init" => format!(
-            "Squad {name} already exists (room squad-{name}); you are {}.\n",
-            document["me"].as_str().unwrap_or("unset"),
-            name = text(&document["squad"]["name"]),
-        ),
+        "init" => {
+            let name = text(&document["squad"]["name"]);
+            let you = document["me"]
+                .as_str()
+                .map_or(String::new(), |me| format!("; you are {me}"));
+            if document["created"] == true {
+                done(
+                    terminal,
+                    &format!("Created squad {name} (room squad-{name}){you}"),
+                )
+            } else {
+                format!("Squad {name} already exists (room squad-{name}){you}.\n")
+            }
+        }
+        "me" => me_text(document, terminal),
         "lead" => {
             let replaced = names(&document["replaced"]);
             done(
@@ -711,6 +758,38 @@ fn playbook_command(matches: &ArgMatches) -> Result<Outcome, SquadError> {
     .map(Outcome::from)
 }
 
+/// `me`: shows who "you" is and where that comes from, records a saved
+/// identity, or clears the record. It never asks.
+fn me_command(
+    core: &Core,
+    config: &mut Config,
+    name: Option<&str>,
+    clear: bool,
+) -> Result<Outcome, SquadError> {
+    let path = config.path().display().to_string();
+    let shown =
+        |me: Option<&me::Me>| me.map_or(Value::Null, |me| json!({"id": me.id, "name": me.name}));
+    if let Some(name) = name {
+        let recorded = me::set(core, config, name)?;
+        return Ok(json!({"action": "set", "me": shown(Some(&recorded)), "source": "recorded", "path": path}).into());
+    }
+    if clear {
+        let changed = config.me()?.is_some();
+        if changed {
+            config.clear_me()?;
+        }
+        return Ok(json!({"action": "clear", "changed": changed, "me": Value::Null, "source": Value::Null, "path": path}).into());
+    }
+    let you = me::resolve_you(core, config)?;
+    Ok(json!({
+        "action": "show",
+        "me": shown(you.as_ref().map(|(me, _)| me)),
+        "source": you.map(|(_, source)| source.as_str()),
+        "path": path,
+    })
+    .into())
+}
+
 fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
     if command == "playbook" {
         return playbook_command(matches);
@@ -745,15 +824,15 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
         .map(Outcome::from);
     }
     if command == "init" {
-        let interactive =
-            std::io::stdin().is_terminal() && tmt_cli_style::stream::stderr().is_terminal();
         return membership::init(
             &core,
             &mut config,
             text("name").unwrap_or_default(),
             text("me"),
-            interactive,
         );
+    }
+    if command == "me" {
+        return me_command(&core, &mut config, text("name"), matches.get_flag("clear"));
     }
     let squad = Squad::resolve(&core, text("squad"))?;
     match command {
@@ -781,11 +860,12 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             text("member").unwrap_or_default(),
             &many("fields"),
         ),
-        "replies" => member_actions::replies(&core, &squad, &mut config),
+        "replies" => member_actions::replies(&core, &squad, &mut config, text("identity")),
         "talk" => member_actions::talk(
             &core,
             &squad,
             &mut config,
+            text("identity"),
             text("member").unwrap_or_default(),
             text("text").unwrap_or_default(),
         ),
@@ -793,6 +873,7 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             &core,
             &squad,
             &mut config,
+            text("identity"),
             text("member").unwrap_or_default(),
             text("request"),
             text("text").unwrap_or_default(),
@@ -801,6 +882,7 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             &core,
             &squad,
             &mut config,
+            text("identity"),
             text("member").unwrap_or_default(),
             text("to") == Some("lead"),
             text("text").unwrap_or_default(),
@@ -811,8 +893,12 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             let states = config.states(&squad.name, layout)?;
             let mut document =
                 status::document(&squad, layout, &states, &sections, squad.members(&core)?);
-            let me = me::resolve(&core, &mut config)?;
-            requests::overlay(&core, &squad, me.as_ref(), &mut document)?;
+            let you = me::resolve_you(&core, &mut config)?;
+            requests::overlay(&core, &squad, you.as_ref().map(|(me, _)| me), &mut document)?;
+            document["you"] = you.map_or(
+                Value::Null,
+                |(me, source)| json!({"id": me.id, "name": me.name, "source": source.as_str()}),
+            );
             Ok(document.into())
         }
     }
@@ -1049,8 +1135,8 @@ mod tests {
             complete(&words("-- ")),
             [
                 "add", "annotate", "back", "board", "copy", "help", "hotkeys", "init", "jump",
-                "lead", "open", "playbook", "remove", "replies", "reply", "set", "skill", "status",
-                "talk"
+                "lead", "me", "open", "playbook", "remove", "replies", "reply", "set", "skill",
+                "status", "talk"
             ]
         );
         assert_eq!(complete(&words("-- h")), ["help", "hotkeys"]);
