@@ -18,6 +18,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use serde_json::Value;
+use tmt_cli_style::{AnsiColor, Effects, Token};
 use unicode_width::UnicodeWidthChar;
 
 const KEYS: &[&str] = &[
@@ -52,17 +53,56 @@ fn help_lines(app: &App) -> Vec<String> {
     lines
 }
 
+/// A palette token as a board style: the same colors and effects as line
+/// output, so the board and `status` agree.
+fn token(token: Token) -> Style {
+    let mut style = Style::new();
+    if let Some(color) = token.color() {
+        style = style.fg(ansi(color));
+    }
+    let effects = token.effects();
+    if effects.contains(Effects::DIMMED) {
+        style = style.add_modifier(Modifier::DIM);
+    }
+    if effects.contains(Effects::BOLD) {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    style
+}
+
+fn ansi(color: AnsiColor) -> Color {
+    match color {
+        AnsiColor::Black => Color::Black,
+        AnsiColor::Red => Color::Red,
+        AnsiColor::Green => Color::Green,
+        AnsiColor::Yellow => Color::Yellow,
+        AnsiColor::Blue => Color::Blue,
+        AnsiColor::Magenta => Color::Magenta,
+        AnsiColor::Cyan => Color::Cyan,
+        AnsiColor::White => Color::Gray,
+        AnsiColor::BrightBlack => Color::DarkGray,
+        AnsiColor::BrightRed => Color::LightRed,
+        AnsiColor::BrightGreen => Color::LightGreen,
+        AnsiColor::BrightYellow => Color::LightYellow,
+        AnsiColor::BrightBlue => Color::LightBlue,
+        AnsiColor::BrightMagenta => Color::LightMagenta,
+        AnsiColor::BrightCyan => Color::LightCyan,
+        AnsiColor::BrightWhite => Color::White,
+    }
+}
+
+/// A color named in the layout defaults or a user's `squad.toml`. The names
+/// with a palette token take it; the rest keep their terminal color.
 fn color(name: &str) -> Style {
-    let style = Style::new();
     match name {
-        "dim" => style.fg(Color::DarkGray),
-        "red" => style.fg(Color::Red),
-        "amber" => style.fg(Color::Yellow),
-        "green" => style.fg(Color::Green),
-        "cyan" => style.fg(Color::Cyan),
-        "blue" => style.fg(Color::Blue),
-        "magenta" => style.fg(Color::Magenta),
-        _ => style,
+        "dim" => token(Token::Dim),
+        "red" => token(Token::Error),
+        "amber" => token(Token::Warn),
+        "green" => token(Token::Ok),
+        "blue" => token(Token::Accent),
+        "cyan" => Style::new().fg(Color::Cyan),
+        "magenta" => Style::new().fg(Color::Magenta),
+        _ => Style::new(),
     }
 }
 
@@ -245,7 +285,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
             other => format!(" {} ", other.title()),
         };
         let style = if pane == focused && board.panes.len() > 1 {
-            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            token(Token::Accent).add_modifier(Modifier::BOLD)
         } else {
             color("dim")
         };

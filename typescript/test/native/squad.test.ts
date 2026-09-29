@@ -251,8 +251,10 @@ describe('squad extension', () => {
       expect(await runCli(sandbox, ['squad', 'board'])).toEqual(statusText);
       expect((await squad(sandbox, ['board'])).body).toEqual(status.body);
       const text = await runCli(sandbox, ['sq', 'status']);
-      expect(text.stdout).toContain('◆ auth-fix');
-      expect(text.stdout).toContain('    waiting on you: approve the token rotation plan\n');
+      // One leading mark: ◆ when the member waits on you; the state has its column.
+      expect(text.stdout).toMatch(
+        /\n {2}◆ {2}auth-fix +blocked +waiting on you: approve the token rotation plan/
+      );
 
       expect((await squad(sandbox, ['set', 'auth-fix', 'pending='])).status).toBe(0);
       expect((await squad(sandbox, ['lead', 'Rin'])).body.replaced).toEqual(['Sol']);
@@ -338,7 +340,7 @@ sort = ["-name"]
         ['Everyone', ['perf-cache', 'docs-sweep', 'auth-fix']],
       ]);
       const text = await runCli(sandbox, ['sq', 'status']);
-      expect(text.stdout).toContain('\nNeeds me\n◆ auth-fix');
+      expect(text.stdout).toMatch(/\nNEEDS ME 1\n {2}◆ {2}auth-fix /);
 
       writeFileSync(
         squadToml,
@@ -556,9 +558,7 @@ sort = ["-name"]
         'auth-fix': { requestId: toLead.body.requestId, to: 'Sol', text: 'split the job' },
         docs: { requestId: toMember.body.requestId, to: 'docs', text: 'add examples' },
       });
-      expect((await runCli(sandbox, ['sq', 'status'])).stdout).toContain(
-        '    ✎ sent to Sol: split the job'
-      );
+      expect((await runCli(sandbox, ['sq', 'status'])).stdout).toContain('✎ to Sol: split the job');
       const incoming = async (who: string, requestId: string) =>
         JSON.parse(
           (
@@ -695,9 +695,14 @@ sort = ["-name"]
         response: 'agreed, splitting',
       });
       const text = (await runCli(sandbox, ['sq', 'replies'])).stdout;
-      expect(text).toContain('auth-fix · ');
-      expect(text).toContain('  › status of the retry path?\n  retry passes\n  red\n');
+      // One row per request: its ID and the reply's first line; the whole
+      // body stays exact behind tmt result.
+      expect(text).toMatch(
+        new RegExp(`\\n {2}✓ {2}auth-fix .* ${talk.requestId} {2}retry passes\\n`)
+      );
+      expect(text).not.toContain('red');
       expect(text).not.toContain('\u001b');
+      expect(text).toContain(`hint: tmt result ${talk.requestId}\n`);
 
       // Reading replies acknowledges nothing: the originator's attention is unchanged.
       expect(await attention()).toEqual(before);
@@ -873,9 +878,9 @@ sort = ["-name"]
       });
       unlinkSync(launcher);
       expect((await hotkeys(['show'])).body.executableExists).toBe(false);
-      expect((await runCli(sandbox, ['sq', 'hotkeys', 'show'])).stdout).toContain(
-        `The recorded tmt ${launcher} no longer exists`
-      );
+      const report = (await runCli(sandbox, ['sq', 'hotkeys', 'show'])).stdout;
+      expect(report).toContain(`${launcher} (no longer exists)`);
+      expect(report).toContain('hint: tmt squad hotkeys install\n');
 
       const removed = await hotkeys(['remove', '--yes']);
       expect(removed.body).toMatchObject({ removed: [conf], changed: true, unbound: [] });
