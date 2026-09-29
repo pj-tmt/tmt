@@ -17,7 +17,7 @@ pub mod table;
 pub mod value;
 
 pub use help::{
-    CommandSpec, Example, HelpSection, OutputModes, ShownExample, command, command_with_sections,
-    examples, help_text,
+    CommandSpec, Example, HelpSection, OutputModes, ShownExample, apply, command,
+    command_with_sections, examples, frame, help_text,
 };
 pub use palette::{Terminal, Token};

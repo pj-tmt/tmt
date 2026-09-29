@@ -99,7 +99,7 @@ describe('tmt extension install surface', () => {
 
       // Root help groups the two names that resolve to one file.
       const help = await runCli(sandbox, ['--help']);
-      expect(help.stdout).toContain('Extension squad (also: sq): ');
+      expect(help.stdout).toMatch(/^ {2}squad \(also: sq\) +\S/m);
 
       expectError(
         await cli(['extension', 'uninstall', 'squad', '--prefix', prefix]),

@@ -66,6 +66,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         "tmt-cli" => &[
             "tmt-office-command",
             "tmt-command-output",
+            "tmt-cli-style",
             "tmt-core",
             "tmt-adapters",
             "clap",

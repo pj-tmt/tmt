@@ -39,6 +39,10 @@ pub struct CommandSpec {
     /// The common use first; one to three.
     pub examples: &'static [Example],
     pub outputs: OutputModes,
+    /// Safety or boundary facts that must be visible in help, shown in a
+    /// `Details` section just before `Examples`; empty for none. Rare by
+    /// design: never a place for a longer description.
+    pub details: &'static str,
 }
 
 /// A titled list rendered in help before `Examples`, such as the extensions
@@ -58,27 +62,21 @@ pub fn command(spec: &CommandSpec) -> Command {
 
 /// [`command`] with sections the caller discovers at run time.
 pub fn command_with_sections(spec: &CommandSpec, sections: &[HelpSection]) -> Command {
-    assert!(!spec.summary.is_empty(), "{} has no summary", spec.name);
-    assert!(
-        (1..=3).contains(&spec.examples.len()),
-        "{} needs one to three examples",
-        spec.name
+    let mut command = apply(
+        Command::new(spec.name)
+            .disable_help_flag(true)
+            .disable_version_flag(true)
+            .disable_help_subcommand(true),
+        spec,
+        sections,
+    )
+    .arg(
+        Arg::new("help")
+            .short('h')
+            .long("help")
+            .help("Print help")
+            .action(ArgAction::HelpShort),
     );
-    let mut command = Command::new(spec.name)
-        .about(spec.summary)
-        .help_template(TEMPLATE)
-        .styles(help_styles())
-        .disable_help_flag(true)
-        .disable_version_flag(true)
-        .disable_help_subcommand(true)
-        .after_help(after_help(sections, spec.examples))
-        .arg(
-            Arg::new("help")
-                .short('h')
-                .long("help")
-                .help("Print help")
-                .action(ArgAction::HelpShort),
-        );
     if spec.outputs == OutputModes::HumanAndJson {
         command = command.arg(
             Arg::new("json")
@@ -88,6 +86,30 @@ pub fn command_with_sections(spec: &CommandSpec, sections: &[HelpSection]) -> Co
         );
     }
     command
+}
+
+/// The spec's summary, template, palette and `Examples` on an existing
+/// command, for a CLI that owns its own help and `--json` options (core's
+/// parser resolves help itself). [`command`] is this plus those options.
+///
+/// # Panics
+/// Like [`command`], when the spec has no summary or no examples.
+pub fn apply(command: Command, spec: &CommandSpec, sections: &[HelpSection]) -> Command {
+    assert!(!spec.summary.is_empty(), "{} has no summary", spec.name);
+    assert!(
+        (1..=3).contains(&spec.examples.len()),
+        "{} needs one to three examples",
+        spec.name
+    );
+    frame(command)
+        .about(spec.summary)
+        .after_help(after_help(sections, spec.details, spec.examples))
+}
+
+/// The shared template and palette, for a CLI that rebuilds commands from a
+/// definition (such as a help projection) and carries `about`/`after_help` over.
+pub fn frame(command: Command) -> Command {
+    command.help_template(TEMPLATE).styles(help_styles())
 }
 
 /// What `-h`, `--help` and `help <command>` all print.
@@ -101,7 +123,7 @@ pub fn help_text(command: &Command, terminal: Terminal) -> String {
 }
 
 /// Styled with the help palette; clap strips the codes for plain output.
-fn after_help(sections: &[HelpSection], examples: &[Example]) -> String {
+fn after_help(sections: &[HelpSection], details: &str, examples: &[Example]) -> String {
     let title = |text: &str| {
         let style = Token::Title.style();
         format!("{style}{text}:{style:#}\n")
@@ -119,6 +141,13 @@ fn after_help(sections: &[HelpSection], examples: &[Example]) -> String {
             let literal = Token::Literal.style();
             let pad = " ".repeat(width - name.width());
             let _ = writeln!(text, "  {literal}{name}{literal:#}{pad}  {summary}");
+        }
+        text.push('\n');
+    }
+    if !details.is_empty() {
+        text.push_str(&title("Details"));
+        for line in details.lines() {
+            let _ = writeln!(text, "  {line}");
         }
         text.push('\n');
     }

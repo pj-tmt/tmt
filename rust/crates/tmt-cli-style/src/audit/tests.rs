@@ -8,6 +8,7 @@ fn spec(name: &'static str, examples: &'static [Example]) -> CommandSpec {
         summary: "Do one thing",
         examples,
         outputs: OutputModes::HumanAndJson,
+        details: "",
     }
 }
 
@@ -169,6 +170,14 @@ fn the_template_requires_its_order_with_examples_last() {
     assert!(template("Do it\n\nUsage: demo\n\nCommands:\n\nOptions:\n\nExamples:\n").is_ok());
     assert!(template("Do it\n\nUsage: demo\n\nOptions:\n\nCommands:\n\nExamples:\n").is_err());
     assert!(template("Do it\n\nUsage: demo\n\nOptions:\n").is_err());
+    assert!(
+        template("Do it\n\nUsage: demo\n\nOptions:\n\nDetails:\n  Saved only.\n\nExamples:\n")
+            .is_ok()
+    );
+    assert!(template("Do it\n\nUsage: demo\n\nDetails:\n  x\n\nOptions:\n\nExamples:\n").is_err());
+    assert!(
+        template("Do it\n\nUsage: demo\n\nDetails:\n  x\n\nExtensions:\n\nExamples:\n").is_err()
+    );
 }
 
 #[test]

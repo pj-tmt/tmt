@@ -20,8 +20,13 @@ fn help(words: &[String]) -> Result<String, String> {
     };
     let mut text = Vec::new();
     // No `PATH` discovery: the walk must not depend on what the machine has installed.
-    help_output::write(&path, &Discovered::default(), &mut text)
-        .map_err(|error| error.to_string())?;
+    help_output::write(
+        &path,
+        &Discovered::default(),
+        tmt_cli_style::Terminal::PLAIN,
+        &mut text,
+    )
+    .map_err(|error| error.to_string())?;
     String::from_utf8(text).map_err(|error| error.to_string())
 }
 

@@ -154,6 +154,7 @@ fn talk() -> clap::Command {
         summary: "Send a message to an agent",
         examples: EXAMPLES,
         outputs: OutputModes::HumanAndJson,
+        details: "",
     })
     .bin_name("tmt talk")
     .arg(clap::Arg::new("target").required(true).help("Agent name"))
@@ -192,6 +193,7 @@ fn root_help_renders_discovered_sections_in_the_template() {
             summary: "Collaborate with agents through durable tmux exchanges",
             examples: EXAMPLES,
             outputs: OutputModes::HumanAndJson,
+            details: "",
         },
         &[HelpSection {
             title: "Extensions".into(),

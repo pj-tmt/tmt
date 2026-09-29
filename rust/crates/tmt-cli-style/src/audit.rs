@@ -25,7 +25,8 @@ pub enum Rule {
     /// `-h`, `--help` and `help <command>` print the same text.
     HelpForms,
     /// Summary, `Usage`, `Commands`, `Arguments`, `Options`, other
-    /// sections, then `Examples` last.
+    /// sections, an optional `Details` just before `Examples`, then
+    /// `Examples` last.
     Template,
     /// One to three well-formed examples.
     Examples,
@@ -234,6 +235,11 @@ fn template(help: &str) -> Result<(), String> {
         .collect();
     if headings.last() != Some(&"Examples:") {
         return Err("Examples is not the last section".into());
+    }
+    if let Some(index) = headings.iter().position(|heading| *heading == "Details:")
+        && index + 2 != headings.len()
+    {
+        return Err("Details must come just before Examples".into());
     }
     if headings
         .windows(2)
