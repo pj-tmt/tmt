@@ -580,7 +580,12 @@ same job names run Squad's Cargo checks and architecture guard, its native tests
 E2E file, while the CLI runtime builds, packed installs and tooling unit tests are skipped
 because the CLI is unchanged (Squad cannot affect core: the architecture guard rejects any
 dependency in either direction). `Native package matrix` expects exactly that set of results
-for the scope; anything shared, CLI-owned or unrecognized runs the full set. Existing required check names
+for the scope; anything shared, CLI-owned or unrecognized runs the full set. `Docker E2E`, the
+required check, is a gate over two shard jobs that split the E2E scenario files by the committed
+weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs the Rust adapter
+tests): it requires both shards when native work is selected, the first alone for a scoped
+component and neither when nothing native is selected, so a skipped, cancelled or missing
+selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
