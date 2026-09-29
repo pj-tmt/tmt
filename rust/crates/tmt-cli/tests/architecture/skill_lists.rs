@@ -1,5 +1,6 @@
 //! The #440 skill-list guard: `tmt-core/src/skill_catalog.rs` is the one
-//! list of bundled skill names. A production array, slice or `vec!` holding two or more catalog
+//! list of bundled skill names. A list is two or more names in one array,
+//! slice, `vec!`, or-pattern (`"a" | "b"`, also inside `matches!`). A production array, slice or `vec!` holding two or more catalog
 //! names anywhere else is a hand-maintained copy. Single uses are fine.
 
 use super::source::{Source, production, production_impl, production_trait};
@@ -53,8 +54,28 @@ impl Visitor<'_> {
             .count()
     }
 
+    /// The longest run of names joined by `|` at one level, such as the
+    /// pattern in `matches!(name, "a" | "b")`.
+    fn or_names(&self, tokens: &TokenStream) -> usize {
+        let (mut longest, mut run, mut joined) = (0, 0, false);
+        for token in tokens.clone() {
+            match token {
+                TokenTree::Literal(literal) if self.is_name(&syn::Lit::new(literal.clone())) => {
+                    run = if joined { run + 1 } else { 1 };
+                    joined = false;
+                }
+                TokenTree::Punct(punct) if punct.as_char() == '|' && run > 0 => joined = true,
+                _ => (run, joined) = (0, false),
+            }
+            longest = longest.max(run);
+        }
+        longest
+    }
+
     /// Bracketed groups inside macro arguments, such as `[..]` in `json!`.
     fn scan(&mut self, tokens: TokenStream) {
+        let joined = self.or_names(&tokens);
+        self.count(joined);
         for token in tokens {
             if let TokenTree::Group(group) = token {
                 if group.delimiter() == Delimiter::Bracket {
@@ -98,6 +119,16 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
         visit::visit_expr_array(self, array);
     }
 
+    fn visit_pat_or(&mut self, pattern: &'ast syn::PatOr) {
+        let names = pattern
+            .cases
+            .iter()
+            .filter(|case| matches!(case, syn::Pat::Lit(literal) if self.is_name(&literal.lit)))
+            .count();
+        self.count(names);
+        visit::visit_pat_or(self, pattern);
+    }
+
     fn visit_macro(&mut self, node: &'ast syn::Macro) {
         // `vec![..]` carries its brackets as the macro delimiter.
         if matches!(node.delimiter, syn::MacroDelimiter::Bracket(_)) {
@@ -128,12 +159,15 @@ mod tests {
             const CORE: &[&str] = &["core-skill", "inbox-skill"];
         "#;
         let in_macro = r#"fn names() -> Vec<&'static str> { vec!["core-skill", "inbox-skill"] }"#;
+        let or_pattern = r#"fn core(name: &str) -> bool { match name { "core-skill" | "inbox-skill" => true, _ => false } }"#;
+        let in_matches =
+            r#"fn core(name: &str) -> bool { matches!(name, "core-skill" | "inbox-skill") }"#;
         let single = r#"
             fn target() -> &'static str { "core-skill" }
             #[cfg(test)]
             mod tests { const BOTH: [&str; 2] = ["core-skill", "inbox-skill"]; }
         "#;
-        for text in [listed, in_macro] {
+        for text in [listed, in_macro, or_pattern, in_matches] {
             assert_eq!(
                 violations(&[source("skill_installation/owned.rs", text)], &names),
                 [

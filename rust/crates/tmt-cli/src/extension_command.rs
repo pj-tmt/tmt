@@ -80,6 +80,13 @@ pub fn discover() -> io::Result<Discovered> {
 }
 
 impl Discovered {
+    /// Whether an extension answers to this name.
+    pub fn has(&self, name: &str) -> bool {
+        self.extensions
+            .iter()
+            .any(|(names, _)| names.iter().any(|candidate| candidate == name))
+    }
+
     /// Root help's `Extensions` section; none when nothing was discovered.
     pub fn sections(&self) -> Vec<tmt_cli_style::HelpSection> {
         let home = std::env::home_dir();

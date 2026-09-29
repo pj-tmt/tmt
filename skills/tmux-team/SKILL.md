@@ -217,8 +217,10 @@ echoed in acknowledgements.
 
 ## Calling an agent
 
-For optional Claude/Codex lifecycle integration, `tmt setup` inspects both statuses
-without changing settings. `tmt setup claude` or `tmt setup codex` shows a plan and asks for approval;
+For Claude/Codex lifecycle integration, `tmt setup` shows every detected agent and
+the files it would change, then asks once; without a terminal it refuses unless
+`--yes` is given, changing nothing. `tmt setup claude` or `tmt setup codex` shows
+one agent's plan and asks for approval;
 noninteractive changes require explicit user-authorized `--yes`. It adds only
 owned start/end hooks using the stable PATH launcher; `--remove` removes only
 unchanged owned hooks. Do not install into the user's provider settings merely

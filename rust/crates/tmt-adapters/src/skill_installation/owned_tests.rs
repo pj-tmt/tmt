@@ -381,3 +381,32 @@ fn owners_names_and_files_are_validated_before_anything_else() {
         "repeated names"
     );
 }
+
+#[test]
+fn guided_setup_links_recorded_extension_skills_into_new_roots_once() {
+    let (_directory, env, global, root) = fixture();
+    install_owned(&env, &global, "squad", &[skill("tmt-squad", "v1")], false).unwrap();
+    let new_root = root
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(".claude/skills");
+    let roots = [root.clone(), new_root.clone()];
+    let planned = super::plan_owned(&global, &roots).unwrap();
+    assert_eq!(
+        planned
+            .iter()
+            .map(|item| item.target.clone())
+            .collect::<Vec<_>>(),
+        [new_root.join("tmt-squad")]
+    );
+    // Something the user put there meanwhile is never replaced.
+    let linked = super::publish_owned(&global, &planned).unwrap();
+    assert_eq!(linked, [new_root.join("tmt-squad")]);
+    assert_eq!(read_skill(&new_root.join("tmt-squad")), "v1");
+    assert!(super::plan_owned(&global, &roots).unwrap().is_empty());
+    // Recorded, so removing the owner removes the new link too.
+    let removed = remove_owned(&global, "squad", None).unwrap();
+    assert!(removed.removed.contains(&new_root.join("tmt-squad")));
+}

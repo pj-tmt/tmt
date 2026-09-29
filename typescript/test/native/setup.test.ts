@@ -20,16 +20,10 @@ describe('consented provider setup and bounded hook boundary', () => {
         const original = `{\n "permissions": {"allow": ["Bash(git *)"]},\n "future": 1.000e+100,\n "hooks": {"SessionStart": [${userHook}]}\n}\n`;
         fs.writeFileSync(settings, original);
         const before = fileSnapshot(sandbox.root);
+        // Guided setup has work to do here, so without consent it only refuses.
         const status = await runCli(sandbox, ['setup', '--json']);
-        expect(status.status, status.stderr).toBe(0);
-        expect(JSON.parse(status.stdout)).toMatchObject({
-          integrations: expect.arrayContaining([
-            { provider: name, current: false, settingsPath: settings, launcher },
-          ]),
-        });
-        expect(
-          JSON.parse(status.stdout).integrations.map((item: { provider: string }) => item.provider)
-        ).toEqual(['claude', 'codex']);
+        expect(status.status, status.stderr).toBe(1);
+        expect(JSON.parse(status.stdout).error.code).toBe('SETUP_CONSENT_REQUIRED');
         expect(fileSnapshot(sandbox.root)).toEqual(before);
         const refused = await runCli(sandbox, ['setup', name, '--json']);
         expect(refused.status).toBe(1);

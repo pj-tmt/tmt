@@ -1,4 +1,7 @@
 //! Setup consent and presentation; provider file policy belongs to adapters.
+//! `tmt setup` without a driver is the guided flow in [`guided`].
+
+mod guided;
 
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::json;
@@ -7,7 +10,6 @@ use tmt_adapters::{
     config::ConfigPaths,
     drivers::Registry,
     setup::{self, SetupEnvironment, record},
-    skill_installation::ProviderEnvironment,
 };
 
 pub fn execute(
@@ -29,6 +31,11 @@ fn failure(error: impl std::error::Error + 'static) -> Failure {
 fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Result<(), Failure> {
     let drivers = Registry::builtin();
     let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
+    if provider.is_none() {
+        let mut output = tmt_cli_style::stream::stdout(mode.json);
+        let terminal = output.terminal();
+        return guided::run(&drivers, &environment, yes, mode, &mut output, terminal);
+    }
     let selected = provider.and_then(|name| drivers.find(name));
     let plans = selected
         .map_or_else(|| drivers.with_hooks().collect(), |value| vec![value])
@@ -45,49 +52,6 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
         .collect::<Result<Vec<_>, _>>()?;
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     let terminal = output.terminal();
-    if provider.is_none() {
-        let detected = ProviderEnvironment::capture()
-            .map_err(failure)?
-            .detect_in(&drivers);
-        let providers: Vec<_> = detected.iter().map(|value| value.name()).collect();
-        if mode.json {
-            writeln!(
-                output,
-                "{}",
-                json!({"detectedProviders": providers, "integrations": plans.iter().map(|plan| json!({
-                    "provider": plan.provider, "current": !plan.change.changed(),
-                    "settingsPath": plan.change.path, "launcher": plan.launcher
-                })).collect::<Vec<_>>()})
-            )
-            .map_err(failure)?;
-        } else {
-            writeln!(
-                output,
-                "Detected agents: {}",
-                if providers.is_empty() {
-                    "none".into()
-                } else {
-                    providers.join(", ")
-                }
-            )
-            .map_err(failure)?;
-            for plan in &plans {
-                writeln!(
-                    output,
-                    "{} hooks: {} ({})",
-                    plan.provider,
-                    if plan.change.changed() {
-                        "not current"
-                    } else {
-                        "current"
-                    },
-                    plan.change.path.display()
-                )
-                .map_err(failure)?;
-            }
-        }
-        return Ok(());
-    }
     let plan = plans
         .into_iter()
         .next()

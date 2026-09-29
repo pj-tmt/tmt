@@ -1208,6 +1208,16 @@ stores no JSON. Hooks installed before the record existed are adopted when
 setup finds exactly what it generates. An invalid record is preserved and
 stops setup before any provider file changes.
 
+Guided `tmt setup` (no driver, `setup_command/guided.rs`) plans from
+`Registry::detect`, which reads only the filesystem:
+- `Present` and `ConfigOnly` drivers get core skills in their skill roots
+  (`skill_installation::plan_core`, then `install`), and recorded extension
+  skills are linked into roots that lack them (`plan_owned`, `publish_owned`);
+- `Present` drivers with hooks get `setup::plan`, then `apply` and the record.
+
+It prints only what is missing, asks once (`SETUP_CONSENT_REQUIRED` without a
+terminal or `--yes`), and applies skills before hooks.
+
 `tmt uninstall` (`uninstall_command`) plans every removal read-only, then
 asks once; `--yes` never implies `--purge`. A running local Office service is
 found in the plan; if its state cannot be confirmed, the plan stops with a
