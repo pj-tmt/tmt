@@ -565,11 +565,16 @@ or consume retained-pack quotas; custom catalog revisions remain storage-owned.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
-`typescript/scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
-validation. Office-only source/docs avoid native matrices; native source/skill
-changes avoid Office. Shared or unknown paths (including lockfiles, security,
-contracts, workflows and test tooling) fan out. Empty diffs fail closed to both.
-Diffs include deletions and both sides of renames. Existing required check names
+`.github/components.json` is the one component map: who owns the CLI, Office and Squad
+paths, and the ordered rules that say which CI consumers a path selects and why.
+`typescript/scripts/ci-scope.mjs` reads it and owns conservative affected-area
+selection and final gate validation. Office-only source/docs avoid native matrices;
+native source/skill changes, Office's Rust crates, core-only test suites and E2E
+scenario files avoid the Office web checks; prose that no job reads selects nothing
+beyond `Code quality`. Shared or unknown paths (including lockfiles, security,
+contracts, workflows, the map itself and the E2E harness) fan out. Empty diffs fail
+closed to both. Diffs include deletions and both sides of renames. The selector writes
+a per-path evidence table (owner, rule, selection, map digest) to the run summary. Existing required check names
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.

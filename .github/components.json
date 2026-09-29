@@ -1,0 +1,87 @@
+{
+  "$comment": [
+    "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects, and release-please will read the same ownership.",
+    "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
+    "rules: ordered, the first rule whose `paths` match a changed path decides which consumers it selects: `native` (the native Rust, tooling and E2E jobs) and `office` (the Office web checks). No match fails closed to both.",
+    "The advisory native Office browser shards are selected by consumedByNativeOffice in ci-scope.mjs, not by these rules; its verified denylist has its own tests.",
+    "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class."
+  ],
+  "components": {
+    "cli": {
+      "package": "tmt-cli",
+      "owns": ["."],
+      "excludes": ["extensions/tmt-office", "extensions/tmt-squad"]
+    },
+    "office": {
+      "package": "tmt-office",
+      "owns": ["extensions/tmt-office"],
+      "selectedBy": [
+        "typescript/test/native/office-*",
+        "typescript/test/e2e/office-*",
+        "typescript/test/tooling/office-*",
+        "typescript/test/support/office-*"
+      ]
+    },
+    "squad": {
+      "package": "tmt-squad",
+      "owns": ["extensions/tmt-squad"],
+      "selectedBy": [
+        "typescript/test/e2e/squad.e2e.test.ts",
+        "typescript/test/native/squad.test.ts"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "id": "consumed-docs",
+      "consumers": ["native", "office"],
+      "why": "Read by build and test inputs: docs/cli-style.md by the CLI and Squad style tests, docs/NATIVE-INSTALL.md by the release archive and onboarding checks.",
+      "paths": ["docs/cli-style.md", "docs/NATIVE-INSTALL.md"]
+    },
+    {
+      "id": "prose",
+      "consumers": [],
+      "why": "Prose read only by prettier in Code quality, which always runs; no test or build input reads it (guarded by ci-scope.test.ts).",
+      "paths": [
+        "AGENTS.md",
+        "ARCHITECTURE.md",
+        "CONVENTIONS.md",
+        "DEVELOPMENT.md",
+        "README.md",
+        "REQUEST-RESPONSE.md",
+        "USER-GUIDE.md",
+        "docs/*.md",
+        ".agents/**",
+        ".github/pull_request_template.md"
+      ]
+    },
+    {
+      "id": "office-web",
+      "consumers": ["office"],
+      "why": "The Office application and its documentation: checked by the Office web jobs only.",
+      "paths": ["extensions/tmt-office/typescript/apps/office/**", "docs/office/**"]
+    },
+    {
+      "id": "native-source",
+      "consumers": ["native"],
+      "why": "Rust workspace, embedded skills and the Squad extension: checked by the native jobs; the Office web checks read none of it.",
+      "paths": ["rust/**", "skills/**", "extensions/tmt-squad/**"]
+    },
+    {
+      "id": "office-rust",
+      "consumers": ["native"],
+      "why": "Office's Rust crates are built and tested by the workspace's Cargo jobs; the Office web checks build no Rust. The advisory native Office shards are still selected by consumedByNativeOffice.",
+      "paths": ["extensions/tmt-office/rust/**"]
+    },
+    {
+      "id": "native-tests",
+      "consumers": ["native"],
+      "why": "Core-only test suites and E2E scenario files: run by the native jobs. The Office image reads only the E2E harness and test support, which stay unmapped (guarded by ci-scope.test.ts).",
+      "paths": [
+        "typescript/test/native/**",
+        "typescript/test/tooling/**",
+        "typescript/test/e2e/*.e2e.test.ts"
+      ]
+    }
+  ]
+}

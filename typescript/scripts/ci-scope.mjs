@@ -1,6 +1,112 @@
+import { createHash } from 'node:crypto';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { runPackedCommand } from './packed-command.mjs';
+
+const COMPONENT_MAP = new URL('../../.github/components.json', import.meta.url);
+const CONSUMERS = ['native', 'office'];
+
+/**
+ * `**` matches any path (newlines included: git paths may contain them), `*` and `?`
+ * stay inside one directory; everything else is literal.
+ */
+export function globToRegExp(glob) {
+  let source = '';
+  for (let index = 0; index < glob.length; index += 1) {
+    const character = glob[index];
+    if (character === '*' && glob[index + 1] === '*') {
+      source += '[\\s\\S]*';
+      index += 1;
+    } else if (character === '*') source += '[^/]*';
+    else if (character === '?') source += '[^/]';
+    else source += character.replace(/[\\^$.|+(){}[\]]/g, '\\$&');
+  }
+  return new RegExp(`^${source}$`);
+}
+
+function nonEmptyStrings(value, label) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((item) => typeof item !== 'string')
+  ) {
+    throw new Error(`${label} must be a non-empty list of strings.`);
+  }
+  return value;
+}
+
+/**
+ * Parses and validates the component map. A malformed map throws, so the
+ * selector job fails visibly instead of selecting the wrong work.
+ */
+export function parseComponentMap(text) {
+  const map = JSON.parse(text);
+  const components = Object.entries(map.components ?? {}).map(([name, component]) => ({
+    name,
+    package: component.package,
+    owns: nonEmptyStrings(component.owns, `components.${name}.owns`),
+    excludes: component.excludes ?? [],
+    selectedBy: (component.selectedBy ?? []).map((glob) => ({ glob, pattern: globToRegExp(glob) })),
+  }));
+  if (components.length === 0) throw new Error('The component map has no components.');
+  const ids = new Set();
+  const rules = (map.rules ?? []).map((rule) => {
+    if (typeof rule.id !== 'string' || ids.has(rule.id)) {
+      throw new Error(`Rule id ${rule.id} is missing or repeated.`);
+    }
+    ids.add(rule.id);
+    if (
+      !Array.isArray(rule.consumers) ||
+      rule.consumers.some((consumer) => !CONSUMERS.includes(consumer))
+    ) {
+      throw new Error(`Rule ${rule.id} names an unknown consumer.`);
+    }
+    if (typeof rule.why !== 'string' || rule.why === '')
+      throw new Error(`Rule ${rule.id} needs a reason.`);
+    const paths = nonEmptyStrings(rule.paths, `Rule ${rule.id} paths`);
+    return {
+      id: rule.id,
+      why: rule.why,
+      consumers: rule.consumers,
+      globs: paths,
+      patterns: paths.map(globToRegExp),
+    };
+  });
+  return {
+    components,
+    rules,
+    digest: createHash('sha256').update(text).digest('hex').slice(0, 12),
+  };
+}
+
+let defaultMap;
+function componentMap() {
+  defaultMap ??= parseComponentMap(readFileSync(COMPONENT_MAP, 'utf8'));
+  return defaultMap;
+}
+
+const within = (root, path) => root === '.' || path === root || path.startsWith(`${root}/`);
+
+/** A `selectedBy` glob wins; otherwise the longest `owns` root the path is not excluded from. */
+export function ownerOf(path, map = componentMap()) {
+  const selected = map.components.find((component) =>
+    component.selectedBy.some(({ pattern }) => pattern.test(path))
+  );
+  if (selected) return selected.name;
+  let owner;
+  let length = -1;
+  for (const component of map.components) {
+    if (component.excludes.some((root) => within(root, path))) continue;
+    for (const root of component.owns) {
+      if (within(root, path) && root.length > length) {
+        owner = component.name;
+        length = root.length;
+      }
+    }
+  }
+  return owner ?? 'unowned';
+}
 
 /**
  * Every workspace crate except tmt-cli is Office-affecting by default: the
@@ -53,34 +159,71 @@ function consumedByNativeOffice(path) {
 }
 
 /**
- * Unknown and shared paths run every consumer; deletions are still changes.
- * `nativeOffice` schedules the advisory native Office browser shards only for
- * Office itself or the core surfaces it consumes.
+ * What each changed path selects and why, for the run summary. The first
+ * matching rule of the component map decides `native` and `office`; a path no
+ * rule matches fails closed to both. `nativeOffice` schedules the advisory
+ * native Office browser shards only for Office itself or the core surfaces it
+ * consumes.
  */
-export function selectCiAreas(paths) {
-  const selected = { native: false, office: false, nativeOffice: false };
+export function explainCiSelection(paths, map = componentMap()) {
+  return paths.map((path) => {
+    const rule = map.rules.find(({ patterns }) => patterns.some((pattern) => pattern.test(path)));
+    const consumers = rule ? rule.consumers : CONSUMERS;
+    return {
+      path,
+      owner: ownerOf(path, map),
+      rule: rule?.id ?? 'unmapped',
+      why: rule?.why ?? 'Not covered by any rule, so it fails closed to every consumer.',
+      native: consumers.includes('native'),
+      office: consumers.includes('office'),
+      // A rule with no consumers means no CI job reads the path, the Office shards included.
+      nativeOffice: consumers.length > 0 && consumedByNativeOffice(path),
+    };
+  });
+}
+
+/** Deletions are still changes, and an empty diff fails closed. */
+export function selectCiAreas(paths, map = componentMap()) {
   if (paths.length === 0) return { native: true, office: true, nativeOffice: true };
-  for (const path of paths) {
-    selected.nativeOffice ||= consumedByNativeOffice(path);
-    if (
-      path.startsWith('apps/office/') ||
-      path.startsWith('extensions/tmt-office/typescript/apps/office/') ||
-      path.startsWith('docs/office/')
-    ) {
-      selected.office = true;
-    } else if (
-      path.startsWith('rust/') ||
-      path.startsWith('skills/') ||
-      path.startsWith('extensions/tmt-squad/')
-    ) {
-      selected.native = true;
-    } else {
-      // Includes contracts, security, lockfiles, scripts, tests and CI itself.
-      selected.native = true;
-      selected.office = true;
-    }
+  const rows = explainCiSelection(paths, map);
+  return {
+    native: rows.some((row) => row.native),
+    office: rows.some((row) => row.office),
+    nativeOffice: rows.some((row) => row.nativeOffice),
+  };
+}
+
+const EVIDENCE_ROWS = 100;
+
+/** Markdown for `$GITHUB_STEP_SUMMARY` and the log: one row per changed path. */
+export function renderSelectionEvidence({ base, head, rows, areas, digest }) {
+  const selects = (row) =>
+    [row.native && 'native', row.office && 'office', row.nativeOffice && 'native_office']
+      .filter(Boolean)
+      .join(', ') || 'nothing';
+  const lines = [
+    '### CI selection',
+    '',
+    `Diff \`${base.slice(0, 12)}...${head.slice(0, 12)}\`, ${rows.length} changed path(s), component map \`sha256:${digest}\`.`,
+    '',
+    `Selected: native=${areas.native}, office=${areas.office}, native_office=${areas.nativeOffice}.`,
+    '',
+    '| Path | Owner | Rule | Selects |',
+    '| --- | --- | --- | --- |',
+    ...rows
+      .slice(0, EVIDENCE_ROWS)
+      .map((row) => `| \`${row.path}\` | ${row.owner} | ${row.rule} | ${selects(row)} |`),
+  ];
+  if (rows.length > EVIDENCE_ROWS) {
+    const rest = rows.slice(EVIDENCE_ROWS);
+    const byRule = new Map();
+    for (const row of rest) byRule.set(row.rule, (byRule.get(row.rule) ?? 0) + 1);
+    lines.push(
+      '',
+      `${rest.length} more path(s) not listed: ${[...byRule].map(([rule, count]) => `${rule} ${count}`).join(', ')}.`
+    );
   }
-  return selected;
+  return `${lines.join('\n')}\n`;
 }
 
 export function ciGatePasses(selected, results) {
@@ -89,7 +232,7 @@ export function ciGatePasses(selected, results) {
   return results.every((result) => result === expected);
 }
 
-export function readChangedCiAreas(base, head, cwd) {
+export function readChangedCiSelection(base, head, cwd) {
   if ([base, head].some((sha) => !/^[a-f0-9]{40}$/.test(sha ?? ''))) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
@@ -98,10 +241,25 @@ export function readChangedCiAreas(base, head, cwd) {
     ['diff', '--no-renames', '--name-only', '-z', `${base}...${head}`, '--'],
     { cwd, env: process.env }
   );
-  return selectCiAreas(changed.split('\0').filter(Boolean));
+  const paths = changed.split('\0').filter(Boolean);
+  const map = componentMap();
+  return {
+    paths,
+    rows: explainCiSelection(paths, map),
+    areas: selectCiAreas(paths, map),
+    digest: map.digest,
+  };
 }
 
-function main(args) {
+export function readChangedCiAreas(base, head, cwd) {
+  return readChangedCiSelection(base, head, cwd).areas;
+}
+
+/**
+ * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the three
+ * outputs; the evidence table goes to standard error and the step summary.
+ */
+export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   if (args[0] === 'gate') {
     if (!ciGatePasses(args[1], args.slice(2))) {
       throw new Error(
@@ -113,14 +271,23 @@ function main(args) {
   if (args.length !== 2) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
-  const areas = readChangedCiAreas(
-    args[0],
-    args[1],
-    fileURLToPath(new URL('../../', import.meta.url))
-  );
-  process.stdout.write(
+  const selection = readChangedCiSelection(args[0], args[1], cwd);
+  const evidence = renderSelectionEvidence({ base: args[0], head: args[1], ...selection });
+  stderr.write(evidence);
+  if (summaryFile) appendFileSync(summaryFile, evidence);
+  const { areas } = selection;
+  stdout.write(
     `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n`
   );
+}
+
+function main(args) {
+  runCiScope(args, {
+    cwd: fileURLToPath(new URL('../../', import.meta.url)),
+    stdout: process.stdout,
+    stderr: process.stderr,
+    summaryFile: process.env.GITHUB_STEP_SUMMARY,
+  });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

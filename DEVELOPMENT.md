@@ -240,8 +240,11 @@ changes also run the required `Office SPA` job, which builds the existing
 Office service check/test/build, Office type/lint/format/unit checks, browser-test
 type checking and partition inventory, and local, preview, emulator and cloud SPA
 builds. A conservative
-diff selector skips expensive native jobs only for Office-only paths, and skips
-Office for native-source/skill-only paths. Shared/unknown paths run both. Code
+diff selector, driven by the component map `.github/components.json`, skips expensive
+native jobs only for Office-only paths, and skips Office for native-source/skill-only
+paths, Office's Rust crates, core-only test suites and E2E scenario files. Prose that
+no job reads selects nothing beyond Code quality, and the run summary lists every
+changed path with its owner, rule and selection. Shared/unknown paths run both. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
 failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser
@@ -333,9 +336,9 @@ the script's verified denylist names; the CLI Office facade, API command and nat
 commands; workspace build inputs; the shared test support and E2E harness the
 image reads; and any path the script does not recognize. Squad, core skills, other
 CLI code, prose outside Office, core-only test suites and E2E scenarios do not
-affect it. `ci-scope.mjs` owns this mapping; its tests recompute what the Office
-crates and the API module reach across the workspace crates so the denylist
-cannot go stale.
+affect it. `ci-scope.mjs` owns this mapping (the component map owns the rest of the
+selection); its tests recompute what the Office crates and the API module reach across
+the workspace crates so the denylist cannot go stale.
 
 - Run the local browser suite above before opening a PR for an Office-affecting
   change, and record the result in the PR.
