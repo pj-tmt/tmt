@@ -10,8 +10,8 @@ repository.workspace = true
 [dependencies]
 tmt-core.workspace = true
 tmt-adapters.workspace = true
+tmt-cli-style.workspace = true
 serde_json.workspace = true
-unicode-width.workspace = true
 
 [lints]
 workspace = true

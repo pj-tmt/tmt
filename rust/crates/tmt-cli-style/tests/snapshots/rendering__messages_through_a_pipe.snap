@@ -1,0 +1,7 @@
+---
+source: crates/tmt-cli-style/tests/rendering.rs
+expression: messages(PIPE)
+---
+✓ Named pane %3 worker
+error: Identity 'nobody' was not found
+hint: tmt ls

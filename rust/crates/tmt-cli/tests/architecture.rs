@@ -55,6 +55,7 @@ fn workspace_obeys_native_architecture() {
             "tmt-core",
             "tmt-adapters",
             "tmt-cli",
+            "tmt-cli-style",
             "tmt-command-output",
             "tmt-office",
             "tmt-office-command",

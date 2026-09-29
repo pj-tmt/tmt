@@ -130,6 +130,13 @@ Example conditional room write (replace the UUIDs with actual identities):
 }
 ```
 
+## Command-line style
+
+An extension CLI looks like core TMT by depending on `tmt-cli-style` (its only
+permitted TMT dependency) and following the [CLI style](cli-style.md). Build each
+command with `tmt_cli_style::command` and print through its list, message and
+table renderers.
+
 ## Lifecycle hooks
 
 An extension can receive best-effort observations after core commits, once the

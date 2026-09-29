@@ -1,0 +1,20 @@
+//! The one TMT command-line style: palette, marks, values, messages, lists,
+//! tables and help. `docs/cli-style.md` owns the
+//! rules; this crate is their only implementation.
+//!
+//! It depends on no TMT crate, so core and every extension CLI render through
+//! the same code. Rendering never decides policy: callers pass a [`Terminal`]
+//! that was decided once per stream.
+
+pub mod help;
+pub mod list;
+pub mod mark;
+pub mod message;
+pub mod palette;
+pub mod table;
+pub mod value;
+
+pub use help::{
+    CommandSpec, Example, HelpSection, OutputModes, command, command_with_sections, help_text,
+};
+pub use palette::{Terminal, Token};

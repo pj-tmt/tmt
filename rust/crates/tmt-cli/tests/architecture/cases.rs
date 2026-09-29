@@ -678,9 +678,10 @@ fn receipt_dependencies_stay_at_their_reviewed_layer() {
 }
 
 #[test]
-fn display_width_dependency_stays_in_shared_command_presentation() {
+fn display_width_dependency_stays_in_the_shared_cli_style() {
     for (owner, expected) in [
-        ("tmt-command-output", 0),
+        ("tmt-cli-style", 0),
+        ("tmt-command-output", 1),
         ("tmt-cli", 1),
         ("tmt-core", 1),
         ("tmt-adapters", 1),
@@ -692,6 +693,26 @@ fn display_width_dependency_stays_in_shared_command_presentation() {
             ))
             .len(),
             expected
+        );
+    }
+}
+
+#[test]
+fn the_shared_cli_style_depends_on_no_tmt_crate() {
+    for crate_name in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-command-output",
+        "tmt-office-model",
+    ] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-cli-style",
+                vec![dependency(crate_name, "normal", None, None)]
+            ))
+            .len(),
+            1,
+            "{crate_name}"
         );
     }
 }
@@ -940,14 +961,21 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
 
 #[test]
 fn squad_and_core_are_independent_in_both_directions() {
-    // Squad may use its reviewed third-party crates, never a workspace crate.
+    // Squad may use its reviewed third-party crates and the leaf style crate,
+    // never a workspace crate with TMT behavior.
     assert!(
         policy::dependency_violations(&package(
             "tmt-squad",
-            ["clap", "serde_json", "toml_edit", "subprocess"]
-                .into_iter()
-                .map(|name| dependency(name, "normal", Some("cfg(unix)"), None))
-                .collect(),
+            [
+                "tmt-cli-style",
+                "clap",
+                "serde_json",
+                "toml_edit",
+                "subprocess"
+            ]
+            .into_iter()
+            .map(|name| dependency(name, "normal", Some("cfg(unix)"), None))
+            .collect(),
         ))
         .is_empty()
     );
@@ -984,7 +1012,7 @@ fn squad_and_core_are_independent_in_both_directions() {
         &[syntax(
             "tmt-squad",
             "main.rs",
-            "use crate::core::Core; use serde_json::Value; use toml_edit::DocumentMut;",
+            "use crate::core::Core; use serde_json::Value; use toml_edit::DocumentMut; use tmt_cli_style::Terminal;",
         )],
         &[],
     );

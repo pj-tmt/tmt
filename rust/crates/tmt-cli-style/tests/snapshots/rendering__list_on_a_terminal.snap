@@ -1,0 +1,11 @@
+---
+source: crates/tmt-cli-style/tests/rendering.rs
+expression: render_list(TTY)
+---
+\u{1b}[1mRUNNING\u{1b}[0m \u{1b}[2m2\u{1b}[0m
+  \u{1b}[38;5;2m●  \u{1b}[39mcoordinator  \u{1b}[38;5;5mclaude:e1c9ab12  \u{1b}[39m\u{1b}[2mjust now  \u{1b}[0m~/dev/tmux-team/worktrees/feature-…
+  \u{1b}[2m◌  \u{1b}[0mreviewer     \u{1b}[38;5;6mcodex:77aa0c3d   \u{1b}[39m\u{1b}[2m3m ago    \u{1b}[0m~/dev/tmux-team
+
+\u{1b}[1mOFFLINE\u{1b}[0m \u{1b}[2m1\u{1b}[0m
+  \u{1b}[38;5;4m↻  \u{1b}[39mnight-shift  \u{1b}[38;5;5mclaude:0c3d77aa  \u{1b}[39m\u{1b}[2m2h ago    \u{1b}[0m/srv/builds/nightly
+\u{1b}[34mhint:\u{1b}[0m tmt resume night-shift

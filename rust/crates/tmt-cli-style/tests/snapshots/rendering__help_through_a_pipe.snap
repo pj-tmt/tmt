@@ -1,0 +1,23 @@
+---
+source: crates/tmt-cli-style/tests/rendering.rs
+expression: "help_text(&talk(), PIPE)"
+---
+Send a message to an agent
+
+Usage: tmt talk [OPTIONS] <target> <message>
+
+Arguments:
+  <target>   Agent name
+  <message>  Message text
+
+Options:
+  -h, --help  Print help
+      --json  Output one JSON document
+      --wait  Wait for the reply
+
+Examples:
+  # Send a message to one agent
+  tmt talk worker "Run the tests"
+
+  # Wait for the reply
+  tmt talk worker "Summarize" --wait

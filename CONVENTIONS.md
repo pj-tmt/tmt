@@ -40,6 +40,9 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
   and units for changed commands. Prefer one structured result/error in JSON mode
   without progress text mixed into it. Uniformity is a target with known gaps;
   preserve public behavior unless the issue explicitly changes it.
+- Human output and help follow the [CLI style](docs/cli-style.md): render through
+  `tmt-cli-style` and register commands with its `CommandSpec`, rather than
+  printing or building help directly.
 - Use the native grammar/invocation and explicit command error mappings as
   authoritative registries. Do not copy stale numeric tables or claim unsupported
   duration suffixes. Convert CLI time values and internal milliseconds explicitly.

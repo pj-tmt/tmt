@@ -1,0 +1,11 @@
+---
+source: crates/tmt-cli-style/tests/rendering.rs
+expression: render_list(PIPE)
+---
+RUNNING 2
+  ●  coordinator  claude:e1c9ab12  just now  ~/dev/tmux-team/worktrees/feature-branch
+  ◌  reviewer     codex:77aa0c3d   3m ago    ~/dev/tmux-team
+
+OFFLINE 1
+  ↻  night-shift  claude:0c3d77aa  2h ago    /srv/builds/nightly
+hint: tmt resume night-shift

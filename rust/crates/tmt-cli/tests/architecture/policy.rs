@@ -73,7 +73,16 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "clap_complete",
             "serde_json",
         ],
-        "tmt-command-output" => &["tmt-core", "tmt-adapters", "serde_json", "unicode-width"],
+        "tmt-command-output" => &["tmt-core", "tmt-adapters", "tmt-cli-style", "serde_json"],
+        // The shared CLI style is a leaf: it may depend on no TMT crate, so any
+        // CLI, core or extension, can render through it.
+        "tmt-cli-style" => &[
+            "anstream",
+            "anstyle",
+            "clap",
+            "comfy-table",
+            "unicode-width",
+        ],
         "tmt-office-command" => &[
             "tmt-core",
             "tmt-office-model",
@@ -116,8 +125,10 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
         ],
         // Squad is a public-interface consumer: it reaches TMT only through
-        // commands and `tmt api`, so it may depend on no workspace crate.
+        // commands and `tmt api`. Its one workspace dependency is the leaf
+        // `tmt-cli-style`, which carries no TMT behavior.
         "tmt-squad" => &[
+            "tmt-cli-style",
             "clap",
             "serde_json",
             "toml_edit",
@@ -466,7 +477,9 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            if source.package == "tmt-squad" && root.starts_with("tmt_") {
+            // The leaf style crate is Squad's one permitted workspace dependency.
+            if source.package == "tmt-squad" && root.starts_with("tmt_") && root != "tmt_cli_style"
+            {
                 violations.push(format!(
                     "{location}: squad reaches TMT only through public commands, not {}",
                     path.join("::")
