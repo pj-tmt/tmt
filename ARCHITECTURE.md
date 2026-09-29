@@ -1907,9 +1907,15 @@ changes. Bodies are agent-written and are sanitized like notes before display.
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
-Squad writes only the top-level `me`, with a changed-input check and atomic
-replacement that preserves the rest of the document. `init` settles `me` before
-creating the room. The `tmt-squad` lead skill source lives under
+Squad writes only the top-level `me` and `me_id` (the UUID `me` named), together,
+with a changed-input check and atomic replacement that preserves the rest of the
+document. `init` settles `me` before creating the room. `me::resolve` keeps them
+current: while `me` resolves, the name wins and its UUID is recorded (a hand edit
+stands); when it no longer resolves but `me_id` does, the identity was renamed
+and `me` takes the new name. A failed write never fails the command. With hooks
+enabled, `tmt-squad __tmt-hooks 1 observe` applies an `identity.renamed`
+observation for `me_id` at once; the hooks are optional, and the same repair
+happens on the next command that needs `me`. The `tmt-squad` lead skill source lives under
 `extensions/tmt-squad/skills/` and is embedded only in the squad executable,
 never in the core skill bundle. Optional playbooks (`tmt squad playbook
 list|show|install|remove`, first `tmux-squad`) live beside it in

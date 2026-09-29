@@ -131,26 +131,17 @@ pub fn copy(
     )
 }
 
-fn me(config: &Config) -> Result<&str, SquadError> {
-    config.me()?.ok_or_else(|| {
-        SquadError::new(
-            "SQUAD_ME_REQUIRED",
-            "Record which saved identity is you first: tmt squad init <squad> --me <name>.",
-        )
-    })
-}
-
 /// `tmt squad talk <member> <text>`: a detached request in the squad room.
 pub fn talk(
     core: &Core,
     squad: &Squad,
-    config: &Config,
+    config: &mut Config,
     name: &str,
     text: &str,
 ) -> Result<Outcome, SquadError> {
-    let me = me(config)?;
+    let me = crate::me::required(core, config)?;
     row(core, squad, config, name)?;
-    let request = send::talk(core, &squad.name, me, name, text)?;
+    let request = send::talk(core, &squad.name, &me.name, name, text)?;
     Ok(
         json!({"requestId": request, "to": name, "room": crate::squad::room_name(&squad.name)})
             .into(),
@@ -162,12 +153,12 @@ pub fn talk(
 pub fn annotate(
     core: &Core,
     squad: &Squad,
-    config: &Config,
+    config: &mut Config,
     name: &str,
     to_lead: bool,
     text: &str,
 ) -> Result<Outcome, SquadError> {
-    let me = me(config)?;
+    let me = crate::me::required(core, config)?;
     let document = document(core, squad, config)?;
     let lead = document["squad"]["lead"]["name"]
         .as_str()
@@ -178,16 +169,16 @@ pub fn annotate(
     } else {
         name.to_owned()
     };
-    let request = send::annotate(core, &squad.name, me, &to, name, text)?;
+    let request = send::annotate(core, &squad.name, &me.name, &to, name, text)?;
     Ok(json!({"requestId": request, "to": to, "row": name, "room": crate::squad::room_name(&squad.name)}).into())
 }
 
 /// `tmt squad replies`: finals to the user's requests in the squad room,
 /// newest first, with bodies for the newest few. Reading acknowledges nothing.
-pub fn replies(core: &Core, squad: &Squad, config: &Config) -> Result<Outcome, SquadError> {
-    let me = me(config)?;
+pub fn replies(core: &Core, squad: &Squad, config: &mut Config) -> Result<Outcome, SquadError> {
+    let me = crate::me::required(core, config)?;
     let mut document = document(core, squad, config)?;
-    let sent = requests::overlay(core, squad, Some(me), &mut document)?.expect("me is set");
+    let sent = requests::overlay(core, squad, Some(&me), &mut document)?.expect("me is set");
     let mut replies = requests::replies(&sent, &document);
     let mut bodies = std::collections::BTreeMap::new();
     requests::bodies(
@@ -209,14 +200,14 @@ pub fn replies(core: &Core, squad: &Squad, config: &Config) -> Result<Outcome, S
 pub fn answer(
     core: &Core,
     squad: &Squad,
-    config: &Config,
+    config: &mut Config,
     name: &str,
     request: Option<&str>,
     text: &str,
 ) -> Result<Outcome, SquadError> {
-    let me = me(config)?;
+    let me = crate::me::required(core, config)?;
     let mut document = document(core, squad, config)?;
-    requests::overlay(core, squad, Some(me), &mut document)?;
+    requests::overlay(core, squad, Some(&me), &mut document)?;
     let row = find(document, squad, name)?;
     let open: Vec<&str> = row["waitingOnYou"]
         .as_array()
@@ -241,6 +232,6 @@ pub fn answer(
             )));
         }
     };
-    send::answer(core, me, chosen, text)?;
+    send::answer(core, &me.name, chosen, text)?;
     Ok(json!({"requestId": chosen, "from": name, "replied": true}).into())
 }

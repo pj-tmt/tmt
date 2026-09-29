@@ -148,21 +148,6 @@ pub fn apply(document: &mut Value, squad: &str, me: &str, room: &Window, inbox: 
     document["olderRequestsNotShown"] = json!(!(room.complete && inbox.complete));
 }
 
-/// The saved identity that is the user, as `(id, name)`.
-pub fn me(core: &Core, name: &str) -> Result<(String, String), SquadError> {
-    let shown = core.json(&["identity", "show", name])?;
-    match (
-        shown["identity"]["id"].as_str(),
-        shown["identity"]["name"].as_str(),
-    ) {
-        (Some(id), Some(name)) => Ok((id.to_owned(), name.to_owned())),
-        _ => Err(SquadError::new(
-            "SQUAD_CORE_UNAVAILABLE",
-            "tmt identity show returned no identity.",
-        )),
-    }
-}
-
 /// The squad room's requests as the user sent them, kept for [`replies`].
 pub struct Sent {
     me: String,
@@ -174,7 +159,7 @@ pub struct Sent {
 pub fn overlay(
     core: &Core,
     squad: &Squad,
-    me: Option<&str>,
+    me: Option<&crate::me::Me>,
     document: &mut Value,
 ) -> Result<Option<Sent>, SquadError> {
     let Some(me) = me else {
@@ -185,7 +170,7 @@ pub fn overlay(
         apply(document, &squad.name, "", &empty, &empty);
         return Ok(None);
     };
-    let (me_id, _) = self::me(core, me)?;
+    let me_id = me.id.clone();
     let fetch = |input| core.api("requests.list", input);
     let room = window(fetch, &json!({"roomId": squad.room_id}))?;
     let inbox = window(fetch, &json!({"recipientId": me_id}))?;

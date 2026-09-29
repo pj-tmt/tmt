@@ -82,15 +82,15 @@ fn load(
         };
     };
     let view = (|| {
-        let config = Config::load(core)?;
+        let mut config = Config::load(core)?;
         let layout = config.layout(&squad.name)?;
         let states = config.states(&squad.name, layout)?;
         let board = config.board(&squad.name, layout)?;
         let sections = config.sections(&squad.name)?;
-        let me = config.me()?.map(str::to_owned);
+        let me = crate::me::resolve(core, &mut config)?;
         let mut document =
             status::document(&squad, layout, &states, &sections, squad.members(core)?);
-        let sent = requests::overlay(core, &squad, me.as_deref(), &mut document)?;
+        let sent = requests::overlay(core, &squad, me.as_ref(), &mut document)?;
         let mut replies = match &sent {
             Some(sent) if board.panes.contains(&Pane::Replies) => {
                 requests::replies(sent, &document)
@@ -111,7 +111,7 @@ fn load(
             section_bindings: sections.into_iter().map(|section| section.bind).collect(),
             opener: config.program("opener")?,
             clipboard: config.program("clipboard")?,
-            me,
+            me: me.map(|me| me.name),
             replies,
             board,
             notes,

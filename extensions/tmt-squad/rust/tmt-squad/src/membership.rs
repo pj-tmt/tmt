@@ -125,9 +125,9 @@ pub fn init(
     }
     // Settle `me` before any effect: an unanswerable question changes nothing.
     let chosen = match (me, config.me()?) {
-        (Some(requested), _) => Some(saved(core, requested)?.name),
+        (Some(requested), _) => Some(saved(core, requested)?),
         (None, Some(_)) => None,
-        (None, None) if interactive => Some(saved(core, &prompt_me(core)?)?.name),
+        (None, None) if interactive => Some(saved(core, &prompt_me(core)?)?),
         (None, None) => {
             return Err(SquadError::new(
                 "SQUAD_ME_REQUIRED",
@@ -146,11 +146,14 @@ pub fn init(
         }
         Err(error) => return Err(error),
     };
-    if let Some(chosen) = chosen
-        .as_deref()
-        .filter(|chosen| config.me().ok().flatten() != Some(chosen))
-    {
-        config.set_me(chosen)?;
+    if let Some(chosen) = chosen {
+        crate::me::record(
+            config,
+            &crate::me::Me {
+                id: chosen.id,
+                name: chosen.name,
+            },
+        )?;
     }
     Ok(json!({
         "squad": {"name": name, "roomId": shown["room"]["id"]},
