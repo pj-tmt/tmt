@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   readlinkSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -75,6 +76,9 @@ describe('guided tmt setup', () => {
       const refused = await runCli(sandbox, ['setup']);
       expect(refused.status).toBe(1);
       expect(refused.stdout).toContain('CHANGES 6');
+      expect(refused.stdout).toContain('✓  claude');
+      expect(refused.stdout).toContain('!  gemini');
+      expect(refused.stdout).toContain('✗  agy');
       expect(refused.stdout).toContain('~/.claude/settings.json');
       expect(refused.stdout).toContain('not found: pi · opencode');
       expect(refused.stderr).toContain('nothing was changed');
@@ -123,6 +127,19 @@ describe('guided tmt setup', () => {
       expect(tree(sandbox.root)).toEqual(settled);
       const json = parseWholeStdout(await runCli(sandbox, ['setup', '--json']));
       expect(json).toMatchObject({ applied: false, plan: [] });
+
+      // Current hooks with no record (installed before it existed) are
+      // adopted without a prompt: only TMT's own record is written.
+      const record = path.join(sandbox.globalDir, 'setup-record.json');
+      const recordBytes = readFileSync(record, 'utf8');
+      rmSync(record);
+      const adopted = await runCli(sandbox, ['setup']);
+      expect(adopted.status, adopted.stderr).toBe(0);
+      expect(adopted.stdout).toContain('✓ Everything is set up');
+      expect(readFileSync(record, 'utf8')).toBe(recordBytes);
+      const afterAdoption = tree(sandbox.root);
+      expect((await runCli(sandbox, ['setup'])).status).toBe(0);
+      expect(tree(sandbox.root)).toEqual(afterAdoption);
       expect(ran(sandbox)).toEqual([]);
     });
   });

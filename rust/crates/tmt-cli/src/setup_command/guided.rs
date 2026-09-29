@@ -116,9 +116,9 @@ fn home(path: &std::path::Path) -> String {
 
 fn agent_row(detection: &Detection) -> (Mark, String) {
     match detection {
-        Detection::Present { .. } => (Mark::Running, "present".into()),
+        Detection::Present { .. } => (Mark::Done, "present".into()),
         Detection::ConfigOnly => (
-            Mark::Idle,
+            Mark::Warning,
             "config only; skills, no hooks (no executable on PATH)".into(),
         ),
         Detection::Broken { reason } => (Mark::Failed, format!("not runnable: {reason}")),
@@ -249,6 +249,8 @@ pub(super) fn run(
         present(output, terminal, &plan).map_err(failure)?;
     }
     if plan.is_current() {
+        // Only TMT's own record changes, so this needs no consent.
+        adopt(&plan, &global)?;
         if mode.json {
             writeln!(output, "{}", document(&plan, false)).map_err(failure)?;
         } else {
@@ -329,7 +331,12 @@ fn apply(
         .map_err(failure)?;
         done(format!("Configured {} hooks", hooks.provider))?;
     }
-    // Hooks already present exactly are adopted into the record too.
+    adopt(plan, global)
+}
+
+/// Records hooks that are already exactly what setup writes (installed
+/// before the record existed), so uninstall knows them.
+fn adopt(plan: &Plan, global: &std::path::Path) -> Result<(), Failure> {
     for hooks in plan.hooks.iter().filter(|hooks| !hooks.change.changed()) {
         record::remember(
             global,
