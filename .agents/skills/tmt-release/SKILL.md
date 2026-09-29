@@ -54,9 +54,6 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
 - Every CLI or extension release also passes the guide's upgrade from the last
   published release (its public installer, then the candidate's installer and
   `tmt upgrade`), not only a fresh install. Old receipts must stay readable.
-- Every CLI or extension release also passes the guide's upgrade from the last
-  published release (its public installer, then the candidate's installer and
-  `tmt upgrade`), not only a fresh install. Old receipts must stay readable.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual
