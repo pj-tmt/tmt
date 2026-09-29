@@ -1,12 +1,17 @@
+use rusqlite::Connection;
 use tmt_core::{
     binding::{
-        BindingError, BindingRepository, BindingTargetEvidence, bind_identity, bind_identity_at,
+        BindingError, BindingRecords, BindingRepository, BindingTargetEvidence, bind_identity,
+        bind_identity_at, bind_identity_with_creation,
     },
-    identity::{IdentityReader, Lifetime, create_or_resolve},
+    identity::{
+        Identity, IdentityReader, IdentityRepository, IdentityWriter, Lifetime, create_or_resolve,
+    },
 };
 
-use super::super::test_support::Fixture;
+use super::super::test_support::{Fixture, pane};
 use super::endpoint::{EndpointFailure, FakeEndpoint};
+use crate::storage::{Storage, StorageError};
 
 #[test]
 fn temporary_binding_save_reuses_uuid_and_never_downgrades() {
@@ -91,28 +96,173 @@ fn same_interface_rebind_retains_runtime_observation_and_preferences() {
 }
 
 #[test]
-fn occupied_pane_leaves_new_identity_committed_without_binding() {
+fn occupied_pane_retires_the_identity_it_created_and_keeps_the_occupant() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();
-    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2"]);
     let alice = bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true)
         .unwrap()
         .identity;
 
     let error = bind_identity(&mut storage, &mut endpoint, "%1", "Bob", false).unwrap_err();
     assert!(matches!(error, BindingError::PaneAlreadyBound));
-    let bob = storage.find_identity("bob").unwrap().unwrap();
-    assert_ne!(alice.id, bob.id);
-    let bob_entry = storage
-        .with_binding_transaction(|records| records.entry_by_id(&bob.id))
-        .unwrap()
-        .unwrap();
-    assert!(bob_entry.binding.is_none());
+    // The refusal is deterministic: nothing may keep a never-bound temporary row.
+    assert!(storage.find_identity("bob").unwrap().is_none());
     let alice_entry = storage
         .with_binding_transaction(|records| records.entry_by_id(&alice.id))
         .unwrap()
         .unwrap();
     assert!(alice_entry.binding.is_some());
+
+    // The name is free again: a later bind in a free pane gets a fresh identity.
+    let retry =
+        bind_identity_with_creation(&mut storage, &mut endpoint, "%2", "Bob", false).unwrap();
+    assert!(retry.created);
+    assert_eq!(retry.presence.identity.lifetime, Lifetime::Temporary);
+    assert!(retry.presence.binding.is_some());
+    storage.close().unwrap();
+}
+
+#[test]
+fn refusal_keeps_identities_it_did_not_create_or_that_are_saved() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2"]);
+    bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true).unwrap();
+    let existing = create_or_resolve(&mut storage, "Carol", Lifetime::Temporary)
+        .unwrap()
+        .identity;
+
+    let error = bind_identity(&mut storage, &mut endpoint, "%1", "Carol", false).unwrap_err();
+    assert!(matches!(error, BindingError::PaneAlreadyBound));
+    assert_eq!(
+        storage.find_identity("carol").unwrap().unwrap().id,
+        existing.id
+    );
+
+    let error = bind_identity(&mut storage, &mut endpoint, "%1", "Dave", true).unwrap_err();
+    assert!(matches!(error, BindingError::PaneAlreadyBound));
+    assert_eq!(
+        storage.find_identity("dave").unwrap().unwrap().lifetime,
+        Lifetime::Saved
+    );
+
+    // A name that is active elsewhere is refused without touching that identity.
+    let error = bind_identity(&mut storage, &mut endpoint, "%2", "Alice", true).unwrap_err();
+    assert!(matches!(error, BindingError::NameAlreadyActive));
+    let alice = storage.find_identity("alice").unwrap().unwrap();
+    assert!(
+        storage
+            .with_binding_transaction(|records| records.entry_by_id(&alice.id))
+            .unwrap()
+            .unwrap()
+            .binding
+            .is_some()
+    );
+    storage.close().unwrap();
+}
+
+type Race = Box<dyn FnOnce(&mut Storage)>;
+
+/// Runs `race` once in the window between a refused bind and its compensating
+/// retirement (the third binding transaction of a refused `bind_identity`).
+struct RacingStorage {
+    inner: Storage,
+    binding_transactions: usize,
+    race: Option<Race>,
+}
+
+impl IdentityReader for RacingStorage {
+    type Error = StorageError;
+
+    fn find_identity(&self, canonical_name: &str) -> Result<Option<Identity>, Self::Error> {
+        self.inner.find_identity(canonical_name)
+    }
+
+    fn list_identities(&self) -> Result<Vec<Identity>, Self::Error> {
+        self.inner.list_identities()
+    }
+}
+
+impl IdentityRepository for RacingStorage {
+    fn with_identity_transaction<T>(
+        &mut self,
+        operation: impl FnOnce(&mut dyn IdentityWriter<Error = Self::Error>) -> Result<T, Self::Error>,
+    ) -> Result<T, Self::Error> {
+        self.inner.with_identity_transaction(operation)
+    }
+}
+
+impl BindingRepository for RacingStorage {
+    fn with_binding_transaction<T, E: From<Self::Error>>(
+        &mut self,
+        operation: impl FnOnce(&mut dyn BindingRecords<Error = Self::Error>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        self.binding_transactions += 1;
+        if self.binding_transactions == 3
+            && let Some(race) = self.race.take()
+        {
+            race(&mut self.inner);
+        }
+        self.inner.with_binding_transaction(operation)
+    }
+}
+
+#[test]
+fn identity_bound_by_another_invocation_before_cleanup_is_not_retired() {
+    let fixture = Fixture::new();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2"]);
+    let server = endpoint.server.clone();
+    let mut storage = RacingStorage {
+        inner: fixture.open(),
+        binding_transactions: 0,
+        race: Some(Box::new(move |storage| {
+            let bob = storage.find_identity("bob").unwrap().unwrap();
+            storage
+                .with_binding_transaction(|records| {
+                    records.insert_binding(&bob, &server, &pane("%2", 100))
+                })
+                .unwrap();
+        })),
+    };
+    bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true).unwrap();
+    storage.binding_transactions = 0;
+
+    let error = bind_identity(&mut storage, &mut endpoint, "%1", "Bob", false).unwrap_err();
+    assert!(matches!(error, BindingError::PaneAlreadyBound));
+    let bob = storage.find_identity("bob").unwrap().unwrap();
+    assert!(
+        storage
+            .with_binding_transaction(|records| records.entry_by_id(&bob.id))
+            .unwrap()
+            .unwrap()
+            .binding
+            .is_some()
+    );
+    storage.inner.close().unwrap();
+}
+
+#[test]
+fn failed_retirement_is_reported_beside_the_original_error() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true).unwrap();
+    Connection::open(&fixture.database)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER block_retirement BEFORE UPDATE OF retired_at_ms ON identities
+             BEGIN SELECT RAISE(ABORT, 'retirement blocked'); END;",
+        )
+        .unwrap();
+
+    let error = bind_identity(&mut storage, &mut endpoint, "%1", "Bob", false).unwrap_err();
+    let BindingError::CleanupFailed { error, .. } = error else {
+        panic!("expected the cleanup failure to accompany the bind error");
+    };
+    assert!(matches!(*error, BindingError::PaneAlreadyBound));
+    // Nothing was hidden: the identity is still there for `tmt rm`.
+    assert!(storage.find_identity("bob").unwrap().is_some());
     storage.close().unwrap();
 }
 
@@ -193,7 +343,7 @@ fn failed_saved_publication_keeps_separately_committed_promotion() {
 }
 
 #[test]
-fn dead_pane_after_creation_cannot_be_revived_between_creation_and_publication() {
+fn dead_pane_after_creation_cannot_be_revived_and_leaves_no_identity() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();
     let mut endpoint = FakeEndpoint::new(&["%1"]);
@@ -201,13 +351,8 @@ fn dead_pane_after_creation_cannot_be_revived_between_creation_and_publication()
 
     let error = bind_identity(&mut storage, &mut endpoint, "%1", "Alice", false).unwrap_err();
     assert!(matches!(error, BindingError::PaneNotFound(pane) if pane == "%1"));
-    let identity = storage.find_identity("alice").unwrap().unwrap();
-    assert_eq!(identity.lifetime, Lifetime::Temporary);
-    let entry = storage
-        .with_binding_transaction(|records| records.entry_by_id(&identity.id))
-        .unwrap()
-        .unwrap();
-    assert!(entry.binding.is_none());
+    // A pane lost between creation and publication is a deterministic refusal.
+    assert!(storage.find_identity("alice").unwrap().is_none());
     assert_eq!(endpoint.publish_calls, 0);
     storage.close().unwrap();
 }
@@ -235,15 +380,7 @@ fn frozen_target_rejects_pane_id_reuse_before_publication() {
     .unwrap_err();
     assert!(matches!(error, BindingError::TargetChanged(pane) if pane == "%1"));
     assert_eq!(endpoint.publish_calls, 0);
-    let identity = storage.find_identity("alice").unwrap().unwrap();
-    assert!(
-        storage
-            .with_binding_transaction(|records| records.entry_by_id(&identity.id))
-            .unwrap()
-            .unwrap()
-            .binding
-            .is_none()
-    );
+    assert!(storage.find_identity("alice").unwrap().is_none());
     storage.close().unwrap();
 }
 

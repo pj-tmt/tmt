@@ -13,6 +13,10 @@ pub fn endpoint_failure(error: TmuxError) -> Failure {
 }
 
 pub fn binding_failure(error: BindingError<StorageError, TmuxError>) -> Failure {
+    // The bind error is what the user acts on; a failed cleanup is secondary.
+    if let BindingError::CleanupFailed { error, cleanup } = error {
+        return binding_failure(*error).with_secondary_error(cleanup);
+    }
     if let BindingError::Endpoint(endpoint) = &error
         && endpoint.socket_permission_denied()
     {

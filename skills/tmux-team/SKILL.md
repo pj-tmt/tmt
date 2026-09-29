@@ -38,8 +38,11 @@ Conclusive pane loss or explicit unbind retires temporary identities; saved
 identities remain offline. Native `rm <name>` retires a temporary identity;
 saved removal needs `--force`. Removal never kills a pane and removes only its
 role/preamble, retaining exchanges and historical ownership. Reusing a retired
-name gets a fresh UUID. A failed publication can leave a never-bound temporary
-identity offline for retry; do not mistake missing binding for pane death.
+name gets a fresh UUID. A bind refused because the pane or name is taken (or the
+pane changed) retires the temporary identity it had just created. Only an
+uncertain publication (`Unverified`, endpoint failure, deadline) can leave a
+never-bound temporary identity offline for retry; do not mistake missing binding
+for pane death.
 Check the selected executable's help instead of inferring capabilities from
 a remembered version number.
 

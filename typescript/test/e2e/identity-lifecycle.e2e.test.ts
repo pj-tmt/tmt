@@ -197,16 +197,8 @@ describe.sequential('global identity lifecycle', () => {
       });
       expect(json(thisConflict)).toEqual(json(nameConflict));
       expect(fixture.paneMetadata(pane)).toBe(beforeConflictMetadata);
-      const retainedConflict = {
-        id: durableIdentity(fixture, 'Conflict').id,
-        name: 'Conflict',
-        canonicalName: 'conflict',
-        lifetime: 'temporary',
-        presence: 'offline',
-        pane: null,
-        command: '',
-      };
-      expect(await listIdentities(fixture)).toEqual([retainedConflict, ...beforeConflictList]);
+      // A refused bind leaves no never-bound temporary identity behind.
+      expect(await listIdentities(fixture)).toEqual(beforeConflictList);
 
       const unboundHuman = await fixture.runCli(['unbind']);
       expect(unboundHuman.code).toBe(0);
@@ -219,7 +211,7 @@ describe.sequential('global identity lifecycle', () => {
         error: { code: 'UNBOUND_PANE', message: 'Pane has no active global name.' },
       });
       expect(fixture.paneMetadata(peer.pane)).toBe(peerMetadata);
-      expect(await listIdentities(fixture)).toEqual([retainedConflict, ...peerList]);
+      expect(await listIdentities(fixture)).toEqual(peerList);
 
       const finalWhoami = await fixture.runJsonCli<{ bound: false; pane: string }>(['whoami']);
       expect(finalWhoami.code).toBe(0);
@@ -306,18 +298,7 @@ describe.sequential('global identity lifecycle', () => {
       expect(json(nameConflict)).toEqual({
         error: { code: 'NAME_ALREADY_ACTIVE', message: 'Name is already active on another pane.' },
       });
-      expect(await listIdentities(fixture)).toEqual([
-        ...beforeConflictList,
-        {
-          id: durableIdentity(fixture, 'Other').id,
-          name: 'Other',
-          canonicalName: 'other',
-          lifetime: 'temporary',
-          presence: 'offline',
-          pane: null,
-          command: '',
-        },
-      ]);
+      expect(await listIdentities(fixture)).toEqual(beforeConflictList);
       expect([
         fixture.paneMetadata(alpha.pane),
         fixture.paneMetadata(beta.pane),
