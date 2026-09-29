@@ -16,6 +16,21 @@ impl Product {
             Self::Squad => "tmt-squad-v",
         }
     }
+
+    /// Whether a release of `version` may carry GitHub's `prerelease` flag
+    /// `flagged`, following `typescript/scripts/native-release-policy.mjs`.
+    /// The CLI release is a normal release so it can be the repository's
+    /// latest; earlier CLI alphas were flagged, so a pre-release version may
+    /// carry either flag, but a stable version never a set one. Extensions
+    /// are flagged exactly when their version is a pre-release.
+    pub fn accepts_prerelease_flag(self, version: &semver::Version, flagged: bool) -> bool {
+        let pre_release = !version.pre.is_empty();
+        match self {
+            Self::Cli => pre_release || !flagged,
+            Self::Office | Self::Squad => flagged == pre_release,
+        }
+    }
+
     pub const ALL: [Self; 3] = [Self::Cli, Self::Office, Self::Squad];
 
     pub const fn as_str(self) -> &'static str {

@@ -1831,7 +1831,9 @@ stays at 16 KiB.
   old owned releases until ownership and integrity checks permit cleanup;
 - `receipt`, `release`, `managed` and `upgrade` implement local provenance,
   active-release inspection, channel/pin policy, verified HTTPS acquisition and
-  forward-only activation;
+  forward-only activation; which GitHub prerelease flag a release may carry is
+  per product (`Product::accepts_prerelease_flag`, matching the publication
+  policy in `native-release-policy.mjs`);
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
 

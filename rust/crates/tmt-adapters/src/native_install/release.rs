@@ -54,10 +54,10 @@ pub(super) fn download_product(
             "Release version does not match the selected channel or exact version.",
         ));
     }
-    if document["draft"] != false
-        || document["immutable"] != true
-        || document["prerelease"] != !version.pre.is_empty()
-    {
+    let flag_accepted = document["prerelease"]
+        .as_bool()
+        .is_some_and(|flagged| product.accepts_prerelease_flag(&version, flagged));
+    if document["draft"] != false || document["immutable"] != true || !flag_accepted {
         return Err(invalid(
             "Native updates require a non-draft immutable release with matching channel metadata.",
         ));
