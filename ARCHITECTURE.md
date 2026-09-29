@@ -565,11 +565,16 @@ or consume retained-pack quotas; custom catalog revisions remain storage-owned.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
-`typescript/scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
-validation. Office-only source/docs avoid native matrices; native source/skill
-changes avoid Office. Shared or unknown paths (including lockfiles, security,
-contracts, workflows and test tooling) fan out. Empty diffs fail closed to both.
-Diffs include deletions and both sides of renames. Existing required check names
+`.github/components.json` is the one component map: who owns the CLI, Office and Squad
+paths, and the ordered rules that say which CI consumers a path selects and why.
+`typescript/scripts/ci-scope.mjs` reads it and owns conservative affected-area
+selection and final gate validation. Office-only source/docs avoid native matrices;
+native source/skill changes, Office's Rust crates, core-only test suites and E2E
+scenario files avoid the Office web checks; prose that no job reads selects nothing
+beyond `Code quality`. Shared or unknown paths (including lockfiles, security,
+contracts, workflows, the map itself and the E2E harness) fan out. Empty diffs fail
+closed to both. Diffs include deletions and both sides of renames. The selector writes
+a per-path evidence table (owner, rule, selection, map digest) to the run summary. Existing required check names
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
@@ -1979,8 +1984,10 @@ one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
 the single list, and rows that match none follow in one untitled section so
-nobody is hidden. The document carries the board's configured `columns`, which
-the text output renders. With `--squad`, `ls` returns that squad's document;
+nobody is hidden. The document carries the board's row grid (`rows`: `columns`
+and `lines`). The board sizes it with `tmt-cli-style`'s one solver
+(`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
+field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
 none), so a script's shape never depends on how many squads exist. Commands that
 change state still require `--squad` when several exist; `filter` owns a bounded boolean language over a row's text
@@ -2040,8 +2047,10 @@ squad unbinds only keys whose note is its own. `board --popup` ends the session
 after a successful jump.
 `send` sends through public commands only: detached `talk --identity <sender>
 --room squad-<name>` with operands after `--`, annotations
-as a talk tagged `[<squad> · <row>]`, and replies with the receipt that `x show
---incoming` gives the recipient; nothing acknowledges. The sender (`me::resolve_sender`) is
+as a talk tagged `[<squad> · <row>]`, and answers as one `tmt answer <member>
+--request <id>` (core selects and proves the request; no receipt passes through
+Squad); nothing acknowledges. Squad has no talk, reply or replies commands of its
+own: those words refuse before parsing with the core command that replaces them. The sender (`me::resolve_sender`) is
 an explicit `--identity`, otherwise the identity core attributes the call to
 (`tmt whoami`), otherwise the recorded user; with none, `SQUAD_SENDER_UNKNOWN`
 names both ways to set one. `whoami`'s `PANE_NOT_FOUND` and an unbound pane mean
@@ -2052,9 +2061,10 @@ otherwise the saved identity bound to the calling pane (the board reads it once
 per worker); when neither exists, `ls` and the board footer show one hint
 line. The board also sends as "you", because a popup's pane is not its operator.
 `requests` derives each
-row's `annotation` (the sender's newest open tagged request) and `waitingOnYou`
-(open requests to "you") per load from `requests.list`, at most four pages
-of 50, and marks the document `olderRequestsNotShown` when a window is cut off.
+row's `annotation` (the sender's newest open tagged request) per load from
+`requests.list` for the squad room, at most four pages of 50, and `waitingOnYou`
+(what waits on "you", oldest first) from `tmt inbox --json`, at most 200; it
+marks the document `olderRequestsNotShown` when either is cut off.
 The same room window yields the replies list (finals to the user's requests,
 newest first); bodies come from `requests.show` for the newest eight only, and
 the refresh worker caches them by request ID because a submitted final never

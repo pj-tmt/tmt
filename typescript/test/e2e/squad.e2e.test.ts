@@ -109,7 +109,7 @@ describe.sequential('squad on a private tmux server', () => {
           'send-keys',
           '-t',
           pane,
-          `tmt squad talk auth-fix 'rebase first' --json > '${out}'; echo TALK_EXIT=$?`,
+          `tmt squad annotate auth-fix 'rebase first' --to member --json > '${out}'; echo TALK_EXIT=$?`,
           'Enter',
         ]);
         await fixture.waitForCapture((screen) => screen.includes('TALK_EXIT=0'), pane);

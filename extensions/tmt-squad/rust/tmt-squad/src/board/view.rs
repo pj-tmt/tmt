@@ -7,8 +7,9 @@ use super::{
     notes::{sanitize, wrap},
 };
 use crate::{
-    config::{BoardMode, Column, Direction, NotesRender, Pane},
+    config::{BoardMode, Direction, NotesRender, Pane},
     requests::{BODIES, age},
+    rows::{Cell as RowCell, Rows},
 };
 use ratatui::{
     Frame,
@@ -18,8 +19,12 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use serde_json::Value;
-use tmt_cli_style::{AnsiColor, Effects, Token};
-use unicode_width::UnicodeWidthChar;
+use std::collections::BTreeMap;
+use tmt_cli_style::{
+    AnsiColor, Effects, Token,
+    grid::{self, Align, Truncate},
+};
+use unicode_width::UnicodeWidthStr;
 
 const KEYS: &[&str] = &[
     "↑ ↓ / j k   select a row (↑ ↓ scroll a focused notes pane)",
@@ -111,52 +116,69 @@ fn color(name: &str) -> Style {
 
 /// Exactly `width` display cells: truncated with an ellipsis, or padded.
 pub fn fit(text: &str, width: usize) -> String {
-    let mut out = String::new();
-    let mut used = 0;
-    let total: usize = text.chars().map(|c| c.width().unwrap_or(0)).sum();
-    let limit = if total > width {
-        width.saturating_sub(1)
-    } else {
-        width
-    };
-    for character in text.chars() {
-        let cells = character.width().unwrap_or(0);
-        if used + cells > limit {
-            break;
+    grid::fit(text, width, Align::Left, Truncate::End)
+}
+
+/// A row's value for a field: `member` is its name, `pending` what it waits
+/// on you for; anything else comes from its fields.
+fn cell_text<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
+    match field {
+        "member" => row["name"].as_str(),
+        "pending" => row["pending"].as_str(),
+        field => row["fields"][field].as_str(),
+    }
+}
+
+/// Space between grid columns.
+const GAP: usize = 1;
+
+/// One line of a row on the solved grid: each cell across its spanned
+/// columns, fitted by the first column's alignment and truncation. The first
+/// line shows `–` for a missing value; a later line with nothing to show is
+/// left out.
+fn grid_line(
+    rows: &Rows,
+    widths: &[Option<usize>],
+    cells: &[RowCell],
+    row: &Value,
+    first: bool,
+    colors: &BTreeMap<String, String>,
+) -> Option<Vec<Span<'static>>> {
+    let mut spans = Vec::new();
+    let mut position = 0;
+    let mut shown_any = false;
+    for cell in cells {
+        let range = position..position + cell.span;
+        position += cell.span;
+        if widths[range.clone()].iter().all(Option::is_none) {
+            continue;
         }
-        out.push(character);
-        used += cells;
+        let width = grid::span(widths, range.clone(), GAP);
+        let value = cell
+            .field
+            .as_deref()
+            .and_then(|field| cell_text(row, field));
+        shown_any |= value.is_some_and(|value| !value.is_empty());
+        let text = match (value, &cell.field, first) {
+            (Some(value), _, _) => value,
+            (None, Some(_), true) => "–",
+            _ => "",
+        };
+        let column = &rows.columns[range.start];
+        let style = if cell.field.as_deref() == Some("state") {
+            color(colors.get(text).map_or("default", String::as_str))
+        } else {
+            Style::new()
+        };
+        if !spans.is_empty() {
+            spans.push(Span::raw(" ".repeat(GAP)));
+        }
+        spans.push(Span::styled(
+            grid::fit(text, width, column.align, column.truncate),
+            style,
+        ));
     }
-    if total > width && width > 0 {
-        out.push('…');
-        used += 1;
-    }
-    out.push_str(&" ".repeat(width.saturating_sub(used)));
-    out
-}
-
-fn cell_text<'a>(row: &'a Value, field: &str) -> &'a str {
-    let value = if field == "member" {
-        &row["name"]
-    } else {
-        &row["fields"][field]
-    };
-    value.as_str().unwrap_or("–")
-}
-
-/// Fixed widths first; columns without a width share what remains.
-fn widths(columns: &[Column], total: usize) -> Vec<usize> {
-    let gaps = columns.len().saturating_sub(1);
-    let fixed: usize = columns
-        .iter()
-        .filter_map(|c| c.width.map(usize::from))
-        .sum();
-    let flexible = columns.iter().filter(|c| c.width.is_none()).count().max(1);
-    let share = total.saturating_sub(2 + gaps + fixed) / flexible;
-    columns
-        .iter()
-        .map(|column| column.width.map_or(share.max(4), usize::from))
-        .collect()
+    (first || shown_any).then_some(spans)
 }
 
 fn header_line(app: &App) -> Line<'_> {
@@ -520,18 +542,46 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(Paragraph::new(message), area);
         return;
     };
-    let columns = &view.columns;
-    let widths = widths(columns, usize::from(area.width));
-    let note_column = columns.iter().any(|column| column.field == "note");
+    let rows = &view.rows;
+    // Unsized columns start from their widest value on the board.
+    let natural = |index: usize| {
+        let field = &rows.columns[index].field;
+        app.items()
+            .into_iter()
+            .filter_map(|item| match item {
+                Item::Row(row) => cell_text(row, field),
+                Item::Header(_) => None,
+            })
+            // Measured as drawn: `grid::fit` shows control characters escaped.
+            .map(|value| tmt_cli_style::table::escape(value).width())
+            .chain([rows.columns[index].title.width()])
+            .max()
+            .unwrap_or(0)
+    };
+    let tracks: Vec<_> = (0..rows.columns.len())
+        .map(|index| rows.columns[index].track(natural(index)))
+        .collect();
+    // Two cells for the row mark.
+    let widths = grid::solve(
+        &tracks,
+        Some(usize::from(area.width).saturating_sub(2)),
+        GAP,
+    );
+    let note_column = rows.fields().contains(&"note");
     let mut lines = vec![Line::from(Span::styled(
         format!(
             "  {}",
-            columns
+            rows.columns
                 .iter()
                 .zip(&widths)
-                .map(|(column, width)| fit(&column.title, *width))
+                .filter_map(|(column, width)| width.map(|width| grid::fit(
+                    &column.title,
+                    width,
+                    column.align,
+                    column.truncate
+                )))
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join(&" ".repeat(GAP))
         ),
         color("dim"),
     ))];
@@ -555,26 +605,22 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 } else {
                     "  "
                 };
-                let mut spans = vec![Span::raw(marker)];
-                for (index, (column, width)) in columns.iter().zip(&widths).enumerate() {
-                    if index > 0 {
-                        spans.push(Span::raw(" "));
-                    }
-                    let text = cell_text(row, &column.field);
-                    let style = if column.field == "state" {
-                        color(view.colors.get(text).map_or("default", String::as_str))
-                    } else {
-                        Style::new()
-                    };
-                    spans.push(Span::styled(fit(text, *width), style));
-                }
                 let style = if selected {
                     Style::new().add_modifier(Modifier::REVERSED)
                 } else {
                     Style::new()
                 };
-                row_lines.push((lines.len(), row_index));
-                lines.push(Line::from(spans).style(style));
+                for (index, cells) in rows.lines.iter().enumerate() {
+                    let first = index == 0;
+                    let Some(cells) = grid_line(rows, &widths, cells, row, first, &view.colors)
+                    else {
+                        continue;
+                    };
+                    let mut spans = vec![Span::raw(if first { marker } else { "  " })];
+                    spans.extend(cells);
+                    row_lines.push((lines.len(), row_index));
+                    lines.push(Line::from(spans).style(style));
+                }
                 if let Some(note) = row["note"].as_str().filter(|_| !note_column) {
                     lines.push(Line::from(Span::styled(
                         fit(&format!("    note {note}"), usize::from(area.width)),
@@ -633,20 +679,19 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
     use serde_json::json;
     use std::collections::BTreeMap;
+    use unicode_width::UnicodeWidthChar;
 
-    fn columns() -> Vec<Column> {
-        [
-            ("member", "MEMBER", Some(10)),
-            ("state", "STATE", Some(8)),
-            ("task", "TASK", None),
-        ]
-        .into_iter()
-        .map(|(field, title, width)| Column {
-            field: field.into(),
-            title: title.into(),
-            width,
-        })
-        .collect()
+    /// Rows read from a squad config snippet, as `squad.toml` would give them.
+    fn rows_from(text: &str) -> Rows {
+        let config: toml_edit::DocumentMut = text.parse().unwrap();
+        crate::rows::read(config["p"].as_table_like(), "p").unwrap()
+    }
+
+    fn columns() -> Rows {
+        rows_from(
+            "[p.columns]\nshow = [\"member\", \"state\", \"task\"]\n\
+             member = { width = 10 }\nstate = { width = 8 }\n",
+        )
     }
 
     fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
@@ -678,7 +723,7 @@ mod tests {
             squad: Some("product".into()),
             view: Ok(View {
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
-                columns: columns(),
+                rows: columns(),
                 colors: BTreeMap::from([("blocked".into(), "amber".into())]),
                 board: crate::config::Board {
                 mode: crate::config::BoardMode::Split,
@@ -705,6 +750,156 @@ mod tests {
             row[key] = value.clone();
         }
         row
+    }
+
+    /// The board as every preset draws it: the default columns, read from
+    /// an empty config.
+    fn preset_board() -> App {
+        let path = std::env::temp_dir().join(format!("squad-golden-{}.toml", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let config = crate::config::Config::read(path).unwrap();
+        let mut app = board(json!([
+            {"title": "Needs me", "rows": [
+                row("auth-fix", "blocked", "rotate session tokens without logging everyone out", json!({
+                    "pending": "approve", "note": "needs a call",
+                    "fields": {"state": "blocked", "task": "rotate session tokens without logging everyone out", "pr_link": "https://github.com/wkh237/tmt/pull/4242"}
+                }))
+            ]},
+            {"title": "Everyone", "rows": [
+                row("文件-sweep-long-name", "working", "整理安装指南和常见问题", json!({})),
+                row("perf", "", "", json!({"fields": {}, "annotation": {"to": "sol", "text": "check the cache hit rate"}})),
+            ]}
+        ]));
+        app.view.as_mut().unwrap().rows = config.rows("product").unwrap();
+        app
+    }
+
+    /// Golden: every preset's board as drawn before the rows moved onto the
+    /// shared grid solver. The layout engine must keep these byte for byte.
+    #[test]
+    fn preset_columns_draw_exactly_as_before_at_every_width() {
+        let app = preset_board();
+        let golden: [(u16, [&str; 8]); 4] = [
+            (
+                48,
+                [
+                    "  MEMBER         STATE      TASK    PR",
+                    "NEEDS ME",
+                    "◆ auth-fix       blocked    rotate… https://git…",
+                    "    note needs a call",
+                    "EVERYONE",
+                    "  文件-sweep-lo… working    整理安… –",
+                    "  perf           –          –       –",
+                    "    ✎ sent to sol: check the cache hit rate",
+                ],
+            ),
+            (
+                60,
+                [
+                    "  MEMBER         STATE      TASK                PR",
+                    "NEEDS ME",
+                    "◆ auth-fix       blocked    rotate session tok… https://git…",
+                    "    note needs a call",
+                    "EVERYONE",
+                    "  文件-sweep-lo… working    整理安装指南和常见… –",
+                    "  perf           –          –                   –",
+                    "    ✎ sent to sol: check the cache hit rate",
+                ],
+            ),
+            (
+                80,
+                [
+                    "  MEMBER         STATE      TASK                                    PR",
+                    "NEEDS ME",
+                    "◆ auth-fix       blocked    rotate session tokens without logging … https://git…",
+                    "    note needs a call",
+                    "EVERYONE",
+                    "  文件-sweep-lo… working    整理安装指南和常见问题                  –",
+                    "  perf           –          –                                       –",
+                    "    ✎ sent to sol: check the cache hit rate",
+                ],
+            ),
+            (
+                120,
+                [
+                    "  MEMBER         STATE      TASK                                                                            PR",
+                    "NEEDS ME",
+                    "◆ auth-fix       blocked    rotate session tokens without logging everyone out                              https://git…",
+                    "    note needs a call",
+                    "EVERYONE",
+                    "  文件-sweep-lo… working    整理安装指南和常见问题                                                          –",
+                    "  perf           –          –                                                                               –",
+                    "    ✎ sent to sol: check the cache hit rate",
+                ],
+            ),
+        ];
+        for (width, lines) in golden {
+            assert_eq!(draw(&app, width, 10)[1..9], lines, "at {width} columns");
+        }
+    }
+
+    #[test]
+    fn a_narrow_preset_board_drops_the_link_instead_of_clipping() {
+        let screen = draw(&preset_board(), 44, 10);
+        assert_eq!(screen[1], "  MEMBER         STATE      TASK");
+        assert_eq!(screen[3], "◆ auth-fix       blocked    rotate session …");
+        assert!(screen[1..9].iter().all(|line| line.width() <= 44));
+    }
+
+    #[test]
+    fn handbook_rows_take_a_second_line_span_align_and_step_aside() {
+        let mut app = board(json!([{"title": null, "rows": [
+            row("auth-fix", "blocked", "rotate session tokens", json!({
+                "pending": "approve the rollout plan",
+                "fields": {"state": "blocked", "task": "rotate session tokens", "pr": "#4242"},
+            })),
+            row("docs", "working", "guide", json!({"fields": {"state": "working", "task": "guide", "pr": "#7"}})),
+        ]}]));
+        app.view.as_mut().unwrap().rows = rows_from(
+            r#"[p.rows]
+columns = [
+  { name = "member", min = 10 },
+  { name = "state",  width = 9 },
+  { name = "task",   grow = 1, min = 12 },
+  { name = "pr",     width = 10, align = "right", priority = 2 },
+]
+lines = [
+  ["member", "state", "task", "pr"],
+  ["",       { field = "pending", span = 3 }],
+]
+"#,
+        );
+        let wide = draw(&app, 60, 8);
+        assert_eq!(
+            wide[1],
+            "  MEMBER     STATE     TASK                               PR"
+        );
+        assert_eq!(
+            wide[2],
+            "◆ auth-fix   blocked   rotate session tokens           #4242"
+        );
+        assert_eq!(wide[3], "             approve the rollout plan");
+        // Nothing to show on the second line: the row keeps one line.
+        assert_eq!(
+            wide[4],
+            "  docs       working   guide                              #7"
+        );
+        // Narrow: the prioritized column steps aside and the span shrinks.
+        let narrow = draw(&app, 36, 8);
+        assert_eq!(narrow[1], "  MEMBER     STATE     TASK");
+        assert_eq!(narrow[2], "◆ auth-fix   blocked   rotate sessi…");
+        assert_eq!(narrow[3], "             approve the rollout pl…");
+    }
+
+    #[test]
+    fn middle_truncation_keeps_both_ends_of_a_link() {
+        let mut app = board(json!([{"title": null, "rows": [
+            row("docs", "working", "", json!({"fields": {"link": "https://github.com/wkh237/tmt/pull/4242"}})),
+        ]}]));
+        app.view.as_mut().unwrap().rows = rows_from(
+            "[p.rows]\ncolumns = [{ name = \"member\", width = 6 }, { name = \"link\", width = 20, truncate = \"middle\" }]\n",
+        );
+        assert_eq!(draw(&app, 40, 4)[2], "  docs   https://gi…pull/4242");
     }
 
     #[test]
@@ -814,7 +1009,7 @@ mod tests {
                         "pane": {"target": "crew:2.0", "cwd": "/w/app-3"}
                     }))]}
                 ]}),
-                columns: columns(),
+                rows: columns(),
                 colors: BTreeMap::new(),
                 board,
                 notes,

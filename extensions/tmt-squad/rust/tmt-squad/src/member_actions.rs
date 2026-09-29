@@ -1,4 +1,4 @@
-//! `tmt squad jump|back|open|copy|talk|reply|annotate`: the board's row
+//! `tmt squad jump|back|open|copy|annotate`: the board's row
 //! actions for one member, for scripts and terminals without the board.
 
 use crate::{
@@ -7,7 +7,7 @@ use crate::{
     core::{Core, SquadError},
     effects,
     membership::Outcome,
-    requests, send,
+    send,
     squad::Squad,
     status,
     template::{DEFAULT_COPY, Template, field_value},
@@ -131,25 +131,6 @@ pub fn copy(
     )
 }
 
-/// `tmt squad talk <member> <text>`: a detached request in the squad room,
-/// sent as the resolved sender (`--identity`, the caller, then the user).
-pub fn talk(
-    core: &Core,
-    squad: &Squad,
-    config: &mut Config,
-    identity: Option<&str>,
-    name: &str,
-    text: &str,
-) -> Result<Outcome, SquadError> {
-    let me = crate::me::resolve_sender(core, config, identity)?;
-    row(core, squad, config, name)?;
-    let request = send::talk(core, &squad.name, &me.name, name, text)?;
-    Ok(
-        json!({"requestId": request, "to": name, "as": me.name, "room": crate::squad::room_name(&squad.name)})
-            .into(),
-    )
-}
-
 /// `tmt squad annotate <member> <text> [--to lead|member]`: a note about a
 /// row, sent to the lead (default) or the member; never a notebook write.
 pub fn annotate(
@@ -174,73 +155,4 @@ pub fn annotate(
     };
     let request = send::annotate(core, &squad.name, &me.name, &to, name, text)?;
     Ok(json!({"requestId": request, "to": to, "as": me.name, "row": name, "room": crate::squad::room_name(&squad.name)}).into())
-}
-
-/// `tmt squad replies`: finals to the sender's requests in the squad room,
-/// newest first, with bodies for the newest few. Reading acknowledges nothing.
-pub fn replies(
-    core: &Core,
-    squad: &Squad,
-    config: &mut Config,
-    identity: Option<&str>,
-) -> Result<Outcome, SquadError> {
-    let me = crate::me::resolve_sender(core, config, identity)?;
-    let mut document = document(core, squad, config)?;
-    let sent = requests::overlay(core, squad, Some(&me), &mut document)?.expect("me is set");
-    let mut replies = requests::replies(&sent, &document);
-    let mut bodies = std::collections::BTreeMap::new();
-    requests::bodies(
-        |id| requests::show_request(core, id),
-        &mut replies,
-        &mut bodies,
-    )?;
-    Ok(json!({
-        "squad": squad.name,
-        "replies": replies,
-        "olderRequestsNotShown": document["olderRequestsNotShown"],
-    })
-    .into())
-}
-
-/// `tmt squad reply <member> <text> [--request <id>]`: answers what the
-/// member is waiting on the sender for. With several open requests the
-/// sender chooses; the newest is never assumed.
-pub fn answer(
-    core: &Core,
-    squad: &Squad,
-    config: &mut Config,
-    identity: Option<&str>,
-    name: &str,
-    request: Option<&str>,
-    text: &str,
-) -> Result<Outcome, SquadError> {
-    let me = crate::me::resolve_sender(core, config, identity)?;
-    let mut document = document(core, squad, config)?;
-    requests::overlay(core, squad, Some(&me), &mut document)?;
-    let row = find(document, squad, name)?;
-    let open: Vec<&str> = row["waitingOnYou"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item["requestId"].as_str())
-        .collect();
-    let chosen = match (request, open.as_slice()) {
-        (Some(request), _) if open.contains(&request) => request,
-        (Some(request), _) => {
-            return Err(refused(format!(
-                "{request} is not an open request from {name} to you."
-            )));
-        }
-        (None, []) => return Err(refused(format!("{name} is not waiting on you."))),
-        (None, [only]) => only,
-        (None, several) => {
-            return Err(refused(format!(
-                "{name} is waiting on you for {} requests; choose one with --request: {}.",
-                several.len(),
-                several.join(", ")
-            )));
-        }
-    };
-    send::answer(core, &me.name, chosen, text)?;
-    Ok(json!({"requestId": chosen, "from": name, "as": me.name, "replied": true}).into())
 }

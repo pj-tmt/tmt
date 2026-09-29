@@ -19,8 +19,10 @@ tmt squad ls --json [--squad <name>]
 
 With `--squad <name>` the document is that squad's; without it, it is always
 `{squads: [...], you}`, one document per squad in name order (even for one
-squad or none), so read `.squads[]` unless you pass `--squad`. `columns` lists
-the board's configured columns.
+squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
+`lines` are the board's row grid: each column's field, title and sizing, and
+the fields each line of a row shows (`{field, span}`, field null for an empty
+cell).
 
 - `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`) and
   `lead` (a row, or null).
@@ -69,8 +71,12 @@ tmt squad remove <name>                       # leaves the squad; the agent keep
   failure, re-run it with the same pairs.
 - Removing a member clears its fields for this squad only. Its requests and
   notes keep the history.
-- `tmt squad talk`, `annotate`, `reply` and `replies` act as you: the identity
-  of the pane you run in (or `--identity <name>`), never as the user.
+- `tmt squad annotate` acts as you: the identity of the pane you run in (or
+  `--identity <name>`), never as the user. To talk to a member use
+  `tmt talk <member> "…" --detach`; to answer what someone is waiting on you
+  for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you were
+  given a receipt). `tmt squad talk`, `reply` and `replies` were removed and
+  only refuse.
 
 ## Annotations from the user
 

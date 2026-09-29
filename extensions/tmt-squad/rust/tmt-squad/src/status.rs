@@ -131,14 +131,6 @@ fn cell(value: &Value) -> &str {
     value.as_str().unwrap_or("-")
 }
 
-/// The configured columns as `ls` shows them: `{field, title, width}`.
-pub fn columns_value(columns: &[crate::config::Column]) -> Value {
-    columns
-        .iter()
-        .map(|column| json!({"field": column.field, "title": column.title, "width": column.width}))
-        .collect()
-}
-
 /// A column's value in a row: `member` is the name, `state` shows `-` when
 /// unset, and any other unset field stays empty so sparse columns stay quiet.
 fn column_cell<'a>(row: &'a Value, field: &str) -> &'a str {
@@ -214,15 +206,29 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
         cell(&squad["layout"]),
     );
     let _ = writeln!(output, "{}\n", terminal.paint(Token::Dim, &escape(&header)));
-    let fields: Vec<(&str, Option<u64>)> = document["columns"]
-        .as_array()
-        .map(|columns| {
-            columns
-                .iter()
-                .filter_map(|column| Some((column["field"].as_str()?, column["width"].as_u64())))
-                .collect()
-        })
-        .unwrap_or_else(|| vec![("member", None), ("state", Some(10))]);
+    // The board's field selection and order: every field on any line, the
+    // first line's first. A list stays complete, so only a configured width
+    // (a short fixed value) keeps a column from truncating.
+    let width = |field: &str| {
+        document["columns"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|column| column["field"] == field)
+            .and_then(|column| column["width"].as_u64())
+    };
+    let mut fields: Vec<(&str, Option<u64>)> = Vec::new();
+    let lines = document["lines"].as_array().into_iter().flatten();
+    for cell in lines.flat_map(|line| line.as_array().into_iter().flatten()) {
+        if let Some(field) = cell["field"].as_str()
+            && !fields.iter().any(|(known, _)| *known == field)
+        {
+            fields.push((field, width(field)));
+        }
+    }
+    if fields.is_empty() {
+        fields = vec![("member", None), ("state", Some(10))];
+    }
     let layout: Vec<Column> = std::iter::once(Column::Fixed)
         .chain(fields.iter().map(|(field, width)| match (*field, width) {
             ("member", _) => Column::Name,
@@ -514,23 +520,13 @@ mod tests {
             name: name.into(),
             room_id: format!("room-{name}"),
         };
-        let columns = columns_value(&[
-            crate::config::Column {
-                field: "member".into(),
-                title: "MEMBER".into(),
-                width: Some(14),
-            },
-            crate::config::Column {
-                field: "state".into(),
-                title: "STATE".into(),
-                width: Some(10),
-            },
-            crate::config::Column {
-                field: "task".into(),
-                title: "TASK".into(),
-                width: None,
-            },
-        ]);
+        let config: toml_edit::DocumentMut =
+            "[p.columns]\nshow = [\"member\", \"state\", \"task\"]\n"
+                .parse()
+                .unwrap();
+        let rows = crate::rows::read(config["p"].as_table_like(), "p")
+            .unwrap()
+            .value();
         let with_columns = |name: &str, members: Vec<Member>| {
             let mut document = document(
                 &squad(name),
@@ -539,7 +535,8 @@ mod tests {
                 &[],
                 members,
             );
-            document["columns"] = columns.clone();
+            document["columns"] = rows["columns"].clone();
+            document["lines"] = rows["lines"].clone();
             document
         };
         let product = with_columns(

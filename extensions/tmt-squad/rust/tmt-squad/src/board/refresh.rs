@@ -110,7 +110,7 @@ fn load(
             Notes::NotShown
         };
         Ok(View {
-            columns: config.columns(&squad.name)?,
+            rows: config.rows(&squad.name)?,
             colors: states.colors,
             render: config.notes_render(&squad.name)?,
             bindings: config.bindings(tmux)?,
