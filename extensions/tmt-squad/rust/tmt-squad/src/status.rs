@@ -7,7 +7,13 @@ use crate::{
     squad::{Member, Squad},
 };
 use serde_json::{Value, json};
-use std::cmp::Ordering;
+use std::{cmp::Ordering, io::Write};
+use tmt_cli_style::{
+    Terminal, Token,
+    list::{self, Section as ListSection},
+    mark::Mark,
+    table::{Cell, Column, Table, escape},
+};
 
 fn member_value(member: &Member) -> Value {
     let field = |name: &str| {
@@ -115,60 +121,111 @@ fn cell(value: &Value) -> &str {
     value.as_str().unwrap_or("-")
 }
 
-pub fn text(document: &Value) -> String {
+const COLUMNS: [Column; 4] = [Column::Fixed, Column::Name, Column::Fixed, Column::Detail];
+
+/// One leading mark: `◆` when the member waits on the reader's decision,
+/// otherwise its presence.
+fn mark(row: &Value) -> Mark {
+    if row["pending"].is_string() {
+        Mark::Decision
+    } else {
+        match row["presence"].as_str() {
+            Some("active") => Mark::Running,
+            Some("offline") => Mark::Offline,
+            _ => Mark::Idle,
+        }
+    }
+}
+
+/// What the reader needs first: the decision owed, the note, the latest
+/// annotation.
+fn detail(row: &Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(pending) = row["pending"].as_str() {
+        parts.push(format!("waiting on you: {pending}"));
+    }
+    if let Some(note) = row["note"].as_str() {
+        parts.push(format!("note: {note}"));
+    }
+    if let Some(text) = row["annotation"]["text"].as_str() {
+        parts.push(format!("✎ to {}: {text}", cell(&row["annotation"]["to"])));
+    }
+    parts.join(" · ")
+}
+
+/// Plain or styled for `terminal`; the same parts as every TMT list.
+pub fn text(document: &Value, terminal: Terminal) -> String {
     let squad = &document["squad"];
-    let mut output = format!(
-        "squad {}  lead: {}  layout: {}\n",
+    let mut output = Vec::new();
+    let header = format!(
+        "squad {} · lead {} · layout {}",
         cell(&squad["name"]),
         cell(&squad["lead"]["name"]),
         cell(&squad["layout"]),
     );
-    for section in document["sections"].as_array().into_iter().flatten() {
-        if let Some(title) = section["title"].as_str() {
-            output.push_str(&format!("\n{title}\n"));
-        }
-        let rows = section["rows"]
-            .as_array()
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        if rows.is_empty() {
-            output.push_str("  (no members)\n");
-        }
-        for row in rows {
-            let marker = if row["pending"].is_string() {
-                '◆'
+    let _ = writeln!(output, "{}\n", terminal.paint(Token::Dim, &escape(&header)));
+    let sections: Vec<&Value> = document["sections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .collect();
+    let built: Vec<(String, usize, Table)> = sections
+        .iter()
+        .map(|section| {
+            let rows = section["rows"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            let mut table = Table::new(&COLUMNS);
+            for row in rows {
+                let mark = mark(row);
+                table.row([
+                    Cell::styled(mark.symbol(), mark.token()),
+                    cell(&row["name"]).into(),
+                    Cell::styled(cell(&row["state"]), Token::Dim),
+                    detail(row).into(),
+                ]);
+            }
+            let title = section["title"].as_str().unwrap_or("members").to_owned();
+            (title, rows.len(), table)
+        })
+        .collect();
+    let older = (document["olderRequestsNotShown"] == true).then_some("older requests not shown");
+    let last = built.len().saturating_sub(1);
+    let list: Vec<ListSection<'_>> = built
+        .iter()
+        .enumerate()
+        .map(|(index, (title, count, table))| ListSection {
+            title,
+            count: Some(*count),
+            rows: table.clone(),
+            note: if table.is_empty() {
+                Some("(no members)")
+            } else if index == last {
+                older
             } else {
-                ' '
-            };
-            output.push_str(&format!(
-                "{marker} {:<24} {:<10} {}\n",
-                cell(&row["name"]),
-                cell(&row["state"]),
-                cell(&row["presence"]),
-            ));
-            if let Some(pending) = row["pending"].as_str() {
-                output.push_str(&format!("    waiting on you: {pending}\n"));
-            }
-            if let Some(note) = row["note"].as_str() {
-                output.push_str(&format!("    note: {note}\n"));
-            }
-            if let Some(text) = row["annotation"]["text"].as_str() {
-                output.push_str(&format!(
-                    "    ✎ sent to {}: {text}\n",
-                    cell(&row["annotation"]["to"])
-                ));
-            }
-        }
-    }
-    if document["olderRequestsNotShown"] == true {
-        output.push_str("\n(older requests not shown)\n");
-    }
-    output
+                None
+            },
+            hint: None,
+        })
+        .collect();
+    let _ = list::write(&mut output, terminal, &list);
+    String::from_utf8(output).unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_decision_owed_leads_the_row_over_presence() {
+        let row = |presence: &str, pending: Option<&str>| json!({"presence": presence, "pending": pending});
+        assert_eq!(mark(&row("active", Some("approve"))), Mark::Decision);
+        assert_eq!(mark(&row("offline", Some("approve"))), Mark::Decision);
+        assert_eq!(mark(&row("active", None)), Mark::Running);
+        assert_eq!(mark(&row("offline", None)), Mark::Offline);
+        assert_eq!(mark(&row("unknown", None)), Mark::Idle);
+    }
 
     fn member(name: &str, fields: &[(&str, &str)]) -> Member {
         Member {
@@ -256,13 +313,16 @@ mod tests {
         // No vocabulary: equal states group together, then names.
         assert_eq!(names(&minimal), ["bob", "kai", "amy", "zed"]);
 
-        let rendered = text(&crew);
-        assert!(rendered.starts_with("squad product  lead: sol  layout: crew\n"));
-        assert!(rendered.contains("◆ bob"));
-        assert!(
-            rendered.contains("    waiting on you: approve the plan\n    note: needs a call\n")
+        // One leading mark: ◆ when the member waits on you, else presence.
+        assert_eq!(
+            text(&crew, Terminal::PLAIN),
+            "squad product · lead sol · layout crew\n\n\
+             MEMBERS 4\n\
+             \x20 ◆  bob  blocked  waiting on you: approve the plan · note: needs a call\n\
+             \x20 ○  zed  working\n\
+             \x20 ○  amy  review\n\
+             \x20 ○  kai  custom\n"
         );
-        assert!(rendered.contains("  zed"));
     }
 
     #[test]
@@ -314,6 +374,8 @@ mod tests {
         );
         assert_eq!(names(1), ["zed", "kai", "bob", "amy"]);
         assert!(names(2).is_empty());
-        assert!(text(&document).contains("\nNeeds me\n◆ bob"));
+        let rendered = text(&document, Terminal::PLAIN);
+        assert!(rendered.contains("NEEDS ME 1\n  ◆  bob  blocked  waiting on you"));
+        assert!(rendered.ends_with("EMPTY 0\n    (no members)\n"));
     }
 }

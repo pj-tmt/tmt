@@ -403,9 +403,11 @@ tmt squad help set                                  # or `set -h`: help with exa
 `me` (your saved identity) is recorded in `squad.toml`, next to TMT's global
 `config.json`; the first interactive `init` asks for it, and non-interactive use
 requires `--me`. Re-running `init` changes nothing. With one squad, commands
-select it; with several, pass `--squad <name>`. `status` lists members with ◆ on
-rows that wait on you (`pending`). `set field=` clears a field. `remove` clears
-only that squad's fields.
+select it; with several, pass `--squad <name>`. `status` lists members, one per
+row: a leading mark (◆ when the member waits on you with `pending`, otherwise
+● active, ◌ unverified or ○ offline), the name, the state, and what you need to
+know first (what it waits on you for, its note, your open annotation). `set
+field=` clears a field. `remove` clears only that squad's fields.
 
 `status` shows one list unless you define sections in `squad.toml`. Each section
 has a title, an optional filter and optional sort keys; a member appears in every
@@ -544,9 +546,11 @@ shown`.
 
 The `replies` pane, and `tmt squad replies` (`--json` for scripts), list the
 answers to your talks and annotations in the squad, newest first: who answered,
-how long ago, what you asked and the reply. The newest eight show their text,
-with terminal escapes removed and at most six lines on the board; older ones
-point to `tmt result <request-id>`. Reading replies acknowledges nothing, so
+how long ago, what you asked and the reply. On the board the newest eight show
+their text, with terminal escapes removed and at most six lines; older ones
+point to `tmt result <request-id>`. `tmt squad replies` shows one row per
+request (✓ answered, ◌ waiting) with its request ID and the reply's first line;
+`tmt result <request-id>` prints the whole reply exactly. Reading replies acknowledges nothing, so
 `tmt x list` still shows them until you acknowledge them there.
 
 `jump` is `tmt focus` for a squad member or the lead, run inside tmux. Each

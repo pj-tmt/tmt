@@ -282,16 +282,24 @@ pub fn text(document: &Value, terminal: tmt_cli_style::Terminal) -> String {
         return content.to_owned();
     }
     if let Some(playbooks) = document["playbooks"].as_array() {
-        return playbooks
-            .iter()
-            .map(|playbook| {
-                format!(
-                    "{}  {}\n",
-                    string(&playbook["name"]),
-                    string(&playbook["description"])
-                )
-            })
-            .collect();
+        use tmt_cli_style::table::{Column, Table};
+        let mut table = Table::new(&[Column::Name, Column::Detail]);
+        for playbook in playbooks {
+            table.row([string(&playbook["name"]), string(&playbook["description"])]);
+        }
+        let hint = playbooks
+            .first()
+            .map(|playbook| format!("tmt squad playbook show {}", string(&playbook["name"])));
+        let section = tmt_cli_style::list::Section {
+            title: "playbooks",
+            count: Some(playbooks.len()),
+            rows: table,
+            note: None,
+            hint: hint.as_deref(),
+        };
+        let mut output = Vec::new();
+        let _ = section.write(&mut output, terminal);
+        return String::from_utf8(output).unwrap_or_default();
     }
     if let Some(plan) = document["plan"].as_str() {
         return format!("{plan}\n");
@@ -448,7 +456,7 @@ mod tests {
         assert_eq!(listed["playbooks"][0]["name"], "tmux-squad");
         assert!(
             text(&listed, tmt_cli_style::Terminal::PLAIN)
-                .starts_with("tmux-squad  Propose a tmux layout"),
+                .starts_with("PLAYBOOKS 1\n  tmux-squad  Propose a tmux layout"),
             "{}",
             text(&listed, tmt_cli_style::Terminal::PLAIN)
         );

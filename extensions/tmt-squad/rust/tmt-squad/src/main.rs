@@ -30,7 +30,14 @@ use std::{
     process::ExitCode,
 };
 use tmt_cli_style::Route;
-use tmt_cli_style::{Terminal, message};
+use tmt_cli_style::{
+    Terminal, Token,
+    list::Section,
+    mark::Mark,
+    message,
+    table::{Cell, Column, Table},
+    value,
+};
 
 const SKILL: &str = include_str!("../../../skills/tmt-squad/SKILL.md");
 
@@ -304,34 +311,67 @@ fn complete(words: &[String]) -> Vec<String> {
     candidates
 }
 
-fn replies_text(document: &Value) -> String {
+/// Replies to the user's squad requests, newest first as core lists them.
+/// A row previews one line; the whole body stays exact behind `tmt result`.
+fn replies_text(document: &Value, terminal: Terminal) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis() as u64);
-    let mut output = String::new();
-    for reply in document["replies"].as_array().into_iter().flatten() {
-        // Bodies are agent-written: strip escapes before the terminal sees them.
-        let text = |key: &str| board::notes::sanitize(reply[key].as_str().unwrap_or_default());
-        let when = reply["submittedAtMs"]
-            .as_u64()
-            .map_or(String::new(), |at| format!(" · {}", requests::age(now, at)));
-        output.push_str(&format!("{}{when}\n  › {}\n", text("to"), text("prompt")));
-        match reply["response"].as_str() {
-            Some(response) => {
-                for line in board::notes::sanitize(response).lines() {
-                    output.push_str(&format!("  {line}\n"));
-                }
-            }
-            None => output.push_str(&format!("  tmt result {}\n", text("requestId"))),
+    let replies: Vec<&Value> = document["replies"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .collect();
+    if replies.is_empty() {
+        let mut text = "No replies to your squad requests yet.\n".to_owned();
+        if document["olderRequestsNotShown"] == true {
+            text.push_str(&terminal.paint(Token::Dim, "older requests not shown"));
+            text.push('\n');
         }
+        return text;
     }
-    if output.is_empty() {
-        output.push_str("No replies to your squad requests yet.\n");
+    let mut table = Table::new(&[
+        Column::Fixed,
+        Column::Name,
+        Column::Fixed,
+        Column::Fixed,
+        Column::Detail,
+    ]);
+    for reply in &replies {
+        let text = |key: &str| reply[key].as_str().unwrap_or_default();
+        let age = reply["submittedAtMs"].as_u64().map_or(String::new(), |at| {
+            value::relative_time(now.saturating_sub(at))
+        });
+        let (mark, preview) = match reply["response"].as_str() {
+            Some(response) => (
+                Mark::Done,
+                response.lines().next().unwrap_or_default().to_owned(),
+            ),
+            None => (Mark::Idle, format!("waiting: {}", text("prompt"))),
+        };
+        table.row([
+            Cell::styled(mark.symbol(), mark.token()),
+            text("to").into(),
+            Cell::styled(age, Token::Dim),
+            Cell::styled(text("requestId"), Token::Dim),
+            preview.into(),
+        ]);
     }
-    if document["olderRequestsNotShown"] == true {
-        output.push_str("(older requests not shown)\n");
-    }
-    output
+    let newest = replies
+        .iter()
+        .find(|reply| reply["response"].is_string())
+        .and_then(|reply| reply["requestId"].as_str())
+        .map(|id| format!("tmt result {id}"));
+    let section = Section {
+        title: "replies",
+        count: Some(replies.len()),
+        rows: table,
+        note: (document["olderRequestsNotShown"] == true).then_some("older requests not shown"),
+        hint: newest.as_deref(),
+    };
+    let mut output = Vec::new();
+    let _ = section.write(&mut output, terminal);
+    String::from_utf8(output).unwrap_or_default()
 }
 
 fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
@@ -373,28 +413,66 @@ fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
             "No squad hotkeys were installed; nothing changed.\n".into()
         };
     }
-    let mut output = format!(
-        "installed: {}\nkeys: popup {}, pane {}{}\nsquad file: {}{}\n",
-        document["installed"],
-        path(&document["keys"]["popup"]),
-        path(&document["keys"]["pane"]),
-        document["keys"]["back"]
-            .as_str()
-            .map_or(String::new(), |key| format!(", back {key}")),
-        path(&document["squadFile"]),
-        if document["current"] == true {
-            ""
+    // The report: label/value rows, home-abbreviated paths, one next step.
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let shown = |value: &Value| {
+        value::home_path(
+            std::path::Path::new(value.as_str().unwrap_or_default()),
+            home.as_deref(),
+        )
+    };
+    let mut table = Table::new(&[Column::Fixed, Column::Detail]);
+    table.row([
+        Cell::styled("installed", Token::Dim),
+        Cell::from(if document["installed"] == true {
+            "yes"
         } else {
-            " (out of date; run install)"
-        },
-    );
+            "no"
+        }),
+    ]);
+    table.row([
+        Cell::styled("keys", Token::Dim),
+        Cell::from(format!(
+            "popup {}, pane {}{}",
+            path(&document["keys"]["popup"]),
+            path(&document["keys"]["pane"]),
+            document["keys"]["back"]
+                .as_str()
+                .map_or(String::new(), |key| format!(", back {key}")),
+        )),
+    ]);
+    table.row([
+        Cell::styled("squad file", Token::Dim),
+        Cell::from(format!(
+            "{}{}",
+            shown(&document["squadFile"]),
+            if document["current"] == true {
+                ""
+            } else {
+                " (out of date)"
+            }
+        )),
+    ]);
     if document["executableExists"] == false {
-        output.push_str(&format!(
-            "The recorded tmt {} no longer exists; run tmt squad hotkeys install.\n",
-            path(&document["executable"])
-        ));
+        table.row([
+            Cell::styled("tmt", Token::Dim),
+            Cell::from(format!(
+                "{} (no longer exists)",
+                shown(&document["executable"])
+            )),
+        ]);
     }
-    output
+    let stale = document["current"] != true || document["executableExists"] == false;
+    let section = Section {
+        title: "hotkeys",
+        count: None,
+        rows: table,
+        note: None,
+        hint: stale.then_some("tmt squad hotkeys install"),
+    };
+    let mut output = Vec::new();
+    let _ = section.write(&mut output, terminal);
+    String::from_utf8(output).unwrap_or_default()
 }
 
 /// One `✓ <past tense> <object>` line, rendered for `terminal`.
@@ -407,7 +485,7 @@ fn done(terminal: Terminal, text: &str) -> String {
 fn human(command: &str, document: &Value, terminal: Terminal) -> String {
     let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     match command {
-        "status" | "board" => status::text(document),
+        "status" | "board" => status::text(document, terminal),
         "hotkeys" => hotkeys_text(document, terminal),
         "playbook" => playbook::text(document, terminal),
         "jump" => {
@@ -434,7 +512,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
                 text(&document["requestId"])
             ),
         ),
-        "replies" => replies_text(document),
+        "replies" => replies_text(document, terminal),
         "reply" => done(
             terminal,
             &format!(
@@ -723,6 +801,49 @@ mod cli_style_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replies_preview_one_line_and_point_at_the_whole_body() {
+        let document = serde_json::json!({"replies": [
+            {"to": "auth-fix", "requestId": "req_1", "prompt": "check retries",
+             "response": "Done.\nSecond line stays behind tmt result.", "submittedAtMs": 0},
+            {"to": "docs", "requestId": "req_2", "prompt": "draft the guide", "response": null},
+        ]});
+        let text = replies_text(&document, Terminal::PLAIN);
+        assert!(text.starts_with("REPLIES 2\n"), "{text}");
+        assert!(text.contains("✓  auth-fix"), "{text}");
+        assert!(text.contains("req_1  Done.\n"), "{text}");
+        assert!(!text.contains("Second line"), "{text}");
+        assert!(text.contains("◌  docs"), "{text}");
+        assert!(text.contains("req_2  waiting: draft the guide\n"), "{text}");
+        assert!(text.ends_with("hint: tmt result req_1\n"), "{text}");
+        assert_eq!(
+            replies_text(&serde_json::json!({"replies": []}), Terminal::PLAIN),
+            "No replies to your squad requests yet.\n"
+        );
+    }
+
+    #[test]
+    fn the_hotkeys_report_is_a_section_with_the_next_step_only_when_stale() {
+        let report = |current: bool| {
+            serde_json::json!({"installed": true, "current": current,
+                "keys": {"popup": "S", "pane": "B", "back": null},
+                "squadFile": "/nowhere/squad.tmux.conf"})
+        };
+        let text = hotkeys_text(&report(true), Terminal::PLAIN);
+        assert!(text.starts_with("HOTKEYS\n  installed   yes\n"), "{text}");
+        assert!(text.contains("keys        popup S, pane B\n"), "{text}");
+        assert!(!text.contains("hint:"), "{text}");
+        let stale = hotkeys_text(&report(false), Terminal::PLAIN);
+        assert!(
+            stale.contains("/nowhere/squad.tmux.conf (out of date)"),
+            "{stale}"
+        );
+        assert!(
+            stale.ends_with("hint: tmt squad hotkeys install\n"),
+            "{stale}"
+        );
+    }
 
     fn words(line: &str) -> Vec<String> {
         line.split(' ').map(str::to_owned).collect()
