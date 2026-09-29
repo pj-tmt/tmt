@@ -13,14 +13,14 @@ toolchain needed.
 
 ```sh
 curl -fsSL https://github.com/wkh237/tmt/releases/latest/download/install.sh | sh
-tmt setup
 ```
 
 The installer puts `tmt` in `~/.local/bin` and, on a terminal, continues into
 `tmt setup`: it finds your agents, lists every file it will change (skills for
 each agent, session hooks for the ones installed here) and asks once. Run
-`tmt setup` again at any time; it offers only what is missing. For updates, a
-custom location, PATH setup or replacing an older installation, see
+`tmt setup` any time later; it offers only what is missing. If `tmt` is not
+found, complete the [one-time PATH setup](docs/NATIVE-INSTALL.md#one-time-path-setup).
+For updates, a custom location or replacing an older installation, see
 [installation options](docs/NATIVE-INSTALL.md).
 
 Office is optional. After installing the CLI, install and start the independently
