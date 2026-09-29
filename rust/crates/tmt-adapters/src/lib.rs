@@ -18,6 +18,8 @@ pub mod extension_hooks;
 #[cfg(unix)]
 pub mod file_lock;
 #[cfg(unix)]
+pub mod herdr;
+#[cfg(unix)]
 pub mod host;
 pub mod identity_projection;
 pub mod identity_status;
@@ -53,6 +55,8 @@ pub mod storage;
 #[cfg(unix)]
 pub mod tmux;
 
+#[cfg(all(test, unix))]
+mod scripted_runner;
 #[cfg(test)]
 mod test_support;
 

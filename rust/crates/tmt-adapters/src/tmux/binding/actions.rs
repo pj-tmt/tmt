@@ -1,13 +1,10 @@
 //! Driver actions share the existing binding evidence and pane IO owners.
 
 use super::*;
-use crate::process::{CommandError, runtime::observe_runtime_process};
+use crate::process::CommandError;
 use crate::tmux::{DeliveryError, FocusError};
 use tmt_core::{
-    binding::{
-        BindingEntry, BindingEvidence, evaluate_binding,
-        session::{RuntimeLiveness, RuntimeState},
-    },
+    binding::{BindingEntry, BindingEvidence, evaluate_binding, session::RuntimeState},
     driver::{
         ActionResult, DeliveryAcceptance, Driver, Focused, InterfacePresence, InterfaceStatus,
         SendFailure,
@@ -56,33 +53,8 @@ impl<R: CommandRunner> BindingSession<'_, R> {
     /// endpoint. This does not establish presence or grant routing authority.
     /// It uses the current coordination deadline, without another pane query.
     pub fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, ActionError> {
-        let mut runtime = binding.session.state;
-        if runtime == RuntimeState::Ended {
-            return Ok(runtime);
-        }
-        if let Some(key) = &binding.session.key {
-            let observation =
-                observe_runtime_process(&self.tmux.runner, key.incarnation.pid(), self.deadline)
-                    .map_err(ActionError::Process)?;
-            runtime = match observation.matches(&key.incarnation) {
-                RuntimeLiveness::Alive => runtime,
-                RuntimeLiveness::Gone => RuntimeState::Ended,
-                RuntimeLiveness::Unknown => RuntimeState::Unknown,
-            };
-            if runtime == RuntimeState::Running
-                && let Some(owner) = &binding.session.launch_owner
-            {
-                let observation =
-                    observe_runtime_process(&self.tmux.runner, owner.pid(), self.deadline)
-                        .map_err(ActionError::Process)?;
-                if observation.matches(owner) != RuntimeLiveness::Alive {
-                    runtime = RuntimeState::Unknown;
-                }
-            }
-        } else if runtime == RuntimeState::Running {
-            runtime = RuntimeState::Unknown;
-        }
-        Ok(runtime)
+        crate::process::runtime::binding_runtime(&self.tmux.runner, binding, self.deadline)
+            .map_err(ActionError::Process)
     }
 }
 
@@ -210,9 +182,9 @@ impl<R: CommandRunner> Driver for BindingSession<'_, R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tmux::{
-        evidence, metadata,
-        test_support::{ScriptedRunner, failure},
+    use crate::{
+        scripted_runner::{ScriptedRunner, failure},
+        tmux::{evidence, metadata},
     };
     use tmt_core::identity::Lifetime;
 
@@ -440,7 +412,7 @@ mod tests {
                 .admit(
                     session.key.clone().unwrap(),
                     tmt_core::binding::session::SessionTransition::Started,
-                    RuntimeLiveness::Alive,
+                    tmt_core::binding::session::RuntimeLiveness::Alive,
                 )
                 .unwrap();
             *session = session

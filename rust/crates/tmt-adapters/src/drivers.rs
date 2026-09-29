@@ -101,6 +101,21 @@ static MODULES: [&DriverDefinition; 6] = [
     &opencode::DRIVER,
 ];
 
+/// A registered driver's name when it is a whole word of a pane's command,
+/// such as `codex` in `/usr/local/bin/codex`. Whole words keep a short name
+/// from matching inside another command. Every host suggests names this way.
+pub(crate) fn suggested_name(command: &str) -> Option<String> {
+    let command = command.to_lowercase();
+    let words: Vec<&str> = command
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .collect();
+    Registry::builtin()
+        .names()
+        .into_iter()
+        .find(|name| words.contains(name))
+        .map(str::to_owned)
+}
+
 /// An ordered set of drivers with unique names. Production uses
 /// [`Registry::builtin`]; a test can add a descriptor with [`Registry::with`].
 #[derive(Debug, Clone)]

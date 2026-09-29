@@ -1,0 +1,96 @@
+//! The binding marker as pane tokens under source `tmt`. Herdr caps a token
+//! value at 80 characters, so a longer name spans numbered continuation keys.
+//! Keys are not owned by their source: a marker proves nothing unless its IDs
+//! match storage, exactly like the tmux pane option.
+
+use serde_json::{Map, Value};
+use tmt_core::endpoint::{BindingMarker, valid_process_id};
+
+pub(super) const SOURCE: &str = "tmt";
+const VALUE_CHARACTERS: usize = 80;
+const NAME_PARTS: usize = 4;
+const IDS: [&str; 4] = ["tmt_identity", "tmt_binding", "tmt_server", "tmt_pid"];
+const NAMES: [&str; 2] = ["tmt_name", "tmt_cname"];
+
+fn part_key(name: &str, part: usize) -> String {
+    if part == 0 {
+        name.into()
+    } else {
+        format!("{name}_{}", part + 1)
+    }
+}
+
+/// Every key a marker may use, for clearing.
+pub(super) fn keys() -> Vec<String> {
+    let mut keys: Vec<String> = IDS.iter().map(|key| (*key).into()).collect();
+    for name in NAMES {
+        keys.extend((0..NAME_PARTS).map(|part| part_key(name, part)));
+    }
+    keys
+}
+
+/// `KEY=VALUE` tokens for one report, or `None` when a name is too long for
+/// the parts Herdr allows.
+pub(super) fn encode(marker: &BindingMarker) -> Option<Vec<String>> {
+    let mut tokens = vec![
+        format!("tmt_identity={}", marker.identity_id),
+        format!("tmt_binding={}", marker.binding_id),
+        format!("tmt_server={}", marker.server_id),
+        format!("tmt_pid={}", marker.pane_pid),
+    ];
+    for (name, value) in NAMES
+        .into_iter()
+        .zip([&marker.name, &marker.canonical_name])
+    {
+        let characters: Vec<char> = value.chars().collect();
+        let parts: Vec<String> = characters
+            .chunks(VALUE_CHARACTERS)
+            .map(|chunk| chunk.iter().collect())
+            .collect();
+        if parts.is_empty() || parts.len() > NAME_PARTS {
+            return None;
+        }
+        for (part, text) in parts.iter().enumerate() {
+            tokens.push(format!("{}={text}", part_key(name, part)));
+        }
+    }
+    Some(tokens)
+}
+
+pub(super) fn decode(tokens: Option<&Map<String, Value>>) -> Option<BindingMarker> {
+    let tokens = tokens?;
+    let text = |key: &str| {
+        tokens
+            .get(key)?
+            .as_str()
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+    };
+    let name = |key: &str| {
+        let mut value = text(key)?;
+        for part in 1..NAME_PARTS {
+            match text(&part_key(key, part)) {
+                Some(next) => value.push_str(&next),
+                None => break,
+            }
+        }
+        Some(value)
+    };
+    let pane_pid = text("tmt_pid")?
+        .parse::<u64>()
+        .ok()
+        .filter(|pid| valid_process_id(*pid))?;
+    Some(BindingMarker {
+        name: name("tmt_name")?,
+        canonical_name: name("tmt_cname")?,
+        identity_id: text("tmt_identity")?,
+        binding_id: text("tmt_binding")?,
+        server_id: text("tmt_server")?,
+        pane_pid,
+    })
+}
+
+/// The binding ID a pane's tokens name, if any.
+pub(super) fn binding_id(tokens: Option<&Map<String, Value>>) -> Option<&str> {
+    tokens?.get("tmt_binding")?.as_str()
+}

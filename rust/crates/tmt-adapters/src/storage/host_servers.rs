@@ -10,14 +10,8 @@ use super::{
     identities::with_immediate_transaction,
 };
 
-/// One running server of a host, as the host adapter observed it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HostServerIncarnation<'a> {
-    pub host: &'a str,
-    pub socket_path: &'a str,
-    pub server_pid: u64,
-    pub server_start_time: &'a str,
-}
+use tmt_core::host::HostServerIds;
+pub use tmt_core::host::HostServerIncarnation;
 
 impl Storage {
     /// The UUIDv4 for this incarnation, created the first time it is seen.
@@ -32,7 +26,7 @@ impl Storage {
             .map_err(|_| StorageError::new(StorageErrorCode::Unknown, "Invalid clock value"))?;
         with_immediate_transaction(self, "host server", |transaction| {
             let key = params![
-                server.host,
+                server.host.as_str(),
                 server.socket_path,
                 pid,
                 server.server_start_time
@@ -56,7 +50,7 @@ impl Storage {
                      server_start_time, first_seen_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
                     params![
                         id,
-                        server.host,
+                        server.host.as_str(),
                         server.socket_path,
                         pid,
                         server.server_start_time,
@@ -69,6 +63,14 @@ impl Storage {
     }
 }
 
+impl HostServerIds for Storage {
+    type Error = StorageError;
+
+    fn server_id(&mut self, server: &HostServerIncarnation<'_>) -> Result<String, StorageError> {
+        self.host_server_id(server, crate::request_runtime::wall_time_ms())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,7 +78,7 @@ mod tests {
 
     fn herdr<'a>(pid: u64, started: &'a str) -> HostServerIncarnation<'a> {
         HostServerIncarnation {
-            host: "herdr",
+            host: tmt_core::host::HostKind::Herdr,
             socket_path: "/tmp/herdr.sock",
             server_pid: pid,
             server_start_time: started,
@@ -120,7 +122,7 @@ mod tests {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
         let tmux = HostServerIncarnation {
-            host: "tmux",
+            host: tmt_core::host::HostKind::Tmux,
             ..herdr(41, "Tue 22:09")
         };
         assert!(storage.host_server_id(&tmux, 1).is_err());
