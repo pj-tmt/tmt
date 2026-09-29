@@ -38,17 +38,24 @@ struct ListedRow {
 struct ResolvedPane {
     id: String,
     frozen: Option<BindingTargetEvidence>,
+    /// The explicit target, whose host observes the pane.
+    target: Option<String>,
+    /// How the user names the pane.
+    label: String,
 }
 
 enum Report {
     Bound(BoundIdentity),
     Caller {
         pane: String,
+        /// How the user names the pane (`pane` on tmux, `wN:pM` on Herdr).
+        label: String,
         identity: Option<Identity>,
         runtime: RuntimeState,
     },
     Unbound {
         pane: String,
+        label: String,
         result: UnboundIdentity,
     },
     Removed(BindingEntry),
@@ -88,10 +95,23 @@ fn remembered_session(
         })
 }
 
+/// A caller's pane as the user names it: Herdr's public ID comes from the
+/// caller's own environment.
+fn caller_label(host: &Host, environment: &CallerEnvironment, id: &str) -> String {
+    let herdr = environment
+        .herdr_pane
+        .as_ref()
+        .and_then(|pane| pane.to_str());
+    host.kind().pane_address(id, herdr).to_owned()
+}
+
+/// `listed_pane`: whether `ls <text>` addresses a pane, decided once by
+/// [`listed_target`] before any host is resolved.
 fn preflight(
     request: &Invocation,
     host: &Host,
     environment: &CallerEnvironment,
+    listed_pane: bool,
 ) -> Result<Option<ResolvedPane>, Failure> {
     let target = match request {
         Invocation::BindMarked { .. } => {
@@ -108,7 +128,9 @@ fn preflight(
                 })?;
             return Ok(Some(ResolvedPane {
                 id: target.pane_id.clone(),
+                label: target.pane_id.clone(),
                 frozen: Some(target),
+                target: None,
             }));
         }
         Invocation::Bind {
@@ -129,7 +151,7 @@ fn preflight(
         Invocation::List {
             target: Some(target),
             ..
-        } if is_pane_target(target) => Some(target.as_str()),
+        } if listed_pane => Some(target.as_str()),
         Invocation::List {
             target: None,
             scope: ListScope { here: true, .. },
@@ -140,7 +162,14 @@ fn preflight(
             return host
                 .caller_pane(environment)
                 .map_err(endpoint_failure)?
-                .map(|id| Some(ResolvedPane { id, frozen: None }))
+                .map(|id| {
+                    Some(ResolvedPane {
+                        label: caller_label(host, environment, &id),
+                        id,
+                        frozen: None,
+                        target: None,
+                    })
+                })
                 .ok_or_else(|| {
                     Failure::new(
                         "PANE_NOT_FOUND",
@@ -155,7 +184,14 @@ fn preflight(
             return host
                 .caller_pane(environment)
                 .map_err(endpoint_failure)?
-                .map(|id| Some(ResolvedPane { id, frozen: None }))
+                .map(|id| {
+                    Some(ResolvedPane {
+                        label: caller_label(host, environment, &id),
+                        id,
+                        frozen: None,
+                        target: None,
+                    })
+                })
                 .ok_or_else(|| {
                     Failure::new(
                         "PANE_NOT_FOUND",
@@ -178,16 +214,76 @@ fn preflight(
                         3,
                     )
                 })
-                .map(|id| ResolvedPane { id, frozen: None })
+                .map(|id| ResolvedPane {
+                    label: tmt_core::host::HostKind::label(&id, Some(target)).to_owned(),
+                    id,
+                    frozen: None,
+                    target: Some(target.to_owned()),
+                })
         })
         .transpose()
 }
 
+fn open_storage(paths: &ConfigPaths) -> Result<Storage, Failure> {
+    Storage::open(&paths.database).map_err(|error| {
+        Failure::new("IDENTITY_ERROR", "Could not open identity storage.", 1).caused_by(error)
+    })
+}
+
+/// Whether `ls <text>` addresses a pane rather than an identity, decided
+/// once before any host is resolved. Only text an existing identity could
+/// hold (a Herdr target) needs storage, which is then kept for the command;
+/// other requests open storage only after their preflight, as before.
+struct ListedTarget {
+    pane: bool,
+    opened: Option<(ConfigPaths, Storage)>,
+}
+
+fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
+    let target = match request {
+        Invocation::List {
+            target: Some(target),
+            ..
+        } if is_pane_target(target) => target,
+        _ => {
+            return Ok(ListedTarget {
+                pane: false,
+                opened: None,
+            });
+        }
+    };
+    if tmt_core::names::validate_existing_name(target).is_err() {
+        return Ok(ListedTarget {
+            pane: true,
+            opened: None,
+        });
+    }
+    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let storage = open_storage(&paths)?;
+    let pane = tmt_core::identity::addresses_pane(&storage, target).map_err(|error| {
+        Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)
+    })?;
+    Ok(ListedTarget {
+        pane,
+        opened: Some((paths, storage)),
+    })
+}
+
 fn run(request: Invocation) -> Result<Report, Failure> {
     let environment = CallerEnvironment::current();
-    let host = Host::for_caller(&environment);
-    let pane = preflight(&request, &host, &environment)?;
-    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let caller = Host::for_caller(&environment);
+    let listed = listed_target(&request)?;
+    let pane = preflight(&request, &caller, &environment, listed.pane)?;
+    // An explicit target's own host observes it; stored bindings are always
+    // probed on theirs.
+    let host = match pane.as_ref().and_then(|pane| pane.target.as_deref()) {
+        Some(target) => Host::for_target(target),
+        None => caller,
+    };
+    let (paths, storage) = match listed.opened {
+        Some((paths, storage)) => (paths, Some(storage)),
+        None => (ConfigPaths::discover().map_err(Failure::from)?, None),
+    };
     let badge = if matches!(
         request,
         Invocation::Bind { .. } | Invocation::BindMarked { .. } | Invocation::Rename { .. }
@@ -202,18 +298,32 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     } else {
         PaneBadge::Off
     };
-    let mut storage = Storage::open(paths.database).map_err(|error| {
-        Failure::new("IDENTITY_ERROR", "Could not open identity storage.", 1).caused_by(error)
-    })?;
+    let mut storage = match storage {
+        Some(storage) => storage,
+        None => open_storage(&paths)?,
+    };
+    // A pane observation needs its server resolved before any binding
+    // transaction; listing and name operations only probe stored bindings.
+    let resolved = if pane.is_some()
+        || matches!(
+            request,
+            Invocation::Bind { .. } | Invocation::BindMarked { .. }
+        ) {
+        host.resolve_servers(&mut storage).map_err(endpoint_failure)
+    } else {
+        Ok(())
+    };
     let mut endpoint = host.session();
-    let pending = operation(
-        &mut storage,
-        &mut endpoint,
-        request,
-        pane,
-        environment.selected_server(),
-    )
-    .and_then(|mut report| {
+    let operated = resolved.and_then(|()| {
+        operation(
+            &mut storage,
+            &mut endpoint,
+            request,
+            pane,
+            host.selected_server(&environment),
+        )
+    });
+    let pending = operated.and_then(|mut report| {
         // Presentation follows successful durable effects, never decides
         // them. The adapter preserves user themes and changed endpoints.
         let badge = badge == PaneBadge::On;
@@ -304,7 +414,9 @@ fn operation(
             .map_err(binding_failure)
         }
         Invocation::Whoami => {
-            let pane = pane.expect("caller preflight").id;
+            let ResolvedPane {
+                id: pane, label, ..
+            } = pane.expect("caller preflight");
             let observed =
                 binding::pane_presence(storage, endpoint, &pane).map_err(binding_failure)?;
             let runtime = observed
@@ -314,18 +426,25 @@ fn operation(
                 .unwrap_or(RuntimeState::Unknown);
             Ok(Report::Caller {
                 pane,
+                label,
                 identity: observed.identity,
                 runtime,
             })
         }
         Invocation::Unbind => {
-            let pane = pane.expect("caller preflight").id;
+            let ResolvedPane {
+                id: pane, label, ..
+            } = pane.expect("caller preflight");
             let result = binding::unbind_identity(storage, endpoint, &pane)
                 .map_err(binding_failure)?
                 .ok_or_else(|| {
                     Failure::new("UNBOUND_PANE", "Pane has no active global name.", 1)
                 })?;
-            Ok(Report::Unbound { pane, result })
+            Ok(Report::Unbound {
+                pane,
+                label,
+                result,
+            })
         }
         Invocation::Remove { name, force } => {
             binding::remove_identity(storage, endpoint, &name, force)

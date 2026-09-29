@@ -111,3 +111,18 @@ fn pane_classification_and_name_rejection_share_exact_target_forms() {
         assert!(validate_name(name).is_ok(), "{name:?}");
     }
 }
+
+#[test]
+fn herdr_target_names_are_refused_only_as_new_names() {
+    for name in ["w1:p2", "W1:P2", "ｗ１:ｐ２"] {
+        assert!(is_pane_target(name), "{name:?}");
+        assert_eq!(validate_name(name), Err(NameError::PaneTarget), "{name:?}");
+        let existing = validate_existing_name(name).expect("an existing identity keeps it");
+        assert_eq!(existing.canonical_name(), "w1:p2");
+    }
+    // tmux targets were never names, so no existing identity holds one.
+    for target in ["%14", "10.3", "session:2.1"] {
+        assert_eq!(validate_existing_name(target), Err(NameError::PaneTarget));
+    }
+    assert_eq!(validate_existing_name(" "), Err(NameError::EmptyOrControl));
+}
