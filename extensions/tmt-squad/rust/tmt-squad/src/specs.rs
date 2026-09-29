@@ -159,40 +159,12 @@ pub const JUMP: &CommandSpec = spec!(
     ]
 );
 
-pub const TALK: &CommandSpec = spec!(
-    "talk",
-    "Send a detached request to a member, in the squad room",
-    [
-        "Send a request without waiting for the answer" => "tmt squad talk auth-fix \"Check the retry path\"",
-        "Ask the lead of a chosen squad" => "tmt squad talk sol \"Summarize the open PRs\" --squad product",
-        "Send as a named identity" => "tmt squad talk auth-fix \"Rebase first\" --identity sol",
-    ]
-);
-
-pub const REPLY: &CommandSpec = spec!(
-    "reply",
-    "Answer what a member is waiting on you for",
-    [
-        "Answer what a member asked" => "tmt squad reply auth-fix \"Use postgres\"",
-        "Pick the request when it asks several" => "tmt squad reply auth-fix \"Use postgres\" --request req_8f3a2c1d",
-    ]
-);
-
 pub const ANNOTATE: &CommandSpec = spec!(
     "annotate",
     "Send a note about a member's row to the lead (or the member)",
     [
         "Send the lead a note about a member's row" => "tmt squad annotate auth-fix \"Split this job\"",
         "Send the note to the member instead" => "tmt squad annotate auth-fix \"Rebase first\" --to member",
-    ]
-);
-
-pub const REPLIES: &CommandSpec = spec!(
-    "replies",
-    "Show finals to your squad requests, newest first (never acknowledges)",
-    [
-        "Read the answers to your requests" => "tmt squad replies",
-        "Read them from a script" => "tmt squad replies --json",
     ]
 );
 

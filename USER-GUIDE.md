@@ -537,32 +537,33 @@ tmt squad open auth-fix                     # pr_link, else link, else another *
 tmt squad open auth-fix --link issue_link
 tmt squad copy auth-fix                     # "auth-fix: <task> (<state>)"
 tmt squad copy auth-fix --format '- [{name}]({pr_link})'
-tmt squad talk auth-fix "check the retry path"
 tmt squad annotate auth-fix "split this job"   # to the lead; --to member for the member
-tmt squad reply auth-fix "use postgres"        # --request <id> when it asks several
 ```
 
-Talk, reply and annotate send as your saved identity (`me` in `squad.toml`) and
-never wait: each is a detached request in the squad's room, and its answer
-arrives through TMT as usual. On the board, `t`, `r` and `a` open a one-line
-composer: Enter sends, Esc cancels, and empty text sends nothing. `reply`
-answers what the member is waiting on you for; with several open requests you
-choose one (the board lists them), and the newest is never assumed. Replying
-acknowledges nothing. `annotate` sends `[<squad> · <member>] <text>` to the lead
+Talking and answering are TMT's own commands, not Squad's: `tmt talk <member>
+"…" --detach` sends, and `tmt answer <member> "…"` answers what a member is
+waiting on you for (see [Inbox and answer](REQUEST-RESPONSE.md#inbox-and-answer)).
+The old `tmt squad talk`, `reply` and `replies` now refuse and name these
+commands. On the board, `t`, `r` and `a` open a one-line composer: Enter sends,
+Esc cancels, and empty text sends nothing. They send as your saved identity
+(`me` in `squad.toml`) and never wait. `t` is a detached `tmt talk` in the
+squad's room, so its answer shows on the board. `r` is `tmt answer`: with
+several open requests you choose one (the board lists them, oldest first), and
+none is assumed. Answering acknowledges nothing. `annotate` sends `[<squad> · <member>] <text>` to the lead
 (or, with `member`, to the member) and never edits anyone's notes; until it is
 answered, the row shows `✎ sent to <name>: <text>`, rebuilt from request history
 on every refresh. `status --json` reports it as each row's `annotation` and the
-member's open requests to you as `waitingOnYou`. Squad reads at most the newest
-200 requests for these; when older ones exist it says `older requests not
+member's open requests to you as `waitingOnYou`, from `tmt inbox`: a request
+stays there until it has a final or its answer deadline passes. Squad reads at
+most 200 requests for each; when more exist it says `older requests not
 shown`.
 
-The `replies` pane, and `tmt squad replies` (`--json` for scripts), list the
-answers to your talks and annotations in the squad, newest first: who answered,
-how long ago, what you asked and the reply. On the board the newest eight show
-their text, with terminal escapes removed and at most six lines; older ones
-point to `tmt result <request-id>`. `tmt squad replies` shows one row per
-request (✓ answered, ◌ waiting) with its request ID and the reply's first line;
-`tmt result <request-id>` prints the whole reply exactly. Reading replies acknowledges nothing, so
+The `replies` pane lists the answers to your talks and annotations in the
+squad, newest first: who answered, how long ago, what you asked and the reply.
+It reads the squad room's request history, so an answer stays after you
+acknowledge it. The newest eight show their text, with terminal escapes removed
+and at most six lines; older ones point to `tmt result <request-id>`, which
+prints the whole reply exactly. Reading replies acknowledges nothing, so
 `tmt x list` still shows them until you acknowledge them there.
 
 `jump` is `tmt focus` for a squad member or the lead, run inside tmux. Each

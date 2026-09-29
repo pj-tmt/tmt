@@ -355,21 +355,36 @@ describe('squad extension', () => {
       const requests = async () =>
         (await api('requests.list', { recipientId: ids['auth-fix'], limit: 50 })).items.length;
 
-      // No pane identity and no recorded user: nothing is sent.
-      for (const args of [
-        ['talk', 'auth-fix', 'hello'],
-        ['annotate', 'auth-fix', 'split it'],
-        ['reply', 'auth-fix', 'yes'],
-        ['replies'],
+      // The conversation verbs moved to core: each refuses with its
+      // replacement, sends nothing and never forwards.
+      for (const [command, replacement] of [
+        ['talk', 'tmt talk <member> "…" --detach'],
+        ['reply', 'tmt answer <member> "…"'],
+        ['replies', 'tmt x (and tmt result <request-id>)'],
       ]) {
-        const refused = await squad(sandbox, args);
-        expect(refused, args.join(' ')).toMatchObject({
-          status: 1,
-          body: { error: { code: 'SQUAD_SENDER_UNKNOWN' } },
+        const removed = await squad(sandbox, [command, 'auth-fix', 'hello']);
+        expect(removed, command).toMatchObject({
+          status: 2,
+          body: { error: { code: 'SQUAD_COMMAND_REMOVED' } },
         });
+        const human = await runCli(sandbox, ['sq', command, 'auth-fix', 'hello']);
+        expect(human.status).toBe(2);
+        expect(human.stderr).toBe(
+          `error: tmt squad ${command} was removed\nhint: ${replacement}\n`
+        );
+        const help = await runCli(sandbox, ['sq', '--help']);
+        expect(help.stdout).not.toMatch(new RegExp(`^  ${command} `, 'm'));
       }
       expect(await requests()).toBe(0);
-      const text = await runCli(sandbox, ['sq', 'talk', 'auth-fix', 'hello']);
+
+      // No pane identity and no recorded user: nothing is sent.
+      const refused = await squad(sandbox, ['annotate', 'auth-fix', 'split it']);
+      expect(refused).toMatchObject({
+        status: 1,
+        body: { error: { code: 'SQUAD_SENDER_UNKNOWN' } },
+      });
+      expect(await requests()).toBe(0);
+      const text = await runCli(sandbox, ['sq', 'annotate', 'auth-fix', 'hello']);
       expect(text.stderr).toBe(
         'error: Who is sending? This pane has no identity, and no user is recorded\n' +
           'hint: Name this pane with tmt this <name>, or record yourself with tmt squad me <name>\n'
@@ -378,20 +393,22 @@ describe('squad extension', () => {
       // An explicit identity speaks for itself, even with a user recorded.
       await squad(sandbox, ['me', 'Ben']);
       const asLead = await squad(sandbox, [
-        'talk',
+        'annotate',
         'auth-fix',
         'rebase first',
+        '--to',
+        'member',
         '--identity',
         'Sol',
       ]);
       expect(asLead.body).toMatchObject({ to: 'auth-fix', as: 'Sol' });
       expect(await sender(asLead.body.requestId)).toBe(ids.Sol);
-      const unknown = await squad(sandbox, ['talk', 'auth-fix', 'x', '--identity', 'Nobody']);
+      const unknown = await squad(sandbox, ['annotate', 'auth-fix', 'x', '--identity', 'Nobody']);
       expect(unknown.body.error.code).toBe('NAME_NOT_FOUND');
 
       // Without one, the recorded user sends.
-      const asUser = await runCli(sandbox, ['sq', 'talk', 'auth-fix', 'status?']);
-      expect(asUser.stdout).toMatch(/^✓ Sent to auth-fix as Ben \(req_[0-9a-f-]+\)\n$/);
+      const asUser = await runCli(sandbox, ['sq', 'annotate', 'auth-fix', 'split it']);
+      expect(asUser.stdout).toMatch(/^✓ Sent to Sol as Ben \(req_[0-9a-f-]+\)\n$/);
       const annotated = await squad(sandbox, ['annotate', 'auth-fix', 'split it']);
       expect(annotated.body).toMatchObject({ to: 'Sol', as: 'Ben' });
       expect(await sender(annotated.body.requestId)).toBe(ids.Ben);
@@ -811,7 +828,7 @@ sort = ["-name"]
     });
   });
 
-  it('talks, annotates and replies as the user through core requests only', async () => {
+  it('talks, annotates and answers as the user through core commands only', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       const ids: Record<string, string> = {};
@@ -836,11 +853,23 @@ sort = ["-name"]
       const notebook = async () => (await api('notes.read', { identityId: ids.Sol })).error?.code;
       expect(await notebook()).toBe('NOTEBOOK_NOT_FOUND');
 
-      // talk: detached, untagged, in the squad room, from the user.
+      // talk: the board's t is core's detached talk in the squad room, with
+      // the text after `--` as the board sends it.
       const text = '-rf; $(touch pwned) "quoted"';
-      const talk = await squad(sandbox, ['talk', 'auth-fix', text]);
+      const talk = await runCli(sandbox, [
+        'talk',
+        '--identity',
+        'Ben',
+        '--room',
+        'squad-product',
+        '--detach',
+        '--json',
+        '--',
+        'auth-fix',
+        text,
+      ]);
       expect(talk.status).toBe(0);
-      const talked = await prompt(talk.body.requestId);
+      const talked = await prompt(JSON.parse(talk.stdout).requestId);
       expect(talked).toMatchObject({
         roomId,
         recipientId: ids['auth-fix'],
@@ -850,13 +879,8 @@ sort = ["-name"]
         prompt: { message: text },
       });
       const before = (await roomRequests()).length;
-      for (const args of [
-        ['talk', 'auth-fix', '   '],
-        ['annotate', 'auth-fix', ''],
-      ]) {
-        const empty = await squad(sandbox, args);
-        expect(empty.body.error.code, args.join(' ')).toBe('SQUAD_ACTION_REFUSED');
-      }
+      const empty = await squad(sandbox, ['annotate', 'auth-fix', '']);
+      expect(empty.body.error.code).toBe('SQUAD_ACTION_REFUSED');
       expect((await roomRequests()).length, 'empty input sends nothing').toBe(before);
 
       // annotate: tagged, to the lead by default or to the member.
@@ -913,7 +937,7 @@ sort = ["-name"]
       expect((await marker())['auth-fix'], 'gone after the final').toBeNull();
       expect((await marker()).docs).not.toBeNull();
 
-      // reply: the user chooses among open requests; nothing is acknowledged.
+      // Waiting on you comes from tmt inbox; the board's r is tmt answer.
       const asks: string[] = [];
       for (const question of ['approve the plan?', 'which database?']) {
         const asked = await runCli(sandbox, [
@@ -928,116 +952,55 @@ sort = ["-name"]
         ]);
         asks.push(JSON.parse(asked.stdout).requestId);
       }
-      const waiting = (await squad(sandbox, ['ls', '--squad', 'product'])).body.sections[0].rows[0]
-        .waitingOnYou;
-      expect(waiting.map((item: { requestId: string }) => item.requestId).sort()).toEqual(
-        [...asks].sort()
-      );
-      const ambiguous = await squad(sandbox, ['reply', 'auth-fix', 'postgres']);
-      expect(ambiguous.body.error.code).toBe('SQUAD_ACTION_REFUSED');
-      for (const ask of asks) expect(ambiguous.body.error.message).toContain(ask);
-      const stranger = await squad(sandbox, ['reply', 'docs', 'x', '--request', asks[0]]);
-      expect(stranger.body.error.code).toBe('SQUAD_ACTION_REFUSED');
-
-      const chosen = await squad(sandbox, ['reply', 'auth-fix', '-postgres', '--request', asks[0]]);
-      expect(chosen.body).toEqual({
-        requestId: asks[0],
-        from: 'auth-fix',
-        as: 'Ben',
-        replied: true,
-      });
+      const waiting = async () =>
+        (
+          await squad(sandbox, ['ls', '--squad', 'product'])
+        ).body.sections[0].rows[0].waitingOnYou.map(
+          (item: { requestId: string }) => item.requestId
+        );
+      expect(await waiting(), 'oldest first').toEqual(asks);
+      // Acknowledging a request (as live delivery does) does not stop it
+      // waiting: it stays on the row until it has a final.
+      const first = await incoming('Ben', asks[0]);
+      const acked = await runCli(sandbox, [
+        'x',
+        'ack',
+        asks[0],
+        '--incoming',
+        '--revision',
+        String(first.revision),
+        '--identity',
+        'Ben',
+        '--json',
+      ]);
+      expect(acked.status).toBe(0);
+      expect(await waiting()).toEqual(asks);
+      const board = async (request: string, body: string) =>
+        runCli(sandbox, [
+          'answer',
+          '--identity',
+          'Ben',
+          '--request',
+          request,
+          '--json',
+          '--',
+          'auth-fix',
+          body,
+        ]);
+      const chosen = await board(asks[0], '-postgres');
+      expect(chosen.status, chosen.stdout).toBe(0);
+      expect(JSON.parse(chosen.stdout)).toMatchObject({ requestId: asks[0], status: 'submitted' });
       const result = JSON.parse((await runCli(sandbox, ['result', asks[0], '--json'])).stdout);
-      expect(JSON.stringify(result)).toContain('-postgres');
-      const only = await squad(sandbox, ['reply', 'auth-fix', 'yes']);
-      expect(only.body.requestId, 'one open request needs no choice').toBe(asks[1]);
-      for (const ask of asks) {
-        expect((await incoming('Ben', ask)).acknowledged, 'reply never acknowledges').toBe(false);
-      }
-      expect((await squad(sandbox, ['reply', 'auth-fix', 'more'])).body.error.message).toBe(
-        'auth-fix is not waiting on you.'
+      expect(result.response).toBe('-postgres');
+      expect(await waiting()).toEqual([asks[1]]);
+      expect((await board(asks[1], 'yes')).status).toBe(0);
+      expect(await waiting()).toEqual([]);
+      expect((await incoming('Ben', asks[1])).acknowledged, 'answering never acknowledges').toBe(
+        false
       );
 
       expect(await notebook(), 'no notebook was created or written').toBe('NOTEBOOK_NOT_FOUND');
       expect(existsSync(path.join(sandbox.root, 'pwned'))).toBe(false);
-    });
-  });
-
-  it('lists finals to the requests the user sent in the squad, newest first, without acknowledging them', async () => {
-    await withSandbox(async (sandbox) => {
-      installSquad(sandbox);
-      for (const name of ['Ben', 'Sol', 'auth-fix']) await identity(sandbox, name);
-      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
-      await squad(sandbox, ['lead', 'Sol']);
-      await squad(sandbox, ['add', 'auth-fix']);
-      const empty = await squad(sandbox, ['replies']);
-      expect(empty.body).toMatchObject({ squad: 'product', replies: [] });
-
-      const talk = (await squad(sandbox, ['talk', 'auth-fix', 'status of the retry path?'])).body;
-      const note = (await squad(sandbox, ['annotate', 'auth-fix', 'split the job'])).body;
-      const answer = async (who: string, requestId: string, message: string) => {
-        const shown = JSON.parse(
-          (
-            await runCli(sandbox, [
-              'x',
-              'show',
-              requestId,
-              '--incoming',
-              '--identity',
-              who,
-              '--json',
-            ])
-          ).stdout
-        );
-        const replied = await runCli(sandbox, [
-          'reply',
-          requestId,
-          '--receipt',
-          shown.exchange.reply.receipt,
-          '--message',
-          message,
-          '--json',
-        ]);
-        expect(replied.status).toBe(0);
-      };
-      await answer('Sol', note.requestId, 'agreed, splitting');
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      await answer('auth-fix', talk.requestId, 'retry passes\n\u001b[31mred\u001b[0m');
-
-      const attention = async () =>
-        JSON.parse((await runCli(sandbox, ['x', 'list', '--identity', 'Ben', '--json'])).stdout)
-          .items.map((item: { requestId: string; revision: number }) => [
-            item.requestId,
-            item.revision,
-          ])
-          .sort();
-      const before = await attention();
-      expect(before.length).toBe(2);
-
-      const listed = (await squad(sandbox, ['replies'])).body;
-      expect(listed.replies.map((reply: { to: string }) => reply.to)).toEqual(['auth-fix', 'Sol']);
-      expect(listed.replies[0]).toMatchObject({
-        requestId: talk.requestId,
-        prompt: 'status of the retry path?',
-        status: 'retained',
-        response: 'retry passes\n\u001b[31mred\u001b[0m',
-      });
-      expect(listed.replies[1]).toMatchObject({
-        requestId: note.requestId,
-        prompt: '[product · auth-fix] split the job',
-        response: 'agreed, splitting',
-      });
-      const text = (await runCli(sandbox, ['sq', 'replies'])).stdout;
-      // One row per request: its ID and the reply's first line; the whole
-      // body stays exact behind tmt result.
-      expect(text).toMatch(
-        new RegExp(`\\n {2}✓ {2}auth-fix .* ${talk.requestId} {2}retry passes\\n`)
-      );
-      expect(text).not.toContain('red');
-      expect(text).not.toContain('\u001b');
-      expect(text).toContain(`hint: tmt result ${talk.requestId}\n`);
-
-      // Reading replies acknowledges nothing: the originator's attention is unchanged.
-      expect(await attention()).toEqual(before);
     });
   });
 
