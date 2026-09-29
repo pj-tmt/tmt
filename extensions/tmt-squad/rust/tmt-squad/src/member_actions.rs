@@ -182,6 +182,27 @@ pub fn annotate(
     Ok(json!({"requestId": request, "to": to, "row": name, "room": crate::squad::room_name(&squad.name)}).into())
 }
 
+/// `tmt squad replies`: finals to the user's requests in the squad room,
+/// newest first, with bodies for the newest few. Reading acknowledges nothing.
+pub fn replies(core: &Core, squad: &Squad, config: &Config) -> Result<Outcome, SquadError> {
+    let me = me(config)?;
+    let mut document = document(core, squad, config)?;
+    let sent = requests::overlay(core, squad, Some(me), &mut document)?.expect("me is set");
+    let mut replies = requests::replies(&sent, &document);
+    let mut bodies = std::collections::BTreeMap::new();
+    requests::bodies(
+        |id| requests::show_request(core, id),
+        &mut replies,
+        &mut bodies,
+    )?;
+    Ok(json!({
+        "squad": squad.name,
+        "replies": replies,
+        "olderRequestsNotShown": document["olderRequestsNotShown"],
+    })
+    .into())
+}
+
 /// `tmt squad reply <member> <text> [--request <id>]`: answers what the
 /// member is waiting on the user for. With several open requests the user
 /// chooses; the newest is never assumed.

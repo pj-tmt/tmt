@@ -3,7 +3,7 @@
 
 mod app;
 mod markdown;
-mod notes;
+pub(crate) mod notes;
 mod refresh;
 mod terminal;
 mod view;

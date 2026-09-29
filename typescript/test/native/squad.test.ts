@@ -610,4 +610,78 @@ sort = ["-name"]
       expect(existsSync(path.join(sandbox.root, 'pwned'))).toBe(false);
     });
   });
+
+  it('lists finals to the requests the user sent in the squad, newest first, without acknowledging them', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'Sol', 'auth-fix']) await identity(sandbox, name);
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['lead', 'Sol']);
+      await squad(sandbox, ['add', 'auth-fix']);
+      const empty = await squad(sandbox, ['replies']);
+      expect(empty.body).toMatchObject({ squad: 'product', replies: [] });
+
+      const talk = (await squad(sandbox, ['talk', 'auth-fix', 'status of the retry path?'])).body;
+      const note = (await squad(sandbox, ['annotate', 'auth-fix', 'split the job'])).body;
+      const answer = async (who: string, requestId: string, message: string) => {
+        const shown = JSON.parse(
+          (
+            await runCli(sandbox, [
+              'x',
+              'show',
+              requestId,
+              '--incoming',
+              '--identity',
+              who,
+              '--json',
+            ])
+          ).stdout
+        );
+        const replied = await runCli(sandbox, [
+          'reply',
+          requestId,
+          '--receipt',
+          shown.exchange.reply.receipt,
+          '--message',
+          message,
+          '--json',
+        ]);
+        expect(replied.status).toBe(0);
+      };
+      await answer('Sol', note.requestId, 'agreed, splitting');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await answer('auth-fix', talk.requestId, 'retry passes\n\u001b[31mred\u001b[0m');
+
+      const attention = async () =>
+        JSON.parse((await runCli(sandbox, ['x', 'list', '--identity', 'Ben', '--json'])).stdout)
+          .items.map((item: { requestId: string; revision: number }) => [
+            item.requestId,
+            item.revision,
+          ])
+          .sort();
+      const before = await attention();
+      expect(before.length).toBe(2);
+
+      const listed = (await squad(sandbox, ['replies'])).body;
+      expect(listed.replies.map((reply: { to: string }) => reply.to)).toEqual(['auth-fix', 'Sol']);
+      expect(listed.replies[0]).toMatchObject({
+        requestId: talk.requestId,
+        prompt: 'status of the retry path?',
+        status: 'retained',
+        response: 'retry passes\n\u001b[31mred\u001b[0m',
+      });
+      expect(listed.replies[1]).toMatchObject({
+        requestId: note.requestId,
+        prompt: '[product · auth-fix] split the job',
+        response: 'agreed, splitting',
+      });
+      const text = (await runCli(sandbox, ['sq', 'replies'])).stdout;
+      expect(text).toContain('auth-fix · ');
+      expect(text).toContain('  › status of the retry path?\n  retry passes\n  red\n');
+      expect(text).not.toContain('\u001b');
+
+      // Reading replies acknowledges nothing: the originator's attention is unchanged.
+      expect(await attention()).toEqual(before);
+    });
+  });
 });

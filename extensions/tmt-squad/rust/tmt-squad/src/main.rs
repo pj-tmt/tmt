@@ -152,6 +152,11 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
+            Command::new("replies")
+                .about("Show finals to your squad requests, newest first (never acknowledges)")
+                .arg(squad_option()),
+        )
+        .subcommand(
             Command::new("back")
                 .about("Return your tmux client to where its last squad jump came from"),
         )
@@ -230,6 +235,36 @@ fn complete(words: &[String]) -> Vec<String> {
     candidates
 }
 
+fn replies_text(document: &Value) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64);
+    let mut output = String::new();
+    for reply in document["replies"].as_array().into_iter().flatten() {
+        // Bodies are agent-written: strip escapes before the terminal sees them.
+        let text = |key: &str| board::notes::sanitize(reply[key].as_str().unwrap_or_default());
+        let when = reply["submittedAtMs"]
+            .as_u64()
+            .map_or(String::new(), |at| format!(" · {}", requests::age(now, at)));
+        output.push_str(&format!("{}{when}\n  › {}\n", text("to"), text("prompt")));
+        match reply["response"].as_str() {
+            Some(response) => {
+                for line in board::notes::sanitize(response).lines() {
+                    output.push_str(&format!("  {line}\n"));
+                }
+            }
+            None => output.push_str(&format!("  tmt result {}\n", text("requestId"))),
+        }
+    }
+    if output.is_empty() {
+        output.push_str("No replies to your squad requests yet.\n");
+    }
+    if document["olderRequestsNotShown"] == true {
+        output.push_str("(older requests not shown)\n");
+    }
+    output
+}
+
 fn human(command: &str, document: &Value) -> String {
     match command {
         "status" | "board" => status::text(document),
@@ -246,6 +281,7 @@ fn human(command: &str, document: &Value) -> String {
             document["to"].as_str().unwrap_or_default(),
             document["requestId"].as_str().unwrap_or_default()
         ),
+        "replies" => replies_text(document),
         "reply" => format!(
             "Replied to {} ({}).\n",
             document["from"].as_str().unwrap_or_default(),
@@ -329,6 +365,7 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
             text("member").unwrap_or_default(),
             &many("fields"),
         ),
+        "replies" => member_actions::replies(&core, &squad, &config),
         "talk" => member_actions::talk(
             &core,
             &squad,
@@ -451,7 +488,7 @@ mod tests {
             complete(&words("-- ")),
             [
                 "add", "annotate", "back", "board", "copy", "init", "jump", "lead", "open",
-                "remove", "reply", "set", "skill", "status", "talk"
+                "remove", "replies", "reply", "set", "skill", "status", "talk"
             ]
         );
         assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);

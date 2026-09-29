@@ -392,7 +392,7 @@ blocked = { color = "red", sort = 0 }   # colors: default, dim, red, amber, gree
 
 The board is made of panes: `rows`, `notes` (the lead's own notebook, the same
 file as `tmt notes`, read-only), `detail` (the selected row) and `replies`
-(filled in a later version). Choose them and how they sit:
+(answers to what you sent the squad). Choose them and how they sit:
 
 ```toml
 [squad.product.board]
@@ -489,6 +489,13 @@ on every refresh. `status --json` reports it as each row's `annotation` and the
 member's open requests to you as `waitingOnYou`. Squad reads at most the newest
 200 requests for these; when older ones exist it says `older requests not
 shown`.
+
+The `replies` pane, and `tmt squad replies` (`--json` for scripts), list the
+answers to your talks and annotations in the squad, newest first: who answered,
+how long ago, what you asked and the reply. The newest eight show their text,
+with terminal escapes removed and at most six lines on the board; older ones
+point to `tmt result <request-id>`. Reading replies acknowledges nothing, so
+`tmt x list` still shows them until you acknowledge them there.
 
 `jump` is `tmt focus` for a squad member or the lead, run inside tmux. Each
 jump, from the board or the command, records where your tmux client came from;

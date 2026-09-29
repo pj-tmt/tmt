@@ -14,7 +14,10 @@ use crate::{
     status,
 };
 use serde_json::{Value, json};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::{
+    collections::BTreeMap,
+    sync::mpsc::{self, Receiver, Sender},
+};
 
 pub struct Worker {
     requests: Sender<Option<String>>,
@@ -27,11 +30,13 @@ impl Worker {
         let (requests, pending) = mpsc::channel::<Option<String>>();
         let (sender, results) = mpsc::channel();
         std::thread::spawn(move || {
+            // Reply bodies never change once submitted; keep them per worker.
+            let mut bodies = BTreeMap::new();
             while let Ok(mut wanted) = pending.recv() {
                 while let Ok(newer) = pending.try_recv() {
                     wanted = newer;
                 }
-                if sender.send(load(&core, tmux, wanted)).is_err() {
+                if sender.send(load(&core, tmux, wanted, &mut bodies)).is_err() {
                     break;
                 }
             }
@@ -45,7 +50,12 @@ impl Worker {
     }
 }
 
-fn load(core: &Core, tmux: bool, wanted: Option<String>) -> Snapshot {
+fn load(
+    core: &Core,
+    tmux: bool,
+    wanted: Option<String>,
+    bodies: &mut BTreeMap<String, String>,
+) -> Snapshot {
     let squads = match Squad::list(core) {
         Ok(squads) => squads,
         Err(error) => {
@@ -80,7 +90,14 @@ fn load(core: &Core, tmux: bool, wanted: Option<String>) -> Snapshot {
         let me = config.me()?.map(str::to_owned);
         let mut document =
             status::document(&squad, layout, &states, &sections, squad.members(core)?);
-        requests::overlay(core, &squad, me.as_deref(), &mut document)?;
+        let sent = requests::overlay(core, &squad, me.as_deref(), &mut document)?;
+        let mut replies = match &sent {
+            Some(sent) if board.panes.contains(&Pane::Replies) => {
+                requests::replies(sent, &document)
+            }
+            _ => Vec::new(),
+        };
+        requests::bodies(|id| requests::show_request(core, id), &mut replies, bodies)?;
         let notes = if board.panes.contains(&Pane::Notes) {
             lead_notes(core, &document["squad"]["lead"])
         } else {
@@ -95,6 +112,7 @@ fn load(core: &Core, tmux: bool, wanted: Option<String>) -> Snapshot {
             opener: config.program("opener")?,
             clipboard: config.program("clipboard")?,
             me,
+            replies,
             board,
             notes,
             document,

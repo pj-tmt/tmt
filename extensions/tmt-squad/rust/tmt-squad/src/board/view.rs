@@ -4,9 +4,12 @@
 use super::{
     app::{App, Hit, Item, Notes},
     markdown,
-    notes::wrap,
+    notes::{sanitize, wrap},
 };
-use crate::config::{BoardMode, Column, Direction, NotesRender, Pane};
+use crate::{
+    config::{BoardMode, Column, Direction, NotesRender, Pane},
+    requests::{BODIES, age},
+};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -295,13 +298,7 @@ fn render_pane(frame: &mut Frame, app: &App, pane: Pane, area: Rect) {
         Pane::Rows => render_rows(frame, app, area),
         Pane::Notes => render_notes(frame, app, area),
         Pane::Detail => render_detail(frame, app, area),
-        Pane::Replies => frame.render_widget(
-            Paragraph::new(Span::styled(
-                "Replies to your requests appear here in a later version.",
-                color("dim"),
-            )),
-            area,
-        ),
+        Pane::Replies => render_replies(frame, app, area),
     }
 }
 
@@ -327,6 +324,74 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
     };
     let limit = lines.len().saturating_sub(usize::from(area.height));
     let scroll = usize::from(app.notes_scroll).min(limit) as u16;
+    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), area);
+}
+
+/// Lines of one reply body shown before it is cut.
+const BODY_LINES: usize = 6;
+
+/// Finals to the user's squad requests, newest first. Bodies are
+/// agent-written, so they are sanitized like notes; reading acknowledges
+/// nothing.
+pub fn reply_lines(replies: &[Value], width: usize, now_ms: u64) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for (index, reply) in replies.iter().enumerate() {
+        let text = |key: &str| sanitize(reply[key].as_str().unwrap_or_default());
+        let when = reply["submittedAtMs"]
+            .as_u64()
+            .map_or(String::new(), |at| format!(" · {}", age(now_ms, at)));
+        lines.push(Line::from(Span::styled(
+            fit(&format!("{}{when}", text("to")), width),
+            Style::new().add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::styled(
+            fit(&format!("  › {}", text("prompt")), width),
+            color("dim"),
+        ));
+        match reply["response"].as_str() {
+            Some(response) => {
+                let body = wrap(&sanitize(response), width.saturating_sub(2));
+                for line in body.iter().take(BODY_LINES) {
+                    lines.push(Line::from(format!("  {line}")));
+                }
+                if body.len() > BODY_LINES {
+                    lines.push(Line::styled("  …", color("dim")));
+                }
+            }
+            None => {
+                let id = reply["requestId"].as_str().unwrap_or_default();
+                let hint = if index >= BODIES || reply["status"] == "retained" {
+                    format!("  tmt result {id}")
+                } else {
+                    format!("  (final {})", text("status"))
+                };
+                lines.push(Line::styled(fit(&hint, width), color("dim")));
+            }
+        }
+        lines.push(Line::from(""));
+    }
+    lines
+}
+
+fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(view) = &app.view else { return };
+    let lines = if view.replies.is_empty() {
+        vec![Line::styled(
+            if view.me.is_none() {
+                "(record `me` in squad.toml to see replies to your requests)"
+            } else {
+                "(no replies to your squad requests yet)"
+            },
+            color("dim"),
+        )]
+    } else {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_millis() as u64);
+        reply_lines(&view.replies, usize::from(area.width), now)
+    };
+    let limit = lines.len().saturating_sub(usize::from(area.height));
+    let scroll = usize::from(app.replies_scroll).min(limit) as u16;
     frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), area);
 }
 
@@ -585,6 +650,7 @@ mod tests {
                 opener: None,
                 clipboard: None,
                 me: None,
+                replies: Vec::new(),
             }),
         });
         app
@@ -715,6 +781,7 @@ mod tests {
                 opener: None,
                 clipboard: None,
                 me: None,
+                replies: Vec::new(),
             }),
         });
         app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["fields"]["pr_link"] =
@@ -782,6 +849,51 @@ mod tests {
     }
 
     #[test]
+    fn replies_show_recipient_age_prompt_and_a_sanitized_bounded_body() {
+        assert_eq!(age(100_000, 55_000), "45s");
+        assert_eq!(age(3_600_000, 0), "1h");
+        assert_eq!(age(200_000_000, 0), "2d");
+        assert_eq!(
+            age(0, 5_000),
+            "0s",
+            "a clock behind the final is not negative"
+        );
+        let body = "line 1\n\u{1b}[31mred\u{1b}[0m\n3\n4\n5\n6\n7\n8";
+        let mut replies = vec![
+            json!({"requestId": "r1", "to": "sol", "prompt": "[product · auth-fix] split", "status": "retained", "submittedAtMs": 40_000, "response": body}),
+            json!({"requestId": "r2", "to": "docs", "prompt": "check", "status": "expired", "submittedAtMs": 30_000, "response": null}),
+        ];
+        for index in 0..BODIES {
+            replies.push(json!({"requestId": format!("old{index}"), "to": "sol", "prompt": "p", "status": "retained", "submittedAtMs": 0, "response": null}));
+        }
+        let lines: Vec<String> = reply_lines(&replies, 40, 100_000)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(lines[0], "sol · 1m");
+        assert_eq!(lines[1], "  › [product · auth-fix] split");
+        assert_eq!(
+            lines[2..8],
+            ["  line 1", "  red", "  3", "  4", "  5", "  6"],
+            "escapes removed"
+        );
+        assert_eq!(lines[8], "  …", "cut after six lines");
+        assert_eq!(lines[12], "  (final expired)");
+        assert!(
+            lines.contains(&format!("  tmt result old{}", BODIES - 1)),
+            "older finals point to tmt result"
+        );
+        assert!(!lines.iter().any(|line| line.contains('\u{1b}')));
+    }
+
+    #[test]
     fn tabs_show_one_pane_and_tab_moves_focus() {
         let tabs = crate::config::Board {
             mode: BoardMode::Tabs,
@@ -805,7 +917,7 @@ mod tests {
         assert!(
             screen
                 .iter()
-                .any(|line| line.contains("appear here in a later version"))
+                .any(|line| line.contains("record `me` in squad.toml"))
         );
         tab(&mut app);
         assert!(
