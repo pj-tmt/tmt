@@ -1693,6 +1693,30 @@ discovered extension names that resolve to the same file (`squad (also: sq)`).
 `tmt office install|upgrade|status|uninstall` keeps its own Office-specific
 flow for now.
 
+An extension release (never the CLI) may carry a bounded agent-skills tree,
+`skills/<name>/<path>` (`native_install::skills_tree`). It has the binaries'
+integrity:
+
+- the manifest declares the tree with the single asset `skills`, the form
+  cargo-dist gives an included directory; the CLI may not declare it, and an
+  archived tree that is not declared, or a declaration with no tree, rejects
+  the release;
+- the file inventory comes only from the archive, whose SHA-256, verified
+  before parsing, covers every byte; the bounds below apply while decoding,
+  before any file is kept;
+- extraction accepts only regular files under `skills/` and directories that
+  hold one;
+- paths follow the owned-skill name and canonical path rules
+  (`skill_installation::valid_skill_name`/`valid_skill_file`);
+- bounds are 16 skills of at most 64 files, 1 MiB each, with a `SKILL.md` per skill.
+
+Any violation rejects the whole release before publication. The receipt records a
+digest per skill file, and inspection re-verifies them. Any unrecorded file,
+link or special entry fails with "Installed release inventory has changed", the
+same error a reader that predates the tree raises, so both fail closed. Extension
+receipts are bounded by a limit derived from the skill bounds; the CLI receipt
+stays at 16 KiB.
+
 - `artifact` consumes cargo-dist metadata and a matching archive, checking
   target, manifest membership, SHA-256, bounded compressed/expanded input,
   notices and executable contents;

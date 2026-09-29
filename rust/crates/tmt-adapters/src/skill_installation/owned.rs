@@ -86,7 +86,8 @@ fn valid_owner(owner: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
-fn valid_name(name: &str) -> bool {
+/// A skill directory name: the one rule for owned skills and release archives.
+pub(crate) fn valid_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     (1..=64).contains(&bytes.len())
         && (bytes[0].is_ascii_lowercase() || bytes[0].is_ascii_digit())
@@ -99,7 +100,7 @@ fn valid_name(name: &str) -> bool {
 /// none dot-prefixed (so never `.`, `..` or hidden staging names). The digest
 /// hashes the supplied string, so a form the filesystem would normalize
 /// (`a//b`, `a/`) could never verify after materialization.
-fn valid_file(path: &str) -> bool {
+pub(crate) fn valid_file(path: &str) -> bool {
     path.len() <= 512
         && path
             .split('/')

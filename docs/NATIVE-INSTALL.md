@@ -146,6 +146,11 @@ and how to remove it yourself.
 This command does not install agent skills yet. For Office, `tmt office install`
 still manages its skills.
 
+An extension release may bundle agent skills. If a newer `tmt` installed such a
+release and you then downgrade the CLI, the older `tmt` reports "Installed release
+inventory has changed" for that extension. It refuses to inspect, update or
+remove it, and it changes nothing. Upgrade `tmt` back to fix this.
+
 ## Curl bootstrap
 
 Download the current immutable installer linked from the [README][public-install].

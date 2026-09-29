@@ -15,6 +15,11 @@ pub use owned::{
     CORE_NAMES, OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned, owners,
     refusal, remove_owned,
 };
+/// The skill name and file path rules, shared with native release archives.
+pub(crate) use owned::{
+    MAXIMUM_FILE_BYTES, MAXIMUM_FILES, MAXIMUM_SKILLS, valid_file as valid_skill_file,
+    valid_name as valid_skill_name,
+};
 #[cfg(test)]
 mod owned_tests;
 pub use providers::ProviderEnvironment;

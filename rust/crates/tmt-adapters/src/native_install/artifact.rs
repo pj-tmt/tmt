@@ -2,13 +2,13 @@
 //!
 //! Never use generic archive unpacking: archive paths are not filesystem targets.
 
-use super::{Product, invalid};
+use super::{Product, invalid, skills_tree};
 use crate::bounded_file;
 use flate2::read::MultiGzDecoder;
 use semver::Version;
 use serde_json::Value;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::{self, Read},
     path::Path,
 };
@@ -54,10 +54,10 @@ pub(super) fn acquire_product(
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| invalid("Native archive requires an ASCII filename."))?;
-    let (version, sha256) = metadata_bytes(product, &bytes, name, target)?;
+    let listed = metadata_bytes(product, &bytes, name, target)?;
     let compressed =
         bounded_file::read_no_follow(archive, COMPRESSED_LIMIT).map_err(io::Error::other)?;
-    verified_archive(product, name, target, version, sha256, &compressed)
+    verified_archive(product, name, target, listed, &compressed)
 }
 
 pub(super) fn acquire_bytes(
@@ -67,16 +67,11 @@ pub(super) fn acquire_bytes(
     compressed: &[u8],
     target: &str,
 ) -> io::Result<Artifact> {
-    let (version, sha256) = metadata_bytes(product, manifest, name, target)?;
-    verified_archive(product, name, target, version, sha256, compressed)
+    let listed = metadata_bytes(product, manifest, name, target)?;
+    verified_archive(product, name, target, listed, compressed)
 }
 
-fn metadata_bytes(
-    product: Product,
-    bytes: &[u8],
-    name: &str,
-    target: &str,
-) -> io::Result<(Version, String)> {
+fn metadata_bytes(product: Product, bytes: &[u8], name: &str, target: &str) -> io::Result<Listed> {
     if bytes.len() > MANIFEST_LIMIT {
         return Err(invalid("Native manifest exceeds its bound."));
     }
@@ -84,21 +79,35 @@ fn metadata_bytes(
     metadata(product, &manifest, name, target)
 }
 
+/// What the manifest lists for one archive: its version, checksum and whether
+/// it declares a skills tree. cargo-dist records an included directory as one
+/// asset named after it, so the tree's files are inventoried from the
+/// checksum-verified archive, never from the manifest.
+struct Listed {
+    version: Version,
+    sha256: String,
+    skills: bool,
+}
+
 fn verified_archive(
     product: Product,
     name: &str,
     target: &str,
-    version: Version,
-    sha256: String,
+    listed: Listed,
     compressed: &[u8],
 ) -> io::Result<Artifact> {
+    let Listed {
+        version,
+        sha256,
+        skills,
+    } = listed;
     if compressed.len() > COMPRESSED_LIMIT {
         return Err(invalid("Native archive exceeds its bound."));
     }
     if digest(compressed) != sha256 {
         return Err(invalid("Native archive checksum mismatch."));
     }
-    let files = decode(product, compressed, archive_root(name)?)?;
+    let files = decode(product, compressed, archive_root(name)?, skills)?;
     Ok(Artifact {
         name: name.into(),
         version,
@@ -144,8 +153,8 @@ pub(super) fn select(
         ));
     }
     let name = matches[0];
-    let (version, _) = metadata(product, &manifest, name, target)?;
-    Ok((name.clone(), version))
+    let listed = metadata(product, &manifest, name, target)?;
+    Ok((name.clone(), listed.version))
 }
 
 fn archive_root(name: &str) -> io::Result<&str> {
@@ -161,12 +170,7 @@ fn archive_root(name: &str) -> io::Result<&str> {
         .ok_or_else(|| invalid("Invalid native archive filename."))
 }
 
-fn metadata(
-    product: Product,
-    manifest: &Value,
-    name: &str,
-    target: &str,
-) -> io::Result<(Version, String)> {
+fn metadata(product: Product, manifest: &Value, name: &str, target: &str) -> io::Result<Listed> {
     archive_root(name)?;
     let metadata = &manifest["artifacts"][name];
     if metadata["kind"] != "executable-zip"
@@ -190,9 +194,25 @@ fn metadata(
         })
         .collect::<io::Result<Vec<_>>>()?;
     inventory.sort_unstable();
-    let mut required = product.files();
+    let declarations = inventory
+        .iter()
+        .filter(|path| **path == skills_tree::ROOT)
+        .count();
+    if declarations > 1 {
+        return Err(invalid("Unexpected native archive asset inventory."));
+    }
+    let skills = declarations == 1;
+    if skills && product == Product::Cli {
+        return Err(invalid("The TMT CLI release carries no agent skills."));
+    }
+    let mut required: Vec<&str> = inventory
+        .into_iter()
+        .filter(|path| *path != skills_tree::ROOT)
+        .collect();
+    let mut expected = product.files();
+    expected.sort_unstable();
     required.sort_unstable();
-    if inventory != required {
+    if required != expected {
         return Err(invalid("Unexpected native archive asset inventory."));
     }
     let releases = manifest["releases"]
@@ -215,13 +235,22 @@ fn metadata(
         .ok_or_else(|| invalid("Native release version is missing."))?
         .parse()
         .map_err(|_| invalid("Native release version is invalid."))?;
-    Ok((version, sha256.into()))
+    Ok(Listed {
+        version,
+        sha256: sha256.into(),
+        skills,
+    })
 }
 
+/// Only the product's required files and, when the manifest declares it, one
+/// bounded skills tree. Every limit applies while decoding: the expansion
+/// bound, each skill file's size before its bytes are read, and the file count
+/// before the tree is validated as a whole.
 fn decode(
     product: Product,
     compressed: &[u8],
     root: &str,
+    skills: bool,
 ) -> io::Result<BTreeMap<String, Vec<u8>>> {
     let mut expanded = Vec::new();
     MultiGzDecoder::new(compressed)
@@ -230,38 +259,55 @@ fn decode(
     if expanded.len() > EXPANDED_LIMIT {
         return Err(invalid("Native archive expansion exceeds its bound."));
     }
+    let tree = format!("{root}/{}", skills_tree::ROOT);
     let mut archive = tar::Archive::new(expanded.as_slice());
     let mut files = BTreeMap::new();
-    let mut directory_seen = false;
+    let mut directories = BTreeSet::new();
+    let mut skill_files = 0;
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path_bytes().into_owned();
         let path = std::str::from_utf8(&path)
             .map_err(|_| invalid("Native archive path must be ASCII."))?;
-        if path == format!("{root}/") && entry.header().entry_type().is_dir() {
+        let below_tree = path.strip_prefix(&tree);
+        let tree_directory =
+            skills && below_tree.is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
+        // Only files strictly below the tree: `<root>/skills` itself is the
+        // tree's directory, never a file.
+        let in_tree =
+            skills && below_tree.is_some_and(|rest| rest.len() > 1 && rest.starts_with('/'));
+        // Archivers record directories with or without a trailing slash.
+        if entry.header().entry_type().is_dir() && (path == format!("{root}/") || tree_directory) {
             if entry.header().mode()? & 0o7000 != 0 || entry.size() != 0 {
                 return Err(invalid("Native archive directory metadata is invalid."));
             }
-            if directory_seen {
+            if !directories.insert(path.trim_end_matches('/').to_owned()) {
                 return Err(invalid("Duplicate native archive directory."));
             }
-            directory_seen = true;
             continue;
         }
         let name = path
             .strip_prefix(root)
             .and_then(|p| p.strip_prefix('/'))
-            .filter(|name| product.files().contains(name))
+            .filter(|name| product.files().contains(name) || in_tree)
             .ok_or_else(|| invalid("Unexpected native archive path."))?;
         let mode = entry.header().mode()?;
+        // Regular files only: never a link, device or special permission.
         if !entry.header().entry_type().is_file()
             || mode & 0o7000 != 0
             || entry.size() == 0
             || (name == product.executable() && mode & 0o111 == 0)
+            || (in_tree && !skills_tree::file_fits(entry.size()))
         {
             return Err(invalid(
                 "Native archive requires nonempty regular files with safe permissions.",
             ));
+        }
+        if in_tree {
+            skill_files += 1;
+            if skill_files > skills_tree::MAXIMUM_TREE_FILES {
+                return Err(invalid("A release carries too many agent skill files."));
+            }
         }
         if files.contains_key(name) {
             return Err(invalid("Duplicate native archive file."));
@@ -270,8 +316,39 @@ fn decode(
         entry.read_to_end(&mut contents)?;
         files.insert(name.into(), contents);
     }
-    if files.len() != product.files().len() {
+    if product
+        .files()
+        .iter()
+        .any(|file| !files.contains_key(*file))
+    {
         return Err(invalid("Native archive is missing required files."));
+    }
+    let tree_files: Vec<&str> = files
+        .keys()
+        .map(String::as_str)
+        .filter(|name| skills_tree::is_skill_path(name))
+        .collect();
+    if skills {
+        if tree_files.is_empty() {
+            return Err(invalid(
+                "The release declares agent skills but carries none.",
+            ));
+        }
+        skills_tree::validate(product, tree_files.iter().copied())?;
+    }
+    // A recorded directory must hold a kept file: the root, or an ancestor of
+    // a validated skill file.
+    for directory in &directories {
+        let Some(relative) = directory.strip_prefix(&format!("{root}/")) else {
+            continue;
+        };
+        let holds_a_file = tree_files.iter().any(|file| {
+            file.strip_prefix(relative)
+                .is_some_and(|rest| rest.starts_with('/'))
+        });
+        if !holds_a_file {
+            return Err(invalid("Unexpected native archive directory."));
+        }
     }
     Ok(files)
 }
