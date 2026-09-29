@@ -3,7 +3,7 @@
 mod assets;
 pub mod catalog;
 mod drift;
-mod files;
+pub(crate) mod files;
 mod owned;
 mod providers;
 mod refresh;

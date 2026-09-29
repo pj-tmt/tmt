@@ -91,7 +91,7 @@ pub(super) fn entry_location(target: &Path) -> io::Result<PathBuf> {
     Ok(resolved(parent)?.join(leaf))
 }
 
-pub(super) fn exists(path: &Path) -> io::Result<bool> {
+pub(crate) fn exists(path: &Path) -> io::Result<bool> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
@@ -126,7 +126,7 @@ pub(super) fn backup(target: &Path) -> io::Result<PathBuf> {
     Ok(destination)
 }
 
-pub(super) fn atomic_write(destination: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn atomic_write(destination: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = destination
         .parent()
         .ok_or_else(|| io::Error::other("Publication path has no parent."))?;

@@ -3,6 +3,7 @@
 mod document;
 mod environment;
 mod publication;
+pub mod record;
 
 pub use environment::{SetupEnvironment, provider_settings};
 pub use publication::{apply, read_settings};

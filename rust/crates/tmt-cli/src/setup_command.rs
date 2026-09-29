@@ -4,8 +4,9 @@ use crate::{invocation::OutputMode, output::Failure};
 use serde_json::json;
 use std::io::{self, Write};
 use tmt_adapters::{
+    config::ConfigPaths,
     drivers::Registry,
-    setup::{self, SetupEnvironment},
+    setup::{self, SetupEnvironment, record},
     skill_installation::ProviderEnvironment,
 };
 
@@ -91,6 +92,9 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
         .into_iter()
         .next()
         .expect("one selected provider plan");
+    // An unreadable record is preserved and stops setup before any change.
+    let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
+    record::read(&global).map_err(failure)?;
     if !mode.json {
         writeln!(output, "{} {} SessionStart and SessionEnd hooks in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes. Provider hook trust review still applies.",
             if remove { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
@@ -109,6 +113,29 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
         return Ok(());
     }
     let backup = setup::apply(&plan).map_err(failure)?;
+    // Recorded after publication; exact hooks already present are adopted.
+    let recorded = if remove {
+        record::forget(&global, plan.provider, &plan.change.path)
+    } else {
+        record::remember(
+            &global,
+            record::RecordedHooks {
+                driver: plan.provider.to_owned(),
+                settings: plan.change.path.clone(),
+                launcher: plan.launcher.clone(),
+            },
+        )
+    };
+    recorded.map_err(|error| {
+        Failure::new(
+            "SETUP_ERROR",
+            format!(
+                "The provider settings were updated, but the setup record could not be: {error}"
+            ),
+            1,
+        )
+        .suggestion(format!("run tmt setup {} again", plan.provider))
+    })?;
     if mode.json {
         writeln!(output, "{}", json!({"provider": plan.provider, "changed": plan.change.changed(),
             "removed": remove, "settingsPath": plan.change.path, "launcher": plan.launcher, "backup": backup
