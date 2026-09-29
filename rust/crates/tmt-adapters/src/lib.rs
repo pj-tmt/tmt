@@ -30,6 +30,7 @@ pub mod office_avatar;
 #[cfg(unix)]
 pub mod office_block;
 pub mod office_board;
+#[cfg(unix)]
 pub mod office_companion;
 #[cfg(feature = "office")]
 pub mod office_deployment;
