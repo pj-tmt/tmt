@@ -192,6 +192,13 @@ pub struct App {
     pub follow: bool,
     /// Opened as a tmux popup: a successful jump closes the board.
     pub popup: bool,
+    /// Views of squads already visited, so switching back is instant while
+    /// the worker refreshes them.
+    cache: BTreeMap<String, View>,
+    /// Set from a squad switch until that squad's data arrives.
+    pub loading_since: Option<Instant>,
+    /// The squad `view` belongs to.
+    shown: Option<String>,
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
@@ -296,20 +303,58 @@ impl App {
         self.selected = self.selected.min(self.rows().len().saturating_sub(1));
     }
 
-    /// A late result for a squad the user already left is ignored.
+    /// Another squad is now on screen: its selection and scrolling start over.
+    fn shown_changed(&mut self) {
+        self.selected = 0;
+        self.scrolls = Scrolls::default();
+        self.follow = true;
+        self.clamp();
+    }
+
+    /// The view on screen belongs to another squad while a switch loads.
+    pub fn stale(&self) -> bool {
+        self.view.is_some() && self.shown != self.current
+    }
+
+    /// Swaps in a loaded squad in one step. A result for a squad the user
+    /// already left is kept for switching back, never shown.
     pub fn apply(&mut self, snapshot: Snapshot) {
         self.squads = snapshot.squads;
         if self.current.is_some() && snapshot.squad != self.current {
+            if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
+                self.cache.insert(name, view);
+            }
             return;
         }
         self.current = snapshot.squad;
+        self.loading_since = None;
         match snapshot.view {
             Ok(view) => {
                 self.focus = self.focus.min(view.board.panes.len().saturating_sub(1));
-                self.view = Some(view);
+                let changed = self.stale() || self.view.is_none();
+                let previous = self.view.replace(view);
+                let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
+                // A result that arrived for it meanwhile is newer: keep that.
+                if let (Some(previous), Some(name)) = (previous, previous_squad)
+                    && Some(&name) != self.current.as_ref()
+                {
+                    self.cache.entry(name).or_insert(previous);
+                }
+                if changed {
+                    self.shown_changed();
+                }
                 self.error = None;
             }
-            Err(error) => self.error = Some(error),
+            Err(error) => {
+                // The switch failed: the error is the state, not a stale frame
+                // that keeps saying it is loading. The old view stays cached.
+                if self.stale()
+                    && let (Some(previous), Some(name)) = (self.view.take(), self.shown.take())
+                {
+                    self.cache.entry(name).or_insert(previous);
+                }
+                self.error = Some(error);
+            }
         }
         self.clamp();
     }
@@ -328,11 +373,17 @@ impl App {
             return Effect::None;
         }
         self.current = Some(next.clone());
-        self.view = None;
         self.menu = None;
-        self.selected = 0;
-        self.scrolls = Scrolls::default();
-        self.follow = true;
+        self.loading_since = Some(Instant::now());
+        // Never blank the screen: a visited squad shows from the cache at
+        // once; otherwise the current frame stays until the new one arrives.
+        if let Some(cached) = self.cache.remove(&next) {
+            let previous = self.view.replace(cached);
+            if let (Some(previous), Some(name)) = (previous, self.shown.replace(next.clone())) {
+                self.cache.insert(name, previous);
+            }
+            self.shown_changed();
+        }
         Effect::Load(next)
     }
 
@@ -372,8 +423,13 @@ impl App {
     }
 
     /// Resolves an action against the selected row. Missing values refuse
-    /// the action with a notice; nothing runs half-filled.
+    /// the action with a notice; nothing runs half-filled. While a switch
+    /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
+        if self.stale() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
+            let loading = self.current.clone().unwrap_or_default();
+            return self.say(format!("Loading {loading}…"));
+        }
         match action.verb {
             Verb::NextPane => {
                 self.next_pane();
@@ -857,7 +913,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn squad_switch_loads_and_ignores_stale_results() {
+    fn squad_switch_keeps_the_frame_caches_and_never_shows_another_squads_result() {
         let mut app = App::new(Some("product".into()));
         app.apply(snapshot(
             "product",
@@ -867,20 +923,54 @@ pub(crate) mod tests {
             panic!("switch");
         };
         assert_eq!(next, "infra");
-        assert!(app.view.is_none());
+        // Nothing is blanked: product's frame stays until infra arrives, and
+        // its rows take no actions meanwhile.
+        assert_eq!(names(&app), ["a"]);
+        assert!(app.stale() && app.loading_since.is_some());
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.notice.as_deref(), Some("Loading infra…"));
+        // A late product result is kept for switching back, never shown.
         app.apply(snapshot(
             "product",
             json!([{"title": null, "rows": [row("late", "")]}]),
         ));
-        assert!(
-            app.view.is_none(),
-            "a late product result must not show under infra"
-        );
+        assert_eq!(names(&app), ["a"]);
         app.apply(snapshot(
             "infra",
             json!([{"title": null, "rows": [row("i", "")]}]),
         ));
         assert_eq!(names(&app), ["i"]);
+        assert!(!app.stale() && app.loading_since.is_none());
+        // Back to product: at once, from the cache (the late result).
+        assert_eq!(
+            press(&mut app, KeyCode::Left),
+            Effect::Load("product".into())
+        );
+        assert_eq!(names(&app), ["late"]);
+        assert!(!app.stale(), "a cached squad is the current one at once");
+    }
+
+    #[test]
+    fn a_failed_switch_shows_its_error_instead_of_a_stale_loading_frame() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot(
+            "product",
+            json!([{"title": null, "rows": [row("a", "")]}]),
+        ));
+        press(&mut app, KeyCode::Right);
+        app.apply(Snapshot {
+            squads: vec!["product".into(), "infra".into()],
+            squad: Some("infra".into()),
+            view: Err("infra: room not found".into()),
+        });
+        assert!(!app.stale() && app.loading_since.is_none());
+        assert!(app.view.is_none());
+        assert_eq!(app.error.as_deref(), Some("infra: room not found"));
+        press(&mut app, KeyCode::Enter);
+        assert_ne!(app.notice.as_deref(), Some("Loading infra…"));
+        // The squad it came from is still one key away, from the cache.
+        press(&mut app, KeyCode::Left);
+        assert_eq!(names(&app), ["a"]);
     }
 
     fn member(name: &str, fields: Value) -> Value {
