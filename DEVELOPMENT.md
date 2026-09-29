@@ -692,6 +692,12 @@ Product identity proofs are package-scoped, matching per-product release builds:
 compare `cargo build --locked --release -p tmt-cli` alone, at the same checkout
 path, before and after a change.
 
+Human output and help snapshots (`insta`, a dev-dependency) live beside the
+tests that assert them, such as `rust/crates/tmt-cli-style/tests/snapshots/`.
+After an intended change, regenerate with `INSTA_UPDATE=always cargo test -p
+<crate>`, delete any leftover `*.snap.new` files, and review the snapshot diff as
+part of the change. CI never updates snapshots.
+
 The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash

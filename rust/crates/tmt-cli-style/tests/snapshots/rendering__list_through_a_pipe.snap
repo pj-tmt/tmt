@@ -1,0 +1,13 @@
+---
+source: crates/tmt-cli-style/tests/rendering.rs
+expression: render_list(PIPE)
+---
+SAVED 3
+  ●  astra            codex:019a2f4c   ~/dev/tmux-team
+  ●  opus-tmt-peer-2  claude:7c41e9d2  ~/dev/tmux-team/worktrees/feature-branch
+  ○  sol              claude:3f9a1c07  ~/dev/tmux-team                           ↻ tmt resume sol
+
+TEMPORARY 2
+  ●  mamezu-astra     codex:01a9c3b8   ~/dev/mosaic-art
+  ◌  opus-1           tmux:%31         /srv/builds/nightly                       shell
+hint: tmt ls --all shows offline identities

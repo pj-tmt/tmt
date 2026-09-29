@@ -1,0 +1,23 @@
+[package]
+name = "tmt-cli-style"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# A leaf: no TMT crate, so core and every extension CLI can share one style.
+[dependencies]
+anstream.workspace = true
+anstyle.workspace = true
+clap.workspace = true
+comfy-table.workspace = true
+shlex.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
+[lints]
+workspace = true

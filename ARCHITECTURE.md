@@ -585,7 +585,11 @@ The Rust crates have deliberately narrow responsibilities:
 | Application/CLI   | `rust/crates/tmt-cli/src/`      | Core grammar, typed invocations, preflight and use-case composition, completion and the executable entry point. It chooses adapters; it does not duplicate their storage, file, installation or process policy. |
 
 `rust/crates/tmt-command-output` owns shared command output/error values and
-formatting. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
+formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
+implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
+messages, lists, tables and the help registration contract). That crate is a leaf
+with no TMT dependency, so extension CLIs may share it; the architecture guard
+enforces both. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
 grammar, typed requests and handlers. Core's reserved `tmt office` facade mounts
 that grammar and calls the same handlers through an in-process `CoreAccess` port.
 `tmt-cli/src/office_facade.rs` is the sole core registration and command-library
@@ -1696,8 +1700,9 @@ reached through the external command contract as `tmt squad` and, through a
 `tmt-sq` link to the same file, `tmt sq`. Its command name is fixed, never taken
 from argv[0], so both spellings share one help text, error set and completion.
 It is a workspace member for the shared lockfile and toolchain only. It depends
-on no TMT crate, and no TMT crate depends on it; the architecture guard enforces
-both directions for Cargo dependencies and source references. Squad reaches TMT
+on no TMT crate except the leaf `tmt-cli-style`, which carries no TMT behavior,
+and no TMT crate depends on it; the architecture guard enforces both directions
+for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 `tmt api`, with its own minimal bounded child runner.
 

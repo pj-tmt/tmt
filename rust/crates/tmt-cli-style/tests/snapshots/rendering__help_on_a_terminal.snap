@@ -1,0 +1,23 @@
+---
+source: crates/tmt-cli-style/tests/rendering.rs
+expression: "visible(help_text(&talk(), TTY).into_bytes())"
+---
+Send a message to an agent
+
+\u{1b}[1mUsage:\u{1b}[0m \u{1b}[1mtmt talk\u{1b}[0m [OPTIONS] <target> <message>
+
+\u{1b}[1mArguments:\u{1b}[0m
+  <target>   Agent name
+  <message>  Message text
+
+\u{1b}[1mOptions:\u{1b}[0m
+  \u{1b}[1m-h\u{1b}[0m, \u{1b}[1m--help\u{1b}[0m  Print help
+      \u{1b}[1m--json\u{1b}[0m  Output one JSON document
+      \u{1b}[1m--wait\u{1b}[0m  Wait for the reply
+
+\u{1b}[1mExamples:\u{1b}[0m
+  \u{1b}[2m# Send a message to one agent\u{1b}[0m
+  tmt talk worker "Run the tests"
+
+  \u{1b}[2m# Wait for the reply\u{1b}[0m
+  tmt talk worker "Summarize" --wait

@@ -1,0 +1,22 @@
+---
+source: crates/tmt-cli-style/tests/rendering.rs
+expression: "help_text(&root, PIPE)"
+---
+Collaborate with agents through durable tmux exchanges
+
+Usage: tmt [OPTIONS] [COMMAND]
+
+Commands:
+  ls  List agents
+
+Options:
+  -h, --help  Print help
+      --json  Output one JSON document
+
+Extensions:
+  squad (also: sq)  Lead a squad of agents
+  office            Run the local Office
+
+Examples:
+  # See every agent
+  tmt ls

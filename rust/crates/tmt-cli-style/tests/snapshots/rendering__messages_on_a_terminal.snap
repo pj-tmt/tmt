@@ -1,0 +1,7 @@
+---
+source: crates/tmt-cli-style/tests/rendering.rs
+expression: messages(TTY)
+---
+\u{1b}[32m✓\u{1b}[0m Named pane %3 worker
+\u{1b}[31merror:\u{1b}[0m Identity 'nobody' was not found
+\u{1b}[34mhint:\u{1b}[0m tmt ls
