@@ -605,6 +605,21 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["result"] => Invocation::Result {
             request_id: request_id(m)?,
         },
+        ["inbox"] => Invocation::Inbox {
+            identity: text(m, "identity"),
+            from: text(m, "from"),
+            limit: text(m, "limit")
+                .map(|value| {
+                    integer(
+                        &value,
+                        "--limit",
+                        1,
+                        tmt_core::request::inbox::INBOX_MAX_LIMIT,
+                    )
+                })
+                .transpose()?,
+        },
+        ["answer"] => answer(m)?,
         ["install"] => {
             let target = text(m, "agent");
             let directory = text(m, "dir");
@@ -627,9 +642,43 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
     })
 }
 
+/// `answer <from> [<text>]`, or `answer --request <id> [<from>] [<text>]`:
+/// with `--request` and one operand, the operand is the text unless `--file`
+/// or `--stdin` supplies the body, in which case it names the sender.
+fn answer(m: &ArgMatches) -> Result<Invocation, String> {
+    let request = text(m, "request");
+    let first = text(m, "from");
+    let second = text(m, "content");
+    let piped = text(m, "file").is_some() || flag(m, "stdin");
+    let (from, inline) = match (&request, first, second) {
+        (None, None, _) => {
+            return Err(
+                "Usage: name who is waiting (tmt answer <from> <text>) or choose --request <id>."
+                    .into(),
+            );
+        }
+        (Some(_), Some(only), None) if !piped => (None, Some(only)),
+        (_, from, inline) => (from, inline),
+    };
+    Ok(Invocation::Answer {
+        identity: text(m, "identity"),
+        from,
+        request,
+        input: sources(m, inline, true)?,
+    })
+}
+
 fn content(matches: &ArgMatches, inline: &str, stdin: bool) -> Result<ContentInput, String> {
+    sources(matches, text(matches, inline), stdin)
+}
+
+fn sources(
+    matches: &ArgMatches,
+    inline: Option<String>,
+    stdin: bool,
+) -> Result<ContentInput, String> {
     let mut sources = Vec::new();
-    if let Some(value) = text(matches, inline) {
+    if let Some(value) = inline {
         sources.push(ContentInput::Inline(value));
     }
     if let Some(value) = text(matches, "file") {

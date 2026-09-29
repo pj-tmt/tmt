@@ -500,14 +500,18 @@ fn a_binding_stores_its_host_and_an_unknown_stored_host_is_invalid() {
         .query_row("SELECT transport FROM bindings", [], |row| row.get(0))
         .unwrap();
     assert_eq!(transport, "tmux");
-    // The schema admits a host this build does not know yet: never a guess.
+    // Another host's row reads back as that host, and a lookup on one host
+    // never selects another host's pane.
     connection
         .execute("UPDATE bindings SET transport = 'herdr'", [])
         .unwrap();
     storage
         .with_binding_transaction(|records| {
-            assert_invalid_pid(records.entry_by_id(&identity.id).unwrap_err());
-            assert_invalid_pid(records.binding_entries().unwrap_err());
+            let entry = records.entry_by_id(&identity.id).unwrap().unwrap();
+            assert_eq!(
+                entry.binding.unwrap().server.host,
+                tmt_core::host::HostKind::Herdr
+            );
             assert!(
                 records
                     .entry_by_pane(tmt_core::host::HostKind::Tmux, "%3", &server().server_id)
@@ -515,6 +519,20 @@ fn a_binding_stores_its_host_and_an_unknown_stored_host_is_invalid() {
                     .is_none(),
                 "a tmux lookup never selects another host's pane"
             );
+            Ok::<_, StorageError>(())
+        })
+        .unwrap();
+    // A host this build does not know (written past the CHECK by a newer
+    // schema or by hand) is invalid, never a guess.
+    connection
+        .execute_batch(
+            "PRAGMA ignore_check_constraints = ON; UPDATE bindings SET transport = 'screen';",
+        )
+        .unwrap();
+    storage
+        .with_binding_transaction(|records| {
+            assert_invalid_pid(records.entry_by_id(&identity.id).unwrap_err());
+            assert_invalid_pid(records.binding_entries().unwrap_err());
             Ok::<_, StorageError>(())
         })
         .unwrap();

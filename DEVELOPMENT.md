@@ -244,7 +244,9 @@ diff selector skips expensive native jobs only for Office-only paths, and skips
 Office for native-source/skill-only paths. Shared/unknown paths run both. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
-failed, cancelled or unexpectedly skipped selected jobs. CI changes need positive
+failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser
+partitions run in their own workflow (below), so a red `CI` run means one of its own
+jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
@@ -291,11 +293,14 @@ disposable Auth/Firestore/Functions emulators and three strict-port preview serv
 Playwright. The cloud build must fail closed without operator configuration;
 it never contacts a real project during automated tests.
 It uses one worker, no retries, bounded waits and independent browser contexts.
-The complete local command above remains the acceptance entry point. CI schedules
+The complete local command above remains the acceptance entry point. The
+`Office browser verification` workflow (`.github/workflows/office-browser.yml`) schedules
 the same standard browser identities as advisory diagnostics in twelve isolated
 partitions to reduce the chance
-that cold image builds and serial scenarios exhaust a per-job deadline:
+that serial scenarios exhaust a per-job deadline:
 emulator-backed contracts, three local Vite shards, and eight native-local shards.
+One `image` job builds the `browser-tests` target once and shares it as a one-day
+artifact; every partition loads that image and never builds it.
 Local partitions do not start Firebase, while native-local shards use the container
 Secret Service and embedded companion without Vite or Firebase.
 `test:browser:partitions` compares the exact Playwright identities from all twelve
@@ -303,17 +308,17 @@ partitions with the standard suite, rejects overlaps or omissions, keeps
 `native-decoration.spec.ts` in the emulator partition, and separately proves that
 the four opt-in capacity scenarios retain the full original inventory without
 overlapping the standard browser inventory. Every partition keeps one worker, zero retries and the
-existing scenario limits. Browser results do not gate merge aggregates; failed jobs
-remain visible and retain their logs and artifacts. Native Rust CI still owns
+existing scenario limits. Browser results do not gate merge aggregates and are not
+required checks; failed jobs remain visible in that workflow, whose status is the only
+place advisory failures show, and retain their logs and artifacts. Native Rust CI still owns
 formatting, linting, locked builds, embedded SPA service tests and process/parser
 contracts. The container-native shards retain installed-browser diagnostics without
 being rerun after compilation.
 Browser matrices and Playwright commands continue after individual failures while the
 runner remains active. A failed command uploads available Playwright error contexts
 before a final fail-closed step records the advisory job failure. Native browser jobs have a
-25-minute deadline so their cold image build leaves more time for each retained
-4–9-test partition. That remains a best-effort diagnostic budget: several tests can
-still consume their 120-second scenario limits after the build. A
+25-minute deadline for each retained 4–9-test partition. That remains a best-effort
+diagnostic budget: several tests can still consume their 120-second scenario limits. A
 deadline or runner termination can truncate a partition and prevent later artifact
 steps despite their failure/cancellation predicate. Report completed and expected
 counts together, including missing artifacts; do not claim a complete inventory from
@@ -334,9 +339,10 @@ cannot go stale.
 
 - Run the local browser suite above before opening a PR for an Office-affecting
   change, and record the result in the PR.
-- CI runs the Office browser partitions only when `office` is selected, and the
-  native Office shards only when `native_office` is. Their results are advisory
-  and never gate merge.
+- The `Office browser verification` workflow runs the Office browser partitions only
+  when `office` is selected, and the native Office shards only when `native_office`
+  is. Their results are advisory: they are not required checks and never gate merge,
+  and a red run of that workflow is a browser diagnostic, not a `CI` failure.
 - If a remote browser job fails but the same tests pass reliably in the local
   suite, treat the failure as flaky: record the local pass in the PR and move on.
   Only a failure that also reproduces locally needs a fix.
@@ -775,6 +781,16 @@ Product identity proofs are package-scoped, matching per-product release builds:
 compare `cargo build --locked --release -p tmt-cli` alone, at the same checkout
 path, before and after a change.
 
+A fixture that writes an executable and then runs it, directly or through an
+installer's verifier, can be refused with ETXTBSY ("Text file busy") in a
+multi-test binary: another test thread's `fork` holds a copy of the write
+descriptor until the child's `exec`, and nothing the writer does closes that
+window. Fixtures wait it out with a bounded retry of only that error; production
+code never retries. `tmt-office-command` does this in `test_support::install_office`
+(`retry_on_text_file_busy`). The opt-in stress test `cargo test -p
+tmt-office-command text_file_busy_stress -- --ignored --nocapture` reproduces the
+race and reports failures with and without the retry.
+
 Human output and help snapshots (`insta`, a dev-dependency) live beside the
 tests that assert them, such as `rust/crates/tmt-cli-style/tests/snapshots/`.
 After an intended change, regenerate with `INSTA_UPDATE=always cargo test -p
@@ -851,6 +867,23 @@ TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]
 TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/examples/storage-probe","args":[]}' \
   pnpm test:native
 ```
+
+The real-Herdr host test (`test/native/herdr.test.ts`) is skipped unless
+`TMT_TEST_HERDR` names a pinned `herdr` binary (0.9.1). Download the release
+asset into a scratch directory, never an install path, and check it against its
+GitHub digest before use:
+
+```bash
+gh release download v0.9.1 -R herdrdev/herdr -p herdr-macos-aarch64 -D /tmp/hdrbin
+gh api repos/herdrdev/herdr/releases/tags/v0.9.1 \
+  -q '.assets[]|select(.name=="herdr-macos-aarch64")|.digest'   # compare:
+shasum -a 256 /tmp/hdrbin/herdr-macos-aarch64
+mv /tmp/hdrbin/herdr-macos-aarch64 /tmp/hdrbin/herdr && chmod 755 /tmp/hdrbin/herdr
+TMT_TEST_HERDR=/tmp/hdrbin/herdr pnpm exec vitest run --config test/native/vitest.config.ts test/native/herdr.test.ts
+```
+
+It starts a headless server on a short private socket with update checks off,
+runs commands inside its panes, and fails if any server process remains.
 
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,

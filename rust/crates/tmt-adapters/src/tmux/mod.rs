@@ -15,10 +15,8 @@ pub use transport::{DeliveryError, DeliveryStage};
 mod evidence_tests;
 #[cfg(test)]
 mod io_tests;
-#[cfg(test)]
-mod test_support;
 
-pub use caller::CallerEnvironment;
+pub use crate::host::CallerEnvironment;
 
 use crate::process::{
     CommandError, CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner,
@@ -240,6 +238,15 @@ impl<R: CommandRunner> Tmux<R> {
         environment: &CallerEnvironment,
     ) -> Result<Option<String>, TmuxError> {
         optional_observation(caller::resolve(self, environment))
+    }
+
+    /// How far the caller's tmux pane shell is from the caller in its process
+    /// ancestry (0 is the caller), for choosing between nested hosts.
+    pub(crate) fn caller_depth(
+        &self,
+        environment: &CallerEnvironment,
+    ) -> Result<Option<usize>, TmuxError> {
+        optional_observation(caller::depth(self, environment)).map(Option::flatten)
     }
 
     fn server_evidence(

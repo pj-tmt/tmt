@@ -1,7 +1,8 @@
 //! The #491 host guard: production code spells a terminal host's name only in
 //! its core descriptor (`tmt-core/src/host.rs`), the host port
-//! (`tmt-adapters/src/host.rs`) and the host's own adapter module. Human prose
-//! that mentions a host is not a literal equal to its name and stays.
+//! (`tmt-adapters/src/host.rs`) and the host's own adapter module (`tmux/`,
+//! `herdr/`). Human prose that mentions a host is not a literal equal to its
+//! name and stays.
 //!
 //! Squad is outside this guard: its hotkeys and clipboard are tmux-only
 //! extension features that it reaches through tmux itself, and the Herdr
@@ -9,10 +10,11 @@
 
 use super::{driver_names::owned_literals, source::Source};
 
-const OWNERS: [(&str, &str); 4] = [
+const OWNERS: [(&str, &str); 5] = [
     ("tmt-core", "host.rs"),
     ("tmt-adapters", "host.rs"),
     ("tmt-adapters", "tmux/"),
+    ("tmt-adapters", "herdr/"),
     ("tmt-squad", ""),
 ];
 
@@ -55,6 +57,7 @@ mod tests {
             ("tmt-core", "host.rs"),
             ("tmt-adapters", "host.rs"),
             ("tmt-adapters", "tmux/mod.rs"),
+            ("tmt-adapters", "herdr/mod.rs"),
             ("tmt-squad", "effects.rs"),
         ] {
             assert!(

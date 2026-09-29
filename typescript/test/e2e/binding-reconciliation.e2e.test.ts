@@ -96,7 +96,7 @@ describe.sequential('binding publication, reconciliation and presentation', () =
     await withE2EFixture(async (fixture) => {
       fixture.enableMetadataBarrier({ phase: 'after' });
       const binder = fixture.runCliProcess<Bound>(['--json', 'name', 'Concurrent']);
-      await fixture.waitForMetadataBarrier('applied');
+      await fixture.waitForMetadataBarrier('applied', { child: binder });
       expect(durableState(fixture).bindings).toEqual([]);
       expect(JSON.parse(fixture.paneMetadata()).globalIdentity.name).toBe('Concurrent');
       const trace = installTmuxTrace(fixture);
@@ -125,6 +125,26 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       expect(durableState(fixture).bindings).toEqual([
         expect.objectContaining({ identity_id: bound.id }),
       ]);
+    }, inputLog);
+  });
+
+  it('fails a barrier wait at once, with the exit status and output, when the CLI exits first', async () => {
+    await withE2EFixture(async (fixture) => {
+      fixture.enableMetadataBarrier({ phase: 'after' });
+      // An unknown command fails before any pane metadata is written, so the CLI can never reach the barrier.
+      const early = fixture.runCliProcess(['--json', 'no-such-command']);
+      const started = Date.now();
+      const error = await fixture.waitForMetadataBarrier('applied', { child: early }).then(
+        () => undefined,
+        (rejection: unknown) => rejection
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toMatch(
+        /The CLI exited with code [1-9]\d* before metadata barrier 'applied'\.\nstdout: /
+      );
+      expect((error as Error).message).toContain('no-such-command');
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect((await early.result).code).not.toBe(0);
     }, inputLog);
   });
 
@@ -486,7 +506,7 @@ describe.sequential('binding publication, reconciliation and presentation', () =
     await withE2EFixture(async (fixture) => {
       fixture.enableMetadataBarrier({ phase: 'after' });
       const process = fixture.runCliProcess(['--json', 'name', 'Retry']);
-      await fixture.waitForMetadataBarrier('applied');
+      await fixture.waitForMetadataBarrier('applied', { child: process });
       const orphan = JSON.parse(fixture.paneMetadata()).globalIdentity;
       const pending = durableState(fixture);
       expect(pending.bindings).toEqual([]);
@@ -521,7 +541,7 @@ describe.sequential('binding publication, reconciliation and presentation', () =
       const peer = await fixture.createMockPane('vanishing');
       fixture.enableMetadataBarrier({ phase: 'before' });
       const process = fixture.runCliProcess(['--json', 'add', peer.pane, 'Vanished']);
-      await fixture.waitForMetadataBarrier();
+      await fixture.waitForMetadataBarrier('entered', { child: process });
       fixture.tmux(['kill-pane', '-t', peer.pane]);
       fixture.releaseMetadataBarrier();
       const result = await process.result;

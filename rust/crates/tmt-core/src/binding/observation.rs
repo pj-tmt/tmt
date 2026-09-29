@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     host::{HostKind, ServerSelector},
     identity::{self, IdentityError, Lifetime},
-    names::{normalize_name, validate_name},
+    names::{normalize_name, validate_existing_name},
 };
 use std::collections::BTreeMap;
 
@@ -67,7 +67,7 @@ pub fn evaluate_binding(entry: &BindingEntry, probe: &EndpointProbe) -> BindingE
     // The IDs prove ownership. The name is informational: it must be a
     // well-formed, self-consistent name, but a rename leaves it stale until the
     // next cosmetic refresh rewrites it, and a stale name never detaches.
-    let valid = validate_name(&marker.name)
+    let valid = validate_existing_name(&marker.name)
         .is_ok_and(|name| name.canonical_name() == marker.canonical_name);
     if !valid
         || binding.identity_id != entry.identity.id

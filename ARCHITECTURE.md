@@ -587,7 +587,8 @@ The Rust crates have deliberately narrow responsibilities:
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
 implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
-messages, lists, tables, the help registration contract and the one
+messages, lists, tables, the one column-width solver `grid` that tables and
+extension boards share, the help registration contract and the one
 interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
 `whoami`, `unbind`), also render through it directly and write through its
@@ -1033,7 +1034,7 @@ The maintained public surface is:
 - saved-identity notes through `notes path`;
 - the versioned local extension interface through `api`;
 - profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
-  `reply`, `result`, `talk`/`send`, `check`/`read`;
+  `reply`, `result`, `inbox`, `answer`, `talk`/`send`, `check`/`read`;
 - `focus <identity|pane>`, which shows a verified pane in the
   invoking user's own tmux client and reports that client (see the driver
   `focus` action), and the read-only `focus --client`, which names the same
@@ -1232,8 +1233,14 @@ Guided `tmt setup` (no driver, `setup_command/guided.rs`) plans from
 `Registry::detect`, which reads only the filesystem:
 
 - `Present` and `ConfigOnly` drivers get core skills in their skill roots
-  (`skill_installation::plan_core`, then `install`), and recorded extension
-  skills are linked into roots that lack them (`plan_owned`, `publish_owned`);
+  (`skill_installation::plan_core`, then `publish_core`), and recorded extension
+  skills are linked into roots that lack them (`plan_owned`, `publish_owned`).
+  Apply publishes exactly the planned targets: `publish_core` classifies each
+  target again under the installer lock and skips one that changed since
+  planning. A target that is not TMT's is kept and reported, never replaced. A
+  link into another TMT home's `skill-assets/<bundle>/<name>`, whose skill
+  declares that name, is an outdated TMT skill: the plan names it, and apply
+  backs it up before linking the current one;
 - `Present` drivers with hooks get `setup::plan`, then `apply` and the record.
 
 It prints only what is missing, asks once (`SETUP_CONSENT_REQUIRED` without a
@@ -1597,6 +1604,17 @@ Retention is frozen per attempt; bounded lazy housekeeping must respect active
 waiters, preserve the defined acceptance deadline and never resurrect an expired
 submission. The settings owner defines retention defaults and limits.
 
+Whether a request still accepts a first final is one service rule,
+`first_final_refusal`: final submission enforces it, and the open-request read
+(`open_requests`) applies it to what `storage::requests` narrows by the same
+columns. "Waiting on you" is therefore an open-request question, not an
+attention one: acknowledgment and live delivery settle attention but leave a
+request open until a final or its acceptance deadline. `answer_target` selects
+one open request by recipient and originator, never guessing among several, and
+derives the route proof in-process from the recorded attempt, so `tmt answer`
+submits through the same acceptance path as `reply` without exposing a receipt
+([contract](REQUEST-RESPONSE.md#inbox-and-answer)).
+
 `RequestRoute` distinguishes unbound direct-pane delivery from durable identity inbox
 queueing. Identified talk is Inbox-first with one claimed full-payload live wake;
 its public live output remains sent/completed. Pane attempts retain server/pane evidence; inbox attempts retain only
@@ -1679,13 +1697,36 @@ The CLI and the `delivery` and `pane_badge` adapters reach the terminal host
 only through `tmt-adapters::host::Host`. Extensions never do: they read presence
 from `tmt list --json` and the caller from `tmt whoami`, and the architecture
 guard rejects any extension source, test code included, that names the host
-port, the tmux module or core's `binding`, `endpoint` or `host` model. It holds the
-binding session (the core `BindingEndpoint` and `Driver` ports), caller and
-target resolution, snapshots, capture, send, focus and pane cosmetics. tmux is
-its only host today: `Host` forwards to `tmt-adapters::tmux` and re-exports
-tmux's error and value types under host names until a second host (Herdr,
-#479) needs per-host variants. The architecture guard rejects production
-references to the tmux module outside `host.rs` and `tmux/`.
+port, the tmux or Herdr module, or core's `binding`, `endpoint` or `host`
+model. The host port holds the binding session (the core `BindingEndpoint`
+and `Driver` ports), caller and target resolution, snapshots, capture, send,
+focus and pane cosmetics, over two hosts: `tmt-adapters::tmux` and
+`tmt-adapters::herdr` (#479). A handle has a primary host; its session observes
+new panes there, and probes, marks and clears every stored binding on that
+binding's own host, so presence is complete from either host. `HostError` and
+the host `ActionError` wrap each host's error and read exactly as it. The
+architecture guard rejects production references to the host modules outside
+`host.rs` and their own directories.
+
+Herdr is reached only through its documented CLI (`herdr <group> <command>`,
+JSON out) under the bounded process owner, on the socket a caller's
+`HERDR_SOCKET_PATH` or a stored server names, and refuses servers older than
+0.9.1 in semantic-version order (so a 0.9.1 pre-release is refused). A Herdr pane ID is the terminal ID, which follows a pane through moves
+while the public `wN:pM` (its target and display address) is reused after a
+restart. A caller's Herdr pane counts only when its shell is an ancestor of the
+caller (`process::ancestry`, shared with tmux); inside both hosts the nearer
+pane wins. A Herdr server incarnation is its server process (the parent of
+every pane shell) and that process's start; Herdr keeps no server-level store,
+so TMT's UUID for it comes from core's `HostServerIds` port, implemented by
+`Storage` (`host_servers`) and resolved by `Host::resolve_servers` before any
+binding transaction opens, so the transaction only sees resolved evidence. A
+stored Herdr server is live only as the same incarnation; otherwise it is lost
+only when its recorded process is conclusively gone. The marker is pane tokens
+under source `tmt` (a long name spans continuation keys) and proves nothing
+unless its IDs match storage. Herdr merges a report into the source's tokens
+key by key, so each publish also clears the marker keys it does not set. Herdr delivery, capture, focus, badges and hook
+context are not implemented yet: `send` is unsupported so core falls through to
+the Inbox, a pane route refuses before input, and `check` and `focus` refuse.
 
 Endpoint identity is opaque to everything but its host. `tmt-core::host::HostKind`
 is the pure-data list of hosts, like the driver descriptors: each owns its stored
@@ -1700,9 +1741,11 @@ NULL fence host is tmux. A `Host` handle states why it was chosen:
 `for_caller` (a caller-scoped command), `for_server` (a stored binding or request
 endpoint) or `for_target` (an explicit pane target); its methods take endpoints,
 never loose socket or pane strings. Only `tmt-core/src/host.rs`,
-`tmt-adapters/src/host.rs` and `tmux/` may spell a host's name, which the
-architecture guard enforces for every crate but Squad (its tmux-only hotkeys and
-clipboard are extension features).
+`tmt-adapters/src/host.rs`, `tmux/` and `herdr/` may spell a host's name, which
+the architecture guard enforces for every crate but Squad (its tmux-only hotkeys
+and clipboard are extension features). Names that a later host reads as targets
+(Herdr's `wN:pM`) are refused only as new names: an identity that already holds
+one keeps it for lookup and marker checks, and explicit resolution prefers it.
 
 `tmux` uses explicit socket/server evidence, bounded command budgets,
 owned buffers and no ambient host fallback. A failed paste or Enter is an

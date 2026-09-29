@@ -39,6 +39,50 @@ fn invalid_names_stop_before_repository_access() {
     }
 }
 
+struct Holder(Identity);
+
+impl IdentityReader for Holder {
+    type Error = std::convert::Infallible;
+
+    fn find_identity(&self, canonical_name: &str) -> Result<Option<Identity>, Self::Error> {
+        Ok((canonical_name == self.0.canonical_name).then(|| self.0.clone()))
+    }
+
+    fn list_identities(&self) -> Result<Vec<Identity>, Self::Error> {
+        Ok(vec![self.0.clone()])
+    }
+}
+
+#[test]
+fn an_existing_identity_keeps_a_name_that_now_reads_as_a_herdr_target() {
+    let holder = Holder(Identity {
+        name: "W1:p2".into(),
+        canonical_name: "w1:p2".into(),
+        ..identity("identity-1", Lifetime::Saved)
+    });
+    let found = find_by_name(&holder, "w1:p2")
+        .unwrap()
+        .expect("existing identity");
+    assert_eq!(found.id, "identity-1");
+    // With no holder it is refused like any target, never a fresh lookup miss.
+    assert!(matches!(
+        find_by_name(&holder, "w3:p4"),
+        Err(IdentityError::InvalidName(
+            crate::names::NameError::PaneTarget
+        ))
+    ));
+    assert!(matches!(
+        create_or_resolve(&mut ForbiddenRepository, "w1:p2", Lifetime::Saved),
+        Err(IdentityError::InvalidName(_))
+    ));
+    // Explicit resolution prefers the existing identity over the target.
+    assert!(!addresses_pane(&holder, "w1:p2").unwrap());
+    assert!(addresses_pane(&holder, "w3:p4").unwrap());
+    assert!(!addresses_pane(&holder, "worker").unwrap());
+    // tmux targets never name identities and never read storage.
+    assert!(addresses_pane(&ForbiddenRepository, "%3").unwrap());
+}
+
 fn identity(id: &str, lifetime: Lifetime) -> Identity {
     Identity {
         id: id.into(),

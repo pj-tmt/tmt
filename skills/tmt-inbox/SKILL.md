@@ -26,6 +26,8 @@ bounded items you will process, using each item's exact `inspectCommand`. For an
 incoming request, use the receipt shown only by `x show --incoming` to submit one
 complete correlated response through `tmt reply`. Act only within the user's
 authorization and report a brief useful summary after successful submission.
+Outside a listening session, `tmt inbox` lists what is still waiting on you and
+`tmt answer` answers it without a receipt; it is the same queue, not a second one.
 
 An item with `kind: "announcement"` is a notification, not a request for work or
 a reply. Inspect its text, handle it within the user's authority, then acknowledge

@@ -1,6 +1,6 @@
-use super::super::test_support::{ScriptedRunner, failure, failure_with_kind};
 use super::*;
 use crate::process::CommandFailure;
+use crate::scripted_runner::{ScriptedRunner, failure, failure_with_kind};
 use std::{
     cell::RefCell,
     time::{Duration, Instant},
@@ -23,7 +23,7 @@ fn assert_deadlines_and_cap(runner: &ScriptedRunner, expected_cap: usize, starte
     }
 }
 
-fn assert_socket(calls: &[super::super::test_support::Invocation]) {
+fn assert_socket(calls: &[crate::scripted_runner::Invocation]) {
     for call in calls {
         assert_eq!(&call.args[..2], ["-S", SOCKET]);
     }

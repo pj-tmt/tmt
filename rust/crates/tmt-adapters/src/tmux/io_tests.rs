@@ -1,6 +1,6 @@
-use super::test_support::{ScriptedRunner, failure};
 use super::*;
 use crate::process::{CommandError, CommandFailure, CommandOutput};
+use crate::scripted_runner::{ScriptedRunner, failure};
 
 const SERVER_ID: &str = "123e4567-e89b-42d3-a456-426614174000";
 
@@ -65,6 +65,8 @@ fn full_environment() -> CallerEnvironment {
         tmux: Some("/tmp/private.sock,321,0".into()),
         pane: Some("%9".into()),
         process_id: 900,
+        herdr_pane: None,
+        herdr_socket: None,
     }
 }
 
@@ -122,6 +124,8 @@ fn absent_mark_is_distinct_from_invalid_selected_server_evidence() {
         tmux: Some("malformed".into()),
         pane: None,
         process_id: 900,
+        herdr_pane: None,
+        herdr_socket: None,
     };
     assert_eq!(
         tmux.marked_pane(&invalid, OperationOptions::default())
@@ -140,6 +144,8 @@ fn malformed_explicit_environment_and_scopes_never_spawn() {
             tmux: Some(context.into()),
             pane: Some(pane.into()),
             process_id: 900,
+            herdr_pane: None,
+            herdr_socket: None,
         };
         assert_eq!(tmux.caller_pane(&environment).unwrap(), None);
     }
@@ -167,6 +173,8 @@ fn ancestry_and_snapshot_share_one_deadline_and_reject_ambient_panes() {
         tmux: None,
         pane: None,
         process_id: 900,
+        herdr_pane: None,
+        herdr_socket: None,
     };
     assert_eq!(tmux.caller_pane(&environment).unwrap(), None);
     let calls = tmux.runner.calls.borrow();
@@ -247,6 +255,8 @@ fn ancestry_requires_one_coherent_candidate_after_grouped_row_deduplication() {
             tmux: None,
             pane: None,
             process_id: 900,
+            herdr_pane: None,
+            herdr_socket: None,
         };
         assert_eq!(tmux.caller_pane(&environment).unwrap().as_deref(), expected);
         assert_eq!(tmux.runner.calls.borrow().len(), 3);
@@ -260,11 +270,15 @@ fn partial_caller_evidence_cannot_override_explicit_socket_or_pane() {
             tmux: Some("/different.sock,321,0".into()),
             pane: None,
             process_id: 900,
+            herdr_pane: None,
+            herdr_socket: None,
         },
         CallerEnvironment {
             tmux: None,
             pane: Some("%10".into()),
             process_id: 900,
+            herdr_pane: None,
+            herdr_socket: None,
         },
     ] {
         let tmux = Tmux::new(ScriptedRunner::new([
@@ -290,6 +304,8 @@ fn ancestry_cycle_stops_before_any_pane_query() {
         tmux: None,
         pane: None,
         process_id: 900,
+        herdr_pane: None,
+        herdr_socket: None,
     };
     assert_eq!(tmux.caller_pane(&environment).unwrap(), None);
     assert!(

@@ -2,22 +2,22 @@ use crate::process::{CommandError, CommandFailure, CommandOutput, CommandRequest
 use std::{cell::RefCell, collections::VecDeque, io};
 
 #[derive(Debug)]
-pub(super) struct Invocation {
-    pub(super) program: String,
-    pub(super) args: Vec<String>,
-    pub(super) input: Vec<u8>,
-    pub(super) deadline: std::time::Instant,
-    pub(super) max_output_bytes: usize,
+pub(crate) struct Invocation {
+    pub(crate) program: String,
+    pub(crate) args: Vec<String>,
+    pub(crate) input: Vec<u8>,
+    pub(crate) deadline: std::time::Instant,
+    pub(crate) max_output_bytes: usize,
 }
 
 #[derive(Default)]
-pub(super) struct ScriptedRunner {
-    pub(super) results: RefCell<VecDeque<Result<CommandOutput, CommandError>>>,
-    pub(super) calls: RefCell<Vec<Invocation>>,
+pub(crate) struct ScriptedRunner {
+    pub(crate) results: RefCell<VecDeque<Result<CommandOutput, CommandError>>>,
+    pub(crate) calls: RefCell<Vec<Invocation>>,
 }
 
 impl ScriptedRunner {
-    pub(super) fn new(
+    pub(crate) fn new(
         results: impl IntoIterator<Item = Result<&'static str, CommandError>>,
     ) -> Self {
         Self {
@@ -36,7 +36,7 @@ impl ScriptedRunner {
         }
     }
 
-    pub(super) fn push_output(&self, stdout: Vec<u8>, stderr: Vec<u8>) {
+    pub(crate) fn push_output(&self, stdout: Vec<u8>, stderr: Vec<u8>) {
         self.results
             .borrow_mut()
             .push_back(Ok(CommandOutput { stdout, stderr }));
@@ -64,11 +64,11 @@ impl CommandRunner for ScriptedRunner {
     }
 }
 
-pub(super) fn failure(cleanup_failed: bool) -> CommandError {
+pub(crate) fn failure(cleanup_failed: bool) -> CommandError {
     failure_with_kind(CommandFailure::Timeout, cleanup_failed)
 }
 
-pub(super) fn failure_with_kind(kind: CommandFailure, cleanup_failed: bool) -> CommandError {
+pub(crate) fn failure_with_kind(kind: CommandFailure, cleanup_failed: bool) -> CommandError {
     let mut error = CommandError::new(kind);
     if cleanup_failed {
         error.cleanup_error = Some(io::Error::from_raw_os_error(
