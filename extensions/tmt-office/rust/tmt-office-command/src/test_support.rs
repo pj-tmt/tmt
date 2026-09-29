@@ -1,10 +1,13 @@
 //! Invocation-owned filesystem fixture for Office command tests.
 
+mod text_file_busy;
+
 use std::{
     fs,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
+use text_file_busy::retry_on_text_file_busy;
 
 pub(crate) struct TestDirectory {
     pub path: PathBuf,
@@ -113,21 +116,28 @@ pub(crate) fn office_fixture_with_payload(payload: &[u8]) -> OfficeRelease {
 }
 
 /// Offline Office installation with the production release verifier.
+///
+/// The verifier executes the payload the installer has just written, which can
+/// be refused with ETXTBSY while another test thread's fork still holds a copy
+/// of the write descriptor. A failed install publishes nothing, so the fixture
+/// repeats it (see `text_file_busy`); production code never does.
 pub(crate) fn install_office(
     release: &OfficeRelease,
     prefix: &std::path::Path,
 ) -> std::io::Result<tmt_adapters::native_install::InstallReport> {
-    tmt_adapters::native_install::install_product(
-        tmt_adapters::native_install::Product::Office,
-        tmt_adapters::native_install::InstallRequest {
-            archive: &release.archive,
-            manifest: &release.manifest,
-            prefix,
-            target: TARGET,
-            channel: tmt_core::native_install::Channel::Stable,
-            pin: tmt_core::native_install::PinAction::Preserve,
-        },
-        Some(&crate::verify_release),
-        || Ok(()),
-    )
+    retry_on_text_file_busy(|| {
+        tmt_adapters::native_install::install_product(
+            tmt_adapters::native_install::Product::Office,
+            tmt_adapters::native_install::InstallRequest {
+                archive: &release.archive,
+                manifest: &release.manifest,
+                prefix,
+                target: TARGET,
+                channel: tmt_core::native_install::Channel::Stable,
+                pin: tmt_core::native_install::PinAction::Preserve,
+            },
+            Some(&crate::verify_release),
+            || Ok(()),
+        )
+    })
 }
