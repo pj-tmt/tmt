@@ -35,6 +35,24 @@ pub struct Squad {
     pub room_id: String,
 }
 
+/// A missing squad, named or not, with the command that creates one.
+fn not_found(name: Option<&str>) -> SquadError {
+    match name {
+        Some(name) => SquadError::hinted(
+            "SQUAD_NOT_FOUND",
+            &format!("Squad '{name}' does not exist"),
+            "; run: ",
+            &format!("tmt squad init {name}"),
+        ),
+        None => SquadError::hinted(
+            "SQUAD_NOT_FOUND",
+            "No squad exists yet",
+            "; run: ",
+            "tmt squad init <name>",
+        ),
+    }
+}
+
 /// The core room that is a squad.
 pub fn room_name(name: &str) -> String {
     format!("squad-{name}")
@@ -70,10 +88,7 @@ impl Squad {
                     name: name.into(),
                     room_id: room_id(&shown["room"])?,
                 }),
-                Err(error) if error.code == "ROOM_NOT_FOUND" => Err(SquadError::new(
-                    "SQUAD_NOT_FOUND",
-                    format!("Squad '{name}' does not exist; run: tmt squad init {name}"),
-                )),
+                Err(error) if error.code == "ROOM_NOT_FOUND" => Err(not_found(Some(name))),
                 Err(error) if error.code == "ROOM_AMBIGUOUS" => Err(SquadError::new(
                     "SQUAD_AMBIGUOUS",
                     format!(
@@ -87,10 +102,7 @@ impl Squad {
         let mut squads = Self::list(core)?;
         match squads.len() {
             1 => Ok(squads.remove(0)),
-            0 => Err(SquadError::new(
-                "SQUAD_NOT_FOUND",
-                "No squad exists yet; run: tmt squad init <name>",
-            )),
+            0 => Err(not_found(None)),
             _ => Err(SquadError::new(
                 "SQUAD_AMBIGUOUS",
                 format!(
@@ -224,6 +236,26 @@ fn text(value: &Value, key: &str) -> Result<String, SquadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missing_squad_keeps_its_json_message_and_splits_the_command_for_people() {
+        let named = not_found(Some("product"));
+        assert_eq!(
+            named.to_json().to_string(),
+            r#"{"error":{"code":"SQUAD_NOT_FOUND","message":"Squad 'product' does not exist; run: tmt squad init product"}}"#
+        );
+        assert_eq!(
+            named.human(),
+            (
+                "Squad 'product' does not exist",
+                Some("tmt squad init product")
+            )
+        );
+        assert_eq!(
+            not_found(None).to_json().to_string(),
+            r#"{"error":{"code":"SQUAD_NOT_FOUND","message":"No squad exists yet; run: tmt squad init <name>"}}"#
+        );
+    }
 
     #[test]
     fn names_and_fields_fit_core_metadata_keys() {

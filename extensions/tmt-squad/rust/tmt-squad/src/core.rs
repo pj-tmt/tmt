@@ -15,10 +15,14 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 const OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
 
 /// A squad or passed-through core failure. Core codes are never renamed.
+/// `message` is the whole text `--json` reports; human output shows it as
+/// `error:`, or as `error:` plus `hint:` when the failure names a next step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SquadError {
     pub code: String,
     pub message: String,
+    /// Where `message` splits into what failed and the next step.
+    hint: Option<(usize, usize)>,
 }
 
 impl SquadError {
@@ -26,6 +30,25 @@ impl SquadError {
         Self {
             code: code.into(),
             message: message.into(),
+            hint: None,
+        }
+    }
+
+    /// `message` is `what`, `separator` and `hint` joined, exactly as
+    /// `--json` has always reported it; human output shows the two parts.
+    pub fn hinted(code: &str, what: &str, separator: &str, hint: &str) -> Self {
+        Self {
+            code: code.into(),
+            message: format!("{what}{separator}{hint}"),
+            hint: Some((what.len(), what.len() + separator.len())),
+        }
+    }
+
+    /// What failed, and the next step when there is one.
+    pub fn human(&self) -> (&str, Option<&str>) {
+        match self.hint {
+            Some((what, hint)) => (&self.message[..what], Some(&self.message[hint..])),
+            None => (&self.message, None),
         }
     }
 

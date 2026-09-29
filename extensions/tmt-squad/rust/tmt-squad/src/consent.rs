@@ -2,7 +2,7 @@
 //! squad's own state (tmux configuration, agent skill directories).
 
 use crate::core::SquadError;
-use std::io::{BufRead, IsTerminal};
+use std::io::{BufRead, IsTerminal, Write};
 
 fn failed(code: &str, message: &str) -> SquadError {
     SquadError::new(code, message)
@@ -14,13 +14,13 @@ pub fn consent(yes: bool, plan: &str, question: &str) -> Result<(), SquadError> 
     if yes {
         return Ok(());
     }
-    if !(std::io::stdin().is_terminal() && std::io::stderr().is_terminal()) {
-        return Err(failed(
-            "SQUAD_CONSENT_REQUIRED",
-            "Nothing was changed. Review the plan with --print, then run again with --yes.",
-        ));
+    let mut prompt = tmt_cli_style::stream::stderr();
+    if !(std::io::stdin().is_terminal() && prompt.is_terminal()) {
+        return Err(required());
     }
-    eprint!("{plan}\n{question} [y/N] ");
+    // The prompt stays on standard error, where scripts expect it.
+    let _ = write!(prompt, "{plan}\n{question} [y/N] ").and_then(|()| prompt.flush());
+    drop(prompt);
     let mut answer = String::new();
     std::io::stdin()
         .lock()
@@ -38,5 +38,34 @@ pub fn consent(yes: bool, plan: &str, question: &str) -> Result<(), SquadError> 
             "SQUAD_CONSENT_REQUIRED",
             "Declined; nothing was changed.",
         ))
+    }
+}
+
+/// Consent is needed but cannot be asked here.
+fn required() -> SquadError {
+    SquadError::hinted(
+        "SQUAD_CONSENT_REQUIRED",
+        "Nothing was changed.",
+        " ",
+        "Review the plan with --print, then run again with --yes.",
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_json_message_is_unchanged_and_human_output_splits_the_next_step() {
+        let error = super::required();
+        assert_eq!(
+            error.to_json().to_string(),
+            r#"{"error":{"code":"SQUAD_CONSENT_REQUIRED","message":"Nothing was changed. Review the plan with --print, then run again with --yes."}}"#
+        );
+        assert_eq!(
+            error.human(),
+            (
+                "Nothing was changed.",
+                Some("Review the plan with --print, then run again with --yes.")
+            )
+        );
     }
 }

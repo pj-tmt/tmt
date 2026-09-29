@@ -481,13 +481,7 @@ pub fn install(
         return Ok(document);
     }
     if !collisions.is_empty() {
-        return Err(failed(
-            "SQUAD_HOTKEY_TAKEN",
-            format!(
-                "Nothing was changed: {}. Choose other keys under [tmux] in squad.toml.",
-                collisions.join("; ")
-            ),
-        ));
+        return Err(taken(&collisions));
     }
     if let Err(error) = &plan.resolved {
         return Err(error.clone());
@@ -648,9 +642,35 @@ pub fn report(core: &Core, config: &Config) -> Result<Value, SquadError> {
     }))
 }
 
+/// Keys another binding already uses, and where to choose others.
+fn taken(collisions: &[String]) -> SquadError {
+    SquadError::hinted(
+        "SQUAD_HOTKEY_TAKEN",
+        &format!("Nothing was changed: {}.", collisions.join("; ")),
+        " ",
+        "Choose other keys under [tmux] in squad.toml.",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn taken_keys_keep_their_json_message_and_split_the_next_step() {
+        let error = taken(&[
+            "prefix S is bound to x".into(),
+            "prefix B is bound to y".into(),
+        ]);
+        assert_eq!(
+            error.to_json().to_string(),
+            r#"{"error":{"code":"SQUAD_HOTKEY_TAKEN","message":"Nothing was changed: prefix S is bound to x; prefix B is bound to y. Choose other keys under [tmux] in squad.toml."}}"#
+        );
+        assert_eq!(
+            error.human().1,
+            Some("Choose other keys under [tmux] in squad.toml.")
+        );
+    }
 
     fn keys() -> TmuxKeys {
         TmuxKeys {

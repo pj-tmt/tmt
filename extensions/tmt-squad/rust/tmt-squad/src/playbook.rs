@@ -232,13 +232,7 @@ pub fn install(
             }),
         )
         .map_err(|error| match error.code.as_str() {
-            "SKILL_CONFLICT" => failed(
-                &error.code,
-                format!(
-                    "{} Nothing was changed; pass --force to back that path up and replace it.",
-                    error.message
-                ),
-            ),
+            "SKILL_CONFLICT" => conflict(&error),
             _ => error,
         })?;
     let changed = published["published"]
@@ -277,7 +271,12 @@ pub fn remove(core: &Core, name: &str, yes: bool) -> Result<Value, SquadError> {
 }
 
 /// Human output; `show` prints the embedded bytes untouched.
-pub fn text(document: &Value) -> String {
+pub fn text(document: &Value, terminal: tmt_cli_style::Terminal) -> String {
+    let done = |line: String| {
+        let mut output = Vec::new();
+        let _ = tmt_cli_style::message::success(&mut output, terminal, &line);
+        String::from_utf8(output).unwrap_or_default()
+    };
     let string = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     if let Some(content) = document["content"].as_str() {
         return content.to_owned();
@@ -305,8 +304,8 @@ pub fn text(document: &Value) -> String {
             .iter()
             .filter(|target| target["changed"] == true)
             .map(|target| {
-                format!(
-                    "Installed {}{}: {}{}\n",
+                done(format!(
+                    "Installed {}{}: {}{}",
                     string(&document["name"]),
                     target["agent"]
                         .as_str()
@@ -315,7 +314,7 @@ pub fn text(document: &Value) -> String {
                     target["backup"]
                         .as_str()
                         .map_or(String::new(), |backup| format!(" (backup: {backup})")),
-                )
+                ))
             })
             .collect();
     }
@@ -328,11 +327,11 @@ pub fn text(document: &Value) -> String {
             .collect()
     };
     let mut output = if document["changed"] == true {
-        format!(
-            "Removed {}: {}\n",
+        done(format!(
+            "Removed {}: {}",
             string(&document["name"]),
             paths("removed").join(", ")
-        )
+        ))
     } else {
         format!(
             "{} was not installed; nothing changed.\n",
@@ -348,9 +347,38 @@ pub fn text(document: &Value) -> String {
     output
 }
 
+/// Core refused to replace a folder squad does not own.
+fn conflict(error: &SquadError) -> SquadError {
+    SquadError::hinted(
+        &error.code,
+        &format!("{} Nothing was changed", error.message),
+        "; ",
+        "pass --force to back that path up and replace it.",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_skill_conflict_keeps_its_json_message_and_splits_the_next_step() {
+        let error = conflict(&SquadError::new(
+            "SKILL_CONFLICT",
+            "The folder /h/.claude/skills/tmux-squad is not managed by squad.",
+        ));
+        assert_eq!(
+            error.to_json().to_string(),
+            r#"{"error":{"code":"SKILL_CONFLICT","message":"The folder /h/.claude/skills/tmux-squad is not managed by squad. Nothing was changed; pass --force to back that path up and replace it."}}"#
+        );
+        assert_eq!(
+            error.human(),
+            (
+                "The folder /h/.claude/skills/tmux-squad is not managed by squad. Nothing was changed",
+                Some("pass --force to back that path up and replace it.")
+            )
+        );
+    }
     use std::{collections::BTreeSet, fs, path::Path};
 
     fn crate_dir() -> &'static Path {
@@ -405,7 +433,10 @@ mod tests {
     fn show_returns_the_exact_bytes_and_unknown_names_are_refused() {
         let shown = embedded("tmux-squad").unwrap();
         assert_eq!(shown["content"], PLAYBOOKS[0].skill);
-        assert_eq!(text(&shown), PLAYBOOKS[0].skill);
+        assert_eq!(
+            text(&shown, tmt_cli_style::Terminal::PLAIN),
+            PLAYBOOKS[0].skill
+        );
         let error = embedded("herdr-squad").unwrap_err();
         assert_eq!(error.code, "SQUAD_PLAYBOOK_UNKNOWN");
         assert!(error.message.contains("tmux-squad"));
@@ -416,9 +447,10 @@ mod tests {
         let listed = catalog();
         assert_eq!(listed["playbooks"][0]["name"], "tmux-squad");
         assert!(
-            text(&listed).starts_with("tmux-squad  Propose a tmux layout"),
+            text(&listed, tmt_cli_style::Terminal::PLAIN)
+                .starts_with("tmux-squad  Propose a tmux layout"),
             "{}",
-            text(&listed)
+            text(&listed, tmt_cli_style::Terminal::PLAIN)
         );
     }
 }

@@ -478,7 +478,7 @@ sort = ["-name"]
       expect(readFileSync(copied, 'utf8')).toBe('- [Sol](Sol)');
       expect(existsSync(path.join(sandbox.root, 'pwned'))).toBe(false);
       expect((await runCli(sandbox, ['sq', 'copy', 'auth-fix'])).stdout).toBe(
-        'Copied with the configured clipboard program.\n'
+        '✓ Copied with the configured clipboard program\n'
       );
     });
   });
