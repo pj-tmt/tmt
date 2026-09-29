@@ -587,9 +587,11 @@ The Rust crates have deliberately narrow responsibilities:
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
 implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
-messages, lists, tables and the help registration contract). That crate is a leaf
-with no TMT dependency, so extension CLIs may share it; the architecture guard
-enforces both. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
+messages, lists, tables and the help registration contract). Migrated command
+modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
+`whoami`, `unbind`), also render through it directly and write through its
+`stream`. That crate is a leaf with no TMT dependency, so extension CLIs may
+share it; the architecture guard enforces both. `extensions/tmt-office/rust/tmt-office-command` owns the public Office
 grammar, typed requests and handlers. Core's reserved `tmt office` facade mounts
 that grammar and calls the same handlers through an in-process `CoreAccess` port.
 `tmt-cli/src/office_facade.rs` is the sole core registration and command-library
