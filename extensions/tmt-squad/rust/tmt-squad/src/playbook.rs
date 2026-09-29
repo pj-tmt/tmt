@@ -62,6 +62,7 @@ pub fn grammar() -> Command {
             },
         ],
         outputs: OutputModes::Human,
+        details: "",
     })
     .subcommand_required(true)
     .subcommand(tmt_cli_style::command(&CommandSpec {
@@ -78,6 +79,7 @@ pub fn grammar() -> Command {
             },
         ],
         outputs: OutputModes::Human,
+        details: "",
     }))
     .subcommand(
         tmt_cli_style::command(&CommandSpec {
@@ -88,6 +90,7 @@ pub fn grammar() -> Command {
                 note: "Print the tmux-squad playbook; nothing is installed",
             }],
             outputs: OutputModes::Human,
+            details: "",
         })
         .arg(name()),
     )
@@ -110,6 +113,7 @@ pub fn grammar() -> Command {
                 },
             ],
             outputs: OutputModes::Human,
+            details: "",
         })
         .arg(name())
         .arg(
@@ -135,6 +139,7 @@ pub fn grammar() -> Command {
                 note: "Ask, then remove it from your agents",
             }],
             outputs: OutputModes::Human,
+            details: "",
         })
         .arg(name())
         .arg(yes()),
