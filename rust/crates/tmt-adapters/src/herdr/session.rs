@@ -151,6 +151,11 @@ impl<'a, R: CommandRunner> Session<'a, R> {
         for token in &tokens {
             args.extend(["--token", token.as_str()]);
         }
+        // One report sets this marker and clears the parts it does not use.
+        let unset = marker::unset_keys(&tokens);
+        for key in &unset {
+            args.extend(["--clear-token", key.as_str()]);
+        }
         self.herdr
             .act(&binding.server.socket_path, &args, self.deadline)?;
         // Herdr drops a report it considers stale without an error; read back.

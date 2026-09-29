@@ -29,6 +29,20 @@ pub(super) fn keys() -> Vec<String> {
     keys
 }
 
+/// The marker keys a report of `tokens` does not set. Herdr 0.9.1 merges a
+/// report into the source's tokens key by key, so a shorter name must clear
+/// the continuation parts a longer one left.
+pub(super) fn unset_keys(tokens: &[String]) -> Vec<String> {
+    keys()
+        .into_iter()
+        .filter(|key| {
+            !tokens
+                .iter()
+                .any(|token| token.split_once('=').is_some_and(|(set, _)| set == key))
+        })
+        .collect()
+}
+
 /// `KEY=VALUE` tokens for one report, or `None` when a name is too long for
 /// the parts Herdr allows.
 pub(super) fn encode(marker: &BindingMarker) -> Option<Vec<String>> {

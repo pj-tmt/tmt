@@ -166,9 +166,22 @@ describe.skipIf(!HERDR)('Herdr host (real server)', () => {
         const missing = await runCli(sandbox, ['add', 'w9:p9', 'nobody']);
         expect(missing.status).toBe(3);
         expect(missing.stderr).toContain("Pane target 'w9:p9' was not found");
-        expect((await runCli(sandbox, ['rename', 'worker', 'lead'])).status).toBe(0);
+        // A name longer than one 80-character token spans continuation keys;
+        // Herdr merges reports per key, so a shorter name must clear them.
+        const long = 'w'.repeat(200);
+        expect((await runCli(sandbox, ['rename', 'worker', long])).status).toBe(0);
         expect(herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens).toMatchObject({
-          tmt_name: 'lead',
+          tmt_name_3: 'w'.repeat(40),
+        });
+        expect((await runCli(sandbox, ['rename', long, 'lead'])).status).toBe(0);
+        const renamed = herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens;
+        expect(renamed).toMatchObject({ tmt_name: 'lead', tmt_cname: 'lead' });
+        expect(Object.keys(renamed).filter((key) => /_[234]$/.test(key))).toEqual([]);
+        expect(parseWholeStdout(await runCli(sandbox, ['ls', '--json']))).toMatchObject({
+          identities: [
+            { name: 'lead', presence: 'active' },
+            { name: 'reviewer', presence: 'active' },
+          ],
         });
         const unbound = await herdr.inPane('w1:p1', `${tmt(sandbox)} unbind`);
         expect(unbound.stdout).toContain("Unbound 'lead' from pane w1:p1; identity retired");

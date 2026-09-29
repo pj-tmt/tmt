@@ -562,6 +562,76 @@ fn a_tmux_session_probes_a_herdr_binding_on_herdr() {
     runner.done();
 }
 
+/// Herdr 0.9.1's observed `report-metadata` semantics: tokens merge key by
+/// key into the source's set, then `--clear-token` keys are removed.
+fn apply_report(tokens: &serde_json::Value, report: &[String]) -> serde_json::Value {
+    let mut merged = tokens.as_object().cloned().unwrap_or_default();
+    for pair in report.windows(2) {
+        match pair[0].as_str() {
+            "--token" => {
+                let (key, value) = pair[1].split_once('=').unwrap();
+                merged.insert(key.into(), json!(value));
+            }
+            "--clear-token" => {
+                merged.remove(&pair[1]);
+            }
+            _ => {}
+        }
+    }
+    serde_json::Value::Object(merged)
+}
+
+#[test]
+fn a_rename_from_a_long_name_leaves_no_stale_name_parts() {
+    use crate::host::PaneRefresh;
+    let binding = binding(90316);
+    let long = Identity {
+        name: "L".repeat(200),
+        canonical_name: "l".repeat(200),
+        ..identity()
+    };
+    let before = tokens(&binding.marker(&long));
+    assert!(before.get("tmt_name_3").is_some());
+    let renamed = Identity {
+        name: "Lead".into(),
+        canonical_name: "lead".into(),
+        ..identity()
+    };
+    let expected = tokens(&binding.marker(&renamed));
+    // The report depends only on the binding and the new name; take it from
+    // a first publish, then script what Herdr keeps when it is applied.
+    let probe = Shared::default();
+    probe
+        .json(list(vec![pane("w1:p1", &binding.pane_id, None)]))
+        .text("")
+        .json(list(vec![pane("w1:p1", &binding.pane_id, None)]));
+    let _ = session(&Herdr::new(probe.clone(), None)).publish(&binding, &renamed);
+    let kept = apply_report(&before, &probe.calls()[1]);
+    assert_eq!(kept, expected);
+
+    let runner = Shared::default();
+    runner
+        .json(list(vec![pane(
+            "w1:p1",
+            &binding.pane_id,
+            Some(before.clone()),
+        )]))
+        .json(list(vec![pane(
+            "w1:p1",
+            &binding.pane_id,
+            Some(before.clone()),
+        )]))
+        .text("")
+        .json(list(vec![pane("w1:p1", &binding.pane_id, Some(kept))]));
+    let herdr = Herdr::new(runner.clone(), None);
+    assert_eq!(
+        session(&herdr).refresh_name(&binding, &renamed).unwrap(),
+        PaneRefresh::Updated
+    );
+    assert_eq!(apply_report(&before, &runner.calls()[2]), expected);
+    runner.done();
+}
+
 #[test]
 fn a_rename_rewrites_only_this_bindings_stale_marker_name() {
     use crate::host::PaneRefresh;
