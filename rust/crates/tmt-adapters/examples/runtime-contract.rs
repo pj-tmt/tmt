@@ -70,6 +70,7 @@ fn check() -> Result<(), String> {
                     .map_err(|error| error.to_string())?,
                 state: None,
                 stale_at_ms: None,
+                resume_pending_at_ms: None,
             };
             let ActionResult::Completed(mut command) = registry.resume(&session) else {
                 return Err(format!("{harness}/{mode}: resume mapping unavailable"));

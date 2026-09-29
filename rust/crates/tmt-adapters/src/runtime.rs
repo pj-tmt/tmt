@@ -257,6 +257,13 @@ impl RuntimeRegistry {
         None
     }
 
+    /// The model a remembered session's own driver recorded, if it can read
+    /// its state. Core never parses driver state itself.
+    pub fn remembered_model(&self, session: &RememberedSession) -> Option<String> {
+        self.lifecycle(&session.harness)?
+            .state_model(session.state.as_ref()?)
+    }
+
     /// Harness IDs with a registration, for purging sessions of removed drivers.
     pub fn harnesses(&self) -> impl Iterator<Item = &str> {
         self.registrations
@@ -527,6 +534,7 @@ mod tests {
                     .unwrap(),
                 state: None,
                 stale_at_ms: None,
+                resume_pending_at_ms: None,
             };
             assert_eq!(
                 registry.resume(&session),
@@ -542,6 +550,7 @@ mod tests {
             provider_session: ProviderSessionId::new("--last").unwrap(),
             state: None,
             stale_at_ms: None,
+            resume_pending_at_ms: None,
         };
         assert_eq!(registry.resume(&session), ActionResult::Unsupported);
         session.mode = RuntimeMode::new("shared").unwrap();
@@ -563,6 +572,7 @@ mod tests {
                 provider_session: ProviderSessionId::new("kept").unwrap(),
                 state,
                 stale_at_ms: None,
+                resume_pending_at_ms: None,
             }),
         };
         let mut clean = remembered("claude", None);
@@ -649,6 +659,7 @@ mod tests {
                     .unwrap(),
                     state: Some(state),
                     stale_at_ms: None,
+                    resume_pending_at_ms: None,
                 }),
             };
             assert_eq!(

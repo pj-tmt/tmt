@@ -265,14 +265,31 @@ impl BindingRepository for Storage {
     }
 }
 
+/// A remembered session dropped because its driver is no longer registered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurgedSession {
+    pub identity_id: String,
+    pub name: String,
+    pub harness: String,
+}
+
 impl Storage {
+    /// Read an active identity's remembered preferences without a write
+    /// transaction, for read-only projections such as show and list.
+    pub fn session_preferences(
+        &self,
+        identity_id: &str,
+    ) -> Result<tmt_core::binding::session::SessionPreferences, StorageError> {
+        session::preferences(self.connection()?, identity_id)
+    }
+
     /// Purge remembered sessions, with their driver state, whose driver is not
-    /// registered, so no state outlives its driver. Returns the affected
-    /// identity IDs for reporting.
+    /// registered, so no state outlives its driver. Returns what was purged,
+    /// for the one report the purging command makes.
     pub fn purge_unregistered_sessions(
         &mut self,
         registered: &[&str],
-    ) -> Result<Vec<String>, StorageError> {
+    ) -> Result<Vec<PurgedSession>, StorageError> {
         with_immediate_transaction(self, "session purge", |transaction| {
             session::purge_unregistered(transaction, registered)
         })

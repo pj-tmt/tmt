@@ -7,6 +7,7 @@ mod completion;
 mod config_command;
 mod context_command;
 mod focus_command;
+mod resume_command;
 use tmt_adapters::delivery;
 mod diagnostics;
 mod exchange_command;
@@ -132,7 +133,19 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             save,
         } => {
             drop(stdout);
+            let resume = resume.then(run_command::Resume::default);
             return run_command::execute(&name, &command, resume, save);
+        }
+        Invocation::Resume {
+            name,
+            forget,
+            retry,
+        } => {
+            drop(stdout);
+            if forget {
+                return resume_command::forget(&name);
+            }
+            return run_command::execute(&name, &[], Some(run_command::Resume { retry }), false);
         }
         Invocation::Learn { skill } => {
             drop(stdout);

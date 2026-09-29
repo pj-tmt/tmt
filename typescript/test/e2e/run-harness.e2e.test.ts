@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture, type E2EFixture } from './harness.js';
@@ -10,8 +10,21 @@ function quote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function submit(fixture: E2EFixture, pane: string, args: string[], statusFile: string): void {
-  const command = [fixture.executables.cli.executable, ...fixture.executables.cli.args, ...args]
+function submit(
+  fixture: E2EFixture,
+  pane: string,
+  args: string[],
+  statusFile: string,
+  env: Record<string, string> = {}
+): void {
+  const command = [
+    ...(Object.keys(env).length === 0
+      ? []
+      : ['env', ...Object.entries(env).map(([key, value]) => `${key}=${value}`)]),
+    fixture.executables.cli.executable,
+    ...fixture.executables.cli.args,
+    ...args,
+  ]
     .map(quote)
     .join(' ');
   fixture.tmux([
@@ -46,79 +59,131 @@ function identityId(fixture: E2EFixture, name: string): string {
 }
 
 describe.sequential('foreground identity launch', () => {
-  it('resumes only the exact remembered session and never launches a fallback after a failed resume', async () => {
+  it('resumes only the exact remembered session, never starts fresh and marks only trustworthy failures stale', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('run-resume').pane;
       const callsFile = path.join(fixture.root, 'resume-calls.jsonl');
       const fake = path.join(fixture.wrapperDir, 'claude');
       writeFileSync(
         fake,
-        `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify(process.argv.slice(2)) + String.fromCharCode(10));\nprocess.exit(process.argv.includes('--resume') ? 31 : 0);\n`,
+        `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify(process.argv.slice(2)) + String.fromCharCode(10));\nprocess.exit(process.argv.includes('--resume') ? Number(process.env.RESUME_EXIT ?? 31) : 0);\n`,
         { mode: 0o700 }
       );
-      const run = async (label: string, args: string[], expected: number) => {
+      // A private HOME for the provider settings the stale check reads, so the
+      // shared container home never gains hooks.
+      const home = path.join(fixture.root, 'home');
+      mkdirSync(path.join(home, '.claude'), { recursive: true });
+      const run = async (label: string, args: string[], expected: number, exit = 31) => {
         const status = path.join(fixture.root, `${label}.status`);
-        submit(fixture, pane, args, status);
+        submit(fixture, pane, args, status, { HOME: home, RESUME_EXIT: String(exit) });
         await fixture.waitFor(() => existsSync(status), 5000, `${label} completed`);
         expect(readFileSync(status, 'utf8')).toBe(String(expected));
       };
-      await run('initial', ['run', '-s', 'Resume', fake], 0);
-      await run('no-session', ['run', '--resume', 'Resume'], 0);
-      const id = durableState(fixture).bindings.find((row) => row.pane_id === pane)?.identity_id;
-      const session = '12345678-1234-4234-8234-123456789abc';
-      const seed = (harness: string, mode: string) => {
-        const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
-        try {
-          expect(
-            db
-              .prepare(
-                'UPDATE identity_session_preferences SET remembered_harness = ?, runtime_mode = ?, provider_session_id = ? WHERE identity_id = ?'
-              )
-              .run(harness, mode, session, id).changes
-          ).toBe(1);
-        } finally {
-          db.close();
-        }
-      };
-      seed('claude', 'default');
-      await run('failed-exact-resume', ['run', '--resume', 'Resume'], 31);
       const calls = () =>
         readFileSync(callsFile, 'utf8')
           .trim()
           .split('\n')
           .map((line) => JSON.parse(line) as string[]);
-      expect(calls()).toEqual([[], [], ['--resume', session]]);
-      expect(preferences(fixture)).toEqual([
-        {
-          identity_id: identityId(fixture, 'Resume'),
-          preferred_harness: 'claude',
-          remembered_harness: 'claude',
-          runtime_mode: 'default',
-          provider_session_id: session,
-          driver_state: null,
-          driver_state_version: null,
-          stale_at_ms: null,
-        },
-      ]);
+      await run('initial', ['run', '-s', 'Resume', fake], 0);
+      // Nothing remembered: both forms refuse without launching anything.
+      await run('no-session', ['resume', 'Resume'], 1);
+      await run('no-session-alias', ['run', '--resume', 'Resume'], 1);
+      expect(calls()).toEqual([[]]);
+      const id = identityId(fixture, 'Resume');
+      const session = '12345678-1234-4234-8234-123456789abc';
+      const write = (sql: string, ...values: unknown[]) => {
+        const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+        try {
+          expect(db.prepare(sql).run(...values, id).changes).toBe(1);
+        } finally {
+          db.close();
+        }
+      };
+      const seed = (harness: string, mode: string) =>
+        write(
+          'UPDATE identity_session_preferences SET remembered_harness = ?, runtime_mode = ?, provider_session_id = ?, stale_at_ms = NULL, resume_pending_at_ms = NULL WHERE identity_id = ?',
+          harness,
+          mode,
+          session
+        );
+      const row = (overrides: Record<string, unknown> = {}) => ({
+        identity_id: id,
+        preferred_harness: 'claude',
+        remembered_harness: 'claude',
+        runtime_mode: 'default',
+        provider_session_id: session,
+        driver_state: null,
+        driver_state_version: null,
+        stale_at_ms: null,
+        resume_pending_at_ms: null,
+        ...overrides,
+      });
+      const staleAt = () => preferences(fixture)[0]?.stale_at_ms;
+
+      // Without the provider's TMT start hook installed, a failure is not trusted.
+      seed('claude', 'default');
+      await run('hooks-absent', ['resume', 'Resume'], 31);
+      expect(calls()).toEqual([[], ['--resume', session]]);
+      expect(preferences(fixture)).toEqual([row()]);
+
+      // With it installed, an unconfirmed non-zero exit marks the session stale;
+      // a signal exit (128 + n) does not.
+      writeFileSync(
+        path.join(home, '.claude', 'settings.json'),
+        JSON.stringify({
+          hooks: Object.fromEntries(
+            ['SessionStart', 'SessionEnd'].map((event) => [
+              event,
+              [
+                {
+                  hooks: [{ type: 'command', command: `'/opt/tmt/tmt' __hook claude`, timeout: 3 }],
+                },
+              ],
+            ])
+          ),
+        })
+      );
+      await run('signal-exit', ['resume', 'Resume'], 130, 130);
+      expect(preferences(fixture)).toEqual([row()]);
+      await run('unconfirmed', ['resume', 'Resume'], 31);
+      expect(staleAt()).toEqual(expect.any(Number));
+      expect(preferences(fixture)).toEqual([row({ stale_at_ms: staleAt() })]);
+
+      // A stale session is refused until the user retries; a retry that also
+      // fails stays stale.
+      await run('stale-refused', ['resume', 'Resume'], 1);
+      expect(calls()).toHaveLength(4);
+      await run('retry', ['resume', '--retry', 'Resume'], 31);
+      expect(calls()).toHaveLength(5);
+      expect(staleAt()).toEqual(expect.any(Number));
+
+      // A crashed launcher's leftover pending mark is replaced by the next
+      // resume, and a clean exit leaves nothing behind.
+      seed('claude', 'default');
+      write(
+        'UPDATE identity_session_preferences SET resume_pending_at_ms = 1 WHERE identity_id = ?'
+      );
+      await run('after-crash', ['resume', 'Resume'], 0, 0);
+      expect(preferences(fixture)).toEqual([row()]);
+
+      // An unsupported session is reported, never replaced by a fresh start.
       seed('claude', 'unsupported-fixture-mode');
-      await run('unsupported-mode', ['run', '--resume', 'Resume'], 0);
+      await run('unsupported-mode', ['resume', 'Resume'], 1);
+      // An unregistered driver's session is purged on the resume path.
       seed('unregistered-fixture-harness', 'default');
-      await run('unsupported-harness', ['run', '--resume', 'Resume'], 0);
-      expect(calls()).toEqual([[], [], ['--resume', session], [], []]);
-      // The bare fallback launches claude, and one identity has one current
-      // runtime: the unregistered driver's remembered session is dropped.
+      await run('unregistered', ['run', '--resume', 'Resume'], 1);
+      expect(calls()).toHaveLength(6);
       expect(preferences(fixture)).toEqual([
-        {
-          identity_id: identityId(fixture, 'Resume'),
-          preferred_harness: 'claude',
-          remembered_harness: null,
-          runtime_mode: null,
-          provider_session_id: null,
-          driver_state: null,
-          driver_state_version: null,
-          stale_at_ms: null,
-        },
+        row({ remembered_harness: null, runtime_mode: null, provider_session_id: null }),
       ]);
+
+      seed('claude', 'default');
+      await run('forget', ['resume', '--forget', 'Resume'], 0);
+      await run('forget-again', ['resume', '--forget', 'Resume'], 0);
+      expect(preferences(fixture)).toEqual([
+        row({ remembered_harness: null, runtime_mode: null, provider_session_id: null }),
+      ]);
+      expect(calls()).toHaveLength(6);
     });
   });
 
@@ -269,6 +334,7 @@ process.exit(23);
           driver_state: null,
           driver_state_version: null,
           stale_at_ms: null,
+          resume_pending_at_ms: null,
         },
       ]);
 

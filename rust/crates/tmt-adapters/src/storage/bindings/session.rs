@@ -76,7 +76,7 @@ pub(super) fn preferences(
 ) -> Result<SessionPreferences, StorageError> {
     connection.query_row(
         "SELECT p.preferred_harness, p.remembered_harness, p.runtime_mode, p.provider_session_id,
-                p.driver_state_version, p.driver_state, p.stale_at_ms FROM identity_session_preferences p
+                p.driver_state_version, p.driver_state, p.stale_at_ms, p.resume_pending_at_ms FROM identity_session_preferences p
          JOIN identities i ON i.id = p.identity_id WHERE p.identity_id = ? AND i.retired_at_ms IS NULL",
         [identity_id],
         |row| {
@@ -95,9 +95,8 @@ pub(super) fn preferences(
                         (Some(version), Some(document)) => Some(DriverState::new(version, &document).map_err(invalid)?),
                         _ => return Err(rusqlite::Error::InvalidQuery),
                     },
-                    stale_at_ms: row.get::<_, Option<i64>>(6)?
-                        .map(|value| u64::try_from(value).map_err(|_| rusqlite::Error::InvalidQuery))
-                        .transpose()?,
+                    stale_at_ms: time(row, 6)?,
+                    resume_pending_at_ms: time(row, 7)?,
                 }),
                 _ => return Err(rusqlite::Error::InvalidQuery),
             };
@@ -107,6 +106,19 @@ pub(super) fn preferences(
         .map_err(|error| classify(error, "Read session preferences"))
 }
 
+fn time(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<u64>> {
+    row.get::<_, Option<i64>>(index)?
+        .map(|value| u64::try_from(value).map_err(|_| rusqlite::Error::InvalidQuery))
+        .transpose()
+}
+
+fn stored_time(value: Option<u64>) -> Result<Option<i64>, StorageError> {
+    value
+        .map(|value| i64::try_from(value).map_err(|_| rusqlite::Error::InvalidQuery))
+        .transpose()
+        .map_err(|error| classify(error, "Validate session time"))
+}
+
 pub(super) fn set_preferences(
     connection: &Connection,
     identity_id: &str,
@@ -114,21 +126,19 @@ pub(super) fn set_preferences(
 ) -> Result<bool, StorageError> {
     let remembered = value.remembered.as_ref();
     let state = remembered.and_then(|session| session.state.as_ref());
-    let stale_at_ms = remembered
-        .and_then(|session| session.stale_at_ms)
-        .map(|value| i64::try_from(value).map_err(|_| rusqlite::Error::InvalidQuery))
-        .transpose()
-        .map_err(|error| classify(error, "Validate stale time"))?;
+    let stale_at_ms = stored_time(remembered.and_then(|session| session.stale_at_ms))?;
+    let resume_pending_at_ms =
+        stored_time(remembered.and_then(|session| session.resume_pending_at_ms))?;
     connection
         .execute(
             "INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode,
-             provider_session_id, driver_state_version, driver_state, stale_at_ms)
-         SELECT id, ?, ?, ?, ?, ?, ?, ? FROM identities WHERE id = ? AND retired_at_ms IS NULL
+             provider_session_id, driver_state_version, driver_state, stale_at_ms, resume_pending_at_ms)
+         SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM identities WHERE id = ? AND retired_at_ms IS NULL
          ON CONFLICT(identity_id) DO UPDATE SET preferred_harness = excluded.preferred_harness,
              remembered_harness = excluded.remembered_harness, runtime_mode = excluded.runtime_mode,
              provider_session_id = excluded.provider_session_id,
              driver_state_version = excluded.driver_state_version, driver_state = excluded.driver_state,
-             stale_at_ms = excluded.stale_at_ms",
+             stale_at_ms = excluded.stale_at_ms, resume_pending_at_ms = excluded.resume_pending_at_ms",
             params![
                 value.preferred_harness.as_ref().map(HarnessId::as_str),
                 remembered.map(|session| session.harness.as_str()),
@@ -137,6 +147,7 @@ pub(super) fn set_preferences(
                 state.map(DriverState::version),
                 state.map(DriverState::document),
                 stale_at_ms,
+                resume_pending_at_ms,
                 identity_id
             ],
         )
@@ -150,8 +161,8 @@ pub(super) fn forget(connection: &Connection, identity_id: &str) -> Result<(), S
     connection
         .execute(
             "UPDATE identity_session_preferences SET remembered_harness = NULL, runtime_mode = NULL,
-             provider_session_id = NULL, driver_state_version = NULL, driver_state = NULL, stale_at_ms = NULL
-             WHERE identity_id = ?",
+             provider_session_id = NULL, driver_state_version = NULL, driver_state = NULL, stale_at_ms = NULL,
+             resume_pending_at_ms = NULL WHERE identity_id = ?",
             [identity_id],
         )
         .map(drop)
@@ -161,28 +172,32 @@ pub(super) fn forget(connection: &Connection, identity_id: &str) -> Result<(), S
 pub(super) fn purge_unregistered(
     connection: &Connection,
     registered: &[&str],
-) -> Result<Vec<String>, StorageError> {
+) -> Result<Vec<super::PurgedSession>, StorageError> {
     let orphaned = {
         let mut statement = connection
             .prepare(
-                "SELECT identity_id, remembered_harness FROM identity_session_preferences
-                 WHERE remembered_harness IS NOT NULL ORDER BY identity_id",
+                "SELECT p.identity_id, i.name, p.remembered_harness FROM identity_session_preferences p
+                 JOIN identities i ON i.id = p.identity_id
+                 WHERE p.remembered_harness IS NOT NULL ORDER BY p.identity_id",
             )
             .map_err(|error| classify(error, "Find remembered sessions"))?;
         statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok(super::PurgedSession {
+                    identity_id: row.get(0)?,
+                    name: row.get(1)?,
+                    harness: row.get(2)?,
+                })
             })
             .map_err(|error| classify(error, "Read remembered sessions"))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| classify(error, "Decode remembered sessions"))?
             .into_iter()
-            .filter(|(_, harness)| !registered.contains(&harness.as_str()))
-            .map(|(identity, _)| identity)
+            .filter(|purged| !registered.contains(&purged.harness.as_str()))
             .collect::<Vec<_>>()
     };
-    for identity in &orphaned {
-        forget(connection, identity)?;
+    for purged in &orphaned {
+        forget(connection, &purged.identity_id)?;
     }
     Ok(orphaned)
 }
@@ -275,6 +290,7 @@ mod tests {
                 provider_session: ProviderSessionId::new("saved-session").unwrap(),
                 state: None,
                 stale_at_ms: None,
+                resume_pending_at_ms: None,
             }),
         }
     }
@@ -657,7 +673,11 @@ mod tests {
             storage
                 .purge_unregistered_sessions(&["claude", "codex"])
                 .unwrap(),
-            [ids[1].clone()]
+            [crate::storage::PurgedSession {
+                identity_id: ids[1].clone(),
+                name: "Orphan".into(),
+                harness: "removed-driver".into(),
+            }]
         );
         assert!(
             storage

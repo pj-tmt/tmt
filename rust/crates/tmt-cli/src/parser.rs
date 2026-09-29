@@ -84,6 +84,7 @@ fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, Pars
                 | Invocation::Complete(_)
                 | Invocation::Learn { .. }
                 | Invocation::Run { .. }
+                | Invocation::Resume { .. }
         )
     {
         return Err(ParseError {
@@ -245,6 +246,11 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 save: flag(m, "save"),
             }
         }
+        ["resume"] => Invocation::Resume {
+            name: text(m, "name").expect("required resume name"),
+            forget: flag(m, "forget"),
+            retry: flag(m, "retry"),
+        },
         ["whoami"] if flag(m, "context") => Invocation::WhoamiContext,
         ["whoami"] => Invocation::Whoami,
         ["unbind"] => Invocation::Unbind,

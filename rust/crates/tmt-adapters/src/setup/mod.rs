@@ -4,7 +4,7 @@ mod document;
 mod environment;
 mod publication;
 
-pub use environment::SetupEnvironment;
+pub use environment::{SetupEnvironment, provider_settings};
 pub use publication::{apply, read_settings};
 
 use std::path::PathBuf;
@@ -64,6 +64,17 @@ fn hook_entry(provider: Provider, launcher: &str) -> Result<serde_json::Value, P
         Provider::Codex => Ok(crate::runtime::codex::hook_entry(launcher)),
         _ => Err(PlanError::UnsupportedProvider),
     }
+}
+
+/// Whether the provider's TMT SessionStart hook is installed in its user
+/// settings. Read-only and bounded; an unreadable or invalid file counts as
+/// not installed.
+pub fn start_hook_installed(provider: Provider) -> bool {
+    provider_settings(provider)
+        .and_then(|path| read_settings(&path))
+        .ok()
+        .flatten()
+        .is_some_and(|text| document::has_owned_start_hook(provider, &text))
 }
 
 pub fn claude_plan(

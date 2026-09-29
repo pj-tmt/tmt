@@ -103,6 +103,15 @@ pub fn grammar() -> Command {
                 .value_parser(clap::builder::OsStringValueParser::new())),
     )
     .subcommand(
+        base("resume", "Resume an identity's remembered session in this pane")
+            .arg(Arg::new("forget").long("forget").action(ArgAction::SetTrue)
+                .help("Forget the remembered session instead of resuming it"))
+            .arg(Arg::new("retry").long("retry").action(ArgAction::SetTrue)
+                .conflicts_with("forget")
+                .help("Try a session marked stale once more"))
+            .arg(operand("name", true).help("Identity name; TMT options go before it")),
+    )
+    .subcommand(
         general("list", "List global identities, lifetime and live presence")
             .visible_alias("ls")
             .arg(operand("target", false).conflicts_with("room"))
