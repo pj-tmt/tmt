@@ -65,6 +65,8 @@ fn grammar() -> Command {
     build(specs::ROOT)
         .bin_name("tmt squad")
         .version(env!("CARGO_PKG_VERSION"))
+        // The release proof expects exactly `squad <version>`.
+        .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .subcommand_required(true)
         .arg_required_else_help(true)
         .arg(
@@ -963,6 +965,22 @@ mod tests {
             };
             let (_, sub) = matches.subcommand().unwrap();
             assert!(sub.get_one::<String>("text").is_some(), "{line}");
+        }
+    }
+
+    #[test]
+    fn version_prints_squad_and_the_package_version() {
+        for flag in ["--version", "-V"] {
+            let Err(error) = request(&argv(flag)) else {
+                panic!("{flag} ran a command");
+            };
+            assert_eq!(error.kind(), ErrorKind::DisplayVersion, "{flag}");
+            assert!(!error.use_stderr(), "{flag}");
+            assert_eq!(
+                error.to_string(),
+                format!("squad {}\n", env!("CARGO_PKG_VERSION")),
+                "{flag}"
+            );
         }
     }
 

@@ -217,7 +217,10 @@ the migration lists in the same change.
    to three examples, the common use first. A CLI that parses help itself (core)
    calls `apply` on its own `Command`; any other CLI calls `command`, which also
    adds `-h`/`--help` and `--json`, and answers `help <command>` through
-   `route`. Each example is the full command a user types. The grammar walk parses it through the real parser, so run the walk
+   `route`. `command` turns clap's version flag off: a root that reports its
+   version adds `version_arg`, the hidden `-V`/`--version`
+   (`ArgAction::Version` prints `<name> <version>`; core passes `SetTrue` and
+   answers itself). Each example is the full command a user types. The grammar walk parses it through the real parser, so run the walk
    until the command leaves its help list.
 2. **Streams.** Replace `io::stdout()`/`io::stderr()` and print macros with
    `stream::stdout(json)` and `stream::stderr()`. Pass `stream.terminal()` to
