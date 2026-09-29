@@ -70,4 +70,68 @@ process.exitCode = args[0] === 'run' ? Number(process.env.TMT_RUNNER_STATUS) : 0
     },
     10_000
   );
+
+  /** Runs the wrapper against a fake `docker` that logs its argv, with TMT_E2E_FILES set. */
+  async function runWrapper(files: string) {
+    const sandbox = createSandbox({
+      TMT_TEST_CLI: JSON.stringify({
+        executable: process.execPath,
+        args: [fileURLToPath(new URL('../../scripts/run-e2e.mjs', import.meta.url))],
+      }),
+    });
+    try {
+      const bin = path.join(sandbox.root, 'fake docker');
+      fs.mkdirSync(bin);
+      const log = path.join(sandbox.root, 'docker.jsonl');
+      fs.writeFileSync(
+        path.join(bin, 'docker'),
+        `#!/usr/bin/env node
+require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
+`,
+        { mode: 0o755 }
+      );
+      sandbox.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ''}`;
+      sandbox.env.TMT_RUNNER_LOG = log;
+      delete sandbox.env.TMT_TEST_CLI;
+      delete sandbox.env.TMT_TEST_PEER_CLI;
+      sandbox.env.TMT_E2E_FILES = files;
+      const result = await runCli(sandbox, []);
+      const calls = fs.existsSync(log)
+        ? fs
+            .readFileSync(log, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line) as string[])
+        : [];
+      return { result, calls };
+    } finally {
+      fs.rmSync(sandbox.root, { recursive: true, force: true });
+    }
+  }
+
+  it.each([
+    ['squad.e2e.test.ts', ['--env', 'TMT_E2E_FILES=squad.e2e.test.ts']],
+    ['a.e2e.test.ts b.e2e.test.ts', ['--env', 'TMT_E2E_FILES=a.e2e.test.ts b.e2e.test.ts']],
+    ['', []],
+  ])(
+    'passes the file list %j to the container as one environment value',
+    async (files, expected) => {
+      const { result, calls } = await runWrapper(files);
+      expect(result).toEqual({ status: 0, signal: null, stdout: '', stderr: '' });
+      expect(calls[1].slice(0, 5)).toEqual(['run', '--rm', '--init', '--network', 'none']);
+      expect(calls[1].slice(5, -1)).toEqual(expected);
+    },
+    10_000
+  );
+
+  it.each(['../squad.e2e.test.ts', 'a;b', 'a  b', ' a', '$HOME', 'a\nb', 'squad*'])(
+    'rejects the unsafe file list %j before building anything',
+    async (files) => {
+      const { result, calls } = await runWrapper(files);
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain('TMT_E2E_FILES must be a space-separated list');
+      expect(calls).toEqual([]);
+    },
+    10_000
+  );
 });

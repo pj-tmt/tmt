@@ -11,6 +11,10 @@ export interface ComponentMap {
     readonly owns: readonly string[];
     readonly excludes: readonly string[];
     readonly selectedBy: readonly { readonly glob: string; readonly pattern: RegExp }[];
+    readonly scopedChecks?: {
+      readonly nativeTests: readonly string[];
+      readonly e2eFiles: readonly string[];
+    };
   }[];
   readonly rules: readonly {
     readonly id: string;
@@ -33,7 +37,16 @@ export interface CiSelection {
   readonly paths: readonly string[];
   readonly rows: readonly CiSelectionRow[];
   readonly areas: CiAreas;
+  readonly nativeScope: string;
   readonly digest: string;
+}
+
+export interface NativeJobResults {
+  readonly nativeRust: string;
+  readonly unitTests: string;
+  readonly dockerE2e: string;
+  readonly runtimeBuild: string;
+  readonly packedInstall: string;
 }
 
 export function globToRegExp(glob: string): RegExp;
@@ -44,12 +57,23 @@ export function explainCiSelection(
   map?: ComponentMap
 ): readonly CiSelectionRow[];
 export function selectCiAreas(paths: readonly string[], map?: ComponentMap): CiAreas;
+export function selectNativeScope(paths: readonly string[], map?: ComponentMap): string;
+export function scopedChecks(
+  scope: string,
+  map?: ComponentMap
+): { readonly nativeTests: readonly string[]; readonly e2eFiles: readonly string[] };
+export function nativeGatePasses(
+  scope: string,
+  results: NativeJobResults,
+  map?: ComponentMap
+): boolean;
 export function renderSelectionEvidence(input: {
   readonly base: string;
   readonly head: string;
   readonly rows: readonly CiSelectionRow[];
   readonly areas: CiAreas;
   readonly digest: string;
+  readonly nativeScope?: string;
 }): string;
 export function readChangedCiSelection(base: string, head: string, cwd: string): CiSelection;
 export function readChangedCiAreas(base: string, head: string, cwd: string): CiAreas;
