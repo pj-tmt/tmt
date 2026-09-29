@@ -9,9 +9,10 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    extension_hooks, notes,
+    extension_hooks,
+    host::{CallerEnvironment, Host, OperationOptions},
+    notes,
     storage::Storage,
-    tmux::{CallerEnvironment, OperationOptions, Tmux},
 };
 use tmt_core::{
     binding::{BindingEvidence, evaluate_binding},
@@ -28,9 +29,9 @@ pub fn execute(mode: OutputMode) -> io::Result<u8> {
 
 fn observe() -> Option<serde_json::Value> {
     crate::caller_context::require_independent_host().ok()?;
-    let tmux = Tmux::default();
-    let pane = tmux.caller_pane(&CallerEnvironment::current()).ok()??;
-    let snapshot = tmux
+    let host = Host::default();
+    let pane = host.caller_pane(&CallerEnvironment::current()).ok()??;
+    let snapshot = host
         .observe_snapshot(OperationOptions {
             pane_ids: Some(std::slice::from_ref(&pane)),
             ..OperationOptions::default()

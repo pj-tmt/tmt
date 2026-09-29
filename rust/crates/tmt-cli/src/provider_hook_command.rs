@@ -6,6 +6,7 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
+    host::{CallerEnvironment, Host, OperationOptions},
     process::{
         CommandRequest, CommandRunner, SupervisedProbeRunner, UnixCommandRunner,
         runtime::observe_runtime_process,
@@ -13,7 +14,6 @@ use tmt_adapters::{
     response_input::read_stdin_bounded,
     runtime::{RuntimeRegistry, lifecycle::HostEvidence},
     storage::{Storage, StorageError},
-    tmux::{CallerEnvironment, OperationOptions, Tmux},
 };
 use tmt_core::{
     binding::{
@@ -79,7 +79,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
     let harness = HarnessId::new(provider).map_err(|_| ())?;
     let lifecycle = registry.lifecycle(&harness).ok_or(())?;
     let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
-    let tmux = Tmux::new(SupervisedProbeRunner);
+    let panes = Host::new(SupervisedProbeRunner);
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(String::new());
@@ -100,7 +100,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         };
         let binding = stored.entry.binding.as_ref().ok_or(())?;
         let pane = &binding.pane_id;
-        let EndpointProbe::Live(snapshot) = tmux
+        let EndpointProbe::Live(snapshot) = panes
             .probe(
                 &binding.server.socket_path,
                 binding.server.server_pid,
@@ -121,7 +121,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         };
         (stored, snapshot, process)
     } else {
-        let Some(pane) = tmux
+        let Some(pane) = panes
             .caller_pane(&CallerEnvironment::current())
             .map_err(|_| ())?
         else {
@@ -131,7 +131,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
                 Err(())
             };
         };
-        let snapshot = tmux
+        let snapshot = panes
             .observe_snapshot(OperationOptions {
                 deadline: Some(deadline),
                 pane_ids: Some(std::slice::from_ref(&pane)),
@@ -244,7 +244,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         return Err(());
     }
     if !event.starting() {
-        crate::pane_badge::refresh(&paths, &tmux, binding, deadline);
+        crate::pane_badge::refresh(&paths, &panes, binding, deadline);
         return Ok(String::new());
     }
     // Re-read the bounded projection after acknowledgment. Do not inject a
@@ -279,6 +279,6 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
     )
     .map_err(|_| ())?;
     let encoded = lifecycle.encode_context(&context).ok_or(())?;
-    crate::pane_badge::refresh(&paths, &tmux, binding, deadline);
+    crate::pane_badge::refresh(&paths, &panes, binding, deadline);
     Ok(encoded)
 }

@@ -9,7 +9,7 @@ use std::{
     io::{self, Write},
     path::Path,
 };
-use tmt_adapters::tmux::PaneRefresh;
+use tmt_adapters::host::PaneRefresh;
 use tmt_cli_style::{
     Terminal, Token,
     list::{self, Section},

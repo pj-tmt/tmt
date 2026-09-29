@@ -9,8 +9,8 @@ use crate::{
 use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
+    host::Host,
     storage::Storage,
-    tmux::Tmux,
 };
 use tmt_cli_style::Token;
 use tmt_core::binding::PaneIdentity;
@@ -31,7 +31,7 @@ fn run(target: String, lines: Option<u64>) -> Result<Report, Failure> {
     .map_err(Failure::from)?
     .settings;
     let lines = lines.unwrap_or(settings.capture_lines);
-    let tmux = Tmux::default();
+    let host = Host::default();
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -41,9 +41,9 @@ fn run(target: String, lines: Option<u64>) -> Result<Report, Failure> {
             "Could not open identity storage.",
         )
     })?;
-    let pending = target::resolve(&mut storage, &tmux, &target).and_then(|observed| {
-        let output = tmux
-            .capture_on(&observed.server.socket_path, &observed.pane.id, lines)
+    let pending = target::resolve(&mut storage, &host, &target).and_then(|observed| {
+        let output = host
+            .capture(&observed.server.socket_path, &observed.pane.id, lines)
             .map_err(|error| {
                 if error.socket_permission_denied() {
                     return socket_failure(error);

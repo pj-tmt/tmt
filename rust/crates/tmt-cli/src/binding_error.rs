@@ -2,17 +2,17 @@
 
 use crate::output::Failure;
 use std::error::Error;
-use tmt_adapters::{storage::StorageError, tmux::TmuxError};
+use tmt_adapters::{host::HostError, storage::StorageError};
 use tmt_core::binding::BindingError;
 
-pub fn endpoint_failure(error: TmuxError) -> Failure {
+pub fn endpoint_failure(error: HostError) -> Failure {
     if error.socket_permission_denied() {
         return socket_failure(error);
     }
     Failure::new("RECONCILIATION_FAILED", error.to_string(), 1).caused_by(error)
 }
 
-pub fn binding_failure(error: BindingError<StorageError, TmuxError>) -> Failure {
+pub fn binding_failure(error: BindingError<StorageError, HostError>) -> Failure {
     // The bind error is what the user acts on; a failed cleanup is secondary.
     if let BindingError::CleanupFailed { error, cleanup } = error {
         return binding_failure(*error).with_secondary_error(cleanup);

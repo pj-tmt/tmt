@@ -1653,7 +1653,18 @@ requests termination, then kills if necessary and reaps that child, never the sh
 process group. Harness-created descendants and wrapper SIGKILL are outside this
 cleanup guarantee. The CLI `run` owner uses this adapter for foreground commands.
 `interrupt::Interrupt` owns invocation-local signal callbacks and descriptor
-cleanup. `tmux` uses explicit socket/server evidence, bounded command budgets,
+cleanup.
+
+The CLI, the `delivery` and `pane_badge` adapters and Office's in-process core
+reach the terminal host only through `tmt-adapters::host::Host`. It holds the
+binding session (the core `BindingEndpoint` and `Driver` ports), caller and
+target resolution, snapshots, capture, send, focus and pane cosmetics. tmux is
+its only host today: `Host` forwards to `tmt-adapters::tmux` and re-exports
+tmux's error and value types under host names until a second host (Herdr,
+#479) needs per-host variants. The architecture guard rejects production
+references to the tmux module outside `host.rs` and `tmux/`.
+
+`tmux` uses explicit socket/server evidence, bounded command budgets,
 owned buffers and no ambient host fallback. A failed paste or Enter is an
 uncertain delivery and is never retried as if unsent.
 Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode

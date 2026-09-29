@@ -1048,6 +1048,46 @@ fn squad_and_core_are_independent_in_both_directions() {
 }
 
 #[test]
+fn terminal_hosts_are_reached_only_through_the_host_port() {
+    assert_exact(
+        &[
+            syntax(
+                "tmt-cli",
+                "talk_command.rs",
+                "use tmt_adapters::tmux::Tmux;",
+            ),
+            syntax(
+                "tmt-office",
+                "in_process.rs",
+                "fn list() { let _ = tmt_adapters::tmux::Tmux::default(); }",
+            ),
+            syntax(
+                "tmt-adapters",
+                "delivery.rs",
+                "use crate::tmux::BindingSession;",
+            ),
+        ],
+        &[
+            "tmt-adapters/delivery.rs: reach the terminal host through tmt_adapters::host, not crate::tmux::BindingSession",
+            "tmt-cli/talk_command.rs: reach the terminal host through tmt_adapters::host, not tmt_adapters::tmux::Tmux",
+            "tmt-office/in_process.rs: reach the terminal host through tmt_adapters::host, not tmt_adapters::tmux::Tmux::default",
+        ],
+    );
+    assert_exact(
+        &[
+            syntax(
+                "tmt-cli",
+                "talk_command.rs",
+                "use tmt_adapters::host::Host;",
+            ),
+            syntax("tmt-adapters", "host.rs", "use crate::tmux::Tmux;"),
+            syntax("tmt-adapters", "tmux/focus.rs", "use crate::tmux::Tmux;"),
+        ],
+        &[],
+    );
+}
+
+#[test]
 fn core_crates_cannot_add_office_modules() {
     let empty = "";
     // Only the facade remains until #355's PR B removes it.

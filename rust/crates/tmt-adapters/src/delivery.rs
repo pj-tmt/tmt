@@ -1,10 +1,10 @@
 //! Shared composition for requests and advisory hints. Drivers own IO policy.
 
 use crate::{
+    host::{ActionError, Host},
     process::{SupervisedProbeRunner, runtime::observe_runtime_process},
     runtime::RuntimeRegistry,
     storage::{Storage, StorageError},
-    tmux::{ActionError, BindingSession, Tmux},
 };
 use std::time::{Duration, Instant};
 use tmt_core::{
@@ -27,7 +27,7 @@ pub enum Delivery {
     Offline,
     Uncertain,
     Unavailable,
-    Transport(crate::tmux::DeliveryError),
+    Transport(crate::host::DeliveryError),
 }
 
 impl Delivery {
@@ -68,7 +68,7 @@ pub fn wake_request(
         .wake_recipient_is_eligible(request_id, recipient_id)
         .unwrap_or(false);
     let state = if eligible {
-        send(storage, &Tmux::default(), recipient_id, notification, delay)
+        send(storage, &Host::default(), recipient_id, notification, delay)
             .map(|outcome| outcome.wake_state())
             .unwrap_or(WakeState::Unavailable)
     } else {
@@ -142,7 +142,7 @@ fn recover(
         if let Ok(paths) = crate::config::ConfigPaths::discover() {
             crate::pane_badge::refresh(
                 &paths,
-                &Tmux::default(),
+                &Host::default(),
                 entry.binding.as_ref().expect("verified binding"),
                 Instant::now() + Duration::from_secs(1),
             );
@@ -153,14 +153,14 @@ fn recover(
 
 pub fn status(
     storage: &mut Storage,
-    tmux: &Tmux,
+    host: &Host,
     identity: &str,
 ) -> Result<Availability, StorageError> {
     let Some(mut entry) = current(storage, identity)? else {
         return Ok(Availability::Offline);
     };
-    let mut host = BindingSession::new(tmux);
-    match host.status(&entry) {
+    let mut session = host.session();
+    match session.status(&entry) {
         ActionResult::Completed(InterfaceStatus {
             presence: InterfacePresence::Present,
             runtime,
@@ -168,7 +168,7 @@ pub fn status(
             if runtime == RuntimeState::Ended {
                 recover(storage, &RuntimeRegistry::first_party(), &mut entry)?;
             }
-            Ok(match host.status(&entry) {
+            Ok(match session.status(&entry) {
                 ActionResult::Completed(InterfaceStatus {
                     presence: InterfacePresence::Present,
                     runtime: RuntimeState::Ended,
@@ -190,12 +190,12 @@ pub fn status(
 
 pub fn send(
     storage: &mut Storage,
-    tmux: &Tmux,
+    host: &Host,
     identity: &str,
     message: &str,
     delay: Duration,
 ) -> Result<Delivery, StorageError> {
-    match status(storage, tmux, identity)? {
+    match status(storage, host, identity)? {
         Availability::Ready => {}
         Availability::Offline => return Ok(Delivery::Offline),
         Availability::Unavailable => return Ok(Delivery::Unavailable),
@@ -206,7 +206,7 @@ pub fn send(
     let preferences =
         storage.with_binding_transaction(|records| records.session_preferences(identity))?;
     let mut registry = RuntimeRegistry::first_party();
-    let mut host = BindingSession::new(tmux).with_enter_delay(delay);
+    let mut session = host.session().with_enter_delay(delay);
     // Both closures retain distinct driver outcome classes. The host performs
     // fresh endpoint and runtime verification, including after a NotSent result.
     let result = send_preferred(
@@ -225,7 +225,7 @@ pub fn send(
                 }),
             },
         },
-        || match host.send(&entry, message) {
+        || match session.send(&entry, message) {
             ActionResult::Unsupported => ActionResult::Unsupported,
             ActionResult::Completed(value) => ActionResult::Completed(value),
             ActionResult::Failed(error) => ActionResult::Failed(match error {
@@ -284,7 +284,7 @@ pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
     };
     let outcome = match send(
         storage,
-        &Tmux::default(),
+        &Host::default(),
         &hint.originator_id,
         &text,
         Duration::from_millis(500),

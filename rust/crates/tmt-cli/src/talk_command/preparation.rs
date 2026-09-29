@@ -10,7 +10,7 @@ use tmt_core::{
 
 pub(super) fn prepare(
     storage: &mut Storage,
-    tmux: &Tmux,
+    host: &Host,
     input: &Input,
     settings: &Settings,
     interrupt: Option<&Interrupt>,
@@ -39,7 +39,7 @@ pub(super) fn prepare(
         };
         if let Some(identity) = identity {
             offline = matches!(
-                crate::delivery::status(storage, tmux, &identity.id).map_err(|error| {
+                crate::delivery::status(storage, host, &identity.id).map_err(|error| {
                     Failure::new(
                         "DELIVERY_PREPARATION_FAILED",
                         "Could not read recipient state.",
@@ -67,7 +67,7 @@ pub(super) fn prepare(
     let observed = if input.options.inbox || offline {
         None
     } else {
-        Some(target::resolve(storage, tmux, &input.target).map_err(|error| {
+        Some(target::resolve(storage, host, &input.target).map_err(|error| {
             if error.code == "NAME_NOT_FOUND"
                 && tmt_core::identity::find_by_name(storage, &input.target)
                     .ok()
@@ -85,7 +85,7 @@ pub(super) fn prepare(
         })?)
     };
     let (originator, sender) =
-        identity_context::optional(storage, tmux, input.originator.as_deref())?.map_or(
+        identity_context::optional(storage, host, input.originator.as_deref())?.map_or(
             (Originator::Unknown, "unknown".to_owned()),
             |identity| {
                 let originator = if input.originator.is_some() {
@@ -162,7 +162,7 @@ pub(super) fn prepare(
         (Some(identity), _) => RequestRoute::Inbox {
             recipient_identity_id: identity.id.clone(),
         },
-        (_, Some(observed)) => RequestRoute::Pane(target::refresh(tmux, observed)?),
+        (_, Some(observed)) => RequestRoute::Pane(target::refresh(host, observed)?),
         _ => unreachable!("one route is selected"),
     };
     let timeout_ms = if input.options.detach {
