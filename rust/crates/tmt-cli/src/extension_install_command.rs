@@ -25,7 +25,7 @@ const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 /// Consent for one change to the user's installation.
 fn ask(yes: bool, mode: OutputMode, action: &str) -> Result<bool, Failure> {
     consent::ask(
-        &mut io::stdout().lock(),
+        &mut tmt_cli_style::stream::stdout(mode.json),
         yes,
         mode,
         consent::Consent {

@@ -316,27 +316,6 @@ fn write_listing(
 
 /// Full values for one identity or pane: the tmux location and the whole
 /// session identifier live here, not in the list.
-fn details(
-    output: &mut impl Write,
-    terminal: Terminal,
-    title: &str,
-    fields: Vec<(&str, String)>,
-) -> io::Result<()> {
-    writeln!(output, "{}", terminal.paint(Token::Title, title))?;
-    let mut table = Table::new(&[Column::Fixed, Column::Detail]);
-    for (key, value) in fields {
-        table.row([Cell::styled(key, Token::Dim), value.into()]);
-    }
-    // Details are never truncated, whatever the terminal width.
-    table.write(
-        output,
-        Terminal {
-            width: None,
-            ..terminal
-        },
-    )
-}
-
 fn identity_fields(
     row: &IdentityPresence,
     remembered: Option<&RememberedSession>,
@@ -440,11 +419,11 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
         }
         Report::Named {
             row, remembered, ..
-        } => details(
+        } => tmt_cli_style::detail::write(
             output,
             terminal,
             &row.identity.name,
-            identity_fields(row, remembered.as_ref()),
+            &identity_fields(row, remembered.as_ref()),
         ),
         Report::Pane {
             pane,
@@ -459,19 +438,19 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                     pane: Some(pane.clone()),
                     binding: None,
                 };
-                details(
+                tmt_cli_style::detail::write(
                     output,
                     terminal,
                     &identity.name,
-                    identity_fields(&row, remembered.as_ref()),
+                    &identity_fields(&row, remembered.as_ref()),
                 )
             }
             None => {
-                details(
+                tmt_cli_style::detail::write(
                     output,
                     terminal,
                     &pane.id,
-                    vec![
+                    &[
                         ("target", pane.target.clone().unwrap_or_else(|| "-".into())),
                         ("cwd", pane.cwd.clone().unwrap_or_else(|| "-".into())),
                         ("command", pane.command.clone()),

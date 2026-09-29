@@ -50,7 +50,7 @@ describe('native passive skill guidance', () => {
             resolved: { ui: { paneBadge: 'off' } },
           });
         } else if (scenario.name !== 'help') {
-          expect(output).toContain('Current configuration:');
+          expect(output).toContain('SETTINGS\n');
         }
         expect(fs.readFileSync(staleFile, 'utf8')).toBe('user-maintained stale guidance');
         expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);

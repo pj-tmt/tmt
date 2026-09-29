@@ -1,7 +1,14 @@
 use super::*;
-use crate::output::{identity_document, table};
+use crate::output::identity_document;
 use serde_json::{Value, json};
 use std::io::Write;
+use tmt_cli_style::{
+    Token,
+    list::{self, Section},
+    message,
+    table::{Cell, Column, Table},
+    value,
+};
 use tmt_core::request::{
     RequestPrompt,
     attention::{Exchange, FinalState},
@@ -110,92 +117,123 @@ fn document(report: &Report) -> Value {
 }
 
 pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         writeln!(stdout, "{}", document(&report))?;
-    } else {
-        match &report.result {
-            ResultKind::List(page) => {
-                if page.items.is_empty() {
-                    writeln!(stdout, "No unacknowledged exchanges.")?;
-                } else {
-                    table::write(
-                        &mut stdout,
-                        ["REQUEST", "RECIPIENT", "DELIVERY", "FINAL", "REVISION"],
-                        page.items.iter().map(|item| {
-                            [
-                                item.request_id.clone(),
-                                item.recipient_identity_id
-                                    .as_deref()
-                                    .unwrap_or("-")
-                                    .to_owned(),
-                                item.delivery.as_str().to_owned(),
-                                item.final_state.as_str().to_owned(),
-                                item.revision.to_string(),
-                            ]
-                        }),
-                    )?;
+        return Ok(0);
+    }
+    let terminal = stdout.terminal();
+    match &report.result {
+        ResultKind::List(page) => {
+            if page.items.is_empty() {
+                writeln!(stdout, "No unacknowledged exchanges.")?;
+            } else {
+                // Request ids stay whole: `x show`, `x ack` and `result` take them.
+                let mut rows = Table::new(&[
+                    Column::Name,
+                    Column::Fixed,
+                    Column::Fixed,
+                    Column::Fixed,
+                    Column::Fixed,
+                ]);
+                for item in &page.items {
+                    rows.row([
+                        Cell::from(&item.request_id),
+                        Cell::styled(
+                            item.recipient_identity_id
+                                .as_deref()
+                                .map_or("-", value::short_id),
+                            Token::Dim,
+                        ),
+                        Cell::from(item.delivery.as_str()),
+                        Cell::from(item.final_state.as_str()),
+                        Cell::styled(format!("r{}", item.revision), Token::Dim),
+                    ]);
                 }
-                if let Some(after) = page.next_after {
-                    writeln!(
-                        stdout,
-                        "More exchanges: repeat x list with the same identity and --after {after}."
-                    )?;
-                }
-            }
-            ResultKind::Show { detail, receipt } => {
-                let item = &detail.exchange;
-                table::write(
+                let next = page.next_after.map(|after| {
+                    format!(
+                        "more with tmt x list --after {after} --identity {}",
+                        super::listen::shell_word(&report.identity.canonical_name)
+                    )
+                });
+                list::write(
                     &mut stdout,
-                    [
-                        "REQUEST",
-                        "DELIVERY",
-                        "FINAL",
-                        "REVISION",
-                        "ACKNOWLEDGED",
-                        "SETTLED",
-                    ],
-                    [[
-                        item.request_id.clone(),
-                        item.delivery.as_str().to_owned(),
-                        item.final_state.as_str().to_owned(),
-                        item.revision.to_string(),
-                        item.acknowledged.to_string(),
-                        item.settled.to_string(),
-                    ]],
+                    terminal,
+                    &[Section {
+                        title: "exchanges",
+                        count: Some(page.items.len()),
+                        rows,
+                        note: None,
+                        hint: next.as_deref(),
+                    }],
                 )?;
-                writeln!(stdout, "Prompt ({}):", prompt_status(&detail.prompt))?;
-                if let RequestPrompt::Retained(prompt) = &detail.prompt {
-                    writeln!(stdout, "{}", prompt.message)?;
-                }
-                if let FinalState::Retained { content, .. } = &item.final_state {
-                    writeln!(stdout, "Final:\n{content}")?;
-                }
-                if let Some(receipt) = receipt {
-                    writeln!(
-                        stdout,
-                        "Reply with: tmt reply {} --receipt {} --message <text>",
-                        item.request_id, receipt
-                    )?;
-                }
             }
-            ResultKind::Ack(ack) => writeln!(
-                stdout,
-                "Acknowledged {} at revision {}{}",
-                ack.request_id,
-                ack.revision,
-                if ack.changed {
-                    "."
-                } else {
-                    " (already acknowledged)."
-                }
-            )?,
-            ResultKind::Ackall(through) => writeln!(
-                stdout,
-                "Acknowledged identity '{}' through revision {through}. Later revisions remain unacknowledged.",
-                report.identity.name
-            )?,
         }
+        ResultKind::Show { detail, receipt } => {
+            let item = &detail.exchange;
+            tmt_cli_style::detail::write(
+                &mut stdout,
+                terminal,
+                &item.request_id,
+                &[
+                    ("delivery", item.delivery.as_str().to_owned()),
+                    ("final", item.final_state.as_str().to_owned()),
+                    ("revision", item.revision.to_string()),
+                    ("acknowledged", item.acknowledged.to_string()),
+                    ("settled", item.settled.to_string()),
+                ],
+            )?;
+            writeln!(
+                stdout,
+                "{} {}",
+                terminal.paint(Token::Title, "PROMPT"),
+                terminal.paint(Token::Dim, prompt_status(&detail.prompt))
+            )?;
+            if let RequestPrompt::Retained(prompt) = &detail.prompt {
+                write_exact(&mut stdout, &prompt.message)?;
+            }
+            if let FinalState::Retained { content, .. } = &item.final_state {
+                writeln!(stdout, "{}", terminal.paint(Token::Title, "FINAL"))?;
+                write_exact(&mut stdout, content)?;
+            }
+            if let Some(receipt) = receipt {
+                message::hint(
+                    &mut stdout,
+                    terminal,
+                    &format!(
+                        "tmt reply {} --receipt {receipt} --message <text>",
+                        item.request_id
+                    ),
+                )?;
+            }
+        }
+        ResultKind::Ack(ack) if ack.changed => message::success(
+            &mut stdout,
+            terminal,
+            &format!(
+                "Acknowledged {} at revision {}",
+                ack.request_id, ack.revision
+            ),
+        )?,
+        ResultKind::Ack(ack) => writeln!(
+            stdout,
+            "{} was already acknowledged at revision {}",
+            ack.request_id, ack.revision
+        )?,
+        ResultKind::Ackall(through) => message::success(
+            &mut stdout,
+            terminal,
+            &format!(
+                "Acknowledged '{}' through revision {through}; later revisions remain unacknowledged",
+                report.identity.name
+            ),
+        )?,
     }
     Ok(0)
+}
+
+/// A prompt or final response byte for byte, like `tmt result`: it is the
+/// sender's or responder's exact text, so it is never styled or escaped.
+fn write_exact(output: &mut impl Write, text: &str) -> io::Result<()> {
+    writeln!(output, "{text}")
 }

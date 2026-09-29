@@ -28,60 +28,53 @@ describe('native configuration process boundary', () => {
       const result = await runCli(sandbox, ['config', 'show']);
       expect(result.status).toBe(0);
       expect(result.stderr).toBe('');
-      expect(result.stdout).toContain('ℹ Current configuration:\n');
+      expect(result.stdout.startsWith('SETTINGS\n')).toBe(true);
       const rows = result.stdout
         .split('\n')
+        .map((line) => line.trim())
         .filter(
           (line) =>
-            line.startsWith('Key') ||
             line.startsWith('preamble') ||
             line.startsWith('pasteEnter') ||
             line.startsWith('defaults.') ||
             line.startsWith('exchange.') ||
             line.startsWith('ui.')
         )
-        .map((line) => line.trim().split(/\s{2,}/));
+        .map((line) => line.split(/\s{2,}/));
       expect(rows).toEqual([
-        ['Key', 'Value', 'Source', 'Changes', 'Accepted values'],
-        ['preambleMode', 'disabled', '(global)', 'local/global CLI', "'always' or 'disabled'"],
-        ['preambleEvery', '0', '(local)', 'local/global CLI', 'a safe non-negative integer'],
+        ['preambleMode', 'disabled', 'global', 'local/global CLI', "'always' or 'disabled'"],
+        ['preambleEvery', '0', 'local', 'local/global CLI', 'a safe non-negative integer'],
         [
           'pasteEnterDelayMs',
           '500',
-          '(default)',
+          'default',
           'local/global CLI',
           'a finite number from 0 through 2147483647',
         ],
         [
           'defaults.timeout',
           '30',
-          '(global)',
+          'global',
           'global file only',
           'a finite positive number no greater than 86400',
         ],
-        ['defaults.pollInterval', '1', '(default)', 'global file only', 'a finite positive number'],
+        ['defaults.pollInterval', '1', 'default', 'global file only', 'a finite positive number'],
         [
           'defaults.captureLines',
           '100',
-          '(default)',
+          'default',
           'global file only',
           'an integer from 0 through 2147483647',
         ],
-        [
-          'exchange.retentionDays',
-          '365',
-          '(global)',
-          'global CLI',
-          'an integer from 1 through 3650',
-        ],
-        ['ui.paneBadge', 'on', '(global)', 'global CLI', "'on' or 'off'"],
+        ['exchange.retentionDays', '365', 'global', 'global CLI', 'an integer from 1 through 3650'],
+        ['ui.paneBadge', 'on', 'global', 'global CLI', "'on' or 'off'"],
       ]);
       expect(result.stdout).toContain(
-        'ℹ CLI numeric writes use unsigned decimal integers; config clear removes local overrides only.\n'
+        'hint: CLI numeric writes use unsigned decimal integers; config clear removes local overrides only\n'
       );
-      expect(result.stdout).toContain('ℹ \nPaths:\n');
-      expect(result.stdout).toContain(`ℹ   Global: ${sandbox.globalConfig}\n`);
-      expect(result.stdout).toContain(`ℹ   Local:  ${fs.realpathSync(sandbox.localConfig)}\n`);
+      expect(result.stdout).toContain('\nPATHS\n');
+      expect(result.stdout).toContain(`  global  ${sandbox.globalConfig}\n`);
+      expect(result.stdout).toContain(`  local   ${fs.realpathSync(sandbox.localConfig)}\n`);
       expect(fileSnapshot(sandbox.root)).toEqual(before);
       expect(fs.existsSync(sandbox.database)).toBe(false);
     });

@@ -52,8 +52,7 @@ describe('native exchange attention process contract', () => {
       expect(listed.status).toBe(0);
       expect(listed.stderr).toBe('');
       expect(listed.stdout).toBe(
-        'REQUEST         RECIPIENT  DELIVERY  FINAL          REVISION\n' +
-          'human-exchange  -          sent      not_submitted  1\n'
+        'EXCHANGES 1\n' + '  human-exchange  -  sent  not_submitted  r1\n'
       );
       expect(responseSnapshot(sandbox.database, seeded.requestId)).toEqual(before);
       const acknowledged = await runCli(sandbox, [
@@ -66,7 +65,7 @@ describe('native exchange attention process contract', () => {
         'Reader',
       ]);
       expect(acknowledged.status).toBe(0);
-      expect(acknowledged.stdout).toBe('Acknowledged human-exchange at revision 1.\n');
+      expect(acknowledged.stdout).toBe('✓ Acknowledged human-exchange at revision 1\n');
       const pending = await json(sandbox, ['x', 'show', seeded.requestId, '--identity', 'Reader']);
       expect(pending.exchange).toMatchObject({
         acknowledged: true,
@@ -102,14 +101,18 @@ describe('native exchange attention process contract', () => {
       const shown = await runCli(sandbox, ['x', 'show', seeded.requestId, '--identity', 'Reader']);
       expect(shown.status).toBe(0);
       expect(shown.stdout).toBe(
-        'REQUEST         DELIVERY  FINAL     REVISION  ACKNOWLEDGED  SETTLED\n' +
-          'human-exchange  sent      retained  2         false         false\n' +
-          `Prompt (retained):\nprompt for human-exchange\nFinal:\n${body}\n`
+        'human-exchange\n' +
+          '  delivery      sent\n' +
+          '  final         retained\n' +
+          '  revision      2\n' +
+          '  acknowledged  false\n' +
+          '  settled       false\n' +
+          `PROMPT retained\nprompt for human-exchange\nFINAL\n${body}\n`
       );
       const all = await runCli(sandbox, ['x', 'ackall', '--identity', 'Reader']);
       expect(all.status).toBe(0);
       expect(all.stdout).toBe(
-        "Acknowledged identity 'Reader' through revision 2. Later revisions remain unacknowledged.\n"
+        "✓ Acknowledged 'Reader' through revision 2; later revisions remain unacknowledged\n"
       );
       expect(
         (await json(sandbox, ['x', 'show', seeded.requestId, '--identity', 'Reader'])).exchange

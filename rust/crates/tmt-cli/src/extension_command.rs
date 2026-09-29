@@ -1,10 +1,7 @@
 //! Compose pure command grammar with the PATH execution adapter.
 
 use crate::grammar::extensions;
-use std::{
-    ffi::OsString,
-    io::{self, Write},
-};
+use std::{ffi::OsString, io};
 use tmt_adapters::extension_command as adapter;
 use tmt_core::extension_command::valid_extension_name;
 
@@ -19,10 +16,16 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
             );
         }
         let error = adapter::execute(&executable, args, &std::env::current_exe()?);
-        writeln!(
-            io::stderr(),
-            "Could not execute extension '{}': {error}",
-            executable.display()
+        let mut stderr = tmt_cli_style::stream::stderr();
+        let terminal = stderr.terminal();
+        tmt_cli_style::message::error(
+            &mut stderr,
+            terminal,
+            &format!(
+                "Could not execute extension '{}': {error}",
+                executable.display()
+            ),
+            None,
         )?;
         return Ok(1);
     }

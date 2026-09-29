@@ -69,7 +69,7 @@ describe.sequential('current-server diagnostic routing', () => {
       const human = await fixture.runCli(['check', 'Alice', '--lines', '0']);
       expect(human.code).toBe(0);
       expect(human.stderr).toBe('');
-      expect(human.stdout).toContain(`Output from Alice (${fixture.pane})`);
+      expect(human.stdout).toContain(`OUTPUT Alice ${fixture.pane}\n`);
       expect(human.stdout).toContain(marker);
       expect(await fixture.runJsonCli(['unbind'])).toMatchObject({ code: 0 });
       const unbound = await fixture.runJsonCli<Capture>(['read', fixture.pane, '0']);

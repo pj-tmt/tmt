@@ -2,7 +2,7 @@ use super::{request_failure, unavailable};
 use crate::{
     identity_context,
     invocation::OutputMode,
-    output::{Failure, after_cleanup, table},
+    output::{Failure, after_cleanup},
 };
 use serde_json::json;
 use std::{
@@ -92,7 +92,7 @@ fn participant_document(
     }
 }
 
-fn shell_word(value: &str) -> String {
+pub(super) fn shell_word(value: &str) -> String {
     if !value.is_empty()
         && value
             .bytes()
@@ -261,7 +261,7 @@ pub(super) fn execute(
         Ok(value) => value,
         Err(error) => return error.publish(mode),
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         writeln!(
             stdout,
@@ -276,41 +276,54 @@ pub(super) fn execute(
     } else if page.items.is_empty() {
         writeln!(stdout, "No incoming messages before the listener timeout.")?;
     } else {
-        writeln!(stdout, "Incoming messages for {}:", identity.name)?;
-        table::write(
-            &mut stdout,
-            [
-                "KIND",
-                "REQUEST",
-                "SENDER",
-                "RECIPIENT",
-                "DELIVERY",
-                "FINAL",
-                "REVISION",
-            ],
-            page.items.iter().map(|item| {
-                let name = |id: Option<&String>| {
-                    id.and_then(|value| identities.get(value))
-                        .map(|value| value.name.clone())
-                        .unwrap_or_else(|| "-".into())
-                };
-                [
-                    item.kind.as_str().to_owned(),
-                    item.exchange.request_id.clone(),
+        use tmt_cli_style::{
+            list::{self, Section},
+            table::{Cell, Column, Table},
+        };
+        let terminal = stdout.terminal();
+        let name = |id: Option<&String>| {
+            id.and_then(|value| identities.get(value))
+                .map(|value| value.name.clone())
+                .unwrap_or_else(|| "-".into())
+        };
+        // Request ids stay whole: the follow-up commands take them.
+        let mut rows = Table::new(&[
+            Column::Fixed,
+            Column::Name,
+            Column::Detail,
+            Column::Fixed,
+            Column::Fixed,
+        ]);
+        for item in &page.items {
+            rows.row([
+                Cell::from(item.kind.as_str()),
+                Cell::from(&item.exchange.request_id),
+                Cell::from(format!(
+                    "{} → {}",
                     name(item.sender_identity_id.as_ref()),
-                    name(item.recipient_identity_id.as_ref()),
-                    item.exchange.delivery.as_str().to_owned(),
-                    item.exchange.final_state.as_str().to_owned(),
-                    item.exchange.revision.to_string(),
-                ]
-            }),
+                    name(item.recipient_identity_id.as_ref())
+                )),
+                Cell::from(item.exchange.delivery.as_str()),
+                Cell::from(item.exchange.final_state.as_str()),
+            ]);
+        }
+        list::write(
+            &mut stdout,
+            terminal,
+            &[Section {
+                title: "incoming",
+                count: Some(page.items.len()),
+                rows,
+                note: None,
+                hint: None,
+            }],
         )?;
         for item in &page.items {
             let (inspect_command, ack_command) = follow_up_commands(item, &identity);
-            writeln!(
-                stdout,
-                "{}:\n  Inspect: {}\n  Acknowledge: {}",
-                item.exchange.request_id, inspect_command, ack_command,
+            tmt_cli_style::message::hint(
+                &mut stdout,
+                terminal,
+                &format!("{inspect_command}, then {ack_command}"),
             )?;
         }
     }

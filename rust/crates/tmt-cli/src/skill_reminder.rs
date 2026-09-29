@@ -77,13 +77,13 @@ pub fn present(outcome: Outcome, mode: OutputMode, inspect_drift: bool) {
     if mode.json {
         return;
     }
+    let mut stderr = tmt_cli_style::stream::stderr();
+    let terminal = stderr.terminal();
     if let Some(hint) = optional_hint(outcome, mode, hints_enabled()) {
-        let mut stderr = tmt_cli_style::stream::stderr();
-        let terminal = stderr.terminal();
         write_hint(&mut stderr, terminal, hint);
         return;
     }
-    if !inspect_drift || !io::stdin().is_terminal() || !io::stderr().is_terminal() {
+    if !inspect_drift || !io::stdin().is_terminal() || !stderr.is_terminal() {
         return;
     }
     let Ok(env) = ProviderEnvironment::capture() else {
@@ -96,8 +96,6 @@ pub fn present(outcome: Outcome, mode: OutputMode, inspect_drift: bool) {
         return;
     };
     if let Some(first) = drift.first() {
-        let mut stderr = tmt_cli_style::stream::stderr();
-        let terminal = stderr.terminal();
         let _ = tmt_cli_style::message::warning(
             &mut stderr,
             terminal,

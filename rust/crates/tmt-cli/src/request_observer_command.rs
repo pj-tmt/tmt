@@ -37,6 +37,21 @@ pub fn start(database: &Path, request_id: &str) -> io::Result<()> {
     )
 }
 
+/// The log's first line, `observer_pid=<pid>`, which tests and diagnostics
+/// read to find the detached process.
+fn announce_pid() -> io::Result<()> {
+    use std::io::Write;
+    writeln!(io::stderr().lock(), "observer_pid={}", std::process::id())
+}
+
+/// The log is this worker's stderr, and it names `tmt` as the source.
+fn warn(message: &str) {
+    let mut stderr = tmt_cli_style::stream::stderr();
+    let terminal = stderr.terminal();
+    let _ =
+        tmt_cli_style::message::warning(&mut stderr, terminal, &format!("tmt: {message}"), None);
+}
+
 pub fn execute(request_id: &str) -> io::Result<u8> {
     let result = (|| -> io::Result<PathBuf> {
         detached::enter()?;
@@ -53,7 +68,7 @@ pub fn execute(request_id: &str) -> io::Result<u8> {
             .saturating_sub(wall_time_ms())
             .min(policy.timeout_ms);
         let deadline = Instant::now() + Duration::from_millis(remaining);
-        eprintln!("observer_pid={}", std::process::id());
+        announce_pid()?;
         detached::ready()?;
         loop {
             if RequestService::new(&mut storage, wall_time_ms)
@@ -92,12 +107,12 @@ pub fn execute(request_id: &str) -> io::Result<u8> {
             if let Err(error) =
                 log_path(&database, request_id).and_then(|path| detached::discard_own_log(&path))
             {
-                eprintln!("tmt: could not remove the observer log: {error}");
+                warn(&format!("could not remove the observer log: {error}"));
             }
             Ok(0)
         }
         Err(_) => {
-            eprintln!("tmt: request timeout observer unavailable; inspect the retained request.");
+            warn("request timeout observer unavailable; inspect the retained request.");
             Ok(1)
         }
     }

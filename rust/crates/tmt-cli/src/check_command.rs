@@ -12,6 +12,7 @@ use tmt_adapters::{
     storage::Storage,
     tmux::Tmux,
 };
+use tmt_cli_style::Token;
 use tmt_core::binding::PaneIdentity;
 
 struct Report {
@@ -67,12 +68,18 @@ fn run(target: String, lines: Option<u64>) -> Result<Report, Failure> {
     after_cleanup(pending, || storage.close())
 }
 
+/// The pane's text as tmux captured it, for an agent to read verbatim. A
+/// capture without `-e` carries no escape sequences, so it is never escaped.
+fn write_captured(output: &mut impl Write, text: &str) -> io::Result<()> {
+    writeln!(output, "{text}")
+}
+
 pub fn execute(target: String, lines: Option<u64>, mode: OutputMode) -> io::Result<u8> {
     let report = match run(target, lines) {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         let mut document = serde_json::json!({
             "target": report.target,
@@ -85,12 +92,14 @@ pub fn execute(target: String, lines: Option<u64>, mode: OutputMode) -> io::Resu
         }
         writeln!(stdout, "{document}")?;
     } else {
-        writeln!(
-            stdout,
-            "─── Output from {} ({}) ───",
-            report.target, report.observed.pane.id
-        )?;
-        writeln!(stdout, "{}", report.output)?;
+        let terminal = stdout.terminal();
+        let title = format!(
+            "OUTPUT {} {}",
+            tmt_cli_style::table::escape(&report.target),
+            report.observed.pane.id
+        );
+        writeln!(stdout, "{}", terminal.paint(Token::Title, &title))?;
+        write_captured(&mut stdout, &report.output)?;
     }
     Ok(0)
 }

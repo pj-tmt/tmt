@@ -3,7 +3,7 @@
 use crate::{
     identity_context,
     invocation::{OutputMode, RoomOperation},
-    output::{Failure, after_cleanup, table},
+    output::{Failure, after_cleanup},
 };
 use std::io::{self, Write};
 use tmt_adapters::{
@@ -120,30 +120,55 @@ pub(super) fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<
         Ok(receipt) => receipt,
         Err(error) => return error.publish(mode),
     };
-    let mut out = io::stdout().lock();
+    let mut out = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         out.write_all(&encode_receipt(&receipt))?;
         writeln!(out)?;
     } else {
-        writeln!(out, "Operation {}", receipt.operation_id)?;
-        table::write(
+        use tmt_cli_style::{
+            Token,
+            list::{self, Section},
+            table::{Cell, Column, Table},
+            value,
+        };
+        let terminal = out.terminal();
+        let queued = receipt
+            .items
+            .iter()
+            .filter(|item| matches!(item.acceptance, Acceptance::Queued))
+            .count();
+        tmt_cli_style::message::success(
             &mut out,
-            ["RECIPIENT", "ACCEPTANCE", "REQUEST"],
-            receipt.items.iter().map(|item| {
-                [
-                    item.recipient_id.clone(),
-                    match item.acceptance {
-                        Acceptance::Queued => "queued",
-                        Acceptance::RecipientUnavailable => "unavailable",
-                    }
-                    .to_owned(),
-                    item.request_id.clone(),
-                ]
-            }),
+            terminal,
+            &format!(
+                "Queued for {queued} of {} recipients (operation {})",
+                receipt.items.len(),
+                value::short_id(&receipt.operation_id)
+            ),
         )?;
-        writeln!(
-            out,
-            "Queued is not completed. Inspect each request with: tmt result <request-id>"
+        // Request ids stay whole: `tmt result` takes them.
+        let mut rows = Table::new(&[Column::Name, Column::Fixed, Column::Fixed]);
+        for item in &receipt.items {
+            let acceptance = match item.acceptance {
+                Acceptance::Queued => Cell::from("queued"),
+                Acceptance::RecipientUnavailable => Cell::styled("unavailable", Token::Warn),
+            };
+            rows.row([
+                Cell::from(value::short_id(&item.recipient_id)),
+                acceptance,
+                Cell::from(&item.request_id),
+            ]);
+        }
+        list::write(
+            &mut out,
+            terminal,
+            &[Section {
+                title: "recipients",
+                count: Some(receipt.items.len()),
+                rows,
+                note: None,
+                hint: Some("queued is not completed; inspect each with tmt result <request-id>"),
+            }],
         )?;
     }
     Ok(0)

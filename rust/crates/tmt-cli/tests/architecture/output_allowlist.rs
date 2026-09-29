@@ -26,6 +26,12 @@ pub const EXACT_BODIES: &[Exact] = &[
     },
     Exact {
         package: "tmt-cli",
+        file: "request_observer_command.rs",
+        function: "announce_pid",
+        reason: "the detached observer log's `observer_pid=<pid>` line, which diagnostics and tests read",
+    },
+    Exact {
+        package: "tmt-cli",
         file: "provider_hook_command.rs",
         function: "execute",
         reason: "provider hook protocol: context on stdout, one fixed line on stderr",
@@ -65,18 +71,6 @@ pub const EXACT_BODIES: &[Exact] = &[
 /// Files that still write around the style layer. #436 PR 2a migrates core,
 /// 2b Squad; Office's command crate stays until #355 resumes.
 pub const MIGRATING: &[(&str, &str)] = &[
-    ("tmt-cli", "check_command.rs"),
-    ("tmt-cli", "consent.rs"),
-    ("tmt-cli", "context_command.rs"),
-    ("tmt-cli", "exchange_command/listen.rs"),
-    ("tmt-cli", "exchange_command/presentation.rs"),
-    ("tmt-cli", "extension_command.rs"),
-    ("tmt-cli", "extension_install_command.rs"),
-    ("tmt-cli", "notes_command.rs"),
-    ("tmt-cli", "request_observer_command.rs"),
-    ("tmt-cli", "room_command.rs"),
-    ("tmt-cli", "room_command/dispatch.rs"),
-    ("tmt-cli", "skill_reminder.rs"),
     ("tmt-office-command", "office_avatar_command.rs"),
     ("tmt-office-command", "office_block_command.rs"),
     ("tmt-office-command", "office_board_command.rs"),
