@@ -145,7 +145,7 @@ describe('squad extension', () => {
         });
       }
       const help = await runCli(sandbox, ['squad', '--help']);
-      expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] <COMMAND>');
+      expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
       const routed = await runCli(sandbox, ['squad', 'help', 'hotkeys', 'install']);
       expect(routed.status).toBe(0);
       expect(routed.stdout).toContain('Usage: tmt squad hotkeys install [OPTIONS]');
@@ -153,15 +153,21 @@ describe('squad extension', () => {
       const unknown = await runCli(sandbox, ['squad', 'help', 'bogus']);
       expect(unknown.status).toBe(2);
       expect(unknown.stderr).toContain("unrecognized subcommand 'bogus'");
-      const status = await squad(sandbox, ['status']);
-      expect(status).toMatchObject({ status: 1, body: { error: { code: 'SQUAD_NOT_FOUND' } } });
+      // Without --squad the shape never depends on how many squads exist.
+      const none = await squad(sandbox, ['status']);
+      expect(none).toMatchObject({ status: 0, body: { squads: [], you: null } });
+      expect((await runCli(sandbox, ['sq', 'ls'])).stdout).toBe(
+        'No squad exists yet.\nhint: tmt squad init <name>\n'
+      );
+      const named = await squad(sandbox, ['status', '--squad', 'product']);
+      expect(named).toMatchObject({ status: 1, body: { error: { code: 'SQUAD_NOT_FOUND' } } });
       // Completion v1: core invokes `tmt-<name> __complete -- <words>` directly.
       const completions = [];
       for (const name of ['tmt-squad', 'tmt-sq']) {
         const direct = { ...sandbox, cli: { executable: path.join(bin, name), args: [] } };
         completions.push(await runCli(direct, ['__complete', '--', 's']));
       }
-      expect(completions[0].stdout).toBe('set\nskill\nstatus\n');
+      expect(completions[0].stdout).toBe('set\nskill\n');
       expect(completions[1].stdout).toBe(completions[0].stdout);
       const skill = await runCli(sandbox, ['sq', 'skill', 'show']);
       expect(skill.stdout).toBe(
@@ -430,7 +436,7 @@ describe('squad extension', () => {
         'squad.product.note',
       ]);
 
-      const status = await squad(sandbox, ['status']);
+      const status = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(status.status).toBe(0);
       expect(status.body.squad).toMatchObject({
         name: 'product',
@@ -468,7 +474,7 @@ describe('squad extension', () => {
       // Without a terminal, the board is exactly status, in text and JSON.
       const statusText = await runCli(sandbox, ['squad', 'status']);
       expect(await runCli(sandbox, ['squad', 'board'])).toEqual(statusText);
-      expect((await squad(sandbox, ['board'])).body).toEqual(status.body);
+      expect((await squad(sandbox, ['board', '--squad', 'product'])).body).toEqual(status.body);
       const text = await runCli(sandbox, ['sq', 'status']);
       // One leading mark: ◆ when the member waits on you; the state has its column.
       expect(text.stdout).toMatch(
@@ -537,7 +543,59 @@ describe('squad extension', () => {
     });
   });
 
-  it('keeps several squads apart and requires a choice when ambiguous', async () => {
+  it('lists members with ls; status and a bare tmt sq without a terminal are the same list', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'auth-fix']) await identity(sandbox, name);
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['add', 'auth-fix']);
+      await squad(sandbox, ['set', 'auth-fix', 'task=rotate session tokens']);
+      const ls = await runCli(sandbox, ['sq', 'ls']);
+      expect(ls.status).toBe(0);
+      // The board's default columns: member, state, task, PR.
+      expect(ls.stdout).toContain('auth-fix  working  rotate session tokens');
+      for (const args of [['sq', 'status'], ['sq'], ['squad'], ['sq', 'board']]) {
+        const same = await runCli(sandbox, args);
+        expect({ status: same.status, stdout: same.stdout }, args.join(' ')).toEqual({
+          status: 0,
+          stdout: ls.stdout,
+        });
+      }
+      // Both JSON shapes are pinned: --squad gives that squad's document;
+      // without it, always {squads, you}, even with one squad.
+      const json = await squad(sandbox, ['ls']);
+      expect(Object.keys(json.body).sort()).toEqual(['squads', 'you']);
+      expect(json.body.squads).toHaveLength(1);
+      const one = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(Object.keys(one.body).sort()).toEqual([
+        'columns',
+        'olderRequestsNotShown',
+        'sections',
+        'squad',
+        'you',
+      ]);
+      expect(json.body.squads[0]).toEqual({ ...one.body, you: undefined });
+      expect(one.body.columns.map((column: { field: string }) => column.field)).toEqual([
+        'member',
+        'state',
+        'task',
+        'pr_link',
+      ]);
+      for (const args of [
+        ['sq', 'status', '--json'],
+        ['sq', '--json'],
+      ]) {
+        const same = await runCli(sandbox, args);
+        expect(JSON.parse(same.stdout), args.join(' ')).toEqual(json.body);
+      }
+      const help = await runCli(sandbox, ['sq', '--help']);
+      expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
+      expect(help.stdout).toMatch(/\n {2}ls +List the members/);
+      expect(help.stdout).not.toMatch(/\n {2}status /);
+    });
+  });
+
+  it('keeps several squads apart: ls lists each, changes require a choice', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       for (const name of ['Ben', 'worker']) await identity(sandbox, name);
@@ -547,7 +605,15 @@ describe('squad extension', () => {
         path.join(sandbox.globalDir, 'squad.toml'),
         'me = "Ben"\n[squad.reviews]\nlayout = "pr-queue"\n'
       );
-      expect((await squad(sandbox, ['status'])).body.error.code).toBe('SQUAD_AMBIGUOUS');
+      const both = await squad(sandbox, ['ls']);
+      expect(both.status).toBe(0);
+      expect(both.body.squads.map((one: { squad: { name: string } }) => one.squad.name)).toEqual([
+        'product',
+        'reviews',
+      ]);
+      const bothText = (await runCli(sandbox, ['sq', 'ls'])).stdout;
+      expect(bothText).toMatch(/^squad product · .*\n[\s\S]*\n\nsquad reviews · /);
+      expect((await squad(sandbox, ['add', 'worker'])).body.error.code).toBe('SQUAD_AMBIGUOUS');
       await squad(sandbox, ['add', 'worker', '--squad', 'product']);
       await squad(sandbox, ['add', 'worker', '--squad', 'reviews']);
       await squad(sandbox, ['remove', 'worker', '--squad', 'product']);
@@ -587,7 +653,7 @@ title = "Everyone"
 sort = ["-name"]
 `
       );
-      const status = await squad(sandbox, ['status']);
+      const status = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(status.status).toBe(0);
       const sections = status.body.sections.map(
         (section: { title: string; rows: { name: string }[] }) => [
@@ -647,7 +713,7 @@ sort = ["-name"]
       await squad(sandbox, ['set', 'b-review', 'state=review']);
       await squad(sandbox, ['set', 'c-parked', 'state=parked']);
       const order = async () =>
-        (await squad(sandbox, ['status'])).body.sections[0].rows.map(
+        (await squad(sandbox, ['ls', '--squad', 'product'])).body.sections[0].rows.map(
           (row: { name: string }) => row.name
         );
       expect(await order()).toEqual(['a-work', 'b-review', 'c-parked']);
@@ -809,7 +875,7 @@ sort = ["-name"]
 
       // The marker is derived from request state on every read.
       const marker = async () => {
-        const rows = (await squad(sandbox, ['status'])).body.sections[0].rows;
+        const rows = (await squad(sandbox, ['ls', '--squad', 'product'])).body.sections[0].rows;
         return Object.fromEntries(
           rows.map((row: { name: string; annotation: unknown }) => [row.name, row.annotation])
         );
@@ -862,7 +928,8 @@ sort = ["-name"]
         ]);
         asks.push(JSON.parse(asked.stdout).requestId);
       }
-      const waiting = (await squad(sandbox, ['status'])).body.sections[0].rows[0].waitingOnYou;
+      const waiting = (await squad(sandbox, ['ls', '--squad', 'product'])).body.sections[0].rows[0]
+        .waitingOnYou;
       expect(waiting.map((item: { requestId: string }) => item.requestId).sort()).toEqual(
         [...asks].sort()
       );

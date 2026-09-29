@@ -1,5 +1,5 @@
 //! `tmt squad board`: the terminal board. It reads the same status document as
-//! `tmt squad status`, paints from it, and reloads in the background.
+//! `tmt squad ls`, paints from it, and reloads in the background.
 
 mod app;
 mod markdown;

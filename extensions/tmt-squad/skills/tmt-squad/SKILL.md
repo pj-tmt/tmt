@@ -5,7 +5,7 @@ description: Lead a TMT squad - read the squad board, keep member state current 
 
 # TMT squad (for leads)
 
-Use this skill when you lead a squad: `tmt squad status` shows you as the
+Use this skill when you lead a squad: `tmt squad ls` shows you as the
 squad's `lead`. A squad is a TMT room named `squad-<name>`. Each member's board
 fields are that member's identity metadata `squad.<name>.<field>`. Squad keeps
 no other state, so Office and threads show the same squad. `tmt sq` is the
@@ -14,13 +14,20 @@ same command as `tmt squad`.
 ## Read the board
 
 ```sh
-tmt squad status --json [--squad <name>]
+tmt squad ls --json [--squad <name>]
 ```
+
+With `--squad <name>` the document is that squad's; without it, it is always
+`{squads: [...], you}`, one document per squad in name order (even for one
+squad or none), so read `.squads[]` unless you pass `--squad`. `columns` lists
+the board's configured columns.
 
 - `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`) and
   `lead` (a row, or null).
 - `sections`: always a list. Unless the user defined sections, it holds exactly
-  one section with `title: null` containing every member except the lead.
+  one section with `title: null` containing every member except the lead. With
+  user sections, members that match none follow in a final `title: null`
+  section.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
   `pending`, `note`, `fields` (every `squad.<name>.*` value, by field name),
