@@ -69,7 +69,8 @@ pub fn execute(
                 .publish(mode);
         }
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = stdout.terminal();
     if mode.json {
         writeln!(
             stdout,
@@ -77,18 +78,17 @@ pub fn execute(
             serde_json::json!({"executable": report.executable, "version": report.version, "changed": report.changed})
         )?;
     } else {
-        writeln!(
-            stdout,
-            "{} {} {} at {}",
-            if report.changed {
-                "Installed"
-            } else {
-                "Current"
-            },
+        let what = format!(
+            "{} {} at {}",
             product.executable(),
             report.version,
             report.executable.display()
-        )?;
+        );
+        if report.changed {
+            tmt_cli_style::message::success(&mut stdout, terminal, &format!("Installed {what}"))?;
+        } else {
+            writeln!(stdout, "Current {what}")?;
+        }
     }
     Ok(0)
 }

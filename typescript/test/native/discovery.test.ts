@@ -10,12 +10,12 @@ describe('first-time CLI discovery', () => {
       expect(created.status).toBe(0);
       expect(created.stdout).toContain("Created saved identity 'Team Lead'");
       expect(created.stderr).toBe(
-        'Hint: To receive work for this saved identity, run `tmt x listen --identity <name>`.\n'
+        'hint: receive work for this saved identity with tmt x listen --identity <name>\n'
       );
 
       const repeat = await runCli(sandbox, ['identity', 'create', 'Team Lead']);
       expect(repeat.status).toBe(0);
-      expect(repeat.stdout).toContain("Already exists: saved identity 'Team Lead'");
+      expect(repeat.stdout).toContain("Saved identity 'Team Lead' already exists");
       expect(repeat.stderr).toBe('');
 
       const machine = await runCli(sandbox, ['--json', 'identity', 'create', 'Machine']);
@@ -31,7 +31,7 @@ describe('first-time CLI discovery', () => {
 
       const failed = await runCli(sandbox, ['identity', 'create', '   ']);
       expect(failed.status).not.toBe(0);
-      expect(failed.stderr).not.toContain('Hint:');
+      expect(failed.stderr).not.toContain('hint: receive work');
     });
   });
 

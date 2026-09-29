@@ -1,5 +1,6 @@
-//! One-line outcomes: `✓ <done>` on success, `error: <what>` then
-//! `hint: <next>` on failure. Exit codes stay with the caller.
+//! One-line outcomes: `✓ <done>` on success, `error: <what>` on failure,
+//! `warning: <what>` for a non-fatal problem, each optionally followed by
+//! `hint: <next>`. Exit codes stay with the caller.
 
 use crate::{
     mark::Mark,
@@ -49,6 +50,26 @@ pub fn error(
     }
 }
 
+/// `warning: <what>` for a non-fatal problem: the command still did its work.
+/// Then `hint: <next>` when there is a next step.
+pub fn warning(
+    output: &mut impl Write,
+    terminal: Terminal,
+    what: &str,
+    hint: Option<&str>,
+) -> io::Result<()> {
+    writeln!(
+        output,
+        "{} {}",
+        terminal.paint(Token::Warn, "warning:"),
+        line(what)
+    )?;
+    match hint {
+        Some(next) => self::hint(output, terminal, next),
+        None => Ok(()),
+    }
+}
+
 /// `hint: <next command>`, only when an action is possible.
 pub fn hint(output: &mut impl Write, terminal: Terminal, next: &str) -> io::Result<()> {
     writeln!(
@@ -67,6 +88,29 @@ mod tests {
         let mut output = Vec::new();
         write(&mut output).unwrap();
         String::from_utf8(output).unwrap()
+    }
+
+    #[test]
+    fn a_warning_is_labeled_and_may_carry_a_hint() {
+        let plain = Terminal::PLAIN;
+        assert_eq!(
+            text(|out| warning(out, plain, "Badge not updated.", None)),
+            "warning: Badge not updated\n"
+        );
+        assert_eq!(
+            text(|out| warning(
+                out,
+                plain,
+                "Using an anonymous sender.",
+                Some("pass --identity <name>")
+            )),
+            "warning: Using an anonymous sender\nhint: pass --identity <name>\n"
+        );
+        let color = Terminal {
+            color: true,
+            width: None,
+        };
+        assert!(text(|out| warning(out, color, "x", None)).starts_with("\u{1b}[33mwarning:"));
     }
 
     #[test]

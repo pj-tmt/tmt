@@ -20,6 +20,12 @@ pub const EXACT_BODIES: &[Exact] = &[
     },
     Exact {
         package: "tmt-cli",
+        file: "main.rs",
+        function: "write_exact",
+        reason: "the version, completion candidates and completion scripts are read by shells and scripts",
+    },
+    Exact {
+        package: "tmt-cli",
         file: "provider_hook_command.rs",
         function: "execute",
         reason: "provider hook protocol: context on stdout, one fixed line on stderr",
@@ -57,41 +63,21 @@ pub const EXACT_BODIES: &[Exact] = &[
 ];
 
 /// Files that still write around the style layer. #436 PR 2a migrates core,
-/// 2b Squad; Office's command crate stays until #355 resumes. `tmt result`
-/// shares `response_command::execute` with `tmt reply`, so 2a gives its exact
-/// body its own function before exempting it.
+/// 2b Squad; Office's command crate stays until #355 resumes.
 pub const MIGRATING: &[(&str, &str)] = &[
     ("tmt-cli", "binding_command.rs"),
     ("tmt-cli", "check_command.rs"),
-    ("tmt-cli", "config_command.rs"),
     ("tmt-cli", "consent.rs"),
     ("tmt-cli", "context_command.rs"),
     ("tmt-cli", "exchange_command/listen.rs"),
     ("tmt-cli", "exchange_command/presentation.rs"),
     ("tmt-cli", "extension_command.rs"),
-    ("tmt-cli", "extension_hooks_command.rs"),
     ("tmt-cli", "extension_install_command.rs"),
-    ("tmt-cli", "focus_command.rs"),
-    ("tmt-cli", "identity_command.rs"),
-    ("tmt-cli", "identity_context.rs"),
-    ("tmt-cli", "init_command.rs"),
-    ("tmt-cli", "install_command.rs"),
-    ("tmt-cli", "main.rs"),
-    ("tmt-cli", "native_install_command.rs"),
-    ("tmt-cli", "native_upgrade_command.rs"),
     ("tmt-cli", "notes_command.rs"),
-    ("tmt-cli", "profile_command.rs"),
     ("tmt-cli", "request_observer_command.rs"),
-    ("tmt-cli", "response_command.rs"),
-    ("tmt-cli", "resume_command.rs"),
     ("tmt-cli", "room_command.rs"),
     ("tmt-cli", "room_command/dispatch.rs"),
-    ("tmt-cli", "run_command.rs"),
-    ("tmt-cli", "setup_command.rs"),
-    ("tmt-cli", "skill_refresh_command.rs"),
     ("tmt-cli", "skill_reminder.rs"),
-    ("tmt-cli", "talk_command.rs"),
-    ("tmt-cli", "talk_command/presentation.rs"),
     ("tmt-office-command", "office_avatar_command.rs"),
     ("tmt-office-command", "office_block_command.rs"),
     ("tmt-office-command", "office_board_command.rs"),

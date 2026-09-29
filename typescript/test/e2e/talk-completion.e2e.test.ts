@@ -77,15 +77,15 @@ describe.sequential('public talk completion and observer lifecycle', () => {
           if (mode === 'timeout') {
             expect(result.stdout).toBe('');
             expect(result.stderr).toBe(
-              `Timed out waiting for ${fixture.pane} after 1s\nInspect with 'tmt result ${requestId}' and 'tmt check ${fixture.pane}' before deciding whether to retry.\n`
+              `error: Timed out waiting for ${fixture.pane} after 1s\nhint: Inspect with 'tmt result ${requestId}' and 'tmt check ${fixture.pane}' before deciding whether to retry\n`
             );
           } else {
             expect(result.stderr).toBe('');
             expect(result.stdout).toBe(
               (mode === 'completed'
-                ? `Completed request ${requestId} for ${fixture.pane} (${fixture.pane}).\n${body}\n`
-                : `Sent request ${requestId} to ${fixture.pane} (${fixture.pane}).\n`) +
-                `Retrieve later with 'tmt result ${requestId}'.\n`
+                ? `✓ Completed request ${requestId} for ${fixture.pane} (${fixture.pane})\n${body}\n`
+                : `✓ Sent request ${requestId} to ${fixture.pane} (${fixture.pane})\n`) +
+                `hint: retrieve it later with tmt result ${requestId}\n`
             );
           }
           if (mode !== 'completed') {
@@ -639,12 +639,12 @@ describe.sequential('public talk completion and observer lifecycle', () => {
             });
           } else {
             expect(fastResult.stdout).toContain(
-              `Completed request ${fastRequest.requestId} for ${fixture.pane} (${fixture.pane}).\nmock-agent response: native fast overlap\n`
+              `✓ Completed request ${fastRequest.requestId} for ${fixture.pane} (${fixture.pane})\nmock-agent response: native fast overlap\n`
             );
           }
           expect(fastResult.stderr).toBe(
             mode === 'human'
-              ? `Another recent request exists for '${fixture.pane}' (id: ${slowRequest.requestId}). Input processing is not serialized; durable results remain associated by request ID.\n`
+              ? `warning: Another recent request exists for '${fixture.pane}' (id: ${slowRequest.requestId}). Input processing is not serialized; durable results remain associated by request ID\n`
               : ''
           );
 

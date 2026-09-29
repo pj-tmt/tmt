@@ -29,7 +29,7 @@ describe('required identity preflight', () => {
         expect(human.status).toBe(1);
         expect(human.stdout).toBe('');
         expect(human.stderr).toBe(
-          'An identity is required; use identity show <name> or run from a verified bound pane.\n'
+          'error: An identity is required; use identity show <name> or run from a verified bound pane\n'
         );
       }
       expect(existsSync(sandbox.database)).toBe(false);

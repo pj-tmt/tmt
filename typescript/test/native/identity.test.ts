@@ -463,11 +463,11 @@ describe('native durable identity process boundary', () => {
       expect(human.stdout).toContain("Created saved identity 'Human'");
       expect(human.stdout).toContain('saved');
       expect(human.stderr).toBe(
-        'Hint: To receive work for this saved identity, run `tmt x listen --identity <name>`.\n'
+        'hint: receive work for this saved identity with tmt x listen --identity <name>\n'
       );
       const repeatedHuman = await runCli(sandbox, ['identity', 'create', 'human']);
       expect(repeatedHuman.status).toBe(0);
-      expect(repeatedHuman.stdout).toContain("Already exists: saved identity 'Human'");
+      expect(repeatedHuman.stdout).toContain("Saved identity 'Human' already exists");
       expect(repeatedHuman.stderr).toBe('');
       const humanShow = await runCli(sandbox, ['identity', 'show', 'human']);
       expect(humanShow.status).toBe(0);
@@ -481,7 +481,7 @@ describe('native durable identity process boundary', () => {
       const missingHuman = await runCli(sandbox, ['identity', 'show', 'missing']);
       expect(missingHuman.status).toBe(3);
       expect(missingHuman.stdout).toBe('');
-      expect(missingHuman.stderr).toBe("Identity 'missing' was not found.\n");
+      expect(missingHuman.stderr).toBe("error: Identity 'missing' was not found\n");
       const humanList = await runCli(sandbox, ['identity', 'list']);
       expect(humanList.status).toBe(0);
       expect(humanList.stdout).toBe(`NAME   LIFETIME  ID\nHuman  saved     ${shown.id}\n`);

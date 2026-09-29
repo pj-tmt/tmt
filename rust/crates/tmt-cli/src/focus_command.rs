@@ -132,7 +132,7 @@ pub fn client(mode: OutputMode) -> io::Result<u8> {
         Ok(view) => view,
         Err(error) => return error.publish(mode),
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         let document = serde_json::json!({"client": view.client, "pane": view.pane});
         writeln!(stdout, "{document}")?;
@@ -152,7 +152,8 @@ pub fn execute(target: String, mode: OutputMode) -> io::Result<u8> {
         Ok(focused) => focused,
         Err(error) => return error.publish(mode),
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = stdout.terminal();
     if mode.json {
         let document = serde_json::json!({
             "focused": {"pane": focused.interface},
@@ -161,7 +162,11 @@ pub fn execute(target: String, mode: OutputMode) -> io::Result<u8> {
         });
         writeln!(stdout, "{document}")?;
     } else {
-        writeln!(stdout, "Focused {}.", focused.interface)?;
+        tmt_cli_style::message::success(
+            &mut stdout,
+            terminal,
+            &format!("Focused {}", focused.interface),
+        )?;
     }
     Ok(0)
 }

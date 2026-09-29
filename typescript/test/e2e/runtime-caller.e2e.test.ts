@@ -87,7 +87,7 @@ describe.sequential('runtime-owned caller attribution through real process ances
         ]);
         expect(anonymousResult.code).toBe(0);
         expect(anonymousResult.stderr).toBe(
-          'tmt: sender identity not established on a shared runtime host; using anonymous sender. Use --identity <name>.\n'
+          'warning: Sender identity not established on a shared runtime host; using an anonymous sender\nhint: pass --identity <name>\n'
         );
         expect(anonymousResult.json).toBeDefined();
         const anonymous = anonymousResult.json!;

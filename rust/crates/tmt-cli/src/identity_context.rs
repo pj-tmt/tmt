@@ -4,7 +4,6 @@ use crate::{
     binding_error::{binding_failure, endpoint_failure},
     output::{Failure, identity_missing},
 };
-use std::io::Write;
 use tmt_adapters::{
     storage::Storage,
     tmux::{BindingSession, CallerEnvironment, Tmux},
@@ -58,9 +57,13 @@ fn select(
         return if allow_anonymous {
             // This is an attribution notice, not a delivery-success claim.
             // Emit in JSON mode too without changing the stdout document.
-            let _ = writeln!(
-                std::io::stderr(),
-                "tmt: sender identity not established on a shared runtime host; using anonymous sender. Use --identity <name>."
+            let mut stderr = tmt_cli_style::stream::stderr();
+            let terminal = stderr.terminal();
+            let _ = tmt_cli_style::message::warning(
+                &mut stderr,
+                terminal,
+                "Sender identity not established on a shared runtime host; using an anonymous sender.",
+                Some("pass --identity <name>"),
             );
             Ok(None)
         } else {

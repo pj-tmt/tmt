@@ -21,11 +21,11 @@ fn optional_hint(outcome: Outcome, mode: OutputMode, enabled: bool) -> Option<&'
     match outcome {
         Outcome::None => None,
         Outcome::TemporaryIdentityCreated => Some(
-            "Hint: This temporary identity ends with its pane. Use `tmt identity create <name>` to keep it.",
+            "this temporary identity ends with its pane; keep it with tmt identity create <name>",
         ),
-        Outcome::SavedIdentityCreated => Some(
-            "Hint: To receive work for this saved identity, run `tmt x listen --identity <name>`.",
-        ),
+        Outcome::SavedIdentityCreated => {
+            Some("receive work for this saved identity with tmt x listen --identity <name>")
+        }
     }
 }
 
@@ -33,10 +33,10 @@ fn hints_enabled() -> bool {
     !std::env::var("TMT_HINTS").is_ok_and(|value| value.eq_ignore_ascii_case("off"))
 }
 
-fn write_hint(output: &mut impl Write, hint: &str) {
+fn write_hint(output: &mut impl Write, terminal: tmt_cli_style::Terminal, hint: &str) {
     // Discovery is optional; a broken stderr must not change a successful
     // command result or cause a second output attempt.
-    let _ = writeln!(output, "{hint}");
+    let _ = tmt_cli_style::message::hint(output, terminal, hint);
 }
 
 pub fn eligible_for_drift(parsed: &Parsed) -> bool {
@@ -78,7 +78,9 @@ pub fn present(outcome: Outcome, mode: OutputMode, inspect_drift: bool) {
         return;
     }
     if let Some(hint) = optional_hint(outcome, mode, hints_enabled()) {
-        write_hint(&mut io::stderr().lock(), hint);
+        let mut stderr = tmt_cli_style::stream::stderr();
+        let terminal = stderr.terminal();
+        write_hint(&mut stderr, terminal, hint);
         return;
     }
     if !inspect_drift || !io::stdin().is_terminal() || !io::stderr().is_terminal() {
@@ -94,11 +96,19 @@ pub fn present(outcome: Outcome, mode: OutputMode, inspect_drift: bool) {
         return;
     };
     if let Some(first) = drift.first() {
-        let _ = writeln!(
-            io::stderr().lock(),
-            "Skill guidance needs inspection at {} ({} location(s)). Run tmt install for the intended provider; inspect conflicts before using --force. Reload the agent afterward.",
-            first.display(),
-            drift.len()
+        let mut stderr = tmt_cli_style::stream::stderr();
+        let terminal = stderr.terminal();
+        let _ = tmt_cli_style::message::warning(
+            &mut stderr,
+            terminal,
+            &format!(
+                "Skill guidance needs inspection at {} ({} location(s)).",
+                first.display(),
+                drift.len()
+            ),
+            Some(
+                "run tmt install for the intended provider; inspect conflicts before using --force, then reload the agent",
+            ),
         );
     }
 }
@@ -184,6 +194,6 @@ mod tests {
                 Ok(())
             }
         }
-        write_hint(&mut Broken, "Hint: optional");
+        write_hint(&mut Broken, tmt_cli_style::Terminal::PLAIN, "optional");
     }
 }

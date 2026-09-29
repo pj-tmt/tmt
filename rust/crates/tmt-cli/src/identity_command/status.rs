@@ -89,7 +89,11 @@ impl Report {
         }
     }
 
-    pub(super) fn write(&self, output: &mut impl Write) -> io::Result<()> {
+    pub(super) fn write(
+        &self,
+        output: &mut impl Write,
+        terminal: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
         match self {
             Self::Snapshot { status: None, .. } => writeln!(output, "No self-reported status."),
             Self::Snapshot {
@@ -116,15 +120,12 @@ impl Report {
                     status.updated_at_ms, status.expires_at_ms
                 )
             }
-            Self::Cleared { removed, .. } => writeln!(
-                output,
-                "{}",
-                if *removed {
-                    "Cleared self-reported status."
-                } else {
-                    "No self-reported status to clear."
-                }
-            ),
+            Self::Cleared { removed: true, .. } => {
+                tmt_cli_style::message::success(output, terminal, "Cleared self-reported status")
+            }
+            Self::Cleared { removed: false, .. } => {
+                writeln!(output, "No self-reported status to clear.")
+            }
         }
     }
 }

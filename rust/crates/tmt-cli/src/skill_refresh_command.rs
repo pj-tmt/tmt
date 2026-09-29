@@ -60,14 +60,15 @@ pub fn execute(mode: OutputMode) -> io::Result<u8> {
             }
         },
     };
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = output.terminal();
     if mode.json {
         let mut value = document(&report);
         if let Some(failure) = &failure {
             value["error"] = failure.document()["error"].clone();
         }
-        writeln!(io::stdout().lock(), "{value}")?;
+        writeln!(output, "{value}")?;
     } else {
-        let mut output = io::stdout().lock();
         for item in &report.refreshed {
             writeln!(
                 output,
@@ -87,9 +88,10 @@ pub fn execute(mode: OutputMode) -> io::Result<u8> {
             )?;
         }
         if !report.refreshed.is_empty() {
-            writeln!(
-                output,
-                "Reload or restart your agent to use the current skill. Existing conversations can read tmt learn --skill."
+            tmt_cli_style::message::hint(
+                &mut output,
+                terminal,
+                "reload or restart your agent to use the current skill; existing conversations can read tmt learn --skill",
             )?;
         }
         if let Some(failure) = &failure {

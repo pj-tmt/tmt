@@ -86,8 +86,11 @@ Human output shows readable forms (`value`). `--json` always keeps the full valu
 
 - Success: `✓ <past-tense verb> <object>`, such as `✓ Named pane %3 worker`.
 - Failure: `error: <what>` on stderr, then `hint: <next command>` when there is a
-  next step. `error:` and `hint:` are lowercase everywhere. The error code
-  belongs to `--json`, and exit codes are unchanged.
+  next step. The error code belongs to `--json`, and exit codes are unchanged.
+  A multi-line message keeps its further lines, such as a usage block.
+- Warning: `warning: <what>` on stderr for a non-fatal problem, when the command
+  still did its work, optionally followed by `hint:`.
+- Line messages use these labels, lowercase everywhere; marks are for list rows.
 - One-line messages drop a single final period. The stored message, and
   therefore `--json`, keeps it.
 

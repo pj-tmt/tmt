@@ -398,13 +398,17 @@ fn run(
     let pending = preparation::prepare(&mut storage, &tmux, &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
         cleanup_correlation = Some(prepared.correlation.clone());
         if !mode.json && !input.options.detach && !input.options.force && let Some(previous) = &prepared.previous_request_id {
-            eprintln!("Another recent request exists for '{}' (id: {previous}). Input processing is not serialized; durable results remain associated by request ID.", input.target);
+            let mut stderr = tmt_cli_style::stream::stderr();
+            let terminal = stderr.terminal();
+            let _ = tmt_cli_style::message::warning(&mut stderr, terminal, &format!("Another recent request exists for '{}' (id: {previous}). Input processing is not serialized; durable results remain associated by request ID.", input.target), None);
         }
         let response = deliver(&mut storage, &tmux, &mut prepared, &input, &settings, interrupt);
         if response.is_ok() && prepared.notify_originator
             && prepared.correlation.offline && !input.options.detach
             && let Err(error) = crate::request_observer_command::start(&paths.database, &prepared.correlation.request_id) {
-            eprintln!("tmt: timeout notification unavailable ({error}); request is retained, do not resend.");
+            let mut stderr = tmt_cli_style::stream::stderr();
+            let terminal = stderr.terminal();
+            let _ = tmt_cli_style::message::warning(&mut stderr, terminal, &format!("Timeout notification unavailable ({error}); the request is retained."), Some(&format!("do not resend; inspect it with tmt result {}", prepared.correlation.request_id)));
         }
         let correlation = prepared.correlation;
         response.map(|response| Report { correlation, response })

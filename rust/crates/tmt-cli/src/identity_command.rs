@@ -251,7 +251,8 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
         }
         _ => crate::skill_reminder::Outcome::None,
     };
-    let mut stdout = io::stdout().lock();
+    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = stdout.terminal();
     if mode.json {
         let document = match report {
             Report::Status(report) => report.value(),
@@ -293,18 +294,24 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
         writeln!(stdout, "{document}")?;
     } else {
         match report {
-            Report::Status(report) => report.write(&mut stdout)?,
+            Report::Status(report) => report.write(&mut stdout, terminal)?,
             Report::Created(result) => {
-                let action = if result.created {
-                    "Created"
+                if result.created {
+                    tmt_cli_style::message::success(
+                        &mut stdout,
+                        terminal,
+                        &format!(
+                            "Created saved identity '{}' ({})",
+                            result.identity.name, result.identity.id
+                        ),
+                    )?;
                 } else {
-                    "Already exists:"
-                };
-                writeln!(
-                    stdout,
-                    "{action} saved identity '{}' ({}).",
-                    result.identity.name, result.identity.id
-                )?;
+                    writeln!(
+                        stdout,
+                        "Saved identity '{}' already exists ({})",
+                        result.identity.name, result.identity.id
+                    )?;
+                }
             }
             Report::Shown(identity, _) => {
                 crate::output::table::write(
@@ -340,8 +347,15 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                 changed,
                 ..
             } => {
-                let action = if changed { "Set" } else { "Unchanged" };
-                writeln!(stdout, "{action} {key}={value}.")?;
+                if changed {
+                    tmt_cli_style::message::success(
+                        &mut stdout,
+                        terminal,
+                        &format!("Set {key}={value}"),
+                    )?;
+                } else {
+                    writeln!(stdout, "{key}={value} is unchanged")?;
+                }
             }
             Report::MetadataGet { value, .. } => writeln!(stdout, "{value}")?,
             Report::MetadataList { metadata, .. } if metadata.is_empty() => {
@@ -355,12 +369,15 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                 )?;
             }
             Report::MetadataRemoved { key, removed, .. } => {
-                let action = if removed {
-                    "Removed"
+                if removed {
+                    tmt_cli_style::message::success(
+                        &mut stdout,
+                        terminal,
+                        &format!("Removed {key}"),
+                    )?;
                 } else {
-                    "Already absent:"
-                };
-                writeln!(stdout, "{action} {key}.")?;
+                    writeln!(stdout, "{key} was already absent")?;
+                }
             }
         }
     }

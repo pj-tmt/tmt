@@ -60,7 +60,14 @@ fn main() -> ExitCode {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
             // Output-stream failures cannot reliably produce another document.
-            let _ = writeln!(io::stderr().lock(), "Could not write CLI output: {error}");
+            let mut stderr = tmt_cli_style::stream::stderr();
+            let terminal = stderr.terminal();
+            let _ = tmt_cli_style::message::error(
+                &mut stderr,
+                terminal,
+                &format!("Could not write CLI output: {error}"),
+                None,
+            );
             ExitCode::FAILURE
         }
     }
@@ -83,11 +90,17 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     Ok(code)
 }
 
+/// Bytes that shells and scripts read exactly: the version, completion
+/// candidates and completion scripts. Never styled.
+fn write_exact(
+    write: impl FnOnce(&mut io::StdoutLock<'static>) -> io::Result<()>,
+) -> io::Result<()> {
+    write(&mut io::stdout().lock())
+}
+
 fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
-    let mut stdout = io::stdout().lock();
     match parsed.invocation {
         Invocation::Api => {
-            drop(stdout);
             return api_command::execute();
         }
         Invocation::Extension {
@@ -96,7 +109,6 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             help,
             prefix,
         } => {
-            drop(stdout);
             return extension_command::execute(&name, &args, help, &prefix);
         }
         // The parser has already resolved and validated this public path.
@@ -106,32 +118,29 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             } else {
                 extension_command::Discovered::default()
             };
-            help_output::write(
-                &path,
-                &discovered,
-                tmt_cli_style::Terminal::stdout(false),
-                &mut stdout,
-            )?;
+            let mut stdout = tmt_cli_style::stream::stdout(false);
+            let terminal = stdout.terminal();
+            help_output::write(&path, &discovered, terminal, &mut stdout)?;
         }
-        Invocation::Version => writeln!(stdout, "{}", env!("CARGO_PKG_VERSION"))?,
-        Invocation::Complete(words) => completion::query(&words, &mut stdout)?,
+        Invocation::Version => {
+            write_exact(|stdout| writeln!(stdout, "{}", env!("CARGO_PKG_VERSION")))?
+        }
+        Invocation::Complete(words) => write_exact(|stdout| completion::query(&words, stdout))?,
         Invocation::Completion(shell) => {
-            grammar::completion::generate(shell.as_deref().unwrap_or(""), &mut stdout)?;
+            write_exact(|stdout| {
+                grammar::completion::generate(shell.as_deref().unwrap_or(""), stdout)
+            })?;
         }
         Invocation::Config(request) => {
-            drop(stdout);
             return config_command::execute(request, parsed.mode);
         }
         Invocation::ExtensionInstall(request) => {
-            drop(stdout);
             return extension_install_command::execute(request, parsed.mode);
         }
         Invocation::ExtensionHooks(request) => {
-            drop(stdout);
             return extension_hooks_command::execute(request, parsed.mode);
         }
         Invocation::Init => {
-            drop(stdout);
             return init_command::execute(parsed.mode);
         }
         Invocation::Run {
@@ -140,7 +149,6 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             resume,
             save,
         } => {
-            drop(stdout);
             let resume = resume.then(run_command::Resume::default);
             return run_command::execute(&name, &command, resume, save);
         }
@@ -149,14 +157,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             forget,
             retry,
         } => {
-            drop(stdout);
             if forget {
                 return resume_command::forget(&name);
             }
             return run_command::execute(&name, &[], Some(run_command::Resume { retry }), false);
         }
         Invocation::Learn { skill } => {
-            drop(stdout);
             return guidance_command::execute(skill.as_deref());
         }
         Invocation::Install {
@@ -164,7 +170,6 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             directory,
             force,
         } => {
-            drop(stdout);
             return install_command::execute(target, directory, force, parsed.mode);
         }
         Invocation::Setup {
@@ -172,62 +177,48 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             remove,
             yes,
         } => {
-            drop(stdout);
             return setup_command::execute(provider, remove, yes, parsed.mode);
         }
         Invocation::ProviderHook { provider, worker } => {
-            drop(stdout);
             return provider_hook_command::execute(&provider, worker);
         }
         Invocation::RequestObserver { request_id } => {
-            drop(stdout);
             return request_observer_command::execute(&request_id);
         }
         Invocation::Identity(request) => {
-            drop(stdout);
             return identity_command::execute(request, parsed.mode);
         }
         Invocation::Room(request) => {
-            drop(stdout);
             return room_command::execute(request, parsed.mode);
         }
         Invocation::NotesPath { identity } => {
-            drop(stdout);
             return notes_command::execute(identity, parsed.mode);
         }
         Invocation::Exchange {
             identity,
             operation,
         } => {
-            drop(stdout);
             return exchange_command::execute(identity, operation, parsed.mode);
         }
         request @ Invocation::Talk { .. } => {
-            drop(stdout);
             return talk_command::execute(request, parsed.mode);
         }
         request @ (Invocation::Role { .. } | Invocation::Preamble(_)) => {
-            drop(stdout);
             return profile_command::execute(request, parsed.mode);
         }
         Invocation::Check { target, lines } => {
-            drop(stdout);
             return check_command::execute(target, lines, parsed.mode);
         }
         Invocation::Focus { target } => {
-            drop(stdout);
             return focus_command::execute(target, parsed.mode);
         }
         Invocation::FocusClient => {
-            drop(stdout);
             return focus_command::client(parsed.mode);
         }
         request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
-            drop(stdout);
             return response_command::execute(request, parsed.mode);
         }
         Invocation::WhoamiContext => {
-            drop(stdout);
             return context_command::execute(parsed.mode);
         }
         request @ (Invocation::Bind { .. }
@@ -236,7 +227,6 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         | Invocation::Unbind
         | Invocation::Remove { .. }
         | Invocation::List { .. }) => {
-            drop(stdout);
             return binding_command::execute(request, parsed.mode);
         }
         Invocation::Upgrade {
@@ -244,15 +234,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             exact,
             unpin,
         } => {
-            drop(stdout);
             return native_upgrade_command::execute(channel, exact.as_deref(), unpin, parsed.mode);
         }
         Invocation::NativeRefreshSkills => {
-            drop(stdout);
             return skill_refresh_command::execute(parsed.mode);
         }
         Invocation::Office { prefix, operation } => {
-            drop(stdout);
             return office_facade::execute(prefix, operation, parsed.mode);
         }
         Invocation::NativeInstall {
@@ -263,7 +250,6 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             channel,
             pin,
         } => {
-            drop(stdout);
             return native_install_command::execute(
                 product,
                 &archive,
