@@ -10,7 +10,7 @@ use crate::{
 };
 use rusqlite::Connection;
 use std::time::Instant;
-use tmt_adapters::storage::{StorageCutover, StorageError, StorageErrorCode};
+use tmt_adapters::storage::{StorageError, StorageErrorCode};
 use tmt_office_model::{
     office_block::LocalBlockTarget,
     office_board::{Actor, BoardErrorCode, Category, OfficeBoardRepository, PostRequest},
@@ -165,6 +165,7 @@ fn profile(store: &mut OfficeStore, revision: u64) -> Result<(), LocalProfileErr
 #[test]
 fn before_the_switch_reconciliation_changes_nothing() {
     let root = Root::new();
+    super::legacy_user_data(&root);
     add_identity(&root, ADA, "Ada");
     let mut store = store(&root);
     profile(&mut store, 0).unwrap();
@@ -418,9 +419,6 @@ impl CoreReferences for Failing {
     }
     fn room(&self, id: &str) -> Result<Option<CoreRoom>, StorageError> {
         self.0.room(id)
-    }
-    fn storage_cutover(&self) -> Result<Option<StorageCutover>, StorageError> {
-        self.0.storage_cutover()
     }
 }
 

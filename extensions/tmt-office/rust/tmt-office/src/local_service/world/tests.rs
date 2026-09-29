@@ -40,7 +40,20 @@ fn world_read_save_reopen_and_stale_writes_share_one_revision_and_resource_store
     let preview = response_value(&observed);
     assert_eq!(preview["revision"], 0);
     assert!(preview["worldId"].is_null());
-    let observer = rusqlite::Connection::open(&fixture.paths.database).unwrap();
+    let observer = {
+        // Office rows live in office.db; the dispatch check reads core.
+        let observer = rusqlite::Connection::open(
+            tmt_office_storage::StorageLayout::new(&fixture.paths).database,
+        )
+        .unwrap();
+        observer
+            .execute(
+                "ATTACH DATABASE ? AS core",
+                [fixture.paths.database.to_string_lossy()],
+            )
+            .unwrap();
+        observer
+    };
     assert_eq!(
         observer
             .query_row("SELECT count(*) FROM office_local_worlds", [], |row| row
@@ -69,7 +82,7 @@ fn world_read_save_reopen_and_stale_writes_share_one_revision_and_resource_store
     let (revision, resources): (i64, i64) = observer
         .query_row(
             "SELECT layout_revision, (SELECT count(*) FROM office_whiteboards) +
-         (SELECT count(*) FROM office_board_entries) + (SELECT count(*) FROM request_attempts)
+         (SELECT count(*) FROM office_board_entries) + (SELECT count(*) FROM core.request_attempts)
          FROM office_local_worlds",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),

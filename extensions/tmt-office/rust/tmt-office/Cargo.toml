@@ -32,5 +32,6 @@ uuid = { workspace = true, optional = true, features = ["v4"] }
 workspace = true
 
 [dev-dependencies]
+tmt-office-storage = { workspace = true, features = ["in-process-core"] }
 png.workspace = true
 rusqlite.workspace = true

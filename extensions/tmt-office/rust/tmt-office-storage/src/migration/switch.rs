@@ -144,6 +144,43 @@ pub fn switch(layout: &StorageLayout, service: &dyn Quiesce) -> Result<Switched>
     })
 }
 
+/// Switches an install whose shared Office tables hold no user data, through
+/// the same prepare, copy, verify, decision and activation as `switch`, so
+/// core records the receipt and its fences apply. Only the full-database
+/// backup and the service quiesce are skipped: there is nothing to restore,
+/// and the decision's manifest recheck aborts if any Office write raced in.
+/// Waits a bounded time for another process's switch, then reports whether
+/// this call switched.
+pub(crate) fn switch_fresh(layout: &StorageLayout) -> Result<bool> {
+    let _lock = lock_waiting(layout, Duration::from_secs(10))?;
+    settle(layout)?;
+    if exists(&layout.database)? || super::user_rows(layout)? != 0 {
+        return Ok(false);
+    }
+    super::prepare_locked(layout)?;
+    super::copy_locked(layout)?;
+    super::verify_locked(layout)?;
+    let record = require_record(&open_existing_staging(layout)?)?;
+    crash_point("fresh-verified");
+    decide(layout, &record)?;
+    crash_point("fresh-committed");
+    activate(layout)?;
+    Ok(true)
+}
+
+/// Bounded polling for the migration lock held by another process.
+fn lock_waiting(layout: &StorageLayout, limit: Duration) -> Result<impl Drop> {
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        match lock(layout) {
+            Err(MigrationError::Busy) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            result => return result,
+        }
+    }
+}
+
 /// Ensures switched Office storage is activated; for store selection after
 /// core reported a receipt.
 pub(crate) fn ensure_active(layout: &StorageLayout) -> Result<()> {

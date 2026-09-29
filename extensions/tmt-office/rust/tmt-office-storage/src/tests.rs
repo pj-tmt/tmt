@@ -114,6 +114,19 @@ pub(crate) mod fault {
 #[derive(Debug)]
 pub(crate) struct Crash(pub String);
 
+/// Makes a root a legacy install: one user-owned Office row in the shared
+/// tables, so opening keeps the pre-switch store instead of switching fresh.
+fn legacy_user_data(root: &Root) {
+    root.source()
+        .execute_batch(
+            "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime)
+               VALUES ('77777777-7777-4777-8777-777777777777', 'Legacy', 'legacy', 't', 't', 'saved');
+             INSERT INTO office_local_profiles (identity_id, revision, profile, updated_at_ms)
+               VALUES ('77777777-7777-4777-8777-777777777777', 1, '{}', 1);",
+        )
+        .unwrap();
+}
+
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
 /// A disposable global directory with a real, fully migrated core database.
@@ -569,6 +582,7 @@ fn staging_is_private() {
 mod switch;
 
 mod context;
+mod fresh;
 mod plan;
 mod reconciliation;
 mod retirement;

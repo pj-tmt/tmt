@@ -1,15 +1,13 @@
 //! The Office repository connection and its transaction helper.
 //!
-//! Core's storage cutover receipt selects the store: before the switch, Office
-//! repositories run on the shared core database file, opened through the public
-//! core storage entry point so creation, migration and file permissions stay
-//! exactly as before; after it they run on `office.db`, activated first if an
-//! interrupted switch left it unmarked. Core-owned references are read only
-//! through [`CoreReferences`] preflight.
+//! An activated `office.db` is the store; installs without user Office data
+//! switch to it on first open, and installs with user data keep the legacy
+//! store on the shared core file until migrated. Core-owned references are
+//! read only through [`CoreReferences`] preflight, over the invoking `tmt`.
 
 use crate::{
     StorageLayout,
-    core_references::{CoreReferences, CoreStore},
+    core_references::CoreReferences,
     migration::{self, MigrationError},
 };
 use rusqlite::{Connection, Transaction, TransactionBehavior};
@@ -24,21 +22,28 @@ pub struct OfficeStore {
 }
 
 impl OfficeStore {
-    /// Opens the store selected by core's cutover receipt.
+    /// Opens the store for this configuration.
+    ///
+    /// An activated `office.db` is authoritative (an interrupted switch is
+    /// settled first, as #402's recovery decides). Without one, an install
+    /// whose shared Office tables hold no user data switches now through the
+    /// normal coordinator, so core records the receipt and fences the shared
+    /// tables. An install with user Office data keeps the legacy store on the
+    /// shared core file until the user runs `tmt office storage migrate`.
     pub fn open_configured(layout: &StorageLayout) -> Result<Self, StorageError> {
-        let references = CoreStore::open(&layout.source)?;
-        if references.storage_cutover()?.is_none() {
-            return Self::with_references(&layout.source, Box::new(references));
+        Self::open_configured_with(layout, default_references(layout)?)
+    }
+
+    pub(crate) fn open_configured_with(
+        layout: &StorageLayout,
+        references: Box<dyn CoreReferences + Send>,
+    ) -> Result<Self, StorageError> {
+        if !select_office_database(layout)? {
+            // Legacy store: the documented exception until migration, retired
+            // with the migration coordinator.
+            return Self::with_references(&layout.source, references);
         }
-        migration::ensure_active(layout).map_err(|error| {
-            let code = match error {
-                MigrationError::Busy => StorageErrorCode::Busy,
-                MigrationError::NotWritable(_) => StorageErrorCode::NotWritable,
-                _ => StorageErrorCode::Unknown,
-            };
-            StorageError::new(code, error.to_string())
-        })?;
-        let mut store = Self::with_references(&layout.database, Box::new(references))?;
+        let mut store = Self::with_references(&layout.database, references)?;
         store.office_database = true;
         crate::schema::upgrade_existing(store.connection()?)
             .map_err(|error| classify(error, "Upgrade Office storage"))?
@@ -56,7 +61,7 @@ impl OfficeStore {
     #[cfg(test)]
     pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let path = path.as_ref();
-        let references = CoreStore::open(path)?;
+        let references = crate::core_references::CoreStore::open(path)?;
         Self::with_references(path, Box::new(references))
     }
 
@@ -133,6 +138,60 @@ impl OfficeStore {
     pub(crate) fn connection_mut(&mut self) -> Result<&mut Connection, StorageError> {
         self.connection.as_mut().ok_or_else(closed)
     }
+}
+
+/// Production reaches core through the invoking `tmt`; tests use the
+/// in-process implementation over a disposable core file.
+#[cfg(not(any(test, feature = "in-process-core")))]
+fn default_references(
+    _layout: &StorageLayout,
+) -> Result<Box<dyn CoreReferences + Send>, StorageError> {
+    Ok(Box::new(
+        crate::core_references::ProcessReferences::discover()?,
+    ))
+}
+
+#[cfg(any(test, feature = "in-process-core"))]
+fn default_references(
+    layout: &StorageLayout,
+) -> Result<Box<dyn CoreReferences + Send>, StorageError> {
+    crate::core_references::in_process::references(layout)
+}
+
+fn migration_error(error: MigrationError) -> StorageError {
+    let code = match error {
+        MigrationError::Busy => StorageErrorCode::Busy,
+        MigrationError::NotWritable(_) => StorageErrorCode::NotWritable,
+        _ => StorageErrorCode::Unknown,
+    };
+    StorageError::new(code, error.to_string())
+}
+
+/// Whether `office.db` is the store. A recorded switch whose storage needs
+/// recovery is an error, never a silent return to the shared file.
+fn select_office_database(layout: &StorageLayout) -> Result<bool, StorageError> {
+    if layout.database.exists() {
+        match migration::ensure_active(layout) {
+            Ok(()) => return Ok(true),
+            // An undecided switch reverted: fall through to the fresh check.
+            Err(MigrationError::State(_)) if !layout.database.exists() => {}
+            Err(error) => return Err(migration_error(error)),
+        }
+    }
+    match migration::switch_fresh(layout) {
+        Ok(_) => {}
+        Err(error @ MigrationError::RecoveryRequired { .. }) => {
+            return Err(migration_error(error));
+        }
+        // Anything else (user data raced in, an older core without the fence,
+        // a busy lock) leaves the legacy store in use; nothing was decided.
+        Err(_) => {}
+    }
+    if layout.database.exists() {
+        migration::ensure_active(layout).map_err(migration_error)?;
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 fn closed() -> StorageError {

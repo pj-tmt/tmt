@@ -35,6 +35,7 @@ const OPS: &[&str] = &[
     "identityHooks.ack",
     "skills.install",
     "skills.remove",
+    "references.resolve",
 ];
 
 #[derive(Debug)]
@@ -120,6 +121,11 @@ pub enum Request {
         force: bool,
     },
     SkillsRemove(String),
+    /// Read-only states of identities and rooms named by UUID.
+    References {
+        identities: Vec<String>,
+        rooms: Vec<String>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -161,6 +167,18 @@ fn consented(consent: bool) -> Result<(), Fault> {
             "Skill installation changes the user's agent directories; ask the user, then send consent: true.",
         ))
     }
+}
+
+/// Bound on UUIDs per `references.resolve` call, identities and rooms together.
+const REFERENCE_LIMIT: usize = 256;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReferencesInput {
+    #[serde(default)]
+    identity_ids: Vec<String>,
+    #[serde(default)]
+    room_ids: Vec<String>,
 }
 
 /// Bound on one pending page; matches the Office consumer's batch.
@@ -276,6 +294,22 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "identityHooks.register" => Request::HookRegister(hook(input)?),
         "identityHooks.attempt" => Request::HookAttempt(hook(input)?),
         "identityHooks.ack" => Request::HookAck(hook(input)?),
+        "references.resolve" => {
+            let value: ReferencesInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+            if value.identity_ids.len() + value.room_ids.len() > REFERENCE_LIMIT
+                || !value
+                    .identity_ids
+                    .iter()
+                    .chain(&value.room_ids)
+                    .all(|id| tmt_core::dispatch::canonical_id(id))
+            {
+                return Err(invalid());
+            }
+            Request::References {
+                identities: value.identity_ids,
+                rooms: value.room_ids,
+            }
+        }
         "identityHooks.pending" => {
             let value: HookPendingInput = serde_json::from_slice(input).map_err(|_| invalid())?;
             if !valid_hook_consumer(&value.consumer)
@@ -436,6 +470,41 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
                 ),
                 RosterError::Storage(_) => Fault::unavailable(),
             }),
+        Request::References { identities, rooms } => {
+            let mut identity_states = Vec::with_capacity(identities.len());
+            for id in &identities {
+                let state = match storage
+                    .find_identity_by_id(id)
+                    .map_err(|_| Fault::unavailable())?
+                {
+                    None => json!({"id": id, "found": false}),
+                    Some(identity) => {
+                        let retired = storage
+                            .find_active_identity_by_id(id)
+                            .map_err(|_| Fault::unavailable())?
+                            .is_none();
+                        json!({"id": id, "found": true, "name": identity.name,
+                            "lifetime": identity.lifetime.as_str(), "retired": retired})
+                    }
+                };
+                identity_states.push(state);
+            }
+            let mut room_states = Vec::with_capacity(rooms.len());
+            for id in &rooms {
+                let state = match storage.find_historical_meeting_room(id) {
+                    Ok(Some(room)) => json!({"id": id, "found": true, "retired": room.retired}),
+                    Ok(None) | Err(crate::storage::RoomStoreError::Invalid) => {
+                        json!({"id": id, "found": false})
+                    }
+                    Err(_) => return Err(Fault::unavailable()),
+                };
+                room_states.push(state);
+            }
+            Ok(
+                serde_json::to_vec(&json!({"identities": identity_states, "rooms": room_states}))
+                    .expect("reference states"),
+            )
+        }
         Request::HookRegister(hook) => {
             // Identities are never deleted, so existence checked here holds at
             // registration; a retired identity registers straight to pending.
@@ -862,6 +931,74 @@ mod tests {
         let operations = listed["operations"].as_array().unwrap();
         assert!(operations.contains(&json!("skills.install")));
         assert!(operations.contains(&json!("skills.remove")));
+    }
+
+    #[test]
+    fn references_resolve_reports_states_and_not_found_without_errors() {
+        let directory = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
+        let active = "11111111-1111-4111-8111-111111111111";
+        let retired = "22222222-2222-4222-8222-222222222222";
+        let missing = "33333333-3333-4333-8333-333333333333";
+        let room = "44444444-4444-4444-8444-444444444444";
+        Storage::open(&paths.database).unwrap().close().unwrap();
+        rusqlite::Connection::open(&paths.database).unwrap().execute_batch(&format!(
+            "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES ('{active}', 'Ada', 'ada', 't', 't', 'saved'), ('{retired}', 'Old', 'old', 't', 't', 'temporary');
+             UPDATE identities SET retired_at_ms = 5 WHERE id = '{retired}';
+             INSERT INTO office_meeting_rooms (room_id, name, revision, retired) VALUES ('{room}', 'Review', 2, 1);"
+        )).unwrap();
+        let call = |input: serde_json::Value| {
+            let body = json!({"version": 1, "operation": "references.resolve", "input": input})
+                .to_string();
+            decode(&body).map(|request| {
+                serde_json::from_slice::<serde_json::Value>(&execute(&paths, request).unwrap())
+                    .unwrap()
+            })
+        };
+        assert_eq!(
+            call(json!({"identityIds": [active, retired, missing], "roomIds": [room, missing]}))
+                .unwrap(),
+            json!({
+                "identities": [
+                    {"id": active, "found": true, "name": "Ada", "lifetime": "saved", "retired": false},
+                    {"id": retired, "found": true, "name": "Old", "lifetime": "temporary", "retired": true},
+                    {"id": missing, "found": false},
+                ],
+                "rooms": [
+                    {"id": room, "found": true, "retired": true},
+                    {"id": missing, "found": false},
+                ],
+            })
+        );
+        assert_eq!(
+            call(json!({})).unwrap(),
+            json!({"identities": [], "rooms": []})
+        );
+        let too_many: Vec<String> = (0..257).map(|_| active.to_owned()).collect();
+        for input in [
+            json!({"identityIds": too_many}),
+            json!({"identityIds": ["not-a-uuid"]}),
+            json!({"roomIds": ["44444444444444444444444444444444"]}),
+            json!({"identityIds": [active], "extra": true}),
+        ] {
+            assert!(
+                matches!(
+                    call(input.clone()),
+                    Err(Fault {
+                        code: "API_INPUT_INVALID",
+                        ..
+                    })
+                ),
+                "{input}"
+            );
+        }
+        let exact: Vec<String> = (0..256).map(|_| active.to_owned()).collect();
+        assert!(call(json!({"identityIds": exact})).is_ok());
     }
 
     #[test]

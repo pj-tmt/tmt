@@ -158,6 +158,7 @@ fn exercise(store: &mut OfficeStore, written: &std::path::Path) {
 #[test]
 fn before_the_switch_every_repository_uses_the_core_file() {
     let root = Root::new();
+    super::legacy_user_data(&root);
     root.source()
         .execute(
             "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES (?, 'Ada', 'ada', 't', 't', 'saved')",

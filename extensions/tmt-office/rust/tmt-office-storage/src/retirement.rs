@@ -172,12 +172,6 @@ impl CoreReferences for MarkedReferences {
             room
         }))
     }
-
-    fn storage_cutover(
-        &self,
-    ) -> Result<Option<tmt_adapters::storage::StorageCutover>, StorageError> {
-        self.core.storage_cutover()
-    }
 }
 
 /// Placeholder while the store swaps its reference port; never queried.
@@ -191,11 +185,6 @@ impl CoreReferences for Unset {
         unreachable!("replaced before use")
     }
     fn room(&self, _: &str) -> Result<Option<CoreRoom>, StorageError> {
-        unreachable!("replaced before use")
-    }
-    fn storage_cutover(
-        &self,
-    ) -> Result<Option<tmt_adapters::storage::StorageCutover>, StorageError> {
         unreachable!("replaced before use")
     }
 }

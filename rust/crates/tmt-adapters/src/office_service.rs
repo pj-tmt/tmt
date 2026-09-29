@@ -177,6 +177,14 @@ pub fn start(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .process_group(0);
+    // The service reaches core through the same `tmt` that started it. An
+    // inherited selection wins; the companion starting itself passes none.
+    if std::env::var_os("TMT_EXECUTABLE").is_none()
+        && let Ok(tmt) = std::env::current_exe()
+        && tmt.file_name().is_some_and(|name| name == "tmt")
+    {
+        command.env("TMT_EXECUTABLE", tmt);
+    }
     let mut child = command.spawn().map_err(ServiceError::Unavailable)?;
     let stdout = child.stdout.take().ok_or_else(|| {
         ServiceError::Unavailable(io::Error::other("Office readiness pipe is unavailable"))

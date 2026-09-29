@@ -9,14 +9,6 @@ use crate::{StorageLayout, schema};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
-/// Singleton tables core seeds on every install, so a fresh install has rows
-/// here without any user data.
-const SEEDED: &[&str] = &[
-    "office_board_state",
-    "office_prop_catalog",
-    "office_avatar_catalog",
-];
-
 /// What a migration would do now. Computing it takes no lock and creates or
 /// changes nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +66,7 @@ pub fn plan(layout: &StorageLayout, service_running: Option<bool>) -> Result<Pla
     let user_rows = manifest
         .rows
         .iter()
-        .filter(|(table, _)| !SEEDED.contains(table))
+        .filter(|(table, _)| !schema::SEEDED.contains(table))
         .map(|(_, count)| count)
         .sum();
     let mut office_bytes = 0;

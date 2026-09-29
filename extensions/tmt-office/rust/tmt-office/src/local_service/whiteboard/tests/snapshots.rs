@@ -106,8 +106,21 @@ fn capture_upload_read_and_retry_return_retained_content_without_dispatch() {
         response_value(&conflict)["error"],
         "WHITEBOARD_IDEMPOTENCY_CONFLICT"
     );
-    let observer = rusqlite::Connection::open(&fixture.paths.database).unwrap();
-    let counts: (i64, i64, i64) = observer.query_row("SELECT (SELECT count(*) FROM office_whiteboard_snapshots), (SELECT count(*) FROM office_whiteboard_snapshot_images), (SELECT count(*) FROM request_attempts)", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
+    let observer = {
+        // Office rows live in office.db; the dispatch check reads core.
+        let observer = rusqlite::Connection::open(
+            tmt_office_storage::StorageLayout::new(&fixture.paths).database,
+        )
+        .unwrap();
+        observer
+            .execute(
+                "ATTACH DATABASE ? AS core",
+                [fixture.paths.database.to_string_lossy()],
+            )
+            .unwrap();
+        observer
+    };
+    let counts: (i64, i64, i64) = observer.query_row("SELECT (SELECT count(*) FROM office_whiteboard_snapshots), (SELECT count(*) FROM office_whiteboard_snapshot_images), (SELECT count(*) FROM core.request_attempts)", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
     assert_eq!(counts, (1, 1, 0));
     let bytes: Vec<u8> = observer
         .query_row(

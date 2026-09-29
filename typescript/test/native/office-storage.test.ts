@@ -40,30 +40,46 @@ it(
       const fresh = await run(['status']);
       expect(fresh.status, fresh.stderr).toBe(0);
       expect(fresh.stderr).not.toContain('migration available');
-      const post = await office([
-        'board',
-        'post',
-        '--general',
-        '--owner',
-        '--title',
-        'Before',
-        '--body',
-        'Kept across the move',
-      ]);
+      // Legacy user data: rows written by a pre-extraction Office in the shared core file.
       const bea = await runCli(sandbox, ['identity', 'create', 'Bea', '--json']);
       expect(bea.status, bea.stdout).toBe(0);
       const beaId = JSON.parse(bea.stdout).identity.id as string;
-      await office([
-        'board',
-        'post',
-        '--general',
-        '--identity',
-        'Bea',
-        '--title',
-        'By Bea',
-        '--body',
-        'Signed',
-      ]);
+      const post = { threadId: '11111111-1111-4111-8111-111111111111' };
+      const legacy = new Database(sandbox.database);
+      try {
+        const entry = legacy.prepare(
+          `INSERT INTO office_board_entries
+             (id, thread_id, is_root, category_kind, category_id, author_kind, author_id,
+              author_name, revision, deleted, created_sequence, activity_sequence,
+              created_at_ms, updated_at_ms, title, body)
+           VALUES (?, ?, 1, 'general', NULL, ?, ?, ?, 1, 0, ?, ?, 1, 1, ?, ?)`
+        );
+        entry.run(
+          post.threadId,
+          post.threadId,
+          'owner',
+          'owner',
+          null,
+          1,
+          1,
+          'Before',
+          'Kept across the move'
+        );
+        entry.run(
+          '22222222-2222-4222-8222-222222222222',
+          '22222222-2222-4222-8222-222222222222',
+          'identity',
+          beaId,
+          'Bea',
+          2,
+          2,
+          'By Bea',
+          'Signed'
+        );
+        legacy.prepare('UPDATE office_board_state SET revision = 2, next_sequence = 3').run();
+      } finally {
+        legacy.close();
+      }
       const officeDatabase = path.join(sandbox.globalDir, 'office', 'office.db');
       const backups = path.join(sandbox.globalDir, 'backups');
 

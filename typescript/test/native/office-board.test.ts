@@ -114,7 +114,11 @@ it(
         'ROOM_NOT_FOUND'
       );
       expect((await office(['status'])).service).toMatchObject({ running: false });
-      const database = new Database(sandbox.database, { readonly: true });
+      // Office rows live in office.db; membership and request history stay in core.
+      const database = new Database(path.join(sandbox.globalDir, 'office', 'office.db'), {
+        readonly: true,
+      });
+      database.exec(`ATTACH DATABASE '${sandbox.database.replaceAll("'", "''")}' AS core`);
       try {
         expect(
           database
@@ -129,10 +133,12 @@ it(
         expect(database.prepare('SELECT count(*) FROM office_board_operations').pluck().get()).toBe(
           2
         );
-        expect(database.prepare('SELECT count(*) FROM request_attempts').pluck().get()).toBe(0);
-        expect(database.prepare('SELECT count(*) FROM office_meeting_members').pluck().get()).toBe(
+        expect(database.prepare('SELECT count(*) FROM core.request_attempts').pluck().get()).toBe(
           0
         );
+        expect(
+          database.prepare('SELECT count(*) FROM core.office_meeting_members').pluck().get()
+        ).toBe(0);
       } finally {
         database.close();
       }
