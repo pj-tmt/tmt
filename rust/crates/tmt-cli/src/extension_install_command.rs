@@ -22,6 +22,23 @@ use tmt_core::native_install::{Channel, PinAction};
 
 const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 
+/// Consent for one change to the user's installation.
+fn ask(yes: bool, mode: OutputMode, action: &str) -> Result<bool, Failure> {
+    consent::ask(
+        &mut io::stdout().lock(),
+        yes,
+        mode,
+        consent::Consent {
+            code: CONSENT,
+            refusal: &format!("{action} requires explicit --yes; no changes were made."),
+            question: action,
+        },
+        |error| {
+            Failure::new("EXTENSION_IO_ERROR", "Could not ask for consent.", 1).caused_by(error)
+        },
+    )
+}
+
 pub fn execute(request: ExtensionInstallRequest, mode: OutputMode) -> io::Result<u8> {
     match run(request, mode) {
         Ok(Some((document, human))) => {
@@ -139,12 +156,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
         } => {
             let product = extension(&name)?;
             let prefix = prefix(selected.as_deref())?;
-            if !consent::ask(
-                yes,
-                mode,
-                CONSENT,
-                &format!("Install the verified {name} extension"),
-            )? {
+            if !ask(yes, mode, &format!("Install the verified {name} extension"))? {
                 return Ok(None);
             }
             install(
@@ -174,7 +186,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
                     1,
                 ));
             }
-            if !consent::ask(yes, mode, CONSENT, &format!("Update the {name} extension"))? {
+            if !ask(yes, mode, &format!("Update the {name} extension"))? {
                 return Ok(None);
             }
             let executable = prefix.join("bin").join(product.executable());
@@ -218,10 +230,9 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
         } => {
             let product = extension(&name)?;
             let prefix = prefix(selected.as_deref())?;
-            if !consent::ask(
+            if !ask(
                 yes,
                 mode,
-                CONSENT,
                 &format!("Remove the {name} extension's commands (releases and data are kept)"),
             )? {
                 return Ok(None);
