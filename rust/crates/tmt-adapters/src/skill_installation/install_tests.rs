@@ -62,7 +62,7 @@ fn neutral_install_is_exact_repeat_noop_and_records_one_target() {
     assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), bundled_skill());
     assert_eq!(
         fs::read(assert_link(&inbox).join("SKILL.md")).unwrap(),
-        super::assets::INBOX_SKILL
+        super::bundled_skill_named("tmt-inbox").unwrap()
     );
 
     let registry = fs::read(global.join("skill-installations.json")).unwrap();
@@ -507,7 +507,7 @@ fn valid_old_two_skill_bundle_upgrades_both_targets_without_backup() {
     assert_eq!(fs::read(target.join("SKILL.md")).unwrap(), bundled_skill());
     assert_eq!(
         fs::read(inbox_target.join("SKILL.md")).unwrap(),
-        super::assets::INBOX_SKILL
+        super::bundled_skill_named("tmt-inbox").unwrap()
     );
     assert_eq!(fs::read(old_main.join("SKILL.md")).unwrap(), old_core);
     assert_eq!(

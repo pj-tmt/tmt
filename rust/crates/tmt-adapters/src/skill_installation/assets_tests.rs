@@ -1,6 +1,4 @@
-use super::assets::{
-    AVATAR_CREATE_SKILL, INBOX_SKILL, OFFICE_SKILL, PROP_CREATE_SKILL, SKILL, SkillAssets,
-};
+use super::{assets::SkillAssets, bundled_skill_named};
 use crate::test_support::TestDirectory;
 use std::fs;
 
@@ -9,22 +7,25 @@ fn materialized_source_is_exact_and_repeated_install_preserves_it() {
     let root = TestDirectory::new();
     let assets = SkillAssets::new(&root.path);
     let source = assets.materialize().unwrap();
-    assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), SKILL);
+    assert_eq!(
+        fs::read(source.join("SKILL.md")).unwrap(),
+        bundled_skill_named("tmux-team").unwrap()
+    );
     assert_eq!(
         fs::read(source.parent().unwrap().join("tmt-inbox/SKILL.md")).unwrap(),
-        INBOX_SKILL
+        bundled_skill_named("tmt-inbox").unwrap()
     );
     assert_eq!(
         fs::read(source.parent().unwrap().join("tmt-office/SKILL.md")).unwrap(),
-        OFFICE_SKILL
+        bundled_skill_named("tmt-office").unwrap()
     );
     assert_eq!(
         fs::read(source.parent().unwrap().join("tmt-prop-create/SKILL.md")).unwrap(),
-        PROP_CREATE_SKILL
+        bundled_skill_named("tmt-prop-create").unwrap()
     );
     assert_eq!(
         fs::read(source.parent().unwrap().join("tmt-avatar-create/SKILL.md")).unwrap(),
-        AVATAR_CREATE_SKILL
+        bundled_skill_named("tmt-avatar-create").unwrap()
     );
     assert!(assets.owns(&source));
     assert_eq!(assets.materialize().unwrap(), source);
@@ -76,13 +77,20 @@ fn external_source_and_symlinked_skill_file_never_establish_managed_ownership() 
     let source = assets.materialize().unwrap();
     let external = root.path.join("outside");
     fs::create_dir(&external).unwrap();
-    fs::write(external.join("SKILL.md"), SKILL).unwrap();
+    fs::write(
+        external.join("SKILL.md"),
+        bundled_skill_named("tmux-team").unwrap(),
+    )
+    .unwrap();
     assert!(!assets.owns(&external));
     fs::remove_file(source.join("SKILL.md")).unwrap();
     symlink(external.join("SKILL.md"), source.join("SKILL.md")).unwrap();
     assert!(!assets.owns(&source));
     assert!(assets.materialize().is_err());
-    assert_eq!(fs::read(external.join("SKILL.md")).unwrap(), SKILL);
+    assert_eq!(
+        fs::read(external.join("SKILL.md")).unwrap(),
+        bundled_skill_named("tmux-team").unwrap()
+    );
 }
 
 #[test]
@@ -96,7 +104,10 @@ fn symlinked_digest_directory_is_not_a_managed_source() {
     std::os::unix::fs::symlink(&outside, version).unwrap();
     assert!(!assets.owns(&source));
     assert!(assets.materialize().is_err());
-    assert_eq!(fs::read(outside.join("tmux-team/SKILL.md")).unwrap(), SKILL);
+    assert_eq!(
+        fs::read(outside.join("tmux-team/SKILL.md")).unwrap(),
+        bundled_skill_named("tmux-team").unwrap()
+    );
     assert_eq!(fs::read_link(version).unwrap(), outside);
 }
 

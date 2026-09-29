@@ -1626,6 +1626,17 @@ Each agent driver is one declarative descriptor plus one adapter module:
   skill targets, `run`, the runtime registry and caller recognition iterate it.
   A test requires exactly one adapter module per descriptor.
 
+`tmt_core::driver::detection` decides whether a driver is `Present` (its
+executable's `--version` succeeded; the version is kept when the output has
+one), `ConfigOnly` (configuration directories but no executable on `PATH`),
+`Absent`, or `Broken` (on `PATH` but the check failed, timed out or could not
+start). `Registry::detect` gathers the evidence: directories, then one bounded
+`--version` (5 s, 4 KiB, empty stdin) through the process runner. That starts
+the agent, and `--version` is not read-only for every agent (Codex creates
+`~/.codex/tmp`), so only a flow the user started to set up agents runs it.
+Status commands and skill installation keep the filesystem-only presence check
+and never start an agent.
+
 Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
@@ -1633,8 +1644,15 @@ Stored harness IDs are the descriptor names, so storage is unchanged.
 ## Managed skills and native installation
 
 Managed agent guidance is a separate filesystem concern. The canonical
-`tmux-team`, focused `tmt-inbox`, and optional `tmt-office` skills are embedded
-as one versioned asset bundle by `skill_installation::assets`; digest-addressed
+`tmt_core::skill_catalog` is the one list of bundled skill names and groups
+(core or Office), in bundle digest order. `skill_installation::catalog` pairs
+each name with its embedded bytes and records the earlier bundle layouts that
+upgrades still verify. `Catalog::new` joins owned skills from owner records
+without letting an owner shadow a core name. Names, sources, inventories and
+ownership checks derive from these, and the tmt-cli architecture test fails on
+a list of skill names anywhere else. The `tmux-team`, focused `tmt-inbox`, and
+optional `tmt-office` skills are embedded as one versioned asset bundle by
+`skill_installation::assets`; digest-addressed
 materialization, provider detection, target selection, links, backups, registry,
 drift and lock handling live under
 `rust/crates/tmt-adapters/src/skill_installation/`. Core install exposes only

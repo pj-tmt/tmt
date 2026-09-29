@@ -11,18 +11,31 @@ pub mod gemini;
 pub mod opencode;
 pub mod pi;
 
+use crate::process::{CommandFailure, CommandRequest, CommandRunner};
 use crate::{
     runtime::{RuntimeCommand, RuntimeError, lifecycle::RuntimeLifecycle},
     skill_installation::ProviderEnvironment,
 };
-use std::{fmt, path::PathBuf};
+use std::{
+    fmt,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use tmt_core::{
     binding::BindingEntry,
     driver::{ActionResult, Driver, caller::RuntimeCaller},
 };
 
 use tmt_core::driver::descriptor;
-pub use tmt_core::driver::descriptor::{DriverDescriptor, HookFormat, Hue};
+use tmt_core::driver::detection::{self, VersionProbe};
+pub use tmt_core::driver::{
+    descriptor::{DriverDescriptor, HookFormat, Hue},
+    detection::Detection,
+};
+
+/// How long a driver's `--version` may run, and how much it may print.
+const PROBE_DEADLINE: Duration = Duration::from_secs(5);
+const PROBE_OUTPUT: usize = 4096;
 
 /// The runtime port a registered driver implements.
 pub type RuntimeDriver =
@@ -156,6 +169,46 @@ impl Registry {
         names
     }
 
+    /// Each driver's detection: configuration directories on disk, then a
+    /// bounded `--version` of the first of its executables on `PATH`.
+    ///
+    /// This starts the agent. `--version` is not read-only for every agent
+    /// (Codex 0.159 creates `~/.codex/tmp`), so only a flow the user started to
+    /// set up agents runs it; status commands and skill installation do not.
+    pub fn detect(
+        &self,
+        environment: &ProviderEnvironment,
+        runner: &impl CommandRunner,
+    ) -> Vec<(&'static DriverDefinition, Detection)> {
+        self.detect_within(environment, runner, PROBE_DEADLINE)
+    }
+
+    fn detect_within(
+        &self,
+        environment: &ProviderEnvironment,
+        runner: &impl CommandRunner,
+        deadline: Duration,
+    ) -> Vec<(&'static DriverDefinition, Detection)> {
+        self.iter()
+            .map(|driver| {
+                let configured = environment
+                    .locations(driver)
+                    .config_dirs
+                    .iter()
+                    .any(|directory| environment.resolve(directory).is_dir());
+                let probe = driver
+                    .descriptor
+                    .executables
+                    .iter()
+                    .find_map(|name| environment.find_command(name))
+                    .map_or(VersionProbe::NotFound, |executable| {
+                        probe(runner, &executable, deadline)
+                    });
+                (driver, detection::detection_of(configured, &probe))
+            })
+            .collect()
+    }
+
     /// The first runtime that recognizes this invocation's caller.
     pub fn identify_caller(&self) -> ActionResult<RuntimeCaller, ()> {
         self.iter()
@@ -166,9 +219,98 @@ impl Registry {
     }
 }
 
+fn probe(
+    runner: &impl CommandRunner,
+    executable: &std::path::Path,
+    deadline: Duration,
+) -> VersionProbe {
+    let result = runner.execute(CommandRequest {
+        program: executable.as_os_str(),
+        args: &["--version".into()],
+        input: &[],
+        deadline: Instant::now() + deadline,
+        max_output_bytes: PROBE_OUTPUT,
+    });
+    match result {
+        Ok(output) => VersionProbe::Exited {
+            success: true,
+            stdout: output.stdout,
+        },
+        Err(error) => match error.kind {
+            CommandFailure::Exit { .. } => VersionProbe::Exited {
+                success: false,
+                stdout: Vec::new(),
+            },
+            // A version longer than the bound still ran; keep what was read.
+            CommandFailure::OutputLimit => VersionProbe::Exited {
+                success: true,
+                stdout: error.output.map(|output| output.stdout).unwrap_or_default(),
+            },
+            CommandFailure::Timeout => VersionProbe::TimedOut,
+            CommandFailure::Spawn | CommandFailure::Io => VersionProbe::Unstartable,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{process::UnixCommandRunner, test_support::TestDirectory};
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    fn script(directory: &std::path::Path, name: &str, body: &str, mode: u32) {
+        let path = directory.join(name);
+        fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    #[test]
+    fn detection_runs_a_bounded_version_check_for_each_driver() {
+        let directory = TestDirectory::new();
+        let home = directory.path.join("home");
+        let bin = directory.path.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let [present, failing, hanging, unstartable, configured, absent] =
+            descriptor::ALL.map(|descriptor| descriptor.executables[0]);
+        script(&bin, present, "echo 'fixture 1.2.3'", 0o755);
+        script(&bin, failing, "exit 1", 0o755);
+        script(&bin, hanging, "sleep 5", 0o755);
+        script(&bin, unstartable, "echo never", 0o644);
+        let registry = Registry::builtin();
+        let config_only = registry.find(configured).unwrap();
+        let environment = ProviderEnvironment::from_parts(&home, &home, vec![bin.clone()], []);
+        for directory in environment.locations(config_only).config_dirs {
+            fs::create_dir_all(environment.resolve(&directory)).unwrap();
+        }
+        let detected: Vec<(&str, Detection)> = registry
+            .detect_within(
+                &environment,
+                &UnixCommandRunner,
+                Duration::from_millis(1500),
+            )
+            .into_iter()
+            .map(|(driver, detection)| (driver.name(), detection))
+            .collect();
+        let broken = |reason: &str| Detection::Broken {
+            reason: reason.into(),
+        };
+        assert_eq!(
+            detected,
+            [
+                (
+                    present,
+                    Detection::Present {
+                        version: Some("fixture 1.2.3".into())
+                    }
+                ),
+                (failing, broken("its version check failed")),
+                (hanging, broken("its version check did not finish")),
+                (unstartable, broken("it could not be started")),
+                (configured, Detection::ConfigOnly),
+                (absent, Detection::Absent),
+            ]
+        );
+    }
 
     #[test]
     fn every_core_descriptor_has_exactly_one_adapter_module_and_back() {

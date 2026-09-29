@@ -5,6 +5,7 @@
 //! The owner cannot be authenticated (same-user API), so ownership is a
 //! bookkeeping boundary between cooperating installers, not a security one.
 
+use super::catalog::{Catalog, Group};
 use super::{ProviderEnvironment, assets::SkillAssets, files, managed_link, optional_roots};
 use crate::bounded_file;
 use crate::drivers::{DriverDefinition, Registry};
@@ -20,10 +21,6 @@ use tmt_core::content_digest::sha256;
 use uuid::Uuid;
 
 /// Names core itself installs; no extension can claim them.
-pub const CORE_NAMES: &[&str] = &["tmux-team", "tmt-inbox"];
-/// Office names core's bundle published before owners existed; owner
-/// `office` adopts them without force.
-pub(super) const OFFICE_NAMES: [&str; 3] = ["tmt-office", "tmt-prop-create", "tmt-avatar-create"];
 pub const MAXIMUM_SKILLS: usize = 16;
 pub const MAXIMUM_FILES: usize = 64;
 pub const MAXIMUM_FILE_BYTES: usize = 1_048_576;
@@ -127,7 +124,7 @@ pub fn validate(owner: &str, skills: &[OwnedSkill]) -> Result<(), Refusal> {
                 skill.name
             ));
         }
-        if CORE_NAMES.contains(&skill.name.as_str()) {
+        if Catalog::bundled().is_core(&skill.name) {
             return Err(Refusal::Claimed {
                 name: skill.name.clone(),
                 owner: "core".into(),
@@ -481,7 +478,9 @@ pub fn install_owned(
                         Prior::Core
                             if !force
                                 && !(owner == "office"
-                                    && OFFICE_NAMES.contains(&skill.name.as_str())) =>
+                                    && Catalog::bundled()
+                                        .names(Group::Office)
+                                        .contains(skill.name.as_str())) =>
                         {
                             return Err(refused(Refusal::Claimed {
                                 name: skill.name.clone(),
