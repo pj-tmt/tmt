@@ -6,14 +6,15 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import * as tar from 'tar';
 
+const executables = { cli: 'tmt', office: 'tmt-office', squad: 'tmt-squad' };
+/** The agent-skills tree an extension archive carries under one directory. */
+const skillsRoot = 'skills';
+const skillFileLimit = 1024 * 1024;
+const skillTreeFileLimit = 16 * 64;
+
 function runtimeFiles(product = 'cli') {
-  assert(['cli', 'office'].includes(product), 'Unknown native product');
-  return [
-    product === 'cli' ? 'tmt' : 'tmt-office',
-    'LICENSE',
-    'NATIVE-INSTALL.md',
-    'THIRD-PARTY-NOTICES.txt',
-  ];
+  assert(Object.hasOwn(executables, product), 'Unknown native product');
+  return [executables[product], 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 }
 const compressedLimit = 64 * 1024 * 1024;
 const expandedLimit = 128 * 1024 * 1024;
@@ -61,9 +62,11 @@ export function selectNativeArtifact(manifestFile, archiveFile, target, product 
   assert.equal(releases[0].app_name, `tmt-${product}`, 'Archive must belong to the TMT release');
   const version = releases[0].app_version;
   assert(typeof version === 'string' && version.length > 0, 'Manifest requires a version');
+  // cargo-dist declares an included directory as one asset named after it.
+  const declared = product === 'squad' ? [skillsRoot] : [];
   assert.deepEqual(
     artifact.assets.map((asset) => asset.path).sort(),
-    [...requiredFiles].sort(),
+    [...requiredFiles, ...declared].sort(),
     'Manifest must describe exactly the native runtime files'
   );
   return {
@@ -71,7 +74,8 @@ export function selectNativeArtifact(manifestFile, archiveFile, target, product 
     version,
     target,
     sha256: artifact.checksums.sha256,
-    ...(product === 'office' ? { product } : {}),
+    ...(product === 'cli' ? {} : { product }),
+    ...(declared.length > 0 ? { skills: true } : {}),
   };
 }
 
@@ -92,7 +96,9 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
     const snapshot = path.join(staging, 'snapshot.tar');
     fs.writeFileSync(snapshot, expanded, { flag: 'wx', mode: 0o600 });
     const expected = new Set(requiredFiles.map((name) => `${rootName}/${name}`));
+    const tree = `${rootName}/${skillsRoot}`;
     const seen = new Set();
+    let skillFiles = 0;
     tar.t({
       file: snapshot,
       sync: true,
@@ -101,7 +107,21 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
         assert(!seen.has(entry.path), `Duplicate native archive entry: ${entry.path}`);
         seen.add(entry.path);
         if (entry.path === `${rootName}/` && entry.type === 'Directory') return;
-        assert(expected.has(entry.path), `Unexpected native archive entry: ${entry.path}`);
+        const inTree =
+          metadata.skills && (entry.path === tree || entry.path.startsWith(`${tree}/`));
+        if (inTree && entry.type === 'Directory') {
+          assert.equal(entry.mode & 0o7000, 0, 'Skill directories must not set special bits');
+          return;
+        }
+        if (inTree) {
+          skillFiles += 1;
+          assert(skillFiles <= skillTreeFileLimit, 'Native archive carries too many skill files');
+          assert(entry.size <= skillFileLimit, `Skill file exceeds its bound: ${entry.path}`);
+        }
+        assert(
+          expected.has(entry.path) || inTree,
+          `Unexpected native archive entry: ${entry.path}`
+        );
         assert.equal(entry.type, 'File', `Native archive entry must be regular: ${entry.path}`);
         assert.equal(entry.mode & 0o7000, 0, 'Native archive must not set special permission bits');
         assert(entry.size > 0, `Empty native archive entry: ${entry.path}`);
@@ -111,6 +131,7 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
       },
     });
     for (const entry of expected) assert(seen.has(entry), `Missing native archive entry: ${entry}`);
+    assert(!metadata.skills || skillFiles > 0, 'Native archive declares skills but carries none');
     const extracted = path.join(staging, 'extracted');
     fs.mkdirSync(extracted);
     tar.x({ file: snapshot, cwd: extracted, sync: true, strict: true, preserveOwner: false });

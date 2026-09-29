@@ -190,6 +190,7 @@ export async function verifyNativeRuntime({
   skill,
   inboxSkill,
   officeSkill,
+  squadSkill,
   profileContent,
   subject,
   product = 'cli',
@@ -212,7 +213,16 @@ export async function verifyNativeRuntime({
     verifyLinkage(executable, cwd, env, subject);
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
-    assert(['cli', 'office'].includes(product), 'Unknown native runtime product');
+    assert(['cli', 'office', 'squad'].includes(product), 'Unknown native runtime product');
+    if (product === 'squad') {
+      assert.equal(typeof squadSkill, 'string', 'Squad runtime proof requires its skill');
+      assert.equal(run(['--version']), `squad ${version}\n`, `${subject} version mismatch`);
+      assert.equal(run(['skill', 'show']), squadSkill, `${subject} embedded skill mismatch`);
+      assert(!fs.existsSync(xdg), 'Squad proof must not initialize config state');
+      assert.deepEqual(fs.readdirSync(home), [], 'Squad proof must not create home state');
+      assert.deepEqual(fs.readdirSync(cwd), [], 'Squad proof must not create workspace state');
+      return;
+    }
     if (product === 'office') {
       assert.equal(
         run(['__tmt-office', '1', 'probe']),

@@ -1827,9 +1827,10 @@ with the playbook's name, so the lead skill and `tmt extension uninstall squad`
 are unaffected. Squad never writes a provider directory and never executes a
 playbook. Squad's dependencies must not change the CLI
 product: the proof is package-scoped (`-p tmt-cli` alone), because combined
-workspace builds may unify shared-dependency features across packages. The
-release workflow does not distribute squad until the generic extension installer
-(#387).
+workspace builds may unify shared-dependency features across packages. Squad
+is versioned independently and released as its own product (`tmt-squad-v<version>`
+tags); its archive also carries `skills/tmt-squad/`, the same source, as the
+release's skills tree.
 
 ## Testing and evidence boundaries
 

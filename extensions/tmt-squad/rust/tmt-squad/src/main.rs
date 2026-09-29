@@ -52,6 +52,7 @@ fn grammar() -> Command {
     Command::new("squad")
         .bin_name("tmt squad")
         .about("Leads, members and one board for a team of agents (alias: tmt sq)")
+        .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
         .disable_help_subcommand(true)

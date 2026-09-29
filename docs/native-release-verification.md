@@ -11,7 +11,7 @@ This is verification guidance, not publication authorization.
 ### Explicit multi-platform release preparation
 
 `Native release artifacts` (`.github/workflows/native-release.yml`) is manually
-dispatched with an explicit `cli` or `office` product, not part of every PR.
+dispatched with an explicit `cli`, `office` or `squad` product, not part of every PR.
 Dispatch each authorized product on the release's reviewed,
 required-checks-green main commit and record the product, run ID and exact SHA in
 its issue. It builds on native macOS arm64/x64 and Linux arm64/x64 hosts using
@@ -28,12 +28,12 @@ generator requires exact planned archive names/targets, preventing a missing
 matrix target from silently shrinking the release. Bootstrap generation verifies
 TMT ownership and archive inventory/digests before generating code; the final
 CLI matrix executes both existing verifiers and compares the regenerated script
-bytes. Office has no bootstrap or managed skill and runs its product-specific
-archive/runtime verifier against the same final-manifest ownership instead. All
+bytes. Office and Squad have no bootstrap and run their product-specific
+archive/runtime verifiers against the same final-manifest ownership instead. All
 jobs in the selected product run must pass before that product is published,
 even if the assembled artifact can already be downloaded. CI artifacts expire
-in seven days. Product-qualified artifact names prevent concurrent CLI and Office
-runs from being mistaken for one bundle. Notices alongside each bundle are
+in seven days. Product-qualified artifact names prevent concurrent product runs
+from being mistaken for one bundle. Notices alongside each bundle are
 verification inputs; every archive also contains its own target-filtered notices.
 
 Publication remains a separately authorized operation, not a workflow side
@@ -41,7 +41,8 @@ effect. Verify the selected product run's exact commit and all required PR check
 enable GitHub release immutability before creating a draft prerelease. A CLI
 release attaches its four tar.gz archives, final `dist-manifest.json` and
 `tmt-installer.sh`; an Office release uses the independent `tmt-office-v<version>`
-tag and attaches its four archives and final manifest without a CLI bootstrap.
+tag and attaches its four archives and final manifest without a CLI bootstrap, and
+a Squad release does the same under `tmt-squad-v<version>`.
 Verify uploaded SHA-256 digests before publishing each draft. Verify
 `immutable: true`, tag commit and GitHub release attestation (`gh release verify`
 and `gh release verify-asset`). Never combine product manifests, replace an
@@ -222,6 +223,33 @@ candidates and deactivation. Public availability is a separate authorized gate;
 local cargo-dist's package selection tag does not publish a Git tag. Public Office
 discovery uses `tmt-office-v<version>`; select `office` explicitly when dispatching
 the shared release workflow and never publish its bundle under a CLI tag.
+
+### Squad archives
+
+A Squad archive adds one directory to the runtime files: `skills/`, copied from
+`extensions/tmt-squad/skills/` by the package's cargo-dist `include` (a package
+list replaces the workspace list, so it repeats the shared files). cargo-dist
+declares that directory as the single manifest asset `skills`; the installer
+inventories its files from the checksum-verified archive. Build and verify it
+like Office, passing the skill sources for a byte-for-byte comparison:
+
+```sh
+scripts/build-native-artifact.sh aarch64-apple-darwin squad > /absolute/squad-manifest.json
+node typescript/scripts/verify-native-artifact.mjs --product squad \
+  --manifest /absolute/squad-manifest.json \
+  --archive target/distrib/tmt-squad-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin --skills extensions/tmt-squad/skills \
+  --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
+```
+
+The runtime proof checks `tmt-squad --version` and that `tmt-squad skill show`
+prints the archived `SKILL.md`, with an empty HOME, config and working directory
+afterwards. The local Linux Dockerfile takes `--build-arg PRODUCT=squad`; pass
+`--product squad --skills expected-squad-skills` to its entrypoint. Follow with
+`tmt extension install squad --archive <archive> --manifest <manifest> --prefix
+<task-owned-prefix> --channel alpha --yes`, a repeat install and `tmt extension
+uninstall squad`. Squad's closure adds the Zlib license (`foldhash`), accepted in
+`rust/about.toml`; the CLI and Office notices do not change.
 
 Native adapter tests cover bounded archive acquisition and publication failures;
 native process contracts use the existing executable selector and sandbox. Test

@@ -129,7 +129,9 @@ also accepts `--archive <archive.tar.gz> --manifest <dist-manifest.json>` for a
 local artifact, and every command takes `--prefix <folder>` for a custom
 installation. `upgrade` takes `--to <version>` to pin an exact version and
 `--unpin` to follow the channel again. Squad installs two commands, `tmt-squad`
-and its short form `tmt-sq`.
+and its short form `tmt-sq`. Each extension has its own version and release tags
+(`tmt-office-v<version>`, `tmt-squad-v<version>`); Squad's releases are still
+alpha, hence `--channel alpha`.
 
 `tmt extension list` never uses the network unless you add `--check`. An
 unreachable release then shows as `unknown`. The listing also reports any other
