@@ -1621,23 +1621,27 @@ later #328 slice, not a second skill source or a provider-specific copy.
 Native executable installation is a different owner under
 `tmt-adapters::native_install`:
 
-Core's fixed `native_install::Product` policy owns CLI/Office package identity,
-inventory and installation namespace; it has no filesystem or network effects.
-The hidden offline installer accepts an explicit product (CLI by default), while
-both products use the same acquisition, receipt and atomic publication path.
-Office's command link, lock and current release are independent of the CLI's;
-existing CLI receipts retain their format. Manifest selection uses product and
+Core's fixed `native_install::Product` policy owns package identity, inventory,
+installation namespace and command links for the CLI and the official extensions
+(Office, and Squad with its two links `tmt-squad` and `tmt-sq`). It has no
+filesystem or network effects, and archive data never adds a product. The hidden
+offline installer accepts an explicit product (CLI by default), and every product
+uses the same acquisition, receipt and atomic publication path. Each extension's
+command links, lock and current release are independent of the CLI's; existing
+CLI receipts retain their format. Manifest selection uses product and
 target together, rejecting ambiguous or multiply owned artifacts. This internal
 path also serves public Office installation. `office_command` owns consent and
 typed composition, not a second downloader. Default Office prefix is the user's
 `.local`, independent of application configuration; `--prefix` selects another
 owned installation. Public distribution and pairing remain separate gates.
-GitHub selection filters CLI `v` and Office `tmt-office-v` tags independently.
+GitHub selection filters CLI `v`, Office `tmt-office-v` and Squad `tmt-squad-v`
+tags independently.
 Downloaded bytes feed the same bounded artifact verifier directly; there is no
 extra download-to-disk/read-back stage. Before activating Office, publication
 executes the bounded versioned probe and rejects incompatible candidates.
-Removal validates ownership and deactivates links without deleting releases,
-skills or application data. It is recoverable, not a multi-file atomic deletion:
+Removal (`uninstall_extension`, for any extension product) validates ownership
+of every command link, refuses a foreign same-named command, and deactivates the
+links without deleting releases, skills or application data. It is recoverable, not a multi-file atomic deletion:
 a missing command link with a retained activation is reported as invalid and
 explicit uninstall can finish that state.
 

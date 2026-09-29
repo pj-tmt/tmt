@@ -306,3 +306,39 @@ fn explicit_unpinned_alpha_to_stable_forward_transition_is_allowed() {
         })
     );
 }
+
+#[test]
+fn squad_is_a_fixed_extension_product_with_two_command_links() {
+    use super::Product;
+    assert_eq!(
+        Product::ALL,
+        [Product::Cli, Product::Office, Product::Squad]
+    );
+    let squad = Product::parse("squad").unwrap();
+    assert_eq!(
+        (
+            squad.tag_prefix(),
+            squad.executable(),
+            squad.package(),
+            squad.namespace(),
+            squad.links(),
+        ),
+        (
+            "tmt-squad-v",
+            "tmt-squad",
+            "tmt-squad",
+            "lib/tmt-squad",
+            &["tmt-squad", "tmt-sq"][..],
+        )
+    );
+    assert_eq!(squad.link_target(), "../lib/tmt-squad/current/tmt-squad");
+    // Tag prefixes never overlap, so release selection stays per product.
+    for product in Product::ALL {
+        for other in Product::ALL.into_iter().filter(|other| *other != product) {
+            assert!(
+                !other.tag_prefix().starts_with(product.tag_prefix()),
+                "{product:?} vs {other:?}"
+            );
+        }
+    }
+}
