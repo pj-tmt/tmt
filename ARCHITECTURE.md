@@ -1077,7 +1077,8 @@ profile and diagnostic bodies bypass table rendering.
 
 ### Identity, names and bindings
 
-`tmt-core::names` owns canonical identity and pane-target classification,
+`tmt-core::names` owns canonical identity classification (pane-target syntax
+belongs to each host, `tmt-core::host`),
 including the pinned normalization/casing behavior and bounded name rules.
 Canonicalization is ECMAScript whitespace trim, NFKC and root-locale default
 lowercase using pinned ICU data, not case folding or compiler-dependent casing.
@@ -1681,6 +1682,23 @@ its only host today: `Host` forwards to `tmt-adapters::tmux` and re-exports
 tmux's error and value types under host names until a second host (Herdr,
 #479) needs per-host variants. The architecture guard rejects production
 references to the tmux module outside `host.rs` and `tmux/`.
+
+Endpoint identity is opaque to everything but its host. `tmt-core::host::HostKind`
+is the pure-data list of hosts, like the driver descriptors: each owns its stored
+token, its pane-ID syntax (`is_pane_id`) and the text it reads as a pane target
+(`is_target`), and `names::is_pane_target` asks every host. `ServerEvidence`
+carries its host, so bindings, target evidence and request fences do too; core
+stores and compares pane IDs as opaque strings. Evidence from another host is
+`Unknown`, never proof of loss, and presence is grouped and scoped by host and
+socket (`ServerSelector`). Storage writes `bindings.transport` and new request
+fences' `host` from the endpoint and refuses a stored host it does not know; a
+NULL fence host is tmux. A `Host` handle states why it was chosen:
+`for_caller` (a caller-scoped command), `for_server` (a stored binding or request
+endpoint) or `for_target` (an explicit pane target); its methods take endpoints,
+never loose socket or pane strings. Only `tmt-core/src/host.rs`,
+`tmt-adapters/src/host.rs` and `tmux/` may spell a host's name, which the
+architecture guard enforces for every crate but Squad (its tmux-only hotkeys and
+clipboard are extension features).
 
 `tmux` uses explicit socket/server evidence, bounded command budgets,
 owned buffers and no ambient host fallback. A failed paste or Enter is an
