@@ -10,7 +10,7 @@ import BetterSqlite3 from 'better-sqlite3';
  * so unqualified Office tables resolve to Office storage and core tables resolve to
  * core. Installs still on the shared core file, and writable opens, are unchanged.
  */
-export default class SqliteOracle extends BetterSqlite3 {
+class SqliteOracle extends BetterSqlite3 {
   constructor(file: string, options?: BetterSqlite3.Options) {
     const office = path.join(path.dirname(file), 'office', 'office.db');
     const split =
@@ -19,3 +19,11 @@ export default class SqliteOracle extends BetterSqlite3 {
     if (split) this.exec(`ATTACH DATABASE '${file.replaceAll("'", "''")}' AS core`);
   }
 }
+
+// Specs name the instance type as `Database.Database`, as with better-sqlite3 itself.
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace SqliteOracle {
+  export type Database = BetterSqlite3.Database;
+}
+
+export default SqliteOracle;
