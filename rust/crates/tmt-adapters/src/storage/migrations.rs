@@ -10,6 +10,8 @@ mod board_scope_tests;
 #[cfg(test)]
 mod dispatch_tests;
 #[cfg(test)]
+mod host_tests;
+#[cfg(test)]
 #[path = "identity_lifetime_tests.rs"]
 mod identity_lifetime_tests;
 #[cfg(test)]
@@ -204,6 +206,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "mark resume launches pending until a provider start confirms them",
         sql: include_str!("schema/038.sql"),
     },
+    Migration {
+        name: "admit a second terminal host in bindings, request fences and host servers",
+        sql: include_str!("schema/039.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
@@ -262,6 +268,9 @@ fn apply_version(
             validate_identity_source(&transaction)?;
             check_foreign_keys(&transaction)?;
         }
+        if version == 39 {
+            validate_bindings_source(&transaction, migration)?;
+        }
         transaction
             .execute_batch(migration.sql)
             .map_err(|error| classify(error, "Apply migration SQL"))?;
@@ -272,7 +281,7 @@ fn apply_version(
             "INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
             params![version, migration.name],
         ).map_err(|error| classify(error, "Record migration"))?;
-        if version == 9 {
+        if version == 9 || version == 39 {
             check_foreign_keys(&transaction)?;
         }
         Ok(())
@@ -310,9 +319,7 @@ fn check_foreign_keys(connection: &Connection) -> Result<(), StorageError> {
         .map_err(|error| classify(error, "Read migration foreign keys"))?
         .is_some()
     {
-        return Err(incompatible(
-            "Identity migration requires consistent foreign keys",
-        ));
+        return Err(incompatible("Migration requires consistent foreign keys"));
     }
     Ok(())
 }
@@ -343,6 +350,52 @@ fn validate_identity_source(connection: &Connection) -> Result<(), StorageError>
     if custom {
         return Err(incompatible(
             "Identity migration cannot replace custom indexes or triggers",
+        ));
+    }
+    Ok(())
+}
+
+/// Schema 39 rebuilds `bindings` from a verbatim copy of its schema-38
+/// definition. Refuse a table that differs from that copy, or anything else
+/// that depends on it, rather than dropping custom columns or rules.
+fn validate_bindings_source(
+    connection: &Connection,
+    migration: &Migration,
+) -> Result<(), StorageError> {
+    let start = migration
+        .sql
+        .find("CREATE TABLE bindings_039")
+        .expect("schema 39 creates bindings_039");
+    let rebuilt = migration.sql[start..].split(';').next().unwrap_or_default();
+    let expected = rebuilt
+        .replace("CREATE TABLE bindings_039", "CREATE TABLE bindings")
+        .replace(
+            "CHECK (transport IN ('tmux', 'herdr'))",
+            "CHECK (transport = 'tmux')",
+        );
+    let actual: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'bindings'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| classify(error, "Inspect binding source schema"))?;
+    if !actual.split_whitespace().eq(expected.split_whitespace()) {
+        return Err(incompatible(
+            "Host migration requires the schema-38 bindings definition",
+        ));
+    }
+    let dependents: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE sql IS NOT NULL
+             AND name NOT IN ('bindings', 'bindings_endpoint') AND sql LIKE '%bindings%')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| classify(error, "Inspect binding dependents"))?;
+    if dependents {
+        return Err(incompatible(
+            "Host migration cannot rebuild bindings with dependent schema objects",
         ));
     }
     Ok(())

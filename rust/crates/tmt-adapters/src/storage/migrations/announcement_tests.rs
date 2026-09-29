@@ -43,7 +43,7 @@ fn announcement_migration_rolls_back_and_preserves_historical_request_semantics(
     );
     oracle.execute_batch("DROP TRIGGER reject_kind;").unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 38);
+    assert_eq!(storage.health().unwrap().schema_version, 39);
     let attempt = RequestService::new(&mut storage, || 2000)
         .get_attempt("old-attempt")
         .unwrap()
