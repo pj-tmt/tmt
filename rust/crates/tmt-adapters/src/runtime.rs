@@ -17,6 +17,7 @@ pub mod codex;
 mod evidence;
 pub mod hook_protocol;
 pub mod lifecycle;
+pub mod model_state;
 
 /// Tokens shared with first-party hook mappings; mode belongs to the runtime,
 /// not the host interface. Codex embedded mode is selected by `--no-daemon`.
@@ -214,6 +215,7 @@ impl RuntimeRegistry {
             },
             session: &session.provider_session,
             mode: &session.mode,
+            state: session.state.as_ref(),
         })
     }
 }
@@ -305,16 +307,25 @@ impl Driver for FirstParty {
         if uuid::Uuid::parse_str(resume.session.as_str()).is_err() {
             return ActionResult::Failed(RuntimeError::InvalidSession);
         }
+        // Only a model the provider reported is replayed; unreadable state
+        // resumes with the provider's default rather than a guess. Placement
+        // follows each CLI's recorded usage (runtime/fixtures/README.md).
+        let model = resume.state.and_then(model_state::state_model);
+        let session = OsString::from(resume.session.as_str());
         let mut args = match self {
-            Self::Claude => vec![
-                OsString::from("--resume"),
-                OsString::from(resume.session.as_str()),
-            ],
-            Self::Codex => vec![
-                OsString::from("resume"),
-                OsString::from(resume.session.as_str()),
-            ],
+            Self::Claude => vec![OsString::from("--resume"), session],
+            Self::Codex => vec![OsString::from("resume")],
         };
+        if let Some(model) = model {
+            args.push(match self {
+                Self::Claude => "--model".into(),
+                Self::Codex => "-m".into(),
+            });
+            args.push(model.into());
+        }
+        if let Self::Codex = self {
+            args.push(OsString::from(resume.session.as_str()));
+        }
         if mode == CODEX_MODE_EMBEDDED {
             args.push("--no-daemon".into());
         }
@@ -558,7 +569,7 @@ mod tests {
         assert_eq!(registry.reconcile(&mut clean), None);
         assert!(clean.remembered.is_some());
 
-        // First-party drivers read no state version yet, so any state is dropped.
+        // A version the driver does not read is dropped, never force-read.
         let mut versioned = remembered("claude", Some(DriverState::new(9, "{}").unwrap()));
         assert_eq!(
             registry.reconcile(&mut versioned),
@@ -585,5 +596,93 @@ mod tests {
             registry.harnesses().collect::<Vec<_>>(),
             ["claude", "codex"]
         );
+    }
+
+    #[test]
+    fn documented_session_start_payloads_capture_the_model_and_resume_replays_it() {
+        use lifecycle::RuntimeLifecycle;
+        use tmt_core::binding::session::DriverState;
+        let registry = RuntimeRegistry::first_party();
+        for (harness, lifecycle, fixture, model) in [
+            (
+                "claude",
+                &claude::ClaudeLifecycle as &dyn RuntimeLifecycle,
+                include_str!("runtime/fixtures/claude-session-start.json"),
+                "claude-opus-5",
+            ),
+            (
+                "codex",
+                &codex::CodexLifecycle,
+                include_str!("runtime/fixtures/codex-session-start.json"),
+                "gpt-5.2-codex",
+            ),
+        ] {
+            assert_eq!(
+                lifecycle.state_version(),
+                Some(model_state::MODEL_STATE_VERSION)
+            );
+            let event = lifecycle.decode(fixture.as_bytes()).expect(harness);
+            assert!(event.starting());
+            let state = event.driver_state(None).expect("reported model is kept");
+            assert_eq!(model_state::state_model(&state).as_deref(), Some(model));
+
+            // A start without a model (Claude omits it after /clear) keeps it.
+            let unreported = fixture.replace(&format!(r#""model": "{model}","#), "");
+            assert_ne!(unreported, fixture);
+            let event = lifecycle.decode(unreported.as_bytes()).expect(harness);
+            assert_eq!(event.driver_state(Some(&state)), Some(state.clone()));
+            assert_eq!(event.driver_state(None), None, "nothing is guessed");
+
+            let mut preferences = SessionPreferences {
+                preferred_harness: None,
+                remembered: Some(RememberedSession {
+                    harness: id(harness),
+                    mode: RuntimeMode::new(if harness == "claude" {
+                        "default"
+                    } else {
+                        "shared"
+                    })
+                    .unwrap(),
+                    provider_session: ProviderSessionId::new(
+                        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                    )
+                    .unwrap(),
+                    state: Some(state),
+                    stale_at_ms: None,
+                }),
+            };
+            assert_eq!(
+                registry.reconcile(&mut preferences),
+                None,
+                "readable state is kept"
+            );
+            let id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+            // `claude [options]`; `codex resume [OPTIONS] [SESSION_ID]`.
+            let (expected, bare): (Vec<&str>, Vec<&str>) = if harness == "claude" {
+                (vec!["--resume", id, "--model", model], vec!["--resume", id])
+            } else {
+                (vec!["resume", "-m", model, id], vec!["resume", id])
+            };
+            let expected = expected.into_iter().map(OsString::from).collect::<Vec<_>>();
+            let bare = bare.into_iter().map(OsString::from).collect::<Vec<_>>();
+            let session = preferences.remembered.as_mut().unwrap();
+            let mut registry = RuntimeRegistry::first_party();
+            assert_eq!(
+                registry.resume(session),
+                ActionResult::Completed(RuntimeCommand {
+                    executable: harness.into(),
+                    args: expected.clone(),
+                })
+            );
+            // Unreadable state resumes with the provider default, never a guess.
+            session.state = Some(DriverState::new(1, r#"{"model":"--yolo"}"#).unwrap());
+            assert_eq!(
+                registry.resume(session),
+                ActionResult::Completed(RuntimeCommand {
+                    executable: harness.into(),
+                    args: bare,
+                })
+            );
+        }
     }
 }

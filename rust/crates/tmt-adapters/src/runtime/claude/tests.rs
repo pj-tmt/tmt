@@ -6,6 +6,7 @@ fn event(starting: bool, transition: SessionTransition, session: &str) -> Claude
         starting,
         transition,
         session: ProviderSessionId::new(session).unwrap(),
+        model: None,
     }
 }
 

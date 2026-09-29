@@ -9,7 +9,8 @@ pub mod caller;
 pub mod routing;
 
 use crate::binding::session::{
-    HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeMode, RuntimeState, SessionTransition,
+    DriverState, HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeMode, RuntimeState,
+    SessionTransition,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +71,9 @@ pub struct HarnessResume<'a> {
     pub start: HarnessStart<'a>,
     pub session: &'a ProviderSessionId,
     pub mode: &'a RuntimeMode,
+    /// The driver's own stored resume details, if any; a driver ignores state
+    /// it cannot read rather than guessing.
+    pub state: Option<&'a DriverState>,
 }
 
 /// A completed focus: the host interface now shown to the invoking user, the
@@ -244,6 +248,7 @@ mod tests {
                 start,
                 session: &session,
                 mode: &mode,
+                state: None,
             }),
             ActionResult::Unsupported
         );
