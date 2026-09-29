@@ -574,7 +574,13 @@ scenario files avoid the Office web checks; prose that no job reads selects noth
 beyond `Code quality`. Shared or unknown paths (including lockfiles, security,
 contracts, workflows, the map itself and the E2E harness) fan out. Empty diffs fail
 closed to both. Diffs include deletions and both sides of renames. The selector writes
-a per-path evidence table (owner, rule, selection, map digest) to the run summary. Existing required check names
+a per-path evidence table (owner, rule, selection, map digest) to the run summary. When
+every path that selects native work is owned by Squad, the native scope is `squad`: the
+same job names run Squad's Cargo checks and architecture guard, its native tests and its
+E2E file, while the CLI runtime builds, packed installs and tooling unit tests are skipped
+because the CLI is unchanged (Squad cannot affect core: the architecture guard rejects any
+dependency in either direction). `Native package matrix` expects exactly that set of results
+for the scope; anything shared, CLI-owned or unrecognized runs the full set. Existing required check names
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
@@ -583,7 +589,7 @@ Rust contracts` and the native runtime builds. Pull requests only restore them; 
 are written by non-pull-request runs of those two jobs alone, which run on a `main`
 push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
 (GitHub evicts unused caches after seven days) and on manual dispatch. No gate runs
-for them.
+for them. A seeding run has no diff to select from, so it takes the full native scope.
 
 ## Runtime layers
 
