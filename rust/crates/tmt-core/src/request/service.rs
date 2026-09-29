@@ -3,6 +3,7 @@
 
 mod attention;
 mod history;
+mod answers;
 mod lifecycle;
 mod notification;
 mod responses;
