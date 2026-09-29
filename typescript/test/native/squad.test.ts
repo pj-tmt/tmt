@@ -162,15 +162,32 @@ describe('squad extension', () => {
       // Hooks off: the next command that needs `me` repairs it.
       expect((await runCli(sandbox, ['rename', 'ada', 'ada-2', '--json'])).status).toBe(0);
       expect(me()).toEqual({ me: 'ada', id: ada });
-      expect((await squad(sandbox, ['status'])).status).toBe(0);
+      const healed = await squad(sandbox, ['status']);
+      expect(healed.status).toBe(0);
+      expect(healed.stderr).toBe('');
       expect(me()).toEqual({ me: 'ada-2', id: ada });
 
-      // A hand edit of `me` wins while it resolves; its UUID is recorded.
+      // The UUID decides: a reused old name never moves the user.
+      expect((await runCli(sandbox, ['rename', 'ada-2', 'ada-3', '--json'])).status).toBe(0);
+      await identity(sandbox, 'ada-2');
+      const reused = await squad(sandbox, ['status']);
+      expect(reused.status).toBe(0);
+      expect(reused.stderr).toContain('still acting as ada-3');
+      expect(me()).toEqual({ me: 'ada-3', id: ada });
+
+      // A hand edit naming someone else is reported, not followed.
       writeFileSync(
         squadToml,
-        readFileSync(squadToml, 'utf8').replace('me = "ada-2"', 'me = "rin"')
+        readFileSync(squadToml, 'utf8').replace('me = "ada-3"', 'me = "rin"')
       );
-      expect((await squad(sandbox, ['status'])).status).toBe(0);
+      const edited = await squad(sandbox, ['status']);
+      expect(edited.status).toBe(0);
+      expect(edited.stderr).toContain(
+        "warning: squad.toml named 'rin' as you, but me_id is ada-3; still acting as ada-3"
+      );
+      expect(edited.stderr).toContain('hint: tmt squad init <squad> --me rin');
+      expect(me()).toEqual({ me: 'ada-3', id: ada });
+      expect((await squad(sandbox, ['init', 'product', '--me', 'rin'])).status).toBe(0);
       expect(me()).toEqual({ me: 'rin', id: rin });
 
       // Hooks on: the rename observation follows the user at once.

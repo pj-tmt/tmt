@@ -405,8 +405,9 @@ tmt squad help set                                  # or `set -h`: help with exa
 it, and non-interactive use requires `--me`. Re-running `init` changes nothing.
 When you rename your identity (`tmt rename`), squad follows it: at once if you
 enabled its hooks (`tmt extension hooks enable squad`), otherwise on the next
-command that acts as you. Editing `me` by hand to another saved identity also
-works. With one squad, commands
+command that acts as you. The UUID decides who you are, so editing `me` by hand
+to another identity only prints a warning; change who you are with `tmt squad
+init <squad> --me <name>`. With one squad, commands
 select it; with several, pass `--squad <name>`. `status` lists members, one per
 row: a leading mark (◆ when the member waits on you with `pending`, otherwise
 ● active, ◌ unverified or ○ offline), the name, the state, and what you need to

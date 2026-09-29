@@ -1909,11 +1909,14 @@ transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.
 Squad writes only the top-level `me` and `me_id` (the UUID `me` named), together,
 with a changed-input check and atomic replacement that preserves the rest of the
-document. `init` settles `me` before creating the room. `me::resolve` keeps them
-current: while `me` resolves, the name wins and its UUID is recorded (a hand edit
-stands); when it no longer resolves but `me_id` does, the identity was renamed
-and `me` takes the new name. A failed write never fails the command. With hooks
-enabled, `tmt-squad __tmt-hooks 1 observe` applies an `identity.renamed`
+document. `init` settles `me` before creating the room. The UUID decides, as it
+does for binding markers: while `me_id` names an active identity, that identity is
+the user and `me::resolve` rewrites `me` to its current name. Only when `me_id` is
+missing or no longer active does the name decide, and its UUID is recorded. An
+edited `me` that names a different identity is reported with a warning, never
+followed, so a reused name cannot make squad act as someone else; `tmt squad init
+--me` changes the user. A failed write never fails the command, and the board's
+refresh (`me::current`) neither writes nor prints. With hooks enabled, `tmt-squad __tmt-hooks 1 observe` applies an `identity.renamed`
 observation for `me_id` at once; the hooks are optional, and the same repair
 happens on the next command that needs `me`. The `tmt-squad` lead skill source lives under
 `extensions/tmt-squad/skills/` and is embedded only in the squad executable,

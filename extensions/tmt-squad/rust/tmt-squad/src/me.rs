@@ -1,5 +1,5 @@
 //! Which saved identity is the user. `squad.toml` keeps the name a person
-//! reads and edits (`me`) and the UUID it named (`me_id`), so `me` follows an
+//! reads (`me`) and the UUID that decides (`me_id`), so `me` follows an
 //! identity rename in core. The rename observation (`__tmt-hooks`) repairs the
 //! file at once; without hooks, the next command that needs `me` repairs it.
 
@@ -35,33 +35,78 @@ fn lookup(core: &Core, selector: &str) -> Result<Option<Me>, SquadError> {
     }
 }
 
-/// The user, resolved and written back when the file lags core.
-///
-/// The name decides while it resolves, so a hand edit of `me` wins and its
-/// UUID is recorded. When the name no longer resolves but `me_id` does, the
-/// identity was renamed: `me` takes the new name. A failed write never fails
-/// the command; the next one retries.
-pub fn resolve(core: &Core, config: &mut Config) -> Result<Option<Me>, SquadError> {
+/// Who the user is. The UUID decides, as core's binding markers do: while
+/// `me_id` names an active identity, that identity is the user under its
+/// current name. Only when `me_id` is missing or no longer active does the
+/// name decide, and its UUID is what gets recorded.
+#[derive(Debug, PartialEq, Eq)]
+enum Decided {
+    ById { me: Me },
+    ByName { me: Me },
+}
+
+fn decide(core: &Core, config: &Config) -> Result<Option<(Decided, String)>, SquadError> {
     let Some(name) = config.me()?.map(str::to_owned) else {
         return Ok(None);
     };
-    let recorded = config.me_id()?.map(str::to_owned);
-    let found = match lookup(core, &name)? {
-        Some(found) => found,
-        None => match recorded.as_deref().map(|id| lookup(core, id)).transpose()? {
-            Some(Some(renamed)) => renamed,
-            _ => {
-                return Err(SquadError::new(
-                    "NAME_NOT_FOUND",
-                    format!("Identity '{name}' was not found."),
-                ));
-            }
-        },
-    };
-    if found.name != name || recorded.as_deref() != Some(found.id.as_str()) {
-        let _ = config.set_me(&found.name, &found.id);
+    if let Some(id) = config.me_id()?
+        && let Some(me) = lookup(core, id)?
+    {
+        return Ok(Some((Decided::ById { me }, name)));
     }
-    Ok(Some(found))
+    let me = lookup(core, &name)?.ok_or_else(|| {
+        SquadError::new(
+            "NAME_NOT_FOUND",
+            format!("Identity '{name}' was not found."),
+        )
+    })?;
+    Ok(Some((Decided::ByName { me }, name)))
+}
+
+/// The user, without touching `squad.toml`: for the board's refresh, which
+/// must neither write the user's file nor print over its screen.
+pub fn current(core: &Core, config: &Config) -> Result<Option<Me>, SquadError> {
+    Ok(decide(core, config)?.map(|(decided, _)| match decided {
+        Decided::ById { me } | Decided::ByName { me } => me,
+    }))
+}
+
+/// The user, with `squad.toml` brought up to date: a rename rewrites `me`, a
+/// missing `me_id` is recorded. When `me` was edited to name a different
+/// identity, `me_id` still decides and one warning says how to change who
+/// the user is. A failed write never fails the command; the next retries.
+pub fn resolve(core: &Core, config: &mut Config) -> Result<Option<Me>, SquadError> {
+    let Some((decided, written)) = decide(core, config)? else {
+        return Ok(None);
+    };
+    let me = match decided {
+        Decided::ById { me } => {
+            if me.name != written && lookup(core, &written)?.is_some_and(|other| other.id != me.id)
+            {
+                warn_edited(&written, &me.name);
+            }
+            me
+        }
+        Decided::ByName { me } => me,
+    };
+    if me.name != written || config.me_id()? != Some(me.id.as_str()) {
+        let _ = config.set_me(&me.name, &me.id);
+    }
+    Ok(Some(me))
+}
+
+/// `me` named someone else while `me_id` still names the user.
+fn warn_edited(written: &str, kept: &str) {
+    let mut stderr = tmt_cli_style::stream::stderr();
+    let terminal = stderr.terminal();
+    let _ = tmt_cli_style::message::warning(
+        &mut stderr,
+        terminal,
+        &format!(
+            "squad.toml named '{written}' as you, but me_id is {kept}; still acting as {kept}."
+        ),
+        Some(&format!("tmt squad init <squad> --me {written}")),
+    );
 }
 
 /// The user, for commands that act as them.

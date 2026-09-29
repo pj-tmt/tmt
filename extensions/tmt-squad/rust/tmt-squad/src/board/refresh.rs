@@ -82,12 +82,12 @@ fn load(
         };
     };
     let view = (|| {
-        let mut config = Config::load(core)?;
+        let config = Config::load(core)?;
         let layout = config.layout(&squad.name)?;
         let states = config.states(&squad.name, layout)?;
         let board = config.board(&squad.name, layout)?;
         let sections = config.sections(&squad.name)?;
-        let me = crate::me::resolve(core, &mut config)?;
+        let me = crate::me::current(core, &config)?;
         let mut document =
             status::document(&squad, layout, &states, &sections, squad.members(core)?);
         let sent = requests::overlay(core, &squad, me.as_ref(), &mut document)?;
