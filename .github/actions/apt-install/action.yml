@@ -1,0 +1,27 @@
+name: Install apt packages
+description: >-
+  Updates the package index and installs packages on a Linux runner, with the
+  network steps under a bounded retry. It first drops the runner image's Google
+  Chrome apt source: no job here uses it, and its index has failed with a hash
+  mismatch that failed the whole update. Does nothing on other operating systems.
+inputs:
+  packages:
+    description: Space-separated package names.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install apt packages
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        for source in $(grep -l dl.google.com /etc/apt/sources.list.d/* 2>/dev/null || true); do
+          sudo rm -f "$source"
+        done
+        retry="$GITHUB_WORKSPACE/scripts/retry-command.sh"
+        "$retry" 3 5 sudo apt-get update
+        # The package list is intentionally split into separate arguments.
+        # shellcheck disable=SC2086
+        "$retry" 3 5 sudo apt-get install --no-install-recommends -y $PACKAGES

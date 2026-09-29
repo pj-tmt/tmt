@@ -57,12 +57,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
-      - name: Activate pinned pnpm
-        run: corepack enable && corepack prepare pnpm@10.33.0 --activate
+      - name: Set up Node.js and pnpm
+        uses: ./.github/actions/setup-tooling
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
@@ -108,16 +104,12 @@ jobs:
         run: |
           cargo build --locked -p tmt-office
           cargo build --locked --release -p tmt-cli
-      - name: Set up Node.js test tooling
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
+      - name: Set up Node.js and pnpm test tooling
+        uses: ./.github/actions/setup-tooling
       - name: Install shell test dependency
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y zsh
-      - name: Activate pinned pnpm
-        run: corepack enable && corepack prepare pnpm@10.33.0 --activate
+        uses: ./.github/actions/apt-install
+        with:
+          packages: zsh
       - name: Install test dependencies
         working-directory: typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -152,16 +144,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
+      - name: Set up Node.js and pnpm
+        uses: ./.github/actions/setup-tooling
       - name: Install shell and linkage test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y zsh binutils
-      - name: Activate pinned pnpm
-        run: corepack enable && corepack prepare pnpm@10.33.0 --activate
+        uses: ./.github/actions/apt-install
+        with:
+          packages: zsh binutils
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
@@ -189,12 +177,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
-      - name: Activate pinned pnpm
-        run: corepack enable && corepack prepare pnpm@10.33.0 --activate
+      - name: Set up Node.js and pnpm
+        uses: ./.github/actions/setup-tooling
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
@@ -228,9 +212,9 @@ jobs:
           persist-credentials: false
       - name: Install native build dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y musl-tools
+        uses: ./.github/actions/apt-install
+        with:
+          packages: musl-tools
       - name: Install pinned Rust
         run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
       - name: Cache locked native compilation
@@ -314,9 +298,9 @@ jobs:
         run: chmod +x runtime/tmt
       - name: Install linkage inspection tool
         if: runner.os == 'Linux' && !matrix.container
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y binutils
+        uses: ./.github/actions/apt-install
+        with:
+          packages: binutils
       - name: Verify native runtime on matching host
         if: ${{ !matrix.container }}
         run: |

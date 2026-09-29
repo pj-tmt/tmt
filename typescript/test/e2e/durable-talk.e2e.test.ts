@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { withE2EFixture, type MockEvent } from './harness.js';
+import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
 
 interface TalkResult {
   status?: string;
@@ -21,6 +21,18 @@ interface ResultOutput {
 
 function submittedFor(events: MockEvent[], requestId: string): MockEvent[] {
   return events.filter((event) => event.event === 'submitted' && event.requestId === requestId);
+}
+
+/**
+ * The mock agent logs `submitted` only after its `tmt reply` child has closed, which
+ * can be after `talk` has already returned the response, so read it with a bounded
+ * wait rather than once.
+ */
+function waitForSubmitted(fixture: E2EFixture, requestId: string): Promise<MockEvent> {
+  return fixture.waitForEvent(
+    (event) => event.event === 'submitted' && event.requestId === requestId,
+    5_000
+  );
 }
 
 describe.sequential('TMT-39 durable talk contract', () => {
@@ -47,9 +59,9 @@ describe.sequential('TMT-39 durable talk contract', () => {
           requestId: expect.stringMatching(/^req_[0-9a-f-]+$/),
           submittedAtMs: expect.any(Number),
         });
-        const event = submittedFor(fixture.events(), result.json?.requestId ?? '')[0];
+        const event = await waitForSubmitted(fixture, result.json?.requestId ?? '');
         expect(event).toMatchObject({ body, bodyBytes: Buffer.byteLength(body) });
-        expect(event?.submittedAtMs).toBe(result.json?.submittedAtMs);
+        expect(event.submittedAtMs).toBe(result.json?.submittedAtMs);
       },
       { responseBodyBase64: Buffer.from(body, 'utf8').toString('base64') }
     );
@@ -119,9 +131,7 @@ describe.sequential('TMT-39 durable talk contract', () => {
         expect(result.code, result.stderr || result.stdout).toBe(0);
         expect(result.json?.response).toBe(boundary);
         expect(result.json?.bodyBytes).toBe(1024 * 1024);
-        expect(submittedFor(fixture.events(), result.json?.requestId ?? '')[0]?.body).toBe(
-          boundary
-        );
+        expect((await waitForSubmitted(fixture, result.json?.requestId ?? '')).body).toBe(boundary);
       },
       { responseBytes: 1024 * 1024, responseMultibyte: true }
     );

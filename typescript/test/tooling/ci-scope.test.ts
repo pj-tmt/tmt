@@ -14,7 +14,13 @@ import { describe, expect, it } from 'vitest';
 import {
   NATIVE_OFFICE_UNREACHABLE,
   ciGatePasses,
+  explainCiSelection,
+  globToRegExp,
+  ownerOf,
+  parseComponentMap,
   readChangedCiAreas,
+  renderSelectionEvidence,
+  runCiScope,
   selectCiAreas,
 } from '../../scripts/ci-scope.mjs';
 
@@ -65,14 +71,70 @@ describe('CI area selection', () => {
     'contracts/office/request.json',
     'extensions/tmt-office/contracts/request.json',
     'extensions/tmt-office/skills/tmt-office/SKILL.md',
-    'extensions/tmt-office/rust/tmt-office/src/main.rs',
-    'extensions/tmt-office/rust/tmt-office-pairing/src/lib.rs',
-    'extensions/tmt-office/rust/tmt-office-service/src/lib.rs',
     'extensions/tmt-office/typescript/services/office/firestore.rules',
+    'typescript/test/e2e/harness.ts',
+    'typescript/test/support/office-world.ts',
+    '.github/components.json',
     'typescript/apps/office/src/main.tsx',
     'new-owner/file.ts',
   ])('fans out shared or unknown input %s', (file) => {
     expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: true });
+  });
+
+  it.each(['typescript/test/e2e/Dockerfile', 'docs/cli-style.md', 'docs/NATIVE-INSTALL.md'])(
+    'runs native and Office checks, but not the Office shards, for input %s',
+    (file) => {
+      expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: false });
+    }
+  );
+
+  it.each([
+    'ARCHITECTURE.md',
+    'DEVELOPMENT.md',
+    'USER-GUIDE.md',
+    'docs/extension-api.md',
+    '.agents/skills/tmt-dev/SKILL.md',
+    '.github/pull_request_template.md',
+  ])('selects nothing beyond Code quality for prose that no job reads: %s', (file) => {
+    expect(selectCiAreas([file])).toEqual({ native: false, office: false, nativeOffice: false });
+  });
+
+  it.each([
+    'typescript/test/native/api.test.ts',
+    'typescript/test/native/office-board.test.ts',
+    'typescript/test/tooling/ci-scope.test.ts',
+    'typescript/test/e2e/squad.e2e.test.ts',
+    'typescript/test/e2e/office-command.e2e.test.ts',
+  ])('selects only the native jobs for the core-only test %s', (file) => {
+    expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
+  });
+
+  it('keeps look-alikes of the narrowed classes failing closed', () => {
+    for (const lookAlike of [
+      'docs/office.md.orig',
+      'docs/new/nested.md',
+      'README.md.bak',
+      'typescript/test/e2e/squad.e2e.test.ts.orig',
+      'typescript/test/e2e/nested/deep.e2e.test.ts',
+      'typescript/test/nativeish/api.test.ts',
+      '.agentsish/file.md',
+      'extensions/tmt-office/rusty/file.rs',
+    ]) {
+      expect(selectCiAreas([lookAlike]), lookAlike).toMatchObject({ native: true, office: true });
+    }
+  });
+
+  it('lets a shared path override inert prose in the same change', () => {
+    expect(selectCiAreas(['ARCHITECTURE.md', 'typescript/package.json'])).toEqual({
+      native: true,
+      office: true,
+      nativeOffice: true,
+    });
+    expect(selectCiAreas(['ARCHITECTURE.md', 'rust/crates/tmt-core/src/lib.rs'])).toEqual({
+      native: true,
+      office: false,
+      nativeOffice: true,
+    });
   });
 
   it('schedules native Office browser shards only for Office and the core it consumes', () => {
@@ -120,8 +182,8 @@ describe('CI area selection', () => {
         { native: true, office: false, nativeOffice: true }
       );
     }
-    // Prose, core-only suites and E2E scenarios fan out to native and Office
-    // checks, but the native Office image never reads them.
+    // Prose, core-only suites and E2E scenarios select native checks only, and
+    // the native Office image never reads them. The E2E image recipe is shared.
     expect(
       selectCiAreas([
         'ARCHITECTURE.md',
@@ -129,9 +191,13 @@ describe('CI area selection', () => {
         'typescript/test/native/api.test.ts',
         'typescript/test/tooling/ci-scope.test.ts',
         'typescript/test/e2e/squad.e2e.test.ts',
-        'typescript/test/e2e/Dockerfile',
       ])
-    ).toEqual({ native: true, office: true, nativeOffice: false });
+    ).toEqual({ native: true, office: false, nativeOffice: false });
+    expect(selectCiAreas(['ARCHITECTURE.md', 'typescript/test/e2e/Dockerfile'])).toEqual({
+      native: true,
+      office: true,
+      nativeOffice: false,
+    });
     for (const read of [
       'docs/office/architecture.md',
       'extensions/tmt-office/README.md',
@@ -144,7 +210,7 @@ describe('CI area selection', () => {
     }
     expect(selectCiAreas(['extensions/tmt-office/rust/tmt-office/src/main.rs'])).toEqual({
       native: true,
-      office: true,
+      office: false,
       nativeOffice: true,
     });
     expect(selectCiAreas(['extensions/tmt-office/typescript/apps/office/src/main.tsx'])).toEqual({
@@ -264,6 +330,193 @@ describe('CI area selection', () => {
   });
 });
 
+describe('component map', () => {
+  const repository = fileURLToPath(new URL('../../../', import.meta.url));
+  const mapText = readFileSync(path.join(repository, '.github/components.json'), 'utf8');
+  const map = parseComponentMap(mapText);
+  const tracked = (): string[] =>
+    runPackedCommand('git', ['ls-files', '-z'], { cwd: repository, env: process.env })
+      .split('\0')
+      .filter(Boolean);
+  const invalid = (change: (value: Record<string, any>) => void) => {
+    const value = JSON.parse(mapText);
+    change(value);
+    return () => parseComponentMap(JSON.stringify(value));
+  };
+
+  it('matches globs by whole path, with ** across directories and newlines', () => {
+    expect(globToRegExp('rust/**').test('rust/crates/tmt-core/src/lib.rs')).toBe(true);
+    expect(globToRegExp('rust/**').test('rustic/lib.rs')).toBe(false);
+    expect(globToRegExp('apps/office/**').test('apps/office/name with\nnewline.ts')).toBe(true);
+    expect(globToRegExp('docs/*.md').test('docs/guide.md')).toBe(true);
+    expect(globToRegExp('docs/*.md').test('docs/nested/guide.md')).toBe(false);
+    expect(globToRegExp('docs/*.md').test('docs/guide.mdx')).toBe(false);
+    expect(globToRegExp('a?c').test('abc')).toBe(true);
+    expect(globToRegExp('a?c').test('a/c')).toBe(false);
+    expect(globToRegExp('a.b+c').test('aXb+c')).toBe(false);
+  });
+
+  it('rejects a malformed map instead of selecting the wrong work', () => {
+    expect(invalid((value) => (value.rules[0].consumers = ['native', 'browser']))).toThrow(
+      'unknown consumer'
+    );
+    expect(invalid((value) => (value.rules[1].id = value.rules[0].id))).toThrow('repeated');
+    expect(invalid((value) => (value.rules[0].paths = []))).toThrow('non-empty list');
+    expect(invalid((value) => delete value.rules[0].why)).toThrow('needs a reason');
+    expect(invalid((value) => (value.components = {}))).toThrow('no components');
+    expect(invalid((value) => (value.components.cli.owns = 'rust'))).toThrow('non-empty list');
+  });
+
+  it('resolves one owner per path: a selectedBy glob wins, look-alike prefixes do not match', () => {
+    const owner = (file: string) => ownerOf(file, map);
+    expect(owner('rust/crates/tmt-core/src/lib.rs')).toBe('cli');
+    expect(owner('typescript/test/native/api.test.ts')).toBe('cli');
+    expect(owner('extensions/tmt-office/rust/tmt-office/src/main.rs')).toBe('office');
+    expect(owner('extensions/tmt-squad/rust/tmt-squad/src/main.rs')).toBe('squad');
+    expect(owner('typescript/test/native/office-board.test.ts')).toBe('office');
+    expect(owner('typescript/test/e2e/squad.e2e.test.ts')).toBe('squad');
+    expect(owner('extensions/tmt-squad-other/file.rs')).toBe('cli');
+    expect(owner('extensions/tmt-officer/file.rs')).toBe('cli');
+  });
+
+  it('explains every changed path with its owner, rule and consumers', () => {
+    const rows = explainCiSelection(
+      ['ARCHITECTURE.md', 'extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'new-owner/file.ts'],
+      map
+    );
+    expect(rows.map(({ path: file, owner, rule }) => [file, owner, rule])).toEqual([
+      ['ARCHITECTURE.md', 'cli', 'prose'],
+      ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'squad', 'native-source'],
+      ['new-owner/file.ts', 'cli', 'unmapped'],
+    ]);
+    expect(rows[0]).toMatchObject({ native: false, office: false, nativeOffice: false });
+    expect(rows[2]).toMatchObject({ native: true, office: true, nativeOffice: true });
+  });
+
+  it('renders the evidence table with the map digest, and bounds a large diff', () => {
+    const rows = explainCiSelection(['ARCHITECTURE.md', 'rust/lib.rs'], map);
+    const text = renderSelectionEvidence({
+      base: 'a'.repeat(40),
+      head: 'b'.repeat(40),
+      rows,
+      areas: selectCiAreas(['ARCHITECTURE.md', 'rust/lib.rs'], map),
+      digest: map.digest,
+    });
+    expect(text).toContain('Diff `aaaaaaaaaaaa...bbbbbbbbbbbb`, 2 changed path(s)');
+    expect(text).toContain(`sha256:${map.digest}`);
+    expect(text).toContain('Selected: native=true, office=false, native_office=true.');
+    expect(text).toContain('| `ARCHITECTURE.md` | cli | prose | nothing |');
+    expect(text).toContain('| `rust/lib.rs` | cli | native-source | native, native_office |');
+    const many = explainCiSelection(
+      Array.from({ length: 130 }, (_, index) => `docs/file-${index}.md`),
+      map
+    );
+    const bounded = renderSelectionEvidence({
+      base: 'a'.repeat(40),
+      head: 'b'.repeat(40),
+      rows: many,
+      areas: { native: false, office: false, nativeOffice: false },
+      digest: map.digest,
+    });
+    expect(bounded.match(/^\| `docs\//gm)).toHaveLength(100);
+    expect(bounded).toContain('30 more path(s) not listed: prose 30.');
+  });
+
+  it('every rule and selectedBy glob still matches a tracked file', () => {
+    const files = tracked();
+    expect(files.length).toBeGreaterThan(100);
+    const globs = [
+      ...map.rules.flatMap((rule) => rule.globs.map((glob) => [`rule ${rule.id}`, glob])),
+      ...map.components.flatMap((component) =>
+        component.selectedBy.map(({ glob }) => [`component ${component.name}`, glob])
+      ),
+    ];
+    for (const [owner, glob] of globs) {
+      const pattern = globToRegExp(glob);
+      expect(
+        files.some((file) => pattern.test(file)),
+        `${owner}: ${glob} matches no tracked file`
+      ).toBe(true);
+    }
+    for (const component of map.components) {
+      for (const root of [...component.owns, ...component.excludes]) {
+        expect(
+          root === '.' || files.some((file) => file.startsWith(`${root}/`)),
+          `${component.name}: root ${root} has no tracked file`
+        ).toBe(true);
+      }
+    }
+    for (const file of files) expect(ownerOf(file, map), file).not.toBe('unowned');
+  });
+
+  it('keeps prose inert only while no test or build input reads it', () => {
+    const files = tracked();
+    const inert = explainCiSelection(files, map)
+      .filter((row) => row.rule === 'prose')
+      .map((row) => row.path);
+    expect(inert).toContain('ARCHITECTURE.md');
+    // Files that name inert prose without reading it in a job that inert paths would skip:
+    // prettier's file lists run in Code quality on every change, and the rest only mention
+    // a name.
+    const mentions: Record<string, string> = {
+      'typescript/package.json': 'prettier file lists, run by Code quality on every change',
+      'typescript/test/tooling/ci-scope.test.ts': 'path fixtures for the selector tests',
+      'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
+      '.github/components.json': 'the map names the prose in its own rules',
+      'rust/crates/tmt-adapters/src/skill_installation/owned_tests.rs':
+        'a fixture file name, not the repository README',
+    };
+    // Only files that contain ".md" at all can name prose.
+    const candidates = runPackedCommand('git', ['grep', '-l', '-z', '-I', '-F', '.md', '--', '.'], {
+      cwd: repository,
+      env: process.env,
+    })
+      .split('\0')
+      .filter((file: string) => file && !file.endsWith('.md') && !(file in mentions));
+    expect(candidates.length).toBeGreaterThan(20);
+    const readers: string[] = [];
+    for (const file of candidates) {
+      const text = readFileSync(path.join(repository, file), 'utf8');
+      const references = new Set(text.match(/[A-Za-z0-9_./-]+\.md\b/g) ?? []);
+      for (const reference of references) {
+        if (
+          inert.some(
+            (prose) =>
+              reference === prose ||
+              (prose.includes('/')
+                ? reference.endsWith(`/${prose}`)
+                : /^(\.\.?\/)+/.test(reference) && reference.replace(/^(\.\.?\/)+/, '') === prose)
+          )
+        ) {
+          readers.push(`${file} -> ${reference}`);
+        }
+      }
+    }
+    expect(readers, 'these files read or name inert prose; map the prose to its consumer').toEqual(
+      []
+    );
+  });
+
+  it('keeps Office TypeScript and the shared test helpers away from native-only tests', () => {
+    const files = tracked().filter(
+      (file) =>
+        (file.startsWith('extensions/tmt-office/typescript/') && /\.(tsx?|mjs)$/.test(file)) ||
+        (/^typescript\/test\/(e2e|support)\/[^/]+\.(ts|mjs)$/.test(file) &&
+          !file.endsWith('.e2e.test.ts'))
+    );
+    expect(files.length).toBeGreaterThan(50);
+    for (const file of files) {
+      const text = readFileSync(path.join(repository, file), 'utf8');
+      expect(
+        /\b(?:from|import)\s*\(?\s*['"][^'"]*(?:\.e2e\.test|\/test\/native\/|\/test\/tooling\/|\.\.\/native\/|\.\.\/tooling\/)/.test(
+          text
+        ),
+        `${file} imports a test the Office jobs are not selected for`
+      ).toBe(false);
+    }
+  });
+});
+
 describe('CI diff and command integration', () => {
   it('reads actual additions, cross-owner renames and deletions with whitespace-safe paths', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-'));
@@ -292,8 +545,8 @@ describe('CI diff and command integration', () => {
       git(['init', '--quiet']);
       writeFileSync(path.join(root, 'README.md'), 'fixture\n');
       const base = commit();
-      mkdirSync(path.join(root, 'apps/office'), { recursive: true });
-      const historicalSource = path.join(root, 'apps/office/name with\nnewline.ts');
+      mkdirSync(path.join(root, 'docs/office'), { recursive: true });
+      const historicalSource = path.join(root, 'docs/office/name with\nnewline.ts');
       writeFileSync(historicalSource, 'export const fixture = true;\n');
       const historical = commit();
       expect(readChangedCiAreas(base, historical, root)).toEqual({
@@ -335,6 +588,70 @@ describe('CI diff and command integration', () => {
       expect(() => readChangedCiAreas('--help', deleted, root)).toThrow('exact base and head');
       expect(() => readChangedCiAreas('0'.repeat(40), deleted, root)).toThrow(
         'Packed command failed'
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 5000);
+
+  it('writes only the step outputs to stdout and the evidence to stderr and the summary', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-run-'));
+    const git = (args: string[]): string =>
+      runPackedCommand('git', args, {
+        cwd: root,
+        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+      });
+    const commit = (): string => {
+      git(['add', '.']);
+      git([
+        '-c',
+        'user.name=TMT Test',
+        '-c',
+        'user.email=test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '--quiet',
+        '-m',
+        'Test fixture',
+      ]);
+      return git(['rev-parse', 'HEAD']).trim();
+    };
+    const capture = () => {
+      let text = '';
+      return { write: (chunk: string) => void (text += chunk), text: () => text };
+    };
+    try {
+      git(['init', '--quiet']);
+      writeFileSync(path.join(root, 'ARCHITECTURE.md'), 'fixture\n');
+      const base = commit();
+      mkdirSync(path.join(root, 'rust'));
+      writeFileSync(path.join(root, 'rust/fixture.rs'), '// fixture\n');
+      writeFileSync(path.join(root, 'ARCHITECTURE.md'), 'changed\n');
+      const head = commit();
+      const summaryFile = path.join(root, 'summary.md');
+      const stdout = capture();
+      const stderr = capture();
+      runCiScope([base, head], { cwd: root, stdout, stderr, summaryFile });
+      expect(stdout.text()).toBe('native=true\noffice=false\nnative_office=true\n');
+      expect(stderr.text()).toContain('### CI selection');
+      expect(stderr.text()).toContain(
+        '| `rust/fixture.rs` | cli | native-source | native, native_office |'
+      );
+      expect(stderr.text()).toContain('| `ARCHITECTURE.md` | cli | prose | nothing |');
+      expect(readFileSync(summaryFile, 'utf8')).toBe(stderr.text());
+      // Without a summary file nothing is written there, and a second run appends.
+      const quiet = capture();
+      runCiScope([base, head], { cwd: root, stdout: capture(), stderr: quiet });
+      expect(quiet.text()).toBe(stderr.text());
+      runCiScope([base, head], { cwd: root, stdout: capture(), stderr: capture(), summaryFile });
+      expect(readFileSync(summaryFile, 'utf8')).toBe(stderr.text() + stderr.text());
+      expect(() => runCiScope(['only-one'], { cwd: root, stdout, stderr })).toThrow(
+        'exact base and head'
+      );
+      runCiScope(['gate', 'true', 'success'], { cwd: root, stdout, stderr });
+      expect(() => runCiScope(['gate', 'true', 'failure'], { cwd: root, stdout, stderr })).toThrow(
+        'did not complete successfully'
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

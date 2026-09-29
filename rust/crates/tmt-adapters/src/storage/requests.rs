@@ -189,6 +189,14 @@ impl RequestRecords for RequestRows<'_> {
         history::find_request_history(self.0, request_id)
     }
 
+    fn list_open_requests(
+        &self,
+        query: &tmt_core::request::inbox::OpenQuery,
+        now_ms: u64,
+    ) -> Result<Vec<tmt_core::request::history::HistoryRecord>, Self::Error> {
+        history::list_open_requests(self.0, query, now_ms)
+    }
+
     fn room_has_recipient(&self, room_id: &str, identity_id: &str) -> Result<bool, Self::Error> {
         Ok(super::room::read_room(self.0, room_id)?
             .is_some_and(|room| room.member_ids.iter().any(|id| id == identity_id)))

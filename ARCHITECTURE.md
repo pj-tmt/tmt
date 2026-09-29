@@ -565,11 +565,16 @@ or consume retained-pack quotas; custom catalog revisions remain storage-owned.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
-`typescript/scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
-validation. Office-only source/docs avoid native matrices; native source/skill
-changes avoid Office. Shared or unknown paths (including lockfiles, security,
-contracts, workflows and test tooling) fan out. Empty diffs fail closed to both.
-Diffs include deletions and both sides of renames. Existing required check names
+`.github/components.json` is the one component map: who owns the CLI, Office and Squad
+paths, and the ordered rules that say which CI consumers a path selects and why.
+`typescript/scripts/ci-scope.mjs` reads it and owns conservative affected-area
+selection and final gate validation. Office-only source/docs avoid native matrices;
+native source/skill changes, Office's Rust crates, core-only test suites and E2E
+scenario files avoid the Office web checks; prose that no job reads selects nothing
+beyond `Code quality`. Shared or unknown paths (including lockfiles, security,
+contracts, workflows, the map itself and the E2E harness) fan out. Empty diffs fail
+closed to both. Diffs include deletions and both sides of renames. The selector writes
+a per-path evidence table (owner, rule, selection, map digest) to the run summary. Existing required check names
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
@@ -1034,7 +1039,7 @@ The maintained public surface is:
 - saved-identity notes through `notes path`;
 - the versioned local extension interface through `api`;
 - profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
-  `reply`, `result`, `talk`/`send`, `check`/`read`;
+  `reply`, `result`, `inbox`, `answer`, `talk`/`send`, `check`/`read`;
 - `focus <identity|pane>`, which shows a verified pane in the
   invoking user's own tmux client and reports that client (see the driver
   `focus` action), and the read-only `focus --client`, which names the same
@@ -1603,6 +1608,17 @@ becomes unread again. Acknowledgment means handled, not successful or cancelled.
 Retention is frozen per attempt; bounded lazy housekeeping must respect active
 waiters, preserve the defined acceptance deadline and never resurrect an expired
 submission. The settings owner defines retention defaults and limits.
+
+Whether a request still accepts a first final is one service rule,
+`first_final_refusal`: final submission enforces it, and the open-request read
+(`open_requests`) applies it to what `storage::requests` narrows by the same
+columns. "Waiting on you" is therefore an open-request question, not an
+attention one: acknowledgment and live delivery settle attention but leave a
+request open until a final or its acceptance deadline. `answer_target` selects
+one open request by recipient and originator, never guessing among several, and
+derives the route proof in-process from the recorded attempt, so `tmt answer`
+submits through the same acceptance path as `reply` without exposing a receipt
+([contract](REQUEST-RESPONSE.md#inbox-and-answer)).
 
 `RequestRoute` distinguishes unbound direct-pane delivery from durable identity inbox
 queueing. Identified talk is Inbox-first with one claimed full-payload live wake;
