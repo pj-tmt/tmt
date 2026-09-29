@@ -44,6 +44,10 @@ pub enum Invocation {
         name: String,
         force: bool,
     },
+    Rename {
+        old: String,
+        new: String,
+    },
     Whoami,
     WhoamiContext,
     Unbind,

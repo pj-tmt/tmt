@@ -2281,3 +2281,28 @@ fn focus_takes_one_identity_or_pane_target() {
         "USAGE_ERROR"
     );
 }
+
+#[test]
+fn rename_takes_two_names_at_the_top_level_and_under_identity() {
+    let expected = Invocation::Rename {
+        old: "opus-tmt-peer-2".into(),
+        new: "tmt-peer-2".into(),
+    };
+    assert_eq!(
+        parsed(&["rename", "opus-tmt-peer-2", "tmt-peer-2"]).invocation,
+        expected
+    );
+    assert_eq!(
+        parsed(&[
+            "identity",
+            "rename",
+            "opus-tmt-peer-2",
+            "tmt-peer-2",
+            "--json"
+        ])
+        .invocation,
+        expected
+    );
+    parse_error(&["rename", "only-one"]);
+    parse_error(&["identity", "rename"]);
+}

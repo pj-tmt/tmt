@@ -339,6 +339,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             name: required(m, "name"),
             force: flag(m, "force"),
         },
+        ["rename"] | ["identity", "rename"] => Invocation::Rename {
+            old: required(m, "old"),
+            new: required(m, "new"),
+        },
         ["talk"] => {
             let timeout = text(m, "timeout")
                 .map(|value| duration(&value))
