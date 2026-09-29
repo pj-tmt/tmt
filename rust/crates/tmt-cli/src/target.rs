@@ -5,8 +5,8 @@ use crate::{
     output::Failure,
 };
 use tmt_adapters::{
+    host::{Host, OperationOptions},
     storage::Storage,
-    tmux::{BindingSession, OperationOptions, Tmux},
 };
 use tmt_core::{
     binding::{self, PaneIdentity},
@@ -18,10 +18,10 @@ use tmt_core::{
 #[cfg(test)]
 mod tests;
 
-pub fn resolve(storage: &mut Storage, tmux: &Tmux, input: &str) -> Result<PaneIdentity, Failure> {
-    let mut endpoint = BindingSession::new(tmux);
+pub fn resolve(storage: &mut Storage, host: &Host, input: &str) -> Result<PaneIdentity, Failure> {
+    let mut endpoint = host.session();
     if is_pane_target(input) {
-        let pane = tmux
+        let pane = host
             .resolve_target(input, OperationOptions::default())
             .map_err(endpoint_failure)?
             .ok_or_else(|| {
@@ -45,9 +45,9 @@ pub fn resolve(storage: &mut Storage, tmux: &Tmux, input: &str) -> Result<PaneId
 }
 
 /// A fresh observation before preparation is not a lease on later processing.
-pub fn refresh(tmux: &Tmux, observed: &PaneIdentity) -> Result<RequestEndpoint, Failure> {
+pub fn refresh(host: &Host, observed: &PaneIdentity) -> Result<RequestEndpoint, Failure> {
     let scope = [observed.pane.id.clone()];
-    let snapshot = tmux
+    let snapshot = host
         .snapshot(OperationOptions {
             pane_ids: Some(&scope),
             ..Default::default()

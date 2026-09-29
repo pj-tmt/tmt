@@ -2,16 +2,16 @@
 
 use crate::{
     config::{ConfigFiles, ConfigPaths},
+    host::{Host, PaneCosmetics},
     process::CommandRunner,
     storage::Storage,
-    tmux::{PaneCosmetics, Tmux},
 };
 use std::time::{Duration, Instant};
 use tmt_core::{binding::Binding, settings::PaneBadge};
 
 pub fn refresh<R: CommandRunner>(
     paths: &ConfigPaths,
-    tmux: &Tmux<R>,
+    host: &Host<R>,
     expected: &Binding,
     deadline: Instant,
 ) {
@@ -48,5 +48,5 @@ pub fn refresh<R: CommandRunner>(
         identity: &context.entry.identity,
         badge: settings.settings.pane_badge == PaneBadge::On,
     };
-    let _ = tmux.update_binding_cosmetics_until(binding, cosmetics, deadline);
+    let _ = host.update_binding_cosmetics_until(binding, cosmetics, deadline);
 }

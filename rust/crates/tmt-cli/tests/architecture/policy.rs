@@ -475,6 +475,18 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
+            // Terminal hosts are reached through the host port (#486); only it
+            // and the tmux module itself name tmux.
+            let names_tmux = (root == "tmt_adapters" && module == "tmux")
+                || (source.package == "tmt-adapters" && root == "crate" && module == "tmux");
+            let host_owner = source.package == "tmt-adapters"
+                && (source.file == "host.rs" || source.file.starts_with("tmux/"));
+            if names_tmux && !host_owner {
+                violations.push(format!(
+                    "{location}: reach the terminal host through tmt_adapters::host, not {}",
+                    path.join("::")
+                ));
+            }
             if root == "tmt_squad" && source.package != "tmt-squad" {
                 violations.push(format!(
                     "{location}: no package may depend on the squad extension: {}",

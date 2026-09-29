@@ -14,6 +14,7 @@ use std::{
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
     drivers::Registry,
+    host::{CallerEnvironment, Host, PaneCosmetics},
     process::{
         UnixCommandRunner,
         interactive::InteractiveChild,
@@ -25,7 +26,6 @@ use tmt_adapters::{
     },
     setup::start_hook_installed,
     storage::{Storage, StorageError},
-    tmux::{BindingSession, CallerEnvironment, PaneCosmetics, Tmux},
 };
 use tmt_core::{
     binding::{
@@ -241,8 +241,8 @@ pub fn execute(
 
 fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     crate::caller_context::require_independent_host()?;
-    let tmux = Tmux::default();
-    let pane = tmux
+    let host = Host::default();
+    let pane = host
         .caller_pane(&CallerEnvironment::current())
         .map_err(endpoint_failure)?
         .ok_or_else(|| {
@@ -264,7 +264,7 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     let pending = run_bound(
         &mut storage,
         &paths,
-        &tmux,
+        &host,
         &pane,
         request,
         badge,
@@ -283,7 +283,7 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
 fn run_bound(
     storage: &mut Storage,
     paths: &ConfigPaths,
-    tmux: &Tmux,
+    host: &Host,
     pane: &str,
     request: RunRequest<'_>,
     badge: PaneBadge,
@@ -337,14 +337,9 @@ fn run_bound(
         .as_ref()
         .and_then(|harness| registry.lifecycle(harness))
         .unwrap_or(&NoLifecycle);
-    let bound = binding::bind_identity_with_creation(
-        storage,
-        &mut BindingSession::new(tmux),
-        pane,
-        name,
-        save,
-    )
-    .map_err(binding_failure)?;
+    let bound =
+        binding::bind_identity_with_creation(storage, &mut host.session(), pane, name, save)
+            .map_err(binding_failure)?;
     let binding = bound
         .presence
         .binding
@@ -417,7 +412,7 @@ fn run_bound(
     } else {
         true
     };
-    if tmux
+    if host
         .update_binding_cosmetics(
             binding,
             PaneCosmetics::Bound {
@@ -543,7 +538,7 @@ fn run_bound(
     }
     crate::pane_badge::refresh(
         paths,
-        tmux,
+        host,
         binding,
         Instant::now() + Duration::from_secs(1),
     );
@@ -597,7 +592,7 @@ fn run_bound(
         }
         crate::pane_badge::refresh(
             paths,
-            tmux,
+            host,
             binding,
             Instant::now() + Duration::from_secs(1),
         );

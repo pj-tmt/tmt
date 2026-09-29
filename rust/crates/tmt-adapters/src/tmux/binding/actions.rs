@@ -202,7 +202,7 @@ impl<R: CommandRunner> Driver for BindingSession<'_, R> {
             }),
             Err(FocusError::HostUnsupported) => ActionResult::Failed(ActionError::HostUnsupported),
             Err(FocusError::PaneNotFound) => ActionResult::Failed(ActionError::Unverified),
-            Err(FocusError::Tmux(error)) => ActionResult::Failed(ActionError::Evidence(error)),
+            Err(FocusError::Evidence(error)) => ActionResult::Failed(ActionError::Evidence(error)),
         }
     }
 }

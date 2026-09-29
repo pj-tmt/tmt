@@ -1,7 +1,7 @@
 //! Bringing a pane to the invoking user's tmux client. Only the view changes:
 //! no buffer, paste or key input, and never a guessed client.
 
-use super::{CommandRunner, OperationOptions, Tmux, TmuxError, socket_args};
+use super::{CallerEnvironment, CommandRunner, OperationOptions, Tmux, TmuxError, socket_args};
 use tmt_core::endpoint::valid_pane_id;
 
 // tmux sanitizes control characters in formats; share the evidence separator.
@@ -20,6 +20,29 @@ pub struct Invoker {
     pub session: Option<String>,
 }
 
+impl Invoker {
+    /// Only what the environment reports; no client is guessed. Key-binding
+    /// jobs have `TMUX` but no `TMUX_PANE`; `TMUX`'s session serves.
+    pub fn from_environment(environment: &CallerEnvironment) -> Option<Self> {
+        let socket = environment.selected_server_socket().ok().flatten()?;
+        let pane = environment
+            .pane
+            .as_ref()
+            .and_then(|pane| pane.to_str())
+            .filter(|pane| !pane.is_empty())
+            .map(str::to_owned);
+        let session = environment.selected_session();
+        if pane.is_none() && session.is_none() {
+            return None;
+        }
+        Some(Self {
+            socket: socket.to_owned(),
+            pane,
+            session,
+        })
+    }
+}
+
 /// The invoker's tmux client and the pane it shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientView {
@@ -33,7 +56,7 @@ pub enum FocusError {
     HostUnsupported,
     /// The requested pane does not exist on the invoker's server.
     PaneNotFound,
-    Tmux(TmuxError),
+    Evidence(TmuxError),
 }
 
 impl std::fmt::Display for FocusError {
@@ -43,7 +66,7 @@ impl std::fmt::Display for FocusError {
                 formatter.write_str("No tmux client for this invocation can be focused.")
             }
             Self::PaneNotFound => formatter.write_str("The pane was not found."),
-            Self::Tmux(error) => error.fmt(formatter),
+            Self::Evidence(error) => error.fmt(formatter),
         }
     }
 }
@@ -51,7 +74,7 @@ impl std::fmt::Display for FocusError {
 impl std::error::Error for FocusError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Tmux(error) => Some(error),
+            Self::Evidence(error) => Some(error),
             _ => None,
         }
     }
@@ -63,7 +86,7 @@ fn absent_or(error: TmuxError, absent: FocusError) -> FocusError {
     if error.exited() && !error.socket_permission_denied() {
         absent
     } else {
-        FocusError::Tmux(error)
+        FocusError::Evidence(error)
     }
 }
 
@@ -120,7 +143,7 @@ impl<R: CommandRunner> Tmux<R> {
         .join(FIELD);
         let clients = self
             .query(&invoker.socket, &["list-clients", "-F", &format], options)
-            .map_err(FocusError::Tmux)?;
+            .map_err(FocusError::Evidence)?;
         clients
             .lines()
             .filter_map(|line| {

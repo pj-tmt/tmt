@@ -11,8 +11,8 @@ use crate::{
 use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
+    host::{BindingSession, CallerEnvironment, Host, OperationOptions, PaneCosmetics, PaneRefresh},
     storage::Storage,
-    tmux::{BindingSession, CallerEnvironment, OperationOptions, PaneCosmetics, PaneRefresh, Tmux},
 };
 use tmt_core::{
     binding::session::{RememberedSession, RuntimeState},
@@ -89,12 +89,12 @@ fn remembered_session(
 
 fn preflight(
     request: &Invocation,
-    tmux: &Tmux,
+    host: &Host,
     environment: &CallerEnvironment,
 ) -> Result<Option<ResolvedPane>, Failure> {
     let target = match request {
         Invocation::BindMarked { .. } => {
-            let target = tmux
+            let target = host
                 .marked_pane(environment, OperationOptions::default())
                 .map_err(endpoint_failure)?
                 .ok_or_else(|| {
@@ -136,7 +136,7 @@ fn preflight(
         } => {
             // `--here` is caller-scoped like `whoami`: it needs a tmux pane.
             crate::caller_context::require_independent_host()?;
-            return tmux
+            return host
                 .caller_pane(environment)
                 .map_err(endpoint_failure)?
                 .map(|id| Some(ResolvedPane { id, frozen: None }))
@@ -151,7 +151,7 @@ fn preflight(
         }
         Invocation::Bind { pane: None, .. } | Invocation::Whoami | Invocation::Unbind => {
             crate::caller_context::require_independent_host()?;
-            return tmux
+            return host
                 .caller_pane(environment)
                 .map_err(endpoint_failure)?
                 .map(|id| Some(ResolvedPane { id, frozen: None }))
@@ -167,7 +167,7 @@ fn preflight(
     };
     target
         .map(|target| {
-            tmux.resolve_target(target, OperationOptions::default())
+            host.resolve_target(target, OperationOptions::default())
                 .map_err(endpoint_failure)?
                 .ok_or_else(|| {
                     Failure::new(
@@ -182,9 +182,9 @@ fn preflight(
 }
 
 fn run(request: Invocation) -> Result<Report, Failure> {
-    let tmux = Tmux::default();
+    let host = Host::default();
     let environment = CallerEnvironment::current();
-    let pane = preflight(&request, &tmux, &environment)?;
+    let pane = preflight(&request, &host, &environment)?;
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let badge = if matches!(
         request,
@@ -203,7 +203,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     let mut storage = Storage::open(paths.database).map_err(|error| {
         Failure::new("IDENTITY_ERROR", "Could not open identity storage.", 1).caused_by(error)
     })?;
-    let mut endpoint = BindingSession::new(&tmux);
+    let mut endpoint = host.session();
     let pending = operation(
         &mut storage,
         &mut endpoint,
@@ -236,7 +236,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
             _ => None,
         };
         if let Some((binding, cosmetics)) = update {
-            tmux.update_binding_cosmetics(binding, cosmetics)
+            host.update_binding_cosmetics(binding, cosmetics)
                 .map_err(cosmetic_cleanup)?;
         }
         // The rename is committed; its pane only shows it, and a stale
@@ -249,7 +249,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
                 identity: &result.identity,
                 badge,
             };
-            let refresh = tmux
+            let refresh = host
                 .update_binding_cosmetics(binding, cosmetics)
                 .map_err(cosmetic_cleanup)?;
             if refresh != PaneRefresh::Absent {
@@ -261,7 +261,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     after_cleanup(pending, || storage.close())
 }
 
-fn cosmetic_cleanup(error: tmt_adapters::tmux::TmuxError) -> Failure {
+fn cosmetic_cleanup(error: tmt_adapters::host::HostError) -> Failure {
     Failure::new(
         "CLEANUP_ERROR",
         "Could not clean up cosmetic operation resources. Effects may already have occurred.",

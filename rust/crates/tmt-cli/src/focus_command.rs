@@ -11,10 +11,8 @@ use crate::{
 use std::io::{self, Write};
 use tmt_adapters::{
     config::ConfigPaths,
+    host::{ActionError, CallerEnvironment, FocusError, Host, Invoker, OperationOptions},
     storage::Storage,
-    tmux::{
-        ActionError, BindingSession, CallerEnvironment, FocusError, Invoker, OperationOptions, Tmux,
-    },
 };
 use tmt_core::{
     binding::BindingEntry,
@@ -34,36 +32,15 @@ fn pane_missing(pane: &str) -> Failure {
 }
 
 /// The invoker is only what its own environment reports; no client is guessed.
-/// Key-binding jobs have `TMUX` but no `TMUX_PANE`; `TMUX`'s session serves.
 fn invoker() -> Result<Invoker, Failure> {
-    let environment = CallerEnvironment::current();
-    let socket = environment
-        .selected_server_socket()
-        .ok()
-        .flatten()
-        .ok_or_else(host_unsupported)?;
-    let pane = environment
-        .pane
-        .as_ref()
-        .and_then(|pane| pane.to_str())
-        .filter(|pane| !pane.is_empty())
-        .map(str::to_owned);
-    let session = environment.selected_session();
-    if pane.is_none() && session.is_none() {
-        return Err(host_unsupported());
-    }
-    Ok(Invoker {
-        socket: socket.to_owned(),
-        pane,
-        session,
-    })
+    Invoker::from_environment(&CallerEnvironment::current()).ok_or_else(host_unsupported)
 }
 
 fn pane_failure(error: FocusError, pane: &str) -> Failure {
     match error {
         FocusError::HostUnsupported => host_unsupported(),
         FocusError::PaneNotFound => pane_missing(pane),
-        FocusError::Tmux(error) => endpoint_failure(error),
+        FocusError::Evidence(error) => endpoint_failure(error),
     }
 }
 
@@ -84,7 +61,7 @@ fn identity_failure(error: ActionError) -> Failure {
 /// `from`); the shared resolver handles both, current server only.
 fn run(target: String) -> Result<Focused, Failure> {
     let invoker = invoker()?;
-    let tmux = Tmux::default();
+    let host = Host::default();
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
@@ -95,11 +72,11 @@ fn run(target: String) -> Result<Focused, Failure> {
             "Could not open identity storage.",
         )
     })?;
-    let pending = target::resolve(&mut storage, &tmux, &target).and_then(|observed| {
+    let pending = target::resolve(&mut storage, &host, &target).and_then(|observed| {
         let (Some(identity), binding @ Some(_)) = (observed.identity, observed.binding) else {
             // An unbound pane target has no identity evidence to verify.
             let pane = observed.pane.id;
-            return tmux
+            return host
                 .focus_pane(&invoker, &pane, OperationOptions::default())
                 .map(|before| Focused {
                     interface: pane.clone(),
@@ -109,10 +86,7 @@ fn run(target: String) -> Result<Focused, Failure> {
                 .map_err(|error| pane_failure(error, &pane));
         };
         let entry = BindingEntry { identity, binding };
-        match BindingSession::new(&tmux)
-            .with_invoker(invoker)
-            .focus(&entry)
-        {
+        match host.session().with_invoker(invoker).focus(&entry) {
             ActionResult::Completed(focused) => Ok(focused),
             ActionResult::Failed(error) => Err(identity_failure(error)),
             _ => Err(host_unsupported()),
@@ -125,7 +99,7 @@ fn run(target: String) -> Result<Focused, Failure> {
 /// anything or opening storage.
 pub fn client(mode: OutputMode) -> io::Result<u8> {
     let view = match invoker().and_then(|invoker| {
-        Tmux::default()
+        Host::default()
             .invoker_client(&invoker, OperationOptions::default())
             .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
     }) {

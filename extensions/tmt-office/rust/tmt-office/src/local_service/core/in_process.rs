@@ -6,9 +6,9 @@ use serde_json::{Value, json};
 use tmt_adapters::{
     api,
     config::ConfigPaths,
+    host::{CallerEnvironment, Host},
     room::encode_rooms,
     storage::Storage,
-    tmux::{BindingSession, CallerEnvironment, Tmux},
 };
 use tmt_core::{binding, room::RoomRepository};
 use tmt_office_storage::core_client::WriteOriginator;
@@ -51,9 +51,9 @@ impl LocalCore for InProcessCore {
             Storage::open(&self.paths.database).map_err(|_| CoreFault::unavailable())?;
         let result = match args {
             ["list"] => {
-                let tmux = Tmux::default();
+                let host = Host::default();
                 let environment = CallerEnvironment::current();
-                let mut endpoint = BindingSession::new(&tmux);
+                let mut endpoint = host.session();
                 binding::list_presence(&mut storage, &mut endpoint, environment.selected_socket())
                     .map(|rows| {
                         json!({"identities": rows.into_iter().map(|row| json!({

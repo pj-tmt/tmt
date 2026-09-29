@@ -5,8 +5,8 @@ use crate::{
     output::{Failure, identity_missing},
 };
 use tmt_adapters::{
+    host::{CallerEnvironment, Host},
     storage::Storage,
-    tmux::{BindingSession, CallerEnvironment, Tmux},
 };
 use tmt_core::{binding, identity::Identity};
 
@@ -25,26 +25,26 @@ fn required_failure() -> Failure {
 
 /// Reject an unavailable implicit caller before opening or migrating storage.
 pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
-    select(&Tmux::default(), explicit, false)?.ok_or_else(required_failure)
+    select(&Host::default(), explicit, false)?.ok_or_else(required_failure)
 }
 
 pub fn resolve(storage: &mut Storage, selector: Selector) -> Result<Identity, Failure> {
-    selected(storage, &Tmux::default(), selector)?.ok_or_else(required_failure)
+    selected(storage, &Host::default(), selector)?.ok_or_else(required_failure)
 }
 
 pub fn optional(
     storage: &mut Storage,
-    tmux: &Tmux,
+    host: &Host,
     explicit: Option<&str>,
 ) -> Result<Option<Identity>, Failure> {
-    match select(tmux, explicit, true)? {
-        Some(selector) => selected(storage, tmux, selector),
+    match select(host, explicit, true)? {
+        Some(selector) => selected(storage, host, selector),
         None => Ok(None),
     }
 }
 
 fn select(
-    tmux: &Tmux,
+    host: &Host,
     explicit: Option<&str>,
     allow_anonymous: bool,
 ) -> Result<Option<Selector>, Failure> {
@@ -70,14 +70,14 @@ fn select(
             Err(error)
         };
     }
-    tmux.caller_pane(&CallerEnvironment::current())
+    host.caller_pane(&CallerEnvironment::current())
         .map(|pane| pane.map(Selector::Pane))
         .map_err(endpoint_failure)
 }
 
 fn selected(
     storage: &mut Storage,
-    tmux: &Tmux,
+    host: &Host,
     selector: Selector,
 ) -> Result<Option<Identity>, Failure> {
     match selector {
@@ -89,7 +89,7 @@ fn selected(
             selected.ok_or_else(|| identity_missing(&name)).map(Some)
         }
         Selector::Pane(pane) => {
-            let observed = binding::pane_presence(storage, &mut BindingSession::new(tmux), &pane)
+            let observed = binding::pane_presence(storage, &mut host.session(), &pane)
                 .map_err(binding_failure)?;
             Ok(observed.identity)
         }

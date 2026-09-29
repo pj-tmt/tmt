@@ -9,9 +9,9 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
     dispatch::encode_receipt,
+    host::Host,
     request_runtime::wall_time_ms,
     storage::{DispatchError, Storage},
-    tmux::Tmux,
 };
 use tmt_core::{
     dispatch::{Acceptance, DispatchInput, DispatchReceipt, DispatchRoom, canonical_id},
@@ -80,7 +80,7 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
             ));
         }
         let originator =
-            identity_context::optional(&mut storage, &Tmux::default(), identity.as_deref())?
+            identity_context::optional(&mut storage, &Host::default(), identity.as_deref())?
                 .map_or(Originator::Unknown, |sender| {
                     if identity.is_some() {
                         Originator::Explicit(sender.id)

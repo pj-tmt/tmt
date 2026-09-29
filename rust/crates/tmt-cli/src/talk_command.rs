@@ -15,10 +15,10 @@ use std::{
 };
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
+    host::Host,
     interrupt::Interrupt,
     request_runtime::wall_time_ms,
     storage::{Storage, StorageError},
-    tmux::Tmux,
 };
 use tmt_core::{
     exact_text::validate_exact_text,
@@ -124,7 +124,7 @@ impl Correlation {
         .suggestion(self.inspection())
     }
 
-    fn socket_error(&self, error: tmt_adapters::tmux::DeliveryError) -> Failure {
+    fn socket_error(&self, error: tmt_adapters::host::DeliveryError) -> Failure {
         self.error(
             "TMUX_PERMISSION_DENIED",
             "TMT cannot access the tmux socket. An agent sandbox may be blocking it: allow the socket or use the provider's escalation to inspect the retained request. No message was sent; inspect before retrying.",
@@ -136,7 +136,7 @@ impl Correlation {
 
 fn deliver(
     storage: &mut Storage,
-    tmux: &Tmux,
+    host: &Host,
     prepared: &mut Prepared,
     input: &Input,
     settings: &Settings,
@@ -227,7 +227,7 @@ fn deliver(
             } else if eligible {
                 crate::delivery::send(
                     storage,
-                    tmux,
+                    host,
                     &identity.id,
                     &prepared.payload,
                     Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
@@ -288,7 +288,7 @@ fn deliver(
                 ));
             }
         } else if let Some(endpoint) = &prepared.endpoint {
-            let delivered = tmux.send_on(
+            let delivered = host.send(
                 &endpoint.server.socket_path,
                 &endpoint.pane_id,
                 &prepared.payload,
@@ -393,16 +393,16 @@ fn run(
             "Could not open request storage; no message was sent.",
         )
     })?;
-    let tmux = Tmux::default();
+    let host = Host::default();
     let mut cleanup_correlation = None;
-    let pending = preparation::prepare(&mut storage, &tmux, &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
+    let pending = preparation::prepare(&mut storage, &host, &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
         cleanup_correlation = Some(prepared.correlation.clone());
         if !mode.json && !input.options.detach && !input.options.force && let Some(previous) = &prepared.previous_request_id {
             let mut stderr = tmt_cli_style::stream::stderr();
             let terminal = stderr.terminal();
             let _ = tmt_cli_style::message::warning(&mut stderr, terminal, &format!("Another recent request exists for '{}' (id: {previous}). Input processing is not serialized; durable results remain associated by request ID.", input.target), None);
         }
-        let response = deliver(&mut storage, &tmux, &mut prepared, &input, &settings, interrupt);
+        let response = deliver(&mut storage, &host, &mut prepared, &input, &settings, interrupt);
         if response.is_ok() && prepared.notify_originator
             && prepared.correlation.offline && !input.options.detach
             && let Err(error) = crate::request_observer_command::start(&paths.database, &prepared.correlation.request_id) {
