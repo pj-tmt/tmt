@@ -247,7 +247,17 @@ fn without_trailing_padding(line: &str) -> String {
     let mut resets = Vec::new();
     while let Some(start) = end.rfind('\u{1b}') {
         let code = &end[start..];
-        if !(code.starts_with("\u{1b}[") && code.ends_with('m')) {
+        // Only a whole SGR sequence, `ESC [ digits;… m`, is a reset: text that
+        // merely ends in `m` (such as `tmux-team`) keeps its padding.
+        let sgr = code
+            .strip_prefix("\u{1b}[")
+            .and_then(|rest| rest.strip_suffix('m'))
+            .is_some_and(|params| {
+                params
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || byte == b';')
+            });
+        if !sgr {
             break;
         }
         resets.push(code);

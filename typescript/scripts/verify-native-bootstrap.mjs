@@ -132,7 +132,13 @@ exec cp "$source" "$destination"
   const pinned = JSON.parse(run(['upgrade', '--json']));
   assert.equal(pinned.skippedPinned, true, 'Pinned managed executable must update without network');
   assert.equal(fs.readFileSync(path.join(old, 'tmt'), 'utf8'), oldBytes);
-  runPackedCommand('/bin/sh', [installer, '--no-skill'], options);
+  // No tmt on PATH at all: a first install, with nothing to replace.
+  const fresh = runPackedCommand('/bin/sh', [installer, '--no-skill'], {
+    ...options,
+    env: { ...env, PATH: tools },
+  });
+  assert.match(fresh, /\/\.local\/bin is not in PATH yet/);
+  assert.doesNotMatch(fresh, /another installation|npm uninstall/);
   const defaultExecutable = path.join(root, '.local/bin/tmt');
   assert.equal(
     runPackedCommand(defaultExecutable, ['--version'], options).trim(),

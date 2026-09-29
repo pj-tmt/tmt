@@ -128,6 +128,10 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
 
       expect(readFileSync(claudeSettings, 'utf8')).toBe(CLAUDE_ORIGINAL);
       expect(existsSync(codexHooks)).toBe(false);
+      // Setup's lock goes with the last TMT hook in each directory.
+      for (const settings of [claudeSettings, codexHooks]) {
+        expect(existsSync(path.join(path.dirname(settings), '.tmt-setup.lock'))).toBe(false);
+      }
       expect(readFileSync(userSkill, 'utf8')).toBe('user skill\n');
       for (const skills of ['.claude/skills', '.agents/skills']) {
         const names = existsSync(path.join(sandbox.home, skills))
@@ -161,6 +165,22 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
         'UNINSTALL_CONSENT_REQUIRED'
       );
       expect(tree(sandbox.root)).toEqual(before);
+    });
+  });
+
+  it('offers --purge before consent and names no tmt command once tmt is gone', async () => {
+    await withSandbox(async (sandbox) => {
+      const tmt = await setUpMachine(sandbox);
+      const refused = await runCli(tmt, ['uninstall']);
+      expect(refused.status).toBe(1);
+      expect(refused.stdout).toContain('add --purge to delete them too');
+      const result = await runCli(tmt, ['uninstall', '--yes'], { deadlineMs: INSTALL_BUDGET_MS });
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      const hint = result.stdout.split('\n').find((line) => line.includes('hint:'));
+      expect(hint).toContain(sandbox.globalDir);
+      expect(hint).toContain('delete that directory if you no longer need it');
+      expect(hint).not.toContain('tmt ');
+      expect(existsSync(sandbox.globalDir)).toBe(true);
     });
   });
 
@@ -203,7 +223,9 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
         reason: 'a TMT hook in it was edited',
       });
       expect(readFileSync(claudeSettings, 'utf8')).toBe(edited);
+      expect(existsSync(path.join(path.dirname(claudeSettings), '.tmt-setup.lock'))).toBe(true);
       expect(existsSync(codexHooks)).toBe(false);
+      expect(existsSync(path.join(path.dirname(codexHooks), '.tmt-setup.lock'))).toBe(false);
       expect(tree(prefix)).toEqual({});
       expect(recordBytes).toContain('"codex"');
     });

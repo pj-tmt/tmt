@@ -3,7 +3,7 @@ source: crates/tmt-cli-style/tests/rendering.rs
 expression: render_list(TTY)
 ---
 \u{1b}[1mSAVED\u{1b}[0m \u{1b}[2m3\u{1b}[0m
-  \u{1b}[38;5;4m●  \u{1b}[39mastra            \u{1b}[38;5;6mcodex:019a2f4c\u{1b}[39m~/dev/tmux-team
+  \u{1b}[38;5;4m●  \u{1b}[39mastra            \u{1b}[38;5;6mcodex:019a2f4c   \u{1b}[39m~/dev/tmux-team
   \u{1b}[38;5;4m●  \u{1b}[39mopus-tmt-peer-2  \u{1b}[38;5;5mclaude:7c41e9d2  \u{1b}[39m~/dev/tmux-team/worktr…
   \u{1b}[2m○  \u{1b}[0msol              \u{1b}[38;5;5mclaude:3f9a1c07  \u{1b}[39m~/dev/tmux-team          \u{1b}[38;5;4m↻ tmt resume sol\u{1b}[39m
 

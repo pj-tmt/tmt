@@ -176,6 +176,8 @@ async function runBootstrap(
     readonly endpointOverride?: string;
     /** Run under a pseudo-terminal, as a person at a shell would. */
     readonly terminal?: boolean;
+    /** System directories on PATH after the fake tools; the host's by default. */
+    readonly systemPath?: string;
   } = {}
 ) {
   const stage = mkdtempSync(path.join(sandbox.root, 'bootstrap-tmp-'));
@@ -188,7 +190,7 @@ async function runBootstrap(
   const prefix = options.prefix ?? path.join(sandbox.home, '.local');
   const log = path.join(sandbox.root, 'stub.log');
   const curlLog = path.join(sandbox.root, 'curl.log');
-  const systemPath = process.env.PATH ?? '/usr/bin:/bin';
+  const systemPath = options.systemPath ?? process.env.PATH ?? '/usr/bin:/bin';
   const installerArgs = ['--prefix', prefix, ...args];
   // `script` gives the installer a pseudo-terminal: BSD and util-linux differ.
   const quoted = ['/bin/sh', installer, ...installerArgs]
@@ -317,12 +319,16 @@ describe('native curl bootstrap', () => {
         const prefix = path.join(sandbox.root, 'native prefix with spaces');
         mkdirSync(path.join(prefix, 'bin'), { recursive: true });
         writeFileSync(path.join(prefix, 'bin', 'npm-owned'), 'preserve me\n');
+        // Only system directories: no other tmt, as on a fresh machine.
         const run = await runBootstrap(sandbox, script, fixture, ['--pin', '--no-skill'], {
           prefix,
+          systemPath: '/usr/bin:/bin',
         });
 
         expect(run.result.status).toBe(0);
         expect(run.result.stderr).toBe('');
+        expect(run.result.stdout).toContain(`${prefix}/bin is not in PATH yet.`);
+        expect(run.result.stdout).not.toContain('another installation');
         expect(run.log).toContain('command=__native-install');
         expect(run.log).toContain(`arg=${prefix}`);
         expect(run.log).toContain('arg=--pin\n');

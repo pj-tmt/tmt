@@ -236,7 +236,8 @@ skill, another program's `tmt` command) is kept and reported, as are the
 backups of your agent settings files. Your identities,
 messages and notes stay in TMT's data directory
 (`~/.config/tmux-team` by default). `tmt uninstall --purge` deletes that
-directory too; `--yes` alone never does.
+directory too; `--yes` alone never does. After an uninstall without
+`--purge`, delete that directory yourself if you no longer need the data.
 
 If a step fails, fix the cause and run `tmt uninstall` again: completed steps
 are not repeated. Use `--prefix <folder>` for an installation in another

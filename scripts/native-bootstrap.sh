@@ -75,7 +75,9 @@ main() {
   printf '%s\n' "Native tmt is installed at $prefix/bin/tmt."
   selected=$(command -v tmt || :)
   selected_alias=$(command -v tmux-team || :)
-  if [ "$selected" != "$prefix/bin/tmt" ] || [ "$selected_alias" != "$prefix/bin/tmux-team" ]; then
+  if [ -z "$selected" ] && [ -z "$selected_alias" ]; then
+    printf '%s\n' "$prefix/bin is not in PATH yet. Add it to PATH, then run hash -r or open a new shell."
+  elif [ "$selected" != "$prefix/bin/tmt" ] || [ "$selected_alias" != "$prefix/bin/tmux-team" ]; then
     printf '%s\n' "PATH may still select another installation (tmt: ${selected:-not found}; tmux-team: ${selected_alias:-not found})." \
       "Put $prefix/bin first in PATH, then run hash -r or open a new shell." \
       'If replacing an npm/pnpm installation, remove it with npm uninstall -g tmux-team or pnpm remove -g tmux-team using its original manager.' \

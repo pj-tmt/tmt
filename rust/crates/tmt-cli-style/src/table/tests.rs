@@ -121,3 +121,35 @@ fn colored_rows_end_without_padding() {
     );
     assert_eq!(without_trailing_padding("plain   "), "plain");
 }
+
+#[test]
+fn a_colored_first_column_keeps_its_gap_before_text_ending_in_m() {
+    // `tmux-team` ends in `m`, like a color reset: only a whole SGR sequence
+    // may be taken for one, or the gap after `skill` disappears.
+    let mut table = Table::new(&[Column::Fixed, Column::Detail]);
+    table
+        .row([
+            Cell::styled("command", Token::Dim),
+            "~/.local/bin/tmt".into(),
+        ])
+        .row([
+            Cell::styled("skill", Token::Dim),
+            "~/.agents/skills/tmux-team".into(),
+        ]);
+    let colored = render(
+        &table,
+        Terminal {
+            color: true,
+            width: Some(120),
+        },
+    );
+    let plain: String = anstream::adapter::strip_str(&colored).to_string();
+    assert_eq!(
+        plain,
+        "  command  ~/.local/bin/tmt\n  skill    ~/.agents/skills/tmux-team\n"
+    );
+    assert_eq!(
+        without_trailing_padding("\u{1b}[2mskill  \u{1b}[0m  ~/tmux-team  "),
+        "\u{1b}[2mskill  \u{1b}[0m  ~/tmux-team"
+    );
+}

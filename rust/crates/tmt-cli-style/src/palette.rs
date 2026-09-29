@@ -61,6 +61,8 @@ pub struct Terminal {
     /// Columns available. Known only when stdout is a terminal: comfy-table's
     /// `width()` asks the terminal only after its `is_tty` check. Without a
     /// width nothing is truncated, so piped output keeps every value whole.
+    /// A terminal that reports 0 columns (a pty nobody sized, such as under
+    /// `script` or some CI and SSH sessions) has no known width either.
     pub width: Option<u16>,
 }
 
@@ -78,7 +80,7 @@ impl Terminal {
         }
         Self {
             color: AutoStream::choice(&io::stdout()) != ColorChoice::Never,
-            width: comfy_table::Table::new().width(),
+            width: known_width(comfy_table::Table::new().width()),
         }
     }
 
@@ -111,6 +113,10 @@ pub fn help_styles() -> Styles {
         .valid(Token::Ok.style())
         .invalid(Token::Warn.style())
         .context(Token::Dim.style())
+}
+
+fn known_width(reported: Option<u16>) -> Option<u16> {
+    reported.filter(|columns| *columns > 0)
 }
 
 #[cfg(test)]
@@ -150,5 +156,12 @@ mod tests {
         assert_eq!(color.paint(Token::Ok, "done"), "\u{1b}[32mdone\u{1b}[0m");
         assert_eq!(color.paint(Token::Ok, ""), "");
         assert_eq!(Terminal::stdout(true), Terminal::PLAIN);
+    }
+
+    #[test]
+    fn a_terminal_reporting_zero_columns_has_no_known_width() {
+        assert_eq!(known_width(Some(0)), None);
+        assert_eq!(known_width(None), None);
+        assert_eq!(known_width(Some(80)), Some(80));
     }
 }

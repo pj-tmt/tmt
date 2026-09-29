@@ -266,12 +266,13 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
             None,
         );
     }
+    // `tmt` itself may be gone now, so the hint names no tmt command.
     if plan.data_exists && !deleted {
         message::hint(
             &mut output,
             terminal,
             &format!(
-                "your data is still in {}; tmt uninstall --purge deletes it",
+                "your data is still in {}; delete that directory if you no longer need it",
                 display(&plan.data)
             ),
         )
@@ -363,7 +364,7 @@ fn present(
         )
     } else {
         format!(
-            "your identities, messages and notes stay in {}",
+            "your identities, messages and notes stay in {}; add --purge to delete them too",
             display(&plan.data)
         )
     };

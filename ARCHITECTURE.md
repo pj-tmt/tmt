@@ -1228,7 +1228,8 @@ found in the plan; if its state cannot be confirmed, the plan stops with a
    (`office_facade::service_control`);
 1. hooks: the recorded ones, plus exact TMT hooks found without a record
    (`setup::removal`); removal is the exact inverse of setup's own edits, and
-   a file left holding only `{}` is deleted;
+   a file left holding only `{}` is deleted; once no TMT hook is left in a
+   directory, setup's `.tmt-setup.lock` there is removed while held;
 2. owners' skills and bundled skill links, then the skill stores and records
    (`skill_installation::uninstall`);
 3. extensions, then the CLI: links and release directories
