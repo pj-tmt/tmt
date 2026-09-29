@@ -369,6 +369,9 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           packages: binutils
+      - name: Warm the macOS toolchain lookup
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/warm-xcrun
       - name: Verify native runtime on matching host
         if: ${{ !matrix.container }}
         run: |
