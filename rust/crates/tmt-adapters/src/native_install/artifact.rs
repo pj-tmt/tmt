@@ -79,12 +79,14 @@ fn metadata_bytes(product: Product, bytes: &[u8], name: &str, target: &str) -> i
     metadata(product, &manifest, name, target)
 }
 
-/// What the manifest lists for one archive: its version, checksum and the
-/// validated skill paths beside the product's required files.
+/// What the manifest lists for one archive: its version, checksum and whether
+/// it declares a skills tree. cargo-dist records an included directory as one
+/// asset named after it, so the tree's files are inventoried from the
+/// checksum-verified archive, never from the manifest.
 struct Listed {
     version: Version,
     sha256: String,
-    skills: BTreeSet<String>,
+    skills: bool,
 }
 
 fn verified_archive(
@@ -105,7 +107,7 @@ fn verified_archive(
     if digest(compressed) != sha256 {
         return Err(invalid("Native archive checksum mismatch."));
     }
-    let files = decode(product, compressed, archive_root(name)?, &skills)?;
+    let files = decode(product, compressed, archive_root(name)?, skills)?;
     Ok(Artifact {
         name: name.into(),
         version,
@@ -192,16 +194,27 @@ fn metadata(product: Product, manifest: &Value, name: &str, target: &str) -> io:
         })
         .collect::<io::Result<Vec<_>>>()?;
     inventory.sort_unstable();
-    let (skill_paths, mut required): (Vec<&str>, Vec<&str>) = inventory
+    let declarations = inventory
+        .iter()
+        .filter(|path| **path == skills_tree::ROOT)
+        .count();
+    if declarations > 1 {
+        return Err(invalid("Unexpected native archive asset inventory."));
+    }
+    let skills = declarations == 1;
+    if skills && product == Product::Cli {
+        return Err(invalid("The TMT CLI release carries no agent skills."));
+    }
+    let mut required: Vec<&str> = inventory
         .into_iter()
-        .partition(|path| skills_tree::is_skill_path(path));
+        .filter(|path| *path != skills_tree::ROOT)
+        .collect();
     let mut expected = product.files();
     expected.sort_unstable();
     required.sort_unstable();
     if required != expected {
         return Err(invalid("Unexpected native archive asset inventory."));
     }
-    skills_tree::validate(product, skill_paths.iter().copied())?;
     let releases = manifest["releases"]
         .as_array()
         .ok_or_else(|| invalid("Native manifest releases are missing."))?
@@ -225,26 +238,20 @@ fn metadata(product: Product, manifest: &Value, name: &str, target: &str) -> io:
     Ok(Listed {
         version,
         sha256: sha256.into(),
-        skills: skill_paths.into_iter().map(str::to_owned).collect(),
+        skills,
     })
 }
 
+/// Only the product's required files and, when the manifest declares it, one
+/// bounded skills tree. Every limit applies while decoding: the expansion
+/// bound, each skill file's size before its bytes are read, and the file count
+/// before the tree is validated as a whole.
 fn decode(
     product: Product,
     compressed: &[u8],
     root: &str,
-    skills: &BTreeSet<String>,
+    skills: bool,
 ) -> io::Result<BTreeMap<String, Vec<u8>>> {
-    // Directories an archiver may record for the listed skill files, and only those.
-    let skill_directories = skills
-        .iter()
-        .flat_map(|path| {
-            path.match_indices('/')
-                .map(|(index, _)| format!("{root}/{}/", &path[..index]))
-                .collect::<Vec<_>>()
-        })
-        .collect::<BTreeSet<_>>();
-    let mut directories = BTreeSet::new();
     let mut expanded = Vec::new();
     MultiGzDecoder::new(compressed)
         .take((EXPANDED_LIMIT + 1) as u64)
@@ -252,29 +259,26 @@ fn decode(
     if expanded.len() > EXPANDED_LIMIT {
         return Err(invalid("Native archive expansion exceeds its bound."));
     }
+    let tree = format!("{root}/{}", skills_tree::ROOT);
     let mut archive = tar::Archive::new(expanded.as_slice());
     let mut files = BTreeMap::new();
-    let mut directory_seen = false;
+    let mut directories = BTreeSet::new();
+    let mut skill_files = 0;
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path_bytes().into_owned();
         let path = std::str::from_utf8(&path)
             .map_err(|_| invalid("Native archive path must be ASCII."))?;
-        if path == format!("{root}/") && entry.header().entry_type().is_dir() {
+        let in_tree = skills
+            && path
+                .strip_prefix(&tree)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
+        // Archivers record directories with or without a trailing slash.
+        if entry.header().entry_type().is_dir() && (path == format!("{root}/") || in_tree) {
             if entry.header().mode()? & 0o7000 != 0 || entry.size() != 0 {
                 return Err(invalid("Native archive directory metadata is invalid."));
             }
-            if directory_seen {
-                return Err(invalid("Duplicate native archive directory."));
-            }
-            directory_seen = true;
-            continue;
-        }
-        if skill_directories.contains(path) && entry.header().entry_type().is_dir() {
-            if entry.header().mode()? & 0o7000 != 0 || entry.size() != 0 {
-                return Err(invalid("Native archive directory metadata is invalid."));
-            }
-            if !directories.insert(path.to_owned()) {
+            if !directories.insert(path.trim_end_matches('/').to_owned()) {
                 return Err(invalid("Duplicate native archive directory."));
             }
             continue;
@@ -282,7 +286,7 @@ fn decode(
         let name = path
             .strip_prefix(root)
             .and_then(|p| p.strip_prefix('/'))
-            .filter(|name| product.files().contains(name) || skills.contains(*name))
+            .filter(|name| product.files().contains(name) || in_tree)
             .ok_or_else(|| invalid("Unexpected native archive path."))?;
         let mode = entry.header().mode()?;
         // Regular files only: never a link, device or special permission.
@@ -290,11 +294,17 @@ fn decode(
             || mode & 0o7000 != 0
             || entry.size() == 0
             || (name == product.executable() && mode & 0o111 == 0)
-            || (skills.contains(name) && !skills_tree::file_fits(entry.size()))
+            || (in_tree && !skills_tree::file_fits(entry.size()))
         {
             return Err(invalid(
                 "Native archive requires nonempty regular files with safe permissions.",
             ));
+        }
+        if in_tree {
+            skill_files += 1;
+            if skill_files > skills_tree::MAXIMUM_TREE_FILES {
+                return Err(invalid("A release carries too many agent skill files."));
+            }
         }
         if files.contains_key(name) {
             return Err(invalid("Duplicate native archive file."));
@@ -303,8 +313,39 @@ fn decode(
         entry.read_to_end(&mut contents)?;
         files.insert(name.into(), contents);
     }
-    if files.len() != product.files().len() + skills.len() {
+    if product
+        .files()
+        .iter()
+        .any(|file| !files.contains_key(*file))
+    {
         return Err(invalid("Native archive is missing required files."));
+    }
+    let tree_files: Vec<&str> = files
+        .keys()
+        .map(String::as_str)
+        .filter(|name| skills_tree::is_skill_path(name))
+        .collect();
+    if skills {
+        if tree_files.is_empty() {
+            return Err(invalid(
+                "The release declares agent skills but carries none.",
+            ));
+        }
+        skills_tree::validate(product, tree_files.iter().copied())?;
+    }
+    // A recorded directory must hold a kept file: the root, or an ancestor of
+    // a validated skill file.
+    for directory in &directories {
+        let Some(relative) = directory.strip_prefix(&format!("{root}/")) else {
+            continue;
+        };
+        let holds_a_file = tree_files.iter().any(|file| {
+            file.strip_prefix(relative)
+                .is_some_and(|rest| rest.starts_with('/'))
+        });
+        if !holds_a_file {
+            return Err(invalid("Unexpected native archive directory."));
+        }
     }
     Ok(files)
 }

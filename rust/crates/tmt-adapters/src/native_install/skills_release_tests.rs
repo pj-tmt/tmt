@@ -20,7 +20,8 @@ fn skill_entries(root: &str, files: &[(&str, &[u8])]) -> Vec<Entry> {
 }
 
 /// A Squad release whose archive holds `archived` and whose manifest lists
-/// the required files plus `listed`.
+/// the required files plus `listed`. cargo-dist declares a skills tree as the
+/// single asset `skills`.
 fn squad_release(archived: Vec<Entry>, listed: &[&str]) -> Fixture {
     let root = "tmux-team-1.2.3-aarch64-apple-darwin";
     let mut entries = valid_entries(root);
@@ -44,10 +45,18 @@ fn with_skills() -> Fixture {
         ("skills/tmt-squad/SKILL.md", SKILL),
         ("skills/tmt-squad/references/usage.md", b"usage\n"),
     ];
-    squad_release(skill_entries(root, &files), &files.map(|(path, _)| path))
+    squad_release(skill_entries(root, &files), &["skills"])
 }
 
 fn install(fixture: &Fixture, prefix: &Path) -> io::Result<super::super::InstallReport> {
+    install_on(fixture, prefix, tmt_core::native_install::Channel::Stable)
+}
+
+fn install_on(
+    fixture: &Fixture,
+    prefix: &Path,
+    channel: tmt_core::native_install::Channel,
+) -> io::Result<super::super::InstallReport> {
     super::super::install_product(
         Product::Squad,
         super::super::InstallRequest {
@@ -55,7 +64,7 @@ fn install(fixture: &Fixture, prefix: &Path) -> io::Result<super::super::Install
             manifest: &fixture.manifest,
             prefix,
             target: TARGET,
-            channel: tmt_core::native_install::Channel::Stable,
+            channel,
             pin: PinAction::Preserve,
         },
         None,
@@ -160,42 +169,83 @@ fn an_invalid_skills_tree_rejects_the_whole_release_before_publication() {
     let too_many = (0..=crate::skill_installation::MAXIMUM_SKILLS)
         .map(|index| format!("skills/s{index}/SKILL.md"))
         .collect::<Vec<_>>();
-    let cases: Vec<(Vec<Entry>, Vec<String>)> = vec![
-        // Listed but not archived.
-        (Vec::new(), vec!["skills/tmt-squad/SKILL.md".into()]),
-        // Archived but not listed.
+    let declared = vec!["skills".to_owned()];
+    let cases: Vec<(&str, Vec<Entry>, Vec<String>)> = vec![
         (
+            "declared but carries no skill",
+            Vec::new(),
+            declared.clone(),
+        ),
+        (
+            "declared, only a directory",
+            vec![Entry::Directory {
+                path: format!("{root}/skills/"),
+            }],
+            declared.clone(),
+        ),
+        (
+            "archived but not declared",
             skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
             Vec::new(),
         ),
-        // A link where a skill file should be.
         (
+            "listed file by file instead of declared",
+            skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+            vec!["skills/tmt-squad/SKILL.md".into()],
+        ),
+        (
+            "declared twice",
+            skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+            vec!["skills".into(), "skills".into()],
+        ),
+        (
+            "a link where a skill file should be",
             vec![Entry::Symlink {
                 path: format!("{root}/skills/tmt-squad/SKILL.md"),
                 target: "/etc/passwd".into(),
             }],
-            vec!["skills/tmt-squad/SKILL.md".into()],
+            declared.clone(),
         ),
-        // A non-canonical listed path.
         (
-            skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
-            vec![
-                "skills/tmt-squad/SKILL.md".into(),
-                "skills/tmt-squad//x.md".into(),
-            ],
+            "a non-canonical path",
+            [
+                skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+                vec![Entry::AdversarialFile {
+                    path: format!("{root}/skills/tmt-squad//x.md"),
+                    bytes: b"x".to_vec(),
+                    mode: 0o644,
+                }],
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            declared.clone(),
         ),
-        // Missing SKILL.md.
         (
+            "an empty directory beside the tree",
+            [
+                skill_entries(root, &[("skills/tmt-squad/SKILL.md", SKILL)]),
+                vec![Entry::Directory {
+                    path: format!("{root}/skills/empty/"),
+                }],
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            declared.clone(),
+        ),
+        (
+            "missing SKILL.md",
             skill_entries(root, &[("skills/tmt-squad/README.md", b"r")]),
-            vec!["skills/tmt-squad/README.md".into()],
+            declared.clone(),
         ),
-        // An oversized file.
         (
+            "an oversized file",
             skill_entries(root, &[("skills/tmt-squad/SKILL.md", &oversized)]),
-            vec!["skills/tmt-squad/SKILL.md".into()],
+            declared.clone(),
         ),
-        // Too many skills.
         (
+            "too many skills",
             too_many
                 .iter()
                 .map(|path| Entry::File {
@@ -204,27 +254,47 @@ fn an_invalid_skills_tree_rejects_the_whole_release_before_publication() {
                     mode: 0o644,
                 })
                 .collect(),
-            too_many.clone(),
+            declared.clone(),
         ),
     ];
-    for (archived, listed) in cases {
+    for (case, archived, listed) in cases {
         let listed_refs = listed.iter().map(String::as_str).collect::<Vec<_>>();
         let fixture = squad_release(archived, &listed_refs);
         let prefix = fixture.directory.path.join("prefix");
-        assert!(install(&fixture, &prefix).is_err(), "{listed:?}");
-        assert!(!prefix.exists(), "nothing published for {listed:?}");
+        assert!(install(&fixture, &prefix).is_err(), "{case}");
+        assert!(!prefix.exists(), "nothing published for {case}");
     }
-    // The CLI never carries skills.
+    // The CLI never carries skills, even when cargo-dist would declare them.
     let mut cli = valid_entries(root);
     cli.extend(skill_entries(root, &[("skills/tmux-team/SKILL.md", SKILL)]));
-    let files = FILES
-        .into_iter()
-        .chain(["skills/tmux-team/SKILL.md"])
-        .collect::<Vec<_>>();
+    let files = FILES.into_iter().chain(["skills"]).collect::<Vec<_>>();
     let fixture = product_fixture_at(cli, "tmt-cli", &files, "1.2.3");
     let prefix = fixture.directory.path.join("prefix");
-    assert!(install_fixture(&fixture, &prefix, Product::Cli).is_err());
+    let error = install_fixture(&fixture, &prefix, Product::Cli).unwrap_err();
+    assert!(error.to_string().contains("no agent skills"), "{error}");
     assert!(!prefix.exists());
+}
+
+#[test]
+fn archived_skill_files_are_bounded_while_decoding() {
+    // One more file than the tree may hold is refused before it is kept,
+    // whatever the per-skill layout.
+    let root = "tmux-team-1.2.3-aarch64-apple-darwin";
+    let limit = super::super::skills_tree::MAXIMUM_TREE_FILES;
+    let archived = (0..=limit)
+        .map(|index| Entry::File {
+            path: format!("{root}/skills/s{}/f{index}.md", index % 3),
+            bytes: b"x".to_vec(),
+            mode: 0o644,
+        })
+        .collect();
+    let fixture = squad_release(archived, &["skills"]);
+    let prefix = fixture.directory.path.join("prefix");
+    let error = install(&fixture, &prefix).unwrap_err();
+    assert!(
+        error.to_string().contains("too many agent skill files"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -286,4 +356,92 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
         }
     }
     found
+}
+
+/// The manifest cargo-dist 0.32.0 wrote for a local Squad archive
+/// (`dist build --artifacts local --target aarch64-apple-darwin --tag
+/// tmt-squad-v0.1.0-alpha.1 --output-format=json --no-local-paths`, with the
+/// skills directory included). It declares the whole tree as one `skills`
+/// asset; only the archive checksum is replaced below.
+const CARGO_DIST_MANIFEST: &str = include_str!("fixtures/squad-cargo-dist-0.32.0-manifest.json");
+
+#[test]
+fn a_real_cargo_dist_squad_manifest_installs_its_archived_skills_tree() {
+    let name = "tmt-squad-aarch64-apple-darwin.tar.gz";
+    let root = "tmt-squad-aarch64-apple-darwin";
+    // The same records, in the same order and form, as that archive: the
+    // root directory with a slash, tree directories without one.
+    let archived = vec![
+        Entry::Directory {
+            path: format!("{root}/"),
+        },
+        Entry::File {
+            path: format!("{root}/tmt-squad"),
+            bytes: b"squad\n".to_vec(),
+            mode: 0o755,
+        },
+        Entry::Directory {
+            path: format!("{root}/skills"),
+        },
+        Entry::Directory {
+            path: format!("{root}/skills/tmt-squad"),
+        },
+        Entry::File {
+            path: format!("{root}/skills/tmt-squad/SKILL.md"),
+            bytes: SKILL.to_vec(),
+            mode: 0o644,
+        },
+        Entry::File {
+            path: format!("{root}/THIRD-PARTY-NOTICES.txt"),
+            bytes: b"notices\n".to_vec(),
+            mode: 0o644,
+        },
+        Entry::File {
+            path: format!("{root}/LICENSE"),
+            bytes: b"license\n".to_vec(),
+            mode: 0o644,
+        },
+        Entry::File {
+            path: format!("{root}/NATIVE-INSTALL.md"),
+            bytes: b"guide\n".to_vec(),
+            mode: 0o644,
+        },
+    ];
+    let directory = TestDirectory::new();
+    let compressed = gzip_tar(archived);
+    let mut manifest: serde_json::Value = serde_json::from_str(CARGO_DIST_MANIFEST).unwrap();
+    let assets = manifest["artifacts"][name]["assets"].as_array().unwrap();
+    assert!(
+        assets.iter().any(|asset| asset["path"] == "skills")
+            && !assets
+                .iter()
+                .any(|asset| asset["path"].as_str().unwrap().starts_with("skills/")),
+        "cargo-dist declares the tree as one asset"
+    );
+    manifest["artifacts"][name]["checksums"]["sha256"] = artifact::digest(&compressed).into();
+    let fixture = Fixture {
+        archive: directory.path.join(name),
+        manifest: directory.path.join("dist-manifest.json"),
+        name: name.into(),
+        directory,
+    };
+    fs::write(&fixture.archive, &compressed).unwrap();
+    fs::write(&fixture.manifest, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let prefix = fixture.directory.path.join("prefix");
+    // Squad's first releases are alpha versions.
+    let alpha = tmt_core::native_install::Channel::Alpha;
+    let report = install_on(&fixture, &prefix, alpha).unwrap();
+    let release = release_dir(&report);
+    assert_eq!(
+        fs::read(release.join("skills/tmt-squad/SKILL.md")).unwrap(),
+        SKILL
+    );
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(release.join("receipt.json")).unwrap()).unwrap();
+    assert_eq!(
+        receipt["file_sha256"]["skills/tmt-squad/SKILL.md"],
+        artifact::digest(SKILL)
+    );
+    inspect_product(Product::Squad, &report.executable).unwrap();
+    assert!(!install_on(&fixture, &prefix, alpha).unwrap().changed);
 }

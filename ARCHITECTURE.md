@@ -1695,9 +1695,15 @@ An extension release (never the CLI) may carry a bounded agent-skills tree,
 `skills/<name>/<path>` (`native_install::skills_tree`). It has the binaries'
 integrity:
 
-- every skill file is in the manifest's asset inventory;
-- the archive SHA-256, verified before parsing, covers its bytes;
-- extraction accepts only the listed regular files and their directories;
+- the manifest declares the tree with the single asset `skills`, the form
+  cargo-dist gives an included directory; the CLI may not declare it, and an
+  archived tree that is not declared, or a declaration with no tree, rejects
+  the release;
+- the file inventory comes only from the archive, whose SHA-256, verified
+  before parsing, covers every byte; the bounds below apply while decoding,
+  before any file is kept;
+- extraction accepts only regular files under `skills/` and directories that
+  hold one;
 - paths follow the owned-skill name and canonical path rules
   (`skill_installation::valid_skill_name`/`valid_skill_file`);
 - bounds are 16 skills of at most 64 files, 1 MiB each, with a `SKILL.md` per skill.

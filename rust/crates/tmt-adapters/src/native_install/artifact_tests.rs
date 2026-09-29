@@ -33,6 +33,10 @@ enum Entry {
         path: String,
         target: String,
     },
+    /// A directory record as archivers write it, with its trailing slash.
+    Directory {
+        path: String,
+    },
 }
 
 struct Fixture {
@@ -100,6 +104,19 @@ fn append_entry(builder: &mut Builder<GzEncoder<Vec<u8>>>, entry: Entry) {
             header.set_mode(0o777);
             header.set_size(0);
             header.set_link_name(target).unwrap();
+            header.set_cksum();
+            builder.append(&header, &[][..]).unwrap();
+        }
+        Entry::Directory { path } => {
+            let mut header = Header::new_gnu();
+            header.set_path("placeholder").unwrap();
+            header.set_entry_type(EntryType::Directory);
+            header.set_mode(0o755);
+            header.set_size(0);
+            assert!(path.is_ascii() && path.len() <= 100);
+            let raw = header.as_mut_bytes();
+            raw[..100].fill(0);
+            raw[..path.len()].copy_from_slice(path.as_bytes());
             header.set_cksum();
             builder.append(&header, &[][..]).unwrap();
         }

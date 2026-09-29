@@ -28,9 +28,13 @@ const RECEIPT_ENTRY_BYTES: usize = ROOT.len() + 1 + 64 + 1 + 512 + 64 + 16;
 pub(super) const fn receipt_limit(product: Product) -> usize {
     match product {
         Product::Cli => CLI_RECEIPT_BYTES,
-        _ => CLI_RECEIPT_BYTES + MAXIMUM_SKILLS * MAXIMUM_FILES * RECEIPT_ENTRY_BYTES,
+        _ => CLI_RECEIPT_BYTES + MAXIMUM_TREE_FILES * RECEIPT_ENTRY_BYTES,
     }
 }
+
+/// The most files a release's tree may hold, checked while decoding so an
+/// archive never makes the reader keep more.
+pub(super) const MAXIMUM_TREE_FILES: usize = MAXIMUM_SKILLS * MAXIMUM_FILES;
 
 pub(super) fn is_skill_path(path: &str) -> bool {
     path.starts_with("skills/")
