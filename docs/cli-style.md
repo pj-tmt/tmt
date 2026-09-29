@@ -17,8 +17,8 @@ or 256-color values are used.
 
 | Token                  | Rendering    | Use                                   |
 | ---------------------- | ------------ | ------------------------------------- |
-| `accent`               | blue         | `hint:`, resumable state              |
-| `ok`                   | green        | success, running                      |
+| `accent`               | blue         | running, `hint:`, row actions         |
+| `ok`                   | green        | success (`✓`)                         |
 | `warn`                 | yellow       | needs attention                       |
 | `error`                | red          | `error:`, failed                      |
 | `dim`                  | dim          | counts, times, offline, secondary     |
@@ -26,41 +26,52 @@ or 256-color values are used.
 | `literal`              | bold         | commands and flags a reader types     |
 | driver `claude`        | magenta      | an address or name driven by Claude   |
 | driver `codex`         | cyan         | an address or name driven by Codex    |
-| any other driver       | dim          |                                       |
+| any other driver       | dim          | including the `tmux:%N` transport     |
 
 Help uses the same tokens through clap `Styles`. A full-screen view, such as the
 Squad board, takes its colors from `Token::color`, not from its own palette.
 
 ## Marks
 
-Each mark has one meaning everywhere (`mark::Mark`):
+Each mark has one meaning everywhere (`mark::Mark`). A row's leading state mark is
+`●`, `○` or `◌`:
 
 | Mark | Meaning                          |
 | ---- | -------------------------------- |
 | `●`  | running or active                |
-| `○`  | offline                          |
+| `○`  | offline or ended                 |
 | `◌`  | bound to a pane, no agent running |
-| `↻`  | a remembered session can resume  |
+| `↻`  | leads a resume action (`↻ tmt resume <name>`), never a row's state |
 | `✓`  | done                             |
 | `✗`  | failed                           |
 | `!`  | warning                          |
 
 ## Lists
 
-- Agent-first: the name leads each row, after its mark.
-- A section is an UPPERCASE bold title followed by a dimmed count.
+This is the list model that `tmt ls` (#434) follows first; other lists use the
+same parts.
+
+- Agent-first: each row starts with a state mark, then the name.
+- A section is an UPPERCASE bold title followed by a dimmed count. Rows are
+  sorted by name within a section.
 - Rows are indented two spaces, with no header row and no borders. Sections with
   the same columns share one layout, so their rows line up.
-- A `hint:` line comes last, only when an action is possible.
+- A row's trailing action appears only where an action is possible, such as
+  `↻ tmt resume <name>`, `stale` or `shell`. It is accent-colored, comes after
+  every column, and is never truncated.
+- A section-level `hint:` line comes last, only for a next step that applies to
+  the whole section.
 
 ```text
-RUNNING 2
-  ●  coordinator  claude:e1c9ab12  just now  ~/dev/tmux-team/worktrees/feature-branch
-  ◌  reviewer     codex:77aa0c3d   3m ago    ~/dev/tmux-team
+SAVED 3
+  ●  astra            codex:019a2f4c   ~/dev/tmux-team
+  ●  opus-tmt-peer-2  claude:7c41e9d2  ~/dev/tmux-team/worktrees/feature-branch
+  ○  sol              claude:3f9a1c07  ~/dev/tmux-team                           ↻ tmt resume sol
 
-OFFLINE 1
-  ↻  night-shift  claude:0c3d77aa  2h ago    /srv/builds/nightly
-hint: tmt resume night-shift
+TEMPORARY 2
+  ●  mamezu-astra     codex:01a9c3b8   ~/dev/mosaic-art
+  ◌  opus-1           tmux:%31         /srv/builds/nightly                       shell
+hint: tmt ls --all shows offline identities
 ```
 
 ## Values

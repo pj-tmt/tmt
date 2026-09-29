@@ -67,7 +67,8 @@ impl Token {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Terminal {
     pub color: bool,
-    /// Columns available, known only for an interactive terminal. Without a
+    /// Columns available. Known only when stdout is a terminal: comfy-table's
+    /// `width()` asks the terminal only after its `is_tty` check. Without a
     /// width nothing is truncated, so piped output keeps every value whole.
     pub width: Option<u16>,
 }

@@ -9,9 +9,14 @@ use crate::{
 use std::io::{self, Write};
 
 /// A single final period is punctuation noise in a one-line message; the
-/// stored text (and `--json`) keeps it.
+/// stored text (and `--json`) keeps it. An ellipsis is not a period.
 fn line(text: &str) -> String {
-    escape(text.strip_suffix('.').unwrap_or(text))
+    let text = if text.ends_with("..") {
+        text
+    } else {
+        text.strip_suffix('.').unwrap_or(text)
+    };
+    escape(text)
 }
 
 /// `✓ <past-tense verb> <object>`.
@@ -83,6 +88,10 @@ mod tests {
         assert_eq!(
             text(|out| error(out, plain, "Wait... no.", None)),
             "error: Wait... no\n"
+        );
+        assert_eq!(
+            text(|out| success(out, plain, "Loading...")),
+            "✓ Loading...\n"
         );
     }
 }

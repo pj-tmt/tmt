@@ -138,51 +138,10 @@ fn after_help(sections: &[HelpSection], examples: &[Example]) -> String {
 }
 
 impl Example {
-    /// The argv a shell would pass, for parsing examples through the real
-    /// grammar: whitespace separates words; single quotes are literal; double
-    /// quotes and a backslash escape the next character.
+    /// The argv a POSIX shell would pass, for parsing examples through the
+    /// real grammar. Unbalanced quoting is an error.
     pub fn argv(&self) -> Result<Vec<String>, String> {
-        let mut words = Vec::new();
-        let mut word: Option<String> = None;
-        let mut characters = self.command.chars();
-        while let Some(ch) = characters.next() {
-            match ch {
-                ' ' | '\t' => words.extend(word.take()),
-                '\'' => {
-                    let quoted = word.get_or_insert_default();
-                    loop {
-                        match characters.next() {
-                            Some('\'') => break,
-                            Some(ch) => quoted.push(ch),
-                            None => return Err(format!("unterminated quote: {}", self.command)),
-                        }
-                    }
-                }
-                '"' => {
-                    let quoted = word.get_or_insert_default();
-                    loop {
-                        match characters.next() {
-                            Some('"') => break,
-                            Some('\\') => match characters.next() {
-                                Some(ch) => quoted.push(ch),
-                                None => {
-                                    return Err(format!("unterminated quote: {}", self.command));
-                                }
-                            },
-                            Some(ch) => quoted.push(ch),
-                            None => return Err(format!("unterminated quote: {}", self.command)),
-                        }
-                    }
-                }
-                '\\' => match characters.next() {
-                    Some(ch) => word.get_or_insert_default().push(ch),
-                    None => return Err(format!("trailing backslash: {}", self.command)),
-                },
-                ch => word.get_or_insert_default().push(ch),
-            }
-        }
-        words.extend(word);
-        Ok(words)
+        shlex::split(self.command).ok_or_else(|| format!("unbalanced quoting: {}", self.command))
     }
 }
 

@@ -30,61 +30,66 @@ fn visible(bytes: Vec<u8>) -> String {
 
 fn agents() -> Vec<Section<'static>> {
     let home = Path::new("/Users/ada");
-    let agent = |mark: Mark, name: &str, driver: &str, id: &str, path: &str, seen: u64| {
+    let cells = |mark: Mark, name: &str, driver: &str, id: &str, path: &str| {
         [
             Cell::styled(mark.symbol(), mark.token()),
             name.into(),
             Cell::styled(value::address(driver, id), Token::driver(driver)),
-            Cell::styled(value::relative_time(seen), Token::Dim),
             value::home_path(Path::new(path), Some(home)).into(),
         ]
     };
-    let columns = [
-        Column::Fixed,
-        Column::Name,
-        Column::Fixed,
-        Column::Fixed,
-        Column::Detail,
-    ];
-    let mut running = Table::new(&columns);
-    running
-        .row(agent(
+    let columns = [Column::Fixed, Column::Name, Column::Fixed, Column::Detail];
+    let mut saved = Table::new(&columns);
+    saved
+        .row(cells(
             Mark::Running,
-            "coordinator",
-            "claude",
-            "e1c9ab12-77aa-4c3d-9f10-3b2a1c0d9e8f",
-            "/Users/ada/dev/tmux-team/worktrees/feature-branch",
-            4_000,
-        ))
-        .row(agent(
-            Mark::Idle,
-            "reviewer",
+            "astra",
             "codex",
-            "77aa0c3d-1111-2222-3333-444455556666",
+            "019a2f4c-1111-2222-3333-444455556666",
             "/Users/ada/dev/tmux-team",
-            180_000,
-        ));
-    let mut offline = Table::new(&columns);
-    offline.row(agent(
-        Mark::Resumable,
-        "night-shift",
-        "claude",
-        "0c3d77aa-aaaa-bbbb-cccc-dddd0000ffff",
-        "/srv/builds/nightly",
-        7_200_000,
-    ));
+        ))
+        .row(cells(
+            Mark::Running,
+            "opus-tmt-peer-2",
+            "claude",
+            "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f",
+            "/Users/ada/dev/tmux-team/worktrees/feature-branch",
+        ))
+        .row_with_action(
+            cells(
+                Mark::Offline,
+                "sol",
+                "claude",
+                "3f9a1c07-aaaa-bbbb-cccc-dddd0000ffff",
+                "/Users/ada/dev/tmux-team",
+            ),
+            &format!("{} tmt resume sol", Mark::Resumable.symbol()),
+        );
+    let mut temporary = Table::new(&columns);
+    temporary
+        .row(cells(
+            Mark::Running,
+            "mamezu-astra",
+            "codex",
+            "01a9c3b8-0000-1111-2222-333344445555",
+            "/Users/ada/dev/mosaic-art",
+        ))
+        .row_with_action(
+            cells(Mark::Idle, "opus-1", "tmux", "%31", "/srv/builds/nightly"),
+            "shell",
+        );
     vec![
         Section {
-            title: "running",
-            count: Some(2),
-            rows: running,
+            title: "saved",
+            count: Some(3),
+            rows: saved,
             hint: None,
         },
         Section {
-            title: "offline",
-            count: Some(1),
-            rows: offline,
-            hint: Some("tmt resume night-shift"),
+            title: "temporary",
+            count: Some(2),
+            rows: temporary,
+            hint: Some("tmt ls --all shows offline identities"),
         },
     ]
 }

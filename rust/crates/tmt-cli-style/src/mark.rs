@@ -10,7 +10,8 @@ pub enum Mark {
     Offline,
     /// `◌` bound to a pane with no agent running.
     Idle,
-    /// `↻` a remembered session can be resumed.
+    /// `↻` a remembered session can be resumed; it leads a row's trailing
+    /// action (`↻ tmt resume <name>`), never the row itself.
     Resumable,
     /// `✓` done.
     Done,
@@ -45,9 +46,9 @@ impl Mark {
 
     pub fn token(self) -> Token {
         match self {
-            Self::Running | Self::Done => Token::Ok,
+            Self::Running | Self::Resumable => Token::Accent,
+            Self::Done => Token::Ok,
             Self::Offline | Self::Idle => Token::Dim,
-            Self::Resumable => Token::Accent,
             Self::Failed => Token::Error,
             Self::Warning => Token::Warn,
         }

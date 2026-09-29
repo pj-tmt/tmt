@@ -2470,6 +2470,7 @@ dependencies = [
  "clap",
  "comfy-table",
  "insta",
+ "shlex",
  "unicode-width",
 ]
 

@@ -84,3 +84,40 @@ fn color_is_applied_after_layout() {
 fn a_row_needs_one_cell_per_column() {
     Table::new(&[Column::Name, Column::Name]).row(["only"]);
 }
+
+#[test]
+fn actions_trail_only_their_rows_and_are_never_truncated() {
+    let mut table = Table::new(&[Column::Fixed, Column::Name, Column::Detail]);
+    table
+        .row(["●", "astra", "~/dev/tmux-team"])
+        .row_with_action(["○", "sol", "~/dev/tmux-team"], "↻ tmt resume sol");
+    assert_eq!(
+        render(&table, Terminal::PLAIN),
+        "  ●  astra  ~/dev/tmux-team\n  ○  sol    ~/dev/tmux-team  ↻ tmt resume sol\n"
+    );
+    // The detail gives way; the action keeps every character.
+    assert_eq!(
+        render(&table, width(36)),
+        "  ●  astra  ~/dev…\n  ○  sol    ~/dev…  ↻ tmt resume sol\n"
+    );
+    let colored = render(
+        &table,
+        Terminal {
+            color: true,
+            width: None,
+        },
+    );
+    assert!(
+        colored.contains("\u{1b}[38;5;4m↻ tmt resume sol"),
+        "{colored:?}"
+    );
+}
+
+#[test]
+fn colored_rows_end_without_padding() {
+    assert_eq!(
+        without_trailing_padding("a  \u{1b}[34mshell   \u{1b}[39m\u{1b}[0m  "),
+        "a  \u{1b}[34mshell\u{1b}[39m\u{1b}[0m"
+    );
+    assert_eq!(without_trailing_padding("plain   "), "plain");
+}

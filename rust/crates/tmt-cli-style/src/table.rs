@@ -2,6 +2,15 @@
 //! escaped plain text; color is applied after layout. With a known terminal
 //! width, detail columns (paths, previews) give way before names, and every
 //! row stays on one line, truncated with `…`. Without one nothing is cut.
+//!
+//! comfy-table renders, truncates and styles every cell. The one piece of
+//! custom layout is `layout`, which chooses each column's width, because
+//! comfy-table cannot express two of the style's rules: widths shared across
+//! the separate tables of a list's sections, and a priority order in which
+//! detail columns give way completely before names shrink.
+//! `ContentArrangement::Dynamic` distributes the shortfall across columns
+//! instead of prioritizing, and it lays out one table at a time. The computed
+//! widths are handed to comfy-table as absolute column constraints.
 
 use crate::palette::{Terminal, Token};
 use comfy_table::{Attribute, Color, ColumnConstraint, Row, Width, presets};
@@ -66,6 +75,8 @@ impl<T: AsRef<str>> From<T> for Cell {
 pub struct Table {
     columns: Vec<Column>,
     rows: Vec<Vec<Cell>>,
+    /// A trailing action per row, such as `↻ tmt resume <name>`.
+    actions: Vec<Option<Cell>>,
     indent: usize,
 }
 
@@ -79,6 +90,7 @@ impl Table {
         Self {
             columns: columns.to_vec(),
             rows: Vec::new(),
+            actions: Vec::new(),
             indent: 2,
         }
     }
@@ -94,6 +106,23 @@ impl Table {
         let cells: Vec<Cell> = cells.into_iter().map(Into::into).collect();
         assert_eq!(cells.len(), self.columns.len(), "one cell per column");
         self.rows.push(cells);
+        self.actions.push(None);
+        self
+    }
+
+    /// A row with a trailing action, shown only where an action is possible:
+    /// accent-colored after every column, and never truncated.
+    ///
+    /// # Panics
+    /// When the row does not have one cell per column: a caller bug.
+    pub fn row_with_action<C: Into<Cell>>(
+        &mut self,
+        cells: impl IntoIterator<Item = C>,
+        action: &str,
+    ) -> &mut Self {
+        self.row(cells);
+        *self.actions.last_mut().expect("the row was just added") =
+            Some(Cell::styled(action, Token::Accent));
         self
     }
 
@@ -126,11 +155,16 @@ impl Table {
         if terminal.color {
             table.enforce_styling();
         }
-        for cells in &self.rows {
+        let with_actions = widths.len() > self.columns.len();
+        for (cells, action) in self.rows.iter().zip(&self.actions) {
             let mut row = Row::new();
             row.max_height(1);
             for cell in cells {
                 row.add_cell(styled(cell));
+            }
+            if with_actions {
+                let none = Cell::from("");
+                row.add_cell(styled(action.as_ref().unwrap_or(&none)));
             }
             table.add_row(row);
         }
@@ -144,7 +178,7 @@ impl Table {
         }
         let indent = " ".repeat(self.indent);
         for line in table.lines() {
-            let line = line.trim_end();
+            let line = without_trailing_padding(&line);
             if line.is_empty() {
                 writeln!(output)?;
             } else {
@@ -157,10 +191,11 @@ impl Table {
 
 /// Column widths shared by tables with the same columns and indent: natural
 /// widths, then detail columns and afterwards names shrink, widest first,
-/// until the rows fit or nothing more may shrink.
+/// until the rows fit or nothing more may shrink. When any row has an action,
+/// one more fixed column holds the actions.
 pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
     let first = tables[0];
-    let columns = &first.columns;
+    let mut columns = first.columns.clone();
     let mut widths: Vec<usize> = (0..columns.len())
         .map(|index| {
             tables
@@ -171,6 +206,15 @@ pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
                 .unwrap_or(0)
         })
         .collect();
+    let actions = tables
+        .iter()
+        .flat_map(|table| table.actions.iter().flatten())
+        .map(|action| action.text.width())
+        .max();
+    if let Some(width) = actions {
+        columns.push(Column::Fixed);
+        widths.push(width);
+    }
     let Some(available) = available else {
         return widths;
     };
@@ -194,6 +238,23 @@ pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
         }
     }
     widths
+}
+
+/// comfy-table pads a styled cell inside its color span, so padding can sit
+/// before the closing reset codes; drop it there as well as at the end.
+fn without_trailing_padding(line: &str) -> String {
+    let mut end = line.trim_end();
+    let mut resets = Vec::new();
+    while let Some(start) = end.rfind('\u{1b}') {
+        let code = &end[start..];
+        if !(code.starts_with("\u{1b}[") && code.ends_with('m')) {
+            break;
+        }
+        resets.push(code);
+        end = end[..start].trim_end();
+    }
+    resets.reverse();
+    format!("{end}{}", resets.concat())
 }
 
 fn styled(cell: &Cell) -> comfy_table::Cell {

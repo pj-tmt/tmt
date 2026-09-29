@@ -81,6 +81,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "anstyle",
             "clap",
             "comfy-table",
+            "shlex",
             "unicode-width",
         ],
         "tmt-office-command" => &[

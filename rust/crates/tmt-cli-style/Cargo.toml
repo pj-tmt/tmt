@@ -13,6 +13,7 @@ anstream.workspace = true
 anstyle.workspace = true
 clap.workspace = true
 comfy-table.workspace = true
+shlex.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
