@@ -1,0 +1,18 @@
+name: Warm the macOS toolchain lookup
+description: >-
+  Resolves `otool` through `xcrun` once on a macOS runner, under a bounded
+  retry, and logs how long that took. The first `xcrun` call on a fresh hosted
+  runner can take longer than the 10 s bound the native runtime proof gives its
+  own call, which then failed with `spawnSync /usr/bin/xcrun ETIMEDOUT` without
+  any change to the repository. After this step that call is answered from the
+  warm cache and keeps its bound. Does nothing on other operating systems.
+runs:
+  using: composite
+  steps:
+    - name: Resolve otool once
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        start=$SECONDS
+        "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 5 /usr/bin/xcrun --find otool
+        echo "xcrun resolved otool in $((SECONDS - start)) s"
