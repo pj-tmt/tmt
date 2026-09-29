@@ -261,7 +261,9 @@ map, a crate's version declaration, the workspace's crates or its dependencies b
 them (including a new file or directory under an extension root, because the CLI's exclude
 list is written out from the tracked files), run
 `node typescript/scripts/release-please-config.mjs --write`; the
-`release-please-config` tooling test (and `--check`) fails while the file is stale. The
+`release-please-config` tooling test (and `--check`) fails while the file is stale; `Code quality`
+runs that test on every pull request, including Squad-only ones whose Unit tests are skipped,
+because Squad's manifest is one of its inputs. The
 generator needs `cargo` and reads no network. Update the pinned release-please CLI in
 `.github/release-please/` with `pnpm install` there and commit its lockfile; the test
 requires an exact version and an integrity hash for every locked package.

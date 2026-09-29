@@ -507,9 +507,21 @@ describe('component map', () => {
     const files = tracked().filter((file) =>
       /^typescript\/test\/(tooling|support)\/[^/]+\.ts$/.test(file)
     );
+    // Code quality runs these on every pull request, so skipping Unit tests does not skip
+    // them: they check inputs that Squad-only changes can also change.
+    const alwaysRun = [
+      'typescript/test/tooling/ci-scope.test.ts',
+      'typescript/test/tooling/release-please-config.test.ts',
+    ];
+    const qualityCommand = /vitest run ([^\n]+)/.exec(
+      readFileSync(path.join(repository, '.github/workflows/ci.yml'), 'utf8')
+    )?.[1];
+    for (const file of alwaysRun) {
+      expect(qualityCommand, file).toContain(file.replace('typescript/', ''));
+    }
     const readers = files.filter(
       (file) =>
-        file !== 'typescript/test/tooling/ci-scope.test.ts' &&
+        !alwaysRun.includes(file) &&
         /extensions\/tmt-squad|rust\/target\/debug\/tmt-squad/.test(
           readFileSync(path.join(repository, file), 'utf8')
         )
