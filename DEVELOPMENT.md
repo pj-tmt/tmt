@@ -244,7 +244,9 @@ diff selector skips expensive native jobs only for Office-only paths, and skips
 Office for native-source/skill-only paths. Shared/unknown paths run both. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
-failed, cancelled or unexpectedly skipped selected jobs. CI changes need positive
+failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser
+partitions run in their own workflow (below), so a red `CI` run means one of its own
+jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
@@ -291,11 +293,14 @@ disposable Auth/Firestore/Functions emulators and three strict-port preview serv
 Playwright. The cloud build must fail closed without operator configuration;
 it never contacts a real project during automated tests.
 It uses one worker, no retries, bounded waits and independent browser contexts.
-The complete local command above remains the acceptance entry point. CI schedules
+The complete local command above remains the acceptance entry point. The
+`Office browser verification` workflow (`.github/workflows/office-browser.yml`) schedules
 the same standard browser identities as advisory diagnostics in twelve isolated
 partitions to reduce the chance
-that cold image builds and serial scenarios exhaust a per-job deadline:
+that serial scenarios exhaust a per-job deadline:
 emulator-backed contracts, three local Vite shards, and eight native-local shards.
+One `image` job builds the `browser-tests` target once and shares it as a one-day
+artifact; every partition loads that image and never builds it.
 Local partitions do not start Firebase, while native-local shards use the container
 Secret Service and embedded companion without Vite or Firebase.
 `test:browser:partitions` compares the exact Playwright identities from all twelve
@@ -303,17 +308,17 @@ partitions with the standard suite, rejects overlaps or omissions, keeps
 `native-decoration.spec.ts` in the emulator partition, and separately proves that
 the four opt-in capacity scenarios retain the full original inventory without
 overlapping the standard browser inventory. Every partition keeps one worker, zero retries and the
-existing scenario limits. Browser results do not gate merge aggregates; failed jobs
-remain visible and retain their logs and artifacts. Native Rust CI still owns
+existing scenario limits. Browser results do not gate merge aggregates and are not
+required checks; failed jobs remain visible in that workflow, whose status is the only
+place advisory failures show, and retain their logs and artifacts. Native Rust CI still owns
 formatting, linting, locked builds, embedded SPA service tests and process/parser
 contracts. The container-native shards retain installed-browser diagnostics without
 being rerun after compilation.
 Browser matrices and Playwright commands continue after individual failures while the
 runner remains active. A failed command uploads available Playwright error contexts
 before a final fail-closed step records the advisory job failure. Native browser jobs have a
-25-minute deadline so their cold image build leaves more time for each retained
-4–9-test partition. That remains a best-effort diagnostic budget: several tests can
-still consume their 120-second scenario limits after the build. A
+25-minute deadline for each retained 4–9-test partition. That remains a best-effort
+diagnostic budget: several tests can still consume their 120-second scenario limits. A
 deadline or runner termination can truncate a partition and prevent later artifact
 steps despite their failure/cancellation predicate. Report completed and expected
 counts together, including missing artifacts; do not claim a complete inventory from
@@ -334,9 +339,10 @@ cannot go stale.
 
 - Run the local browser suite above before opening a PR for an Office-affecting
   change, and record the result in the PR.
-- CI runs the Office browser partitions only when `office` is selected, and the
-  native Office shards only when `native_office` is. Their results are advisory
-  and never gate merge.
+- The `Office browser verification` workflow runs the Office browser partitions only
+  when `office` is selected, and the native Office shards only when `native_office`
+  is. Their results are advisory: they are not required checks and never gate merge,
+  and a red run of that workflow is a browser diagnostic, not a `CI` failure.
 - If a remote browser job fails but the same tests pass reliably in the local
   suite, treat the failure as flaky: record the local pass in the PR and move on.
   Only a failure that also reproduces locally needs a fix.
