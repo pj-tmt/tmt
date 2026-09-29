@@ -2,8 +2,10 @@ import Database from 'better-sqlite3';
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   symlinkSync,
   unlinkSync,
@@ -758,6 +760,48 @@ sort = ["-name"]
       expect(removed.body).toMatchObject({ removed: [conf], changed: true, unbound: [] });
       expect(readFileSync(conf, 'utf8'), 'only the owned line is gone').toBe(`${original}\n`);
       expect((await hotkeys(['remove', '--yes'])).body.changed).toBe(false);
+    });
+  });
+
+  it('keeps a dotfile-managed tmux.conf a link and refuses a dangling one', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      const dotfiles = path.join(sandbox.root, 'dotfiles');
+      mkdirSync(dotfiles);
+      const real = path.join(dotfiles, 'tmux.conf');
+      writeFileSync(real, 'set -g mouse on\n');
+      const conf = path.join(sandbox.home, '.tmux.conf');
+      symlinkSync('../dotfiles/tmux.conf', conf);
+      const hotkeys = (args: string[]) => squad(sandbox, ['hotkeys', ...args]);
+
+      const printed = await hotkeys(['install', '--print']);
+      expect(printed.body).toMatchObject({ target: conf, creates: false });
+      expect(realpathSync(printed.body.resolved)).toBe(realpathSync(real));
+      const installed = await hotkeys(['install', '--yes']);
+      expect(installed.body.changed).toBe(true);
+      expect(lstatSync(conf).isSymbolicLink(), 'the link stays a link').toBe(true);
+      expect(readFileSync(real, 'utf8')).toMatch(
+        /^set -g mouse on\nsource-file -q .* # tmt squad hotkeys\n$/
+      );
+      expect(realpathSync(path.dirname(installed.body.backup))).toBe(realpathSync(dotfiles));
+      const removed = await hotkeys(['remove', '--yes']);
+      expect(removed.body.changed).toBe(true);
+      expect(lstatSync(conf).isSymbolicLink()).toBe(true);
+      expect(readFileSync(real, 'utf8')).toBe('set -g mouse on\n');
+
+      // A dangling link: install refuses and creates nothing; --print still helps.
+      unlinkSync(conf);
+      symlinkSync(path.join(sandbox.root, 'missing', 'tmux.conf'), conf);
+      const dangling = await hotkeys(['install', '--yes']);
+      expect(dangling.body.error.code).toBe('SQUAD_ACTION_REFUSED');
+      expect(dangling.body.error.message).toContain('--print');
+      expect(existsSync(path.join(sandbox.root, 'missing'))).toBe(false);
+      expect(lstatSync(conf).isSymbolicLink()).toBe(true);
+      const help = await hotkeys(['install', '--print']);
+      expect(help.status).toBe(0);
+      expect(help.body.resolved).toBeNull();
     });
   });
 });

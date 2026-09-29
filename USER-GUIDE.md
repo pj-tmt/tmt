@@ -525,6 +525,8 @@ regenerates. Your tmux configuration gets one line, `source-file -q
 '<…>/squad.tmux.conf' # tmt squad hotkeys`, in the first of `~/.tmux.conf`,
 `$XDG_CONFIG_HOME/tmux/tmux.conf` or `~/.config/tmux/tmux.conf` that exists
 (`~/.tmux.conf` is created if none does; `--config <path>` picks another).
+If that file is a link, as dotfile managers make it, squad edits the file it
+points to and keeps the link; a link to a missing file is refused.
 Before writing, install rereads the file, keeps a byte-exact backup beside it
 (`<name>.tmt-squad-backup-<time>`) and replaces it in one step; running it
 again changes nothing. Inside tmux it also loads the bindings into the running

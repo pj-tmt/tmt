@@ -255,18 +255,74 @@ fn read(path: &Path) -> Result<Option<Vec<u8>>, SquadError> {
     }
 }
 
-/// Replaces `path` with `text` only if it still holds `expected` (the bytes
-/// the plan showed). An existing file is first copied byte for byte to a
-/// backup; the replacement is atomic and keeps the file's mode.
+/// Symbolic links followed before a target is refused as a loop.
+const LINK_HOPS: usize = 8;
+
+/// The real file behind `path`, following links (dotfile managers link
+/// `~/.tmux.conf` into a repository). A missing plain path is itself; a link
+/// whose target is missing, or a chain of more than [`LINK_HOPS`], is refused.
+fn real_path(path: &Path) -> Result<PathBuf, SquadError> {
+    let mut current = path.to_path_buf();
+    for _ in 0..=LINK_HOPS {
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target = fs::read_link(&current).map_err(|error| {
+                    failed(
+                        "SQUAD_ACTION_FAILED",
+                        format!("Could not read the link {}: {error}", current.display()),
+                    )
+                })?;
+                // A relative target is relative to the link's real directory.
+                current = match current.parent() {
+                    Some(parent) if target.is_relative() => fs::canonicalize(parent)
+                        .unwrap_or_else(|_| parent.to_path_buf())
+                        .join(target),
+                    _ => target,
+                };
+            }
+            Ok(_) => return Ok(current),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && current == path => {
+                return Ok(current);
+            }
+            Err(_) => {
+                return Err(failed(
+                    "SQUAD_ACTION_REFUSED",
+                    format!(
+                        "{} is a link to {}, which does not exist; nothing was written. Fix the link, or add the line from --print yourself.",
+                        path.display(),
+                        current.display()
+                    ),
+                ));
+            }
+        }
+    }
+    Err(failed(
+        "SQUAD_ACTION_REFUSED",
+        format!(
+            "{} follows more than {LINK_HOPS} links; nothing was written. Add the line from --print yourself.",
+            path.display()
+        ),
+    ))
+}
+
+/// Replaces the real file behind `path` with `text` only if it still holds
+/// `expected` (the bytes the plan showed). A link stays a link: the backup,
+/// the temporary file and the rename all happen beside the real file. An
+/// existing file is first copied byte for byte to a backup; the replacement
+/// is atomic and keeps the file's mode.
 fn publish(
     path: &Path,
     expected: Option<&[u8]>,
     text: &str,
 ) -> Result<Option<PathBuf>, SquadError> {
+    let path = &real_path(path)?;
     let io = |error: std::io::Error| {
         failed(
             "SQUAD_ACTION_FAILED",
-            format!("Could not write {}: {error}", path.display()),
+            format!(
+                "Could not write {}: {error}. Nothing else was changed; add the line from --print yourself.",
+                path.display()
+            ),
         )
     };
     if read(path)?.as_deref() != expected {
@@ -319,6 +375,8 @@ struct Plan {
     line: String,
     candidates: Vec<(PathBuf, Option<Vec<u8>>)>,
     target: PathBuf,
+    /// The real file behind `target`, or why it cannot be written.
+    resolved: Result<PathBuf, SquadError>,
     socket: Option<String>,
 }
 
@@ -363,6 +421,7 @@ fn plan(core: &Core, config: &Config, explicit: Option<&Path>) -> Result<Plan, S
         keys,
         squad_file,
         candidates,
+        resolved: real_path(&target),
         target,
         socket: effects::tmux_socket(),
     })
@@ -441,6 +500,7 @@ pub fn install(
         && read(&plan.squad_file)?.as_deref() == Some(plan.bindings.as_bytes());
     let document = json!({
         "target": plan.target,
+        "resolved": plan.resolved.as_ref().ok(),
         "creates": original.is_none(),
         "line": plan.line,
         "squadFile": plan.squad_file,
@@ -460,6 +520,9 @@ pub fn install(
                 collisions.join("; ")
             ),
         ));
+    }
+    if let Err(error) = &plan.resolved {
+        return Err(error.clone());
     }
     if installed {
         let mut document = document;
@@ -481,7 +544,16 @@ pub fn install(
         } else {
             "create"
         },
-        plan.target.display(),
+        match &plan.resolved {
+            Ok(real) if *real != plan.target => {
+                format!(
+                    "{} (a link; the real file {} is edited)",
+                    plan.target.display(),
+                    real.display()
+                )
+            }
+            _ => plan.target.display().to_string(),
+        },
         plan.line,
         if plan.socket.is_some() {
             "\n  load the bindings into the running tmux server"
@@ -490,14 +562,15 @@ pub fn install(
         },
     );
     consent(yes, &summary, "Install these tmux hotkeys?")?;
-    // The squad file is squad's own; the user's file gets the recheck.
-    let squad_before = read(&plan.squad_file)?;
-    publish(&plan.squad_file, squad_before.as_deref(), &plan.bindings)?;
+    // The user's file first: if it cannot be written, nothing changed. Its
+    // line is quiet (`-q`), so squad's own file may follow.
     let backup = publish(
         &plan.target,
         original.as_deref(),
         &with_line(&current, &plan.line),
     )?;
+    let squad_before = read(&plan.squad_file)?;
+    publish(&plan.squad_file, squad_before.as_deref(), &plan.bindings)?;
     if let Some(socket) = &plan.socket {
         let squad_file = plan.squad_file.to_string_lossy().into_owned();
         tmux(socket, &["source-file", &squad_file])?;
@@ -743,6 +816,89 @@ mod tests {
                 "prefix B on the running server: split-window",
             ]
         );
+    }
+
+    #[test]
+    fn a_linked_configuration_stays_a_link_and_dangling_or_looping_links_refuse() {
+        use std::os::unix::fs::symlink;
+        let root = scratch("links");
+        let dotfiles = root.join("dotfiles");
+        fs::create_dir_all(&dotfiles).unwrap();
+        let real = dotfiles.join("tmux.conf");
+        fs::write(&real, "set -g mouse on\n").unwrap();
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let link = home.join(".tmux.conf");
+        // A relative link through a second link, as dotfile managers make.
+        symlink("dotfiles/tmux.conf", root.join("hop")).unwrap();
+        symlink("../hop", &link).unwrap();
+        let canonical = |path: &Path| fs::canonicalize(path).unwrap();
+        assert_eq!(canonical(&real_path(&link).unwrap()), canonical(&real));
+        assert_eq!(real_path(&real).unwrap(), real);
+        assert_eq!(
+            real_path(&home.join("absent")).unwrap(),
+            home.join("absent")
+        );
+
+        let backup = publish(&link, Some(b"set -g mouse on\n"), "set -g mouse on\nline\n")
+            .unwrap()
+            .unwrap();
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "still a link"
+        );
+        assert_eq!(
+            fs::read_to_string(&real).unwrap(),
+            "set -g mouse on\nline\n"
+        );
+        assert_eq!(
+            canonical(backup.parent().unwrap()),
+            canonical(&dotfiles),
+            "backup beside the real file"
+        );
+        assert_eq!(
+            fs::read_dir(&home).unwrap().count(),
+            1,
+            "nothing written beside the link"
+        );
+
+        let dangling = home.join("dangling.conf");
+        symlink(root.join("missing.conf"), &dangling).unwrap();
+        let refused = publish(&dangling, None, "line\n").unwrap_err();
+        assert_eq!(refused.code, "SQUAD_ACTION_REFUSED");
+        assert!(refused.message.contains("--print"), "{}", refused.message);
+        assert!(
+            fs::symlink_metadata(&dangling)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(!root.join("missing.conf").exists(), "nothing was created");
+
+        symlink(root.join("loop-b"), root.join("loop-a")).unwrap();
+        symlink(root.join("loop-a"), root.join("loop-b")).unwrap();
+        assert_eq!(
+            real_path(&root.join("loop-a")).unwrap_err().code,
+            "SQUAD_ACTION_REFUSED"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_unwritable_directory_refuses_with_guidance_and_changes_nothing() {
+        let root = scratch("readonly");
+        let path = root.join(".tmux.conf");
+        fs::write(&path, "keep\n").unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o555)).unwrap();
+        let error = publish(&path, Some(b"keep\n"), "keep\nline\n").unwrap_err();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(error.code, "SQUAD_ACTION_FAILED");
+        assert!(error.message.contains("--print"), "{}", error.message);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "keep\n");
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
