@@ -1645,6 +1645,18 @@ disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 Every jump pushes the pane the client left, under the client `tmt focus`
 reports; `back` asks core for the invoker's client with `tmt focus --client`,
 pops its entry and focuses it, so squad still never talks to tmux about clients.
+`hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back`)
+and owns one `source-file` line in the user's tmux configuration. It edits that
+file only after consent, rereads it before publication, keeps a byte-exact
+backup and replaces it atomically with the original mode; removal drops only
+the exact owned line. A linked configuration is resolved (at most eight hops,
+each relative to the link's real directory) and written beside its real file,
+so the link survives; dangling or looping links are refused before consent. The bindings record the first `tmt` on PATH that resolves
+to the running executable, not the release path. Collisions and ownership on
+the running server come from `list-keys -N -P "" -T prefix` (notes) and
+`list-keys -T prefix` (commands), because `list-keys -F` postdates tmux 3.2;
+squad unbinds only keys whose note is its own. `board --popup` ends the session
+after a successful jump.
 `send` sends as the user's saved identity through public commands only: detached
 `talk --identity <me> --room squad-<name>` with operands after `--`, annotations
 as a talk tagged `[<squad> · <row>]`, and replies with the receipt that `x show

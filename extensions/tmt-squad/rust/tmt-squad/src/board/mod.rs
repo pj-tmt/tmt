@@ -156,7 +156,14 @@ fn session(
             }
             Effect::Act(action) => {
                 let sends = action.sends();
-                app.finished(act(action));
+                let jump = matches!(action, Request::Jump(_));
+                let outcome = act(action);
+                let jumped = jump && outcome.is_ok();
+                app.finished(outcome);
+                // A popup has done its job once the user is at the member.
+                if jumped && app.popup {
+                    return Ok(None);
+                }
                 if sends {
                     request(app.current.clone());
                     refreshed = Instant::now();
@@ -172,12 +179,14 @@ fn session(
 }
 
 /// Returns the signal that ended the board, if any.
-pub fn run(core: Core, squad: Option<String>) -> Result<Option<i32>, SquadError> {
+/// `popup` closes the board after a successful jump, as a tmux popup should.
+pub fn run(core: Core, squad: Option<String>, popup: bool) -> Result<Option<i32>, SquadError> {
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
     let worker = refresh::Worker::spawn(core.clone(), effects::tmux_socket().is_some());
     worker.request(squad.clone());
     let mut app = App::new(squad);
+    app.popup = popup;
     let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
     let input = spawn_input();
@@ -270,6 +279,58 @@ mod tests {
         );
         assert_eq!(outcome.unwrap(), Some(HANGUP));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_popup_closes_after_a_successful_jump_and_stays_otherwise() {
+        let enter = || Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let run = |popup: bool, outcome: Result<String, String>| {
+            let (keys, input) = channel();
+            let (snapshots, results) = channel();
+            let mut app = App::new(Some("product".into()));
+            app.popup = popup;
+            snapshots
+                .send(app::tests::snapshot(
+                    "product",
+                    serde_json::json!([{"title": null, "rows": [{"name": "auth-fix"}]}]),
+                ))
+                .unwrap();
+            keys.send(enter()).unwrap();
+            drop(keys);
+            let stop = AtomicUsize::new(0);
+            let mut jumps = 0;
+            let ended = session(
+                &mut app,
+                &stop,
+                &input,
+                &results,
+                |_| {},
+                |request| {
+                    assert_eq!(request, Request::Jump("auth-fix".into()));
+                    jumps += 1;
+                    outcome.clone()
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
+            (ended, jumps)
+        };
+        assert_eq!(
+            run(true, Ok("Showing auth-fix.".into())),
+            (None, 1),
+            "closed"
+        );
+        // The input then disconnects, which ends the session as a hangup.
+        assert_eq!(
+            run(true, Err("tmt focus failed".into())),
+            (Some(HANGUP), 1),
+            "a failed jump keeps the popup open"
+        );
+        assert_eq!(
+            run(false, Ok("Showing auth-fix.".into())),
+            (Some(HANGUP), 1),
+            "the pane form stays open"
+        );
     }
 
     #[test]

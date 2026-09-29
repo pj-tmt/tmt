@@ -187,6 +187,8 @@ pub struct App {
     pub focus: usize,
     pub notes_scroll: u16,
     pub replies_scroll: u16,
+    /// Opened as a tmux popup: a successful jump closes the board.
+    pub popup: bool,
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
@@ -715,7 +717,7 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use serde_json::json;
 
@@ -745,7 +747,7 @@ mod tests {
         }
     }
 
-    fn snapshot(squad: &str, sections: Value) -> Snapshot {
+    pub(crate) fn snapshot(squad: &str, sections: Value) -> Snapshot {
         Snapshot {
             squads: vec!["infra".into(), "product".into()],
             squad: Some(squad.into()),

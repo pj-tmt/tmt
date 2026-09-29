@@ -5,13 +5,14 @@ COPY extensions/tmt-office/rust/ ../extensions/tmt-office/rust/
 COPY extensions/tmt-office/contracts/ ../extensions/tmt-office/contracts/
 COPY skills/ ../skills/
 COPY extensions/tmt-office/skills/ ../extensions/tmt-office/skills/
-# Workspace member: Cargo must load its manifest even when not building it.
+# The squad extension: built for its E2E scenarios.
 COPY extensions/tmt-squad/ ../extensions/tmt-squad/
 ARG TMT_NATIVE_PROFILE=dev
 RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
   && CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-office \
+  && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-squad \
   && cargo test --locked --no-run -p tmt-adapters \
   && mkdir /native-artifacts \
   && cp target/debug/examples/tmux-probe /native-artifacts/tmux-probe \
@@ -19,6 +20,7 @@ RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture -
   && cp target/debug/examples/claude-hook-fixture /native-artifacts/claude \
   && cp "target/$native_output/tmt" /native-artifacts/tmt \
   && cp "target/$native_output/tmt-office" /native-artifacts/tmt-office \
+  && cp "target/$native_output/tmt-squad" /native-artifacts/tmt-squad \
   && find target/debug/deps -maxdepth 1 -type f -name 'tmt_adapters-*' -executable \
     -exec cp {} /native-artifacts/adapter-tests \;
 
@@ -44,6 +46,7 @@ COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-
 # The selected dev/release profile changes bytes, not this fixture location.
 COPY --from=native-tests /native-artifacts/tmt /workspace/rust/target/debug/tmt
 COPY --from=native-tests /native-artifacts/tmt-office /workspace/rust/target/debug/tmt-office
+COPY --from=native-tests /native-artifacts/tmt-squad /workspace/rust/target/debug/tmt-squad
 ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.

@@ -8,6 +8,7 @@ mod config;
 mod core;
 mod effects;
 mod filter;
+mod hotkeys;
 mod member_actions;
 mod membership;
 mod requests;
@@ -108,7 +109,51 @@ fn grammar() -> Command {
         .subcommand(
             Command::new("board")
                 .about("Open the terminal board (prints status without a terminal)")
-                .arg(squad_option()),
+                .arg(squad_option())
+                .arg(
+                    Arg::new("popup")
+                        .long("popup")
+                        .action(ArgAction::SetTrue)
+                        .help("Close after a successful jump (for a tmux popup)"),
+                ),
+        )
+        .subcommand(
+            Command::new("hotkeys")
+                .about("tmux prefix keys that open the board (added to tmux.conf only with consent)")
+                .subcommand_required(true)
+                .subcommand(
+                    Command::new("install")
+                        .about("Show the plan, then add squad's source-file line and bindings")
+                        .arg(
+                            Arg::new("print")
+                                .long("print")
+                                .action(ArgAction::SetTrue)
+                                .help("Print the bindings and the line; change nothing"),
+                        )
+                        .arg(
+                            Arg::new("yes")
+                                .long("yes")
+                                .action(ArgAction::SetTrue)
+                                .help("Consent without a prompt"),
+                        )
+                        .arg(
+                            Arg::new("config")
+                                .long("config")
+                                .value_name("PATH")
+                                .help("The tmux configuration to edit (absolute path)"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("remove")
+                        .about("Remove only squad's line and squad's bindings")
+                        .arg(
+                            Arg::new("yes")
+                                .long("yes")
+                                .action(ArgAction::SetTrue)
+                                .help("Consent without a prompt"),
+                        ),
+                )
+                .subcommand(Command::new("show").about("Report the hotkeys' state; change nothing")),
         )
         .subcommand(
             Command::new("jump")
@@ -209,13 +254,15 @@ fn complete(words: &[String]) -> Vec<String> {
         .split_last()
         .map_or(("", &[][..]), |(last, rest)| (last.as_str(), rest));
     let root = grammar();
-    let command = match before {
-        [] => &root,
-        [name, ..] => match root.find_subcommand(name) {
-            Some(command) if before.len() == 1 || name == "skill" => command,
-            _ => return Vec::new(),
-        },
-    };
+    // Descend through subcommand names (`hotkeys install`); any other word
+    // before the cursor is a value, which falls back to the shell.
+    let mut command = &root;
+    for word in before {
+        match command.find_subcommand(word) {
+            Some(sub) => command = sub,
+            None => return Vec::new(),
+        }
+    }
     let mut candidates: Vec<String> = if current.starts_with('-') {
         command
             .get_arguments()
@@ -265,9 +312,67 @@ fn replies_text(document: &Value) -> String {
     output
 }
 
+fn hotkeys_text(document: &Value) -> String {
+    let path = |value: &Value| value.as_str().unwrap_or_default().to_owned();
+    if document["bindings"].is_string() && document["installed"].is_null() {
+        // --print: exactly what install would write.
+        return format!(
+            "# {}\n{}\n# add to {}:\n{}\n",
+            path(&document["squadFile"]),
+            document["bindings"].as_str().unwrap_or_default(),
+            path(&document["target"]),
+            path(&document["line"])
+        );
+    }
+    if document["installed"] == true && document.get("changed").is_some() {
+        return if document["changed"] == true {
+            format!(
+                "Installed: {} sources {}.{}\n",
+                path(&document["target"]),
+                path(&document["squadFile"]),
+                document["backup"]
+                    .as_str()
+                    .map_or(String::new(), |backup| format!(" Backup: {backup}."))
+            )
+        } else {
+            "Already installed; nothing changed.\n".into()
+        };
+    }
+    if document.get("removed").is_some() {
+        return if document["changed"] == true {
+            format!("Removed squad's hotkeys ({}).\n", document["removed"])
+        } else {
+            "No squad hotkeys were installed; nothing changed.\n".into()
+        };
+    }
+    let mut output = format!(
+        "installed: {}\nkeys: popup {}, pane {}{}\nsquad file: {}{}\n",
+        document["installed"],
+        path(&document["keys"]["popup"]),
+        path(&document["keys"]["pane"]),
+        document["keys"]["back"]
+            .as_str()
+            .map_or(String::new(), |key| format!(", back {key}")),
+        path(&document["squadFile"]),
+        if document["current"] == true {
+            ""
+        } else {
+            " (out of date; run install)"
+        },
+    );
+    if document["executableExists"] == false {
+        output.push_str(&format!(
+            "The recorded tmt {} no longer exists; run tmt squad hotkeys install.\n",
+            path(&document["executable"])
+        ));
+    }
+    output
+}
+
 fn human(command: &str, document: &Value) -> String {
     match command {
         "status" | "board" => status::text(document),
+        "hotkeys" => hotkeys_text(document),
         "jump" => format!(
             "Showing {} ({}).\n{}",
             document["member"].as_str().unwrap_or_default(),
@@ -329,6 +434,21 @@ fn run(command: &str, matches: &ArgMatches) -> Result<Outcome, SquadError> {
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
+    if command == "hotkeys" {
+        let (action, flags) = matches.subcommand().expect("subcommand required");
+        let flag = |name: &str| flags.try_get_one::<bool>(name).ok().flatten() == Some(&true);
+        let explicit = flags
+            .try_get_one::<String>("config")
+            .ok()
+            .flatten()
+            .map(std::path::Path::new);
+        return match action {
+            "install" => hotkeys::install(&core, &config, explicit, flag("print"), flag("yes")),
+            "remove" => hotkeys::remove(&core, &config, flag("yes")),
+            _ => hotkeys::report(&core, &config),
+        }
+        .map(Outcome::from);
+    }
     if command == "init" {
         let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
         return membership::init(
@@ -439,7 +559,8 @@ fn main() -> ExitCode {
     // The board needs a terminal; otherwise it is `status`, text or JSON.
     if command == "board" && !json && std::io::stdout().is_terminal() {
         let squad = sub.get_one::<String>("squad").cloned();
-        return match Core::discover().and_then(|core| board::run(core, squad)) {
+        let popup = sub.get_flag("popup");
+        return match Core::discover().and_then(|core| board::run(core, squad, popup)) {
             Ok(signal) => ExitCode::from(board::exit_status(signal)),
             Err(failure) => {
                 let _ = writeln!(std::io::stderr(), "tmt squad: {failure}");
@@ -487,12 +608,20 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "annotate", "back", "board", "copy", "init", "jump", "lead", "open",
-                "remove", "replies", "reply", "set", "skill", "status", "talk"
+                "add", "annotate", "back", "board", "copy", "hotkeys", "init", "jump", "lead",
+                "open", "remove", "replies", "reply", "set", "skill", "status", "talk"
             ]
         );
         assert_eq!(complete(&words("-- status --")), ["--json", "--squad"]);
         assert_eq!(complete(&words("-- skill s")), ["show"]);
+        assert_eq!(
+            complete(&words("-- hotkeys ")),
+            ["install", "remove", "show"]
+        );
+        assert_eq!(
+            complete(&words("-- hotkeys install --")),
+            ["--config", "--json", "--print", "--yes"]
+        );
         assert!(
             complete(&words("-- set auth-fix st")).is_empty(),
             "values fall back to the shell"

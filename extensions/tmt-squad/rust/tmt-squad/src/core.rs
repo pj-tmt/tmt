@@ -70,6 +70,11 @@ impl Core {
             })
     }
 
+    /// The tmt this invocation reaches, as extension dispatch supplied it.
+    pub fn executable(&self) -> &Path {
+        &self.executable
+    }
+
     /// Runs `tmt <args> --json` and returns its document, or core's own error.
     pub fn json(&self, args: &[&str]) -> Result<Value, SquadError> {
         let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();
