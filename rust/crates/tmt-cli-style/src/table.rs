@@ -12,7 +12,10 @@
 //! instead of prioritizing, and it lays out one table at a time. The computed
 //! widths are handed to comfy-table as absolute column constraints.
 
-use crate::palette::{Terminal, Token};
+use crate::{
+    grid::{self, Track},
+    palette::{Terminal, Token},
+};
 use comfy_table::{Attribute, Color, ColumnConstraint, Row, Width, presets};
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthStr;
@@ -192,18 +195,36 @@ impl Table {
 /// Column widths shared by tables with the same columns and indent: natural
 /// widths, then detail columns and afterwards names shrink, widest first,
 /// until the rows fit or nothing more may shrink. When any row has an action,
-/// one more fixed column holds the actions.
+/// one more fixed column holds the actions. The widths come from the one
+/// [`grid`](crate::grid) solver: detail and name columns are its first and
+/// second shrink tiers, and fixed columns never shrink.
 pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
     let first = tables[0];
-    let mut columns = first.columns.clone();
-    let mut widths: Vec<usize> = (0..columns.len())
-        .map(|index| {
-            tables
-                .iter()
-                .flat_map(|table| &table.rows)
-                .map(|row| row[index].text.width())
-                .max()
-                .unwrap_or(0)
+    let natural = |index: usize| {
+        tables
+            .iter()
+            .flat_map(|table| &table.rows)
+            .map(|row| row[index].text.width())
+            .max()
+            .unwrap_or(0)
+    };
+    let mut tracks: Vec<Track> = first
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            let basis = natural(index);
+            match column {
+                Column::Fixed => Track::fixed(basis),
+                Column::Detail | Column::Name => Track {
+                    basis,
+                    min: basis.min(MINIMUM),
+                    max: None,
+                    grow: 0,
+                    shrink: u8::from(*column == Column::Name),
+                    priority: None,
+                },
+            }
         })
         .collect();
     let actions = tables
@@ -212,32 +233,13 @@ pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
         .map(|action| action.text.width())
         .max();
     if let Some(width) = actions {
-        columns.push(Column::Fixed);
-        widths.push(width);
+        tracks.push(Track::fixed(width));
     }
-    let Some(available) = available else {
-        return widths;
-    };
-    let budget = usize::from(available).saturating_sub(first.indent);
-    let total = |widths: &[usize]| widths.iter().sum::<usize>() + GAP * (widths.len() - 1);
-    for kind in [Column::Detail, Column::Name] {
-        while total(&widths) > budget {
-            let widest = (0..widths.len())
-                .filter(|&index| columns[index] == kind && widths[index] > MINIMUM)
-                .max_by_key(|&index| (widths[index], std::cmp::Reverse(index)));
-            let Some(index) = widest else { break };
-            let excess = total(&widths) - budget;
-            let next = (0..widths.len())
-                .filter(|&other| other != index && columns[other] == kind)
-                .map(|other| widths[other])
-                .filter(|&width| width < widths[index])
-                .max()
-                .unwrap_or(0)
-                .max(MINIMUM);
-            widths[index] -= excess.min(widths[index] - next).max(1);
-        }
-    }
-    widths
+    let available = available.map(|width| usize::from(width).saturating_sub(first.indent));
+    grid::solve(&tracks, available, GAP)
+        .into_iter()
+        .map(|width| width.expect("table columns never step aside"))
+        .collect()
 }
 
 /// comfy-table pads a styled cell inside its color span, so padding can sit

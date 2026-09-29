@@ -37,9 +37,7 @@ struct Plan {
 
 impl Plan {
     fn core_changes(&self) -> impl Iterator<Item = &(&'static DriverDefinition, SkillTarget)> {
-        self.core
-            .iter()
-            .filter(|(_, skill)| matches!(skill.state, SkillState::Missing | SkillState::Stale))
+        self.core.iter().filter(|(_, skill)| skill.state.changes())
     }
 
     fn hook_changes(&self) -> impl Iterator<Item = &SetupPlan> {
@@ -145,10 +143,19 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
     let note = (!absent.is_empty()).then(|| format!("not found: {}", absent.join(" · ")));
     let mut changes = Table::new(&[Column::Fixed, Column::Detail, Column::Detail]);
     for (driver, skill) in plan.core_changes() {
+        let note = match &skill.state {
+            // Named, so an outdated TMT skill is never replaced silently.
+            SkillState::Foreign { source } => format!(
+                "{}; replaces an older TMT skill from {} (backed up first)",
+                driver.name(),
+                home(source)
+            ),
+            _ => driver.name().to_owned(),
+        };
         changes.row([
             Cell::styled("skill", Token::Dim),
             Cell::from(home(&skill.target)),
-            Cell::styled(driver.name(), Token::Dim),
+            Cell::styled(note, Token::Dim),
         ]);
     }
     for skill in &plan.owned {
@@ -201,7 +208,7 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
     list::write(output, terminal, &sections)
 }
 
-fn document(plan: &Plan, applied: bool) -> serde_json::Value {
+fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Value {
     let state = |detection: &Detection| match detection {
         Detection::Present { .. } => "present",
         Detection::ConfigOnly => "configOnly",
@@ -210,7 +217,14 @@ fn document(plan: &Plan, applied: bool) -> serde_json::Value {
     };
     let mut changes: Vec<serde_json::Value> = plan
         .core_changes()
-        .map(|(driver, skill)| json!({"kind": "skill", "driver": driver.name(), "path": skill.target}))
+        .map(|(driver, skill)| {
+            let mut change =
+                json!({"kind": "skill", "driver": driver.name(), "path": skill.target});
+            if let SkillState::Foreign { source } = &skill.state {
+                change["replaces"] = json!(source);
+            }
+            change
+        })
         .collect();
     changes.extend(
         plan.owned
@@ -228,7 +242,9 @@ fn document(plan: &Plan, applied: bool) -> serde_json::Value {
         })).collect::<Vec<_>>(),
         "agents": plan.detections.iter().map(|(driver, detection)| json!({"name": driver.name(), "state": state(detection)})).collect::<Vec<_>>(),
         "plan": changes,
+        "kept": plan.occupied().map(|skill| &skill.target).collect::<Vec<_>>(),
         "applied": applied,
+        "skipped": skipped,
     })
 }
 
@@ -252,7 +268,7 @@ pub(super) fn run(
         // Only TMT's own record changes, so this needs no consent.
         adopt(&plan, &global)?;
         if mode.json {
-            writeln!(output, "{}", document(&plan, false)).map_err(failure)?;
+            writeln!(output, "{}", document(&plan, false, &[])).map_err(failure)?;
         } else {
             message::success(output, terminal, "Everything is set up").map_err(failure)?;
             closing_hint(output, terminal)?;
@@ -273,9 +289,9 @@ pub(super) fn run(
     )? {
         return Ok(());
     }
-    apply(&plan, &env, &global, output, terminal, mode)?;
+    let skipped = apply(&plan, &global, output, terminal, mode)?;
     if mode.json {
-        writeln!(output, "{}", document(&plan, true)).map_err(failure)?;
+        writeln!(output, "{}", document(&plan, true, &skipped)).map_err(failure)?;
     } else {
         message::hint(
             output,
@@ -291,12 +307,11 @@ pub(super) fn run(
 /// Skills, then hooks; each step reports as it completes.
 fn apply(
     plan: &Plan,
-    env: &ProviderEnvironment,
     global: &std::path::Path,
     output: &mut impl Write,
     terminal: Terminal,
     mode: OutputMode,
-) -> Result<(), Failure> {
+) -> Result<Vec<PathBuf>, Failure> {
     let mut done = |text: String| -> Result<(), Failure> {
         if mode.json {
             Ok(())
@@ -304,15 +319,19 @@ fn apply(
             message::success(&mut *output, terminal, &text).map_err(failure)
         }
     };
-    let mut installed: Vec<&str> = Vec::new();
-    for (driver, _) in plan.core_changes() {
-        if installed.contains(&driver.name()) {
-            continue;
+    // Exactly the planned core targets: occupied ones stay as the plan said.
+    let planned: Vec<SkillTarget> = plan
+        .core_changes()
+        .map(|(_, skill)| skill.clone())
+        .collect();
+    let mut skipped = Vec::new();
+    if !planned.is_empty() {
+        let published = skill_installation::publish_core(global, &planned).map_err(failure)?;
+        done(format!("Installed {} skill(s)", published.linked.len()))?;
+        for backup in &published.backups {
+            done(format!("Backed up the replaced skill to {}", home(backup)))?;
         }
-        skill_installation::install(env, global, Some(driver.name()), None, false)
-            .map_err(|failure| Failure::new("SETUP_ERROR", failure.to_string(), 1))?;
-        installed.push(driver.name());
-        done(format!("Installed skills for {}", driver.name()))?;
+        skipped = published.skipped;
     }
     if !plan.owned.is_empty() {
         let linked = skill_installation::publish_owned(global, &plan.owned).map_err(failure)?;
@@ -331,7 +350,19 @@ fn apply(
         .map_err(failure)?;
         done(format!("Configured {} hooks", hooks.provider))?;
     }
-    adopt(plan, global)
+    if !mode.json {
+        for path in &skipped {
+            message::warning(
+                &mut *output,
+                terminal,
+                &format!("Left {} as it is; it changed after planning", home(path)),
+                None,
+            )
+            .map_err(failure)?;
+        }
+    }
+    adopt(plan, global)?;
+    Ok(skipped)
 }
 
 /// Records hooks that are already exactly what setup writes (installed

@@ -179,6 +179,15 @@ Examples:
 - On a terminal whose width is known, rows never wrap. Detail columns (paths,
   previews) are truncated with `…` first, then names. Marks and fixed columns
   never truncate. Piped output is never truncated.
+- Every aligned view takes its column widths from one solver, `grid::solve`,
+  and fits cells with `grid::fit`, so lists and extension boards size columns
+  the same way. Widths are display cells (wide characters count two). A column
+  has a basis (its width or widest content), `min`/`max`, a `grow` share of
+  what is left, a shrink tier (lower tiers shrink first, widest first) and an
+  optional `priority` (the highest steps aside first once minimums do not
+  fit). Equal inputs always give equal widths; ties go by column order. A cell
+  cut short ends in `…`, or keeps both ends for paths and links
+  (`Truncate::Middle`).
 - Control and line-separator characters in user data are shown escaped
   (`table::escape`). This is a trust boundary: user data never reaches the terminal
   as control sequences.

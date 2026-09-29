@@ -8,6 +8,7 @@
 
 pub mod audit;
 pub mod detail;
+pub mod grid;
 pub mod help;
 pub mod interaction;
 pub mod list;

@@ -44,7 +44,10 @@ so never use the old TypeScript writer on a native database.
 filesystem and never starts an agent. Agents with an executable on PATH get the
 TMT skills and session hooks. Agents that are only configured get the skills,
 and so do installed extensions' skills. It prints every file it will change and
-asks once; nothing already set up is offered again. Without a terminal it needs
+asks once; nothing already set up is offered again. A skill path that holds
+something else is listed under KEEP and left as it is. An older TMT skill linked
+from another TMT installation is listed as a change: setup backs it up next to
+the skills folder (`.tmt-skill-backups`) and replaces it. Without a terminal it needs
 `--yes` and otherwise changes nothing. Run `tmt setup claude` or `tmt setup codex`
 to review one agent's exact settings and launcher paths and approve that plan. Noninteractive use requires `--yes`; add `--json` for a
 structured result. This updates only TMT-owned SessionStart/SessionEnd entries in
