@@ -9,7 +9,6 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tmt_core::skill_provider::Provider;
 
 fn fixture() -> (TestDirectory, ProviderEnvironment, PathBuf, PathBuf) {
     let directory = TestDirectory::new();
@@ -21,7 +20,7 @@ fn fixture() -> (TestDirectory, ProviderEnvironment, PathBuf, PathBuf) {
     let home_for_return = home.clone();
     (
         directory,
-        ProviderEnvironment::from_parts(home, cwd, Vec::new(), None, None, None, None),
+        ProviderEnvironment::from_parts(home, cwd, Vec::new(), []),
         global,
         home_for_return,
     )
@@ -228,15 +227,8 @@ fn office_install_preserves_unmanaged_target_until_force_creates_a_backup() {
 fn office_install_uses_the_detected_provider_root() {
     let (directory, _environment, global, home) = fixture();
     fs::create_dir(home.join(".claude")).unwrap();
-    let environment = ProviderEnvironment::from_parts(
-        home.clone(),
-        directory.path.join("cwd"),
-        Vec::new(),
-        None,
-        None,
-        None,
-        None,
-    );
+    let environment =
+        ProviderEnvironment::from_parts(home.clone(), directory.path.join("cwd"), Vec::new(), []);
 
     let report = install_office(&environment, &global, false).unwrap();
     assert_eq!(report.installed.len(), 3);
@@ -244,7 +236,7 @@ fn office_install_uses_the_detected_provider_root() {
         report
             .installed
             .iter()
-            .all(|item| item.agent == Some(Provider::Claude))
+            .all(|item| item.agent == Some(&crate::drivers::claude::DRIVER))
     );
     let targets = report
         .installed
@@ -272,7 +264,7 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
         report
             .installed
             .iter()
-            .map(|item| item.agent.unwrap().as_str())
+            .map(|item| item.agent.unwrap().name())
             .collect::<Vec<_>>(),
         vec![
             "claude", "claude", "codex", "codex", "gemini", "gemini", "agy", "agy", "pi", "pi",
@@ -283,7 +275,7 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
         report.installed.iter().filter(|item| item.changed).count(),
         8
     );
-    for provider in Provider::ALL {
+    for provider in crate::drivers::Registry::builtin().iter() {
         assert!(
             fs::symlink_metadata(environment.target(provider))
                 .unwrap()

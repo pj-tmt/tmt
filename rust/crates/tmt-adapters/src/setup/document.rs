@@ -1,7 +1,8 @@
 //! Surgical JSON edits: preserve unrelated values and all document bytes outside
 //! the edited value. RawValue borrows retain opaque numbers and user hook text.
 
-use super::{PlanError, Provider, SETTINGS_LIMIT};
+use super::{PlanError, SETTINGS_LIMIT};
+use crate::drivers::DriverDefinition;
 use serde::{
     Deserialize, Deserializer,
     de::{MapAccess, Visitor},
@@ -64,7 +65,7 @@ fn set(text: &str, key: &str, value: &str) -> Result<String, PlanError> {
 
 /// Only the exact generated command shape establishes ownership. A matching
 /// marker in user text is not enough; edited entries are never overwritten.
-fn owned(provider: Provider, entry: &RawValue) -> Result<bool, PlanError> {
+fn owned(provider: &DriverDefinition, entry: &RawValue) -> Result<bool, PlanError> {
     let fields = object(entry.get())?;
     let handlers: Vec<&RawValue> =
         serde_json::from_str(field(&fields, "hooks").ok_or(PlanError::InvalidSettings)?)
@@ -75,7 +76,7 @@ fn owned(provider: Provider, entry: &RawValue) -> Result<bool, PlanError> {
         if let Some(command) = field(&fields, "command") {
             let command: String =
                 serde_json::from_str(command).map_err(|_| PlanError::InvalidSettings)?;
-            if command.contains(&format!("__hook {}", provider.as_str())) {
+            if command.contains(&format!("__hook {}", provider.name())) {
                 candidates.push(command);
             }
         }
@@ -90,7 +91,7 @@ fn owned(provider: Provider, entry: &RawValue) -> Result<bool, PlanError> {
     // provider data remains raw, including numbers outside f64's range.
     let value: Value = serde_json::from_str(entry.get()).map_err(|_| PlanError::EditedHook)?;
     let quoted = candidates[0]
-        .strip_suffix(&format!(" __hook {}", provider.as_str()))
+        .strip_suffix(&format!(" __hook {}", provider.name()))
         .and_then(|value| value.strip_prefix('\''))
         .and_then(|value| value.strip_suffix('\''))
         .ok_or(PlanError::EditedHook)?;
@@ -104,7 +105,7 @@ fn owned(provider: Provider, entry: &RawValue) -> Result<bool, PlanError> {
 }
 
 fn event_array(
-    provider: Provider,
+    provider: &DriverDefinition,
     text: &str,
     launcher: &str,
     removing: bool,
@@ -150,7 +151,7 @@ fn event_array(
 
 /// Whether the settings hold exactly one TMT-owned SessionStart hook for the
 /// provider. Read-only; anything unparsable or edited counts as absent.
-pub(super) fn has_owned_start_hook(provider: Provider, text: &str) -> bool {
+pub(super) fn has_owned_start_hook(provider: &DriverDefinition, text: &str) -> bool {
     (|| {
         let root = object(text).ok()?;
         let hooks = object(field(&root, "hooks")?).ok()?;
@@ -165,7 +166,7 @@ pub(super) fn has_owned_start_hook(provider: Provider, text: &str) -> bool {
 }
 
 pub(super) fn settings(
-    provider: Provider,
+    provider: &DriverDefinition,
     text: &str,
     launcher: &str,
     removing: bool,
@@ -198,10 +199,14 @@ pub(super) fn settings(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::claude::hook_entry;
+    use crate::drivers::{claude, codex};
+
+    fn hook_entry(launcher: &str) -> serde_json::Value {
+        super::super::hook_entry(&claude::DRIVER, launcher).unwrap()
+    }
 
     fn claude_settings(text: &str, launcher: &str, removing: bool) -> Result<String, PlanError> {
-        settings(Provider::Claude, text, launcher, removing)
+        settings(&claude::DRIVER, text, launcher, removing)
     }
 
     #[test]
@@ -266,13 +271,13 @@ mod tests {
     #[test]
     fn installed_start_hooks_are_recognized_only_in_their_owned_shape() {
         let installed = claude_settings("{}", "/stable/tmt", false).unwrap();
-        assert!(has_owned_start_hook(Provider::Claude, &installed));
+        assert!(has_owned_start_hook(&claude::DRIVER, &installed));
         assert!(
-            !has_owned_start_hook(Provider::Codex, &installed),
+            !has_owned_start_hook(&codex::DRIVER, &installed),
             "another provider's hook"
         );
         let removed = claude_settings(&installed, "/stable/tmt", true).unwrap();
-        assert!(!has_owned_start_hook(Provider::Claude, &removed));
+        assert!(!has_owned_start_hook(&claude::DRIVER, &removed));
         for text in [
             "",
             "not json",
@@ -280,11 +285,11 @@ mod tests {
             r#"{"hooks":{}}"#,
             r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"user-hook"}]}]}}"#,
         ] {
-            assert!(!has_owned_start_hook(Provider::Claude, text), "{text}");
+            assert!(!has_owned_start_hook(&claude::DRIVER, text), "{text}");
         }
         let edited = installed.replace("__hook claude", "__hook claude --edited");
         assert!(
-            !has_owned_start_hook(Provider::Claude, &edited),
+            !has_owned_start_hook(&claude::DRIVER, &edited),
             "edited hooks count as absent"
         );
     }

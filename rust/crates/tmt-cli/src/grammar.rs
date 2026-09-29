@@ -1,5 +1,6 @@
 use clap::{Arg, ArgAction, Command};
 use tmt_cli_style::CommandSpec;
+use tmt_core::driver::descriptor::DriverDescriptor;
 
 /// A command's help: its summary and one to three examples, which the
 /// grammar walk parses (docs/cli-style.md#help).
@@ -41,6 +42,18 @@ pub const ROOT: &CommandSpec = spec!(
 // This tree owns recognition, help, completion and allowed-option validation.
 // Root-recognized options are inherited for placement, not universal permission.
 pub fn grammar() -> Command {
+    grammar_for(&tmt_core::driver::ALL)
+}
+
+/// The grammar with `drivers` as the agent values of `install`, `setup` and
+/// the internal hook, which completion reads.
+pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
+    let names: Vec<&'static str> = drivers.iter().map(|driver| driver.name).collect();
+    let hooked: Vec<&'static str> = drivers
+        .iter()
+        .filter(|driver| driver.hooks.is_some())
+        .map(|driver| driver.name)
+        .collect();
     let mut root = base(ROOT);
     for id in [
         "json",
@@ -864,9 +877,8 @@ pub fn grammar() -> Command {
         .arg(
             operand("agent", false)
                 .value_parser(
-                    tmt_core::skill_provider::Provider::ALL
+                    names
                         .into_iter()
-                        .map(|provider| provider.as_str())
                         .chain(["all"])
                         .collect::<Vec<_>>(),
                 )
@@ -882,11 +894,11 @@ pub fn grammar() -> Command {
             "Remove it for Claude" => "tmt setup claude --remove",
         ]
     ))
-        .arg(operand("provider", false).value_parser(["claude", "codex"]))
+        .arg(operand("provider", false).value_parser(hooked.clone()))
         .arg(Arg::new("remove").long("remove").action(ArgAction::SetTrue).requires("provider"))
         .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue).requires("provider")))
     .subcommand(internal("__hook", "Internal bounded provider lifecycle callback").hide(true)
-        .arg(operand("provider", true).value_parser(["claude", "codex"]))
+        .arg(operand("provider", true).value_parser(hooked))
         .arg(Arg::new("worker").long("worker").hide(true).action(ArgAction::SetTrue)))
     .subcommand(internal("__request-observer", "Internal bounded request timeout observer").hide(true)
         .arg(operand("request-id", true)))

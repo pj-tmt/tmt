@@ -19,21 +19,13 @@ pub enum Token {
     Title,
     /// Commands and flags a reader types: bold, uncolored.
     Literal,
-    /// One color per agent driver; see [`Token::driver`].
-    Claude,
-    Codex,
-    OtherDriver,
+    /// An agent driver's address, in the color its descriptor declares;
+    /// dimmed when it declares none. The CLI maps the descriptor's hue, so
+    /// this crate names no driver.
+    Driver(Option<AnsiColor>),
 }
 
 impl Token {
-    pub fn driver(name: &str) -> Self {
-        match name {
-            "claude" => Self::Claude,
-            "codex" => Self::Codex,
-            _ => Self::OtherDriver,
-        }
-    }
-
     /// The palette entry, when the token has one. Also the source for
     /// full-screen views (such as a TUI) that cannot use line output.
     pub fn color(self) -> Option<AnsiColor> {
@@ -42,15 +34,14 @@ impl Token {
             Self::Ok => Some(AnsiColor::Green),
             Self::Warn => Some(AnsiColor::Yellow),
             Self::Error => Some(AnsiColor::Red),
-            Self::Claude => Some(AnsiColor::Magenta),
-            Self::Codex => Some(AnsiColor::Cyan),
-            Self::Dim | Self::Title | Self::Literal | Self::OtherDriver => None,
+            Self::Driver(color) => color,
+            Self::Dim | Self::Title | Self::Literal => None,
         }
     }
 
     pub fn effects(self) -> Effects {
         match self {
-            Self::Dim | Self::OtherDriver => Effects::DIMMED,
+            Self::Dim | Self::Driver(None) => Effects::DIMMED,
             Self::Title | Self::Literal => Effects::BOLD,
             _ => Effects::new(),
         }
@@ -136,9 +127,8 @@ mod tests {
             Token::Dim,
             Token::Title,
             Token::Literal,
-            Token::Claude,
-            Token::Codex,
-            Token::OtherDriver,
+            Token::Driver(Some(AnsiColor::Magenta)),
+            Token::Driver(None),
         ];
         for token in tokens {
             let style = token.style().render().to_string();
@@ -147,8 +137,7 @@ mod tests {
                 "{style}"
             );
         }
-        assert_eq!(Token::driver("claude"), Token::Claude);
-        assert_eq!(Token::driver("gemini"), Token::OtherDriver);
+        assert_eq!(Token::Driver(None).effects(), Effects::DIMMED);
     }
 
     #[test]

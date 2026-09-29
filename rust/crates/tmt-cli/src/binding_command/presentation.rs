@@ -247,7 +247,7 @@ fn row_cells(row: &ListedRow, home: Option<&Path>) -> [Cell; 4] {
         presence.identity.name.as_str().into(),
         address.map_or_else(
             || Cell::styled("-", Token::Dim),
-            |address| Cell::styled(address.short(), Token::driver(&address.driver)),
+            |address| Cell::styled(address.short(), crate::driver_style::token(&address.driver)),
         ),
         folder(presence.pane.as_ref(), home).into(),
     ]

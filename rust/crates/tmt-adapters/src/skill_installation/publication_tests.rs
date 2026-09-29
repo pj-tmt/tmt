@@ -11,15 +11,7 @@ fn failed_publication_reports_prior_success_and_recoverable_backup_then_releases
     let home = root.path.join("home");
     let global = root.path.join("global");
     fs::create_dir(&home).unwrap();
-    let env = ProviderEnvironment::from_parts(
-        home.clone(),
-        root.path.clone(),
-        Vec::new(),
-        None,
-        None,
-        None,
-        None,
-    );
+    let env = ProviderEnvironment::from_parts(home.clone(), root.path.clone(), Vec::new(), []);
     let first = home.join(".claude/skills/tmux-team");
     let second = home.join(".agents/skills/tmux-team");
     fs::create_dir_all(&second).unwrap();
@@ -69,15 +61,7 @@ fn failed_office_publication_preserves_a_recoverable_backup_and_can_retry() {
     let home = root.path.join("home");
     let global = root.path.join("global");
     fs::create_dir(&home).unwrap();
-    let env = ProviderEnvironment::from_parts(
-        home.clone(),
-        root.path.clone(),
-        Vec::new(),
-        None,
-        None,
-        None,
-        None,
-    );
+    let env = ProviderEnvironment::from_parts(home.clone(), root.path.clone(), Vec::new(), []);
     let target = home.join(".agents/skills/tmt-office");
     fs::create_dir_all(&target).unwrap();
     fs::write(target.join("user.md"), b"user-owned office guidance").unwrap();
@@ -124,15 +108,8 @@ fn abandoned_stage_is_preserved_without_blocking_a_new_install() {
     let stage = global.join("skill-assets/.stage-abandoned");
     fs::create_dir_all(&stage).unwrap();
     fs::write(stage.join("partial"), b"preserve for inspection").unwrap();
-    let env = ProviderEnvironment::from_parts(
-        root.path.join("home"),
-        root.path.clone(),
-        Vec::new(),
-        None,
-        None,
-        None,
-        None,
-    );
+    let env =
+        ProviderEnvironment::from_parts(root.path.join("home"), root.path.clone(), Vec::new(), []);
     let result = install(&env, &global, None, None, false).unwrap();
     assert!(result.installed[0].changed);
     assert_eq!(

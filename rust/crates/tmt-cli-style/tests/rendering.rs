@@ -28,13 +28,22 @@ fn visible(bytes: Vec<u8>) -> String {
         .replace('\u{1b}', "\\u{1b}")
 }
 
+/// The CLI maps each driver descriptor's hue; these fixture drivers stand in.
+fn hue(driver: &str) -> Token {
+    Token::Driver(match driver {
+        "claude" => Some(anstyle::AnsiColor::Magenta),
+        "codex" => Some(anstyle::AnsiColor::Cyan),
+        _ => None,
+    })
+}
+
 fn agents() -> Vec<Section<'static>> {
     let home = Path::new("/Users/ada");
     let cells = |mark: Mark, name: &str, driver: &str, id: &str, path: &str| {
         [
             Cell::styled(mark.symbol(), mark.token()),
             name.into(),
-            Cell::styled(value::address(driver, id), Token::driver(driver)),
+            Cell::styled(value::address(driver, id), hue(driver)),
             value::home_path(Path::new(path), Some(home)).into(),
         ]
     };

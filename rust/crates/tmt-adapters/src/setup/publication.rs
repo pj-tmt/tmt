@@ -87,8 +87,8 @@ fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::setup::claude_plan;
     use crate::test_support::TestDirectory;
+    use crate::{drivers::claude, setup::plan};
 
     #[test]
     fn consented_plan_backs_up_exact_bytes_and_rejects_a_later_edit() {
@@ -96,17 +96,19 @@ mod tests {
         let path = root.path.join("settings.json");
         let original = "{\n  \"permissions\": {\"allow\": []}\n}\n";
         fs::write(&path, original).unwrap();
-        let plan = claude_plan(
+        let planned = plan(
+            &claude::DRIVER,
             path.clone(),
             read_settings(&path).unwrap(),
             "/stable/tmt".into(),
             false,
         )
         .unwrap();
-        let backup = apply(&plan).unwrap().unwrap();
+        let backup = apply(&planned).unwrap().unwrap();
         assert_eq!(fs::read_to_string(&backup).unwrap(), original);
-        assert_eq!(fs::read_to_string(&path).unwrap(), plan.change.after);
-        let again = claude_plan(
+        assert_eq!(fs::read_to_string(&path).unwrap(), planned.change.after);
+        let again = plan(
+            &claude::DRIVER,
             path.clone(),
             read_settings(&path).unwrap(),
             "/stable/tmt".into(),
@@ -115,7 +117,8 @@ mod tests {
         .unwrap();
         assert!(!again.change.changed());
         assert_eq!(apply(&again).unwrap(), None);
-        let remove = claude_plan(
+        let remove = plan(
+            &claude::DRIVER,
             path.clone(),
             read_settings(&path).unwrap(),
             "/stable/tmt".into(),

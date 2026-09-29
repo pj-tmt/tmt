@@ -13,6 +13,7 @@ use std::{
 };
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
+    drivers::Registry,
     process::{
         UnixCommandRunner,
         interactive::InteractiveChild,
@@ -22,7 +23,7 @@ use tmt_adapters::{
         RuntimeCommand, RuntimeError, RuntimeRegistry, StateReconciliation,
         lifecycle::{NoLifecycle, RuntimeLifecycle},
     },
-    setup::{Provider, start_hook_installed},
+    setup::start_hook_installed,
     storage::{Storage, StorageError},
     tmux::{BindingSession, CallerEnvironment, Tmux},
 };
@@ -430,7 +431,9 @@ fn run_bound(
     let hooks_installed = match &launch.resumed {
         Some(session) => {
             mark_resume_pending(storage, &binding.identity_id, session)?;
-            Provider::parse(session.harness.as_str()).is_some_and(start_hook_installed)
+            Registry::builtin()
+                .find(session.harness.as_str())
+                .is_some_and(start_hook_installed)
         }
         None => false,
     };
@@ -745,7 +748,9 @@ fn finish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tmt_adapters::runtime::{CLAUDE_MODE_DEFAULT, CODEX_MODE_EMBEDDED};
+    use tmt_adapters::drivers::{
+        claude::MODE_DEFAULT as CLAUDE_MODE_DEFAULT, codex::MODE_EMBEDDED as CODEX_MODE_EMBEDDED,
+    };
     use tmt_core::binding::session::{
         HarnessId, ProviderSessionId, RememberedSession, RuntimeMode,
     };

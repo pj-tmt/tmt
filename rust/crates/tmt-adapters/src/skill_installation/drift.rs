@@ -2,12 +2,12 @@
 //! or executable search paths on ordinary commands.
 
 use super::{ProviderEnvironment, assets::SkillAssets, files, managed_link, owned::owned_drift};
+use crate::drivers::Registry;
 use std::{
     collections::BTreeSet,
     io,
     path::{Path, PathBuf},
 };
-use tmt_core::skill_provider::Provider;
 
 pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Result<Vec<PathBuf>> {
     let global = files::resolved(global)?;
@@ -19,7 +19,7 @@ pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Resu
     let avatar_current = assets.avatar_create_source();
     let mut seen = BTreeSet::new();
     let mut drift = Vec::new();
-    for provider in Provider::ALL {
+    for provider in Registry::builtin().iter() {
         let target = env.target(provider);
         let inbox = target
             .parent()
@@ -81,15 +81,7 @@ mod tests {
         let home = root.path.join("home");
         fs::create_dir(&home).unwrap();
         let global = root.path.join("global");
-        let env = ProviderEnvironment::from_parts(
-            home.clone(),
-            root.path.clone(),
-            Vec::new(),
-            None,
-            None,
-            None,
-            None,
-        );
+        let env = ProviderEnvironment::from_parts(home.clone(), root.path.clone(), Vec::new(), []);
         assert!(inspect_local_drift(&env, &global).unwrap().is_empty());
         assert!(!global.exists());
         install(&env, &global, Some("all"), None, false).unwrap();
@@ -121,15 +113,7 @@ mod tests {
         let home = root.path.join("home");
         fs::create_dir(&home).unwrap();
         let global = root.path.join("global");
-        let env = ProviderEnvironment::from_parts(
-            home.clone(),
-            root.path.clone(),
-            Vec::new(),
-            None,
-            None,
-            None,
-            None,
-        );
+        let env = ProviderEnvironment::from_parts(home.clone(), root.path.clone(), Vec::new(), []);
         install(&env, &global, None, None, false).unwrap();
         assert!(inspect_local_drift(&env, &global).unwrap().is_empty());
         install_office(&env, &global, false).unwrap();

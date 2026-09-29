@@ -15,8 +15,7 @@ fn fixture() -> (TestDirectory, ProviderEnvironment, PathBuf, PathBuf) {
     fs::create_dir(&home).unwrap();
     fs::create_dir(&cwd).unwrap();
     let global = directory.path.join("global");
-    let env =
-        ProviderEnvironment::from_parts(home.clone(), cwd, Vec::new(), None, None, None, None);
+    let env = ProviderEnvironment::from_parts(home.clone(), cwd, Vec::new(), []);
     // With no provider detected, optional skills go to the universal root.
     let root = home.join(".agents/skills");
     (directory, env, global, root)

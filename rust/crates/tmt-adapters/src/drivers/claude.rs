@@ -1,10 +1,10 @@
-//! Claude hook wire mapping. Payloads describe observations, never bindings.
+//! Claude Code: its descriptor, file locations, runtime and hook wire
+//! mapping. Payloads describe observations, never bindings.
 
-pub use super::hook_protocol::{
+pub use crate::runtime::hook_protocol::{
     CONTEXT_LIMIT, HOOK_INPUT_LIMIT, HOOK_TIMEOUT_SECONDS, encode_context,
 };
 use serde::Deserialize;
-use serde_json::Value;
 use tmt_core::binding::session::{
     BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
     RuntimeLiveness, RuntimeState, SessionTransition,
@@ -16,7 +16,7 @@ pub fn observe_in_pane(
     pane_pid: u64,
     deadline: std::time::Instant,
 ) -> Option<RuntimeIncarnation> {
-    super::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, "claude")
+    crate::runtime::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, NAME)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,19 +153,73 @@ pub fn decode_hook(bytes: &[u8]) -> Result<ClaudeObservation, HookInputError> {
 
 /// The launcher is selected and validated by setup, retaining its stable symlink
 /// rather than canonicalizing it into an immutable release directory.
-pub fn hook_entry(launcher: &str) -> Value {
-    super::hook_protocol::command_entry("claude", launcher)
+const NAME: &str = tmt_core::driver::descriptor::CLAUDE.name;
+
+/// Claude has one runtime mode.
+pub const MODE_DEFAULT: &str = "default";
+
+pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
+    descriptor: &tmt_core::driver::descriptor::CLAUDE,
+    env: &[],
+    locate,
+    runtime: Some(super::Runtime {
+        driver: || Box::new(ClaudeRuntime),
+        lifecycle: || Box::new(ClaudeLifecycle),
+        identify_caller: None,
+    }),
+};
+
+fn locate(environment: &crate::skill_installation::ProviderEnvironment) -> super::Locations {
+    let home = environment.home();
+    super::Locations {
+        config_dirs: vec![home.join(".claude")],
+        skills: home.join(".claude/skills"),
+        legacy_skills: vec![home.join(".claude/commands/team.md")],
+        hook_settings: Some(home.join(".claude/settings.json")),
+    }
+}
+
+struct ClaudeRuntime;
+
+impl tmt_core::driver::Driver for ClaudeRuntime {
+    type Target = tmt_core::binding::BindingEntry;
+    type Error = crate::runtime::RuntimeError;
+    type Launch = crate::runtime::RuntimeCommand;
+
+    fn claims(&self, command: &str) -> Option<tmt_core::binding::session::HarnessId> {
+        crate::runtime::claim_named(command, NAME)
+    }
+
+    fn resume(
+        &mut self,
+        resume: tmt_core::driver::HarnessResume<'_>,
+    ) -> tmt_core::driver::ActionResult<Self::Launch, Self::Error> {
+        use tmt_core::driver::ActionResult;
+        let model = match crate::runtime::first_party_resume(&resume, NAME, &[MODE_DEFAULT]) {
+            ActionResult::Completed(model) => model,
+            ActionResult::Unsupported => return ActionResult::Unsupported,
+            ActionResult::Failed(error) => return ActionResult::Failed(error),
+        };
+        let mut args = vec!["--resume".into(), resume.session.as_str().into()];
+        if let Some(model) = model {
+            args.extend(["--model".into(), model.into()]);
+        }
+        ActionResult::Completed(crate::runtime::RuntimeCommand {
+            executable: NAME.into(),
+            args,
+        })
+    }
 }
 
 pub struct ClaudeLifecycle;
 
-impl super::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
+impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
     fn state_version(&self) -> Option<u16> {
-        Some(super::model_state::MODEL_STATE_VERSION)
+        Some(crate::runtime::model_state::MODEL_STATE_VERSION)
     }
 
     fn state_model(&self, state: &tmt_core::binding::session::DriverState) -> Option<String> {
-        super::model_state::state_model(state)
+        crate::runtime::model_state::state_model(state)
     }
 
     fn observe_replacement(
@@ -173,21 +227,27 @@ impl super::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         pane_pid: u64,
         deadline: std::time::Instant,
     ) -> Option<RuntimeIncarnation> {
-        super::evidence::observe_replacement(
+        crate::runtime::evidence::observe_replacement(
             &crate::process::SupervisedProbeRunner,
             pane_pid,
             deadline,
-            "claude",
+            NAME,
         )
     }
-    fn decode(&self, payload: &[u8]) -> Option<Box<dyn super::lifecycle::LifecycleObservation>> {
+    fn decode(
+        &self,
+        payload: &[u8],
+    ) -> Option<Box<dyn crate::runtime::lifecycle::LifecycleObservation>> {
         decode_hook(payload).ok().map(|value| Box::new(value) as _)
     }
 
     fn host_evidence(
         &self,
-    ) -> Result<super::lifecycle::HostEvidence, super::lifecycle::LifecycleUnavailable> {
-        Ok(super::lifecycle::HostEvidence::Independent { runtime_pid: None })
+    ) -> Result<
+        crate::runtime::lifecycle::HostEvidence,
+        crate::runtime::lifecycle::LifecycleUnavailable,
+    > {
+        Ok(crate::runtime::lifecycle::HostEvidence::Independent { runtime_pid: None })
     }
 
     fn observe_in_pane(
@@ -206,13 +266,13 @@ impl super::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
 
     fn mode(
         &self,
-        _: super::lifecycle::HostEvidence,
+        _: crate::runtime::lifecycle::HostEvidence,
     ) -> Option<tmt_core::binding::session::RuntimeMode> {
-        tmt_core::binding::session::RuntimeMode::new(super::CLAUDE_MODE_DEFAULT).ok()
+        tmt_core::binding::session::RuntimeMode::new(MODE_DEFAULT).ok()
     }
 }
 
-impl super::lifecycle::LifecycleObservation for ClaudeObservation {
+impl crate::runtime::lifecycle::LifecycleObservation for ClaudeObservation {
     fn session(&self) -> &ProviderSessionId {
         &self.session
     }
@@ -220,7 +280,7 @@ impl super::lifecycle::LifecycleObservation for ClaudeObservation {
         &self,
         previous: Option<&tmt_core::binding::session::DriverState>,
     ) -> Option<tmt_core::binding::session::DriverState> {
-        super::model_state::next_state(self.model.as_deref(), previous)
+        crate::runtime::model_state::next_state(self.model.as_deref(), previous)
     }
     fn starting(&self) -> bool {
         self.starting
@@ -230,7 +290,7 @@ impl super::lifecycle::LifecycleObservation for ClaudeObservation {
         current: &BindingSessionState,
         process: &RuntimeIncarnation,
         previous: RuntimeLiveness,
-        _: super::lifecycle::HostEvidence,
+        _: crate::runtime::lifecycle::HostEvidence,
         _: bool,
     ) -> Option<BindingSessionState> {
         ClaudeObservation::propose(self, current, process, previous)

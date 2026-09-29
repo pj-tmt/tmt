@@ -4,7 +4,8 @@ use crate::{invocation::OutputMode, output::Failure};
 use serde_json::json;
 use std::io::{self, Write};
 use tmt_adapters::{
-    setup::{self, Provider, SetupEnvironment},
+    drivers::Registry,
+    setup::{self, SetupEnvironment},
     skill_installation::ProviderEnvironment,
 };
 
@@ -25,10 +26,11 @@ fn failure(error: impl std::error::Error + 'static) -> Failure {
 }
 
 fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Result<(), Failure> {
-    let environment = SetupEnvironment::capture().map_err(failure)?;
-    let selected = provider.and_then(Provider::parse);
+    let drivers = Registry::builtin();
+    let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
+    let selected = provider.and_then(|name| drivers.find(name));
     let plans = selected
-        .map_or_else(|| setup::SUPPORTED_PROVIDERS.to_vec(), |value| vec![value])
+        .map_or_else(|| drivers.with_hooks().collect(), |value| vec![value])
         .into_iter()
         .map(|provider| {
             let path = environment
@@ -43,8 +45,10 @@ fn run(provider: Option<&str>, remove: bool, yes: bool, mode: OutputMode) -> Res
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     let terminal = output.terminal();
     if provider.is_none() {
-        let detected = ProviderEnvironment::capture().map_err(failure)?.detect();
-        let providers: Vec<_> = detected.iter().map(|value| value.as_str()).collect();
+        let detected = ProviderEnvironment::capture()
+            .map_err(failure)?
+            .detect_in(&drivers);
+        let providers: Vec<_> = detected.iter().map(|value| value.name()).collect();
         if mode.json {
             writeln!(
                 output,

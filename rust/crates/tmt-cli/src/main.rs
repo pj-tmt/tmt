@@ -11,6 +11,9 @@ mod focus_command;
 mod resume_command;
 use tmt_adapters::delivery;
 mod diagnostics;
+#[cfg(test)]
+mod driver_registry_tests;
+mod driver_style;
 mod exchange_command;
 mod extension_command;
 mod extension_hooks_command;

@@ -1,20 +1,24 @@
-//! Provider-specific skill locations and environment detection.
+//! The environment a driver's file locations are resolved against, captured
+//! once per invocation. Each driver's own module (`crate::drivers`) says where
+//! it keeps skills; this module only resolves paths and detects presence.
 
+use crate::drivers::{DriverDefinition, Locations, Registry};
 use std::{
+    collections::BTreeMap,
     env, fs,
     path::{Path, PathBuf},
 };
-use tmt_core::skill_provider::Provider;
+
+/// The directory name of TMT's core skill under a skills root.
+pub const SKILL_NAME: &str = "tmux-team";
 
 #[derive(Debug, Clone)]
 pub struct ProviderEnvironment {
     home: PathBuf,
     cwd: PathBuf,
     path: Vec<PathBuf>,
-    codex_home: Option<PathBuf>,
-    pi_coding_agent_dir: Option<PathBuf>,
-    opencode_config_dir: Option<PathBuf>,
-    xdg_config_home: Option<PathBuf>,
+    /// The non-empty environment variables the registered drivers read.
+    vars: BTreeMap<String, PathBuf>,
 }
 
 impl ProviderEnvironment {
@@ -31,154 +35,104 @@ impl ProviderEnvironment {
             env::var_os("PATH")
                 .map(|value| env::split_paths(&value).collect())
                 .unwrap_or_default(),
-            non_empty_env_path("CODEX_HOME"),
-            non_empty_env_path("PI_CODING_AGENT_DIR"),
-            non_empty_env_path("OPENCODE_CONFIG_DIR"),
-            non_empty_env_path("XDG_CONFIG_HOME"),
+            Registry::builtin()
+                .env_vars()
+                .into_iter()
+                .filter_map(|name| Some((name, PathBuf::from(env::var_os(name)?)))),
         ))
     }
 
-    pub fn from_parts(
+    /// Empty variable values count as unset.
+    pub fn from_parts<'a>(
         home: impl Into<PathBuf>,
         cwd: impl Into<PathBuf>,
         path: Vec<PathBuf>,
-        codex_home: Option<PathBuf>,
-        pi_coding_agent_dir: Option<PathBuf>,
-        opencode_config_dir: Option<PathBuf>,
-        xdg_config_home: Option<PathBuf>,
+        vars: impl IntoIterator<Item = (&'a str, PathBuf)>,
     ) -> Self {
         Self {
             home: home.into(),
             cwd: cwd.into(),
             path,
-            codex_home: non_empty_path(codex_home),
-            pi_coding_agent_dir: non_empty_path(pi_coding_agent_dir),
-            opencode_config_dir: non_empty_path(opencode_config_dir),
-            xdg_config_home: non_empty_path(xdg_config_home),
+            vars: vars
+                .into_iter()
+                .filter(|(_, value)| !value.as_os_str().is_empty())
+                .map(|(name, value)| (name.to_owned(), value))
+                .collect(),
         }
     }
 
-    pub fn detect(&self) -> Vec<Provider> {
-        Provider::ALL
-            .into_iter()
-            .filter(|provider| self.detected(*provider))
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
+    /// A captured variable, unresolved.
+    pub fn var(&self, name: &str) -> Option<&Path> {
+        self.vars.get(name).map(PathBuf::as_path)
+    }
+
+    /// A path as the process would open it: relative to the working
+    /// directory, normalized.
+    pub fn resolve(&self, path: &Path) -> PathBuf {
+        crate::config::normalize(&self.cwd.join(path))
+    }
+
+    pub fn locations(&self, driver: &DriverDefinition) -> Locations {
+        (driver.locate)(self)
+    }
+
+    /// The built-in drivers present on this machine, in registry order.
+    pub fn detect(&self) -> Vec<&'static DriverDefinition> {
+        self.detect_in(&Registry::builtin())
+    }
+
+    /// A driver is present when one of its configuration directories exists or
+    /// one of its executables is on `PATH`.
+    pub fn detect_in(&self, registry: &Registry) -> Vec<&'static DriverDefinition> {
+        registry
+            .iter()
+            .filter(|driver| {
+                self.locations(driver)
+                    .config_dirs
+                    .iter()
+                    .any(|directory| self.resolve(directory).exists())
+                    || driver
+                        .descriptor
+                        .executables
+                        .iter()
+                        .any(|name| self.command_exists(name))
+            })
             .collect()
     }
 
-    pub fn target(&self, provider: Provider) -> PathBuf {
-        let universal = self.universal_target();
-        match provider {
-            Provider::Claude => self.home.join(".claude/skills/tmux-team"),
-            Provider::Codex | Provider::Gemini | Provider::Opencode => universal,
-            Provider::Agy => self.home.join(".gemini/config/skills/tmux-team"),
-            Provider::Pi => self.pi_coding_agent_directory().join("skills/tmux-team"),
-        }
+    /// Where the driver reads TMT's core skill.
+    pub fn target(&self, driver: &DriverDefinition) -> PathBuf {
+        self.locations(driver).skills.join(SKILL_NAME)
+    }
+
+    /// The shared skills root several drivers read.
+    pub fn universal_skills(&self) -> PathBuf {
+        self.home.join(".agents/skills")
     }
 
     pub fn universal_target(&self) -> PathBuf {
-        self.home.join(".agents/skills/tmux-team")
+        self.universal_skills().join(SKILL_NAME)
     }
 
     pub fn custom_target(&self, root: impl AsRef<Path>) -> PathBuf {
-        self.resolve_path(root.as_ref()).join("tmux-team")
+        self.resolve(root.as_ref()).join(SKILL_NAME)
     }
 
-    pub fn legacy_targets(&self, provider: Provider) -> Vec<PathBuf> {
-        match provider {
-            Provider::Claude => vec![self.home.join(".claude/commands/team.md")],
-            Provider::Codex => {
-                let active = self.universal_target();
-                let candidates = [
-                    self.codex_home().join("skills/tmux-team"),
-                    self.home.join(".codex/skills/tmux-team"),
-                ];
-                let mut result = Vec::new();
-                for candidate in candidates {
-                    let candidate = self.resolve_path(&candidate);
-                    if candidate == active || result.iter().any(|path| path == &candidate) {
-                        continue;
-                    }
-                    result.push(candidate);
-                }
-                result
-            }
-            Provider::Gemini | Provider::Agy | Provider::Pi | Provider::Opencode => Vec::new(),
-        }
-    }
-
-    fn detected(&self, provider: Provider) -> bool {
-        let directory_found = match provider {
-            Provider::Claude => self.exists(self.home.join(".claude")),
-            Provider::Codex => {
-                self.exists(self.home.join(".codex"))
-                    || (self.resolve_path(&self.codex_home()) != self.home.join(".agents")
-                        && self.exists(self.codex_home()))
-            }
-            Provider::Gemini => self.exists(self.home.join(".gemini")),
-            Provider::Agy => self.exists(self.agy_config_directory()),
-            Provider::Pi => self.exists(self.pi_coding_agent_directory()),
-            Provider::Opencode => self.exists(self.opencode_config_directory()),
-        };
-        directory_found || self.command_exists(provider.as_str())
+    pub fn legacy_targets(&self, driver: &DriverDefinition) -> Vec<PathBuf> {
+        self.locations(driver).legacy_skills
     }
 
     fn command_exists(&self, command: &str) -> bool {
         self.path.iter().any(|directory| {
-            fs::metadata(self.resolve_path(&directory.join(command)))
+            fs::metadata(self.resolve(&directory.join(command)))
                 .map(|metadata| metadata.is_file())
                 .unwrap_or(false)
         })
     }
-
-    fn codex_home(&self) -> PathBuf {
-        self.codex_home
-            .clone()
-            .map(|path| self.resolve_path(&path))
-            .unwrap_or_else(|| self.home.join(".codex"))
-    }
-
-    fn agy_config_directory(&self) -> PathBuf {
-        self.home.join(".gemini/config")
-    }
-
-    fn pi_coding_agent_directory(&self) -> PathBuf {
-        let Some(configured) = self.pi_coding_agent_dir.as_deref() else {
-            return self.home.join(".pi/agent");
-        };
-        if configured == Path::new("~") {
-            return self.home.clone();
-        }
-        if let Ok(relative) = configured.strip_prefix("~/") {
-            return self.home.join(relative);
-        }
-        self.resolve_path(configured)
-    }
-
-    fn opencode_config_directory(&self) -> PathBuf {
-        if let Some(configured) = self.opencode_config_dir.as_deref() {
-            return self.resolve_path(configured);
-        }
-        self.xdg_config_home
-            .clone()
-            .map(|path| self.resolve_path(&path).join("opencode"))
-            .unwrap_or_else(|| self.home.join(".config/opencode"))
-    }
-
-    fn exists(&self, path: PathBuf) -> bool {
-        self.resolve_path(&path).exists()
-    }
-
-    fn resolve_path(&self, path: &Path) -> PathBuf {
-        crate::config::normalize(&self.cwd.join(path))
-    }
-}
-
-fn non_empty_env_path(name: &str) -> Option<PathBuf> {
-    non_empty_path(env::var_os(name).map(PathBuf::from))
-}
-
-fn non_empty_path(path: Option<PathBuf>) -> Option<PathBuf> {
-    path.filter(|path| !path.as_os_str().is_empty())
 }
 
 #[cfg(test)]
@@ -191,7 +145,7 @@ mod tests {
         let cwd = directory.path.join("cwd");
         fs::create_dir(&home).unwrap();
         fs::create_dir(&cwd).unwrap();
-        ProviderEnvironment::from_parts(home, cwd, Vec::new(), None, None, None, None)
+        ProviderEnvironment::from_parts(home, cwd, Vec::new(), [])
     }
 
     #[test]
@@ -200,12 +154,30 @@ mod tests {
         let environment = environment(&directory);
         let home = directory.path.join("home");
         let expected = [
-            (Provider::Claude, home.join(".claude/skills/tmux-team")),
-            (Provider::Codex, home.join(".agents/skills/tmux-team")),
-            (Provider::Gemini, home.join(".agents/skills/tmux-team")),
-            (Provider::Agy, home.join(".gemini/config/skills/tmux-team")),
-            (Provider::Pi, home.join(".pi/agent/skills/tmux-team")),
-            (Provider::Opencode, home.join(".agents/skills/tmux-team")),
+            (
+                &crate::drivers::claude::DRIVER,
+                home.join(".claude/skills/tmux-team"),
+            ),
+            (
+                &crate::drivers::codex::DRIVER,
+                home.join(".agents/skills/tmux-team"),
+            ),
+            (
+                &crate::drivers::gemini::DRIVER,
+                home.join(".agents/skills/tmux-team"),
+            ),
+            (
+                &crate::drivers::agy::DRIVER,
+                home.join(".gemini/config/skills/tmux-team"),
+            ),
+            (
+                &crate::drivers::pi::DRIVER,
+                home.join(".pi/agent/skills/tmux-team"),
+            ),
+            (
+                &crate::drivers::opencode::DRIVER,
+                home.join(".agents/skills/tmux-team"),
+            ),
         ];
         for (provider, target) in expected {
             assert_eq!(environment.target(provider), target, "{provider:?}");
@@ -241,15 +213,12 @@ mod tests {
                 &home,
                 &cwd,
                 Vec::new(),
-                None,
-                Some(configured),
-                None,
-                None,
+                [("PI_CODING_AGENT_DIR", configured)],
             );
-            assert_eq!(environment.target(Provider::Pi), expected);
+            assert_eq!(environment.target(&crate::drivers::pi::DRIVER), expected);
         }
         assert_eq!(
-            base.target(Provider::Pi),
+            base.target(&crate::drivers::pi::DRIVER),
             home.join(".pi/agent/skills/tmux-team")
         );
     }
@@ -266,17 +235,14 @@ mod tests {
             &home,
             &cwd,
             Vec::new(),
-            Some(codex_home.clone()),
-            None,
-            None,
-            None,
+            [("CODEX_HOME", codex_home.clone())],
         );
         assert_eq!(
-            environment.legacy_targets(Provider::Claude),
+            environment.legacy_targets(&crate::drivers::claude::DRIVER),
             vec![home.join(".claude/commands/team.md")]
         );
         assert_eq!(
-            environment.legacy_targets(Provider::Codex),
+            environment.legacy_targets(&crate::drivers::codex::DRIVER),
             vec![
                 codex_home.join("skills/tmux-team"),
                 home.join(".codex/skills/tmux-team"),
@@ -287,13 +253,10 @@ mod tests {
             &home,
             &cwd,
             Vec::new(),
-            Some(home.join(".agents")),
-            None,
-            None,
-            None,
+            [("CODEX_HOME", home.join(".agents"))],
         );
         assert_eq!(
-            shared.legacy_targets(Provider::Codex),
+            shared.legacy_targets(&crate::drivers::codex::DRIVER),
             vec![home.join(".codex/skills/tmux-team")]
         );
     }
@@ -315,12 +278,12 @@ mod tests {
         assert_eq!(
             environment.detect(),
             vec![
-                Provider::Claude,
-                Provider::Codex,
-                Provider::Gemini,
-                Provider::Agy,
-                Provider::Pi,
-                Provider::Opencode,
+                &crate::drivers::claude::DRIVER,
+                &crate::drivers::codex::DRIVER,
+                &crate::drivers::gemini::DRIVER,
+                &crate::drivers::agy::DRIVER,
+                &crate::drivers::pi::DRIVER,
+                &crate::drivers::opencode::DRIVER,
             ]
         );
     }
@@ -335,36 +298,32 @@ mod tests {
         fs::create_dir(&cwd).unwrap();
         fs::create_dir(&bin).unwrap();
         fs::write(bin.join("opencode"), b"regular executable marker").unwrap();
-        let executable =
-            ProviderEnvironment::from_parts(&home, &cwd, vec![bin.clone()], None, None, None, None);
-        assert_eq!(executable.detect(), vec![Provider::Opencode]);
+        let executable = ProviderEnvironment::from_parts(&home, &cwd, vec![bin.clone()], []);
+        assert_eq!(executable.detect(), vec![&crate::drivers::opencode::DRIVER]);
 
         let pi_root = directory.path.join("pi-override");
         let pi = ProviderEnvironment::from_parts(
             &home,
             &cwd,
             Vec::new(),
-            None,
-            Some(pi_root.clone()),
-            None,
-            None,
+            [("PI_CODING_AGENT_DIR", pi_root.clone())],
         );
         fs::create_dir(&pi_root).unwrap();
-        assert_eq!(pi.detect(), vec![Provider::Pi]);
-        assert_eq!(pi.target(Provider::Pi), pi_root.join("skills/tmux-team"));
+        assert_eq!(pi.detect(), vec![&crate::drivers::pi::DRIVER]);
+        assert_eq!(
+            pi.target(&crate::drivers::pi::DRIVER),
+            pi_root.join("skills/tmux-team")
+        );
 
         let opencode_root = directory.path.join("opencode-override");
         let opencode = ProviderEnvironment::from_parts(
             &home,
             &cwd,
             Vec::new(),
-            None,
-            None,
-            Some(opencode_root.clone()),
-            None,
+            [("OPENCODE_CONFIG_DIR", opencode_root.clone())],
         );
         fs::create_dir(&opencode_root).unwrap();
-        assert_eq!(opencode.detect(), vec![Provider::Opencode]);
+        assert_eq!(opencode.detect(), vec![&crate::drivers::opencode::DRIVER]);
 
         let xdg_root = directory.path.join("xdg");
         fs::create_dir_all(xdg_root.join("opencode")).unwrap();
@@ -372,12 +331,9 @@ mod tests {
             &home,
             &cwd,
             Vec::new(),
-            None,
-            None,
-            None,
-            Some(xdg_root),
+            [("XDG_CONFIG_HOME", xdg_root)],
         );
-        assert_eq!(xdg.detect(), vec![Provider::Opencode]);
+        assert_eq!(xdg.detect(), vec![&crate::drivers::opencode::DRIVER]);
     }
 
     #[test]
@@ -389,15 +345,8 @@ mod tests {
         fs::create_dir(&cwd).unwrap();
         let shared = home.join(".agents");
         fs::create_dir(&shared).unwrap();
-        let environment = ProviderEnvironment::from_parts(
-            &home,
-            &cwd,
-            Vec::new(),
-            Some(shared),
-            None,
-            None,
-            None,
-        );
+        let environment =
+            ProviderEnvironment::from_parts(&home, &cwd, Vec::new(), [("CODEX_HOME", shared)]);
         assert!(environment.detect().is_empty());
     }
 }

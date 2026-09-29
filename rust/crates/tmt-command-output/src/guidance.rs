@@ -7,7 +7,7 @@ use tmt_adapters::skill_installation::{InstallReport, InstalledSkill};
 pub(crate) fn document(item: &InstalledSkill) -> Value {
     let mut value = json!({"skill": item.name, "target": item.target, "changed": item.changed});
     if let Some(agent) = item.agent {
-        value["agent"] = agent.as_str().into();
+        value["agent"] = agent.name().into();
     }
     if let Some(backup) = &item.backup {
         value["backup"] = json!(backup);
@@ -32,7 +32,7 @@ pub fn write_report_human(report: &InstallReport, output: &mut impl Write) -> io
             output,
             "{} {} skill '{}' at {}",
             if item.changed { "Installed" } else { "Current" },
-            item.agent.map_or("shared", |agent| agent.as_str()),
+            item.agent.map_or("shared", |agent| agent.name()),
             item.name,
             item.target.display()
         )?;

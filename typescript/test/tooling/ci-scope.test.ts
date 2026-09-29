@@ -99,7 +99,7 @@ describe('CI area selection', () => {
       'rust/crates/tmt-adapters/src/pane_badge.rs',
       'rust/crates/tmt-adapters/src/skill_installation/owned.rs',
       'rust/crates/tmt-adapters/src/runtime_like.rs',
-      'rust/crates/tmt-adapters/src/runtime/claude.rs',
+      'rust/crates/tmt-adapters/src/drivers/claude.rs',
       'rust/crates/tmt-adapters/src/runtime_caller/probe.rs',
       'rust/crates/tmt-adapters/Cargo.toml',
       'rust/crates/tmt-command-output/src/lib.rs',

@@ -1,10 +1,13 @@
-//! Codex lifecycle mapping. Shared server ancestry never selects an identity.
+//! Codex: its descriptor, file locations, runtime, caller recognition
+//! (`caller`) and lifecycle mapping. Shared server ancestry never selects an
+//! identity.
 //! The verified 0.157.1 contract reports SessionEnd reason `other`; unsupported
 //! reasons leave state unchanged rather than guessing that a client ended a thread.
 
-pub use super::hook_protocol::encode_context;
+pub mod caller;
+
+pub use crate::runtime::hook_protocol::encode_context;
 use serde::Deserialize;
-use serde_json::Value;
 use tmt_core::binding::session::{
     BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
     RuntimeLiveness, RuntimeState, SessionTransition,
@@ -16,7 +19,7 @@ pub fn observe_in_pane(
     pane_pid: u64,
     deadline: std::time::Instant,
 ) -> Option<RuntimeIncarnation> {
-    super::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, "codex")
+    crate::runtime::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, NAME)
 }
 
 #[derive(Debug, Clone)]
@@ -141,8 +144,107 @@ impl CodexObservation {
     }
 }
 
-pub fn hook_entry(launcher: &str) -> Value {
-    super::hook_protocol::command_entry("codex", launcher)
+const NAME: &str = tmt_core::driver::descriptor::CODEX.name;
+
+/// Codex runs in a shared app server, or embedded with `--no-daemon`.
+pub const MODE_SHARED: &str = "shared";
+pub const MODE_EMBEDDED: &str = "embedded";
+
+pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
+    descriptor: &tmt_core::driver::descriptor::CODEX,
+    env: &["CODEX_HOME"],
+    locate,
+    runtime: Some(super::Runtime {
+        driver: || Box::new(CodexRuntime),
+        lifecycle: || Box::new(CodexLifecycle),
+        identify_caller: Some(identify_caller),
+    }),
+};
+
+fn locate(environment: &crate::skill_installation::ProviderEnvironment) -> super::Locations {
+    let home = environment.home();
+    let default_home = home.join(".codex");
+    let codex_home = environment
+        .var("CODEX_HOME")
+        .map_or_else(|| default_home.clone(), |path| environment.resolve(path));
+    // A CODEX_HOME that is the shared `~/.agents` root says nothing about Codex.
+    let mut config_dirs = vec![default_home.clone()];
+    if codex_home != home.join(".agents") {
+        config_dirs.push(codex_home.clone());
+    }
+    let skills = environment.universal_skills();
+    let active = skills.join(crate::skill_installation::SKILL_NAME);
+    let mut legacy_skills = Vec::new();
+    for candidate in [
+        codex_home.join("skills/tmux-team"),
+        default_home.join("skills/tmux-team"),
+    ] {
+        let candidate = environment.resolve(&candidate);
+        if candidate != active && !legacy_skills.contains(&candidate) {
+            legacy_skills.push(candidate);
+        }
+    }
+    super::Locations {
+        config_dirs,
+        skills,
+        legacy_skills,
+        hook_settings: Some(codex_home.join("hooks.json")),
+    }
+}
+
+fn identify_caller() -> tmt_core::driver::ActionResult<tmt_core::driver::caller::RuntimeCaller, ()>
+{
+    use tmt_core::driver::{ActionResult, Driver};
+    match caller::CodexCaller::new(
+        &crate::process::UnixCommandRunner,
+        caller::CallerEnvironment::current(),
+    )
+    .identify_caller()
+    {
+        ActionResult::Completed(found) => ActionResult::Completed(found),
+        ActionResult::Unsupported => ActionResult::Unsupported,
+        ActionResult::Failed(_) => ActionResult::Failed(()),
+    }
+}
+
+struct CodexRuntime;
+
+impl tmt_core::driver::Driver for CodexRuntime {
+    type Target = tmt_core::binding::BindingEntry;
+    type Error = crate::runtime::RuntimeError;
+    type Launch = crate::runtime::RuntimeCommand;
+
+    fn claims(&self, command: &str) -> Option<tmt_core::binding::session::HarnessId> {
+        crate::runtime::claim_named(command, NAME)
+    }
+
+    fn resume(
+        &mut self,
+        resume: tmt_core::driver::HarnessResume<'_>,
+    ) -> tmt_core::driver::ActionResult<Self::Launch, Self::Error> {
+        use tmt_core::driver::ActionResult;
+        let model = match crate::runtime::first_party_resume(
+            &resume,
+            NAME,
+            &[MODE_SHARED, MODE_EMBEDDED],
+        ) {
+            ActionResult::Completed(model) => model,
+            ActionResult::Unsupported => return ActionResult::Unsupported,
+            ActionResult::Failed(error) => return ActionResult::Failed(error),
+        };
+        let mut args = vec!["resume".into()];
+        if let Some(model) = model {
+            args.extend(["-m".into(), model.into()]);
+        }
+        args.push(resume.session.as_str().into());
+        if resume.mode.as_str() == MODE_EMBEDDED {
+            args.push("--no-daemon".into());
+        }
+        ActionResult::Completed(crate::runtime::RuntimeCommand {
+            executable: NAME.into(),
+            args,
+        })
+    }
 }
 
 /// A foreground client exiting does not prove a shared thread ended. Require
@@ -166,8 +268,8 @@ pub fn is_shared_session(
     preferences: &tmt_core::binding::session::SessionPreferences,
 ) -> bool {
     preferences.remembered.as_ref().is_some_and(|remembered| {
-        remembered.harness.as_str() == "codex"
-            && remembered.mode.as_str() == super::CODEX_MODE_SHARED
+        remembered.harness.as_str() == NAME
+            && remembered.mode.as_str() == MODE_SHARED
             && key.provider_session.as_ref() == Some(&remembered.provider_session)
     })
 }
@@ -192,13 +294,13 @@ pub fn record_client_exit(
 
 pub struct CodexLifecycle;
 
-impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
+impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
     fn state_version(&self) -> Option<u16> {
-        Some(super::model_state::MODEL_STATE_VERSION)
+        Some(crate::runtime::model_state::MODEL_STATE_VERSION)
     }
 
     fn state_model(&self, state: &tmt_core::binding::session::DriverState) -> Option<String> {
-        super::model_state::state_model(state)
+        crate::runtime::model_state::state_model(state)
     }
 
     fn observe_replacement(
@@ -206,15 +308,15 @@ impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
         pane_pid: u64,
         deadline: std::time::Instant,
     ) -> Option<RuntimeIncarnation> {
-        let process = super::evidence::observe_replacement(
+        let process = crate::runtime::evidence::observe_replacement(
             &crate::process::SupervisedProbeRunner,
             pane_pid,
             deadline,
-            "codex",
+            NAME,
         )?;
-        let observed = crate::runtime_caller::codex::CodexCaller::new(
+        let observed = caller::CodexCaller::new(
             &crate::process::SupervisedProbeRunner,
-            crate::runtime_caller::codex::CallerEnvironment {
+            caller::CallerEnvironment {
                 thread_id: None,
                 process_id: u32::try_from(process.pid()).ok()?,
             },
@@ -225,15 +327,21 @@ impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
             && u64::from(observed.1) == process.pid())
         .then_some(process)
     }
-    fn decode(&self, payload: &[u8]) -> Option<Box<dyn super::lifecycle::LifecycleObservation>> {
+    fn decode(
+        &self,
+        payload: &[u8],
+    ) -> Option<Box<dyn crate::runtime::lifecycle::LifecycleObservation>> {
         decode_hook(payload).map(|value| Box::new(value) as _)
     }
 
     fn host_evidence(
         &self,
-    ) -> Result<super::lifecycle::HostEvidence, super::lifecycle::LifecycleUnavailable> {
-        use super::lifecycle::{HostEvidence, LifecycleUnavailable};
-        use crate::runtime_caller::codex::{CallerEnvironment, CodexCaller};
+    ) -> Result<
+        crate::runtime::lifecycle::HostEvidence,
+        crate::runtime::lifecycle::LifecycleUnavailable,
+    > {
+        use crate::runtime::lifecycle::{HostEvidence, LifecycleUnavailable};
+        use caller::{CallerEnvironment, CodexCaller};
         use tmt_core::driver::caller::HostAttribution;
         Ok(
             match CodexCaller::new(
@@ -270,12 +378,12 @@ impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
 
     fn mode(
         &self,
-        host: super::lifecycle::HostEvidence,
+        host: crate::runtime::lifecycle::HostEvidence,
     ) -> Option<tmt_core::binding::session::RuntimeMode> {
         tmt_core::binding::session::RuntimeMode::new(if host.shared() {
-            super::CODEX_MODE_SHARED
+            MODE_SHARED
         } else {
-            super::CODEX_MODE_EMBEDDED
+            MODE_EMBEDDED
         })
         .ok()
     }
@@ -284,12 +392,12 @@ impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
         &self,
         preferences: &tmt_core::binding::session::SessionPreferences,
         session: &ProviderSessionId,
-        host: super::lifecycle::HostEvidence,
+        host: crate::runtime::lifecycle::HostEvidence,
     ) -> bool {
         host.shared()
             && preferences.remembered.as_ref().is_some_and(|value| {
-                value.harness.as_str() == "codex"
-                    && value.mode.as_str() == super::CODEX_MODE_SHARED
+                value.harness.as_str() == NAME
+                    && value.mode.as_str() == MODE_SHARED
                     && &value.provider_session == session
             })
     }
@@ -313,7 +421,7 @@ impl super::lifecycle::RuntimeLifecycle for CodexLifecycle {
     }
 }
 
-impl super::lifecycle::LifecycleObservation for CodexObservation {
+impl crate::runtime::lifecycle::LifecycleObservation for CodexObservation {
     fn session(&self) -> &ProviderSessionId {
         &self.session
     }
@@ -321,7 +429,7 @@ impl super::lifecycle::LifecycleObservation for CodexObservation {
         &self,
         previous: Option<&tmt_core::binding::session::DriverState>,
     ) -> Option<tmt_core::binding::session::DriverState> {
-        super::model_state::next_state(self.model.as_deref(), previous)
+        crate::runtime::model_state::next_state(self.model.as_deref(), previous)
     }
     fn starting(&self) -> bool {
         self.starting
@@ -331,7 +439,7 @@ impl super::lifecycle::LifecycleObservation for CodexObservation {
         current: &BindingSessionState,
         process: &RuntimeIncarnation,
         previous: RuntimeLiveness,
-        host: super::lifecycle::HostEvidence,
+        host: crate::runtime::lifecycle::HostEvidence,
         owned_resume: bool,
     ) -> Option<BindingSessionState> {
         self.propose_with_resume(current, process, previous, host.shared(), owned_resume)
@@ -364,7 +472,7 @@ mod tests {
             preferred_harness: Some(HarnessId::new("codex").unwrap()),
             remembered: Some(RememberedSession {
                 harness: HarnessId::new("codex").unwrap(),
-                mode: RuntimeMode::new(super::super::CODEX_MODE_SHARED).unwrap(),
+                mode: RuntimeMode::new(super::MODE_SHARED).unwrap(),
                 provider_session: session.clone(),
                 state: None,
                 stale_at_ms: None,
@@ -428,7 +536,7 @@ mod tests {
         assert_eq!(terminal.key, ended.key);
         let mut embedded = preferences.clone();
         embedded.remembered.as_mut().unwrap().mode =
-            RuntimeMode::new(super::super::CODEX_MODE_EMBEDDED).unwrap();
+            RuntimeMode::new(super::MODE_EMBEDDED).unwrap();
         assert!(disconnected(&shared, &embedded).is_none());
         assert!(
             start("resume", "wrong-thread")

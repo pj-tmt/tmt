@@ -542,3 +542,32 @@ fn snapshot_retains_server_and_pane_observations_as_typed_values() {
     assert_eq!(snapshot.panes[0].target.as_deref(), Some("main:1.0"));
     assert_eq!(snapshot.panes[0].cwd.as_deref(), Some("/repo"));
 }
+
+#[test]
+fn suggested_names_are_registered_drivers_matched_as_whole_words() {
+    let first = tmt_core_driver_name();
+    for command in [
+        first.to_owned(),
+        format!("/usr/local/bin/{first}"),
+        format!("{first}-cli --flag"),
+        first.to_uppercase(),
+    ] {
+        assert_eq!(
+            evidence::suggested_name(&command).as_deref(),
+            Some(first),
+            "{command}"
+        );
+    }
+    for command in [
+        format!("{first}x"),
+        format!("x{first}"),
+        "zsh".into(),
+        "".into(),
+    ] {
+        assert_eq!(evidence::suggested_name(&command), None, "{command}");
+    }
+}
+
+fn tmt_core_driver_name() -> &'static str {
+    crate::drivers::Registry::builtin().names()[0]
+}

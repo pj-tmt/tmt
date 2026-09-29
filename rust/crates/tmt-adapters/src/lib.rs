@@ -12,6 +12,7 @@ pub mod core_executable;
 pub mod delivery;
 pub mod dispatch;
 #[cfg(unix)]
+pub mod drivers;
 pub mod extension_command;
 pub mod extension_hooks;
 #[cfg(unix)]
@@ -42,7 +43,6 @@ pub mod room;
 #[cfg(unix)]
 pub mod runtime;
 #[cfg(unix)]
-pub mod runtime_caller;
 #[cfg(unix)]
 pub mod setup;
 #[cfg(unix)]
