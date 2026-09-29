@@ -163,12 +163,43 @@ pub fn create_or_resolve<R: IdentityRepository>(
         .map_err(IdentityError::Repository)
 }
 
+/// Whether explicit text addresses a pane rather than an identity. An
+/// existing identity whose name now reads as a target (see
+/// [`crate::names::validate_existing_name`]) keeps its name.
+pub fn addresses_pane<R: IdentityReader + ?Sized>(
+    repository: &R,
+    text: &str,
+) -> Result<bool, R::Error> {
+    if !crate::names::is_pane_target(text) {
+        return Ok(false);
+    }
+    let Ok(name) = crate::names::validate_existing_name(text) else {
+        return Ok(true);
+    };
+    Ok(repository.find_identity(name.canonical_name())?.is_none())
+}
+
+/// Target-shaped text is still refused as a name, unless an existing identity
+/// already holds it (see [`crate::names::validate_existing_name`]).
 pub fn find_by_name<R: IdentityReader + ?Sized>(
     repository: &R,
     name: &str,
 ) -> Result<Option<Identity>, IdentityError<R::Error>> {
-    let name = validate_name(name).map_err(IdentityError::InvalidName)?;
-    repository
-        .find_identity(name.canonical_name())
-        .map_err(IdentityError::Repository)
+    let refusal = match validate_name(name) {
+        Ok(name) => {
+            return repository
+                .find_identity(name.canonical_name())
+                .map_err(IdentityError::Repository);
+        }
+        Err(error) => error,
+    };
+    let existing =
+        crate::names::validate_existing_name(name).map_err(IdentityError::InvalidName)?;
+    match repository
+        .find_identity(existing.canonical_name())
+        .map_err(IdentityError::Repository)?
+    {
+        Some(identity) => Ok(Some(identity)),
+        None => Err(IdentityError::InvalidName(refusal)),
+    }
 }

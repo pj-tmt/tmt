@@ -2,6 +2,7 @@
 //! The communication primitive multiplexes pipes; this boundary owns deadlines,
 //! per-stream limits, failure classification, and explicit termination/reaping.
 
+pub mod ancestry;
 pub mod detached;
 pub mod interactive;
 pub mod ps;
@@ -105,10 +106,12 @@ pub trait CommandRunner {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError>;
 }
 
+#[derive(Debug, Clone, Copy, Default)]
 pub struct UnixCommandRunner;
 
 /// Probes inside an already supervised worker must remain in its process group.
 /// The worker must propagate failure to its supervisor, which owns group cleanup.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SupervisedProbeRunner;
 
 impl SupervisedProbeRunner {
