@@ -38,17 +38,24 @@ struct ListedRow {
 struct ResolvedPane {
     id: String,
     frozen: Option<BindingTargetEvidence>,
+    /// The explicit target, whose host observes the pane.
+    target: Option<String>,
+    /// How the user names the pane.
+    label: String,
 }
 
 enum Report {
     Bound(BoundIdentity),
     Caller {
         pane: String,
+        /// How the user names the pane (`pane` on tmux, `wN:pM` on Herdr).
+        label: String,
         identity: Option<Identity>,
         runtime: RuntimeState,
     },
     Unbound {
         pane: String,
+        label: String,
         result: UnboundIdentity,
     },
     Removed(BindingEntry),
@@ -88,6 +95,16 @@ fn remembered_session(
         })
 }
 
+/// A caller's pane as the user names it: Herdr's public ID comes from the
+/// caller's own environment.
+fn caller_label(host: &Host, environment: &CallerEnvironment, id: &str) -> String {
+    let herdr = environment
+        .herdr_pane
+        .as_ref()
+        .and_then(|pane| pane.to_str());
+    host.kind().pane_address(id, herdr).to_owned()
+}
+
 fn preflight(
     request: &Invocation,
     host: &Host,
@@ -108,7 +125,9 @@ fn preflight(
                 })?;
             return Ok(Some(ResolvedPane {
                 id: target.pane_id.clone(),
+                label: target.pane_id.clone(),
                 frozen: Some(target),
+                target: None,
             }));
         }
         Invocation::Bind {
@@ -140,7 +159,14 @@ fn preflight(
             return host
                 .caller_pane(environment)
                 .map_err(endpoint_failure)?
-                .map(|id| Some(ResolvedPane { id, frozen: None }))
+                .map(|id| {
+                    Some(ResolvedPane {
+                        label: caller_label(host, environment, &id),
+                        id,
+                        frozen: None,
+                        target: None,
+                    })
+                })
                 .ok_or_else(|| {
                     Failure::new(
                         "PANE_NOT_FOUND",
@@ -155,7 +181,14 @@ fn preflight(
             return host
                 .caller_pane(environment)
                 .map_err(endpoint_failure)?
-                .map(|id| Some(ResolvedPane { id, frozen: None }))
+                .map(|id| {
+                    Some(ResolvedPane {
+                        label: caller_label(host, environment, &id),
+                        id,
+                        frozen: None,
+                        target: None,
+                    })
+                })
                 .ok_or_else(|| {
                     Failure::new(
                         "PANE_NOT_FOUND",
@@ -166,11 +199,27 @@ fn preflight(
         }
         _ => None,
     };
+    // `ls` also accepts a name, and an existing identity may hold a name that
+    // now reads as a Herdr target: a missing Herdr pane is looked up by name.
+    let listing = matches!(request, Invocation::List { .. });
     target
-        .map(|target| {
-            Host::for_target(target)
+        .and_then(|target| {
+            let found = Host::for_target(target)
                 .resolve_target(target, OperationOptions::default())
-                .map_err(endpoint_failure)?
+                .map_err(endpoint_failure);
+            match found {
+                Ok(None)
+                    if listing
+                        && tmt_core::host::HostKind::Herdr
+                            .is_target(&tmt_core::names::normalize_name(target)) =>
+                {
+                    None
+                }
+                found => Some((target, found)),
+            }
+        })
+        .map(|(target, found)| {
+            found?
                 .ok_or_else(|| {
                     Failure::new(
                         "PANE_NOT_FOUND",
@@ -178,15 +227,26 @@ fn preflight(
                         3,
                     )
                 })
-                .map(|id| ResolvedPane { id, frozen: None })
+                .map(|id| ResolvedPane {
+                    label: tmt_core::host::HostKind::label(&id, Some(target)).to_owned(),
+                    id,
+                    frozen: None,
+                    target: Some(target.to_owned()),
+                })
         })
         .transpose()
 }
 
 fn run(request: Invocation) -> Result<Report, Failure> {
     let environment = CallerEnvironment::current();
-    let host = Host::for_caller(&environment);
-    let pane = preflight(&request, &host, &environment)?;
+    let caller = Host::for_caller(&environment);
+    let pane = preflight(&request, &caller, &environment)?;
+    // An explicit target's own host observes it; stored bindings are always
+    // probed on theirs.
+    let host = match pane.as_ref().and_then(|pane| pane.target.as_deref()) {
+        Some(target) => Host::for_target(target),
+        None => caller,
+    };
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let badge = if matches!(
         request,
@@ -205,15 +265,45 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     let mut storage = Storage::open(paths.database).map_err(|error| {
         Failure::new("IDENTITY_ERROR", "Could not open identity storage.", 1).caused_by(error)
     })?;
+    // An existing identity keeps a name that now reads as a Herdr target.
+    let pane = match (&request, pane) {
+        (
+            Invocation::List {
+                target: Some(target),
+                ..
+            },
+            Some(_),
+        ) if matches!(
+            tmt_core::identity::addresses_pane(&storage, target),
+            Ok(false)
+        ) =>
+        {
+            None
+        }
+        (_, pane) => pane,
+    };
+    // A pane observation needs its server resolved before any binding
+    // transaction; listing and name operations only probe stored bindings.
+    let resolved = if pane.is_some()
+        || matches!(
+            request,
+            Invocation::Bind { .. } | Invocation::BindMarked { .. }
+        ) {
+        host.resolve_servers(&mut storage).map_err(endpoint_failure)
+    } else {
+        Ok(())
+    };
     let mut endpoint = host.session();
-    let pending = operation(
-        &mut storage,
-        &mut endpoint,
-        request,
-        pane,
-        environment.selected_server(),
-    )
-    .and_then(|mut report| {
+    let operated = resolved.and_then(|()| {
+        operation(
+            &mut storage,
+            &mut endpoint,
+            request,
+            pane,
+            host.selected_server(&environment),
+        )
+    });
+    let pending = operated.and_then(|mut report| {
         // Presentation follows successful durable effects, never decides
         // them. The adapter preserves user themes and changed endpoints.
         let badge = badge == PaneBadge::On;
@@ -304,7 +394,9 @@ fn operation(
             .map_err(binding_failure)
         }
         Invocation::Whoami => {
-            let pane = pane.expect("caller preflight").id;
+            let ResolvedPane {
+                id: pane, label, ..
+            } = pane.expect("caller preflight");
             let observed =
                 binding::pane_presence(storage, endpoint, &pane).map_err(binding_failure)?;
             let runtime = observed
@@ -314,18 +406,25 @@ fn operation(
                 .unwrap_or(RuntimeState::Unknown);
             Ok(Report::Caller {
                 pane,
+                label,
                 identity: observed.identity,
                 runtime,
             })
         }
         Invocation::Unbind => {
-            let pane = pane.expect("caller preflight").id;
+            let ResolvedPane {
+                id: pane, label, ..
+            } = pane.expect("caller preflight");
             let result = binding::unbind_identity(storage, endpoint, &pane)
                 .map_err(binding_failure)?
                 .ok_or_else(|| {
                     Failure::new("UNBOUND_PANE", "Pane has no active global name.", 1)
                 })?;
-            Ok(Report::Unbound { pane, result })
+            Ok(Report::Unbound {
+                pane,
+                label,
+                result,
+            })
         }
         Invocation::Remove { name, force } => {
             binding::remove_identity(storage, endpoint, &name, force)

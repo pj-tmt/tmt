@@ -40,7 +40,7 @@ fn pane_failure(error: FocusError, pane: &str) -> Failure {
     match error {
         FocusError::HostUnsupported => host_unsupported(),
         FocusError::PaneNotFound => pane_missing(pane),
-        FocusError::Evidence(error) => endpoint_failure(error),
+        FocusError::Evidence(error) => endpoint_failure(error.into()),
     }
 }
 

@@ -14,6 +14,7 @@ fn ordinary_whoami_preserves_existing_fields_and_human_text() {
     let original = bound_document(&identity, "%1");
     let report = Report::Caller {
         pane: "%1".into(),
+        label: "%1".into(),
         identity: Some(identity),
         runtime: RuntimeState::Running,
     };
@@ -32,6 +33,7 @@ fn ordinary_whoami_preserves_existing_fields_and_human_text() {
     assert_eq!(human, b"Alice (saved) on pane %1\n");
     let report = Report::Caller {
         pane: "%1".into(),
+        label: "%1".into(),
         identity: None,
         runtime: RuntimeState::Unknown,
     };
