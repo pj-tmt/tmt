@@ -177,7 +177,7 @@ fn the_floor_is_0_9_1_and_newer_releases_are_trusted() {
         "0.9.2",
         "0.10.0",
         "1.0.0",
-        "0.9.1-preview.3",
+        "0.9.2-rc.1",
         "0.9.1+build",
     ] {
         assert!(check_floor(Some(version)).is_ok(), "{version}");
@@ -185,6 +185,7 @@ fn the_floor_is_0_9_1_and_newer_releases_are_trusted() {
     for version in [
         Some("0.9.0"),
         Some("0.8.9"),
+        Some("0.9.1-preview.3"),
         Some("garbage"),
         Some("0.9"),
         None,

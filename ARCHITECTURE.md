@@ -1693,7 +1693,7 @@ architecture guard rejects production references to the host modules outside
 Herdr is reached only through its documented CLI (`herdr <group> <command>`,
 JSON out) under the bounded process owner, on the socket a caller's
 `HERDR_SOCKET_PATH` or a stored server names, and refuses servers older than
-0.9.1. A Herdr pane ID is the terminal ID, which follows a pane through moves
+0.9.1 in semantic-version order (so a 0.9.1 pre-release is refused). A Herdr pane ID is the terminal ID, which follows a pane through moves
 while the public `wN:pM` (its target and display address) is reused after a
 restart. A caller's Herdr pane counts only when its shell is an ancestor of the
 caller (`process::ancestry`, shared with tmux); inside both hosts the nearer
@@ -1705,7 +1705,8 @@ binding transaction opens, so the transaction only sees resolved evidence. A
 stored Herdr server is live only as the same incarnation; otherwise it is lost
 only when its recorded process is conclusively gone. The marker is pane tokens
 under source `tmt` (a long name spans continuation keys) and proves nothing
-unless its IDs match storage. Herdr delivery, capture, focus, badges and hook
+unless its IDs match storage. Herdr merges a report into the source's tokens
+key by key, so each publish also clears the marker keys it does not set. Herdr delivery, capture, focus, badges and hook
 context are not implemented yet: `send` is unsupported so core falls through to
 the Inbox, a pane route refuses before input, and `check` and `focus` refuse.
 

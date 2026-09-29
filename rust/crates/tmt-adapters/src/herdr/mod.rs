@@ -335,17 +335,14 @@ fn api_error(error: &CommandError) -> Option<HerdrError> {
     })
 }
 
-/// `major.minor.patch`, optionally with a pre-release or build suffix. A
-/// newer protocol is trusted (decision 3): only older releases are refused.
+/// A semantic version at or above the floor. A newer protocol is trusted
+/// (decision 3): only older releases are refused, and a pre-release of the
+/// floor itself (`0.9.1-rc.1`) orders below it.
 fn check_floor(version: Option<&str>) -> Result<(), HerdrError> {
-    let parsed = version.and_then(|version| {
-        let core = version.split(['-', '+']).next()?;
-        let mut parts = core.split('.').map(|part| part.parse::<u64>().ok());
-        let parsed = (parts.next()??, parts.next()??, parts.next()??);
-        parts.next().is_none().then_some(parsed)
-    });
+    let floor = semver::Version::new(FLOOR.0, FLOOR.1, FLOOR.2);
+    let parsed = version.and_then(|version| semver::Version::parse(version).ok());
     match parsed {
-        Some(parsed) if parsed >= FLOOR => Ok(()),
+        Some(parsed) if parsed >= floor => Ok(()),
         _ => Err(HerdrError {
             kind: HerdrFailure::Version,
             message: format!(
