@@ -574,7 +574,11 @@ native source/skill changes, Office's Rust crates, core-only test suites and E2E
 scenario files avoid the Office web checks; prose that no job reads selects nothing
 beyond `Code quality`. Shared or unknown paths (including lockfiles, security,
 contracts, workflows, the map itself and the E2E harness) fan out. Empty diffs fail
-closed to both. Diffs include deletions and both sides of renames. The selector writes
+closed to both. The explicit remote-Rust rule retains full workspace and Office
+coverage independently of its private release ownership. Full Rust checks reject
+empty remote test discovery before executing all workspace tests, including the
+remote lifecycle tests and core architecture guards. Diffs include deletions and both
+sides of renames. The selector writes
 a per-path evidence table (owner, rule, selection, map digest) to the run summary. When
 every path that selects native work is owned by Squad, the native scope is `squad`: the
 same job names run Squad's Cargo checks and architecture guard, its native tests and its
@@ -2274,6 +2278,10 @@ document, and for every other squad from a roster-only document (one
 `rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
 tabs are colored without loading their rows.
 
+Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
+board refresh and reminder timing. Callers retain their accepted units, numeric
+forms, ranges and key-specific error messages; refresh alone wraps `"off"`.
+
 Optional `[squad.<name>.reminders]` config is parsed by
 `Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
 from 1 minute through 24 hours. `staleness` owns observed raw task/state and
@@ -2587,9 +2595,8 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 `extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
 as `tmt remote`. `main` owns style/foreground composition and one bounded
 startup capabilities call. `core::CoreClient` owns fixed public `api`/`list`
-subprocesses through the supplied absolute `TMT_EXECUTABLE`, with deadline,
-output/cancellation bounds and owned process-group cleanup; no PATH fallback.
-The only TMT crate dependency is the shared leaf `tmt-cli-style`.
+subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
 
 `http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
 connection/rate bounds and shutdown. It has no CoreClient/storage reference.
@@ -2610,6 +2617,7 @@ The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/REA
 TypeScript module owns decoded-value envelope, enrollment and possession signing-byte
 builders and independent exact-byte/SHA-256 fixtures. It uses standard UTF-8 and
 WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
-quality job. It implements no wire decoder, signing, key persistence, transport,
+quality job: the independent Python oracle must pass before the workspace-pinned
+Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
 runtime authority or browser-shell wiring; the proposed contract remains the wire
 and authority definition owner.

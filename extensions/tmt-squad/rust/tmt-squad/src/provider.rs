@@ -82,16 +82,8 @@ fn duration(
         ))
     };
     let text = item.as_str().ok_or_else(wrong)?;
-    let (number, unit) = text.split_at(text.len().saturating_sub(1));
-    let seconds = match (number.parse::<u64>(), unit) {
-        (Ok(number), "s") => number,
-        (Ok(number), "m") => number.saturating_mul(60),
-        (Ok(number), "h") => number.saturating_mul(3_600),
-        _ => return Err(wrong()),
-    };
-    range
-        .contains(&seconds)
-        .then(|| Duration::from_secs(seconds))
+    crate::config::duration(text, &['s', 'm', 'h'])
+        .filter(|duration| range.contains(&duration.as_secs()))
         .ok_or_else(wrong)
 }
 
