@@ -6,7 +6,10 @@
 //! `[squad.<name>.rows]` is the full form; the older `[squad.<name>.columns]`
 //! (`show` plus a `title`/`width` per field) reads as the same model.
 
-use crate::core::SquadError;
+use crate::{
+    core::SquadError,
+    source::{ColumnSource, Format, PATHS},
+};
 use serde_json::{Value, json};
 use tmt_cli_style::grid::{Align, Track, Truncate};
 use toml_edit::{Item, TableLike};
@@ -14,6 +17,10 @@ use toml_edit::{Item, TableLike};
 const MAX_COLUMNS: usize = 12;
 const MAX_LINES: usize = 4;
 const MAX_WIDTH: i64 = 200;
+/// Fields whose meaning Squad itself reads (the name, the lead, a state's
+/// order and color, a decision owed, the note). A bound value replaces the
+/// field of its column's name, so these cannot be bound.
+const OWN_FIELDS: &[&str] = &["member", "role", "state", "pending", "note"];
 /// Where a growing column starts, and the least an unsized one keeps.
 const NARROWEST: usize = 4;
 
@@ -31,6 +38,9 @@ pub struct Column {
     pub truncate: Truncate,
     /// Steps aside on a narrow board, highest first; None never does.
     pub priority: Option<u16>,
+    /// Where the value comes from, when not the squad field of its name.
+    pub from: Option<ColumnSource>,
+    pub format: Format,
 }
 
 impl Column {
@@ -45,6 +55,18 @@ impl Column {
             align: Align::Left,
             truncate: Truncate::End,
             priority: None,
+            from: None,
+            format: Format::Text,
+        }
+    }
+
+    /// Where the column's value comes from, when it is not shown as the
+    /// member's own squad field; None for a plain column.
+    pub fn source(&self) -> Option<ColumnSource> {
+        match (&self.from, self.format) {
+            (Some(from), _) => Some(from.clone()),
+            (None, Format::Text) => None,
+            (None, _) => ColumnSource::parse(&format!("meta.squad.{}", self.field), field_name),
         }
     }
 
@@ -163,6 +185,16 @@ impl Rows {
         fields
     }
 
+    /// Whether a column reads identity metadata beyond the squad's fields.
+    pub fn reads_metadata(&self) -> bool {
+        self.columns.iter().any(|column| {
+            column
+                .from
+                .as_ref()
+                .is_some_and(ColumnSource::reads_metadata)
+        })
+    }
+
     /// `{columns, lines}` as `ls --json` reports them.
     pub fn value(&self) -> Value {
         let align = |align: Align| match align {
@@ -180,6 +212,8 @@ impl Rows {
                 "min": column.min, "max": column.max, "grow": column.grow,
                 "align": align(column.align), "truncate": truncate(column.truncate),
                 "priority": column.priority,
+                "from": column.from.as_ref().map(|from| from.path.as_str()),
+                "format": column.format.as_str(),
             })).collect::<Vec<_>>(),
             "lines": self.lines.iter().map(|line| line.iter().map(|cell| json!({
                 "field": cell.field, "span": cell.span,
@@ -192,7 +226,7 @@ fn invalid(message: impl Into<String>) -> SquadError {
     SquadError::new("SQUAD_CONFIG_INVALID", message)
 }
 
-fn field_name(value: &str) -> bool {
+pub(crate) fn field_name(value: &str) -> bool {
     !value.is_empty()
         && value
             .bytes()
@@ -326,10 +360,23 @@ fn read_column(settings: &dyn TableLike, here: &str) -> Result<Column, SquadErro
                     _ => return Err(invalid(format!("`{place}` must be end or middle."))),
                 }
             }
-            // Kept for field sources, so adding them reshapes nothing.
-            "from" | "format" | "color" => {
+            "from" => {
+                column.from = Some(
+                    value
+                        .as_str()
+                        .and_then(|path| ColumnSource::parse(path, field_name))
+                        .ok_or_else(|| invalid(format!("`{place}` must be one of: {PATHS}.")))?,
+                );
+            }
+            "format" => {
+                column.format = value.as_str().and_then(Format::parse).ok_or_else(|| {
+                    invalid(format!("`{place}` must be text, tokens, age or count."))
+                })?;
+            }
+            // Kept for value colors, so adding them reshapes nothing.
+            "color" => {
                 return Err(invalid(format!(
-                    "`{place}` is not available yet; it arrives with field sources (#503)."
+                    "`{place}` is not available yet; it arrives with theme tokens (#503, #514)."
                 )));
             }
             other => {
@@ -338,6 +385,12 @@ fn read_column(settings: &dyn TableLike, here: &str) -> Result<Column, SquadErro
                 )));
             }
         }
+    }
+    if column.source().is_some() && OWN_FIELDS.contains(&column.field.as_str()) {
+        return Err(invalid(format!(
+            "`{here}.name` `{}` is a field Squad reads itself; give a column with `from` or `format` another name.",
+            column.field
+        )));
     }
     let low = column.min;
     let high = column.max;

@@ -138,8 +138,10 @@ impl Squad {
 
     /// One roster snapshot joined with presence from `ls`, which owns host
     /// observation. A member missing from `ls` (joined in between) is unknown.
-    pub fn members(&self, core: &Core) -> Result<Vec<Member>, SquadError> {
-        let mut members = self.roster(core)?;
+    /// `metadata` also reads identity metadata beyond this squad's fields,
+    /// for columns bound to `meta.<key>`.
+    pub fn members(&self, core: &Core, metadata: bool) -> Result<Vec<Member>, SquadError> {
+        let mut members = self.roster_with(core, metadata)?;
         join_presence(&mut members, &core.json(&["ls", "--room", &self.room_id])?);
         Ok(members)
     }
@@ -147,11 +149,17 @@ impl Squad {
     /// The roster alone: names, fields and activity, with presence unknown and
     /// no pane. Enough for a tab's attention without asking `ls` (#507).
     pub fn roster(&self, core: &Core) -> Result<Vec<Member>, SquadError> {
-        let roster = core.api(
-            "rooms.roster",
-            json!({"room": self.room_id, "metadataPrefix": self.prefix()}),
-        )?;
+        self.roster_with(core, false)
+    }
+
+    fn roster_with(&self, core: &Core, metadata: bool) -> Result<Vec<Member>, SquadError> {
         let prefix = self.prefix();
+        let input = if metadata {
+            json!({"room": self.room_id})
+        } else {
+            json!({"room": self.room_id, "metadataPrefix": prefix})
+        };
+        let roster = core.api("rooms.roster", input)?;
         roster["members"]
             .as_array()
             .ok_or_else(|| {
@@ -162,6 +170,10 @@ impl Squad {
             })?
             .iter()
             .map(|member| {
+                let metadata = member["metadata"].as_object().into_iter().flatten();
+                let (fields, meta): (Vec<_>, Vec<_>) = metadata
+                    .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
+                    .partition(|(key, _)| key.starts_with(&prefix));
                 Ok(Member {
                     id: text(member, "id")?,
                     name: text(member, "name")?,
@@ -169,17 +181,13 @@ impl Squad {
                     presence: "unknown".into(),
                     pane: Value::Null,
                     activity: member["status"].clone(),
-                    fields: member["metadata"]
-                        .as_object()
+                    fields: fields
                         .into_iter()
-                        .flatten()
-                        .filter_map(|(key, value)| {
-                            Some((
-                                key.strip_prefix(&prefix)?.to_owned(),
-                                value.as_str()?.to_owned(),
-                            ))
-                        })
+                        .map(|(key, value)| (key[prefix.len()..].to_owned(), value))
                         .collect(),
+                    meta: meta.into_iter().collect(),
+                    seen: Value::Null,
+                    numbers: BTreeMap::new(),
                 })
             })
             .collect()
@@ -198,6 +206,7 @@ pub fn join_presence(members: &mut [Member], listed: &Value) {
         let Some(seen) = presence.get(member.id.as_str()) else {
             continue;
         };
+        member.seen = (*seen).clone();
         if let Some(state) = seen["presence"].as_str() {
             member.presence = state.into();
         }
@@ -217,6 +226,13 @@ pub struct Member {
     pub pane: Value,
     pub activity: Value,
     pub fields: BTreeMap<String, String>,
+    /// Identity metadata outside this squad's fields; read only when a
+    /// column is bound to `meta.<key>`.
+    pub meta: BTreeMap<String, String>,
+    /// The member's `ls --json` row, when `ls` listed it; Null otherwise.
+    pub seen: Value,
+    /// Bound columns' numeric values, so sorts order `1.2M` after `487k`.
+    pub numbers: BTreeMap<String, f64>,
 }
 
 /// Filterable values: identity basics, self-reported activity and every
@@ -279,6 +295,60 @@ mod tests {
             not_found(None).to_json().to_string(),
             r#"{"error":{"code":"SQUAD_NOT_FOUND","message":"No squad exists yet; run: tmt squad init <name>"}}"#
         );
+    }
+
+    /// A stand-in tmt: `api` logs its request and answers one roster member
+    /// with a squad field and another key; `ls` lists that member.
+    fn roster_core(name: &str) -> (Core, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("squad-roster-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("tmt");
+        crate::test_support::write_executable(
+            &fake,
+            &format!(
+                "#!/bin/sh
+case \"$1\" in\n\
+                 api) cat > '{requests}'; echo '{{\"members\":[{{\"id\":\"R\",\"name\":\"rin\",\"lifetime\":\"saved\",\"status\":null,\"metadata\":{{\"squad.p.state\":\"working\",\"team.role\":\"reviewer\"}}}}]}}' ;;\n\
+                 ls) echo '{{\"identities\":[{{\"id\":\"R\",\"presence\":\"active\",\"pane\":\"%1\",\"cwd\":\"/src\",\"resume\":{{\"model\":\"opus\"}}}}]}}' ;;\n\
+                 esac\n",
+                requests = dir.join("request").display()
+            ),
+        );
+        (Core::at(fake), dir)
+    }
+
+    #[test]
+    fn members_carry_the_ls_row_and_read_other_metadata_only_when_asked() {
+        let squad = Squad {
+            name: "p".into(),
+            room_id: "room".into(),
+        };
+        for metadata in [false, true] {
+            let (core, dir) = roster_core(&format!("{metadata}"));
+            let members = squad.members(&core, metadata).unwrap();
+            let request: Value =
+                serde_json::from_str(&std::fs::read_to_string(dir.join("request")).unwrap())
+                    .unwrap();
+            let rin = &members[0];
+            assert_eq!(
+                rin.fields,
+                BTreeMap::from([("state".into(), "working".into())])
+            );
+            assert_eq!(rin.presence, "active");
+            assert_eq!(rin.seen["resume"]["model"], "opus");
+            assert_eq!(rin.seen["cwd"], "/src");
+            if metadata {
+                assert_eq!(request["input"], json!({"room": "room"}), "every key");
+                assert_eq!(
+                    rin.meta,
+                    BTreeMap::from([("team.role".into(), "reviewer".into())])
+                );
+            } else {
+                assert_eq!(request["input"]["metadataPrefix"], "squad.p.");
+            }
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 
     #[test]

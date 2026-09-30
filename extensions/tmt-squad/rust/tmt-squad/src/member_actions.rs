@@ -25,12 +25,15 @@ fn failed(message: String) -> SquadError {
 fn document(core: &Core, squad: &Squad, config: &Config) -> Result<Value, SquadError> {
     let layout = config.layout(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
+    let rows = config.rows(&squad.name)?;
+    let members = squad.members(core, rows.reads_metadata())?;
     Ok(status::document(
         squad,
         layout,
         &states,
         &[],
-        squad.members(core)?,
+        &rows,
+        members,
     ))
 }
 
