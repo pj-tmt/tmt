@@ -1,0 +1,41 @@
+import { Cmd } from "../components/Cmd";
+import { DriverCard } from "../components/samples";
+
+<DriverCard
+  name="Codex"
+  kind="runtime driver"
+  spec={[
+    [
+      "Knows",
+      "Each thread's id, from Codex hooks. Works both when Codex runs on its own in a pane and when several panes share one Codex app server.",
+    ],
+    [
+      "Shared server",
+      <>
+        tmt only trusts an exact thread match there, so two agents on one server are never mixed up.
+        If it can't tell, it says so and asks for <code>--identity</code>.
+      </>,
+    ],
+    [
+      "Resume",
+      <>
+        <code>tmt resume &lt;name&gt;</code> reopens this identity's thread with the same model.
+      </>,
+    ],
+    ["Setup", <code>tmt setup codex</code>],
+  ]}
+/>
+
+### Connect it
+
+<Cmd>{`
+$ tmt setup codex           # shows the exact config change, then asks
+$ tmt run builder codex     # start Codex as "builder"
+$ tmt resume builder        # reopen builder's own thread
+`}</Cmd>
+
+Setup adds Codex's lifecycle hooks for tmt. Codex asks you to trust new hooks the first time; that's expected. `tmt setup codex --remove` takes them out again.
+
+### Codex's sandbox
+
+In Codex's workspace-write sandbox, Codex can't write tmt's data directory by default. tmt reports this plainly as storage that isn't writable, not as a crash. It points to the one setting that allows it: adding tmt's data directory to Codex's `writable_roots`. `tmt setup codex` offers to add it for you and only does so with your OK.

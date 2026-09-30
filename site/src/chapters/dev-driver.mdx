@@ -1,0 +1,58 @@
+import { Callout, Terms } from "../components/marks";
+
+Drivers teach tmt about a program it doesn't know yet.
+
+<Callout title="Planned.">
+  Today every driver is compiled into tmt, and a new one arrives by contributing to the tmt
+  repository. This chapter describes where drivers are going: separate packages that anyone can
+  publish. The first to move out is Herdr. Until then, the protocol below may still change.
+</Callout>
+
+### Two kinds
+
+<Terms>
+  <dt>host driver</dt>
+  <dd>
+    Knows where agents live and how to type into them: addressing a pane, delivering input,
+    capturing output and switching focus. tmux is the built-in host driver, and Herdr is the first
+    external one.
+  </dd>
+  <dt>runtime driver</dt>
+  <dd>
+    Knows one agent program: how to recognize it, which conversation a caller belongs to, and how it
+    starts, resumes and ends. Claude Code and Codex are built in.
+  </dd>
+</Terms>
+
+### A driver is a program
+
+A driver is an executable named `tmt-driver-<name>`. tmt runs it once per operation, as `tmt-driver-<name> __tmt-driver <protocol> <operation>`, with one JSON request on stdin, and reads one JSON answer from stdout: `{"ok": …}` or `{"error": {"code", "message"}}`. Each operation has a deadline and an output limit, so a stuck or chatty driver can't hold tmt up. Operations are coarse, one per delivery or lookup, and a spawn costs about 1.5 ms, less than one tmux command.
+
+The first call is always `capabilities`. It returns the protocol versions the driver speaks, its kind, name, version and the operations it implements. tmt uses the highest protocol both sides support, and keeps the previous protocol working for at least one release, so a driver doesn't have to update the day tmt does.
+
+The built-in drivers sit behind the same interface, so a driver you install and one that ships with tmt are treated alike.
+
+### What tmt keeps
+
+Driver output is untrusted input. tmt parses it with limits, checks every ID and target against its own rules, and cleans text before showing it. The decisions that need trust stay in tmt:
+
+- **Binding verification.** tmt compares the evidence a driver returns; it never takes a driver's word that a caller is verified.
+- **Delivery safety.** Protecting `!`, staging the paste and Enter, and reporting an uncertain send.
+- **Storage.** A driver never opens tmt's database, and tmt never passes it data paths or tokens. That is a contract, not an operating-system guarantee, so tmt never relies on a driver behaving.
+- **Consent.** Changes to an agent's settings still go through `tmt setup`, after the user agrees.
+
+### Taking over from a built-in driver
+
+A runtime driver may take over a program a built-in driver already recognizes, by declaring a higher priority. That's how a community Claude Code driver with extra features can replace the built-in one. It stays visible: install lists every built-in program the driver would take over, and `tmt driver ls` shows which driver handles which program. A driver can't take a built-in driver's name, and two installed drivers can't claim the same program; the user removes one.
+
+### Rules every driver follows
+
+- **Evidence, not claims.** A provider's session ID only correlates with an existing binding. It never creates an identity or moves one.
+- **Shared hosts are fenced.** When several conversations share one process, only an exact match counts. If you can't tell, say so instead of guessing.
+- **Hooks never block the agent.** They always exit successfully within their budget; on any failure the agent starts normally without context.
+- **A failed send says what happened:** not sent, uncertain, denied, or awaiting approval. "Uncertain" means input may have reached the agent. tmt never retries it automatically, and your driver shouldn't either.
+- **Persisted state stays current and small.** Only hook evidence updates it. It is dropped when the identity is removed, when the identity switches programs, on a version mismatch, or when the driver goes away. Never store transcripts, arguments or secrets.
+
+### Publish it
+
+A driver is packaged and released like an extension, with its own version, and installed with `tmt driver install`. The protocol contract and a conformance suite that checks your driver against it will ship with the first external driver.

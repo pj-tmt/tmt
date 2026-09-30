@@ -418,6 +418,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 manifest: text(m, "manifest"),
                 yes: flag(m, "yes"),
                 skills: flag(m, "skills"),
+                repair: flag(m, "repair"),
             })
         }
         ["extension", "upgrade"] => {

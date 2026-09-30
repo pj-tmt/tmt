@@ -1,0 +1,56 @@
+import { Cmd } from "../components/Cmd";
+import { Aside } from "../components/marks";
+
+### `tmt run`
+
+Like running the command yourself, with a name attached. Options for tmt go before the name; everything after it belongs to the agent. tmt remembers which agent you used, never your arguments or secrets. Ctrl-C, Ctrl-Z and `fg` behave as usual, and the agent's exit code comes back unchanged.
+
+<Cmd>{`
+$ tmt run reviewer              # start the remembered agent
+$ source <(tmt completion zsh)  # Tab-complete names, then the agent's own flags
+`}</Cmd>
+
+### `tmt resume`
+
+Reopens an agent's own conversation in the pane you're in. After a reboot, open a pane and bring each agent back by name. The agent's runtime driver remembers its conversation and model and builds the resume command itself, so you never copy a session id.
+
+<Cmd>{`
+$ tmt resume reviewer           # reviewer's own conversation, same model
+$ tmt resume --forget reviewer  # drop the remembered conversation
+`}</Cmd>
+
+tmt only remembers what a driver reports through the agent's hooks. `/clear` or a new session replaces it, and switching an identity to another agent program drops the old one. Removing the identity deletes it too. If the conversation no longer exists, tmt says so and doesn't start a fresh one behind your back. Start fresh on purpose with `tmt run reviewer`. You pick the pane: tmt doesn't reopen your tmux layout. `tmt run --resume <name>` still works as an alias.
+
+### `tmt talk` and `tmt reply`
+
+`talk` waits for the agent to submit its reply with `tmt reply`, not for the terminal to go quiet. The reply is stored, so a timeout never loses it. With `--detach`, tmt returns right away and your pane gets one line when the reply arrives. There's no reminder while you wait, because you chose not to wait.
+
+<Cmd>{`[tmt] reply from builder to req_9ba4…: tmt result req_9ba4…`}</Cmd>
+
+If the agent is offline, the request waits in its inbox and the agent sees it at its next start.
+
+<Aside title="Don't resend on silence.">
+  If delivery is uncertain, look first with <code>tmt check builder</code>. The work may already be
+  running.
+</Aside>
+
+### `tmt setup`
+
+Finds the agents on this machine by looking at the filesystem only; it never starts one. Every agent it finds gets tmt's skills. Claude Code and Codex, when installed here, also get lifecycle hooks that tell tmt when a conversation starts or ends. That keeps `tmt resume` and the badge accurate and gives a new session its short summary. It plans only what is missing and asks once.
+
+<Cmd>{`
+$ tmt setup              # find agents, show the plan, ask once
+$ tmt setup claude       # hooks for one agent
+$ tmt setup codex --remove
+`}</Cmd>
+
+Your existing settings stay byte for byte apart from tmt's hooks, a backup is written first, and a failing hook never blocks the agent.
+
+### `tmt uninstall`
+
+Removes exactly what tmt installed: its hooks, skills, extensions and the `tmt` command, stopping any extension service that is running first. It lists everything before it asks. Anything you have changed is kept and reported. Your identities, messages and notes stay unless you add `--purge`.
+
+<Cmd>{`
+$ tmt uninstall          # show what goes and what stays, then ask once
+$ tmt uninstall --purge  # also delete your tmt data
+`}</Cmd>

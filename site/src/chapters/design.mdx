@@ -1,0 +1,44 @@
+import { Cmd } from "../components/Cmd";
+import { Tag } from "../components/marks";
+import { MarkList, TokenPreview, TokenTable, TypePreview } from "../components/samples";
+
+tmt looks like one product wherever you meet it: the command line, the Squad board and this site. This page is the guideline they share. The values come from one file, [`site/src/design/tokens.json`](https://github.com/wkh237/tmt/blob/main/site/src/design/tokens.json); the site's stylesheet and every table on this page read it, so nothing here is copied by hand.
+
+### Principles
+
+- **Color carries meaning.** Most of a screen stays neutral. Only what needs you, what's working and what's stuck stands out.
+- **Never color alone.** Every state also shows as a mark or a word, such as `◆2` or `blocked`, so it survives `NO_COLOR`, a pipe, a screen reader or color blindness.
+- **Your terminal decides the shade.** On the command line a token names one of the terminal's 16 colors, so the user's theme wins. The site and the full-screen board's truecolor themes use the exact values below.
+- **One vocabulary.** A token means the same thing everywhere: `waiting` is always something that needs you, whether it's a tab on the board, a row in `tmt ls` or a badge on this site.
+
+### Color tokens
+
+<TokenPreview />
+
+<TokenTable />
+
+The command line maps the same meanings to its own token names today (`accent`, `ok`, `warn`, `error`, `dim`, and the driver colors), in [docs/cli-style.md](https://github.com/wkh237/tmt/blob/main/docs/cli-style.md). Bringing both to one set of names is planned <Tag kind="planned" />.
+
+### Surfaces
+
+Surfaces only exist on the web: a terminal always keeps its own background.
+
+<TokenTable group="surface" />
+
+### Type
+
+<TypePreview />
+
+Headings use the display face, prose the body face, and anything a reader types or a terminal prints uses mono. Commands are always shown as they're typed, with a `$` prompt and dimmed `# comments`:
+
+<Cmd>{`$ tmt sq board --squad product   # a command a reader can copy`}</Cmd>
+
+### Marks
+
+The same small set of marks carries state in the CLI, on the board and here:
+
+<MarkList />
+
+### Shipped and planned
+
+Anything not yet in a release carries a <Tag kind="planned" /> tag or a callout that says so. The handbook describes where tmt is going, but never presents a plan as something you can use today.

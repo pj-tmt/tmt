@@ -1876,6 +1876,24 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
+### Host driver protocol
+
+Terminal hosts that TMT doesn't build in will run out of process as host
+drivers (#570). [`contracts/driver-protocol-v1.md`](contracts/driver-protocol-v1.md)
+owns the wire format. `rust/crates/tmt-driver-protocol` encodes it for both
+sides:
+
+- wire types and per-operation limits;
+- `decode`, which is core's bounded, strict parsing and validation against the
+  pane-ID and target grammar each driver declares;
+- `serve`, a driver's entry point;
+- `conformance::check`, which runs through any invoker.
+
+The crate is a leaf with only `serde` and `serde_json`, so a community driver
+builds against it alone; the architecture guard enforces that. Nothing in `tmt`
+calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
+spawning client with consent and fingerprint checks, and move Herdr out.
+
 ## Managed skills and native installation
 
 Managed agent guidance is a separate filesystem concern. The canonical
@@ -2018,6 +2036,24 @@ stays at 16 KiB.
   receipts from earlier releases); new receipts always record `wkh237/tmt`;
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
+
+Explicit extension `install --repair` is a separate recovery composition in
+`native_install::repair`, limited to GitHub-provenance receipts. `receipt`
+separates bounded metadata/recorded-path validation from payload verification;
+normal readers still require both. An eligible verification failure carries
+`RepairRequired` to the CLI, which owns the single quoted repair-command hint.
+Repair admits only safe owned layouts and no-follow regular files/directories,
+fetches the exact recorded artifact with matching provenance and digests, and
+preserves version/channel/pin. Acquisition holds no installation lock; the stable
+lock and a pre-activation current/receipt revalidation fence publication.
+`publication` shares candidate staging, durable activation, cleanup and typed
+post-activation failures between normal installs and repair. The damaged release
+is retained untouched at its original path, including foreign entries, rather
+than treated as content TMT may overwrite or delete. It is never a verified
+execution candidate; no automatic retention cleanup is implemented. A healthy
+repair is a no-op. Local receipts remain installation evidence, not signatures;
+repair does not claim protection from a hostile same-UID writer. Provider skill
+refresh remains with the existing verified-tree/skill-owner composition.
 
 The active executable is the authority for a managed update. Installer receipts
 are anchored to the installation prefix/current executable, not to

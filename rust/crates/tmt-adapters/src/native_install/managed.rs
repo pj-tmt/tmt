@@ -39,21 +39,33 @@ pub fn inspect_product(product: Product, executable: &Path) -> io::Result<Manage
     let executable = fs::canonicalize(executable)?;
     let prefix = executable.ancestors().nth(5).ok_or_else(unmanaged)?;
     let layout = Layout::existing_product(prefix, product).map_err(|_| unmanaged())?;
-    let current = layout.current()?.ok_or_else(unmanaged)?;
-    let active = layout
-        .root
-        .join("releases")
-        .join(current.id.to_string())
-        .join(product.executable());
-    if executable != active {
+    let installation = inspect_layout(layout)?;
+    if executable != installation.active_executable {
         return Err(invalid(
             "This executable is not the active managed release. Run the current native installation, or update using its original package manager.",
         ));
     }
+    Ok(installation)
+}
+
+/// Strict prefix-based inspection, including a missing or damaged payload.
+/// Does not grant update authority to an arbitrary executing binary.
+pub fn inspect_product_prefix(product: Product, prefix: &Path) -> io::Result<ManagedInstallation> {
+    let layout = Layout::existing_product(prefix, product)?;
+    inspect_layout(layout)
+}
+
+fn inspect_layout(layout: Layout) -> io::Result<ManagedInstallation> {
+    let product = layout.product;
+    let current = layout.current()?.ok_or_else(unmanaged)?;
     layout.check_links(true)?;
     Ok(ManagedInstallation {
         executable: layout.prefix.join("bin").join(product.executable()),
-        active_executable: active,
+        active_executable: layout
+            .root
+            .join("releases")
+            .join(current.id.to_string())
+            .join(product.executable()),
         state: current.state,
         target: current.target,
         prefix: layout.prefix,

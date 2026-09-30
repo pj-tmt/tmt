@@ -1,0 +1,31 @@
+import { Cmd } from "../components/Cmd";
+import { St } from "../components/marks";
+
+Any program named `tmt-<name>` on your PATH becomes `tmt <name>`, the way components add commands to gcloud. Built-in commands always win, so an extension can't replace `talk` or `run`. Extensions reach tmt through its commands, JSON output and hooks, the same doors any other program uses.
+
+<Cmd>{`
+$ tmt sq board         # runs tmt-squad board
+$ tmt help             # lists extensions it found
+$ tmt sq <Tab>         # completion comes from the extension
+`}</Cmd>
+
+### Install, update and remove
+
+The extensions below are installed the same way. Each one has its own version and updates on its own schedule, and removing one keeps its data.
+
+<Cmd>{`
+$ tmt extension install squad     # asks before changing anything
+$ tmt extension list              # what's installed, versions, updates
+$ tmt extension upgrade squad
+$ tmt extension uninstall squad   # your data stays
+`}</Cmd>
+
+If an extension comes with skills for your agents, install asks whether to add them too. To write your own extension, see [Build an extension](/develop/extensions). Any `tmt-<name>` on your PATH works without `tmt extension`.
+
+### Known extensions
+
+| Command        | What it is                                                                                                    | State                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| tmt squad · sq | Leads, members in their own worktrees, and a board to see and jump between them. [Squad →](/extensions/squad) | <St kind="done">Alpha</St>     |
+| tmt threads    | A desktop app to follow and join your agents' conversations. [Threads →](/extensions/threads)                 | <St kind="next">Later</St>     |
+| tmt remote     | Talk to and control agents on your other machines, over a backend you own. [Remote →](/extensions/remote)     | <St kind="next">Designing</St> |

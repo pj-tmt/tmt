@@ -100,6 +100,9 @@ describe('CI area selection', () => {
     'docs/extension-api.md',
     '.agents/skills/tmt-dev/SKILL.md',
     '.github/pull_request_template.md',
+    'site/src/chapters/squad.mdx',
+    'site/pnpm-lock.yaml',
+    '.github/workflows/site.yml',
   ])('selects nothing beyond Code quality for prose that no job reads: %s', (file) => {
     expect(selectCiAreas([file])).toEqual({ native: false, office: false, nativeOffice: false });
   });
@@ -124,6 +127,8 @@ describe('CI area selection', () => {
       'typescript/test/nativeish/api.test.ts',
       '.agentsish/file.md',
       'extensions/tmt-office/rusty/file.rs',
+      'siteish/index.html',
+      '.github/workflows/site.yml.orig',
     ]) {
       expect(selectCiAreas([lookAlike]), lookAlike).toMatchObject({ native: true, office: true });
     }
@@ -576,6 +581,7 @@ describe('component map', () => {
       '.github/components.json': 'the map names the prose in its own rules',
       'rust/crates/tmt-adapters/src/skill_installation/owned_tests.rs':
         'a fixture file name, not the repository README',
+      'site/src/chapters/dev-extension.mdx': 'the handbook site links to the contract on GitHub',
     };
     // Only files that contain ".md" at all can name prose.
     const candidates = runPackedCommand('git', ['grep', '-l', '-z', '-I', '-F', '.md', '--', '.'], {
