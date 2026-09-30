@@ -119,6 +119,7 @@ fn load(
             clipboard: config.program("clipboard")?,
             me: me.map(|me| me.name),
             replies,
+            refresh: config.refresh(&squad.name)?,
             board,
             notes,
             document,
