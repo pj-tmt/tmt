@@ -1449,8 +1449,12 @@ Successful starts reuse the read-only context formatter;
 ends emit no stdout. Provider configuration is changed only by consented setup,
 not by a hook, ordinary command, or skill installation.
 
-The CLI foreground owner separates command selection, binding, spawn and runtime
-admission. A verified live or stopped previous runtime prevents a second launch.
+The CLI foreground owner (`run_command`) keeps its public entry points, caller and
+configuration selection, and storage startup/close in the facade. Private
+`run_command/run.rs` owns the bound foreground launch and completion;
+`run_command/resume.rs` owns command selection, resume pending marks and settlement.
+The existing flow separates command selection, binding, spawn and runtime admission.
+A verified live or stopped previous runtime prevents a second launch.
 An inconclusive previous-runtime probe permits a degraded launch only after
 fencing that same attachment's stored Running state to Unknown; known Ended is
 preserved. This prevents a recovered probe from reviving delivery into the new
