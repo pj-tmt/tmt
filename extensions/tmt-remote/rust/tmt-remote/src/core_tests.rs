@@ -82,23 +82,26 @@ fn output_deadline_interruption_and_reaping() {
                 .is_err()
         );
     }
-    let fixture = Fixture::new("echo $$ > pid; exec 1>&- 2>&-; sleep 30");
+    let fixture = Fixture::new("exec 1>&- 2>&-; sleep 30");
+    let mut job = Exec::cmd(fixture.0.join("tmt"))
+        .stdout(Redirection::Pipe)
+        .stderr(Redirection::Pipe)
+        .setpgid()
+        .start()
+        .unwrap();
+    // Closed pipes establish readiness before testing observation's deadline.
+    let ready = job
+        .communicate()
+        .unwrap()
+        .limit_time(Duration::from_secs(15))
+        .read_to(&mut Vec::new(), &mut Vec::new());
     let started = Instant::now();
-    let error = fixture
-        .client()
-        .call(&["api"], b"", &stop, Duration::from_secs(1), 64)
-        .unwrap_err();
-    assert!(error.message.contains("timed out"), "{error:?}");
+    let result = observe(&mut job, started + Duration::from_millis(100), 64, &stop);
+    job.send_signal_group(9).unwrap();
+    assert!(job.wait_timeout(Duration::from_secs(2)).unwrap().is_some());
+    ready.unwrap();
+    assert!(result.unwrap_err().message.contains("timed out"));
     assert!(started.elapsed() < Duration::from_secs(3));
-    let pid = fs::read_to_string(fixture.0.join("pid")).unwrap();
-    assert!(
-        !std::process::Command::new("/bin/kill")
-            .args(["-0", pid.trim()])
-            .output()
-            .unwrap()
-            .status
-            .success()
-    );
     let fixture = Fixture::new("echo $$ > pid; sleep 30 & echo $! > child; wait");
     std::thread::scope(|scope| {
         let root = &fixture.0;
