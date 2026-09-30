@@ -13,6 +13,9 @@ repository.workspace = true
 dist = false
 
 [dependencies]
+ed25519-dalek.workspace = true
+hmac.workspace = true
+sha2.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 getrandom.workspace = true

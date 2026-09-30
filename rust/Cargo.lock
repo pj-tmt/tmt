@@ -614,6 +614,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "curve25519-dalek"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5eed333089e2e1c1ac8c6c0398e5e2497b4c9926ca6d0365ed1e099afa5bc23"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "curve25519-dalek-derive",
+ "digest",
+ "fiat-crypto",
+ "rustc_version",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "curve25519-dalek-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "darling"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -728,6 +755,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ed25519"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29fcf32e6c73d1079f83ab4d782de2d81620346a5f38c6237a86a22f8368980a"
+dependencies = [
+ "signature",
+]
+
+[[package]]
+name = "ed25519-dalek"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519",
+ "sha2",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "either"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -822,6 +871,12 @@ checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
 ]
+
+[[package]]
+name = "fiat-crypto"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "filetime"
@@ -1939,9 +1994,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.44"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6725596c3f2c3a0aef021139e145d4eafe314a6623e4680ca83852b2c67ab2ba"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
@@ -2209,6 +2264,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "signature"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
+
+[[package]]
 name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2424,7 +2485,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-adapters"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2448,7 +2509,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2466,7 +2527,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli-style"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2481,7 +2542,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-command-output"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "serde_json",
  "tmt-adapters",
@@ -2491,7 +2552,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-core"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "icu_casemap",
  "icu_locale_core",
@@ -2505,7 +2566,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-driver-protocol"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "serde",
  "serde_json",
@@ -2514,11 +2575,11 @@ dependencies = [
 
 [[package]]
 name = "tmt-host-grammar"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 
 [[package]]
 name = "tmt-invoke"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "nix",
  "subprocess",
@@ -2566,7 +2627,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-model"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "base64 0.22.1",
  "png",
@@ -2581,7 +2642,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-pairing"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",
@@ -2600,7 +2661,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-service"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "nix",
  "serde",
@@ -2612,7 +2673,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-storage"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "base64 0.22.1",
  "nix",
@@ -2634,9 +2695,12 @@ name = "tmt-remote"
 version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
+ "ed25519-dalek",
  "getrandom 0.4.3",
+ "hmac",
  "httparse",
  "serde_json",
+ "sha2",
  "signal-hook 0.4.4",
  "tmt-cli-style",
  "tmt-invoke",
