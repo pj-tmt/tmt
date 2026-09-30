@@ -149,13 +149,13 @@ fn event_array(
     })
 }
 
-/// Whether the settings hold exactly one TMT-owned SessionStart hook for the
-/// provider. Read-only; anything unparsable or edited counts as absent.
-pub(super) fn has_owned_start_hook(provider: &DriverDefinition, text: &str) -> bool {
+/// Whether the settings hold exactly one TMT-owned hook for the provider on
+/// `event`. Read-only; anything unparsable or edited counts as absent.
+pub(super) fn has_owned_hook(provider: &DriverDefinition, text: &str, event: &str) -> bool {
     (|| {
         let root = object(text).ok()?;
         let hooks = object(field(&root, "hooks")?).ok()?;
-        let entries: Vec<&RawValue> = serde_json::from_str(field(&hooks, "SessionStart")?).ok()?;
+        let entries: Vec<&RawValue> = serde_json::from_str(field(&hooks, event)?).ok()?;
         let mut owned_entries = 0;
         for entry in entries {
             owned_entries += usize::from(owned(provider, entry).ok()?);
@@ -165,12 +165,28 @@ pub(super) fn has_owned_start_hook(provider: &DriverDefinition, text: &str) -> b
     .unwrap_or(false)
 }
 
+/// The lifecycle events, in the order setup inserts them.
+const LIFECYCLE: [&str; 2] = ["SessionStart", "SessionEnd"];
+/// The opt-in turn-end event that records context usage (#519).
+pub(super) const USAGE: &str = "Stop";
+
+/// What setup does to one event's TMT hook.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Action {
+    Ensure,
+    Remove,
+    /// Not read at all, so an unrelated user entry can never fail setup.
+    Skip,
+}
+
 pub(super) fn settings(
     provider: &DriverDefinition,
     text: &str,
     launcher: &str,
     removing: bool,
+    usage: super::UsageHook,
 ) -> Result<String, PlanError> {
+    use super::UsageHook;
     if text.len() > SETTINGS_LIMIT {
         return Err(PlanError::TooLarge);
     }
@@ -179,14 +195,35 @@ pub(super) fn settings(
     if existing.is_none() && removing {
         return Ok(text.to_owned());
     }
+    let lifecycle = if removing {
+        Action::Remove
+    } else {
+        Action::Ensure
+    };
+    let turn_end = match usage {
+        _ if removing => Action::Remove,
+        UsageHook::Install => Action::Ensure,
+        UsageHook::Remove => Action::Remove,
+        UsageHook::Keep if has_owned_hook(provider, text, USAGE) => Action::Ensure,
+        UsageHook::Keep => Action::Skip,
+    };
     let mut hooks = existing.unwrap_or("{}").to_owned();
-    for event in ["SessionStart", "SessionEnd"] {
+    let actions = LIFECYCLE
+        .map(|event| (event, lifecycle))
+        .into_iter()
+        .chain([(USAGE, turn_end)]);
+    for (event, action) in actions {
         let fields = object(&hooks)?;
         let old = field(&fields, event);
-        if old.is_none() && removing {
+        if action == Action::Skip || (old.is_none() && action == Action::Remove) {
             continue;
         }
-        let edited = event_array(provider, old.unwrap_or("[]"), launcher, removing)?;
+        let edited = event_array(
+            provider,
+            old.unwrap_or("[]"),
+            launcher,
+            action == Action::Remove,
+        )?;
         hooks = set(&hooks, event, &edited)?;
     }
     let result = set(text, "hooks", &hooks)?;
@@ -203,17 +240,36 @@ pub(super) fn removed(
     provider: &DriverDefinition,
     text: &str,
 ) -> Result<Option<String>, PlanError> {
-    let mut result = settings(provider, text, "/", true)?;
+    let result = settings(provider, text, "/", true, super::UsageHook::Keep)?;
     if result == text {
         return Ok(None);
     }
+    trim_inserted(text, result, &[USAGE, LIFECYCLE[1], LIFECYCLE[0]]).map(Some)
+}
+
+/// Removes only the usage hook, restoring the bytes it was installed into.
+pub(super) fn usage_removed(
+    provider: &DriverDefinition,
+    text: &str,
+    launcher: &str,
+) -> Result<String, PlanError> {
+    let result = settings(provider, text, launcher, false, super::UsageHook::Remove)?;
+    if result == text {
+        return Ok(result);
+    }
+    trim_inserted(text, result, &[USAGE])
+}
+
+/// Drops each of `events` (latest inserted first) that removal emptied, and
+/// then `hooks` itself, where setup inserted them.
+fn trim_inserted(text: &str, mut result: String, events: &[&str]) -> Result<String, PlanError> {
     let root = object(text)?;
     let Some(original) = field(&root, "hooks") else {
-        return Ok(Some(result));
+        return Ok(result);
     };
     let original_hooks = object(original)?;
     let mut hooks = field(&object(&result)?, "hooks").unwrap_or("{}").to_owned();
-    for event in ["SessionEnd", "SessionStart"] {
+    for &event in events {
         let emptied = field(&original_hooks, event).is_some_and(|value| value != "[]")
             && field(&object(&hooks)?, event) == Some("[]");
         if emptied && let Some(shorter) = unset_inserted(&hooks, event) {
@@ -227,7 +283,7 @@ pub(super) fn removed(
     {
         result = shorter;
     }
-    Ok(Some(result))
+    Ok(result)
 }
 
 /// The exact inverse of [`set`] adding `key` last: removes it only when it sits
@@ -264,7 +320,14 @@ mod tests {
         ];
         for original in originals {
             for driver in [&claude::DRIVER, &codex::DRIVER] {
-                let installed = settings(driver, &original, "/stable/tmt", false).unwrap();
+                let installed = settings(
+                    driver,
+                    &original,
+                    "/stable/tmt",
+                    false,
+                    crate::setup::UsageHook::Keep,
+                )
+                .unwrap();
                 assert_ne!(installed, original);
                 assert_eq!(
                     removed(driver, &installed).unwrap().as_deref(),
@@ -277,8 +340,70 @@ mod tests {
     }
 
     #[test]
+    fn the_usage_hook_is_opt_in_kept_on_rerun_and_removed_exactly() {
+        use crate::setup::UsageHook::{Install, Keep};
+        let user_hook = r#"{ "hooks" : [{ "type": "command", "command": "user-command" }] }"#;
+        let originals = [
+            "{}".to_owned(),
+            format!("{{\n \"hooks\": {{\"SessionStart\": [{user_hook}]}}\n}}\n"),
+            format!("{{\"hooks\":{{\"Stop\":[{user_hook}]}}}}"),
+        ];
+        for original in originals {
+            for driver in [&claude::DRIVER, &codex::DRIVER] {
+                let lifecycle = settings(driver, &original, "/stable/tmt", false, Keep).unwrap();
+                assert!(!has_owned_hook(driver, &lifecycle, USAGE), "off by default");
+                let usage = settings(driver, &original, "/stable/tmt", false, Install).unwrap();
+                assert!(has_owned_hook(driver, &usage, USAGE));
+                assert!(has_owned_hook(driver, &usage, "SessionStart"));
+                // A re-run without a choice keeps it, and refreshes its launcher.
+                assert_eq!(
+                    settings(driver, &usage, "/stable/tmt", false, Keep).unwrap(),
+                    usage
+                );
+                let moved = settings(driver, &usage, "/new/tmt", false, Keep).unwrap();
+                assert!(has_owned_hook(driver, &moved, USAGE));
+                assert!(moved.contains("/new/tmt") && !moved.contains("/stable/tmt"));
+                // --no-usage restores the lifecycle-only bytes; --remove all.
+                assert_eq!(
+                    usage_removed(driver, &usage, "/stable/tmt").unwrap(),
+                    lifecycle
+                );
+                assert_eq!(
+                    usage_removed(driver, &lifecycle, "/stable/tmt").unwrap(),
+                    lifecycle
+                );
+                assert_eq!(
+                    removed(driver, &usage).unwrap().as_deref(),
+                    Some(original.as_str()),
+                    "{original}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn without_a_usage_choice_setup_never_reads_stop_entries() {
+        use crate::setup::UsageHook::{Install, Keep};
+        // A user's own edit of a TMT Stop hook fails only an explicit choice.
+        let edited = r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/x/tmt' __hook claude --mine"}]}]}}"#;
+        let planned = settings(&claude::DRIVER, edited, "/stable/tmt", false, Keep).unwrap();
+        assert!(planned.contains("--mine"));
+        assert_eq!(
+            settings(&claude::DRIVER, edited, "/stable/tmt", false, Install),
+            Err(PlanError::EditedHook)
+        );
+    }
+
+    #[test]
     fn removal_keeps_keys_it_did_not_insert() {
-        let installed = settings(&claude::DRIVER, "{}", "/stable/tmt", false).unwrap();
+        let installed = settings(
+            &claude::DRIVER,
+            "{}",
+            "/stable/tmt",
+            false,
+            crate::setup::UsageHook::Keep,
+        )
+        .unwrap();
         // A user who reformatted the file keeps empty keys; nothing else moves.
         let reformatted = installed.replace("\n  ", "\n    ");
         let after = removed(&claude::DRIVER, &reformatted).unwrap().unwrap();
@@ -296,7 +421,13 @@ mod tests {
     }
 
     fn claude_settings(text: &str, launcher: &str, removing: bool) -> Result<String, PlanError> {
-        settings(&claude::DRIVER, text, launcher, removing)
+        settings(
+            &claude::DRIVER,
+            text,
+            launcher,
+            removing,
+            crate::setup::UsageHook::Keep,
+        )
     }
 
     #[test]
@@ -361,13 +492,13 @@ mod tests {
     #[test]
     fn installed_start_hooks_are_recognized_only_in_their_owned_shape() {
         let installed = claude_settings("{}", "/stable/tmt", false).unwrap();
-        assert!(has_owned_start_hook(&claude::DRIVER, &installed));
+        assert!(has_owned_hook(&claude::DRIVER, &installed, "SessionStart"));
         assert!(
-            !has_owned_start_hook(&codex::DRIVER, &installed),
+            !has_owned_hook(&codex::DRIVER, &installed, "SessionStart"),
             "another provider's hook"
         );
         let removed = claude_settings(&installed, "/stable/tmt", true).unwrap();
-        assert!(!has_owned_start_hook(&claude::DRIVER, &removed));
+        assert!(!has_owned_hook(&claude::DRIVER, &removed, "SessionStart"));
         for text in [
             "",
             "not json",
@@ -375,11 +506,14 @@ mod tests {
             r#"{"hooks":{}}"#,
             r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"user-hook"}]}]}}"#,
         ] {
-            assert!(!has_owned_start_hook(&claude::DRIVER, text), "{text}");
+            assert!(
+                !has_owned_hook(&claude::DRIVER, text, "SessionStart"),
+                "{text}"
+            );
         }
         let edited = installed.replace("__hook claude", "__hook claude --edited");
         assert!(
-            !has_owned_start_hook(&claude::DRIVER, &edited),
+            !has_owned_hook(&claude::DRIVER, &edited, "SessionStart"),
             "edited hooks count as absent"
         );
     }

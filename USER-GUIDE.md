@@ -61,6 +61,23 @@ changes. Add `--remove` to review removal of only unchanged TMT hooks.
 Edited/conflicting hooks or invalid JSON are left untouched. Updates report a
 recoverable settings backup; identity, notes and exchange data are never removed.
 
+Context usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`)
+also installs a TMT `Stop` hook. After each turn, that hook reads the token
+counts from the end of the agent's own transcript and stores them with the
+remembered session; no transcript content is stored. `tmt identity show --json`
+and `tmt ls --json` then include `resume.usage`:
+- `tokens`: the context the agent's next request re-sends;
+- `windowTokens`: the context window, when the provider states it (Codex does,
+  Claude does not);
+- `observedAtMs`: when the usage was read.
+
+The value can be one turn old, because Claude writes its transcript
+asynchronously. A new, cleared or compacted conversation clears it. The
+transcript formats are unofficial, so a provider update can stop the readings;
+nothing else is affected. A later `tmt setup` keeps whatever you chose.
+`--no-usage` removes only the `Stop` hook, and `--remove` removes it with the
+others.
+
 In a verified bound tmux pane, starts restore the small `whoami --context` summary
 and record the exact independent Claude/Codex session for resume. Clear and compact do not change
 the pane's identity. Unbound panes receive a binding hint, not a guessed identity;
@@ -263,7 +280,8 @@ the next resume forgets it and says so. Do not combine `--resume` with an
 explicit command.
 
 While a session is remembered, `tmt identity show --json` and `tmt ls --json`
-include a `resume` object with the driver, mode, session, model and `staleAtMs`.
+include a `resume` object with the driver, mode, session, model and `staleAtMs`,
+plus `usage` while the opt-in usage hook has recorded one (see setup above).
 
 The command inherits the terminal and foreground job control. Ctrl-C reaches the
 command; Ctrl-Z suspends it together with TMT, and `fg` resumes both. TMT returns
@@ -441,9 +459,22 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 
 `tmt squad board` opens the terminal board: squad tabs (←/→), one searchable
 list (`/`), the ◆ rows that wait on you first in the crew layout, and each
-member's note under its row. It refreshes in the background every few seconds
-and re-reads `squad.toml`, so edits apply on the next refresh; `q` or Esc
-closes it. Switching squads never blanks the screen: a squad you already
+member's note under its row. It reloads in the background every 5 seconds
+and re-reads `squad.toml`, so edits apply on the next reload; F5 (the `refresh`
+binding) and the board's own actions reload at once. `q` or Esc closes it. Set
+the interval with `refresh`, per squad or for every board, as whole seconds or
+minutes from `"1s"` to `"60m"`, or `"off"` to reload only on F5 and actions;
+the help overlay (`?`) shows the one in effect:
+
+```toml
+[board]
+refresh = "10s"            # every board
+
+[squad.product.board]
+refresh = "2s"             # this squad's board
+```
+
+Switching squads never blanks the screen: a squad you already
 visited shows at once while it refreshes, and otherwise the current frame stays
 until the new one is ready, with a small spinner if that takes a moment (row
 actions wait until it arrives). Tabs keep their width, so switching never moves
@@ -490,6 +521,21 @@ mode      = "split"            # split or tabs
 direction = "left-right"       # or top-bottom
 panes     = ["rows", "notes"]  # also detail, replies; rows is required
 sizes     = [60, 40]           # split only: one percentage per pane, total 100
+```
+
+Those keys are the simple form of a split. For panes within panes, give the
+split itself as `layout` instead (not together with `direction`, `panes` or
+`sizes`): a split is a row or column of panes, each a pane name or another
+split, up to three levels deep. `sizes` gives each child a percentage, or a
+`{ grow = n }` share of what the percentages leave; without `sizes` the
+children share the split equally. Tab moves through the panes in reading order.
+
+```toml
+[squad.product.board]
+layout = { direction = "left-right", sizes = [60, 40], panes = [
+  "rows",
+  { direction = "top-bottom", sizes = [40, { grow = 1 }], panes = ["detail", "notes"] },
+] }
 ```
 
 Tab moves between panes (or tabs). Every pane scrolls the same way: the mouse

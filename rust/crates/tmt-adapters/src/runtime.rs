@@ -12,10 +12,13 @@ use tmt_core::{
     driver::{ActionResult, DeliveryAcceptance, Driver, HarnessResume, HarnessStart, SendFailure},
 };
 
+pub mod driver_state;
 pub(crate) mod evidence;
 pub mod hook_protocol;
 pub mod lifecycle;
-pub mod model_state;
+pub mod transcript;
+#[cfg(test)]
+mod usage_tests;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeCommand {
@@ -250,10 +253,9 @@ impl RuntimeRegistry {
             return Some(StateReconciliation::UnregisteredDriver(harness));
         }
         let version = remembered.state.as_ref()?.version();
-        if self
+        if !self
             .lifecycle(&harness)
-            .and_then(|lifecycle| lifecycle.state_version())
-            != Some(version)
+            .is_some_and(|lifecycle| lifecycle.reads_state(version))
         {
             remembered.state = None;
             return Some(StateReconciliation::DiscardedState { harness, version });
@@ -266,6 +268,13 @@ impl RuntimeRegistry {
     pub fn remembered_model(&self, session: &RememberedSession) -> Option<String> {
         self.lifecycle(&session.harness)?
             .state_model(session.state.as_ref()?)
+    }
+
+    /// The context usage a remembered session's own driver recorded, if it
+    /// can read its state.
+    pub fn remembered_usage(&self, session: &RememberedSession) -> Option<driver_state::Usage> {
+        self.lifecycle(&session.harness)?
+            .state_usage(session.state.as_ref()?)
     }
 
     /// Harness IDs with a registration, for purging sessions of removed drivers.
@@ -304,7 +313,7 @@ pub(crate) fn first_party_resume(
     // Only a model the provider reported is replayed; unreadable state
     // resumes with the provider's default rather than a guess. Placement
     // follows each CLI's recorded usage (runtime/fixtures/README.md).
-    ActionResult::Completed(resume.state.and_then(model_state::state_model))
+    ActionResult::Completed(resume.state.and_then(driver_state::state_model))
 }
 
 #[cfg(test)]
@@ -592,21 +601,31 @@ mod tests {
                 "gpt-5.2-codex",
             ),
         ] {
-            assert_eq!(
-                lifecycle.state_version(),
-                Some(model_state::MODEL_STATE_VERSION)
-            );
+            assert!(lifecycle.reads_state(driver_state::MODEL_STATE_VERSION));
+            assert!(lifecycle.reads_state(driver_state::USAGE_STATE_VERSION));
+            const NOW: u64 = 1_780_000_000_000;
             let event = lifecycle.decode(fixture.as_bytes()).expect(harness);
             assert!(event.starting());
-            let state = event.driver_state(None).expect("reported model is kept");
-            assert_eq!(model_state::state_model(&state).as_deref(), Some(model));
+            let state = event
+                .driver_state(None, NOW)
+                .expect("reported model is kept");
+            assert_eq!(driver_state::state_model(&state).as_deref(), Some(model));
+            // Claude's documented resume start reports the context it re-sends;
+            // Codex's start (source startup) reports none.
+            assert_eq!(
+                lifecycle.state_usage(&state),
+                (harness == "claude")
+                    .then(|| driver_state::Usage::new(182_340, None, NOW).unwrap())
+            );
 
             // A start without a model (Claude omits it after /clear) keeps it.
             let unreported = fixture.replace(&format!(r#""model": "{model}","#), "");
             assert_ne!(unreported, fixture);
             let event = lifecycle.decode(unreported.as_bytes()).expect(harness);
-            assert_eq!(event.driver_state(Some(&state)), Some(state.clone()));
-            assert_eq!(event.driver_state(None), None, "nothing is guessed");
+            assert_eq!(event.driver_state(Some(&state), NOW), Some(state.clone()));
+            if harness == "codex" {
+                assert_eq!(event.driver_state(None, NOW), None, "nothing is guessed");
+            }
 
             let mut preferences = SessionPreferences {
                 preferred_harness: None,

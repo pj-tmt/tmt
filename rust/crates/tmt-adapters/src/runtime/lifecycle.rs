@@ -1,6 +1,7 @@
 //! Runtime-owned lifecycle policy. CLI callers only coordinate evidence and CAS.
 
-use std::time::Instant;
+use crate::skill_installation::ProviderEnvironment;
+use std::{path::PathBuf, time::Instant};
 use tmt_core::binding::session::{
     BindingSessionState, DriverState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
     RuntimeLiveness, RuntimeMode, SessionPreferences,
@@ -34,9 +35,10 @@ pub trait LifecycleObservation {
     fn session(&self) -> &ProviderSessionId;
     fn starting(&self) -> bool;
     /// Optional persistence: the driver state to keep after this starting
-    /// event, given the same driver's previous state. Only fields the provider
-    /// reported count; without them the driver returns the previous state.
-    fn driver_state(&self, _previous: Option<&DriverState>) -> Option<DriverState> {
+    /// event, given the same driver's previous state and the wall time. Only
+    /// fields the provider reported count; without them the driver returns
+    /// the previous state.
+    fn driver_state(&self, _previous: Option<&DriverState>, _now_ms: u64) -> Option<DriverState> {
         None
     }
     fn propose(
@@ -49,8 +51,35 @@ pub trait LifecycleObservation {
     ) -> Option<BindingSessionState>;
 }
 
+/// A provider turn ended in a remembered session (#519). It is not a session
+/// transition: it only lets the driver refresh its own state, and its hook
+/// prints nothing. The transcript path is untrusted hook input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnEnd {
+    pub session: ProviderSessionId,
+    pub transcript: Option<PathBuf>,
+}
+
 pub trait RuntimeLifecycle {
     fn decode(&self, _payload: &[u8]) -> Option<Box<dyn LifecycleObservation>> {
+        None
+    }
+
+    /// A turn-end event, recognized even when it carries nothing to read.
+    fn decode_turn(&self, _payload: &[u8]) -> Option<TurnEnd> {
+        None
+    }
+
+    /// The driver state after `turn`, given the remembered session's previous
+    /// state; `None` leaves it unchanged. Reads stay under the driver's own
+    /// tree in `environment` and within [`super::transcript::TAIL_LIMIT`].
+    fn turn_state(
+        &self,
+        _turn: &TurnEnd,
+        _environment: &ProviderEnvironment,
+        _previous: Option<&DriverState>,
+        _now_ms: u64,
+    ) -> Option<DriverState> {
         None
     }
 
@@ -104,14 +133,20 @@ pub trait RuntimeLifecycle {
         current.record_launched_exit(key, owner)
     }
 
-    /// The driver-state version this driver reads. A driver without the
-    /// persistence interface reads none, so any stored state is discarded.
-    fn state_version(&self) -> Option<u16> {
-        None
+    /// Whether this driver reads a state document of this version. A driver
+    /// without the persistence interface reads none, so any stored state is
+    /// discarded.
+    fn reads_state(&self, _version: u16) -> bool {
+        false
     }
 
     /// The model recorded in this driver's own state, for display only.
     fn state_model(&self, _state: &DriverState) -> Option<String> {
+        None
+    }
+
+    /// The context usage recorded in this driver's own state, for display only.
+    fn state_usage(&self, _state: &DriverState) -> Option<super::driver_state::Usage> {
         None
     }
 

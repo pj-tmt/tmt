@@ -3,10 +3,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { checkLatestTag, releaseFlags, releasePolicy } = (await import(
+const { checkLatestTag, productOfTag, releaseFlags, releasePolicy } = (await import(
   pathToFileURL(path.join(repositoryRoot, 'scripts', 'native-release-policy.mjs')).href
 )) as {
   checkLatestTag: (tag: string) => boolean;
+  productOfTag: (tag: string) => string | undefined;
   releaseFlags: (product: string) => string[];
   releasePolicy: (product: string) => { latest: boolean; prerelease: boolean };
 };
@@ -46,6 +47,23 @@ describe('native release publication policy', () => {
       'vnext',
     ]) {
       expect(() => checkLatestTag(tag)).toThrow(/not a CLI release/);
+    }
+  });
+
+  it('names the product a release tag belongs to, and only for tags the policy publishes', () => {
+    expect(productOfTag('v5.0.0-alpha.9')).toBe('cli');
+    expect(productOfTag('tmt-office-v0.1.0-alpha.4')).toBe('office');
+    expect(productOfTag('tmt-squad-v0.1.0-alpha.2')).toBe('squad');
+    for (const tag of [
+      'install',
+      'vnext',
+      'tmt-office-vnext',
+      'tmt-relay-v1.0.0',
+      'v',
+      '5.0.0',
+      '',
+    ]) {
+      expect(productOfTag(tag), tag).toBeUndefined();
     }
   });
 });

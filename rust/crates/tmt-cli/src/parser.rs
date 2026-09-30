@@ -205,6 +205,13 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["setup"] => Invocation::Setup {
             provider: text(m, "provider"),
             remove: flag(m, "remove"),
+            usage: if flag(m, "usage") {
+                tmt_core::driver::descriptor::UsageHook::Install
+            } else if flag(m, "no-usage") {
+                tmt_core::driver::descriptor::UsageHook::Remove
+            } else {
+                tmt_core::driver::descriptor::UsageHook::Keep
+            },
             yes: flag(m, "yes"),
         },
         ["__hook"] => Invocation::ProviderHook {

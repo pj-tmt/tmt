@@ -29,7 +29,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const REFRESH: Duration = Duration::from_secs(5);
 const INPUT_WAIT: Duration = Duration::from_millis(200);
 /// Reported when input ends without a signal: the terminal is gone.
 const HANGUP: i32 = signal_hook::consts::SIGHUP;
@@ -172,7 +171,12 @@ fn session(
             }
             Effect::None => {}
         }
-        if refreshed.elapsed() >= REFRESH {
+        // A squad that failed to load keeps retrying at the default.
+        let interval = app
+            .view
+            .as_ref()
+            .map_or(Some(crate::config::DEFAULT_REFRESH), |view| view.refresh);
+        if interval.is_some_and(|interval| refreshed.elapsed() >= interval) {
             request(app.current.clone());
             refreshed = Instant::now();
         }
@@ -396,6 +400,47 @@ mod tests {
             |_| Err(io::Error::other("terminal gone")),
         );
         assert_eq!(outcome.unwrap_err().to_string(), "terminal gone");
+    }
+
+    /// The configured interval drives the automatic reload; "off" never
+    /// reloads on its own.
+    #[test]
+    fn the_board_reloads_at_its_configured_interval_or_not_at_all() {
+        let reloads = |refresh: Option<Duration>| {
+            let (mut app, stop, _keys, input, results) = fixture();
+            app.apply(crate::board::app::tests::snapshot(
+                "product",
+                serde_json::json!([]),
+            ));
+            app.view.as_mut().unwrap().refresh = refresh;
+            let requests = std::cell::Cell::new(0);
+            let frames = std::cell::Cell::new(0);
+            let outcome = session(
+                &mut app,
+                &stop,
+                &input,
+                &results,
+                |_| requests.set(requests.get() + 1),
+                no_actions,
+                |_| {
+                    // Each silent frame waits one input interval.
+                    frames.set(frames.get() + 1);
+                    if frames.get() == 4 {
+                        stop.store(signal_hook::consts::SIGTERM as usize, Ordering::Relaxed);
+                    }
+                    Ok(())
+                },
+            );
+            assert_eq!(outcome.unwrap(), Some(signal_hook::consts::SIGTERM));
+            requests.get()
+        };
+        assert_eq!(
+            reloads(Some(Duration::from_millis(1))),
+            3,
+            "one per silent wait"
+        );
+        assert_eq!(reloads(Some(Duration::from_secs(3600))), 0);
+        assert_eq!(reloads(None), 0, "off reloads only on F5 and actions");
     }
 
     #[test]

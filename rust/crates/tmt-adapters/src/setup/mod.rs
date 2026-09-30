@@ -19,6 +19,19 @@ pub struct FileChange {
     pub after: String,
 }
 
+impl SetupPlan {
+    /// The TMT hooks this plan writes or removes, for its preview.
+    pub fn events(&self) -> &'static str {
+        const ALL: &str = "SessionStart, SessionEnd and Stop (context usage) hooks";
+        const LIFECYCLE: &str = "SessionStart and SessionEnd hooks";
+        match (self.removing, self.usage_before, self.usage) {
+            (true, true, _) | (false, _, true) => ALL,
+            (false, true, false) => "Stop (context usage) hook",
+            _ => LIFECYCLE,
+        }
+    }
+}
+
 impl FileChange {
     pub fn changed(&self) -> bool {
         self.before.as_deref().unwrap_or("{}") != self.after
@@ -30,8 +43,14 @@ pub struct SetupPlan {
     pub provider: &'static str,
     pub launcher: PathBuf,
     pub removing: bool,
+    /// Whether the file holds the opt-in turn-end hook (#519) before and
+    /// after the plan.
+    pub usage_before: bool,
+    pub usage: bool,
     pub change: FileChange,
 }
+
+pub use tmt_core::driver::descriptor::UsageHook;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanError {
@@ -76,7 +95,7 @@ pub fn start_hook_installed(provider: &DriverDefinition) -> bool {
         .and_then(|path| read_settings(&path))
         .ok()
         .flatten()
-        .is_some_and(|text| document::has_owned_start_hook(provider, &text))
+        .is_some_and(|text| document::has_owned_hook(provider, &text, "SessionStart"))
 }
 
 pub fn plan(
@@ -85,6 +104,7 @@ pub fn plan(
     before: Option<String>,
     launcher: PathBuf,
     removing: bool,
+    usage: UsageHook,
 ) -> Result<SetupPlan, PlanError> {
     let selected = launcher
         .to_str()
@@ -94,13 +114,17 @@ pub fn plan(
     // Removal is the exact inverse of setup's own edits where it can be.
     let after = if removing {
         document::removed(provider, text)?.unwrap_or_else(|| text.to_owned())
+    } else if usage == UsageHook::Remove {
+        document::usage_removed(provider, text, selected)?
     } else {
-        document::settings(provider, text, selected, false)?
+        document::settings(provider, text, selected, false, usage)?
     };
     Ok(SetupPlan {
         provider: provider.name(),
         launcher,
         removing,
+        usage_before: document::has_owned_hook(provider, text, document::USAGE),
+        usage: document::has_owned_hook(provider, &after, document::USAGE),
         change: FileChange {
             path,
             before,

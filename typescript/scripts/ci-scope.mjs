@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { e2eShardFiles } from './e2e-shards.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 
 const COMPONENT_MAP = new URL('../../.github/components.json', import.meta.url);
@@ -270,31 +271,54 @@ export function ciGatePasses(selected, results) {
   return results.every((result) => result === expected);
 }
 
-const NATIVE_JOBS = ['nativeRust', 'unitTests', 'dockerE2e', 'runtimeBuild', 'packedInstall'];
+const NATIVE_JOBS = [
+  'nativeRust',
+  'unitTests',
+  'e2eShard1',
+  'e2eShard2',
+  'runtimeBuild',
+  'packedInstall',
+];
+const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
 
 /**
- * `Native package matrix`: what each native job must have reported for the
- * scope. A scoped component runs its Rust checks and the E2E suite; the CLI
- * runtime builds, packed installs and tooling unit tests are skipped because
- * the CLI is unchanged. Anything unexpected, including an unknown scope, fails.
+ * What each native job must have reported for the scope. A scoped component runs
+ * its Rust checks and the first E2E shard (which holds its files); the second shard,
+ * the CLI runtime builds, packed installs and tooling unit tests are skipped because
+ * the CLI is unchanged. `none` skips everything. Anything unexpected, including an
+ * unknown scope, fails: a selected job that was skipped, cancelled or missing is as
+ * wrong as a job that ran when the selector skipped it.
  */
-export function nativeGatePasses(scope, results, map = componentMap()) {
-  if (NATIVE_JOBS.some((job) => typeof results?.[job] !== 'string')) return false;
-  const scoped = map.components.some(
-    (component) => component.name === scope && component.scopedChecks
-  );
-  const expected = { full: 'success', none: 'skipped' };
-  const scopedExpected = {
+function expectedNativeResults(scope, map) {
+  if (scope === 'full') return Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'success']));
+  if (scope === 'none') return Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'skipped']));
+  if (!map.components.some((component) => component.name === scope && component.scopedChecks)) {
+    return undefined;
+  }
+  return {
     nativeRust: 'success',
-    dockerE2e: 'success',
     unitTests: 'skipped',
+    e2eShard1: 'success',
+    e2eShard2: 'skipped',
     runtimeBuild: 'skipped',
     packedInstall: 'skipped',
   };
-  if (!scoped && !(scope in expected)) return false;
-  return NATIVE_JOBS.every(
-    (job) => results[job] === (scoped ? scopedExpected[job] : expected[scope])
-  );
+}
+
+function gatePasses(jobs, scope, results, map) {
+  const expected = expectedNativeResults(scope, map);
+  if (!expected || jobs.some((job) => typeof results?.[job] !== 'string')) return false;
+  return jobs.every((job) => results[job] === expected[job]);
+}
+
+/** `Native package matrix`: every native job, the two E2E shards included. */
+export function nativeGatePasses(scope, results, map = componentMap()) {
+  return gatePasses(NATIVE_JOBS, scope, results, map);
+}
+
+/** `Docker E2E`: the two shards alone, with the same expectations. */
+export function e2eGatePasses(scope, results, map = componentMap()) {
+  return gatePasses(E2E_JOBS, scope, results, map);
 }
 
 export function readChangedCiSelection(base, head, cwd) {
@@ -334,6 +358,16 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     }
     return;
   }
+  if (args[0] === 'gate-e2e') {
+    const [, scope, ...values] = args;
+    const results = Object.fromEntries(E2E_JOBS.map((job, index) => [job, values[index]]));
+    if (values.length !== E2E_JOBS.length || !e2eGatePasses(scope, results)) {
+      throw new Error(
+        'Selected Docker E2E shards did not complete successfully, or skip evidence is invalid.'
+      );
+    }
+    return;
+  }
   if (args[0] === 'gate-native') {
     const [, scope, ...values] = args;
     const results = Object.fromEntries(NATIVE_JOBS.map((job, index) => [job, values[index]]));
@@ -353,11 +387,13 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;
   const checks = scopedChecks(nativeScope);
+  const [firstShard, secondShard] = e2eShardFiles(nativeScope, checks.e2eFiles);
   stdout.write(
     `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
-      `scoped_e2e_files=${checks.e2eFiles.join(' ')}\n`
+      `e2e_shard_1=${firstShard.join(' ')}\n` +
+      `e2e_shard_2=${secondShard.join(' ')}\n`
   );
 }
 

@@ -39,10 +39,12 @@ struct Payload {
     model: Option<String>,
     source: Option<String>,
     reason: Option<String>,
+    /// `string | null`; read only for a turn end (#519), under `CODEX_HOME`.
+    transcript_path: Option<String>,
 }
 
 pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
-    if bytes.len() > 64 * 1024 {
+    if bytes.len() > crate::runtime::hook_protocol::HOOK_INPUT_LIMIT {
         return None;
     }
     let payload: Payload = serde_json::from_slice(bytes).ok()?;
@@ -68,6 +70,43 @@ pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
         starting,
         transition,
     })
+}
+
+/// `Stop`: the turn ended. A null transcript path leaves nothing to read.
+pub fn decode_turn(bytes: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
+    if bytes.len() > crate::runtime::hook_protocol::HOOK_INPUT_LIMIT {
+        return None;
+    }
+    let payload: Payload = serde_json::from_slice(bytes).ok()?;
+    (payload.hook_event_name == "Stop").then_some(())?;
+    Some(crate::runtime::lifecycle::TurnEnd {
+        session: ProviderSessionId::new(&payload.session_id).ok()?,
+        transcript: payload.transcript_path.map(Into::into),
+    })
+}
+
+/// The context usage of one rollout line, from its latest `token_count`
+/// event: the last request's `total_tokens`, the figure Codex's own status
+/// display reports as the active context size. `cached_input_tokens` is part
+/// of `input_tokens`, so it is not added. The window is the event's
+/// `model_context_window` when present.
+pub fn transcript_usage(line: &str) -> Option<(u64, Option<u64>)> {
+    let entry: serde_json::Value = serde_json::from_str(line).ok()?;
+    if entry.get("type")?.as_str()? != "event_msg" {
+        return None;
+    }
+    let payload = entry.get("payload")?;
+    if payload.get("type")?.as_str()? != "token_count" {
+        return None;
+    }
+    let info = payload.get("info")?;
+    let last = info.get("last_token_usage")?;
+    let tokens = last.get("total_tokens")?.as_u64()?;
+    let window = match info.get("model_context_window") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(window) => Some(window.as_u64()?),
+    };
+    Some((tokens, window))
 }
 
 impl CodexObservation {
@@ -161,12 +200,18 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     }),
 };
 
+/// `CODEX_HOME`, or `~/.codex` without it.
+fn codex_home(environment: &crate::skill_installation::ProviderEnvironment) -> std::path::PathBuf {
+    environment.var("CODEX_HOME").map_or_else(
+        || environment.home().join(".codex"),
+        |path| environment.resolve(path),
+    )
+}
+
 fn locate(environment: &crate::skill_installation::ProviderEnvironment) -> super::Locations {
     let home = environment.home();
     let default_home = home.join(".codex");
-    let codex_home = environment
-        .var("CODEX_HOME")
-        .map_or_else(|| default_home.clone(), |path| environment.resolve(path));
+    let codex_home = codex_home(environment);
     // A CODEX_HOME that is the shared `~/.agents` root says nothing about Codex.
     let mut config_dirs = vec![default_home.clone()];
     if codex_home != home.join(".agents") {
@@ -295,12 +340,39 @@ pub fn record_client_exit(
 pub struct CodexLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
-    fn state_version(&self) -> Option<u16> {
-        Some(crate::runtime::model_state::MODEL_STATE_VERSION)
+    fn reads_state(&self, version: u16) -> bool {
+        crate::runtime::driver_state::reads(version)
     }
 
     fn state_model(&self, state: &tmt_core::binding::session::DriverState) -> Option<String> {
-        crate::runtime::model_state::state_model(state)
+        crate::runtime::driver_state::state_model(state)
+    }
+
+    fn state_usage(
+        &self,
+        state: &tmt_core::binding::session::DriverState,
+    ) -> Option<crate::runtime::driver_state::Usage> {
+        crate::runtime::driver_state::state_usage(state)
+    }
+
+    fn decode_turn(&self, payload: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
+        decode_turn(payload)
+    }
+
+    fn turn_state(
+        &self,
+        turn: &crate::runtime::lifecycle::TurnEnd,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        previous: Option<&tmt_core::binding::session::DriverState>,
+        now_ms: u64,
+    ) -> Option<tmt_core::binding::session::DriverState> {
+        let (tokens, window) = crate::runtime::transcript::latest(
+            &codex_home(environment).join("sessions"),
+            turn.transcript.as_deref()?,
+            transcript_usage,
+        )?;
+        let usage = crate::runtime::driver_state::Usage::new(tokens, window, now_ms)?;
+        crate::runtime::driver_state::after_turn(usage, previous)
     }
 
     fn observe_replacement(
@@ -428,8 +500,10 @@ impl crate::runtime::lifecycle::LifecycleObservation for CodexObservation {
     fn driver_state(
         &self,
         previous: Option<&tmt_core::binding::session::DriverState>,
+        _now_ms: u64,
     ) -> Option<tmt_core::binding::session::DriverState> {
-        crate::runtime::model_state::next_state(self.model.as_deref(), previous)
+        // Codex reports no usage at a start; the next turn end records it.
+        crate::runtime::driver_state::after_start(self.model.as_deref(), None, previous)
     }
     fn starting(&self) -> bool {
         self.starting

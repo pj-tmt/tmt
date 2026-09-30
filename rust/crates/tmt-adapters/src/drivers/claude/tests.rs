@@ -7,6 +7,7 @@ fn event(starting: bool, transition: SessionTransition, session: &str) -> Claude
         transition,
         session: ProviderSessionId::new(session).unwrap(),
         model: None,
+        context_tokens: None,
     }
 }
 

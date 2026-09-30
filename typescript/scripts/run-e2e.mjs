@@ -52,11 +52,17 @@ async function removeImage() {
  * inside the image, so only plain file names are accepted.
  */
 const FILE_LIST = /^[A-Za-z0-9._-]+( [A-Za-z0-9._-]+)*$/;
+const ADAPTER_FLAG = /^[01]$/;
 
 async function main() {
   const files = process.env.TMT_E2E_FILES ?? '';
   if (files !== '' && !FILE_LIST.test(files)) {
     console.error('TMT_E2E_FILES must be a space-separated list of plain file names.');
+    return 2;
+  }
+  const adapterTests = process.env.TMT_E2E_ADAPTER_TESTS ?? '';
+  if (adapterTests !== '' && !ADAPTER_FLAG.test(adapterTests)) {
+    console.error('TMT_E2E_ADAPTER_TESTS must be 0 or 1.');
     return 2;
   }
   try {
@@ -75,7 +81,10 @@ async function main() {
     const selection = ['TMT_TEST_CLI', 'TMT_TEST_PEER_CLI'].flatMap((key) =>
       process.env[key] === undefined ? [] : ['--env', `${key}=${process.env[key]}`]
     );
-    const scope = files === '' ? [] : ['--env', `TMT_E2E_FILES=${files}`];
+    const scope = [
+      ...(files === '' ? [] : ['--env', `TMT_E2E_FILES=${files}`]),
+      ...(adapterTests === '' ? [] : ['--env', `TMT_E2E_ADAPTER_TESTS=${adapterTests}`]),
+    ];
     const testStatus = await run('docker', [
       'run',
       '--rm',
