@@ -295,6 +295,7 @@ fn the_list_on_a_narrow_terminal() {
     let narrow = Terminal {
         color: true,
         width: Some(40),
+        theme: None,
     };
     insta::assert_snapshot!(render(agents(), narrow, false));
 }

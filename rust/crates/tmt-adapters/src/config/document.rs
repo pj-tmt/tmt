@@ -141,6 +141,25 @@ pub(super) fn project(
     Ok(settings)
 }
 
+/// The global file's `theme` settings as written. Only the
+/// shape is checked here, an object of strings; what a theme value means
+/// belongs to the CLI style, which the caller parses it with. A file without
+/// `theme` has none.
+pub(super) fn theme(value: &Value, path: &Path) -> Result<Vec<(String, String)>, ConfigError> {
+    let Some(theme) = value.get("theme") else {
+        return Ok(Vec::new());
+    };
+    object(theme, path, "theme")?
+        .iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|text| (key.clone(), text.to_owned()))
+                .ok_or_else(|| ConfigError::validation(path, &format!("theme.{key}"), "a string"))
+        })
+        .collect()
+}
+
 fn setting_value(setting: Setting) -> Value {
     match setting {
         Setting::PreambleMode(value) => json!(value.as_str()),

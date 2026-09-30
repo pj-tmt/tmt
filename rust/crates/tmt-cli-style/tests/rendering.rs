@@ -15,10 +15,12 @@ use tmt_cli_style::{
 const TTY: Terminal = Terminal {
     color: true,
     width: Some(80),
+    theme: None,
 };
 const NARROW: Terminal = Terminal {
     color: true,
     width: Some(40),
+    theme: None,
 };
 const PIPE: Terminal = Terminal::PLAIN;
 
