@@ -30,7 +30,7 @@ fn inventory_changed() -> io::Error {
 /// file, and nothing else is there: no extra file, link or special entry.
 fn verify_skills(
     directory: &Path,
-    hashes: &serde_json::Map<String, Value>,
+    hashes: &BTreeMap<String, String>,
     recorded: &[&str],
 ) -> io::Result<()> {
     let recorded = recorded
@@ -70,7 +70,7 @@ fn verify_skills(
                 crate::skill_installation::MAXIMUM_FILE_BYTES,
             )
             .map_err(io::Error::other)?;
-            if Some(digest(&bytes).as_str()) != hashes[relative.as_str()].as_str() {
+            if hashes.get(&relative) != Some(&digest(&bytes)) {
                 return Err(invalid(
                     "Installed release file has changed; refusing replacement.",
                 ));
@@ -132,26 +132,19 @@ impl Receipt {
         prefix: &Path,
         id: Uuid,
     ) -> io::Result<Self> {
-        let mut inventory = fs::read_dir(directory)?
-            .take(product.files().len() + 3)
-            .map(|entry| entry.map(|entry| entry.file_name()))
-            .collect::<io::Result<Vec<_>>>()?;
-        inventory.sort();
-        // Only an extension release may add its skills tree; a reader that
-        // predates it fails closed here with the same error.
-        let has_skills =
-            product != Product::Cli && inventory.iter().any(|name| name == skills_tree::ROOT);
-        let mut expected = product
-            .files()
-            .into_iter()
-            .chain(["receipt.json"])
-            .chain(has_skills.then_some(skills_tree::ROOT))
-            .map(std::ffi::OsString::from)
-            .collect::<Vec<_>>();
-        expected.sort();
-        if inventory != expected {
-            return Err(inventory_changed());
-        }
+        let receipt = Self::read_metadata(product, directory, prefix, id)?;
+        receipt.verify(product, directory).map_err(|cause| {
+            super::repair::required(product, directory, prefix, &receipt, cause)
+        })?;
+        Ok(receipt)
+    }
+
+    pub(super) fn read_metadata(
+        product: Product,
+        directory: &Path,
+        prefix: &Path,
+        id: Uuid,
+    ) -> io::Result<Self> {
         let bytes = bounded_file::read_no_follow(
             &directory.join("receipt.json"),
             skills_tree::receipt_limit(product),
@@ -229,10 +222,60 @@ impl Receipt {
             return Err(invalid("Unexpected installed file digest inventory."));
         }
         skills_tree::validate(product, skill_hashes.iter().copied())?;
+        let mut file_hashes = BTreeMap::new();
+        for name in product
+            .files()
+            .into_iter()
+            .chain(skill_hashes.iter().copied())
+        {
+            let expected = hashes
+                .get(name)
+                .and_then(Value::as_str)
+                .filter(|hash| tmt_core::content_digest::is_sha256(hash))
+                .ok_or_else(|| invalid("Invalid installed file digest."))?;
+            file_hashes.insert(name.into(), expected.into());
+        }
+        Ok(Self {
+            id,
+            state,
+            archive_name: text("archive")?.into(),
+            archive_sha256: text("archive_sha256")?.into(),
+            target: text("target")?.into(),
+            file_hashes,
+            provenance,
+        })
+    }
+
+    pub(super) fn verify(&self, product: Product, directory: &Path) -> io::Result<()> {
+        let mut inventory = fs::read_dir(directory)?
+            .take(product.files().len() + 3)
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect::<io::Result<Vec<_>>>()?;
+        inventory.sort();
+        // Only an extension release may add its skills tree; a reader that
+        // predates it fails closed here with the same error.
+        let has_skills =
+            product != Product::Cli && inventory.iter().any(|name| name == skills_tree::ROOT);
+        let mut expected = product
+            .files()
+            .into_iter()
+            .chain(["receipt.json"])
+            .chain(has_skills.then_some(skills_tree::ROOT))
+            .map(std::ffi::OsString::from)
+            .collect::<Vec<_>>();
+        expected.sort();
+        if inventory != expected {
+            return Err(inventory_changed());
+        }
+        let skill_hashes = self
+            .file_hashes
+            .keys()
+            .filter(|name| skills_tree::is_skill_path(name))
+            .map(String::as_str)
+            .collect::<Vec<_>>();
         if has_skills == skill_hashes.is_empty() {
             return Err(inventory_changed());
         }
-        let mut file_hashes = BTreeMap::new();
         for name in product.files() {
             let metadata = fs::symlink_metadata(directory.join(name))?;
             let mode = metadata.permissions().mode();
@@ -244,34 +287,24 @@ impl Receipt {
                     "Installed release file type or permissions have changed.",
                 ));
             }
-            let expected = hashes
+            let expected = self
+                .file_hashes
                 .get(name)
-                .and_then(Value::as_str)
                 .ok_or_else(|| invalid("Missing installed file digest."))?;
             let bytes = bounded_file::read_no_follow(&directory.join(name), 128 * 1024 * 1024)
                 .map_err(io::Error::other)?;
-            if digest(&bytes) != expected {
+            if &digest(&bytes) != expected {
                 return Err(invalid(
                     "Installed release file has changed; refusing replacement.",
                 ));
             }
-            file_hashes.insert(name.into(), expected.into());
         }
         if has_skills {
-            verify_skills(directory, hashes, &skill_hashes)?;
-            for name in skill_hashes {
-                let expected = hashes[name].as_str().expect("verified skill digest");
-                file_hashes.insert(name.into(), expected.into());
+            if !fs::symlink_metadata(directory.join(skills_tree::ROOT))?.is_dir() {
+                return Err(inventory_changed());
             }
+            verify_skills(directory, &self.file_hashes, &skill_hashes)?;
         }
-        Ok(Self {
-            id,
-            state,
-            archive_name: text("archive")?.into(),
-            archive_sha256: text("archive_sha256")?.into(),
-            target: text("target")?.into(),
-            file_hashes,
-            provenance,
-        })
+        Ok(())
     }
 }

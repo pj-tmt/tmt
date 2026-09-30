@@ -152,7 +152,7 @@ pub(in crate::native_install) fn valid_fixture(
     product_fixture(Product::Cli, version, target, release_id)
 }
 
-fn product_fixture(
+pub(in crate::native_install) fn product_fixture(
     product: Product,
     version: &str,
     target: &str,
