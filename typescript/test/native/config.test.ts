@@ -185,7 +185,7 @@ describe('native configuration process boundary', () => {
         [['tmt'], 'theme'],
       ] as const) {
         fs.writeFileSync(sandbox.globalConfig, JSON.stringify({ theme }));
-        // Squad reads config show to find its own file: a bad theme is
+        // An extension finds its own file through config show: a bad theme is
         // reported by its key and never fails the command.
         const invalid = await runCli(sandbox, ['config', 'show', '--json']);
         expect(invalid.status).toBe(0);
