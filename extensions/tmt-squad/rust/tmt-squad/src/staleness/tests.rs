@@ -1,4 +1,5 @@
 use super::*;
+use std::os::unix::fs::MetadataExt;
 use crate::{config::Config, filter::Row};
 use std::sync::atomic::{AtomicU64, Ordering};
 
