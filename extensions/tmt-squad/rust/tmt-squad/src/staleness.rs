@@ -90,8 +90,6 @@ pub struct Observer {
     settings: Reminders,
     path: Option<PathBuf>,
     _lock: Option<Flock<File>>,
-    epoch: Option<String>,
-    config: PathBuf,
     document: Value,
 }
 
@@ -105,8 +103,6 @@ impl Observer {
             settings,
             path: None,
             _lock: None,
-            epoch: None,
-            config: config.to_owned(),
             document: Value::Null,
         };
         if !settings.enabled {
@@ -118,9 +114,6 @@ impl Observer {
         if !crate::config::uuid_like(&squad.room_id) {
             return observer;
         }
-        let Some(epoch) = config_epoch(config) else {
-            return observer;
-        };
         let scope = digest(config.as_os_str().as_encoded_bytes());
         let path = directory.join(format!("{scope}-{}.json", squad.room_id));
         if fs::DirBuilder::new()
@@ -145,10 +138,8 @@ impl Observer {
         let Some(lock) = lock else {
             return observer;
         };
-        observer.document = read_cache(&path)
-            .filter(|value| value["epoch"] == epoch)
-            .unwrap_or_else(|| json!({"version": VERSION, "epoch": epoch, "members": {}}));
-        observer.epoch = Some(epoch);
+        observer.document =
+            read_cache(&path).unwrap_or_else(|| json!({"version": VERSION, "members": {}}));
         observer.path = Some(path);
         observer._lock = Some(lock);
         observer
@@ -318,10 +309,8 @@ impl Observer {
             self.document["notes"] = Value::Null;
         }
         self.document["observedAtMs"] = now.into();
-        // An external config edit during observation cannot publish under an
-        // obsolete epoch. Losing the cache is conservative, never backdated.
         let bytes = self.document.to_string();
-        if bytes.len() as u64 > FILE_LIMIT || config_epoch(&self.config) != self.epoch {
+        if bytes.len() as u64 > FILE_LIMIT {
             return Snapshot::unavailable("unknown");
         }
         if cache::replace(path, bytes.as_bytes()).is_err() {
@@ -336,21 +325,6 @@ fn add_reason(reasons: &mut Value, reason: &str) {
     if !items.iter().any(|item| item == reason) {
         items.push(reason.into());
     }
-}
-
-// Any config-file replacement/edit starts a conservative new period, including
-// disabling and later re-enabling between observations. Disabled reads do no
-// cache work. This also means unrelated config edits may restart the grace.
-fn config_epoch(path: &Path) -> Option<String> {
-    let metadata = fs::metadata(path).ok()?;
-    Some(format!(
-        "{}:{}:{}:{}:{}",
-        metadata.dev(),
-        metadata.ino(),
-        metadata.mtime(),
-        metadata.mtime_nsec(),
-        metadata.len()
-    ))
 }
 
 fn read_cache(path: &Path) -> Option<Value> {

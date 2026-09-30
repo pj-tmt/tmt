@@ -239,13 +239,15 @@ pub enum Outcome {
     Value {
         value: String,
         color: Option<String>,
+        /// Structured github-pr result, independent of its displayed value.
+        pr_state: Option<String>,
     },
     Empty,
     Failed,
 }
 
 /// Cached values of one squad's providers:
-/// `{<field>: {<member id>: {argv, value, color, atMs, failed}}}`.
+/// `{<field>: {<member id>: {argv, value, color, prState, atMs, failed}}}`.
 pub struct Cache {
     path: Option<PathBuf>,
     document: Map<String, Value>,
@@ -279,19 +281,23 @@ impl Cache {
     }
 
     pub fn record(&mut self, job: &Job, outcome: &Outcome, now_ms: u64) {
-        let (value, color, failed) = match outcome {
-            Outcome::Value { value, color } => (json!(value), json!(color), false),
-            Outcome::Empty => (Value::Null, Value::Null, false),
-            Outcome::Failed => (Value::Null, Value::Null, true),
-        };
-        let pr_state = if job.output == Output::GithubPr {
-            value
-                .as_str()
-                .and_then(|value| value.split_whitespace().nth(1))
-                .filter(|state| matches!(*state, "draft" | "open" | "closed" | "merged"))
-                .map(str::to_owned)
-        } else {
-            None
+        let (value, color, failed, pr_state) = match outcome {
+            Outcome::Value {
+                value,
+                color,
+                pr_state,
+            } => (
+                json!(value),
+                json!(color),
+                false,
+                if job.output == Output::GithubPr {
+                    json!(pr_state)
+                } else {
+                    Value::Null
+                },
+            ),
+            Outcome::Empty => (Value::Null, Value::Null, false, Value::Null),
+            Outcome::Failed => (Value::Null, Value::Null, true, Value::Null),
         };
         let field = self
             .document
@@ -441,14 +447,18 @@ fn outcome(stdout: &[u8]) -> Outcome {
     };
     match clean(&value) {
         value if value.is_empty() => Outcome::Empty,
-        value => Outcome::Value { value, color },
+        value => Outcome::Value {
+            value,
+            color,
+            pr_state: None,
+        },
     }
 }
 
 /// `#412 open`, `#412 draft`, `#412 merged` or `#412 closed`; an open pull
 /// request adds its review: `#412 open · approved`, `· changes requested` or
 /// `· review required`. Anything else from `gh` is a failed run.
-fn github_pr(stdout: &[u8]) -> Outcome {
+pub(crate) fn github_pr(stdout: &[u8]) -> Outcome {
     let Ok(pr) = serde_json::from_slice::<Value>(stdout) else {
         return Outcome::Failed;
     };
@@ -472,7 +482,11 @@ fn github_pr(stdout: &[u8]) -> Outcome {
         Some(review) => format!("#{number} {state} · {review}"),
         None => format!("#{number} {state}"),
     };
-    Outcome::Value { value, color: None }
+    Outcome::Value {
+        value,
+        color: None,
+        pr_state: Some(state.into()),
+    }
 }
 
 /// Runs one job: a failure to start, a non-zero exit, a timeout or too much

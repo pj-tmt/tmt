@@ -2280,10 +2280,9 @@ fingerprints (`sha2`) retain no notebook body. Nonblocking Unix advisory locking
 before the read through atomic cache publication; competing readers report
 unknown and never regress the cache. First observation starts the clock,
 never backdated; unreadable notes, unavailable cache and clock rollback mean
-unknown. Cache loss/corruption restarts grace. Any `squad.toml` edit/replacement
-also restarts grace, so a disable/re-enable cycle is detected without disabled
-invocations reading or writing observation state. A config edit during an
-observation prevents its publication. These are observed content timestamps,
+unknown. Cache loss/corruption restarts grace. Config edits do not
+reset content age. Disabling stops observation; after re-enabling, surviving
+fingerprint matches keep their first-observed time. These are observed content timestamps,
 not core modification times or a history feed. Age determines staleness;
 `activityAfterUpdate` separately records relevant observed PR link/state
 changes or member finals after a row update for future reminder eligibility.

@@ -297,28 +297,41 @@ fn lost_corrupt_oversize_and_linked_cache_restart_grace_or_stay_unknown() {
 }
 
 #[test]
-fn config_changes_restart_grace_and_mid_read_edits_cannot_publish_old_policy() {
-    let fixture = Fixture::new();
-    fixture.record(&members(), None, None, 1000);
-    let stale_policy = fixture.observer();
+fn config_edits_replacements_and_disable_reenable_preserve_matching_content_age() {
+    let mut fixture = Fixture::new();
+    let rows = members();
+    let content = notes("one");
+    fixture.record(&rows, Some(&content), None, 1000);
+    let observing = fixture.observer();
     let replacement = fixture.root.join("next.toml");
     fs::write(
         &replacement,
-        "[squad.p.reminders]\nenabled = true\nstale_after = \"1m\"\n",
+        "# unrelated settings change\n[squad.p.reminders]\nenabled = true\nstale_after = \"1m\"\n",
     )
     .unwrap();
     fs::rename(replacement, &fixture.config).unwrap();
-    let unknown = stale_policy.record(
-        &members(),
+    let during_edit = observing.record(
+        &rows,
         &[],
         &provider::Cache::at(None),
-        None,
+        Some(&content),
         None,
         61_000,
     );
-    assert_eq!(unknown.notes, unavailable("unknown"));
-    let new = fixture.record(&members(), None, None, 62_000);
-    assert_eq!(new.members[MEMBER]["ageMs"], 0);
+    assert_eq!(during_edit.members[MEMBER]["unchangedSinceMs"], 1000);
+    assert_eq!(during_edit.notes["state"], "stale");
+    fixture.settings.enabled = false;
+    let disabled = fixture.record(&rows, None, None, 62_000);
+    assert_eq!(disabled.notes, unavailable("disabled"));
+    fixture.settings.enabled = true;
+    fixture.settings.stale_after = std::time::Duration::from_secs(120);
+    let enabled = fixture.record(&rows, Some(&content), None, 63_000);
+    assert_eq!(enabled.members[MEMBER]["unchangedSinceMs"], 1000);
+    assert_eq!(enabled.members[MEMBER]["state"], "fresh");
+    assert_eq!(enabled.notes["unchangedSinceMs"], 1000);
+    let stale = fixture.record(&rows, Some(&content), None, 121_000);
+    assert_eq!(stale.members[MEMBER]["state"], "stale");
+    assert_eq!(stale.notes["state"], "stale");
 }
 
 #[test]
@@ -385,9 +398,13 @@ fn successful_pr_transitions_persist_evidence_until_the_raw_row_changes() {
         .pop()
         .unwrap();
     let mut cache = provider::Cache::at(None);
-    let output = |state: &str| provider::Outcome::Value {
-        value: format!("#1 {state}"),
-        color: None,
+    let output = |state: &str| {
+        let payload = json!({
+            "number": 1,
+            "state": if state == "draft" { "OPEN".to_owned() } else { state.to_uppercase() },
+            "isDraft": state == "draft",
+        });
+        provider::github_pr(payload.to_string().as_bytes())
     };
     cache.record(&job, &output("draft"), 1000);
     let first = fixture

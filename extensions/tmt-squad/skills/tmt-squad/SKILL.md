@@ -133,11 +133,12 @@ stale_after = "30m"
 ```
 
 The threshold accepts whole `s`/`m`/`h` durations from 1 minute to 24 hours.
-Enabling starts a grace period; existing work is never backdated. Missing or
-unreadable notes, unavailable cache and rollback clocks are unknown. Cache
-loss/corruption or any edit/replacement of `squad.toml` starts a new period;
-unrelated settings edits can therefore restart grace too. Disabled observation
-does no cache work and never creates a notebook.
+The first observation starts a grace period; existing work is never backdated.
+Missing or unreadable notes, unavailable cache and rollback clocks are unknown.
+Cache loss/corruption starts a new period; config edits do not reset age.
+Disabling stops observation; after re-enabling, surviving fingerprint matches
+keep their first-observed time. Disabled observation does no cache work and
+never creates a notebook.
 
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant

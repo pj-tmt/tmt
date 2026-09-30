@@ -148,6 +148,12 @@ describe('squad extension', () => {
         activityAfterUpdate: false,
       });
       expect(stale.body.squad.notesStaleness.state).toBe('stale');
+      // A public config-writing command is unrelated to observed content age.
+      expect((await squad(sandbox, ['me', 'Sol'])).status).toBe(0);
+      const afterMe = await listing();
+      expect(afterMe.body.sections[0].rows[0].staleness.unchangedSinceMs).toBe(since);
+      expect(afterMe.body.squad.notesStaleness.unchangedSinceMs).toBe(since);
+
       const human = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
       expect(human.status).toBe(0);
       expect(human.stdout).toContain('lead notes: stale 2m');
@@ -178,13 +184,22 @@ describe('squad extension', () => {
       const off = await listing();
       expect(off.body.squad.notesStaleness.state).toBe('disabled');
       expect(readFileSync(file, 'utf8')).toBe(beforeDisable);
+      writeFileSync(
+        toml,
+        `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "1m"\n`
+      );
+      const reenabled = await listing();
+      expect(reenabled.body.sections[0].rows[0].staleness.unchangedSinceMs).toBe(
+        updated.body.sections[0].rows[0].staleness.unchangedSinceMs
+      );
+      const afterReenable = readFileSync(file, 'utf8');
       const invalid = `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "59s"\n`;
       writeFileSync(toml, invalid);
       const refused = await listing();
       expect(refused.status).toBe(1);
       expect(refused.body.error.code).toBe('SQUAD_CONFIG_INVALID');
       expect(readFileSync(toml, 'utf8')).toBe(invalid);
-      expect(readFileSync(file, 'utf8')).toBe(beforeDisable);
+      expect(readFileSync(file, 'utf8')).toBe(afterReenable);
     });
   });
 
