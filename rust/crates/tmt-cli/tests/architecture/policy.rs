@@ -490,10 +490,11 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            // The leaf style crate is Squad's one permitted workspace dependency.
+            // Extensions may name their own library and the leaf style crate only.
             if ["tmt-squad", "tmt-remote"].contains(&source.package.as_str())
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
+                && root != source.package.replace('-', "_")
             {
                 violations.push(format!(
                     "{location}: {} reaches TMT only through public commands, not {}",

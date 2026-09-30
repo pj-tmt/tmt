@@ -182,10 +182,7 @@ fn finite_lifecycle_rate_and_acquisition_cleanup() {
     let door = Running::new(Duration::from_secs(30));
     for request in [
         "POST /r/",
-        &door
-            .post("/append", "", "{}")
-            .trim_end_matches("{}")
-            .to_owned(),
+        door.post("/append", "", "{}").trim_end_matches("{}"),
     ] {
         let response = door.request(request);
         assert!(response.starts_with("HTTP/1.1 400"));
