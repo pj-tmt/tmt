@@ -35,7 +35,27 @@ pub struct Provider {
     run: Vec<Template>,
     every: Duration,
     timeout: Duration,
+    output: Output,
 }
+
+/// How a provider's output becomes its value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Output {
+    /// The first line, or `{"value", "color"}`.
+    Line,
+    /// `gh pr view --json number,state,isDraft,reviewDecision`.
+    GithubPr,
+}
+
+/// The `github-pr` preset: a member's pull request from its `pr_link`.
+const GITHUB_PR: &[&str] = &[
+    "gh",
+    "pr",
+    "view",
+    "{pr_link}",
+    "--json",
+    "number,state,isDraft,reviewDecision",
+];
 
 impl Provider {
     /// How often a member's value is run again.
@@ -77,6 +97,7 @@ fn duration(
 
 fn read_one(name: &str, table: &dyn TableLike, place: &str) -> Result<Provider, SquadError> {
     let mut run = None;
+    let mut preset = None;
     let mut every = DEFAULT_EVERY;
     let mut timeout = DEFAULT_TIMEOUT;
     for (key, value) in table.iter() {
@@ -109,20 +130,45 @@ fn read_one(name: &str, table: &dyn TableLike, place: &str) -> Result<Provider, 
                 }
                 run = Some(argv);
             }
+            "preset" => match value.as_str() {
+                Some("github-pr") => preset = Some(Output::GithubPr),
+                _ => return Err(invalid(format!("`{here}` must be \"github-pr\"."))),
+            },
             "every" => every = duration(value, &here, 10..=86_400)?,
             "timeout" => timeout = duration(value, &here, 1..=30)?,
             other => {
                 return Err(invalid(format!(
-                    "`{place}.{other}` is not a field provider setting; use run, every or timeout."
+                    "`{place}.{other}` is not a field provider setting; use run or preset, every and timeout."
                 )));
             }
         }
     }
+    let (run, output) = match (run, preset) {
+        (Some(_), Some(_)) => {
+            return Err(invalid(format!(
+                "`{place}` sets both `run` and `preset`; keep one."
+            )));
+        }
+        (Some(run), None) => (run, Output::Line),
+        (None, Some(preset)) => (
+            GITHUB_PR
+                .iter()
+                .map(|arg| Template::parse(arg).expect("the preset's arguments parse"))
+                .collect(),
+            preset,
+        ),
+        (None, None) => {
+            return Err(invalid(format!(
+                "`{place}` needs `run` or `preset = \"github-pr\"`."
+            )));
+        }
+    };
     Ok(Provider {
         name: name.to_owned(),
-        run: run.ok_or_else(|| invalid(format!("`{place}.run` is required.")))?,
+        run,
         every,
         timeout,
+        output,
     })
 }
 
@@ -184,6 +230,7 @@ pub struct Job {
     member: String,
     argv: Vec<String>,
     timeout: Duration,
+    output: Output,
 }
 
 /// What a run produced.
@@ -288,6 +335,7 @@ pub fn due(providers: &[Provider], members: &[Member], cache: &Cache, now_ms: u6
                     member: member.id.clone(),
                     argv,
                     timeout: provider.timeout,
+                    output: provider.output,
                 });
             }
         }
@@ -361,13 +409,46 @@ fn outcome(stdout: &[u8]) -> Outcome {
     }
 }
 
+/// `#412 open`, `#412 draft`, `#412 merged` or `#412 closed`; an open pull
+/// request adds its review: `#412 open · approved`, `· changes requested` or
+/// `· review required`. Anything else from `gh` is a failed run.
+fn github_pr(stdout: &[u8]) -> Outcome {
+    let Ok(pr) = serde_json::from_slice::<Value>(stdout) else {
+        return Outcome::Failed;
+    };
+    let (Some(number), Some(state)) = (pr["number"].as_u64(), pr["state"].as_str()) else {
+        return Outcome::Failed;
+    };
+    let state = match (state, pr["isDraft"] == true) {
+        ("OPEN", true) => "draft",
+        ("OPEN", false) => "open",
+        ("MERGED", _) => "merged",
+        ("CLOSED", _) => "closed",
+        _ => return Outcome::Failed,
+    };
+    let review = match pr["reviewDecision"].as_str() {
+        Some("APPROVED") => Some("approved"),
+        Some("CHANGES_REQUESTED") => Some("changes requested"),
+        Some("REVIEW_REQUIRED") => Some("review required"),
+        _ => None,
+    };
+    let value = match review.filter(|_| state == "open") {
+        Some(review) => format!("#{number} {state} · {review}"),
+        None => format!("#{number} {state}"),
+    };
+    Outcome::Value { value, color: None }
+}
+
 /// Runs one job: a failure to start, a non-zero exit, a timeout or too much
 /// output is a failed run.
 fn execute(job: &Job) -> Outcome {
     let (program, args) = job.argv.split_first().expect("a provider has a program");
     let args: Vec<OsString> = args.iter().map(OsString::from).collect();
     match crate::runner::run(Path::new(program), &args, b"", job.timeout, OUTPUT_LIMIT) {
-        Ok(finished) if finished.success => outcome(&finished.stdout),
+        Ok(finished) if finished.success => match job.output {
+            Output::Line => outcome(&finished.stdout),
+            Output::GithubPr => github_pr(&finished.stdout),
+        },
         _ => Outcome::Failed,
     }
 }
