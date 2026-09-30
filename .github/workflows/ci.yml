@@ -155,10 +155,13 @@ jobs:
         working-directory: rust
         run: |
           cargo fmt --all --check
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked
-          cargo +1.88.0 build --locked
-          cargo build --locked
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
+          printf '%s\n' "$remote_tests"
+          grep -q ': test$' <<< "$remote_tests"
+          cargo test --locked --workspace
+          cargo +1.88.0 build --locked --workspace
+          cargo build --locked --workspace
           cargo build --locked --example storage-probe
       - name: Build independent native process fixtures
         if: needs.changes.outputs.native_scope == 'full'
