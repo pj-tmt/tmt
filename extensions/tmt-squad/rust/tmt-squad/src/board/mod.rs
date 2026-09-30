@@ -10,7 +10,7 @@ mod tabs;
 mod terminal;
 mod view;
 
-pub use tabs::LEADS;
+pub use tabs::{ALL, LEADS};
 
 use crate::{
     back,

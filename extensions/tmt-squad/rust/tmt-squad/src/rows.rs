@@ -125,6 +125,17 @@ impl Rows {
         ])
     }
 
+    /// The built-in `all` tab (#507): one squad per line.
+    pub fn overview() -> Self {
+        Self::with_one_line(vec![
+            Column::sized("squad", "SQUAD", Some(14)),
+            Column::sized("lead", "LEAD", Some(14)),
+            Column::sized("members", "MEMBERS", Some(8)),
+            Column::sized("waiting", "WAITING", Some(8)),
+            Column::sized("blocked", "BLOCKED", None),
+        ])
+    }
+
     fn with_one_line(columns: Vec<Column>) -> Self {
         let lines = vec![
             columns

@@ -18,6 +18,8 @@ pub enum Verb {
     NextPane,
     /// The row's action menu (the plain host's Enter).
     Menu,
+    /// Opens the tab of the row's squad (the `all` tab's Enter).
+    Tab,
     Talk,
     Reply,
     Annotate,
@@ -35,6 +37,7 @@ impl Verb {
             "run" => Self::Run,
             "next-pane" => Self::NextPane,
             "menu" => Self::Menu,
+            "tab" => Self::Tab,
             "talk" => Self::Talk,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
@@ -53,6 +56,7 @@ impl Verb {
             Self::Run => "run",
             Self::NextPane => "next-pane",
             Self::Menu => "menu",
+            Self::Tab => "tab",
             Self::Talk => "talk",
             Self::Reply => "reply",
             Self::Annotate => "annotate",
