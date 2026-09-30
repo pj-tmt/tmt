@@ -98,6 +98,14 @@ jobs:
           OFFICE_SELECTED: ${{ needs.changes.outputs.office }}
           OFFICE_RESULT: ${{ needs.office.result }}
         run: node typescript/scripts/ci-scope.mjs gate "$OFFICE_SELECTED" "$OFFICE_RESULT"
+      - name: Install locked byte-codec tools
+        working-directory: typescript
+        run: pnpm --filter @tmt/remote-client install --frozen-lockfile --ignore-scripts
+      - name: Verify canonical bytes on every pull request
+        working-directory: typescript
+        run: |
+          pnpm --filter @tmt/remote-client --fail-if-no-match check
+          pnpm --filter @tmt/remote-client --fail-if-no-match test
 
   native-rust:
     name: Native Rust contracts

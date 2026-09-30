@@ -943,9 +943,11 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 
 `rust/crates/tmt-cli/src/grammar.rs` owns the ordered core command registrations,
 shared spec/option helpers and public help projection, and mounts the Office subtree
-from `tmt-office-command::grammar`. Private `grammar/launch.rs`, `presence.rs`,
-`rooms.rs` and `requests.rs` own their command builders; the remaining groups stay
-in the root. Group modules share root helpers and do not import from each other.
+from `tmt-office-command::grammar`. Private modules under `grammar/` own command
+builders by group: `launch.rs`, `presence.rs`, `rooms.rs`, `requests.rs`,
+`identity.rs`, `settings.rs` and `installation.rs`. Root help/API, retired-command
+and internal-completion registrations stay in the root. Group modules share root
+helpers and do not import from each other.
 `grammar/completion.rs` and `grammar/extensions.rs` retain completion and external
 command recognition. Each visible core command
 is registered from a `CommandSpec` (summary and examples) through
@@ -2463,6 +2465,13 @@ only then removes fixture state. Signals are sent only to task-owned child
 processes. No host tmux server, provider installation or global environment
 mutation is test evidence.
 
+External-host success fixtures retain real subprocesses but inject a bounded
+fixture deadline through `CommandRunner`; protocol request deadlines and output
+limits remain unchanged. Conformance scenarios supply elapsed time through the
+existing invoker result, separating response checks from scheduler timing. The
+late-answer scenario uses `UnixCommandRunner` with the real protocol deadline
+and checks timeout cleanup; oversized answers must fail with `OutputLimit`.
+
 `typescript/test/support/cli-process.ts` owns each native sandbox's active child runs.
 It also owns `TMUX_TMPDIR` under the sandbox, so ancestor discovery cannot reach
 the host's default tmux server after caller variables are cleared. Native process
@@ -2594,3 +2603,11 @@ proposed until its implementation slices land; `cloudflare`, `firestore` and
 product/release registration is deferred. Its private component owner excludes
 remote versions from real-product releases; cargo-dist excludes this pilot binary.
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
+
+The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
+TypeScript module owns decoded-value envelope, enrollment and possession signing-byte
+builders and independent exact-byte/SHA-256 fixtures. It uses standard UTF-8 and
+WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
+quality job. It implements no wire decoder, signing, key persistence, transport,
+runtime authority or browser-shell wiring; the proposed contract remains the wire
+and authority definition owner.

@@ -845,6 +845,12 @@ The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
 -- --ignored --nocapture` reproduces the race and reports failures with and
 without the retry.
 
+The external-host shell fixtures use a test-local runner with a thirty-second
+execution budget for success cases. This does not change the driver's wire
+`deadlineMs` or output limit. Conformance timing uses scripted elapsed values;
+the late-answer case retains the production runner and deadline. Run the focused
+suite with `cargo test --locked -p tmt-adapters host::external::tests`.
+
 Human output and help snapshots (`insta`, a dev-dependency) live beside the
 tests that assert them, such as `rust/crates/tmt-cli-style/tests/snapshots/`.
 After an intended change, regenerate with `INSTA_UPDATE=always cargo test -p
