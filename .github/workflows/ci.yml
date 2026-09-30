@@ -93,10 +93,11 @@ jobs:
         run: |
           pnpm check:tooling
           pnpm exec vitest run test/tooling/ci-scope.test.ts test/tooling/release-please-config.test.ts
-      - name: Set up Node 24 for canonical byte conformance
-        uses: ./.github/actions/setup-tooling
-        with:
-          node-version: 24.20.0
+      - name: Require selected Office verification
+        env:
+          OFFICE_SELECTED: ${{ needs.changes.outputs.office }}
+          OFFICE_RESULT: ${{ needs.office.result }}
+        run: node typescript/scripts/ci-scope.mjs gate "$OFFICE_SELECTED" "$OFFICE_RESULT"
       - name: Install locked byte-codec tools
         working-directory: typescript
         run: pnpm --filter @tmt/remote-client install --frozen-lockfile --ignore-scripts
@@ -105,11 +106,6 @@ jobs:
         run: |
           pnpm --filter @tmt/remote-client --fail-if-no-match check
           pnpm --filter @tmt/remote-client --fail-if-no-match test
-      - name: Require selected Office verification
-        env:
-          OFFICE_SELECTED: ${{ needs.changes.outputs.office }}
-          OFFICE_RESULT: ${{ needs.office.result }}
-        run: node typescript/scripts/ci-scope.mjs gate "$OFFICE_SELECTED" "$OFFICE_RESULT"
 
   native-rust:
     name: Native Rust contracts
