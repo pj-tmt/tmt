@@ -312,11 +312,13 @@ Playwright. The cloud build must fail closed without operator configuration;
 it never contacts a real project during automated tests.
 It uses one worker, no retries, bounded waits and independent browser contexts.
 The complete local command above remains the acceptance entry point. The
-`Office browser verification` workflow (`.github/workflows/office-browser.yml`) schedules
+`Office browser verification` workflow (`.github/workflows/office-browser.yml`) runs
 the same standard browser identities as advisory diagnostics in twelve isolated
 partitions to reduce the chance
 that serial scenarios exhaust a per-job deadline:
 emulator-backed contracts, three local Vite shards, and eight native-local shards.
+The eight native-local shards are paused on pull requests until #424 is fixed and run
+weekly and by manual dispatch instead.
 One `image` job builds the `browser-tests` target once and shares it as a one-day
 artifact; every partition loads that image and never builds it.
 Local partitions do not start Firebase, while native-local shards use the container
@@ -357,10 +359,13 @@ the workspace crates so the denylist cannot go stale.
 
 - Run the local browser suite above before opening a PR for an Office-affecting
   change, and record the result in the PR.
-- The `Office browser verification` workflow runs the Office browser partitions only
-  when `office` is selected, and the native Office shards only when `native_office`
-  is. Their results are advisory: they are not required checks and never gate merge,
-  and a red run of that workflow is a browser diagnostic, not a `CI` failure.
+- On a pull request, the `Office browser verification` workflow runs the four Office
+  partitions (emulator and local) only when `office` is selected. The native Office
+  shards do not run on pull requests until #424 is fixed, because three of the eight fail
+  on every run: they run weekly and on a manual dispatch, all eight together, and
+  `ci-scope.mjs` still computes `native_office` for the change that re-enables them.
+  Their results are advisory: they are not required checks and never gate merge, and a
+  red run of that workflow is a browser diagnostic, not a `CI` failure.
 - If a remote browser job fails but the same tests pass reliably in the local
   suite, treat the failure as flaky: record the local pass in the PR and move on.
   Only a failure that also reproduces locally needs a fix.
