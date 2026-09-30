@@ -10,7 +10,7 @@ use std::{
     path::Path,
     time::Instant,
 };
-use tmt_core::binding::session::RuntimeIncarnation;
+use tmt_core::endpoint::ProcessIncarnation;
 
 pub(crate) fn observe_named_in_pane(
     runner: &impl CommandRunner,
@@ -18,7 +18,7 @@ pub(crate) fn observe_named_in_pane(
     pane_pid: u64,
     deadline: Instant,
     executable: &str,
-) -> Option<RuntimeIncarnation> {
+) -> Option<ProcessIncarnation> {
     let snapshot = query_ps(
         runner,
         &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
@@ -45,7 +45,7 @@ pub(crate) fn observe_replacement(
     pane_pid: u64,
     deadline: Instant,
     executable: &str,
-) -> Option<RuntimeIncarnation> {
+) -> Option<ProcessIncarnation> {
     let snapshot = query_ps(
         runner,
         &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],

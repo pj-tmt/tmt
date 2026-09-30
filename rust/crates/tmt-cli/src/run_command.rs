@@ -31,11 +31,12 @@ use tmt_core::{
     binding::{
         self, Binding, BindingRepository,
         session::{
-            ObservedSessionKey, RememberedSession, RuntimeIncarnation, RuntimeLiveness,
-            SessionPreferences, SessionTransition,
+            ObservedSessionKey, RememberedSession, RuntimeLiveness, SessionPreferences,
+            SessionTransition,
         },
     },
     driver::{ActionResult, HookEvent, HookObserver, observe_driver_hook},
+    endpoint::ProcessIncarnation,
     identity::IdentityReader,
     names::normalize_name,
     settings::PaneBadge,
@@ -211,7 +212,7 @@ fn storage_failure(error: StorageError) -> Failure {
     .caused_by(error)
 }
 
-fn incarnation(pid: u32) -> Option<RuntimeIncarnation> {
+fn incarnation(pid: u32) -> Option<ProcessIncarnation> {
     match observe_runtime_process(
         &UnixCommandRunner,
         u64::from(pid),
@@ -685,8 +686,8 @@ enum Finished {
 fn finish(
     storage: &mut Storage,
     binding: &Binding,
-    owner: &RuntimeIncarnation,
-    child: &RuntimeIncarnation,
+    owner: &ProcessIncarnation,
+    child: &ProcessIncarnation,
     lifecycle: &dyn RuntimeLifecycle,
 ) -> Result<Finished, StorageError> {
     storage.with_binding_transaction(|records| {
@@ -788,7 +789,7 @@ mod tests {
     #[test]
     fn only_recorded_admission_emits_and_fast_exit_keeps_event_order_on_observer_failure() {
         let key = ObservedSessionKey {
-            incarnation: RuntimeIncarnation::new(17, "fixture-child-start").unwrap(),
+            incarnation: ProcessIncarnation::new(17, "fixture-child-start").unwrap(),
             provider_session: Some(ProviderSessionId::new("provider-key").unwrap()),
         };
         let mut observer = RecordingObserver {

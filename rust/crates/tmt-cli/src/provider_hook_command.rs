@@ -22,9 +22,9 @@ use tmt_adapters::{
 use tmt_core::{
     binding::{
         BindingEvidence, BindingRepository, evaluate_binding,
-        session::{HarnessId, ProviderSessionId, RuntimeIncarnation, RuntimeLiveness},
+        session::{HarnessId, ProviderSessionId, RuntimeLiveness},
     },
-    endpoint::{EndpointProbe, EndpointSnapshot},
+    endpoint::{EndpointProbe, EndpointSnapshot, ProcessIncarnation},
 };
 
 const BUDGET: Duration = Duration::from_secs(2);
@@ -175,7 +175,7 @@ struct BoundCaller {
     paths: ConfigPaths,
     stored: IdentityContextSnapshot,
     snapshot: EndpointSnapshot,
-    process: RuntimeIncarnation,
+    process: ProcessIncarnation,
 }
 
 fn verified_caller(
