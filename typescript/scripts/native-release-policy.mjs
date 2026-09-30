@@ -20,6 +20,12 @@ export function releasePolicy(product) {
   return { product, ...policy };
 }
 
+/** The archive name prefix of a product's bundle: `tmt-cli-<target>.tar.gz`, `tmt-office-...`. */
+export function archivePrefix(product) {
+  releasePolicy(product);
+  return product === 'cli' ? 'tmt-cli' : `tmt-${product}`;
+}
+
 /** `gh release create` flags that apply the policy to a draft. */
 export function releaseFlags(product) {
   const policy = releasePolicy(product);
