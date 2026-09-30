@@ -1222,6 +1222,21 @@ Schema 39 admits a second terminal host (Herdr, #479):
 Binding queries still read tmux rows only until the core endpoint types carry
 the host.
 
+Schema 40 adds the change cursor behind the `changes.cursor` API operation
+(contract in [extension-api.md](docs/extension-api.md)). It is a one-row
+`change_cursor` counter. Every core-owned table has three AFTER triggers,
+`<table>_advances_change_cursor_on_{insert,update,delete}`, that advance it
+inside the writing transaction, so no write path can forget. Migration
+bookkeeping and the Office tables fenced by the schema-36 cutover have none.
+An update counts only when some column's value differs (`WHEN OLD.c IS NOT
+NEW.c OR ...`), so a reconcile that rewrites a row with the same values is not
+a change, and `bindings.last_verified_at`, which `list` refreshes while
+reconciling presence, is not compared at all. A later migration that adds a
+core table or a column, or rebuilds a table (as schema 39 rebuilt
+`bindings`), must create or recreate its triggers: `change_cursor_tests` fails
+until every table is covered or deliberately excluded and every column is
+compared.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
@@ -1594,7 +1609,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 39, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 40, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
