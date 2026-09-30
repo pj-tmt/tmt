@@ -3,12 +3,14 @@ use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
-    os::unix::fs::PermissionsExt,
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
+#[path = "support/executable_fixture.rs"]
+mod executable_fixture;
+
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-remote");
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 struct Pilot {
@@ -23,9 +25,9 @@ impl Pilot {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).unwrap();
-        fs::write(root.join("core"), format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}/calls'\ncat > '{}/input'\nprintf '{{\"version\":1,\"limits\":{{\"inputBytes\":1024,\"outputBytes\":4096}}}}'\n", root.display(),root.display())).unwrap();
-        fs::set_permissions(root.join("core"), fs::Permissions::from_mode(0o700)).unwrap();
-        Self { root, child: None }
+        let pilot = Self { root, child: None };
+        executable_fixture::write_executable(&pilot.root.join("core"), &format!("printf '%s\\n' \"$*\" >> '{}/calls'\ncat > '{}/input'\nprintf '{{\"version\":1,\"limits\":{{\"inputBytes\":1024,\"outputBytes\":4096}}}}'\n", pilot.root.display(),pilot.root.display())).unwrap();
+        pilot
     }
     fn command(&self) -> Command {
         let mut cmd = Command::new(BINARY);
