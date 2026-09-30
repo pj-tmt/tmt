@@ -177,8 +177,17 @@ user runs `tmt extension hooks enable <name>`. Core then invokes the resolved
 - `__tmt-hooks 1 context` (capability `context_v1`): read
   `{"version":1,"identityId":"<uuid>"}` and print `{"summary":"<text>"}` (at most
   240 characters) or `{"summary":null}` within the shared 300 ms deadline. It is
-  asked only for a verified, bound identity and must be read-only: do not write,
-  migrate or start anything.
+  asked only for a verified, bound identity. Do not mutate TMT state, migrate
+  databases or start services. Bounded bookkeeping in the extension's own
+  private cache is allowed within the same deadline.
+
+Provider prompt submission also requests this context for an already verified
+current session. The provider receives only extension summaries in
+`UserPromptSubmit.additionalContext`; startup identity context remains at
+SessionStart. Installing the prompt hook requires a consented `tmt setup` run.
+Both paths share the aggregate 300 ms callback deadline inside the provider
+hook's existing supervised deadline. Unknown, stale or unbound sessions receive
+no extension context. Stop does not request context.
 
 Summaries are untrusted informational text. TMT attributes them by extension name,
 escapes them and labels them `(informational)` when they reach an agent's

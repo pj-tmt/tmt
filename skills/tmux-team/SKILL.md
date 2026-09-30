@@ -243,7 +243,7 @@ the files it would change, then asks once; without a terminal it refuses unless
 `--yes` is given, changing nothing. `tmt setup claude` or `tmt setup codex` shows
 one agent's plan and asks for approval;
 noninteractive changes require explicit user-authorized `--yes`. It adds only
-owned start/end hooks using the stable PATH launcher; `--remove` removes only
+owned start/end/prompt-submit hooks using the stable PATH launcher; `--remove` removes only
 unchanged owned hooks. Do not install into the user's provider settings merely
 because a conversation lost context. Hooks restore bounded verified identity
 context and remember the session, not permission grants or arbitrary instructions.

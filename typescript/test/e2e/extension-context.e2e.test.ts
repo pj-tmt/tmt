@@ -14,6 +14,10 @@ if [ "$1 $2 $3" = "__tmt-hooks 1 capabilities" ]; then
 fi
 if [ "$1 $2 $3" = "__tmt-hooks 1 context" ]; then
   cat > "$dir/ctxfix-input"
+  printf 'context\\n' >> "$dir/ctxfix-calls"
+  if [ -f "$dir/ctxfix-retire-second" ] && [ "$(wc -l < "$dir/ctxfix-calls")" -eq 2 ]; then
+    "$TMT_EXECUTABLE" rm 'Prompt Reader' --force --json > "$dir/ctxfix-retired"
+  fi
   if [ -f "$dir/ctxfix-slow" ]; then exec sleep 5.75; fi
   cat "$dir/ctxfix-reply"
   exit 0
@@ -104,3 +108,116 @@ describe.sequential('extension contributions to the rehydration context', () => 
     }, inputLog);
   });
 });
+
+it.each([
+  { provider: 'claude', retire: false },
+  { provider: 'codex', retire: false },
+  { provider: 'claude', retire: true },
+] as const)(
+  '$provider prompt context requires a current session (retire during callback: $retire)',
+  async ({ provider, retire }) => {
+    await withE2EFixture(async (fixture) => {
+      const executable = path.join(fixture.wrapperDir, 'tmt-ctxfix');
+      fs.chmodSync(fixture.wrapperDir, 0o755);
+      fs.writeFileSync(executable, FIXTURE);
+      fs.chmodSync(executable, 0o755);
+      fs.writeFileSync(
+        path.join(fixture.wrapperDir, 'ctxfix-reply'),
+        JSON.stringify({ summary: 'Next turn: "quoted"\nsecond line' })
+      );
+      expect((await fixture.runJsonCli(['name', 'Fixture Owner', '-s'])).code).toBe(0);
+      expect((await fixture.runJsonCli(['extension', 'hooks', 'enable', 'ctxfix'])).code).toBe(0);
+      if (retire) fs.writeFileSync(path.join(fixture.wrapperDir, 'ctxfix-retire-second'), '');
+      const session = '11111111-1111-4111-8111-111111111111';
+      const foreign = '22222222-2222-4222-8222-222222222222';
+      const hook = (event: string, id = session) => ({
+        args: ['__hook', provider],
+        input: {
+          hook_event_name: event,
+          session_id: id,
+          source: 'startup',
+          reason: 'other',
+          turn_id: 'fixture-turn',
+          prompt: 'This prompt is not sent to the extension',
+        },
+      });
+      const scenario = path.join(fixture.root, 'prompt-scenario.json');
+      const report = path.join(fixture.root, 'prompt-report.json');
+      fs.writeFileSync(
+        scenario,
+        JSON.stringify(
+          [
+            hook('UserPromptSubmit'), // unbound: no naming hint and no callback
+            { args: ['name', 'Prompt Reader', '-s', '--json'] },
+            hook('UserPromptSubmit'), // bound, but no admitted provider session
+            hook('SessionStart'),
+            hook('UserPromptSubmit'),
+            hook('UserPromptSubmit', foreign),
+            hook('Stop'), // existing turn-end path still emits no context
+            { args: ['whoami', '--json'] },
+            { args: ['extension', 'hooks', 'disable', 'ctxfix', '--json'] },
+            hook('UserPromptSubmit'),
+            { args: ['extension', 'hooks', 'enable', 'ctxfix', '--json'] },
+            hook('SessionEnd'),
+            hook('UserPromptSubmit'), // ended sessions cannot be revived
+          ].slice(0, retire ? 5 : undefined)
+        )
+      );
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const command = [
+        'env',
+        `TMUX_TEAM_HOME=${fixture.globalDir}`,
+        `PATH=${fixture.wrapperDir}:${process.env.PATH ?? ''}`,
+        provider === 'claude' ? '/opt/tmt-tests/claude' : '/opt/tmt-tests/hook-runtime/codex',
+        fixture.executables.cli.executable,
+        scenario,
+        report,
+      ]
+        .map(quote)
+        .join(' ');
+      const pane = fixture.createShellPane('prompt-context').pane;
+      fixture.tmux(['send-keys', '-t', pane, '-l', command]);
+      fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+      await fixture.waitFor(() => fs.existsSync(report), 15000, 'prompt context report');
+      const results = JSON.parse(fs.readFileSync(report, 'utf8')) as Array<{
+        code: number;
+        stdout: string;
+        stderr: string;
+      }>;
+      expect(results).toHaveLength(retire ? 5 : 13);
+      expect(results.every((item) => item.code === 0)).toBe(true);
+      expect(fs.readFileSync(path.join(fixture.wrapperDir, 'ctxfix-calls'), 'utf8')).toBe(
+        'context\ncontext\n'
+      );
+      if (retire) {
+        expect(results[4].stdout).toBe('');
+        expect(results[4].stderr).toContain('continuing without context');
+        const state = durableState(fixture);
+        const retired = state.identities.find((row) => row.name === 'Prompt Reader');
+        expect(retired).toMatchObject({ retired_at_ms: expect.any(Number) });
+        expect(state.bindings.some((row) => row.identity_id === retired!.id)).toBe(false);
+        return;
+      }
+      expect(results.every((item) => item.stderr === '')).toBe(true);
+      const id = JSON.parse(results[1].stdout).id;
+      const startup = JSON.parse(results[3].stdout).hookSpecificOutput;
+      expect(startup.hookEventName).toBe('SessionStart');
+      expect(startup.additionalContext).toContain('TMT identity: "Prompt Reader"');
+      expect(JSON.parse(results[4].stdout)).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext:
+            'Extension ctxfix (informational): "Next turn: \\"quoted\\"\\nsecond line"\n',
+        },
+      });
+      for (const index of [0, 2, 5, 6, 9, 11, 12]) expect(results[index].stdout).toBe('');
+      expect(JSON.parse(results[7].stdout)).toMatchObject({ id, sessionState: 'running' });
+      expect(
+        JSON.parse(fs.readFileSync(path.join(fixture.wrapperDir, 'ctxfix-input'), 'utf8'))
+      ).toEqual({
+        version: 1,
+        identityId: id,
+      });
+    }, inputLog);
+  }
+);
