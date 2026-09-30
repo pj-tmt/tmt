@@ -84,7 +84,7 @@ impl Door {
                         stream.set_nonblocking(true)?;
                         attempts += 1;
                         if attempts > 20 || pending.len() == CONNECTIONS {
-                            reply(stream, 429);
+                            write_rejection(stream, 429);
                         } else {
                             pending.push(Connection {
                                 stream,
@@ -124,7 +124,7 @@ impl Door {
                 if let Some(status) =
                     status.or_else(|| (Instant::now() >= connection.deadline).then_some(400))
                 {
-                    reply(pending.swap_remove(index).stream, status);
+                    write_rejection(pending.swap_remove(index).stream, status);
                 }
             }
             thread::sleep(Duration::from_millis(10));
@@ -137,7 +137,7 @@ struct Connection {
     bytes: Vec<u8>,
     deadline: Instant,
 }
-fn reply(mut stream: TcpStream, status: u16) {
+fn write_rejection(mut stream: TcpStream, status: u16) {
     let reason = match status {
         400 => "Bad Request",
         413 => "Payload Too Large",

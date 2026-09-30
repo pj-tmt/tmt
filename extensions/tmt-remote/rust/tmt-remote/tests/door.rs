@@ -197,7 +197,8 @@ fn finite_lifecycle_rate_and_acquisition_cleanup() {
             .unwrap();
         let result = stream.read(&mut [0; 1]);
         assert!(
-            matches!(result, Ok(0)) || result.is_err(),
+            matches!(result, Ok(0))
+                || matches!(result, Err(ref e) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted)),
             "retained connection leaked"
         );
     }
