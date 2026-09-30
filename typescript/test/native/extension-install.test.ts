@@ -7,6 +7,7 @@ import {
   writeFileSync,
   chmodSync,
   mkdirSync,
+  symlinkSync,
 } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -123,6 +124,94 @@ describe('tmt extension install surface', () => {
         await cli(['extension', 'upgrade', 'squad', '--yes', '--prefix', prefix]),
         'EXTENSION_NOT_INSTALLED'
       );
+    });
+  }, 60_000);
+
+  it('names one exact repair command, refuses unsafe damage, and treats healthy repair as a no-op', async () => {
+    await withSandbox(async (sandbox) => {
+      const prefix = path.join(sandbox.root, "repair prefix with ' quote");
+      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'squad');
+      const cli = (args: string[]) =>
+        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+      expectError(
+        await cli(['extension', 'install', 'squad', '--repair', '--prefix', prefix]),
+        'EXTENSION_CONSENT_REQUIRED'
+      );
+      expect(existsSync(prefix)).toBe(false);
+      const installed = await cli([
+        'extension',
+        'install',
+        'squad',
+        '--yes',
+        '--archive',
+        squad.archive,
+        '--manifest',
+        squad.manifest,
+        '--prefix',
+        prefix,
+        '--channel',
+        'alpha',
+      ]);
+      expect(installed.status).toBe(0);
+      const release = realpathSync(path.join(prefix, 'lib/tmt-squad/current'));
+      const receiptPath = path.join(release, 'receipt.json');
+      const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+      // Test-only provenance lets read-only/healthy cases run without a live release or endpoint bypass.
+      receipt.source = {
+        kind: 'github-release',
+        repository: 'wkh237/tmt',
+        release_id: 42,
+        manifest_sha256: 'a'.repeat(64),
+      };
+      writeFileSync(receiptPath, JSON.stringify(receipt));
+      const healthyReceipt = readFileSync(receiptPath);
+      const healthy = await cli([
+        'extension',
+        'install',
+        'squad',
+        '--repair',
+        '--yes',
+        '--prefix',
+        prefix,
+      ]);
+      expect(healthy.status).toBe(0);
+      expect(parseWholeStdout(healthy)).toMatchObject({ changed: false, retainedRelease: null });
+      expect(realpathSync(path.join(prefix, 'lib/tmt-squad/current'))).toBe(release);
+      expect(readFileSync(receiptPath).equals(healthyReceipt)).toBe(true);
+      const tamperedPath = path.join(release, 'LICENSE');
+      writeFileSync(tamperedPath, 'user edits\n');
+      const before = readFileSync(tamperedPath);
+      for (const args of [
+        ['extension', 'list', '--prefix', prefix],
+        ['extension', 'install', 'squad', '--yes', '--prefix', prefix],
+        ['extension', 'upgrade', 'squad', '--yes', '--prefix', prefix],
+      ]) {
+        const error = expectError(await cli(args), 'EXTENSION_REPAIR_REQUIRED').error as {
+          message: string;
+        };
+        const quotedPrefix = `'${realpathSync(prefix).replace(/'/g, "'\\''")}'`;
+        expect(error.message).toContain(
+          `Repair this release with: tmt extension install squad --repair --yes --prefix ${quotedPrefix}`
+        );
+        expect(error.message.match(/tmt extension/g)).toHaveLength(1);
+        expect(error.message).not.toContain('Inspect with:');
+        expect(readFileSync(tamperedPath).equals(before)).toBe(true);
+      }
+      const outside = path.join(sandbox.root, 'outside');
+      writeFileSync(outside, 'outside sentinel');
+      symlinkSync(outside, path.join(release, 'foreign-link'));
+      for (const args of [
+        ['extension', 'list', '--prefix', prefix],
+        ['extension', 'install', 'squad', '--repair', '--yes', '--prefix', prefix],
+      ]) {
+        const error = expectError(await cli(args), 'EXTENSION_INSTALLATION_INVALID').error as {
+          message: string;
+        };
+        expect(error.message).not.toContain('--repair');
+      }
+      expect(readFileSync(outside, 'utf8')).toBe('outside sentinel');
+      expect(readFileSync(tamperedPath).equals(before)).toBe(true);
+      expect(readFileSync(receiptPath).equals(healthyReceipt)).toBe(true);
     });
   }, 60_000);
 

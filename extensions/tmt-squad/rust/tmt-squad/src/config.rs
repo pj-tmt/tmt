@@ -181,6 +181,8 @@ impl Layout {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Tabs {
     pub order: Vec<String>,
+    /// Tabs that come first and stay in view when the tab line scrolls.
+    pub pin: Vec<String>,
     pub hide: Vec<String>,
     pub colors: TabColors,
     /// `[tabs.leads.bind]`, over `[bind]` and the host preset.
@@ -912,12 +914,13 @@ impl Config {
             match key {
                 "order" => tabs.order = tab_list(item, "tabs.order")?,
                 "hide" => tabs.hide = tab_list(item, "tabs.hide")?,
+                "pin" => tabs.pin = tab_list(item, "tabs.pin")?,
                 "colors" => tabs.colors = tab_colors(item)?,
                 "leads" => tabs.leads = tab_bindings(item, "tabs.leads")?,
                 "all" => tabs.all = tab_bindings(item, "tabs.all")?,
                 other => {
                     return Err(invalid(format!(
-                        "`tabs.{other}` is not a tabs setting; use order, hide, colors, leads or all."
+                        "`tabs.{other}` is not a tabs setting; use order, pin, hide, colors, leads or all."
                     )));
                 }
             }
@@ -1705,13 +1708,14 @@ sort = ["state", "-name"]
         };
         assert_eq!(read("").unwrap(), Tabs::default());
         let tabs = read(
-            "[tabs]\norder = [\"leads\", \"infra\", \"squad:leads\", \"all\"]\nhide = [\"quiet\"]\n\
+            "[tabs]\norder = [\"leads\", \"infra\", \"squad:leads\", \"all\"]\nhide = [\"quiet\"]\npin = [\"all\"]\n\
              [tabs.colors]\nblocked = \"magenta\"\n[tabs.leads.bind]\nenter = \"run herdr agent focus {pane}\"\n",
         )
         .unwrap();
         // `squad:leads` is the squad named leads, not the built-in tab.
         assert_eq!(tabs.order, ["@leads", "infra", "leads", "@all"]);
         assert_eq!(tabs.hide, ["quiet"]);
+        assert_eq!(tabs.pin, ["@all"]);
         assert_eq!(
             tabs.colors,
             TabColors {
@@ -1729,6 +1733,7 @@ sort = ["state", "-name"]
             "[tabs]\norder = [\"everyone\", \"squad:x y\"]\n",
             "[tabs.all]\nbind = 1\n",
             "[tabs]\nhide = [\"infra\", \"infra\"]\n",
+            "[tabs]\npin = \"infra\"\n",
             "[tabs.colors]\nwaiting = \"pink\"\n",
             "[tabs.colors]\nnormal = \"dim\"\n",
             "[tabs]\ncolors = \"amber\"\n",

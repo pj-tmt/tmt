@@ -489,8 +489,11 @@ state never depends on color alone, and `ls --json` reports it as
 `[tabs.colors]` (`waiting = "amber"`, `blocked = "red"`; the same color names as
 states). When there are more tabs than fit, the tab line scrolls to keep the
 current tab in view, and counts the tabs off each end (`‹ 3`, `5 ›`). Each count
-takes the color of the most pressing tab it hides. The second line is the shown
-squad's summary: `lead sol · 4 members · 1 waiting on you`.
+takes the color of the most pressing tab it hides. Tabs listed in
+`[tabs] pin = [...]` come first, in that order, and stay in view while the rest
+scroll; moving tabs never moves or passes a pin. Selecting or scrolling never
+changes a tab's width. A tab widens or narrows only when its own counts change.
+The second line is the shown squad's summary: `lead sol · 4 members · 1 waiting on you`.
 
 Besides one tab per squad, the board has two built-in tabs:
 
@@ -505,7 +508,11 @@ tab, and dragging a tab onto another's place moves it there. Either way the
 board writes the new order to `[tabs] order`, changing nothing else in the file,
 and refuses if the file changed since the board read it. Tabs you list come
 first, in your order; the rest follow, squads first. Write `squad:<name>` for a squad named like a built-in
-tab. A hidden squad stays reachable with `tmt sq board --squad <name>`. The
+tab. A hidden squad stays reachable with `tmt sq board --squad <name>` or the switcher: `s` opens a list of every tab,
+hidden ones included, that narrows as you type (letters in order, ignoring
+case); Enter opens the chosen tab and Esc closes the list. While a hidden squad
+is shown, it leads the tab line, selected and marked `(hidden)`. If you bind `s`
+yourself, your binding runs instead. The
 leads tab takes its own bindings over `[bind]`. The all tab's rows are squads,
 not members, so it has only its own bindings (Enter and double-click `tab`, F5
 `refresh`):
@@ -513,6 +520,7 @@ not members, so it has only its own bindings (Enter and double-click `tab`, F5
 ```toml
 [tabs]
 order = ["all", "leads", "product"]
+pin = ["all"]
 hide = ["quiet"]
 
 [tabs.leads.bind]

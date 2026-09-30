@@ -111,6 +111,19 @@ fn prefix(prefix: Option<&str>) -> Result<PathBuf, Failure> {
 }
 
 fn failure(code: &'static str, error: io::Error) -> Failure {
+    if let Some(required) = error
+        .get_ref()
+        .and_then(|cause| cause.downcast_ref::<native_install::RepairRequired>())
+    {
+        let command = format!(
+            "tmt extension install {} --repair --yes --prefix {}",
+            required.product.as_str(),
+            crate::output::shell_word(&required.prefix.to_string_lossy())
+        );
+        return Failure::new("EXTENSION_REPAIR_REQUIRED", format!(
+            "Managed {} release {} failed verification: {} No files were changed. Repair this release with: {command}",
+            required.product.as_str(), required.version, required), 1).caused_by(error);
+    }
     Failure::new(
         code,
         format!("{error} Inspect with: tmt extension list"),
@@ -213,6 +226,14 @@ impl Human {
 
 type Outcome = Option<(Value, Human)>;
 
+struct InstalledExtension {
+    document: Value,
+    human: Human,
+    executable: PathBuf,
+    previous: Vec<String>,
+    changed: bool,
+}
+
 fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Failure> {
     match request {
         ExtensionInstallRequest::Install {
@@ -223,29 +244,47 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             manifest,
             yes,
             skills,
+            repair,
         } => {
             let product = extension(&name)?;
             let prefix = prefix(selected.as_deref())?;
-            if !ask(yes, mode, &format!("Install the verified {name} extension"))? {
+            let action = if repair {
+                format!("Repair the {name} extension; retain the damaged release")
+            } else {
+                format!("Install the verified {name} extension")
+            };
+            if !ask(yes, mode, &action)? {
                 return Ok(None);
             }
-            let (mut document, human, executable, previous) = install(
-                product,
-                &prefix,
-                channel,
-                archive.as_deref(),
-                manifest.as_deref(),
-            )?;
+            let InstalledExtension {
+                mut document,
+                human,
+                executable,
+                previous,
+                changed,
+            } = if repair {
+                repair_extension(product, &prefix)?
+            } else {
+                install(
+                    product,
+                    &prefix,
+                    channel,
+                    archive.as_deref(),
+                    manifest.as_deref(),
+                )?
+            };
             let mut human = human;
-            settle_skills(
-                product,
-                &executable,
-                &previous,
-                skills,
-                Some(mode),
-                &mut document,
-                &mut human,
-            )?;
+            if !repair || changed || skills {
+                settle_skills(
+                    product,
+                    &executable,
+                    &previous,
+                    skills,
+                    Some(mode),
+                    &mut document,
+                    &mut human,
+                )?;
+            }
             Ok(Some((document, human)))
         }
         ExtensionInstallRequest::Upgrade {
@@ -271,6 +310,8 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
                 return Ok(None);
             }
             let executable = prefix.join("bin").join(product.executable());
+            native_install::inspect_product_prefix(product, &prefix)
+                .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
             // The skills the replaced release carried: only those may be pruned.
             let previous = native_install::release_skill_names(product, &executable)
                 .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
@@ -413,7 +454,7 @@ fn install(
     channel: Option<Channel>,
     archive: Option<&str>,
     manifest: Option<&str>,
-) -> Result<(Value, Human, PathBuf, Vec<String>), Failure> {
+) -> Result<InstalledExtension, Failure> {
     let name = product.as_str();
     let target = tmt_core::native_install::native_target(env::consts::OS, env::consts::ARCH)
         .ok_or_else(|| {
@@ -426,7 +467,7 @@ fn install(
     let executable = prefix.join("bin").join(product.executable());
     let current = if installed(product, prefix)? {
         Some(
-            native_install::inspect_product(product, &executable)
+            native_install::inspect_product_prefix(product, prefix)
                 .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?,
         )
     } else {
@@ -504,13 +545,14 @@ fn install(
     } else {
         Human::plain(format!("{name} {} is already installed.", report.version))
     };
-    Ok((
-        json!({"extension": name, "installed": true, "changed": report.changed,
+    Ok(InstalledExtension {
+        document: json!({"extension": name, "installed": true, "changed": report.changed,
             "version": report.version, "executable": report.executable}),
         human,
-        report.executable,
+        executable: report.executable,
         previous,
-    ))
+        changed: report.changed,
+    })
 }
 
 fn global_dir() -> Result<PathBuf, Failure> {
@@ -521,6 +563,40 @@ fn global_dir() -> Result<PathBuf, Failure> {
 
 fn skill_names(skills: &[OwnedSkill]) -> Vec<String> {
     skills.iter().map(|skill| skill.name.clone()).collect()
+}
+
+fn repair_extension(product: Product, prefix: &Path) -> Result<InstalledExtension, Failure> {
+    let result = native_install::repair_product(
+        product,
+        prefix,
+        crate::office_facade::release_verifier(product),
+        interruptible("Extension repair interrupted before activation.")?,
+    )
+    .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
+    let report = result.installation;
+    let mut human = if report.changed {
+        Human::done(format!("Repaired {} {}.", product.as_str(), report.version))
+    } else {
+        Human::plain(format!(
+            "{} {} is already verified.",
+            product.as_str(),
+            report.version
+        ))
+    };
+    if let Some(path) = &result.retained_release {
+        human.push(format!(
+            "Kept damaged release at {}",
+            value::home_path(path, env::home_dir().as_deref())
+        ));
+    }
+    Ok(InstalledExtension {
+        document: json!({"extension": product.as_str(), "installed": true, "changed": report.changed,
+        "version": report.version, "executable": report.executable, "retainedRelease": result.retained_release}),
+        human,
+        executable: report.executable,
+        previous: Vec::new(),
+        changed: report.changed,
+    })
 }
 
 fn published_document(report: &OwnedReport) -> Value {
@@ -737,9 +813,8 @@ fn listing(
         .filter(|product| *product != Product::Cli)
     {
         let name = product.as_str();
-        let executable = prefix.join("bin").join(product.executable());
         let state = match installed(product, prefix) {
-            Ok(true) => native_install::inspect_product(product, &executable)
+            Ok(true) => native_install::inspect_product_prefix(product, prefix)
                 .map(|installation| Some(installation.state))
                 .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?,
             Ok(false) => None,

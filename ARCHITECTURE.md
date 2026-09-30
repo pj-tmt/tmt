@@ -1222,6 +1222,21 @@ Schema 39 admits a second terminal host (Herdr, #479):
 Binding queries still read tmux rows only until the core endpoint types carry
 the host.
 
+Schema 40 adds the change cursor behind the `changes.cursor` API operation
+(contract in [extension-api.md](docs/extension-api.md)). It is a one-row
+`change_cursor` counter. Every core-owned table has three AFTER triggers,
+`<table>_advances_change_cursor_on_{insert,update,delete}`, that advance it
+inside the writing transaction, so no write path can forget. Migration
+bookkeeping and the Office tables fenced by the schema-36 cutover have none.
+An update counts only when some column's value differs (`WHEN OLD.c IS NOT
+NEW.c OR ...`), so a reconcile that rewrites a row with the same values is not
+a change, and `bindings.last_verified_at`, which `list` refreshes while
+reconciling presence, is not compared at all. A later migration that adds a
+core table or a column, or rebuilds a table (as schema 39 rebuilt
+`bindings`), must create or recreate its triggers: `change_cursor_tests` fails
+until every table is covered or deliberately excluded and every column is
+compared.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
@@ -1594,7 +1609,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 39, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 40, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -1861,6 +1876,24 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
+### Host driver protocol
+
+Terminal hosts that TMT doesn't build in will run out of process as host
+drivers (#570). [`contracts/driver-protocol-v1.md`](contracts/driver-protocol-v1.md)
+owns the wire format. `rust/crates/tmt-driver-protocol` encodes it for both
+sides:
+
+- wire types and per-operation limits;
+- `decode`, which is core's bounded, strict parsing and validation against the
+  pane-ID and target grammar each driver declares;
+- `serve`, a driver's entry point;
+- `conformance::check`, which runs through any invoker.
+
+The crate is a leaf with only `serde` and `serde_json`, so a community driver
+builds against it alone; the architecture guard enforces that. Nothing in `tmt`
+calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
+spawning client with consent and fingerprint checks, and move Herdr out.
+
 ## Managed skills and native installation
 
 Managed agent guidance is a separate filesystem concern. The canonical
@@ -2004,6 +2037,24 @@ stays at 16 KiB.
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
 
+Explicit extension `install --repair` is a separate recovery composition in
+`native_install::repair`, limited to GitHub-provenance receipts. `receipt`
+separates bounded metadata/recorded-path validation from payload verification;
+normal readers still require both. An eligible verification failure carries
+`RepairRequired` to the CLI, which owns the single quoted repair-command hint.
+Repair admits only safe owned layouts and no-follow regular files/directories,
+fetches the exact recorded artifact with matching provenance and digests, and
+preserves version/channel/pin. Acquisition holds no installation lock; the stable
+lock and a pre-activation current/receipt revalidation fence publication.
+`publication` shares candidate staging, durable activation, cleanup and typed
+post-activation failures between normal installs and repair. The damaged release
+is retained untouched at its original path, including foreign entries, rather
+than treated as content TMT may overwrite or delete. It is never a verified
+execution candidate; no automatic retention cleanup is implemented. A healthy
+repair is a no-op. Local receipts remain installation evidence, not signatures;
+repair does not claim protection from a hostile same-UID writer. Provider skill
+refresh remains with the existing verified-tree/skill-owner composition.
+
 The active executable is the authority for a managed update. Installer receipts
 are anchored to the installation prefix/current executable, not to
 `ConfigPaths.global_dir`; changing runtime config roots must not fabricate or
@@ -2082,7 +2133,14 @@ line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
 format-preserving replacement that records `me`. A tab line that doesn't
 fit scrolls: `tab_window` keeps the current tab in view, starting as near the
 last frame's first tab as it can. It counts the hidden tabs at each end, and
-only the drawn tabs can be clicked. `board`
+only the drawn tabs can be clicked. Pinned tabs (`[tabs] pin`) come first from
+`tabs::arrange` in `pin`'s order and are drawn before the scrolled window. A
+move never moves or passes a pin, since the saved `order` could not reorder
+them. The switcher (`s`, unless the user bound
+it) filters the tab line's tabs and the hidden ones with `tabs::matching`: a
+prefix match first, then a substring, then the letters in order. A shown
+squad that isn't on the tab line (hidden) is drawn first, selected, with no
+`TabHit`, so it can't be moved. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects

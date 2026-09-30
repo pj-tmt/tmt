@@ -26,6 +26,7 @@ Clients must tolerate additive response fields.
 | Operation                | Input                                                                     | Result                                                                                                                                                            |
 | ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`           | `{}`                                                                      | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
+| `changes.cursor`         | `{}`                                                                      | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
 | `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`              | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                               | Request detail including retained prompt/final state                                                                                                              |
 | `dispatch.show`          | `operationId`                                                             | Immutable acceptance receipt                                                                                                                                      |
@@ -85,6 +86,23 @@ in input order. Core applies expiry: `status.stale` is computed at read time, an
 expired status is still returned (stale) so a client can show it as such. Unknown IDs
 are `{id, found:false}` entries, not errors. It never reports presence; join it with
 `tmt list --json`, which verifies tmux endpoints.
+
+`changes.cursor` tells a client cheaply whether anything it may read has
+changed, so it can reload only then. The cursor advances with every committed
+insert, update or delete of core's durable records in this data root:
+identities and their bindings, metadata, status, profiles and session state;
+requests, their
+attempts, responses, attention and notifications; rooms and their members;
+dispatch receipts; hooks; host servers. It is opaque: compare it with the value
+you last saw for equality only, never for order or distance, and never persist
+it across data roots. It is not a subscription and carries no description of
+what changed. It does not cover what core does not store as records: a pane's
+live presence (a binding's verification time is an observation, not a change,
+and a write that leaves every value the same is not a change either),
+notebook files, configuration files, and any extension's own storage. A client
+that reloads on a changed cursor must still reload on its own interval for
+those, and must treat `API_INPUT_INVALID` for this operation (an older core) as
+"no cursor" and keep its interval.
 
 For room creation use a new UUID and `expectedRevision:0`; updates use the current
 revision. Refresh rather than blindly retrying a stale write. The returned resource

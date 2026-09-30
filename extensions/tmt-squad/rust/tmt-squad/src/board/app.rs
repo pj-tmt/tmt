@@ -59,6 +59,10 @@ pub enum Notes {
 pub struct Snapshot {
     /// Tab keys in order: squad names and built-in tabs (`board::tabs`).
     pub tabs: Vec<String>,
+    /// Hidden tabs, still reachable through the switcher.
+    pub hidden: Vec<String>,
+    /// How many tabs at the front are pinned.
+    pub pinned: usize,
     /// Every listed squad's attention, for its tab's color and counts.
     pub attention: BTreeMap<String, Attention>,
     pub squad: Option<String>,
@@ -174,6 +178,13 @@ const INPUT_LIMIT: usize = 4000;
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
+/// The quick switcher: a filter over every tab, hidden ones included.
+#[derive(Debug, Default)]
+pub struct Switcher {
+    pub query: String,
+    pub selected: usize,
+}
+
 /// Where one tab was drawn on the tab line, for clicks and drags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TabHit {
@@ -195,6 +206,10 @@ pub struct Hit {
 #[derive(Default)]
 pub struct App {
     pub tabs: Vec<String>,
+    pub hidden: Vec<String>,
+    pub pinned: usize,
+    /// The quick switcher (`s`), while open.
+    pub switcher: Option<Switcher>,
     pub attention: BTreeMap<String, Attention>,
     pub current: Option<String>,
     pub view: Option<View>,
@@ -349,6 +364,8 @@ impl App {
     /// already left is kept for switching back, never shown.
     pub fn apply(&mut self, snapshot: Snapshot) {
         self.tabs = snapshot.tabs;
+        self.hidden = snapshot.hidden;
+        self.pinned = snapshot.pinned;
         self.attention = snapshot.attention;
         if self.current.is_some() && snapshot.squad != self.current {
             if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
@@ -421,10 +438,15 @@ impl App {
         }
     }
 
-    /// Moves one tab to another position and saves the order.
+    /// Moves one tab to another position and saves the order. Pinned tabs
+    /// keep `[tabs] pin`'s order, so only the others move, and never among
+    /// them: a saved `order` could not change where a pin is drawn.
     fn move_tab(&mut self, from: usize, to: usize) -> Effect {
         if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
             return Effect::None;
+        }
+        if from < self.pinned || to < self.pinned {
+            return self.say("Pinned tabs keep the order in [tabs] pin.");
         }
         let tab = self.tabs.remove(from);
         self.tabs.insert(to, tab);
@@ -782,6 +804,9 @@ impl App {
         if self.menu.is_some() {
             return self.menu_key(key);
         }
+        if self.switcher.is_some() {
+            return self.switcher_key(key);
+        }
         if self.searching {
             match key.code {
                 KeyCode::Char(character) if !character.is_control() => self.search.push(character),
@@ -837,6 +862,8 @@ impl App {
             KeyCode::Left => return self.switch(-1),
             KeyCode::Right => return self.switch(1),
             KeyCode::Char('/') => self.searching = true,
+            // The switcher's key, unless the user bound `s` to something.
+            KeyCode::Char('s') if !self.bound(key) => self.switcher = Some(Switcher::default()),
             KeyCode::Char('?') => self.help = !self.help,
             _ => {
                 if let Some(action) =
@@ -846,6 +873,50 @@ impl App {
                 }
             }
         }
+        Effect::None
+    }
+
+    /// Every tab the switcher offers: the tab line's, then hidden ones.
+    pub fn switchable(&self) -> Vec<String> {
+        self.tabs.iter().chain(&self.hidden).cloned().collect()
+    }
+
+    fn switcher_key(&mut self, key: KeyEvent) -> Effect {
+        let keys = self.switchable();
+        let Some(switcher) = &mut self.switcher else {
+            return Effect::None;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.switcher = None;
+                return Effect::None;
+            }
+            KeyCode::Up => switcher.selected = switcher.selected.saturating_sub(1),
+            KeyCode::Down => switcher.selected += 1,
+            KeyCode::Backspace => {
+                switcher.query.pop();
+                switcher.selected = 0;
+            }
+            KeyCode::Char(character)
+                if !character.is_control() && !key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                switcher.query.push(character);
+                switcher.selected = 0;
+            }
+            KeyCode::Enter => {
+                let chosen = super::tabs::matching(&keys, &switcher.query)
+                    .get(switcher.selected)
+                    .map(|key| (*key).clone());
+                self.switcher = None;
+                return match chosen {
+                    Some(key) => self.go(key),
+                    None => Effect::None,
+                };
+            }
+            _ => {}
+        }
+        let count = super::tabs::matching(&keys, &switcher.query).len();
+        switcher.selected = switcher.selected.min(count.saturating_sub(1));
         Effect::None
     }
 
@@ -869,7 +940,7 @@ impl App {
     /// A left click selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
-        if self.menu.is_some() || self.input.is_some() || self.help {
+        if self.menu.is_some() || self.input.is_some() || self.help || self.switcher.is_some() {
             return Effect::None;
         }
         let lines = match event.kind {
@@ -970,6 +1041,8 @@ pub(crate) mod tests {
     pub(crate) fn snapshot(squad: &str, sections: Value) -> Snapshot {
         Snapshot {
             tabs: vec!["infra".into(), "product".into()],
+            hidden: Vec::new(),
+            pinned: 0,
             attention: Default::default(),
             squad: Some(squad.into()),
             view: Ok(view(sections)),
@@ -1074,6 +1147,8 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Right);
         app.apply(Snapshot {
             tabs: vec!["product".into(), "infra".into()],
+            hidden: Vec::new(),
+            pinned: 0,
             attention: Default::default(),
             squad: Some("infra".into()),
             view: Err("infra: room not found".into()),
@@ -1463,6 +1538,8 @@ pub(crate) mod tests {
         ));
         app.apply(Snapshot {
             tabs: vec!["product".into()],
+            hidden: Vec::new(),
+            pinned: 0,
             attention: Default::default(),
             squad: Some("product".into()),
             view: Err("tmt did not finish in time".into()),
