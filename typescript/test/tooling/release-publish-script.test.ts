@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const script = fileURLToPath(new URL('../../scripts/release-publish.mjs', import.meta.url));
+const componentMap = fileURLToPath(new URL('../../../.github/components.json', import.meta.url));
 
 const SHA = 'a'.repeat(40);
 const TAG = 'v5.0.0-alpha.9';
@@ -213,10 +214,38 @@ describe('release-publish.mjs publish', () => {
     expect(run(['publish', '--product', 'office', '--tag', TAG]).stderr).toContain(
       'is not a office release tag'
     );
-    expect(run(['publish', '--product', 'cli', '--tag', 'v9.9.9']).stderr).toContain(
-      'there is no release v9.9.9'
+    expect(run(['publish', '--product', 'cli', '--tag', 'v5.0.0-alpha.99']).stderr).toContain(
+      'there is no release v5.0.0-alpha.99'
     );
     expect(calls().some(([, sub]) => sub === 'edit')).toBe(false);
+  });
+
+  it.each(['v5.0.0', 'v5.0.0-beta.1', 'v5.0.0-rc.1'])(
+    'never publishes the release %s, which is not an alpha, however complete its draft',
+    (tag) => {
+      const { run, calls } = scenario({ drafts: [draft(tag, ASSETS)] });
+      const result = run(['publish', '--product', 'cli', '--tag', tag]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`Not publishing: ${tag} is not an alpha release`);
+      expect(result.output).toBe('');
+      expect(calls().some(([, sub]) => sub === 'edit')).toBe(false);
+    }
+  );
+
+  it('never publishes a component that the component map does not release', () => {
+    const fake = scenario({ drafts: [draft(TAG, ASSETS)] });
+    const map = JSON.parse(readFileSync(componentMap, 'utf8')) as {
+      components: Record<string, { release?: boolean }>;
+    };
+    map.components.cli.release = false;
+    const parked = path.join(fake.directory, 'components.json');
+    writeFileSync(parked, JSON.stringify(map));
+    const result = fake.run([...publish, '--components', parked]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('cli is not released (release: false');
+    expect(fake.calls().some(([, sub]) => sub === 'edit')).toBe(false);
+    // The committed map releases it, which the other tests rely on.
+    expect(fake.run(publish).status).toBe(0);
   });
 
   it('fails, without an output, when gh cannot publish', () => {

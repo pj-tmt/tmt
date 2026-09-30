@@ -45,8 +45,14 @@ export function publishBlocker(input: {
   release: (Partial<PublishedRelease> & { draft?: boolean }) | undefined;
   product: string;
   tag: string;
+  released?: boolean;
 }): string;
-export function publishDraft(input: { api: PublishApi; product: string; tag: string }): {
+export function publishDraft(input: {
+  api: PublishApi;
+  product: string;
+  tag: string;
+  released?: boolean;
+}): {
   flags: string[];
 };
 export function checkPublishedRelease(input: {

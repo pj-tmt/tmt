@@ -1,6 +1,7 @@
 export const REQUIRED_CONTEXTS: readonly string[];
 export const EARLY_GATES: readonly string[];
 export const GATES: readonly string[];
+export const UNSKIPPABLE_GATE: string;
 
 export interface GateOutcome {
   readonly ok: boolean;
@@ -22,6 +23,7 @@ export function checkCommit(input: {
     completed_at: string;
   }[];
 }): GateOutcome;
+export function checkChannel(input: { product: string; tag: string }): GateOutcome;
 export function checkImmutability(input: {
   releases: readonly {
     tag_name: string;

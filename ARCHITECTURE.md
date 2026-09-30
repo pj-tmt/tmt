@@ -2460,12 +2460,13 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
 assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
-attached the pipeline evaluates the publication gates (commit, immutability, monotonic,
-migration, upgrade) in write-token jobs that run `main`'s code and only read the release
+attached the pipeline evaluates the publication gates (channel, commit, immutability,
+monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release
 commit's data; a failed gate leaves `publication-held.json` on the draft. A draft that
 passes them is published by `typescript/scripts/release-publish.mjs` in a write-token job on
-`main`'s code (it reads the draft again and refuses without the bundle or with a hold or
-failure marker; one `gh release edit` applies the product policy's explicit draft,
+`main`'s code (it reads the draft again and refuses a version that is not an alpha, a
+component with `release: false`, a draft without the bundle and one with a hold or failure
+marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
 prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
 the policy's flags, the tag on the release commit and GitHub's attestation for the release and
 every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and

@@ -66,6 +66,27 @@ describe('publishBlocker', () => {
       'recorded failure',
     ],
     [
+      'a stable release',
+      draft('v5.0.0', ['release-publication.json']),
+      'cli',
+      'v5.0.0',
+      'not an alpha release',
+    ],
+    [
+      'a beta release',
+      draft('tmt-squad-v0.1.0-beta.1', ['release-publication.json']),
+      'squad',
+      'tmt-squad-v0.1.0-beta.1',
+      'not an alpha release',
+    ],
+    [
+      'a release candidate',
+      draft('v5.0.0-rc.1', ['release-publication.json']),
+      'cli',
+      'v5.0.0-rc.1',
+      'not an alpha release',
+    ],
+    [
       'a draft whose target is a branch',
       draft(TAG, ['release-publication.json'], { target_commitish: 'main' }),
       'cli',
@@ -74,6 +95,18 @@ describe('publishBlocker', () => {
     ],
   ])('refuses %s', (_name, release, product, tag, message) => {
     expect(publishBlocker({ release, product, tag })).toContain(message);
+  });
+
+  it('refuses a complete alpha draft of a component that is not released', () => {
+    expect(publishBlocker({ release: complete, product: 'cli', tag: TAG, released: false })).toBe(
+      'cli is not released (release: false in .github/components.json)'
+    );
+  });
+
+  it('judges the tag before the draft, so a stable release is never reported as merely unbundled', () => {
+    expect(
+      publishBlocker({ release: draft('v5.0.0', []), product: 'cli', tag: 'v5.0.0' })
+    ).toContain('not an alpha release');
   });
 });
 
@@ -119,8 +152,24 @@ describe('publishDraft', () => {
     }
     const { api, published } = fakeApi([draft(TAG, ['release-publication.json'])]);
     expect(() => publishDraft({ api, product: 'squad', tag: TAG })).toThrow('Not publishing');
-    expect(() => publishDraft({ api, product: 'cli', tag: 'v9.9.9' })).toThrow(
-      'there is no release v9.9.9'
+    expect(() => publishDraft({ api, product: 'cli', tag: 'v5.0.0-alpha.99' })).toThrow(
+      'there is no release v5.0.0-alpha.99'
+    );
+    expect(published).toEqual([]);
+  });
+
+  it('publishes nothing that is not an alpha release, however complete the draft', () => {
+    for (const tag of ['v5.0.0', 'v5.0.0-beta.1', 'v5.0.0-rc.1']) {
+      const { api, published } = fakeApi([draft(tag, ['release-publication.json'])]);
+      expect(() => publishDraft({ api, product: 'cli', tag })).toThrow('not an alpha release');
+      expect(published, tag).toEqual([]);
+    }
+  });
+
+  it('publishes nothing of a component that is not released, even a complete alpha draft', () => {
+    const { api, published } = fakeApi([draft(TAG, ['release-publication.json'])]);
+    expect(() => publishDraft({ api, product: 'cli', tag: TAG, released: false })).toThrow(
+      'cli is not released'
     );
     expect(published).toEqual([]);
   });

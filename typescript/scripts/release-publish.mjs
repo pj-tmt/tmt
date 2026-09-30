@@ -2,19 +2,20 @@
 // Publishes a complete draft release under its product's policy, then checks the published
 // release. Publication cannot be undone once release immutability is on, so the two halves
 // are separate and strict:
-//   publish  re-reads the draft and refuses unless it carries the verified bundle and no hold or
-//            failure marker; then one `gh release edit` makes it public with the policy's
-//            prerelease and latest flags. The workflow calls it only after every gate passed.
+//   publish  re-reads the draft and refuses unless it is an alpha release of a released component
+//            (`release: false` parks one) that carries the verified bundle and no hold or failure
+//            marker; then one `gh release edit` makes it public with the policy's prerelease and
+//            latest flags. The workflow calls it only after every gate passed.
 //   verify   reads the published release back: it is public, immutable, carries the policy's flags,
 //            its tag is on the release commit, and GitHub's release attestation covers the
 //            release and every downloaded asset. A failure opens an issue and fails the run;
 //            nothing is rolled back.
-//   node release-publish.mjs publish --product P --tag TAG
+//   node release-publish.mjs publish --product P --tag TAG [--components FILE]
 //   node release-publish.mjs verify  --product P --tag TAG --directory DIR [--run-url URL] [--attempts N]
 // Both run with a token that can write, so they run this repository's main and never the
 // release commit's code.
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -24,20 +25,30 @@ import {
   publishFlags,
   releasePolicy,
 } from './native-release-policy.mjs';
+import { isReleased, parseComponentMap } from './ci-scope.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { ghApi } from './release-draft-assets.mjs';
+import { isAlphaVersion, versionOfTag } from './release-versions.mjs';
 
 const COMMIT = /^[0-9a-f]{40}$/;
+/** The component map of this repository, which decides what is released. */
+const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import.meta.url));
 /** GitHub makes the attestation and the immutable state shortly after publication, not atomically. */
 const VERIFY_ATTEMPTS = 8;
 const VERIFY_WAIT_MS = 15_000;
 
 /**
  * Why this draft may not be published now, or an empty string. The workflow publishes only after
- * the gates passed, but publication cannot be undone, so the draft is read again here.
+ * the gates passed, but publication cannot be undone, so the draft is read again here, and the
+ * limits of the standing authorization are enforced here too: only a release of the alpha channel,
+ * and only of a component that is released (`released` is false for `release: false`).
  */
-export function publishBlocker({ release, product, tag }) {
+export function publishBlocker({ release, product, tag, released = true }) {
   if (productOfTag(tag) !== product) return `${tag} is not a ${product} release tag`;
+  if (!isAlphaVersion(versionOfTag(tag, product))) {
+    return `${tag} is not an alpha release (X.Y.Z-alpha.N); only the owner publishes any other`;
+  }
+  if (!released) return `${product} is not released (release: false in .github/components.json)`;
   if (!release) return `there is no release ${tag}`;
   if (release.draft !== true) return `${tag} is already published`;
   const names = new Set((release.assets ?? []).map(({ name }) => name));
@@ -51,9 +62,9 @@ export function publishBlocker({ release, product, tag }) {
 }
 
 /** Publishes the draft with the product's flags. Returns the flags it applied. */
-export function publishDraft({ api, product, tag }) {
+export function publishDraft({ api, product, tag, released = true }) {
   const release = api.listReleases().find(({ tag_name: name }) => name === tag);
-  const blocker = publishBlocker({ release, product, tag });
+  const blocker = publishBlocker({ release, product, tag, released });
   if (blocker) throw new Error(`Not publishing: ${blocker}.`);
   const flags = publishFlags(product);
   api.publish(tag, flags);
@@ -341,6 +352,7 @@ function main(argv, environment) {
       directory: { type: 'string' },
       'run-url': { type: 'string', default: '' },
       attempts: { type: 'string', default: String(VERIFY_ATTEMPTS) },
+      components: { type: 'string', default: COMPONENTS },
     },
   });
   for (const name of ['product', 'tag']) {
@@ -351,7 +363,13 @@ function main(argv, environment) {
   const api = ghPublishApi({ repository });
 
   if (command === 'publish') {
-    const { flags } = publishDraft({ api, product: values.product, tag: values.tag });
+    const map = parseComponentMap(readFileSync(values.components, 'utf8'));
+    const { flags } = publishDraft({
+      api,
+      product: values.product,
+      tag: values.tag,
+      released: isReleased(map, values.product),
+    });
     report(
       environment,
       `### Published \`${values.tag}\`\n\nEvery gate passed; it was published with \`${flags.join(' ')}\`. The next job checks the published release.\n`

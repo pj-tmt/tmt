@@ -84,7 +84,9 @@ one, is refused by the Environment. Do not add repository secrets of the same na
 are readable from every ref.
 
 Once a draft's bundle is attached, the run evaluates the publication gates in order:
-`commit` (the release's commit is on `main` and the pull request that produced it passed
+`channel` (the version is an alpha, `X.Y.Z-alpha.N`; a stable version or any other pre-release
+label such as `beta` or `rc` is held, and releasing that hold is refused: the owner publishes it
+by hand), `commit` (the release's commit is on `main` and the pull request that produced it passed
 `Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
 repository's newest published release is immutable, which shows that the setting was on; the
 workflow token cannot read the setting itself), `monotonic` (the release is newer than every
@@ -98,8 +100,8 @@ The jobs that evaluate the gates hold the write token, so they run `main`'s code
 the release commit's data through git and the API. To release a hold once its cause is dealt
 with, publish the draft by hand as below, or dispatch `native-release.yml` on `main` with the
 product, `prepare` off and `hold` set to the tag: the run evaluates the gates again without
-the one gate the marker names (never another), removes the marker when they pass and then
-publishes the draft as below.
+the one gate the marker names (never another, and never `channel`), removes the marker when
+they pass and then publishes the draft as below.
 
 Publication is authorized by the owner. The owner chose a trunk-based alpha channel, and that
 choice is the standing authorization, recorded in the release skill, for the release pipeline
@@ -107,7 +109,10 @@ to publish an alpha draft that passes every gate above; everything a gate holds,
 release and every publication by hand needs the owner's explicit authorization.
 
 When every gate passes, the `publish` job publishes the draft. `release-publish.mjs publish`
-reads the draft again and refuses unless it carries the bundle and neither
+reads the draft again and refuses unless its version is an alpha, its component is released
+(`release: false` in `.github/components.json` parks a component: release-please opens nothing
+for it, the planner leaves its drafts alone and this command refuses them, so a draft that
+predates the flag cannot publish), and it carries the bundle and neither
 `publication-held.json` nor `verification-failed.json`; then one `gh release edit <tag>
 --draft=false --prerelease=<bool> --latest=<bool>` applies the product's policy below. Both
 flags are explicit because release-please makes every draft a prerelease. The `published` job

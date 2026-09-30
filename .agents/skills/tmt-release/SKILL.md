@@ -79,8 +79,10 @@ matches practice. The
 [native release verification guide](../../../docs/native-release-verification.md) owns the
 gates, the markers and the procedures; this section owns who may publish what.
 
-- Covered: an alpha draft of the CLI, Office or Squad that the pipeline built from `main`,
-  verified and attached, and that passes every publication gate. The CLI alpha is published as a
+- Covered: an alpha draft of the CLI, Office or Squad (a version `X.Y.Z-alpha.N`, enforced by
+  the `channel` gate and again by the publish command) that the pipeline built from `main`,
+  verified and attached, of a component that is released (`release: false` in the component map
+  parks one), and that passes every publication gate. The CLI alpha is published as a
   normal release marked latest; Office and Squad alphas as prereleases with `--latest=false`,
   as the bundle's `release-publication.json` says.
 - Still the owner's explicit authorization: stable releases and anything outside the alpha

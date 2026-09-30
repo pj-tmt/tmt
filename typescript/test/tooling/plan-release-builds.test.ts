@@ -15,6 +15,7 @@ import {
 } from '../../scripts/plan-release-builds.mjs';
 
 const script = fileURLToPath(new URL('../../scripts/plan-release-builds.mjs', import.meta.url));
+const componentMap = fileURLToPath(new URL('../../../.github/components.json', import.meta.url));
 
 const sha = (digit: string) => digit.repeat(40);
 
@@ -279,6 +280,63 @@ describe('release build plan', () => {
     );
   });
 
+  it('plans nothing for a component that is not released, and lists its drafts as left alone', () => {
+    const plan = planReleaseBuilds({
+      product: 'office',
+      released: false,
+      releases: [
+        draft('tmt-office-v0.1.0-alpha.4', '1'),
+        draft('tmt-office-v0.1.0-alpha.5', '2', [BUNDLE_ASSET]),
+        draft('tmt-office-v0.1.0-alpha.6', '3', [BUNDLE_ASSET, HOLD_ASSET]),
+        draft('tmt-office-v0.1.0-alpha.7', '4', [FAILURE_ASSET]),
+        draft('v5.0.0-alpha.9', '5'),
+      ],
+    });
+    expect(plan.builds).toEqual([]);
+    expect(plan.awaiting).toEqual([]);
+    expect(plan.blocked).toEqual([]);
+    expect(plan.held).toEqual([]);
+    expect(plan.unreleased).toEqual([
+      { tag: 'tmt-office-v0.1.0-alpha.4' },
+      { tag: 'tmt-office-v0.1.0-alpha.5' },
+      { tag: 'tmt-office-v0.1.0-alpha.6' },
+      { tag: 'tmt-office-v0.1.0-alpha.7' },
+    ]);
+  });
+
+  it('refuses to retry or release a hold for a component that is not released', () => {
+    const releases = [draft('tmt-office-v0.1.0-alpha.4', '1', [BUNDLE_ASSET, HOLD_ASSET])];
+    for (const extra of [
+      { retry: 'tmt-office-v0.1.0-alpha.4' },
+      { hold: 'tmt-office-v0.1.0-alpha.4' },
+    ]) {
+      expect(() =>
+        planReleaseBuilds({ product: 'office', released: false, releases, ...extra })
+      ).toThrow('office is not released');
+    }
+  });
+
+  it('plans a released component as before', () => {
+    const plan = planReleaseBuilds({
+      product: 'office',
+      released: true,
+      releases: [draft('tmt-office-v0.1.0-alpha.4', '1')],
+    });
+    expect(tags(plan)).toEqual(['tmt-office-v0.1.0-alpha.4']);
+    expect(plan.unreleased ?? []).toEqual([]);
+  });
+
+  it('says in the run summary which drafts it leaves alone', () => {
+    const text = renderPlanSummary({
+      product: 'office',
+      builds: [],
+      blocked: [],
+      unreleased: [{ tag: 'tmt-office-v0.1.0-alpha.4' }],
+    });
+    expect(text).toContain('**Left alone** (office is not released');
+    expect(text).toContain('- `tmt-office-v0.1.0-alpha.4`');
+  });
+
   it('renders the complete drafts that await their publication in the run summary', () => {
     const text = renderPlanSummary({
       product: 'cli',
@@ -347,6 +405,27 @@ describe('plan-release-builds.mjs', () => {
       `matrix=${JSON.stringify({ include: [{ tag: 'v5.0.0-alpha.9', sha: sha('1') }] })}\nany=true\n`
     );
     expect(resume.summary).toContain('await their gates and publication');
+  });
+
+  it('plans no run for a product the component map does not release', () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'plan-components-'));
+    try {
+      const map = JSON.parse(readFileSync(componentMap, 'utf8')) as {
+        components: Record<string, { release?: boolean }>;
+      };
+      map.components.office.release = false;
+      const parked = path.join(directory, 'components.json');
+      writeFileSync(parked, JSON.stringify(map));
+      const drafts = [[draft('tmt-office-v0.1.0-alpha.5', '1', [BUNDLE_ASSET])]];
+      const result = run(['--product', 'office', '--components', parked], drafts);
+      expect(result.status).toBe(0);
+      expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
+      expect(result.summary).toContain('**Left alone** (office is not released');
+      // The committed map releases it.
+      expect(run(['--product', 'office'], drafts).output).toContain('any=true');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('plans no run for a held draft alone', () => {

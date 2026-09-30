@@ -6,10 +6,11 @@
 // while it waited for its concurrency group, or one that stopped before it published, loses
 // nothing: the run that follows plans the same drafts.
 //   gh api --paginate --slurp repos/OWNER/REPO/releases \
-//     | node plan-release-builds.mjs --product cli [--retry TAG | --hold TAG]
+//     | node plan-release-builds.mjs --product cli [--retry TAG | --hold TAG] [--components FILE]
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { isReleased, parseComponentMap } from './ci-scope.mjs';
 import { productOfTag } from './native-release-policy.mjs';
 
 /** Uploaded last, after every verify job passed: a draft that has it carries a complete bundle. */
@@ -23,6 +24,8 @@ export const FAILURE_ASSET = 'verification-failed.json';
 export const HOLD_ASSET = 'publication-held.json';
 
 const COMMIT = /^[0-9a-f]{40}$/;
+/** The component map of this repository, which decides what is released. */
+const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import.meta.url));
 
 const oldestFirst = (left, right) =>
   Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.tag.localeCompare(right.tag);
@@ -33,13 +36,25 @@ const oldestFirst = (left, right) =>
  * each oldest first. A `retry` tag plans exactly that draft, ignoring its failure marker, and
  * refuses a tag that is not an unbundled draft of the product.
  */
-export function planReleaseBuilds({ releases, product, retry = '', hold = '' }) {
+export function planReleaseBuilds({ releases, product, retry = '', hold = '', released = true }) {
   if (retry !== '' && hold !== '') {
     throw new Error('A retry and a released hold are separate runs; give one of them.');
   }
   const drafts = releases.filter(
     (release) => release.draft === true && productOfTag(release.tag_name) === product
   );
+  if (!released) {
+    if (retry !== '' || hold !== '') {
+      throw new Error(`${product} is not released (release: false in .github/components.json).`);
+    }
+    return {
+      builds: [],
+      awaiting: [],
+      blocked: [],
+      held: [],
+      unreleased: drafts.map((release) => ({ tag: release.tag_name })),
+    };
+  }
   const named = (release) => ({
     tag: release.tag_name,
     sha: release.target_commitish,
@@ -131,6 +146,7 @@ export function renderPlanSummary({
   awaiting = [],
   blocked,
   held = [],
+  unreleased = [],
   retry = '',
   hold = '',
 }) {
@@ -147,6 +163,13 @@ export function renderPlanSummary({
       '',
       `Complete drafts that await their gates and publication, oldest first: ${awaiting.map(({ tag }) => `\`${tag}\``).join(', ')}.`
     );
+  }
+  if (unreleased.length > 0) {
+    lines.push(
+      '',
+      `**Left alone** (${product} is not released, \`release: false\` in the component map):`
+    );
+    for (const { tag } of unreleased) lines.push(`- \`${tag}\``);
   }
   if (held.length > 0) {
     lines.push(
@@ -174,6 +197,7 @@ function main(argv, stdin) {
       product: { type: 'string' },
       retry: { type: 'string', default: '' },
       hold: { type: 'string', default: '' },
+      components: { type: 'string', default: COMPONENTS },
     },
   });
   if (!values.product) {
@@ -182,11 +206,13 @@ function main(argv, stdin) {
     );
   }
   const releases = releasesFrom(JSON.parse(stdin));
+  const map = parseComponentMap(readFileSync(values.components, 'utf8'));
   const plan = planReleaseBuilds({
     releases,
     product: values.product,
     retry: values.retry,
     hold: values.hold,
+    released: isReleased(map, values.product),
   });
   const summary = renderPlanSummary({
     product: values.product,

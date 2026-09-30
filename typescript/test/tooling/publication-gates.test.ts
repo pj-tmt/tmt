@@ -6,7 +6,9 @@ import { ownerOf, parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
   EARLY_GATES,
   GATES,
+  UNSKIPPABLE_GATE,
   REQUIRED_CONTEXTS,
+  checkChannel,
   checkCommit,
   checkImmutability,
   checkMigration,
@@ -120,8 +122,53 @@ describe('required contexts and gate order', () => {
     for (const context of REQUIRED_CONTEXTS) {
       expect(ci, context).toMatch(new RegExp(`^ {4}name: ${context}$`, 'm'));
     }
-    expect(GATES).toEqual(['commit', 'immutability', 'monotonic', 'migration', 'upgrade']);
-    expect(EARLY_GATES).toEqual(GATES.slice(0, 4));
+    expect(GATES).toEqual([
+      'channel',
+      'commit',
+      'immutability',
+      'monotonic',
+      'migration',
+      'upgrade',
+    ]);
+    expect(EARLY_GATES).toEqual(GATES.slice(0, 5));
+    // The cheapest, tag-only gate runs first, and releasing a hold can never skip it.
+    expect(GATES[0]).toBe(UNSKIPPABLE_GATE);
+  });
+});
+
+describe('checkChannel', () => {
+  it.each([
+    ['cli', 'v5.0.0-alpha.9'],
+    ['cli', 'v5.0.0-alpha.10'],
+    ['office', 'tmt-office-v0.1.0-alpha.4'],
+    ['squad', 'tmt-squad-v0.1.0-alpha.2'],
+  ])('lets the alpha release %s %s publish automatically', (product, tag) => {
+    expect(checkChannel({ product, tag }).ok).toBe(true);
+  });
+
+  it.each([
+    ['cli', 'v5.0.0', 'stable'],
+    ['cli', 'v5.1.3', 'stable'],
+    ['squad', 'tmt-squad-v0.1.0', 'stable'],
+    ['office', 'tmt-office-v1.0.0', 'stable'],
+    ['cli', 'v5.0.0-beta.1', 'beta'],
+    ['cli', 'v5.0.0-rc.1', 'release candidate'],
+    ['squad', 'tmt-squad-v0.1.0-beta.2', 'beta'],
+    ['cli', 'v5.0.0-alpha', 'alpha without a number'],
+    ['cli', 'v5.0.0-alpha.1.2', 'alpha with a longer label'],
+    ['cli', 'v5.0.0-alpha.x', 'alpha with a word'],
+    ['cli', 'v5.0.0-alpha.9-rc.1', 'another label after the alpha'],
+  ])('holds %s %s (%s) for the owner', (product, tag) => {
+    const outcome = checkChannel({ product, tag });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toContain('not an alpha release');
+    expect(outcome.reason).toContain('by hand');
+  });
+
+  it('refuses a tag of another product instead of judging it', () => {
+    expect(() => checkChannel({ product: 'cli', tag: 'tmt-squad-v0.1.0-alpha.2' })).toThrow(
+      'is not a cli tag'
+    );
   });
 });
 
@@ -376,15 +423,15 @@ describe('runGates', () => {
     const { called, checks } = make('monotonic');
     const { held } = runGates({ order: EARLY_GATES, checks });
     expect(held).toEqual({ gate: 'monotonic', reason: 'monotonic failed' });
-    expect(called).toEqual(['commit', 'immutability', 'monotonic']);
+    expect(called).toEqual(['channel', 'commit', 'immutability', 'monotonic']);
   });
 
   it('skips exactly the named gate, and still stops at a different failure', () => {
     const { called, checks } = make('commit');
     const released = runGates({ order: EARLY_GATES, checks, skip: 'commit' });
     expect(released.held).toBeNull();
-    expect(called).toEqual(['immutability', 'monotonic', 'migration']);
-    expect(released.results[0]).toMatchObject({ gate: 'commit', skipped: true });
+    expect(called).toEqual(['channel', 'immutability', 'monotonic', 'migration']);
+    expect(released.results[1]).toMatchObject({ gate: 'commit', skipped: true });
 
     const other = make('migration');
     expect(runGates({ order: EARLY_GATES, checks: other.checks, skip: 'commit' }).held?.gate).toBe(
