@@ -468,3 +468,57 @@ fn the_github_preset_degrades_to_a_failed_run() {
     );
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn only_current_successful_github_preset_states_are_activity_evidence() {
+    let providers =
+        providers("[squad.p.fields.pr_state]\npreset = \"github-pr\"\nevery = \"1m\"\n").unwrap();
+    let linked = member("R", &[("pr_link", "https://example.com/pull/1")]);
+    let jobs = due(
+        &providers,
+        std::slice::from_ref(&linked),
+        &Cache::at(None),
+        1000,
+    );
+    let mut cache = Cache::at(None);
+    cache.record(
+        &jobs[0],
+        &Outcome::Value {
+            value: "#1 open · approved".into(),
+            color: None,
+        },
+        1000,
+    );
+    assert_eq!(
+        cache
+            .github_pr_states(&providers, &linked, 2000)
+            .get("pr_state")
+            .map(String::as_str),
+        Some("open")
+    );
+    assert!(cache.github_pr_states(&providers, &linked, 999).is_empty());
+    assert!(
+        cache
+            .github_pr_states(&providers, &linked, 61001)
+            .is_empty()
+    );
+    let relinked = member("R", &[("pr_link", "https://example.com/pull/2")]);
+    assert!(
+        cache
+            .github_pr_states(&providers, &relinked, 2000)
+            .is_empty()
+    );
+    cache.record(&jobs[0], &Outcome::Failed, 2000);
+    assert!(cache.github_pr_states(&providers, &linked, 2000).is_empty());
+    let text = gh();
+    let jobs = due(&text, std::slice::from_ref(&linked), &Cache::at(None), 1000);
+    cache.record(
+        &jobs[0],
+        &Outcome::Value {
+            value: "#1 merged".into(),
+            color: None,
+        },
+        1000,
+    );
+    assert!(cache.github_pr_states(&text, &linked, 2000).is_empty());
+}

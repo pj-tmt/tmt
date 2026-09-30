@@ -24,6 +24,7 @@ include = [
 [dependencies]
 clap.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 toml_edit.workspace = true
 ratatui.workspace = true
 pulldown-cmark.workspace = true
@@ -32,6 +33,7 @@ tmt-cli-style = { workspace = true, features = ["ratatui"] }
 
 [target.'cfg(unix)'.dependencies]
 subprocess.workspace = true
+nix.workspace = true
 signal-hook.workspace = true
 
 [lints]

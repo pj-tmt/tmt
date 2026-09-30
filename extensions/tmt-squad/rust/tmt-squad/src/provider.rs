@@ -264,7 +264,7 @@ impl Cache {
         Self::at(path)
     }
 
-    fn at(path: Option<PathBuf>) -> Self {
+    pub(crate) fn at(path: Option<PathBuf>) -> Self {
         let document = path
             .as_deref()
             .and_then(|path| std::fs::read(path).ok())
@@ -284,13 +284,49 @@ impl Cache {
             Outcome::Empty => (Value::Null, Value::Null, false),
             Outcome::Failed => (Value::Null, Value::Null, true),
         };
+        let pr_state = if job.output == Output::GithubPr {
+            value
+                .as_str()
+                .and_then(|value| value.split_whitespace().nth(1))
+                .filter(|state| matches!(*state, "draft" | "open" | "closed" | "merged"))
+                .map(str::to_owned)
+        } else {
+            None
+        };
         let field = self
             .document
             .entry(job.field.clone())
             .or_insert_with(|| json!({}));
         field[&job.member] = json!({
-            "argv": job.argv, "value": value, "color": color, "atMs": now_ms, "failed": failed,
+            "argv": job.argv, "value": value, "color": color, "atMs": now_ms, "failed": failed, "prState": pr_state,
         });
+    }
+
+    /// Successful, current github-pr preset states only. Arbitrary text
+    /// providers never become activity evidence, and this executes nothing.
+    pub fn github_pr_states(
+        &self,
+        providers: &[Provider],
+        member: &Member,
+        now_ms: u64,
+    ) -> std::collections::BTreeMap<String, String> {
+        providers
+            .iter()
+            .filter(|provider| provider.output == Output::GithubPr)
+            .filter_map(|provider| {
+                let argv = argv(provider, &crate::status::row(member))?;
+                let entry = current(self, provider, member, &argv)?;
+                let at = entry["atMs"].as_u64()?;
+                if entry["failed"] != false
+                    || now_ms.checked_sub(at)? > provider.every.as_millis() as u64
+                {
+                    return None;
+                }
+                let state = entry["prState"].as_str()?;
+                matches!(state, "draft" | "open" | "closed" | "merged")
+                    .then(|| (provider.name.clone(), state.to_owned()))
+            })
+            .collect()
     }
 
     pub fn save(&self) -> std::io::Result<()> {

@@ -1050,13 +1050,24 @@ fn squad_and_core_are_independent_in_both_directions() {
                 "clap",
                 "serde_json",
                 "toml_edit",
-                "subprocess"
+                "subprocess",
+                "sha2",
+                "nix"
             ]
             .into_iter()
             .map(|name| dependency(name, "normal", Some("cfg(unix)"), None))
             .collect(),
         ))
         .is_empty()
+    );
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("rusqlite", "normal", None, None)]
+        ))
+        .len(),
+        1,
+        "Squad must not add a direct core-storage connection"
     );
     for core in [
         "tmt-core",

@@ -230,9 +230,27 @@ Squad comes with a skill for the lead agent. It teaches the lead to read the boa
 
 Optional **playbooks** are example skills for how a lead lays out its team on your host: `tmux-squad` (a leads session and a crew session, one window and worktree per member), `cmux-squad` and `herdr-squad`. Squad never runs them. Read one with `tmt sq playbook show tmux-squad`, then install it, change it, or ignore it.
 
+### Observed age and reminders <Tag kind="planned" />
+
+Squad can report how long it has observed a member's task/state and the lead's notes unchanged. It is off by default; each squad chooses its threshold, from one minute to 24 hours, in whole seconds, minutes or hours:
+
+<Code>{`
+[squad.product.reminders]
+enabled = true
+stale_after = "30m"
+`}</Code>
+
+`tmt sq ls` labels stale rows and lead notes with their age. JSON gives every row a separate `staleness` object and the squad a `notesStaleness` object: `state` is `disabled`, `unknown`, `fresh` or `stale`; `unchangedSinceMs` and `ageMs` are null when unknown. The same object carries `activityAfterUpdate` and stable `reasons` for future reminder eligibility.
+
+This is **observed content age**. The clock starts when Squad first sees the raw task/state or exact notes content; it cannot tell how long existing work was unchanged before that. Provider refreshes, a new link or a row note do not renew a task's age. Missing/unreadable notes, an unavailable cache or a clock moving backwards mean unknown, and reading never creates notes. Losing the cache or editing/replacing `squad.toml` starts a new grace period, including unrelated settings edits. Disabled observation does no cache work.
+
+Age alone marks a row stale. A row reminder will also require relevant activity after its update: an observed PR link change, a successful current `github-pr` transition to open/merged, or a submitted member final in the bounded room history. Cold values and occasional reads may miss transitions; Squad never infers idle from silence.
+
+The board's quiet marks and reminders controls are planned follow-ups. A short reminder will be added to the lead's **next turn** through a consented provider hook; it will not interrupt Stop. These config keys install no hooks and this slice delivers no reminder yet.
+
 ### Where state lives
 
-Squad keeps nothing of its own. A squad is a tmt meeting room named `squad-<name>`. Each member's state, task, note and links are stored on its tmt identity. Members started for one job leave the board when their pane closes. Decisions a member needs from you arrive in your inbox, where you can answer them from the board or the command line.
+Squad keeps its roster and board fields in tmt, with optional observed ages in a disposable local cache. A squad is a tmt meeting room named `squad-<name>`. Each member's state, task, note and links are stored on its tmt identity. Members started for one job leave the board when their pane closes. Decisions a member needs from you arrive in your inbox, where you can answer them from the board or the command line.
 
 ### Jumping between members
 

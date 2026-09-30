@@ -169,6 +169,10 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "unicode-width",
             "signal-hook",
             "pulldown-cmark",
+            // Disposable observed-age cache: content fingerprints and
+            // nonblocking Unix advisory locking, no TMT behavior.
+            "sha2",
+            "nix",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
