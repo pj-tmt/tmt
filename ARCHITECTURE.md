@@ -2591,9 +2591,8 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 `extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
 as `tmt remote`. `main` owns style/foreground composition and one bounded
 startup capabilities call. `core::CoreClient` owns fixed public `api`/`list`
-subprocesses through the supplied absolute `TMT_EXECUTABLE`, with deadline,
-output/cancellation bounds and owned process-group cleanup; no PATH fallback.
-The only TMT crate dependency is the shared leaf `tmt-cli-style`.
+subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
 
 `http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
 connection/rate bounds and shutdown. It has no CoreClient/storage reference.
