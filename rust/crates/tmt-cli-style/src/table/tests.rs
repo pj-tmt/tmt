@@ -18,6 +18,7 @@ fn width(width: u16) -> Terminal {
     Terminal {
         color: false,
         width: Some(width),
+        theme: None,
     }
 }
 
@@ -72,6 +73,7 @@ fn color_is_applied_after_layout() {
         Terminal {
             color: true,
             width: None,
+            theme: None,
         },
     );
     assert!(colored.contains("\u{1b}["), "{colored:?}");
@@ -105,6 +107,7 @@ fn actions_trail_only_their_rows_and_are_never_truncated() {
         Terminal {
             color: true,
             width: None,
+            theme: None,
         },
     );
     assert!(
@@ -141,6 +144,7 @@ fn a_colored_first_column_keeps_its_gap_before_text_ending_in_m() {
         Terminal {
             color: true,
             width: Some(120),
+            theme: None,
         },
     );
     let plain: String = anstream::adapter::strip_str(&colored).to_string();
@@ -205,4 +209,44 @@ fn the_shared_solver_lays_out_exactly_as_the_table_did() {
             "{columns:?} {natural:?} at {available:?}"
         );
     }
+}
+
+/// A table's styled cells follow the theme; without one they keep the
+/// 16-color rendering byte for byte.
+#[test]
+fn styled_cells_follow_the_theme() {
+    use crate::{Base, Depth, Theme};
+    let mut table = Table::new(&[Column::Name, Column::Detail]);
+    table.row([
+        Cell::styled("ada", Token::Warn),
+        Cell::styled("3m", Token::Dim),
+    ]);
+    let colored = |theme| Terminal {
+        color: true,
+        width: None,
+        theme,
+    };
+    let truecolor = render(&table, colored(Some((Theme::default(), Depth::TrueColor))));
+    assert!(
+        truecolor.contains("\u{1b}[38;2;255;158;100m"),
+        "{truecolor:?}"
+    );
+    assert!(
+        truecolor.contains("\u{1b}[38;2;86;95;137m"),
+        "dim is a color: {truecolor:?}"
+    );
+    let sixteen = render(
+        &table,
+        colored(Some((Theme::new(Base::Terminal), Depth::Ansi16))),
+    );
+    assert!(
+        sixteen.contains("\u{1b}[38;5;3m") || sixteen.contains("\u{1b}[33m"),
+        "{sixteen:?}"
+    );
+    let untouched = render(&table, colored(None));
+    assert!(
+        untouched.contains("\u{1b}[2m"),
+        "no theme: dim stays an effect: {untouched:?}"
+    );
+    assert!(!untouched.contains("38;2"), "{untouched:?}");
 }

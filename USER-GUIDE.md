@@ -1051,6 +1051,31 @@ or configuration root is in use. Global-only settings cannot be set or cleared
 locally. Unknown fields are preserved; invalid known fields should be repaired,
 not worked around by deleting the file.
 
+Colors come from a theme. The command line uses your terminal's own 16 colors,
+so your terminal theme decides, until you choose a theme in the global file;
+the Squad board uses `tmt` unless you choose:
+
+```json
+{
+  "theme": {
+    "base": "tmt",
+    "waiting": "#e0a458",
+    "accent": "blue"
+  }
+}
+```
+
+`base` is `tmt` (soft 24-bit color for dark terminals), `tmt-light`, `terminal`
+(your 16 colors) or `mono` (bold and dim only). Any token (`text`, `muted`,
+`dim`, `accent`, `waiting`, `working`, `review`, `blocked`, `link`,
+`selection`) can be overridden with `#rrggbb`, a color name such as `blue` or
+`bright black`, `default`, `bold`, `dim` or `reverse`. 24-bit color is used
+when the terminal announces it (`COLORTERM=truecolor`); otherwise `tmt` falls
+back to your 16 colors and a hex value to the nearest of them. `NO_COLOR`, a
+pipe or `--json` means no color at all, and help text keeps your terminal's
+colors. `tmt config show` lists the theme and reports a bad value by its key;
+a bad theme never stops another command, which then keeps the default colors.
+
 ### Optional pane badge
 
 TMT never changes `pane_title`, `pane-border-format`, border position, or theme options.

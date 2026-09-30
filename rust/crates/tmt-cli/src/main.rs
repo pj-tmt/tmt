@@ -1,5 +1,6 @@
 mod answer_command;
 mod api_command;
+mod appearance;
 mod binding_command;
 mod binding_error;
 mod caller_context;
@@ -92,6 +93,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     }
     // Companions reach core through this executable, whatever name it has.
     tmt_adapters::core_executable::declare_core();
+    appearance::configure(parsed.mode.json);
     let inspect_drift = skill_reminder::eligible_for_drift(&parsed);
     let mode = parsed.mode;
     // This process may observe lifecycle changes for enabled extension hooks;

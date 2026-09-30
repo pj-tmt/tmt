@@ -86,6 +86,7 @@ fn examples_read_back_exactly_what_the_help_shows() {
         Terminal {
             color: true,
             width: None,
+            theme: None,
         },
     ] {
         let command = command_with_sections(&spec(THREE, OutputModes::Human), &sections);

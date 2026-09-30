@@ -1638,6 +1638,17 @@ Existing files, directories and links are refused without mutation.
 Configuration errors retain their stable public codes and useful paths only at
 the adapter boundary.
 
+The global file's `theme` object is presentation, not a core setting.
+`ConfigFiles::theme` checks only its shape (an object of strings) and never
+affects loading the other settings; `tmt-core` knows nothing of colors. The CLI
+(`appearance`) gives it meaning through `tmt_cli_style::Theme::parse`: `config
+show` reports it resolved with its source and fails with `CONFIG_ERROR` naming a
+bad key, and at startup, only when stdout or stderr is a terminal and the user
+set `theme.base`, `tmt` sets the process theme once
+(`tmt_cli_style::theme::configure`), which `stream::stdout` and
+`stream::stderr` apply at the stream's color depth. A missing or invalid theme
+leaves every command on the terminal's own 16 colors.
+
 `json_document` owns editable config/tmux metadata number compatibility:
 IEEE-754 values with non-finite opaque values serialized as null. Known invalid
 settings still fail. Raw object order is retained on targeted edits; this is not
