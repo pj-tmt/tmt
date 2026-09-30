@@ -6,8 +6,11 @@ mod markdown;
 pub(crate) mod notes;
 mod refresh;
 mod scroll;
+mod tabs;
 mod terminal;
 mod view;
+
+pub use tabs::LEADS;
 
 use crate::{
     back,

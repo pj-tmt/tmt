@@ -176,6 +176,78 @@ impl Layout {
     }
 }
 
+/// `[tabs]`: see [`Config::tabs`]. Entries are tab keys: a squad name, or
+/// [`crate::board::LEADS`] for the built-in tab.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Tabs {
+    pub order: Vec<String>,
+    pub hide: Vec<String>,
+    pub colors: TabColors,
+    /// `[tabs.leads.bind]`, over `[bind]` and the host preset.
+    pub leads: Bindings,
+}
+
+/// A list of tab names as tab keys, each at most once.
+fn tab_list(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
+    let array = item
+        .as_array()
+        .ok_or_else(|| invalid(format!("`{place}` must be a list of tab names.")))?;
+    let mut keys: Vec<String> = Vec::new();
+    for entry in array.iter() {
+        let name = entry
+            .as_str()
+            .ok_or_else(|| invalid(format!("`{place}` must be a list of tab names.")))?;
+        let key = match name {
+            "leads" => crate::board::LEADS.to_owned(),
+            _ => {
+                let squad = name.strip_prefix("squad:").unwrap_or(name);
+                if !crate::squad::valid_name(squad) {
+                    return Err(invalid(format!(
+                        "`{place}` names `{name}`, which is neither `leads` nor a squad name."
+                    )));
+                }
+                squad.to_owned()
+            }
+        };
+        if keys.contains(&key) {
+            return Err(invalid(format!("`{place}` names `{name}` twice.")));
+        }
+        keys.push(key);
+    }
+    Ok(keys)
+}
+
+/// `[tabs.colors]`: amber for `waiting` (the ◆ color) and red for `blocked`
+/// by default.
+fn tab_colors(item: &Item) -> Result<TabColors, SquadError> {
+    let mut colors = TabColors::default();
+    let table = item
+        .as_table_like()
+        .ok_or_else(|| invalid("`tabs.colors` must be a table."))?;
+    for (key, value) in table.iter() {
+        let slot = match key {
+            "waiting" => &mut colors.waiting,
+            "blocked" => &mut colors.blocked,
+            other => {
+                return Err(invalid(format!(
+                    "`tabs.colors.{other}` is not a tab state; use waiting or blocked."
+                )));
+            }
+        };
+        *slot = value
+            .as_str()
+            .filter(|color| COLORS.contains(color))
+            .ok_or_else(|| {
+                invalid(format!(
+                    "`tabs.colors.{key}` must be one of {}.",
+                    COLORS.join(", ")
+                ))
+            })?
+            .into();
+    }
+    Ok(colors)
+}
+
 /// Tab colors by attention state; a normal tab keeps the board's own style.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabColors {
@@ -802,47 +874,46 @@ impl Config {
         }
     }
 
-    /// `[tabs.colors]`: a tab's color by its attention (#507), amber for
-    /// `waiting` (the ◆ color) and red for `blocked` by default.
-    pub fn tab_colors(&self) -> Result<TabColors, SquadError> {
-        let mut colors = TabColors::default();
-        let Some(tabs) = self.document.get("tabs") else {
-            return Ok(colors);
-        };
-        let tabs = tabs
-            .as_table_like()
-            .ok_or_else(|| invalid("`tabs` must be a table."))?;
-        if let Some((key, _)) = tabs.iter().find(|(key, _)| *key != "colors") {
-            return Err(invalid(format!("`tabs.{key}` is not a tabs setting.")));
-        }
-        let Some(item) = tabs.get("colors") else {
-            return Ok(colors);
+    /// `[tabs]` (#507): the tab order, hidden tabs, the colors by attention
+    /// and the built-in `leads` tab's own bindings. In `order` and `hide`,
+    /// `leads` is the built-in tab and `squad:<name>` names a squad whose name
+    /// is taken by a built-in; any other entry is a squad name.
+    pub fn tabs(&self) -> Result<Tabs, SquadError> {
+        let mut tabs = Tabs::default();
+        let Some(item) = self.document.get("tabs") else {
+            return Ok(tabs);
         };
         let table = item
             .as_table_like()
-            .ok_or_else(|| invalid("`tabs.colors` must be a table."))?;
-        for (key, value) in table.iter() {
-            let slot = match key {
-                "waiting" => &mut colors.waiting,
-                "blocked" => &mut colors.blocked,
+            .ok_or_else(|| invalid("`tabs` must be a table."))?;
+        for (key, item) in table.iter() {
+            match key {
+                "order" => tabs.order = tab_list(item, "tabs.order")?,
+                "hide" => tabs.hide = tab_list(item, "tabs.hide")?,
+                "colors" => tabs.colors = tab_colors(item)?,
+                "leads" => {
+                    let leads = item
+                        .as_table_like()
+                        .ok_or_else(|| invalid("`tabs.leads` must be a table."))?;
+                    for (key, item) in leads.iter() {
+                        match key {
+                            "bind" => tabs.leads = bindings_table(item, "tabs.leads.bind")?,
+                            other => {
+                                return Err(invalid(format!(
+                                    "`tabs.leads.{other}` is not a tab setting; use bind."
+                                )));
+                            }
+                        }
+                    }
+                }
                 other => {
                     return Err(invalid(format!(
-                        "`tabs.colors.{other}` is not a tab state; use waiting or blocked."
+                        "`tabs.{other}` is not a tabs setting; use order, hide, colors or leads."
                     )));
                 }
-            };
-            *slot = value
-                .as_str()
-                .filter(|color| COLORS.contains(color))
-                .ok_or_else(|| {
-                    invalid(format!(
-                        "`tabs.colors.{key}` must be one of {}.",
-                        COLORS.join(", ")
-                    ))
-                })?
-                .into();
+            }
         }
-        Ok(colors)
+        Ok(tabs)
     }
 
     /// The state vocabulary: the layout's order and colors, overridden by
@@ -1535,26 +1606,42 @@ sort = ["state", "-name"]
     }
 
     #[test]
-    fn tab_colors_default_to_amber_and_red_and_accept_named_colors() {
-        let path = temp("tab-colors");
+    fn tabs_read_order_hide_colors_and_the_leads_bindings() {
+        let path = temp("tabs");
         let read = |body: &str| {
             fs::write(&path, body).unwrap();
-            Config::read(path.clone()).unwrap().tab_colors()
+            Config::read(path.clone()).unwrap().tabs()
         };
-        assert_eq!(read("").unwrap(), TabColors::default());
+        assert_eq!(read("").unwrap(), Tabs::default());
+        let tabs = read(
+            "[tabs]\norder = [\"leads\", \"infra\", \"squad:leads\"]\nhide = [\"quiet\"]\n\
+             [tabs.colors]\nblocked = \"magenta\"\n[tabs.leads.bind]\nenter = \"run herdr agent focus {pane}\"\n",
+        )
+        .unwrap();
+        // `squad:leads` is the squad named leads, not the built-in tab.
+        assert_eq!(tabs.order, ["@leads", "infra", "leads"]);
+        assert_eq!(tabs.hide, ["quiet"]);
         assert_eq!(
-            read("[tabs.colors]\nblocked = \"magenta\"\n").unwrap(),
+            tabs.colors,
             TabColors {
                 waiting: "amber".into(),
                 blocked: "magenta".into()
             }
         );
+        assert_eq!(tabs.leads["enter"].verb, crate::action::Verb::Run);
         for body in [
             "tabs = 1\n",
-            "[tabs]\norder = []\n",
+            "[tabs]\nsort = []\n",
+            "[tabs]\norder = \"leads\"\n",
+            "[tabs]\norder = [1]\n",
+            "[tabs]\norder = [\"Infra\"]\n",
+            "[tabs]\norder = [\"all\", \"squad:x y\"]\n",
+            "[tabs]\nhide = [\"infra\", \"infra\"]\n",
             "[tabs.colors]\nwaiting = \"pink\"\n",
             "[tabs.colors]\nnormal = \"dim\"\n",
             "[tabs]\ncolors = \"amber\"\n",
+            "[tabs.leads]\nrows = 1\n",
+            "[tabs.leads.bind]\nenter = \"launch\"\n",
         ] {
             assert_eq!(
                 read(body).err().map(|e| e.code).as_deref(),

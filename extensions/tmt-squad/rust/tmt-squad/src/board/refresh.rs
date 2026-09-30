@@ -3,12 +3,14 @@
 //! squad.toml, so configuration edits appear on the next refresh.
 
 use super::{
+    LEADS,
     app::{Notes, Snapshot, View},
     notes::sanitize,
+    tabs,
 };
 use crate::{
     attention::Attention,
-    config::{Config, Pane},
+    config::{Board, BoardMode, Config, Direction, Layout, NotesRender, Pane},
     core::Core,
     requests,
     squad::Squad,
@@ -67,7 +69,7 @@ fn load(
         Ok(squads) => squads,
         Err(error) => {
             return Snapshot {
-                squads: Vec::new(),
+                tabs: Vec::new(),
                 attention: BTreeMap::new(),
                 squad: wanted,
                 view: Err(error.to_string()),
@@ -75,13 +77,25 @@ fn load(
         }
     };
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
-    let chosen = match &wanted {
-        Some(name) => squads.iter().find(|squad| &squad.name == name),
-        None => squads.first(),
+    let config = Config::load(core);
+    // An invalid [tabs] still shows every squad; the view reports the error.
+    let tabs = if names.is_empty() {
+        Vec::new()
+    } else {
+        let settings = config.as_ref().ok().and_then(|config| config.tabs().ok());
+        tabs::arrange(&names, &settings.unwrap_or_default())
     };
-    let Some(squad) = chosen.cloned() else {
+    // A hidden squad is still shown when asked for by name.
+    let chosen = match &wanted {
+        Some(key) if (key == LEADS && !names.is_empty()) || names.contains(key) => {
+            Some(key.clone())
+        }
+        Some(_) => None,
+        None => tabs.first().cloned(),
+    };
+    let Some(key) = chosen else {
         return Snapshot {
-            squads: names,
+            tabs,
             attention: BTreeMap::new(),
             view: Err(match &wanted {
                 Some(name) => format!("Squad '{name}' does not exist; run: tmt squad init {name}"),
@@ -92,67 +106,134 @@ fn load(
     };
     let mut attention = BTreeMap::new();
     let view = (|| {
-        let config = Config::load(core)?;
-        let layout = config.layout(&squad.name)?;
-        let states = config.states(&squad.name, layout)?;
-        let board = config.board(&squad.name, layout)?;
-        let sections = config.sections(&squad.name)?;
+        let config = config?;
         let me = crate::me::you(crate::me::current(core, &config)?, caller);
-        let mut document =
-            status::document(&squad, layout, &states, &sections, squad.members(core)?);
-        let sent = requests::overlay(core, &squad, me.as_ref(), &mut document)?;
-        attention = others(core, &config, &squads, &squad.name, me.as_ref());
-        attention.insert(squad.name.clone(), Attention::of(&document));
-        let mut replies = match &sent {
-            Some(sent) if board.panes.contains(&Pane::Replies) => {
-                requests::replies(sent, &document)
-            }
-            _ => Vec::new(),
-        };
-        requests::bodies(|id| requests::show_request(core, id), &mut replies, bodies)?;
-        let notes = if board.panes.contains(&Pane::Notes) {
-            lead_notes(core, &document["squad"]["lead"])
+        let (view, found) = if key == LEADS {
+            leads_view(core, tmux, &config, &squads, &tabs, me)?
         } else {
-            Notes::NotShown
+            let squad = squads
+                .iter()
+                .find(|squad| squad.name == key)
+                .expect("chosen from the listed squads");
+            squad_view(core, tmux, &config, &squads, squad, me, bodies)?
         };
-        Ok(View {
-            rows: config.rows(&squad.name)?,
-            colors: states.colors,
-            render: config.notes_render(&squad.name)?,
-            bindings: config.bindings(tmux)?,
-            section_bindings: sections.into_iter().map(|section| section.bind).collect(),
-            opener: config.program("opener")?,
-            clipboard: config.program("clipboard")?,
-            tab_colors: config.tab_colors()?,
-            me: me.map(|me| me.name),
-            replies,
-            refresh: config.refresh(&squad.name)?,
-            board,
-            notes,
-            document,
-        })
+        attention = found;
+        Ok(view)
     })()
     .map_err(|error: crate::core::SquadError| error.to_string());
     Snapshot {
-        squads: names,
+        tabs,
         attention,
-        squad: Some(squad.name),
+        squad: Some(key),
         view,
     }
 }
 
-/// The attention of every squad but the one shown, from its roster alone:
-/// one `rooms.roster` read each, and one inbox read shared by all. A squad
-/// that cannot be read has no entry, so its tab shows no state.
-fn others(
+/// One squad's full view, and every tab's attention.
+fn squad_view(
     core: &Core,
+    tmux: bool,
     config: &Config,
     squads: &[Squad],
-    shown: &str,
+    squad: &Squad,
+    me: Option<crate::me::Me>,
+    bodies: &mut BTreeMap<String, String>,
+) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
+    let layout = config.layout(&squad.name)?;
+    let states = config.states(&squad.name, layout)?;
+    let board = config.board(&squad.name, layout)?;
+    let sections = config.sections(&squad.name)?;
+    let mut document = status::document(squad, layout, &states, &sections, squad.members(core)?);
+    let sent = requests::overlay(core, squad, me.as_ref(), &mut document)?;
+    let others: Vec<&Squad> = squads
+        .iter()
+        .filter(|other| other.name != squad.name)
+        .collect();
+    let mut documents = roster_documents(core, config, &others, me.as_ref(), None);
+    documents.insert(squad.name.clone(), document.clone());
+    let attention = tab_attention(&documents);
+    let mut replies = match &sent {
+        Some(sent) if board.panes.contains(&Pane::Replies) => requests::replies(sent, &document),
+        _ => Vec::new(),
+    };
+    requests::bodies(|id| requests::show_request(core, id), &mut replies, bodies)?;
+    let notes = if board.panes.contains(&Pane::Notes) {
+        lead_notes(core, &document["squad"]["lead"])
+    } else {
+        Notes::NotShown
+    };
+    let view = View {
+        rows: config.rows(&squad.name)?,
+        colors: states.colors,
+        render: config.notes_render(&squad.name)?,
+        bindings: config.bindings(tmux)?,
+        section_bindings: sections.into_iter().map(|section| section.bind).collect(),
+        opener: config.program("opener")?,
+        clipboard: config.program("clipboard")?,
+        tab_colors: config.tabs()?.colors,
+        me: me.map(|me| me.name),
+        replies,
+        refresh: config.refresh(&squad.name)?,
+        board,
+        notes,
+        document,
+    };
+    Ok((view, attention))
+}
+
+/// The built-in leads tab: every squad's lead, with presence from one `ls`
+/// read, in tab order. Enter jumps to the lead as on a squad's own tab.
+fn leads_view(
+    core: &Core,
+    tmux: bool,
+    config: &Config,
+    squads: &[Squad],
+    tabs: &[String],
+    me: Option<crate::me::Me>,
+) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
+    let settings = config.tabs()?;
+    let listed = core.json(&["ls"])?;
+    let all: Vec<&Squad> = squads.iter().collect();
+    let documents = roster_documents(core, config, &all, me.as_ref(), Some(&listed));
+    let document = leads_document(tabs, &documents);
+    let attention = tab_attention(&documents);
+    let mut bindings = config.bindings(tmux)?;
+    bindings.extend(settings.leads);
+    let view = View {
+        rows: crate::rows::Rows::leads(),
+        colors: config.states(LEADS, Layout::Crew)?.colors,
+        render: NotesRender::Markdown,
+        bindings,
+        section_bindings: Vec::new(),
+        opener: config.program("opener")?,
+        clipboard: config.program("clipboard")?,
+        tab_colors: settings.colors,
+        me: me.map(|me| me.name),
+        replies: Vec::new(),
+        refresh: config.refresh(LEADS)?,
+        board: Board::simple(
+            BoardMode::Split,
+            Direction::LeftRight,
+            vec![Pane::Rows],
+            &[100],
+        ),
+        notes: Notes::NotShown,
+        document,
+    };
+    Ok((view, attention))
+}
+
+/// Each squad's roster-only status document, with what waits on the user
+/// from one inbox read shared by all, and presence when an `ls` document is
+/// given. A squad that cannot be read is left out.
+fn roster_documents(
+    core: &Core,
+    config: &Config,
+    squads: &[&Squad],
     me: Option<&crate::me::Me>,
-) -> BTreeMap<String, Attention> {
-    let others: Vec<&Squad> = squads.iter().filter(|squad| squad.name != shown).collect();
-    if others.is_empty() {
+    listed: Option<&Value>,
+) -> BTreeMap<String, Value> {
+    if squads.is_empty() {
         return BTreeMap::new();
     }
     let waiting = match me {
@@ -162,27 +243,30 @@ fn others(
         },
         None => None,
     };
-    others
-        .into_iter()
+    squads
+        .iter()
         .filter_map(|squad| {
-            let roster = squad.roster(core).ok()?;
+            let mut roster = squad.roster(core).ok()?;
+            if let Some(listed) = listed {
+                crate::squad::join_presence(&mut roster, listed);
+            }
             let waiting = waiting.as_ref().map(|(me, inbox)| (*me, inbox));
             Some((
                 squad.name.clone(),
-                attention(config, squad, roster, waiting).ok()?,
+                roster_document(config, squad, roster, waiting).ok()?,
             ))
         })
         .collect()
 }
 
-/// One squad's attention from its roster: the same document `status` builds,
-/// so a tab and `ls --json` never disagree.
-fn attention(
+/// One squad's document from its roster: the same document `status`
+/// builds, so a tab and `ls --json` never disagree.
+fn roster_document(
     config: &Config,
     squad: &Squad,
     roster: Vec<crate::squad::Member>,
     waiting: Option<(&str, &requests::Window)>,
-) -> Result<Attention, crate::core::SquadError> {
+) -> Result<Value, crate::core::SquadError> {
     let layout = config.layout(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
     let sections = config.sections(&squad.name)?;
@@ -190,7 +274,47 @@ fn attention(
     if let Some((me, inbox)) = waiting {
         requests::apply_waiting(&mut document, &squad.name, me, inbox);
     }
-    Ok(Attention::of(&document))
+    Ok(document)
+}
+
+/// The leads tab's document: one row per squad that has a lead, in tab
+/// order (hidden squads last), each carrying its squad as `squad` and as
+/// the `squad` field.
+fn leads_document(tabs: &[String], documents: &BTreeMap<String, Value>) -> Value {
+    let mut order: Vec<&String> = tabs
+        .iter()
+        .filter(|key| documents.contains_key(*key))
+        .collect();
+    order.extend(documents.keys().filter(|key| !tabs.contains(key)));
+    let rows: Vec<Value> = order
+        .into_iter()
+        .filter_map(|name| {
+            let mut lead = documents[name]["squad"]["lead"].clone();
+            if !lead.is_object() {
+                return None;
+            }
+            lead["squad"] = json!(name);
+            lead["fields"]["squad"] = json!(name);
+            Some(lead)
+        })
+        .collect();
+    json!({
+        "squad": {"name": "leads", "lead": null},
+        "sections": [{"title": null, "rows": rows}],
+    })
+}
+
+/// Every squad tab's attention, and the leads tab's from its leads.
+fn tab_attention(documents: &BTreeMap<String, Value>) -> BTreeMap<String, Attention> {
+    let mut attention: BTreeMap<String, Attention> = documents
+        .iter()
+        .map(|(name, document)| (name.clone(), Attention::of(document)))
+        .collect();
+    attention.insert(
+        LEADS.to_owned(),
+        Attention::of(&leads_document(&[], documents)),
+    );
+    attention
 }
 
 /// The lead's notebook through `tmt api notes.read`: bounded, read-only, and
@@ -257,7 +381,9 @@ mod tests {
             complete: true,
         };
         assert_eq!(
-            attention(&config, &squad, roster(), Some(("ME", &inbox))).unwrap(),
+            Attention::of(
+                &roster_document(&config, &squad, roster(), Some(("ME", &inbox))).unwrap()
+            ),
             Attention {
                 waiting: 2,
                 blocked: 1
@@ -266,12 +392,72 @@ mod tests {
         );
         // Without a known user only member-set decisions count.
         assert_eq!(
-            attention(&config, &squad, roster(), None).unwrap(),
+            Attention::of(&roster_document(&config, &squad, roster(), None).unwrap()),
             Attention {
                 waiting: 1,
                 blocked: 1
             }
         );
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn the_leads_tab_lists_each_squad_s_lead_in_tab_order_with_its_squad() {
+        let squad = |lead: Option<Value>| json!({"squad": {"lead": lead}, "sections": []});
+        let documents = BTreeMap::from([
+            (
+                "infra".to_owned(),
+                squad(Some(
+                    json!({"id": "R", "name": "rin", "state": "blocked", "fields": {}}),
+                )),
+            ),
+            ("quiet".to_owned(), squad(None)),
+            (
+                "product".to_owned(),
+                squad(Some(
+                    json!({"id": "S", "name": "sol", "pending": "approve", "fields": {}}),
+                )),
+            ),
+            (
+                "hidden".to_owned(),
+                squad(Some(json!({"id": "S", "name": "sol", "fields": {}}))),
+            ),
+        ]);
+        let tabs = ["product", LEADS, "infra", "quiet"].map(String::from);
+        let document = leads_document(&tabs, &documents);
+        let rows = document["sections"][0]["rows"].as_array().unwrap();
+        // Tab order, then squads off the tab line; a squad without a lead has
+        // no row, and one person can lead two squads.
+        let listed: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row["squad"].as_str().unwrap(),
+                    row["name"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [("product", "sol"), ("infra", "rin"), ("hidden", "sol")]
+        );
+        assert_eq!(rows[0]["fields"]["squad"], "product", "the squad column");
+
+        let attention = tab_attention(&documents);
+        assert_eq!(
+            attention[LEADS],
+            Attention {
+                waiting: 1,
+                blocked: 1
+            }
+        );
+        assert_eq!(attention["quiet"], Attention::default());
+        assert_eq!(
+            attention["infra"],
+            Attention {
+                waiting: 0,
+                blocked: 1
+            }
+        );
     }
 }

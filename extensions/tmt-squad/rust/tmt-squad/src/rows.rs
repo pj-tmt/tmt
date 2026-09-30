@@ -115,6 +115,16 @@ impl Rows {
         ])
     }
 
+    /// The built-in leads tab (#507): each squad's lead on one line.
+    pub fn leads() -> Self {
+        Self::with_one_line(vec![
+            Column::sized("squad", "SQUAD", Some(14)),
+            Column::sized("member", "LEAD", Some(14)),
+            Column::sized("state", "STATE", Some(10)),
+            Column::sized("task", "TASK", None),
+        ])
+    }
+
     fn with_one_line(columns: Vec<Column>) -> Self {
         let lines = vec![
             columns
