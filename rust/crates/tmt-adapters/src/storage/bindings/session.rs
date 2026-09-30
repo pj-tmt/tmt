@@ -3,9 +3,9 @@
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use tmt_core::binding::session::{
     BindingSessionState, DriverState, HarnessId, ObservedSessionKey, ProviderSessionId,
-    RememberedSession, RuntimeIncarnation, RuntimeMode, RuntimeState, SessionPreferences,
-    SessionTransition,
+    RememberedSession, RuntimeMode, RuntimeState, SessionPreferences, SessionTransition,
 };
+use tmt_core::endpoint::ProcessIncarnation;
 
 use super::super::{StorageError, errors::classify};
 
@@ -34,7 +34,7 @@ pub(super) fn decode_state(row: &Row<'_>, offset: usize) -> rusqlite::Result<Bin
     ) {
         (None, None) => None,
         (Some(pid), Some(start)) => Some(
-            RuntimeIncarnation::new(
+            ProcessIncarnation::new(
                 u64::try_from(pid).map_err(|_| rusqlite::Error::InvalidQuery)?,
                 &start,
             )
@@ -49,7 +49,7 @@ pub(super) fn decode_state(row: &Row<'_>, offset: usize) -> rusqlite::Result<Bin
     ) {
         (None, None, None) if launch_owner.is_none() => None,
         (Some(pid), Some(start), session) => Some(ObservedSessionKey {
-            incarnation: RuntimeIncarnation::new(
+            incarnation: ProcessIncarnation::new(
                 u64::try_from(pid).map_err(|_| rusqlite::Error::InvalidQuery)?,
                 &start,
             )
@@ -252,13 +252,13 @@ pub(super) fn set_state(
             value.key.as_ref().map(|key| key.incarnation.start_identity()),
             value.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str),
             next_owner_pid,
-            value.launch_owner.as_ref().map(RuntimeIncarnation::start_identity),
+            value.launch_owner.as_ref().map(ProcessIncarnation::start_identity),
             binding_id, state(expected.state), transition(expected.last_transition),
             expected_pid,
             expected.key.as_ref().map(|key| key.incarnation.start_identity()),
             expected.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str),
             expected_owner_pid,
-            expected.launch_owner.as_ref().map(RuntimeIncarnation::start_identity)],
+            expected.launch_owner.as_ref().map(ProcessIncarnation::start_identity)],
     ).map(|changed| changed == 1).map_err(|error| classify(error, "Write binding session state"))
 }
 
@@ -338,10 +338,10 @@ mod tests {
         let state = BindingSessionState::default()
             .admit_launched(
                 ObservedSessionKey {
-                    incarnation: RuntimeIncarnation::new(500, "child-start").unwrap(),
+                    incarnation: ProcessIncarnation::new(500, "child-start").unwrap(),
                     provider_session: None,
                 },
-                RuntimeIncarnation::new(400, "owner-start").unwrap(),
+                ProcessIncarnation::new(400, "owner-start").unwrap(),
                 SessionTransition::Started,
                 tmt_core::binding::session::RuntimeLiveness::Alive,
                 tmt_core::binding::session::RuntimeLiveness::Alive,
@@ -372,7 +372,7 @@ mod tests {
                     state
                 );
                 let mut stale = state.clone();
-                stale.launch_owner = Some(RuntimeIncarnation::new(400, "old-owner-start").unwrap());
+                stale.launch_owner = Some(ProcessIncarnation::new(400, "old-owner-start").unwrap());
                 let ended = state
                     .transition(state.key.as_ref().unwrap(), SessionTransition::Ended, None)
                     .unwrap();
@@ -405,7 +405,7 @@ mod tests {
             .identity;
         let initial = BindingSessionState::default();
         let key = ObservedSessionKey {
-            incarnation: RuntimeIncarnation::new(123, "start-a").unwrap(),
+            incarnation: ProcessIncarnation::new(123, "start-a").unwrap(),
             provider_session: Some(ProviderSessionId::new("session-a").unwrap()),
         };
         let running = initial
@@ -491,7 +491,7 @@ mod tests {
                         state: RuntimeState::Running,
                         last_transition: Some(SessionTransition::Started),
                         key: Some(ObservedSessionKey {
-                            incarnation: RuntimeIncarnation::new(101, "runtime-start").unwrap(),
+                            incarnation: ProcessIncarnation::new(101, "runtime-start").unwrap(),
                             provider_session: None,
                         }),
                     }
@@ -719,7 +719,7 @@ mod tests {
                     state: RuntimeState::Ended,
                     last_transition: Some(SessionTransition::Ended),
                     key: Some(ObservedSessionKey {
-                        incarnation: RuntimeIncarnation::new(103, "runtime-start").unwrap(),
+                        incarnation: ProcessIncarnation::new(103, "runtime-start").unwrap(),
                         provider_session: None,
                     }),
                 },

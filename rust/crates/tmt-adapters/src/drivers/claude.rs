@@ -6,16 +6,17 @@ pub use crate::runtime::hook_protocol::{
 };
 use serde::Deserialize;
 use tmt_core::binding::session::{
-    BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
-    RuntimeLiveness, RuntimeState, SessionTransition,
+    BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeState,
+    SessionTransition,
 };
+use tmt_core::endpoint::ProcessIncarnation;
 
 pub fn observe_in_pane(
     runner: &impl crate::process::CommandRunner,
     caller_pid: u64,
     pane_pid: u64,
     deadline: std::time::Instant,
-) -> Option<RuntimeIncarnation> {
+) -> Option<ProcessIncarnation> {
     crate::runtime::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, NAME)
 }
 
@@ -37,7 +38,7 @@ impl ClaudeObservation {
     pub fn propose(
         &self,
         current: &BindingSessionState,
-        incarnation: &RuntimeIncarnation,
+        incarnation: &ProcessIncarnation,
         previous_liveness: RuntimeLiveness,
     ) -> Option<BindingSessionState> {
         let key = ObservedSessionKey {
@@ -307,7 +308,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         &self,
         pane_pid: u64,
         deadline: std::time::Instant,
-    ) -> Option<RuntimeIncarnation> {
+    ) -> Option<ProcessIncarnation> {
         crate::runtime::evidence::observe_replacement(
             &crate::process::SupervisedProbeRunner,
             pane_pid,
@@ -336,7 +337,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         caller: u64,
         pane: u64,
         deadline: std::time::Instant,
-    ) -> Option<RuntimeIncarnation> {
+    ) -> Option<ProcessIncarnation> {
         observe_in_pane(
             &crate::process::SupervisedProbeRunner,
             caller,
@@ -378,7 +379,7 @@ impl crate::runtime::lifecycle::LifecycleObservation for ClaudeObservation {
     fn propose(
         &self,
         current: &BindingSessionState,
-        process: &RuntimeIncarnation,
+        process: &ProcessIncarnation,
         previous: RuntimeLiveness,
         _: crate::runtime::lifecycle::HostEvidence,
         _: bool,

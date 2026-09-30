@@ -10,6 +10,10 @@ export interface WorkspaceCrate {
   readonly dir: string;
   /** Whether the crate takes its version from `[workspace.package]`. */
   readonly inheritsVersion: boolean;
+  /** Whether Cargo advertises a binary target. */
+  readonly hasBinary: boolean;
+  /** Explicit package.metadata.dist.dist opt-out; undefined means absent. */
+  readonly dist?: boolean;
   /** Names of the workspace crates it depends on outside dev-dependencies. */
   readonly dependencies: readonly string[];
 }
