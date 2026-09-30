@@ -85,9 +85,8 @@ gates, the markers and the procedures; this section owns who may publish what.
   channel; a release from a branch line; a draft that any gate holds, and in particular a new
   SQLite migration or a breaking change, which always pauses for the owner's explicit OK;
   README installer promotion; creating or rotating the release App credentials and the
-  `release` Environment (the owner's setup is in the guide's release-please section, and is
-  done once the publication pipeline is complete); enabling or changing release immutability;
-  and this authorization itself.
+  `release` Environment (the owner's setup is in the guide's release-please section);
+  enabling or changing release immutability; and this authorization itself.
 - The authorization belongs to the pipeline, not to an agent. An agent still never tags,
   creates, edits or publishes a release by hand, and never dispatches a run that publishes,
   without the owner's explicit authorization for that release. A dry run and a run that only
