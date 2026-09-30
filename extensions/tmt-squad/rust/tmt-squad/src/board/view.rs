@@ -265,13 +265,18 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
         .iter()
         .map(|span| span.content.width() as u16 + 1)
         .collect();
-    let current = app
+    // Pinned tabs always show; the rest scroll in the room they leave.
+    let pinned = app.pinned.min(app.tabs.len());
+    let room = area
+        .width
+        .saturating_sub(widths[..pinned].iter().sum::<u16>());
+    let position = app
         .current
         .as_ref()
         .and_then(|current| app.tabs.iter().position(|key| key == current));
     // A hidden squad opened by name or from the switcher is not on the line;
     // it leads it, selected and marked, so the board says what it shows.
-    let shown_hidden = match (&app.current, current) {
+    let shown_hidden = match (&app.current, position) {
         (Some(key), None) => {
             let label = format!("{} (hidden)", super::tabs::label(key));
             Some(tab(&label, true, attention(key), colors))
@@ -281,13 +286,11 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
     let reserved = shown_hidden
         .as_ref()
         .map_or(0, |span| span.content.width() as u16 + 1);
-    let (start, end) = tab_window(
-        &widths,
-        current,
-        app.tab_start.get(),
-        area.width.saturating_sub(reserved),
-    );
+    let room = room.saturating_sub(reserved);
+    let current = position.and_then(|index| index.checked_sub(pinned));
+    let (start, end) = tab_window(&widths[pinned..], current, app.tab_start.get(), room);
     app.tab_start.set(start);
+    let (start, end) = (start + pinned, end + pinned);
     let off = |keys: &[String]| {
         let sum = keys
             .iter()
@@ -309,21 +312,28 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
         line.push(span);
         line.push(Span::raw(" "));
     }
-    if start > 0 {
-        let text = format!("‹ {start} ");
-        x = x.saturating_add(text.width() as u16);
-        line.push(Span::styled(text, off(&app.tabs[..start])));
-    }
-    for (index, span) in spans.into_iter().enumerate().take(end).skip(start) {
+    let mut spans: Vec<Option<Span>> = spans.into_iter().map(Some).collect();
+    let mut draw = |index: usize, line: &mut Vec<Span<'static>>, x: &mut u16| {
         app.tab_hits.borrow_mut().push(TabHit {
             y: area.y,
-            x,
+            x: *x,
             width: widths[index] - 1,
             tab: index,
         });
-        x = x.saturating_add(widths[index]);
-        line.push(span);
+        *x = x.saturating_add(widths[index]);
+        line.push(spans[index].take().expect("each tab is drawn once"));
         line.push(Span::raw(" "));
+    };
+    for index in 0..pinned {
+        draw(index, &mut line, &mut x);
+    }
+    if start > pinned {
+        let text = format!("‹ {} ", start - pinned);
+        x = x.saturating_add(text.width() as u16);
+        line.push(Span::styled(text, off(&app.tabs[pinned..start])));
+    }
+    for index in start..end {
+        draw(index, &mut line, &mut x);
     }
     if end < app.tabs.len() {
         line.push(Span::styled(
@@ -1019,6 +1029,7 @@ mod tests {
         app.apply(Snapshot {
             tabs: vec!["product".into(), "reviews".into()],
             hidden: Vec::new(),
+            pinned: 0,
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
@@ -1327,6 +1338,7 @@ lines = [
         app.apply(Snapshot {
             tabs: vec!["product".into()],
             hidden: Vec::new(),
+            pinned: 0,
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
@@ -1598,6 +1610,7 @@ lines = [
         app.apply(Snapshot {
             tabs: vec!["product".into(), crate::board::LEADS.into()],
             hidden: Vec::new(),
+            pinned: 0,
             attention: Default::default(),
             squad: Some(crate::board::LEADS.into()),
             view: Ok(view),
@@ -1811,6 +1824,46 @@ lines = [
             crate::action::parse_bindings([("s", Some("refresh"))].into_iter(), "bind").unwrap();
         assert_eq!(press(&mut app, KeyCode::Char('s')), Effect::Refresh);
         assert!(app.switcher.is_none());
+    }
+
+    #[test]
+    fn pinned_tabs_stay_in_view_and_keep_their_pin_order() {
+        use crate::board::app::Effect;
+        let mut app = board(json!([{"title": null, "rows": []}]));
+        app.tabs = std::iter::once(crate::board::ALL.to_owned())
+            .chain((0..9).map(|n| format!("sq{n}")))
+            .collect();
+        app.pinned = 1;
+        app.current = Some("sq8".into());
+        let line = draw(&app, 36, 6)[0].clone();
+        assert!(
+            line.starts_with(" all  ‹ 5 "),
+            "the pin stays first: {line:?}"
+        );
+        assert!(
+            line.ends_with(" sq8"),
+            "the current tab is in view: {line:?}"
+        );
+        let hits = app.tab_hits.borrow().clone();
+        assert_eq!(hits[0].tab, 0);
+        assert_eq!(hits[0].x, 0);
+        // A pin neither moves nor is passed; the other tabs move among
+        // themselves. (A saved `order` could not reorder the pins.)
+        let shift = |code| KeyEvent::new(code, KeyModifiers::SHIFT);
+        let refused = Some("Pinned tabs keep the order in [tabs] pin.");
+        app.current = Some("sq0".into());
+        assert_eq!(app.key(shift(KeyCode::Left)), Effect::None);
+        assert_eq!(app.notice.as_deref(), refused);
+        app.pinned = 2;
+        app.current = Some(crate::board::ALL.into());
+        app.notice = None;
+        assert_eq!(app.key(shift(KeyCode::Right)), Effect::None);
+        assert_eq!(app.notice.as_deref(), refused);
+        assert_eq!(app.tabs[..2], [crate::board::ALL, "sq0"]);
+        app.pinned = 1;
+        app.current = Some("sq0".into());
+        assert!(matches!(app.key(shift(KeyCode::Right)), Effect::Act(_)));
+        assert_eq!(app.tabs[..3], [crate::board::ALL, "sq1", "sq0"]);
     }
 
     #[test]
