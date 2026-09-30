@@ -1,0 +1,50 @@
+import { Cmd } from "../components/Cmd";
+import { Soon, Tag } from "../components/marks";
+
+A driver is what tmt knows about one kind of program. A _host_ driver knows where agents live and how to type into them. A _runtime_ driver knows one agent program: how it starts, resumes and reports its conversations.
+
+**The drivers most people need are built in. There is nothing to install.** tmt recognizes the program you start and uses the matching driver automatically:
+
+<Cmd>{`
+$ tmt run reviewer claude        # name this pane "reviewer" and start Claude Code in it
+$ tmt run builder codex          # same for Codex
+$ tmt setup                      # optional: connect every agent found, after your OK
+`}</Cmd>
+
+Without setup, every agent still works: tmt talks to it through its pane. `tmt setup` adds what only the agent itself can tell tmt. It learns which conversation belongs to which name, so `tmt resume` reopens the right one, and a short "who you are and what's waiting" summary is given at start. `tmt setup` shows exactly which settings it will change and asks first; `tmt setup claude` or `tmt setup codex` does the same for one agent, and `--remove` undoes it.
+
+| Driver      | Kind    | Works without setup                                                         | After `tmt setup`                                                        |
+| ----------- | ------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| tmux        | host    | everything                                                                  | nothing more needed                                                      |
+| Claude Code | runtime | talk, reply, `tmt run`                                                      | exact resume, start-of-session context, running/ended state              |
+| Codex       | runtime | talk, reply, `tmt run`; on a shared server it asks for `--identity` instead | exact resume, exact thread match on a shared server, running/ended state |
+
+### The built-in drivers
+
+- [tmux](/drivers/tmux): the host driver. Where agents live and how to type into them.
+- [Claude Code](/drivers/claude-code): a runtime driver, with exact resume and start-of-session context.
+- [Codex](/drivers/codex): a runtime driver, safe even when several panes share one Codex server.
+
+### More drivers <Tag kind="planned" />
+
+Every other driver will be its own package with its own version, installed and updated like an extension. Anyone can publish one: a driver is a program named `tmt-driver-<name>` that answers tmt's driver protocol, and the built-in drivers sit behind the same interface. A driver you install can also take over from a built-in one, for example a Claude Code driver with extra features. `tmt driver ls` then always shows which driver handles which program.
+
+<Cmd>{`
+$ tmt driver install herdr     # asks before changing anything
+$ tmt driver ls                # every driver, built in or installed, and what it handles
+$ tmt driver rm herdr
+`}</Cmd>
+
+The first ones planned:
+
+<Soon
+  items={[
+    ["Herdr", "host"],
+    ["cmux", "host"],
+    ["Pi", "runtime"],
+    ["Cursor Agent", "runtime"],
+    ["agy", "runtime"],
+  ]}
+/>
+
+To write one, see [Build a driver](/develop/drivers).

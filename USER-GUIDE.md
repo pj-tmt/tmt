@@ -461,10 +461,14 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 list (`/`), the ◆ rows that wait on you first in the crew layout, and each
 member's note under its row. It reloads in the background every 5 seconds
 and re-reads `squad.toml`, so edits apply on the next reload; F5 (the `refresh`
-binding) and the board's own actions reload at once. `q` or Esc closes it. Set
-the interval with `refresh`, per squad or for every board, as whole seconds or
-minutes from `"1s"` to `"60m"`, or `"off"` to reload only on F5 and actions;
-the help overlay (`?`) shows the one in effect:
+binding) and the board's own actions reload at once. Between those reloads it
+checks every second whether TMT's records (members, requests, rooms, status)
+or `squad.toml` changed, and reloads as soon as they did; a pane opening or
+closing, and an edited notebook, still wait for the interval. `q` or Esc
+closes it. Set the interval with `refresh`, per squad or for every board, as
+whole seconds or minutes from `"1s"` to `"60m"`, or `"off"` to reload only on
+F5 and actions, with no early reloads either; the help overlay (`?`) shows the
+one in effect:
 
 ```toml
 [board]
@@ -563,6 +567,72 @@ line of every column. The older `[squad.<name>.columns]` table (`show` plus a
 the two, not both. `tmt sq ls` is a list and stays complete: it takes the
 board's fields in order but never drops or cuts a column when piped.
 
+A column shows the member's squad field of its `name` unless `from` binds it to
+the member's own TMT data, read on every refresh with no extra commands:
+
+| `from`                    | Value                                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `member`, `presence`      | the name, and `active`, `offline` or `unknown`                                                           |
+| `cwd`, `target`           | the bound pane's directory and tmux target                                                               |
+| `session.driver`          | the remembered session's driver, such as `claude`                                                        |
+| `session.model`           | the model its provider last reported                                                                     |
+| `session.usage.tokens`    | the context the next request re-sends (`tmt setup --usage`)                                              |
+| `session.usage.remaining` | the context window less those tokens; only when the driver states a window (Codex does, Claude does not) |
+| `meta.<key>`              | the identity's metadata `<key>`                                                                          |
+| `meta.squad.<field>`      | this squad's field, the same as a plain column of that name                                              |
+| `fields.<name>`           | the value of this squad's field provider `<name>` (below)                                                |
+
+These paths are the same whatever the member's driver, so a member that
+switches from Claude to Codex keeps its columns. Any other path is refused with
+this list. `format` shows the value as `text` (the default), `tokens`
+(`487k`, `1.2M`), `age` (time since a millisecond timestamp: `42s`, `5m`,
+`3h`, `2d`) or `count` (`12,345`); a value that is not a number shows as it
+is, and a `format` without `from` formats the squad field. The bound value
+replaces a field of the same name everywhere, so sections, filters and sorts use
+it; numbers sort as numbers. Squad's own fields (`member`, `role`, `state`,
+`pending`, `note`) cannot take `from` or `format`. A member without the value
+shows `–`, the board's one mark for a missing value (an empty cell in `ls`):
+
+```toml
+[squad.product.rows]
+columns = [
+  { name = "member" },
+  { name = "model", from = "session.model" },
+  { name = "ctx",   from = "session.usage.tokens", format = "tokens", align = "right" },
+]
+```
+
+For data TMT does not have, such as a pull request's review state, a field
+provider runs a program of yours for each member and shows its output as a
+field of its name:
+
+```toml
+[squad.product.fields.pr_state]
+run     = ["gh", "pr", "view", "{pr_link}", "--json", "state", "-q", ".state"]
+every   = "60s"      # run again after this long; 10s-24h, default 60s
+timeout = "5s"       # 1s-30s, default 5s
+```
+
+`run` follows the rules of a `run` binding below: a literal program on `PATH`
+or an absolute path, never a shell, each `{field}` filling exactly one argument,
+and a value that would begin an argument with `-` refused. A member whose
+placeholder is missing or refused is not run and shows `–`. The program's first
+output line is the value (at most 200 characters, control characters removed);
+it may instead print `{"value": "487k", "color": "review"}`, whose color token
+the board uses once themes arrive. A failed start, a non-zero exit, a timeout or
+more than 4 KiB of output shows a dim `?`, never an error. A squad defines at
+most 8 providers, and at most 4 programs run at once.
+
+Show a provider's value with a column of its name, or `from = "fields.<name>"`;
+sections, filters and sorts see it like any field, and it replaces a field of
+the same name that an agent wrote. The board never waits for a provider: it
+shows the last value while providers run in the background, reloads when they
+finish (unless its `refresh` is `"off"`), and runs them again after `every`. Values are kept in
+`$XDG_CACHE_HOME/tmt-squad/fields/` with the arguments that produced them, so a
+member whose `{pr_link}` changed shows `–` until its new value arrives.
+`tmt sq ls` shows the kept values; `tmt sq ls --refresh-fields` first runs the
+providers that are due and waits for them.
+
 The board is made of panes: `rows`, `notes` (the lead's own notebook, the same
 file as `tmt notes`, read-only), `detail` (the selected row) and `replies`
 (answers to what you sent the squad). Choose them and how they sit:
@@ -655,9 +725,10 @@ e = "run code --reuse-window -- {cwd}"
 The program is a name on `PATH` or an absolute path, written literally. Each
 argument is split once when `squad.toml` loads (double quotes group words), and
 a `{field}` value fills exactly one argument however it is spelled, so it never
-becomes several words or shell syntax. A value can still begin with `-`; when
-the program accepts it, put `--` before field arguments, as above, so such a
-value is read as a file or name rather than an option.
+becomes several words or shell syntax. Agents write row fields, so an argument
+that would begin with `-` because of a value is refused: `{branch}` holding
+`--force` never reaches the program as an option. A literal option such as
+`--wait`, or a value after literal text such as `--head={branch}`, is kept.
 
 Some row actions also work as commands, for scripts, tmux key bindings and
 terminals without the board:

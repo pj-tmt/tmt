@@ -1,0 +1,17 @@
+[package]
+name = "tmt-driver-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# A leaf: no TMT crate, so a community driver builds against the wire format
+# alone. contracts/driver-protocol-v1.md owns the format this crate encodes.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,10 +1,12 @@
 //! One background loader: the board paints from what it has and never waits
 //! on core. Queued requests collapse to the newest, and each load re-reads
-//! squad.toml, so configuration edits appear on the next refresh.
+//! squad.toml, so configuration edits appear on the next refresh. Between
+//! requests it reloads early when core's records or squad.toml changed.
 
 use super::{
     ALL, LEADS,
     app::{Notes, Snapshot, View},
+    changes::{Changes, Stamp},
     notes::sanitize,
     tabs,
 };
@@ -12,15 +14,20 @@ use crate::{
     attention::Attention,
     config::{Board, BoardMode, Config, Direction, Layout, NotesRender, Pane},
     core::Core,
+    provider::{self, Provider},
     requests,
-    squad::Squad,
+    squad::{Member, Squad},
     status,
 };
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    time::Duration,
 };
+
+/// How often an idle worker checks for changes between interval reloads.
+const CHECK_EVERY: Duration = Duration::from_secs(1);
 
 pub struct Worker {
     requests: Sender<Option<String>>,
@@ -33,21 +40,25 @@ impl Worker {
         let (requests, pending) = mpsc::channel::<Option<String>>();
         let (sender, results) = mpsc::channel();
         std::thread::spawn(move || {
-            // Reply bodies never change once submitted; keep them per worker.
-            let mut bodies = BTreeMap::new();
-            // The board's pane never changes, so its identity is read once.
+            let mut kept = Kept {
+                bodies: BTreeMap::new(),
+                fetch: fetcher(),
+            };
+            // The board's pane and squad.toml's place never change, so both
+            // are read once.
             let caller = crate::me::caller(&core).ok().flatten();
-            while let Ok(mut wanted) = pending.recv() {
-                while let Ok(newer) = pending.try_recv() {
-                    wanted = newer;
-                }
-                if sender
-                    .send(load(&core, tmux, caller.as_ref(), wanted, &mut bodies))
-                    .is_err()
-                {
-                    break;
-                }
-            }
+            let mut changes = Changes::new(
+                core.clone(),
+                Config::locate(&core).ok(),
+                provider::Cache::directory(),
+            );
+            serve(
+                &pending,
+                &sender,
+                CHECK_EVERY,
+                || changes.stamp(),
+                |wanted| load(&core, tmux, caller.as_ref(), wanted, &mut kept),
+            );
         });
         Self { requests, results }
     }
@@ -58,12 +69,108 @@ impl Worker {
     }
 }
 
+/// What one worker keeps across loads.
+struct Kept {
+    /// Reply bodies never change once submitted.
+    bodies: BTreeMap<String, String>,
+    fetch: Sender<Fetch>,
+}
+
+/// One squad's providers and members, for the fetcher.
+struct Fetch {
+    squad: String,
+    providers: Vec<Provider>,
+    members: Vec<Member>,
+}
+
+/// Field providers run on their own thread, so a slow `gh` never delays a
+/// load. Queued work collapses to the newest; each run rereads the cache,
+/// so work another run finished meanwhile is not repeated. Between loads it
+/// runs the last squad's providers again at their shortest `every`, so
+/// values stay current whatever the board's own interval. Saved values move
+/// the cache directory's stamp, and the next check reloads the board.
+fn fetcher() -> Sender<Fetch> {
+    let (sender, pending) = mpsc::channel::<Fetch>();
+    std::thread::spawn(move || {
+        let mut last: Option<Fetch> = None;
+        loop {
+            let wait = last
+                .as_ref()
+                .and_then(|fetch| fetch.providers.iter().map(Provider::every).min());
+            let received = match wait {
+                Some(wait) => pending.recv_timeout(wait),
+                None => pending.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            };
+            match received {
+                Ok(mut fetch) => {
+                    while let Ok(newer) = pending.try_recv() {
+                        fetch = newer;
+                    }
+                    last = Some(fetch);
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            if let Some(fetch) = &last {
+                provider::refresh(
+                    &fetch.squad,
+                    &fetch.providers,
+                    &fetch.members,
+                    crate::status::now_ms(),
+                );
+            }
+        }
+    });
+    sender
+}
+
+/// Loads each request, newest first, until the board goes away. While idle
+/// it reloads the last squad early when the change stamp moved since that
+/// squad's load, unless its view has automatic reload off. The input loop's
+/// interval reloads are requests like any other and never wait on this.
+fn serve(
+    pending: &Receiver<Option<String>>,
+    sender: &Sender<Snapshot>,
+    check_every: Duration,
+    mut stamp: impl FnMut() -> Stamp,
+    mut load: impl FnMut(Option<String>) -> Snapshot,
+) {
+    // The squad last loaded, whether it reloads automatically, and the
+    // stamp taken just before that load.
+    let mut last: Option<(Option<String>, bool, Stamp)> = None;
+    loop {
+        let mut wanted = match pending.recv_timeout(check_every) {
+            Ok(wanted) => wanted,
+            Err(RecvTimeoutError::Timeout) => match &last {
+                Some((squad, true, seen)) if seen.moved(&stamp()) => squad.clone(),
+                _ => continue,
+            },
+            Err(RecvTimeoutError::Disconnected) => break,
+        };
+        while let Ok(newer) = pending.try_recv() {
+            wanted = newer;
+        }
+        // Taken before the load, so a change during it shows at the next check.
+        let seen = stamp();
+        let snapshot = load(wanted);
+        // A squad that failed to load keeps the default interval.
+        let automatic = snapshot
+            .view
+            .as_ref()
+            .map_or(true, |view| view.refresh.is_some());
+        last = Some((snapshot.squad.clone(), automatic, seen));
+        if sender.send(snapshot).is_err() {
+            break;
+        }
+    }
+}
+
 fn load(
     core: &Core,
     tmux: bool,
     caller: Option<&crate::me::Caller>,
     wanted: Option<String>,
-    bodies: &mut BTreeMap<String, String>,
+    kept: &mut Kept,
 ) -> Snapshot {
     let squads = match Squad::list(core) {
         Ok(squads) => squads,
@@ -131,7 +238,7 @@ fn load(
                 .iter()
                 .find(|squad| squad.name == key)
                 .expect("chosen from the listed squads");
-            squad_view(core, tmux, &config, &squads, squad, me, bodies)?
+            squad_view(core, tmux, &config, &squads, squad, me, kept)?
         };
         attention = found;
         Ok(view)
@@ -155,13 +262,28 @@ fn squad_view(
     squads: &[Squad],
     squad: &Squad,
     me: Option<crate::me::Me>,
-    bodies: &mut BTreeMap<String, String>,
+    kept: &mut Kept,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let layout = config.layout(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
     let board = config.board(&squad.name, layout)?;
     let sections = config.sections(&squad.name)?;
-    let mut document = status::document(squad, layout, &states, &sections, squad.members(core)?);
+    let rows = config.rows(&squad.name)?;
+    let providers = config.providers(&squad.name)?;
+    let mut members = squad.members(core, rows.reads_metadata())?;
+    if !providers.is_empty() {
+        let _ = kept.fetch.send(Fetch {
+            squad: squad.name.clone(),
+            providers: providers.clone(),
+            members: members.clone(),
+        });
+    }
+    provider::apply(
+        &providers,
+        &mut members,
+        &provider::Cache::load(&squad.name),
+    );
+    let mut document = status::document(squad, layout, &states, &sections, &rows, members);
     let sent = requests::overlay(core, squad, me.as_ref(), &mut document)?;
     let others: Vec<&Squad> = squads
         .iter()
@@ -174,14 +296,18 @@ fn squad_view(
         Some(sent) if board.panes.contains(&Pane::Replies) => requests::replies(sent, &document),
         _ => Vec::new(),
     };
-    requests::bodies(|id| requests::show_request(core, id), &mut replies, bodies)?;
+    requests::bodies(
+        |id| requests::show_request(core, id),
+        &mut replies,
+        &mut kept.bodies,
+    )?;
     let notes = if board.panes.contains(&Pane::Notes) {
         lead_notes(core, &document["squad"]["lead"])
     } else {
         Notes::NotShown
     };
     let view = View {
-        rows: config.rows(&squad.name)?,
+        rows,
         colors: states.colors,
         render: config.notes_render(&squad.name)?,
         bindings: config.bindings(tmux)?,
@@ -388,7 +514,8 @@ fn roster_document(
     let layout = config.layout(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
     let sections = config.sections(&squad.name)?;
-    let mut document = status::document(squad, layout, &states, &sections, roster);
+    let rows = config.rows(&squad.name)?;
+    let mut document = status::document(squad, layout, &states, &sections, &rows, roster);
     if let Some((me, inbox)) = waiting {
         requests::apply_waiting(&mut document, &squad.name, me, inbox);
     }
@@ -469,7 +596,86 @@ mod tests {
                 .iter()
                 .map(|(key, value)| ((*key).into(), (*value).into()))
                 .collect(),
+            meta: Default::default(),
+            seen: Value::Null,
+            numbers: Default::default(),
+            failed: Default::default(),
         }
+    }
+
+    /// Runs `serve` on its own thread with a stamp the test sets, and
+    /// returns the requests channel, the loaded squads and the stamp.
+    fn serving(
+        automatic: bool,
+    ) -> (
+        Sender<Option<String>>,
+        Receiver<Option<String>>,
+        std::sync::Arc<std::sync::atomic::AtomicU64>,
+    ) {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        };
+        let (requests, pending) = mpsc::channel();
+        let (sender, results) = mpsc::channel();
+        let (loaded, loads) = mpsc::channel();
+        let cursor = Arc::new(AtomicU64::new(1));
+        let read = Arc::clone(&cursor);
+        std::thread::spawn(move || {
+            serve(
+                &pending,
+                &sender,
+                Duration::from_millis(10),
+                || Stamp::cursor(read.load(Ordering::SeqCst)),
+                |wanted| {
+                    let _ = loaded.send(wanted.clone());
+                    let mut snapshot = crate::board::app::tests::snapshot(
+                        wanted.as_deref().unwrap_or("first"),
+                        json!([]),
+                    );
+                    if let Ok(view) = &mut snapshot.view {
+                        view.refresh = automatic.then_some(Duration::from_secs(3600));
+                    }
+                    snapshot
+                },
+            );
+            drop(results);
+        });
+        (requests, loads, cursor)
+    }
+
+    const WAIT: Duration = Duration::from_millis(300);
+
+    /// A moved stamp reloads the last squad at once, well before its
+    /// hour-long interval; an unmoved one never does.
+    #[test]
+    fn the_worker_reloads_early_only_when_the_stamp_moves() {
+        use std::sync::atomic::Ordering;
+        let (requests, loads, cursor) = serving(true);
+        requests.send(Some("product".into())).unwrap();
+        assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
+        assert!(loads.recv_timeout(WAIT).is_err(), "nothing changed");
+        cursor.store(2, Ordering::SeqCst);
+        assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
+        assert!(loads.recv_timeout(WAIT).is_err(), "once per change");
+        // A request is served as before and becomes the squad to watch.
+        requests.send(Some("infra".into())).unwrap();
+        assert_eq!(loads.recv_timeout(WAIT), Ok(Some("infra".into())));
+        cursor.store(3, Ordering::SeqCst);
+        assert_eq!(loads.recv_timeout(WAIT), Ok(Some("infra".into())));
+    }
+
+    /// `refresh = "off"` means F5 and actions only: no early reload either.
+    #[test]
+    fn a_view_with_automatic_reload_off_is_never_reloaded_early() {
+        use std::sync::atomic::Ordering;
+        let (requests, loads, cursor) = serving(false);
+        requests.send(Some("product".into())).unwrap();
+        assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
+        cursor.store(2, Ordering::SeqCst);
+        assert!(loads.recv_timeout(WAIT).is_err());
+        requests.send(Some("product".into())).unwrap();
+        assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
     }
 
     #[test]

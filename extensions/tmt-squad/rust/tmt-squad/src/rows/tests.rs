@@ -138,13 +138,53 @@ fn the_preset_and_the_older_columns_table_read_as_the_same_model() {
 }
 
 #[test]
-fn field_sources_keys_are_reserved_for_503() {
-    for key in ["from = \"x\"", "format = \"x\"", "color = \"red\""] {
+fn a_column_binds_a_documented_path_in_a_format() {
+    let rows = parse(
+        "[p.rows]\ncolumns = [\n  { name = \"member\" },\n  \
+         { name = \"ctx\", from = \"session.usage.tokens\", format = \"tokens\", align = \"right\" },\n  \
+         { name = \"model\", from = \"session.model\" },\n  \
+         { name = \"seen\", format = \"age\" },\n]\n",
+    )
+    .unwrap();
+    let ctx = &rows.columns[1];
+    assert_eq!(ctx.from.as_ref().unwrap().path, "session.usage.tokens");
+    assert_eq!(ctx.format, Format::Tokens);
+    assert_eq!(rows.columns[2].format, Format::Text);
+    // A plain column has no binding; a format alone reads its own field.
+    assert_eq!(rows.columns[0].source(), None);
+    assert_eq!(rows.columns[3].source().unwrap().path, "meta.squad.seen");
+    assert!(!rows.reads_metadata());
+    let value = rows.value();
+    assert_eq!(value["columns"][1]["from"], "session.usage.tokens");
+    assert_eq!(value["columns"][1]["format"], "tokens");
+    assert_eq!(value["columns"][3]["from"], Value::Null);
+    let meta = parse("[p.rows]\ncolumns = [{ name = \"team_role\", from = \"meta.team.role\" }]\n")
+        .unwrap();
+    assert!(meta.reads_metadata());
+}
+
+#[test]
+fn an_unknown_path_or_format_is_refused_with_the_choices() {
+    let message = error("[p.rows]\ncolumns = [{ name = \"m\", from = \"resume.model\" }]\n");
+    assert!(
+        message.contains("`squad.p.rows.columns[0].from` must be one of: member, presence"),
+        "{message}"
+    );
+    assert!(message.contains("meta.squad.<field>"), "{message}");
+    let message = error("[p.rows]\ncolumns = [{ name = \"m\", format = \"bytes\" }]\n");
+    assert!(message.contains("text, tokens, age or count"), "{message}");
+    for name in ["member", "role", "state", "pending", "note"] {
         let message = error(&format!(
-            "[p.rows]\ncolumns = [{{ name = \"task\", {key} }}]\n"
+            "[p.rows]\ncolumns = [{{ name = \"{name}\", from = \"meta.team.role\" }}]\n"
         ));
-        assert!(message.contains("#503"), "{message}");
+        assert!(message.contains("a field Squad reads itself"), "{message}");
+        let message = error(&format!(
+            "[p.rows]\ncolumns = [{{ name = \"{name}\", format = \"count\" }}]\n"
+        ));
+        assert!(message.contains("a field Squad reads itself"), "{message}");
     }
+    let message = error("[p.rows]\ncolumns = [{ name = \"m\", color = \"red\" }]\n");
+    assert!(message.contains("#514"), "{message}");
 }
 
 #[test]

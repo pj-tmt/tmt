@@ -1,0 +1,72 @@
+import { Cmd } from "../components/Cmd";
+import { Lede } from "../components/marks";
+import { LsSample } from "../components/samples";
+import { PaneDemo, basicLoop, resumeAfterReboot } from "../demos/PaneDemo";
+
+<div className="font-mono text-xs leading-none font-semibold tracking-[0.08em] text-muted uppercase">
+  tmt handbook
+</div>
+
+<h1 className="mt-4.5 mb-5 font-display text-[clamp(34px,6vw,58px)] leading-[1.02] font-extrabold tracking-[-0.02em] text-balance">
+  One channel for all your agents.
+  <br />
+  Built to <span className="text-accent">extend</span>.
+</h1>
+
+<Lede>
+  tmt gives each agent a durable name, delivers its work, and keeps the reply, even across restarts.
+</Lede>
+
+<PaneDemo
+  {...basicLoop}
+  label="Step-by-step walkthrough in three tmux panes: start Claude Code and Codex, name them reviewer and builder from inside their CLIs, name the server log pane server-log, ask reviewer for a fix that it delegates to builder, then have reviewer read server-log to find a bug. Captions describe each step."
+/>
+
+### Install
+
+<Cmd>{`$ curl -fsSL https://github.com/wkh237/tmt/releases/latest/download/install.sh | sh`}</Cmd>
+
+The installer puts `tmt` in `~/.local/bin` and, on a terminal, continues into `tmt setup`: it finds your agents, lists every file it will change (skills for each agent, session hooks for the ones installed here) and asks once. Run `tmt setup` any time later; it offers only what is missing. If `tmt` is not found, add `~/.local/bin` to your PATH once. Coming from tmux-team? Your install keeps working.
+
+### Built-in drivers
+
+tmt comes with the drivers most people need; there's nothing else to install. **tmux** is the host driver and needs no setup. **Claude Code** and **Codex** are runtime drivers: they work right away, and after `tmt setup claude` or `tmt setup codex` tmt also knows each agent's own conversation, can resume it exactly, and shows whether it's running. [All drivers →](/drivers)
+
+### The basic loop
+
+Inside tmux, name the pane an agent runs in, then talk to it from anywhere. This is the loop the walkthrough at the top plays.
+
+<Cmd>{`
+$ tmt this reviewer                   # in the agent's pane: name it
+$ tmt talk reviewer "Review the diff."  # from any pane: send, then wait for the reply
+$ tmt reply req_4f36… --message "…"   # the agent answers; talk prints it
+$ tmt check reviewer                  # look at the pane if something seems stuck
+`}</Cmd>
+
+Then manage the names you have:
+
+<Cmd>{`
+$ tmt ls                    # every name, its lifetime and whether it's present
+$ tmt add 0:1.2 builder     # name another pane without switching to it
+$ tmt rm builder            # retire a name; the pane keeps running
+`}</Cmd>
+
+Names are temporary unless you add `-s`. `tmt ls` leads with the agent, not the pane: saved names first, then temporary ones, each with where it lives as `driver:session` and an action only when there is one to take.
+
+<LsSample />
+
+`tmt ls reviewer` shows one agent in full, including its tmux pane. `--saved`, `--temp`, `--here` and `--all` narrow or widen the list.
+
+### Start agents with a name
+
+`tmt run` names the pane and starts the agent in one step; everything after the name is your usual command. The matching driver takes over from there, so `tmt resume` can bring the same conversation back later. [How each driver works →](/drivers)
+
+<Cmd>{`
+$ tmt run -s reviewer claude --model sonnet
+$ tmt resume reviewer       # later, in any pane: reviewer's own conversation
+`}</Cmd>
+
+<PaneDemo
+  {...resumeAfterReboot}
+  label="Step-by-step walkthrough: after a reboot the tmux layout is back but the agents are not; tmt resume brings reviewer and builder back to their own conversations, and a missing conversation is reported instead of starting fresh. Captions describe each step."
+/>

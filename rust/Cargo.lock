@@ -2500,6 +2500,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-driver-protocol"
+version = "5.0.0-alpha.8"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "tmt-office"
 version = "0.1.0-alpha.4"
 dependencies = [

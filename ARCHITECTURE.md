@@ -1466,9 +1466,10 @@ that inference, not their normal validation. A thread ID is only a correlation
 hint: the current selector does not derive identity from remembered session
 preferences. Automatic current-session correlation remains dependent on the
 runtime hook integration. No caller probe changes bindings or sends input.
-`tmux::BindingSession` also implements the action port: status delegates to the same
-full server/pane/marker evidence evaluator, and send requires present evidence
-before invoking the existing paste-and-Enter transport once. It preserves that
+The action port's policy is written once, in `host::driver`, over each host's
+`HostDriver` (see the host port below). Status delegates to the same full
+server/pane/marker evidence evaluator, and send requires present evidence
+before invoking the host's paste-and-Enter transport once. It preserves that
 transport's preparation-versus-uncertain failure distinction. `focus` (a
 default-`Unsupported` driver action returning the shown and previous interface IDs
 and the host's name for the view that moved)
@@ -1789,7 +1790,15 @@ and `Driver` ports), caller and target resolution, snapshots, capture, send,
 focus and pane cosmetics, over two hosts: `tmt-adapters::tmux` and
 `tmt-adapters::herdr` (#479). A handle has a primary host; its session observes
 new panes there, and probes, marks and clears every stored binding on that
-binding's own host, so presence is complete from either host. `HostError` and
+binding's own host, so presence is complete from either host. Each host
+implements `host::driver::HostDriver`: snapshot, probe, publish, clear, the
+runtime in a pane, input and focus, at the driver protocol's granularity
+(#570). The session picks the driver of an entry's host and runs one binding
+policy over it: `host::driver::{status, send, focus}` decide which evidence
+makes a binding present, when a runtime blocks input, and what a failure
+means. A host without input (`has_input`) is `Unsupported` before any evidence
+is read, and `focus_preflight` refuses before any evidence is read too. The
+out-of-process client of #570 slice 3 implements the same trait. `HostError` and
 the host `ActionError` wrap each host's error and read exactly as it. The
 architecture guard rejects production references to the host modules outside
 `host.rs` and their own directories.
@@ -1875,6 +1884,24 @@ and status commands never call it.
 Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
+
+### Host driver protocol
+
+Terminal hosts that TMT doesn't build in will run out of process as host
+drivers (#570). [`contracts/driver-protocol-v1.md`](contracts/driver-protocol-v1.md)
+owns the wire format. `rust/crates/tmt-driver-protocol` encodes it for both
+sides:
+
+- wire types and per-operation limits;
+- `decode`, which is core's bounded, strict parsing and validation against the
+  pane-ID and target grammar each driver declares;
+- `serve`, a driver's entry point;
+- `conformance::check`, which runs through any invoker.
+
+The crate is a leaf with only `serde` and `serde_json`, so a community driver
+builds against it alone; the architecture guard enforces that. Nothing in `tmt`
+calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
+spawning client with consent and fingerprint checks, and move Herdr out.
 
 ## Managed skills and native installation
 
@@ -2081,7 +2108,26 @@ one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
 the single list, and rows that match none follow in one untitled section so
 nobody is hidden. The document carries the board's row grid (`rows`: `columns`
-and `lines`). The board sizes it with `tmt-cli-style`'s one solver
+and `lines`). A column's `from`/`format` (`source::ColumnSource`) reads the
+member's public projection: the `ls --room` row it already joins (`cwd`,
+`target`, the normalized `resume`) and roster metadata, which `rooms.roster`
+returns unprefixed only when a column reads `meta.<key>`. `status::document`
+writes each bound value into the row's field of the column's name, with its
+number for sorting, before sections, filters and sorts read it, so the board and
+`ls` show one value and a binding adds no core call. Field providers
+(`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
+member through `runner` with the run-binding argument rule
+(`Template::fill_argument`: one argument per template, no shell, a value that
+would start an argument with `-` refused), 4 at a time, bounded in time and
+output. `provider::Cache` keeps each value with the argv that produced it in
+`$XDG_CACHE_HOME/tmt-squad/fields/<squad>.json` (atomic replacement via
+`cache`), so a changed input never shows an old value; `provider::apply` writes
+current values into member fields before the document is built, `?` plus the
+row's `failed` list after a failed run. Readers never run providers: `ls` reads
+the cache (`--refresh-fields` runs what is due first), and the board hands each
+load's members to one fetcher thread that runs due work off the paint path and
+again at the shortest `every`; a save moves the cache directory's stamp, which
+`board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
 (`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
 field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
@@ -2095,7 +2141,13 @@ loads snapshots off the input loop, collapsing queued requests, so keys act on
 painted data. The input loop asks for a reload at the shown squad's `refresh`
 interval (`Config::refresh`: per squad, then top-level `[board]`, then 5 s;
 `None` is off), which each snapshot carries, so a squad that failed to load
-retries at the default. A switch never clears the view: `App` keeps the view of each
+retries at the default. That timer always runs. Between requests the refresh
+thread checks `board::changes` every second: core's `changes.cursor` (the
+public extension API method) and squad.toml's modification time and length.
+When either moved since the stamp taken just before the last load, it reloads
+that squad early, unless its `refresh` is off. A failed read is never a
+change, and `API_INPUT_INVALID` (a core without the method) stops cursor reads
+for the session, leaving the file check and the interval. A switch never clears the view: `App` keeps the view of each
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole; a result for a squad the user left only refreshes that cache.
@@ -2164,7 +2216,7 @@ lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
 under the pointer. Panes keep no scroll state of their own; the rows pane only
-asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template and starts it like the
+asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).

@@ -1,0 +1,38 @@
+import { Cmd } from "../components/Cmd";
+import { DriverCard } from "../components/samples";
+
+<DriverCard
+  name="Claude Code"
+  kind="runtime driver"
+  spec={[
+    [
+      "Knows",
+      "Each conversation's id, from Claude Code's documented SessionStart and SessionEnd hooks.",
+    ],
+    [
+      "Resume",
+      <>
+        <code>tmt resume &lt;name&gt;</code> reopens the conversation that belongs to this identity,
+        not just the latest one in the folder, with the same model.
+      </>,
+    ],
+    ["Context", "At start, the session receives a short summary: who it is and what's waiting."],
+    ["Setup", <code>tmt setup claude</code>],
+  ]}
+/>
+
+### Connect it
+
+<Cmd>{`
+$ tmt setup claude          # shows the exact settings change, then asks
+$ tmt run reviewer claude   # start Claude Code as "reviewer"
+$ tmt resume reviewer       # reopen reviewer's own conversation
+`}</Cmd>
+
+Setup adds Claude Code's start and end hooks for tmt, and nothing else in your settings changes. The hooks never block Claude Code: if tmt is slow or missing, the session starts normally without the summary. `tmt setup claude --remove` takes them out again.
+
+### What you get
+
+- **The right conversation on resume**, even when several agents work in the same folder.
+- **A short briefing at start:** the agent's name, its role, and what's waiting for it.
+- **Running or ended** in `tmt ls` and on the pane badge.

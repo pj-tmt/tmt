@@ -46,7 +46,6 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
 }
 
 mod actions;
-pub use actions::ActionError;
 
 impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     type Error = TmuxError;

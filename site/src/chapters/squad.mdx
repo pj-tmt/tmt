@@ -1,0 +1,262 @@
+import { Cmd, Code } from "../components/Cmd";
+import { Callout, Caption, KeyList, Lede, More, Waiting } from "../components/marks";
+import { Spaces, TokenTable } from "../components/samples";
+import { BoardSketch, SplitBoardSketch } from "../demos/board";
+import { BoardDemo, jumpAndTalk, startSquad } from "../demos/BoardDemo";
+
+<Lede>
+  With more than a couple of agents, keeping track of them becomes the work. Squad hands that job to
+  one of them.
+</Lede>
+
+<KeyList>
+  <li>
+    <strong>A lead</strong> briefs the other agents and keeps the board current.
+  </li>
+  <li>
+    <strong>Members</strong> do the work.
+  </li>
+  <li>
+    <strong>You</strong> watch one board, talk to the lead, and step into a member only when it's
+    waiting on you <Waiting />.
+  </li>
+</KeyList>
+
+<Cmd>{`
+$ tmt extension install squad
+$ tmt sq init product            # name the squad; it never asks
+$ tmt sq lead sol                # optional: sol leads it
+$ tmt sq                         # the board on a terminal, the member list anywhere else
+`}</Cmd>
+
+<Waiting /> marks what's waiting on _you_. Squad knows who you are from the pane you run it in, or
+from `tmt sq me ben` if you'd rather record it once. It follows that identity through `tmt rename`.
+When your lead runs a squad command in its own pane, it speaks as itself.
+
+<Callout title="Squad doesn't start agents.">
+  It doesn't create worktrees or windows either. How members come to life is up to you and your
+  lead; squad only gives the team a shared board and a list of who's in it.
+</Callout>
+
+### Start a squad
+
+After that you work through the lead. Tell it what you need; it brings members in the way you've agreed and keeps the board current.
+
+<BoardDemo
+  steps={startSquad}
+  label="Animated walkthrough: create a squad, make sol its lead, ask sol for two members from the board, and watch the board fill in. Captions describe each step."
+/>
+
+<Caption>Walkthrough in tmux. Output is illustrative.</Caption>
+
+### The board
+
+By default the board is one searchable list of the squad's members. Press `/` and type to narrow it. A <Waiting /> marks a member that's waiting on you, and those rows sort first. Every key works from what's already on screen; slow lookups such as pull request status refresh in the background. The board reloads within about a second when a member, request or room changes, or when you edit `squad.toml`, and it still refreshes on its interval (`refresh`, or `"off"`) for everything else. `tmt sq ls` prints the same list as text, or as JSON with `--json`, and it's what `tmt sq` shows when there's no terminal. `tmt sq board` always opens the board.
+
+<BoardSketch />
+
+<Caption>Sketch of the default board. Every key below can be changed.</Caption>
+
+| Key                      | On the selected row                                                                                                                                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enter · double-click · ⌫ | `jump` to the member's own screen, and `back` to where you were. A single click only selects a row. This needs a host that can switch panes; see [Jumping between members](/extensions/squad#jumping-between-members). |
+| t · r                    | `talk` to the member, or `reply` to what it's waiting on, through tmt's own `tmt talk` and `tmt answer`. The answer shows up on the board.                                                                             |
+| a                        | `annotate`: send the lead a note about this row (below).                                                                                                                                                               |
+| o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                       |
+| / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                 |
+
+### Tabs: one per squad
+
+The first line of the board holds its tabs: one per squad, plus two built in. **leads** lists every squad's lead in one place, and **all** has one row per squad with its lead, its member count and what needs you. Enter on a row in **all** opens that squad's tab.
+
+A tab is colored by what it needs from you: amber when a member waits on you, red when one is blocked. Counts follow the name, such as `product ◆2 !1`, so the state never depends on color alone. ← and → switch tabs, and **s** opens a switcher over every tab, hidden ones included, that narrows as you type. When there are more tabs than fit, the line scrolls to keep the current one in view and counts the tabs off each end (`‹ 3`, `5 ›`), colored by the most pressing one it hides.
+
+Shift+← and Shift+→ move the current tab, and dragging a tab onto another's place moves it there. The board writes the new order to your config and changes nothing else in the file:
+
+<Code>{`
+# ~/.config/tmux-team/squad.toml
+[tabs]
+order = ["all", "leads", "product"]
+hide  = ["quiet"]                      # still reachable with s, or tmt sq board --squad quiet
+`}</Code>
+
+### Panes: rows, notes and replies
+
+The board is made of panes: **rows** (the list above), **notes** (the lead's own `tmt notes`, read-only), **detail** (the selected row) and **replies** (the latest answers from the lead and members). Show the ones you want, split side by side, stacked top and bottom, or as tabs you flip between.
+
+<SplitBoardSketch />
+
+<Caption>Sketch: rows and notes side by side, with an annotation being typed.</Caption>
+
+- **Annotate a row.** Press `a` and type. The note goes to the lead, tagged with the row, for example `[product · auth-fix] keep old tokens valid for a day`. The row shows `✎ sent to sol` until the lead answers, so you can see what you've raised and what's still open. The lead decides what to do with it: update the board, add it to its notes, or pass it to the member.
+- **Row notes.** The lead can give each member a one-line note, shown under its row.
+- **Notes read like notes.** The notes pane renders common Markdown: headings, lists, bold and italic, inline code and links. Anything else shows as plain text. Lines wrap to the pane, wide characters like Chinese stay aligned, and terminal escape codes are removed. You never edit the lead's notes from the board, so they keep one author.
+
+### Make it yours
+
+Nothing on the board is fixed. Pick a layout preset, then override any part of it in squad's config file.
+
+| Layout preset | What it shows                                    | States                                             |
+| ------------- | ------------------------------------------------ | -------------------------------------------------- |
+| crew          | members, the ones waiting on you first (default) | working · idle · blocked · review · testing · hold |
+| pr-queue      | one list, oldest first                           | preparing · ready · sent · merged                  |
+| minimal       | name and state only                              | whatever your lead writes                          |
+
+You can change the panes and their arrangement; add your own **sections**, each a titled list with a filter and a sort; and choose the **columns**, the **states** with their colors and order, and how links open. You also set what every key or click does. A binding is an event (a key like `o`, or `click`, `double-click`) and one line: `jump`, `back`, `talk`, `reply`, `annotate lead`, `open {pr_link}`, `copy {name}: {task}`, or `run <program> {field}…`, where `{field}` is filled from the row. A section can have its own bindings.
+
+<Code>{`
+# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
+[squad.product]
+layout = "crew"                        # start from a preset
+
+[bind]
+O = "open {issue_link}" # your own key: open the row's issue
+`}</Code>
+
+<More summary="A fuller example: split panes, a custom section, columns, states and more bindings">
+<Code>{`
+# ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
+me = "ben"                             # written by tmt sq me ben, with ben's ID beside it
+
+[squad.product]
+layout = "crew" # start from a preset, then override
+
+[squad.product.board]
+mode = "split" # split or tabs
+direction = "left-right" # or top-bottom
+panes = ["rows", "notes"] # also: detail, replies
+sizes = [60, 40]
+
+[[squad.product.section]] # optional: your own sections
+title = "Needs me"
+filter = "pending or state = blocked"
+[squad.product.section.bind]
+enter = "reply" # in this section, Enter answers
+
+[squad.product.columns]
+show = ["member", "state", "task", "pr", "updated"]
+
+[squad.product.states]
+blocked = { color = "amber", sort = 0 }
+parked = { color = "dim" }
+
+[squad.product.notes]
+render = "markdown" # or "plain"
+
+[bind]
+O = "open {issue_link}"
+e = "run code {worktree}"
+Y = "copy - [{name}]({pr_link}) {state}"
+`}</Code>
+
+</More>
+
+### Layout: rows, lines and panes
+
+A board is laid out the same way at every level, so one set of rules explains all of it. Every row sits on one shared grid of columns, so rows line up and you can compare members at a glance. A row can take more than one line, and on each line a cell can span several columns.
+
+- **Columns** set a width, or `min`/`max` and a `grow` share of what's left; `align`; `truncate` at the `end` or the `middle` (good for paths and links); and a `priority`. On a narrow screen columns first shrink to their `min`; if a row still doesn't fit, the column with the highest `priority` steps aside first, and columns without one never do.
+- **Lines**: `lines` says how many lines a row takes and what's on each. Each line lists which columns it uses, and a cell can `span` several columns, so a second line can hold what the member is waiting on you for, under the task. A later line with nothing to show is left out.
+- **Where a value comes from**: a column shows the member's squad field of its name, unless `from` binds it to the member's own tmt data: `member`, `presence`, `cwd`, `target`, `session.driver`, `session.model`, `session.usage.tokens`, `session.usage.remaining` (the context window less those tokens, when the driver states a window), `meta.<key>` or `meta.squad.<field>`. The paths are the same for every driver, so a member that switches from Claude to Codex keeps its columns. `format` shows the value as `text`, `tokens` (`487k`), `age` (`5m`) or `count` (`12,345`). Sections, filters and sorts use the same value, and numbers sort as numbers. A missing value shows as `–`, the board's one mark for "nothing here". Squad's own fields (`member`, `role`, `state`, `pending`, `note`) can't be bound.
+- **A cell never wraps.** Text that doesn't fit is cut with `…`, measured by what the terminal draws, so Chinese and emoji line up. The full value is always in the detail pane and in `tmt sq ls`: it's a list, so it shows the board's fields in the same order but never drops a column or cuts one when piped. Widths, spans and priorities shape only the board.
+
+<Code>{`
+[squad.product.rows]
+columns = [
+  { name = "member", min = 10 },
+  { name = "state",  width = 9 },
+  { name = "task",   grow = 1, min = 12 },
+  { name = "pr",     width = 10, align = "right", priority = 2 },
+  { name = "ctx",    from = "session.usage.tokens", format = "tokens", align = "right" },
+]
+lines = [
+  ["member", "state", "task", "pr", "ctx"],
+  ["",       { field = "pending", span = 3 }],   # a second line under the task
+]
+`}</Code>
+
+**Panes** use the same rules one level up: a split is a row or a column of panes, each with a percentage or a `{ grow = n }` share of what the percentages leave, and splits can nest up to three levels. Tab moves through them in reading order. The `mode`, `direction` and `sizes` keys above are the simple form of it; use one form or the other.
+
+<Code>{`
+[squad.product.board]
+layout = { direction = "left-right", sizes = [60, 40], panes = [
+  "rows",
+  { direction = "top-bottom", sizes = [40, 60], panes = ["detail", "notes"] },
+] }
+`}</Code>
+
+Bindings come only from your own config file, never from what agents write on the board. `run` starts the program directly, not through a shell: each `{field}` fills exactly one argument, so a row can't smuggle in extra commands. `open` only opens web links. `tmt sq ls` uses the same sections, so the text and JSON views match the board.
+
+### Colors and themes
+
+Color carries meaning, so most of the board stays neutral: only what needs you, what's working and what's stuck stands out. Every color comes from a named **token**, the same set `tmt ls`, the other commands and this site use, and a theme decides what each token looks like. [The design guideline →](/design)
+
+<TokenTable />
+
+Four themes come built in. **tmt** is the default: soft truecolor for dark terminals. **tmt-light** is the same palette for light backgrounds. **terminal** uses your terminal's own 16 colors, so your color scheme decides. **mono** uses only bold and dim. Themes set text colors only, except for the selection, so your terminal's background always shows through. Where truecolor isn't available, tmt picks the nearest of your 16 colors; with `NO_COLOR` set, or when output goes to a file or another program, there is no color at all, and every state still shows as text or a mark.
+
+<Code>{`
+# ~/.config/tmux-team/config.toml: every command and the board
+[theme]
+base    = "tmt"                        # tmt, tmt-light, terminal or mono
+waiting = "#e0a458"                    # override any token: hex or a color name
+accent  = "blue"
+`}</Code>
+
+Pick a theme and preview it live from the board's settings view; your choice is written back to your config. A squad can override tokens under `[squad.<name>.theme]`. State colors on rows and tabs use these tokens too: `blocked = { color = "blocked" }`.
+
+### Skills for your lead
+
+Squad comes with a skill for the lead agent. It teaches the lead to read the board, keep it current after every dispatch and reply, and find your settings. When a rule isn't clear, the lead **asks you** instead of guessing. That covers which states to use, what counts as waiting on you, and how members get started. It records what you agree on in its notes, or proposes a config change for you to apply; it never edits your settings on its own.
+
+`tmt extension install squad` offers this skill for the agents you use and asks first.
+
+Optional **playbooks** are example skills for how a lead lays out its team on your host: `tmux-squad` (a leads session and a crew session, one window and worktree per member), `cmux-squad` and `herdr-squad`. Squad never runs them. Read one with `tmt sq playbook show tmux-squad`, then install it, change it, or ignore it.
+
+### Where state lives
+
+Squad keeps nothing of its own. A squad is a tmt meeting room named `squad-<name>`. Each member's state, task, note and links are stored on its tmt identity. Members started for one job leave the board when their pane closes. Decisions a member needs from you arrive in your inbox, where you can answer them from the board or the command line.
+
+### Jumping between members
+
+<Callout title="tmux only, for now.">
+  This section needs a host that can switch panes: tmux today, with cmux and Herdr planned. In a
+  plain terminal everything else on the board works the same, and Enter opens the row's actions
+  instead of jumping. You can skip this section.
+</Callout>
+
+A layout that works well: leads in one place you keep open, members in another, one window and worktree per piece of work. You talk to leads and read the board, and only drop into a member when it needs you. From the board, Enter takes you to that member's screen, even in another session, and `⌫` brings you back.
+
+<Spaces />
+
+<BoardDemo
+  steps={jumpAndTalk}
+  label="Animated walkthrough: from the board, jump to auth-fix in the crew session and answer it, jump back to leads, then send docs-sweep a prompt from the board and read its reply, and copy a status line. Captions describe each step."
+/>
+
+<Caption>Walkthrough in tmux. Output is illustrative.</Caption>
+
+In tmux, `prefix S` opens the board as a popup that closes when you jump, and `prefix B` keeps it as a pane. `tmt sq hotkeys install` shows exactly what it adds to your tmux config and asks first; `--print` only shows it, and `tmt sq hotkeys remove` takes it out. You can pick other keys: `[tmux] popup = "…"` and `pane = "…"` in squad.toml.
+
+| Host           | Jump and back                                 | Where the board opens          |
+| -------------- | --------------------------------------------- | ------------------------------ |
+| tmux           | to the member's pane, even in another session | a popup on a hotkey, or a pane |
+| cmux           | to the member's workspace                     | any pane                       |
+| Herdr          | to the member's tab                           | any pane                       |
+| plain terminal | none; Enter opens the row's actions           | full screen                    |
+
+<More summary="More commands">
+<Cmd>{`
+$ tmt sq add auth-fix docs-sweep      # agents already running, however they started
+$ tmt sq set auth-fix state=review    # what leads do to keep the board current; field= clears
+$ tmt sq ls                           # the member list; --json for scripts
+$ tmt talk auth-fix "…" --detach      # the board's t, from the command line
+$ tmt answer auth-fix "use postgres"  # the board's r: what it's waiting on you for
+$ tmt sq annotate auth-fix "split this job"   # the board's a
+$ tmt sq jump auth-fix                # and tmt sq back
+$ tmt sq remove auth-fix              # leaves the squad; the agent keeps running
+`}</Cmd>
+
+`tmt sq` is short for `tmt squad`. With more than one squad, add `--squad <name>`.
+
+</More>
