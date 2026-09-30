@@ -1205,20 +1205,21 @@ describe('required CI gate', () => {
     expect(browser.match(/docker build /g)).toHaveLength(1);
     expect(job(browser, 'image')).toContain('docker build --target browser-tests');
     expect(job(browser, 'image')).toContain('docker save tmt-office-browser:ci');
-    for (const partitions of ['office-browser', 'native-office-browser']) {
+    for (const partitions of ['office-emulator', 'office-local', 'native-office-browser']) {
       const body = job(browser, partitions);
       expect(body).toContain('actions/download-artifact');
       expect(body).toContain('docker load');
       expect(body).not.toContain('docker build');
     }
-    // The selector decides the Office partitions of a pull request.
-    expect(job(browser, 'office-browser')).toContain('needs: [changes, image]');
-    expect(job(browser, 'office-browser')).toContain("needs.changes.outputs.office == 'true'");
+    // The selector decides the emulator partition of a pull request.
+    expect(job(browser, 'office-emulator')).toContain('needs: [changes, image]');
+    expect(job(browser, 'office-emulator')).toContain("needs.changes.outputs.office == 'true'");
   });
 
-  // #424: the native Office shards fail on every run, so they do not run on pull requests until
-  // it is fixed. The fix of #424 puts the selection back and deletes this test.
-  it('pauses the native Office shards on pull requests and keeps them weekly and by dispatch', () => {
+  // #424 and #574: the native Office shards and the local Office partitions fail on most runs, so
+  // they do not run on pull requests until each is fixed, only weekly and by dispatch. The fix of
+  // each puts its selection back and updates this test.
+  it('pauses the native and local Office partitions on pull requests and keeps them weekly and by dispatch', () => {
     const browser = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/office-browser.yml', import.meta.url)),
       'utf8'
@@ -1236,11 +1237,18 @@ describe('required CI gate', () => {
     expect(browser.match(/cron:/g)).toHaveLength(1);
     expect(browser).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
 
-    // The shards never run for a pull request and no longer depend on the selection.
-    const native = job('native-office-browser');
-    expect(native).toContain('needs: image\n');
-    expect(native).not.toMatch(/changes|native_office/);
+    // Neither the shards nor the local partitions run for a pull request or depend on the
+    // selection; the emulator partition is the only Office partition a pull request selects.
+    for (const name of ['native-office-browser', 'office-local']) {
+      const paused = job(name);
+      expect(paused, name).toContain('needs: image\n');
+      expect(paused, name).not.toMatch(/changes|native_office/);
+    }
     expect(browser).not.toContain('native_office');
+    expect(browser).not.toMatch(/^ {2}office-browser:$/m);
+    expect(job('office-local')).toContain('shard: 1/3\n            partition: local-1');
+    expect(job('office-local')).toContain('shard: 3/3\n            partition: local-3');
+    expect(job('office-local').match(/^ {10}- shard: /gm)).toHaveLength(3);
 
     // `changes` runs for every event so that no job is ever skipped through its dependencies (a
     // job downstream of a skipped job is skipped too, even past one that uses a status
@@ -1252,13 +1260,20 @@ describe('required CI gate', () => {
     expect(changes.match(/^ {6}(?:- )?(?:name: [^\n]+\n {8})?if: /gm)).toHaveLength(3);
     expect(changes.match(/if: github\.event_name == 'pull_request'/g)).toHaveLength(3);
 
-    // The job-level conditions are exactly these: the Office partitions follow the selection,
-    // the image is built for them or for the native shards, and the shards skip pull requests.
+    // The job-level conditions are exactly these: the emulator partition follows the selection,
+    // the image is built for it or for the paused partitions, and those skip pull requests.
     const condition = (name: string) => /^ {4}if: (.*)$/m.exec(job(name))?.[1];
-    expect(condition('office-browser')).toBe("needs.changes.outputs.office == 'true'");
+    expect(condition('office-emulator')).toBe("needs.changes.outputs.office == 'true'");
     expect(condition('image')).toBe(
       "github.event_name != 'pull_request' || needs.changes.outputs.office == 'true'"
     );
+    expect(condition('office-local')).toBe("github.event_name != 'pull_request'");
     expect(condition('native-office-browser')).toBe("github.event_name != 'pull_request'");
+
+    // The check names and failure artifacts are what they were.
+    expect(job('office-emulator')).toContain('name: Office browser (emulator)');
+    expect(job('office-local')).toContain('name: Office browser (local ${{ matrix.shard }})');
+    expect(job('office-emulator')).toContain('name: office-browser-emulator-results');
+    expect(job('office-local')).toContain('name: office-browser-${{ matrix.partition }}-results');
   });
 });
