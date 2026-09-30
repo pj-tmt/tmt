@@ -574,7 +574,11 @@ native source/skill changes, Office's Rust crates, core-only test suites and E2E
 scenario files avoid the Office web checks; prose that no job reads selects nothing
 beyond `Code quality`. Shared or unknown paths (including lockfiles, security,
 contracts, workflows, the map itself and the E2E harness) fan out. Empty diffs fail
-closed to both. Diffs include deletions and both sides of renames. The selector writes
+closed to both. The explicit remote-Rust rule retains full workspace and Office
+coverage independently of its private release ownership. Full Rust checks reject
+empty remote test discovery before executing all workspace tests, including the
+remote lifecycle tests and core architecture guards. Diffs include deletions and both
+sides of renames. The selector writes
 a per-path evidence table (owner, rule, selection, map digest) to the run summary. When
 every path that selects native work is owned by Squad, the native scope is `squad`: the
 same job names run Squad's Cargo checks and architecture guard, its native tests and its

@@ -247,7 +247,11 @@ no job reads selects nothing beyond Code quality, and the run summary lists ever
 changed path with its owner, rule and selection. A change confined to the Squad extension
 runs a Squad scope under the same job names (its Cargo checks and the architecture guard,
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
-`Native package matrix` expects exactly the scoped results. Shared/unknown paths run both. Code
+`Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
+Remote Rust has an explicit rule retaining full native and Office coverage; the full
+Rust job requires nonempty remote test discovery and runs locked workspace tests,
+Clippy and builds (including MSRV). Its result remains required by the native gate.
+The remote TypeScript and browser paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
 failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser
