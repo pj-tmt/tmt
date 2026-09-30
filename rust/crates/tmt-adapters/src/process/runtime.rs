@@ -3,23 +3,24 @@
 use super::{CommandError, CommandRunner, ps::query_ps};
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use std::{ffi::OsString, time::Instant};
-use tmt_core::binding::session::{RuntimeIncarnation, RuntimeLiveness};
+use tmt_core::binding::session::RuntimeLiveness;
+use tmt_core::endpoint::ProcessIncarnation;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessObservation {
-    Live(RuntimeIncarnation),
+    Live(ProcessIncarnation),
     /// Present but stopped: refuse a second foreground launch, without treating
     /// the suspended process as a deliverable runtime.
-    Stopped(RuntimeIncarnation),
+    Stopped(ProcessIncarnation),
     /// Only an owned, unreaped child's probe retains this identity. Ordinary
     /// runtime observation maps zombies to Gone, and this never permits input.
-    UnreapedZombie(RuntimeIncarnation),
+    UnreapedZombie(ProcessIncarnation),
     Gone,
     Unknown,
 }
 
 impl ProcessObservation {
-    pub fn matches(&self, expected: &RuntimeIncarnation) -> RuntimeLiveness {
+    pub fn matches(&self, expected: &ProcessIncarnation) -> RuntimeLiveness {
         match self {
             Self::Live(actual) if actual == expected => RuntimeLiveness::Alive,
             Self::Stopped(actual) if actual == expected => RuntimeLiveness::Unknown,
@@ -151,12 +152,12 @@ fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObservation {
         return ProcessObservation::Unknown;
     }
     if fields[5].starts_with('Z') {
-        return RuntimeIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
+        return ProcessIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
             .map(ProcessObservation::UnreapedZombie)
             .unwrap_or(ProcessObservation::Unknown);
     }
     if matches!(fields[5].as_bytes().first(), Some(b'T' | b't')) {
-        return RuntimeIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
+        return ProcessIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
             .map(ProcessObservation::Stopped)
             .unwrap_or(ProcessObservation::Unknown);
     }
@@ -166,7 +167,7 @@ fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObservation {
     ) {
         return ProcessObservation::Unknown;
     }
-    RuntimeIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
+    ProcessIncarnation::new(pid, &format!("ps-v1:{}", fields[..5].join(" ")))
         .map(ProcessObservation::Live)
         .unwrap_or(ProcessObservation::Unknown)
 }

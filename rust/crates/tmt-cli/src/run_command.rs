@@ -18,10 +18,9 @@ use tmt_adapters::{
     storage::{Storage, StorageError},
 };
 use tmt_core::{
-    binding::session::{
-        ObservedSessionKey, RememberedSession, RuntimeIncarnation, SessionTransition,
-    },
+    binding::session::{ObservedSessionKey, RememberedSession, SessionTransition},
     driver::{HookEvent, HookObserver, observe_driver_hook},
+    endpoint::ProcessIncarnation,
 };
 
 mod resume;
@@ -125,7 +124,7 @@ fn storage_failure(error: StorageError) -> Failure {
     .caused_by(error)
 }
 
-fn incarnation(pid: u32) -> Option<RuntimeIncarnation> {
+fn incarnation(pid: u32) -> Option<ProcessIncarnation> {
     match observe_runtime_process(
         &UnixCommandRunner,
         u64::from(pid),
@@ -238,7 +237,7 @@ mod tests {
     #[test]
     fn only_recorded_admission_emits_and_fast_exit_keeps_event_order_on_observer_failure() {
         let key = ObservedSessionKey {
-            incarnation: RuntimeIncarnation::new(17, "fixture-child-start").unwrap(),
+            incarnation: ProcessIncarnation::new(17, "fixture-child-start").unwrap(),
             provider_session: Some(ProviderSessionId::new("provider-key").unwrap()),
         };
         let mut observer = RecordingObserver {

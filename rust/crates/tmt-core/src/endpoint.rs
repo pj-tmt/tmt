@@ -7,6 +7,55 @@ pub fn valid_process_id(value: u64) -> bool {
     value > 0 && value <= MAX_JS_SAFE_INTEGER
 }
 
+/// One local process: its pid and an opaque token for when it started, so a
+/// reused pid is a different process. Both come from core's own inspection
+/// of processes on this machine since boot, never from a host's or a
+/// driver's text. Servers, panes and runtimes are compared with it; each
+/// keeps its own stored columns and lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessIncarnation {
+    pid: u64,
+    start_identity: String,
+}
+
+/// A pid or start token that no process inspection could have produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidIncarnation;
+
+impl std::fmt::Display for InvalidIncarnation {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output.write_str("Invalid process incarnation.")
+    }
+}
+
+impl std::error::Error for InvalidIncarnation {}
+
+impl ProcessIncarnation {
+    /// The start token is opaque: 1 to 256 bytes, not blank, with no control
+    /// characters.
+    pub fn new(pid: u64, start_identity: &str) -> Result<Self, InvalidIncarnation> {
+        if !valid_process_id(pid)
+            || !(1..=256).contains(&start_identity.len())
+            || start_identity.trim().is_empty()
+            || start_identity.chars().any(char::is_control)
+        {
+            return Err(InvalidIncarnation);
+        }
+        Ok(Self {
+            pid,
+            start_identity: start_identity.into(),
+        })
+    }
+
+    pub fn pid(&self) -> u64 {
+        self.pid
+    }
+
+    pub fn start_identity(&self) -> &str {
+        &self.start_identity
+    }
+}
+
 pub fn valid_server_id(value: &str) -> bool {
     value.len() == 36
         && uuid::Uuid::parse_str(value).is_ok_and(|uuid| {
@@ -56,4 +105,34 @@ pub enum EndpointProbe {
     Live(EndpointSnapshot),
     Dead,
     Unknown,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_process_incarnation_is_a_valid_pid_and_an_opaque_start_token() {
+        let process = ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap();
+        assert_eq!(process.pid(), 42);
+        assert_eq!(process.start_identity(), "ps-v1:Sun Sep 27 10:00:00 2026");
+        let longest = "s".repeat(256);
+        assert!(ProcessIncarnation::new(MAX_JS_SAFE_INTEGER, &longest).is_ok());
+        for (pid, start) in [
+            (0, "start"),
+            (MAX_JS_SAFE_INTEGER + 1, "start"),
+            (1, ""),
+            (1, "   "),
+            (1, "a\nb"),
+            (1, &"s".repeat(257)),
+        ] {
+            assert_eq!(
+                ProcessIncarnation::new(pid, start),
+                Err(InvalidIncarnation),
+                "{pid} {start:?}"
+            );
+        }
+        // The same pid with another start is another process.
+        assert_ne!(process, ProcessIncarnation::new(42, "ps-v1:later").unwrap());
+    }
 }
