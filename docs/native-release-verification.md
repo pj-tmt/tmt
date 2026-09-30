@@ -100,10 +100,14 @@ with, publish the draft by hand as below, or dispatch `native-release.yml` on `m
 product, `prepare` off and `hold` set to the tag: the run evaluates the gates again without
 the one gate the marker names (never another) and removes the marker when they pass.
 
-Publication remains a separately authorized operation, not a workflow side
-effect: a draft that passes every gate is reported, and nothing publishes it yet. Verify the
-selected product run's exact commit and all required PR checks; enable GitHub release
-immutability before creating a draft release.
+Publication is authorized by the owner. The owner chose a trunk-based alpha channel, and that
+choice is the standing authorization, recorded in the release skill, for the release pipeline
+to publish an alpha draft that passes every gate above; everything a gate holds, every stable
+release and every publication by hand needs the owner's explicit authorization. The pipeline
+does not publish yet (#562): a draft that passes every gate is reported, and today every
+publication is manual. For a manual publication, verify the selected product run's exact
+commit and all required PR checks, and enable GitHub release immutability before creating a
+draft release.
 
 Each bundle carries `release-publication.json` from
 `typescript/scripts/native-release-policy.mjs`; create the draft with its
