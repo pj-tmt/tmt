@@ -2,7 +2,7 @@
 //! cells so wide characters never misalign columns.
 
 use super::{
-    app::{App, Hit, Item, Notes, TabHit},
+    app::{App, Hit, Item, Notes, Switcher, TabHit},
     markdown,
     notes::{sanitize, wrap},
 };
@@ -35,6 +35,7 @@ const KEYS: &[&str] = &[
     "Shift-drag  select text to copy (Option-drag in some terminals)",
     "← →         switch tab; Shift+← → or drag a tab to move it",
     "/           search; Esc clears",
+    "s           switch to any tab, hidden ones too (type to filter)",
     "?           this help",
     "q, Esc      close the board",
     "",
@@ -50,7 +51,11 @@ fn hints(app: &App) -> String {
             Some(format!("{label} {}", action.verb.name()))
         })
         .collect();
-    hints.extend(["/ search", "←→ squad", "? more", "q quit"].map(str::to_owned));
+    hints.extend(["/ search", "←→ tab"].map(str::to_owned));
+    if !bindings.contains_key("s") {
+        hints.push("s switch".into());
+    }
+    hints.extend(["? more", "q quit"].map(str::to_owned));
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
     }
@@ -264,7 +269,24 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
         .current
         .as_ref()
         .and_then(|current| app.tabs.iter().position(|key| key == current));
-    let (start, end) = tab_window(&widths, current, app.tab_start.get(), area.width);
+    // A hidden squad opened by name or from the switcher is not on the line;
+    // it leads it, selected and marked, so the board says what it shows.
+    let shown_hidden = match (&app.current, current) {
+        (Some(key), None) => {
+            let label = format!("{} (hidden)", super::tabs::label(key));
+            Some(tab(&label, true, attention(key), colors))
+        }
+        _ => None,
+    };
+    let reserved = shown_hidden
+        .as_ref()
+        .map_or(0, |span| span.content.width() as u16 + 1);
+    let (start, end) = tab_window(
+        &widths,
+        current,
+        app.tab_start.get(),
+        area.width.saturating_sub(reserved),
+    );
     app.tab_start.set(start);
     let off = |keys: &[String]| {
         let sum = keys
@@ -282,6 +304,11 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
     };
     let mut line = Vec::new();
     let mut x = area.x;
+    if let Some(span) = shown_hidden {
+        x = x.saturating_add(reserved);
+        line.push(span);
+        line.push(Span::raw(" "));
+    }
     if start > 0 {
         let text = format!("‹ {start} ");
         x = x.saturating_add(text.width() as u16);
@@ -480,6 +507,68 @@ pub fn render(frame: &mut Frame, app: &App) {
             area,
         );
     }
+    if let Some(switcher) = &app.switcher {
+        render_switcher(frame, app, switcher, body);
+    }
+}
+
+/// The quick switcher: the query, then the matching tabs with their counts
+/// and state colors; hidden ones are marked.
+fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher, body: Rect) {
+    let keys = app.switchable();
+    let found = super::tabs::matching(&keys, &switcher.query);
+    let default = TabColors::default();
+    let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
+    let width = body.width.min(48);
+    let height = (found.len() as u16 + 3)
+        .clamp(4, body.height.max(4))
+        .min(body.height);
+    let area = Rect {
+        x: body.x + (body.width - width) / 2,
+        y: body.y + (body.height - height) / 2,
+        width,
+        height,
+    };
+    let inner = usize::from(width.saturating_sub(2));
+    let shown = usize::from(height.saturating_sub(3));
+    let first = switcher.selected.saturating_sub(shown.saturating_sub(1));
+    let mut lines = vec![Line::from(format!(" › {}▏", switcher.query))];
+    if found.is_empty() {
+        lines.push(Line::from(Span::styled(" (no matching tab)", color("dim"))));
+    }
+    for (index, key) in found.iter().enumerate().skip(first).take(shown) {
+        let attention = app.attention.get(*key).copied().unwrap_or_default();
+        let mut text = format!(" {}", super::tabs::label(key));
+        if attention.waiting > 0 {
+            text.push_str(&format!(" ◆{}", attention.waiting));
+        }
+        if attention.blocked > 0 {
+            text.push_str(&format!(" !{}", attention.blocked));
+        }
+        if app.hidden.contains(*key) {
+            text.push_str(" (hidden)");
+        }
+        let style = match attention.state() {
+            "waiting" => color(&colors.waiting),
+            "blocked" => color(&colors.blocked),
+            _ => Style::new(),
+        };
+        let style = if index == switcher.selected {
+            style.add_modifier(Modifier::REVERSED)
+        } else {
+            style
+        };
+        lines.push(Line::from(Span::styled(fit(&text, inner), style)));
+    }
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::new()
+                .borders(Borders::ALL)
+                .title(" switch · Enter opens, Esc closes "),
+        ),
+        area,
+    );
 }
 
 /// Split mode tiles the configured panes; tabs mode shows the focused pane
@@ -929,6 +1018,7 @@ mod tests {
         let mut app = App::new(Some("product".into()));
         app.apply(Snapshot {
             tabs: vec!["product".into(), "reviews".into()],
+            hidden: Vec::new(),
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
@@ -1236,6 +1326,7 @@ lines = [
         let mut app = App::new(Some("product".into()));
         app.apply(Snapshot {
             tabs: vec!["product".into()],
+            hidden: Vec::new(),
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
@@ -1506,6 +1597,7 @@ lines = [
         let mut app = App::new(Some(crate::board::LEADS.into()));
         app.apply(Snapshot {
             tabs: vec!["product".into(), crate::board::LEADS.into()],
+            hidden: Vec::new(),
             attention: Default::default(),
             squad: Some(crate::board::LEADS.into()),
             view: Ok(view),
@@ -1642,6 +1734,83 @@ lines = [
         let seven = hits.iter().find(|hit| hit.tab == 7).unwrap();
         let at = line[..line.find(" sq7").unwrap()].chars().count() as u16;
         assert_eq!(seven.x, at);
+    }
+
+    #[test]
+    fn a_hidden_squad_being_shown_leads_the_tab_line_selected() {
+        let mut app = board(json!([{"title": null, "rows": []}]));
+        app.tabs = (0..9).map(|n| format!("sq{n}")).collect();
+        app.hidden = vec!["quiet".into()];
+        app.current = Some("quiet".into());
+        let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let line: String = (0..40)
+            .map(|x| buffer[(x, 0)].symbol().to_owned())
+            .collect();
+        assert!(line.starts_with(" quiet (hidden) "), "{line:?}");
+        assert!(buffer[(1, 0)].modifier.contains(Modifier::REVERSED));
+        assert!(line.trim_end().ends_with(" ›"), "{line:?}");
+        // It is not one of the tabs, so it cannot be clicked or dragged, and
+        // the tabs after it are hit where they are drawn.
+        let hits = app.tab_hits.borrow().clone();
+        let first = hits.iter().find(|hit| hit.tab == 0).unwrap();
+        let at = line[..line.find(" sq0").unwrap()].chars().count() as u16;
+        assert_eq!(first.x, at, "{line:?}");
+        assert!(hits.iter().all(|hit| hit.x >= at));
+    }
+
+    #[test]
+    fn the_switcher_filters_every_tab_and_opens_the_chosen_one() {
+        use crate::board::app::Effect;
+        let mut app = board(json!([{"title": null, "rows": []}]));
+        app.tabs.push(crate::board::LEADS.into());
+        app.hidden = vec!["quiet".into()];
+        app.attention.insert(
+            "reviews".into(),
+            Attention {
+                waiting: 1,
+                blocked: 0,
+            },
+        );
+        let press = |app: &mut App, code| app.key(KeyEvent::new(code, KeyModifiers::NONE));
+        press(&mut app, KeyCode::Char('s'));
+        let screen = draw(&app, 60, 12);
+        let body = screen.join("\n");
+        for expected in [
+            "switch · Enter opens",
+            " product",
+            " reviews ◆1",
+            " leads",
+            " quiet (hidden)",
+        ] {
+            assert!(body.contains(expected), "{expected}: {body}");
+        }
+        for character in "qt".chars() {
+            press(&mut app, KeyCode::Char(character));
+        }
+        let screen = draw(&app, 60, 12);
+        let listed: Vec<&str> = screen
+            .iter()
+            .filter_map(|line| line.split('│').nth(1))
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect();
+        assert_eq!(listed, ["› qt▏", "quiet (hidden)"], "{screen:#?}");
+        // Enter shows the hidden squad; the switcher closes.
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Load("quiet".into())
+        );
+        assert!(app.switcher.is_none());
+        // Esc closes without switching; `s` bound by the user runs the binding.
+        press(&mut app, KeyCode::Char('s'));
+        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+        assert!(app.switcher.is_none());
+        app.view.as_mut().unwrap().bindings =
+            crate::action::parse_bindings([("s", Some("refresh"))].into_iter(), "bind").unwrap();
+        assert_eq!(press(&mut app, KeyCode::Char('s')), Effect::Refresh);
+        assert!(app.switcher.is_none());
     }
 
     #[test]
