@@ -2272,6 +2272,10 @@ document, and for every other squad from a roster-only document (one
 `rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
 tabs are colored without loading their rows.
 
+Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
+board refresh and reminder timing. Callers retain their accepted units, numeric
+forms, ranges and key-specific error messages; refresh alone wraps `"off"`.
+
 Optional `[squad.<name>.reminders]` config is parsed by
 `Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
 from 1 minute through 24 hours. `staleness` owns observed raw task/state and
