@@ -36,7 +36,8 @@ jobs:
       office: ${{ steps.scope.outputs.office || steps.seed.outputs.office }}
       native_scope: ${{ steps.scope.outputs.native_scope || steps.seed.outputs.native_scope }}
       scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests }}
-      scoped_e2e_files: ${{ steps.scope.outputs.scoped_e2e_files }}
+      e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 }}
+      e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -233,13 +234,21 @@ jobs:
           chmod +x ../rust/target/debug/tmt
           pnpm test:run
 
-  docker-e2e:
-    name: Docker E2E
+  # The Docker E2E suite runs as two jobs so that the longest required job is
+  # about half as long. `docker-e2e` below is the required check named `Docker E2E`.
+  docker-e2e-shard-1:
+    name: Docker E2E shard 1/2
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    steps:
+    env:
+      # Plain file names from typescript/scripts/e2e-shards.mjs (a shard of the full
+      # suite, or the Squad scope's file). Only the first shard of a full run also runs
+      # the Rust adapter tests.
+      TMT_E2E_FILES: ${{ needs.changes.outputs.e2e_shard_1 }}
+      TMT_E2E_ADAPTER_TESTS: ${{ needs.changes.outputs.native_scope == 'full' && '1' || '0' }}
+    steps: &docker-e2e-steps
       - name: Check out repository
         uses: actions/checkout@v4
         with:
@@ -251,10 +260,39 @@ jobs:
         run: pnpm --filter tmux-team install --frozen-lockfile
       - name: Run Docker end-to-end tests
         working-directory: typescript
-        env:
-          # Empty for the full suite; plain file names from the component map for a scoped run.
-          TMT_E2E_FILES: ${{ needs.changes.outputs.scoped_e2e_files }}
         run: pnpm test:e2e
+
+  docker-e2e-shard-2:
+    name: Docker E2E shard 2/2
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TMT_E2E_FILES: ${{ needs.changes.outputs.e2e_shard_2 }}
+      TMT_E2E_ADAPTER_TESTS: '0'
+    steps: *docker-e2e-steps
+
+  docker-e2e:
+    name: Docker E2E
+    needs: [changes, docker-e2e-shard-1, docker-e2e-shard-2]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Require every selected Docker E2E shard
+        env:
+          NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
+          SHARD_1_RESULT: ${{ needs.docker-e2e-shard-1.result }}
+          SHARD_2_RESULT: ${{ needs.docker-e2e-shard-2.result }}
+        run: |
+          node typescript/scripts/ci-scope.mjs gate-e2e "$NATIVE_SCOPE" "$SHARD_1_RESULT" "$SHARD_2_RESULT"
 
   native-runtime-build:
     name: Build native runtime (${{ matrix.target }})
@@ -398,7 +436,15 @@ jobs:
     name: Native package matrix
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs:
-      [changes, native-rust, unit-tests, docker-e2e, native-runtime-build, packed-native-install]
+      [
+        changes,
+        native-rust,
+        unit-tests,
+        docker-e2e-shard-1,
+        docker-e2e-shard-2,
+        native-runtime-build,
+        packed-native-install,
+      ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -412,8 +458,9 @@ jobs:
           NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
           CONTRACT_RESULT: ${{ needs.native-rust.result }}
           UNIT_RESULT: ${{ needs.unit-tests.result }}
-          DOCKER_RESULT: ${{ needs.docker-e2e.result }}
+          SHARD_1_RESULT: ${{ needs.docker-e2e-shard-1.result }}
+          SHARD_2_RESULT: ${{ needs.docker-e2e-shard-2.result }}
           BUILD_RESULT: ${{ needs.native-runtime-build.result }}
           MATRIX_RESULT: ${{ needs.packed-native-install.result }}
         run: |
-          node typescript/scripts/ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
+          node typescript/scripts/ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"

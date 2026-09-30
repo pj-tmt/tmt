@@ -12,6 +12,7 @@ use std::{
     io::{self, Read, Write},
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
+    time::Duration,
 };
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
@@ -189,7 +190,7 @@ pub enum Pane {
 }
 
 impl Pane {
-    fn parse(name: &str) -> Option<Self> {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
         match name {
             "rows" => Some(Self::Rows),
             "notes" => Some(Self::Notes),
@@ -225,10 +226,10 @@ pub enum Direction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     pub mode: BoardMode,
-    pub direction: Direction,
+    /// Every pane in focus order (split) or tab order (tabs).
     pub panes: Vec<Pane>,
-    /// Split mode: percentages per pane, summing to 100.
-    pub sizes: Vec<u16>,
+    /// Split mode: how the panes sit, possibly nested.
+    pub split: crate::split::Split,
 }
 
 impl Board {
@@ -248,11 +249,15 @@ impl Board {
             ),
             Layout::Minimal => (Direction::LeftRight, vec![Pane::Rows], vec![100]),
         };
+        Self::simple(BoardMode::Split, direction, panes, &sizes)
+    }
+
+    /// The one-level form: `panes` side by side or stacked at `sizes`.
+    pub fn simple(mode: BoardMode, direction: Direction, panes: Vec<Pane>, sizes: &[u16]) -> Self {
         Self {
-            mode: BoardMode::Split,
-            direction,
+            mode,
+            split: crate::split::Split::simple(direction, &panes, sizes),
             panes,
-            sizes,
         }
     }
 }
@@ -300,6 +305,33 @@ fn bindings_table(item: &Item, place: &str) -> Result<Bindings, SquadError> {
 
 /// A program as argv: a non-empty array of strings, the first a bare name on
 /// PATH or an absolute path. It never passes through a shell.
+/// The board's reload interval when nothing sets one.
+pub const DEFAULT_REFRESH: Duration = Duration::from_secs(5);
+
+/// `"off"`, or whole seconds or minutes such as `"2s"` or `"1m"`, from 1 s to
+/// 1 h: often enough to be useful, never a busy loop.
+fn refresh(item: &Item, place: &str) -> Result<Option<Duration>, SquadError> {
+    let wrong = || {
+        invalid(format!(
+            "`{place}` must be \"off\" or 1s-60m, such as \"5s\" or \"1m\"."
+        ))
+    };
+    let text = item.as_str().ok_or_else(wrong)?;
+    if text == "off" {
+        return Ok(None);
+    }
+    let (number, unit) = text.split_at(text.len().saturating_sub(1));
+    let seconds = match (number.parse::<u64>(), unit) {
+        (Ok(number), "s") => number,
+        (Ok(number), "m") => number.saturating_mul(60),
+        _ => return Err(wrong()),
+    };
+    if !(1..=3600).contains(&seconds) {
+        return Err(wrong());
+    }
+    Ok(Some(Duration::from_secs(seconds)))
+}
+
 fn program(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
     let malformed = || {
         invalid(format!(
@@ -556,33 +588,73 @@ impl Config {
     /// `[squad.<name>.board]` over the layout's preset. Validated before the
     /// terminal changes mode, so a mistake never leaves a half-drawn screen.
     pub fn board(&self, squad: &str, layout: Layout) -> Result<Board, SquadError> {
-        let mut board = Board::preset(layout);
+        let preset = Board::preset(layout);
         let place = format!("squad.{squad}.board");
         let Some(item) = self
             .squad_table(squad)?
             .and_then(|table| table.get("board"))
         else {
-            return Ok(board);
+            return Ok(preset);
         };
         let table = item
             .as_table_like()
             .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
         let text = |key: &str| table.get(key).map(|value| value.as_str());
         for (key, _) in table.iter() {
-            if !["mode", "direction", "panes", "sizes"].contains(&key) {
+            if !["mode", "direction", "panes", "sizes", "layout", "refresh"].contains(&key) {
                 return Err(invalid(format!("`{place}.{key}` is not a board setting.")));
             }
         }
-        match text("mode") {
-            None => {}
-            Some(Some("split")) => board.mode = BoardMode::Split,
-            Some(Some("tabs")) => board.mode = BoardMode::Tabs,
+        let mode = match text("mode") {
+            None => preset.mode,
+            Some(Some("split")) => BoardMode::Split,
+            Some(Some("tabs")) => BoardMode::Tabs,
             Some(_) => return Err(invalid(format!("`{place}.mode` must be split or tabs."))),
+        };
+        // The full form: a nested split. The one-level keys are its simple
+        // form, so the two are never mixed.
+        if let Some(layout) = table.get("layout") {
+            if let Some(key) = ["direction", "panes", "sizes"]
+                .into_iter()
+                .find(|key| table.get(key).is_some())
+            {
+                return Err(invalid(format!(
+                    "`{place}` sets both `layout` and `{key}`; keep `layout`."
+                )));
+            }
+            if mode == BoardMode::Tabs {
+                return Err(invalid(format!(
+                    "`{place}.layout` applies to split mode only."
+                )));
+            }
+            let split = crate::split::read(layout, &format!("{place}.layout"))?;
+            return Ok(Board {
+                mode,
+                panes: split.panes(),
+                split,
+            });
         }
+        let (mut direction, mut panes, mut sizes) = match &preset.split {
+            crate::split::Split::Group {
+                direction,
+                children,
+            } => (
+                *direction,
+                preset.panes.clone(),
+                children
+                    .iter()
+                    .map(|(size, _)| match size {
+                        crate::split::Size::Percent(percent) => *percent,
+                        crate::split::Size::Grow(_) => 0,
+                    })
+                    .collect::<Vec<u16>>(),
+            ),
+            crate::split::Split::Pane(_) => (Direction::LeftRight, preset.panes.clone(), vec![100]),
+        };
         match text("direction") {
             None => {}
-            Some(Some("left-right")) => board.direction = Direction::LeftRight,
-            Some(Some("top-bottom")) => board.direction = Direction::TopBottom,
+            Some(Some("left-right")) => direction = Direction::LeftRight,
+            Some(Some("top-bottom")) => direction = Direction::TopBottom,
             Some(_) => {
                 return Err(invalid(format!(
                     "`{place}.direction` must be left-right or top-bottom."
@@ -590,8 +662,8 @@ impl Config {
             }
         }
         let panes_set = table.get("panes").is_some();
-        if let Some(panes) = table.get("panes") {
-            let names = panes
+        if let Some(names) = table.get("panes") {
+            let names = names
                 .as_array()
                 .ok_or_else(|| invalid(format!("`{place}.panes` must list panes.")))?;
             let mut chosen = Vec::new();
@@ -612,16 +684,16 @@ impl Config {
             if !chosen.contains(&Pane::Rows) {
                 return Err(invalid(format!("`{place}.panes` must include rows.")));
             }
-            board.panes = chosen;
+            panes = chosen;
         }
-        match (table.get("sizes"), board.mode) {
+        match (table.get("sizes"), mode) {
             (Some(_), BoardMode::Tabs) => {
                 return Err(invalid(format!(
                     "`{place}.sizes` applies to split mode only."
                 )));
             }
-            (Some(sizes), BoardMode::Split) => {
-                board.sizes = sizes
+            (Some(given), BoardMode::Split) => {
+                sizes = given
                     .as_array()
                     .ok_or_else(|| invalid(format!("`{place}.sizes` must list percentages.")))?
                     .iter()
@@ -637,26 +709,57 @@ impl Config {
             }
             // Changed panes without sizes share the width equally.
             (None, _) if panes_set => {
-                let share = 100 / board.panes.len() as u16;
-                board.sizes = vec![share; board.panes.len()];
-                if let Some(last) = board.sizes.last_mut() {
-                    *last += 100 - share * board.panes.len() as u16;
+                let share = 100 / panes.len() as u16;
+                sizes = vec![share; panes.len()];
+                if let Some(last) = sizes.last_mut() {
+                    *last += 100 - share * panes.len() as u16;
                 }
             }
             (None, _) => {}
         }
-        if board.mode == BoardMode::Split
-            && (board.sizes.len() != board.panes.len() || board.sizes.iter().sum::<u16>() != 100)
+        if mode == BoardMode::Split
+            && (sizes.len() != panes.len() || sizes.iter().sum::<u16>() != 100)
         {
             return Err(invalid(format!(
                 "`{place}.sizes` needs one percentage per pane, summing to 100."
             )));
         }
         // In tabs mode the lead's full notes always get their own tab.
-        if board.mode == BoardMode::Tabs && !board.panes.contains(&Pane::Notes) {
-            board.panes.push(Pane::Notes);
+        if mode == BoardMode::Tabs && !panes.contains(&Pane::Notes) {
+            panes.push(Pane::Notes);
+            sizes.push(0);
         }
-        Ok(board)
+        Ok(Board::simple(mode, direction, panes, &sizes))
+    }
+
+    /// How often the board reloads everything: `[squad.<name>.board] refresh`,
+    /// then top-level `[board] refresh`, then [`DEFAULT_REFRESH`]. `None` is
+    /// "off": only F5 and the board's own actions reload.
+    pub fn refresh(&self, squad: &str) -> Result<Option<Duration>, SquadError> {
+        let global = match self.document.get("board") {
+            None => None,
+            Some(item) => {
+                let table = item
+                    .as_table_like()
+                    .ok_or_else(|| invalid("`board` must be a table."))?;
+                if let Some((key, _)) = table.iter().find(|(key, _)| *key != "refresh") {
+                    return Err(invalid(format!("`board.{key}` is not a board setting.")));
+                }
+                table
+                    .get("refresh")
+                    .map(|item| (item, "board.refresh".to_owned()))
+            }
+        };
+        let own = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("board"))
+            .and_then(Item::as_table_like)
+            .and_then(|table| table.get("refresh"))
+            .map(|item| (item, format!("squad.{squad}.board.refresh")));
+        match own.or(global) {
+            None => Ok(Some(DEFAULT_REFRESH)),
+            Some((item, place)) => refresh(item, &place),
+        }
     }
 
     /// `[squad.<name>.notes] render = "markdown" | "plain"`; markdown by default.
@@ -860,6 +963,7 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::split::Split;
 
     fn temp(name: &str) -> PathBuf {
         let directory =
@@ -1190,6 +1294,47 @@ sort = ["state", "-name"]
     }
 
     #[test]
+    fn refresh_is_per_squad_then_global_then_five_seconds() {
+        let path = temp("refresh");
+        let read = |body: &str| {
+            fs::write(&path, body).unwrap();
+            Config::read(path.clone()).unwrap()
+        };
+        let secs = |seconds| Ok(Some(Duration::from_secs(seconds)));
+        assert_eq!(read("").refresh("x"), secs(5));
+        let config = read("[board]\nrefresh = \"2m\"\n[squad.x.board]\nrefresh = \"2s\"\n");
+        assert_eq!(config.refresh("x"), secs(2));
+        assert_eq!(config.refresh("y"), secs(120), "the global value");
+        assert_eq!(read("[board]\nrefresh = \"off\"\n").refresh("x"), Ok(None));
+        assert_eq!(
+            read("[board]\nrefresh = \"60m\"\n").refresh("x"),
+            secs(3600)
+        );
+        assert_eq!(
+            read("[squad.x.board]\nrefresh = \"1s\"\n")
+                .board("x", Layout::Crew)
+                .map(|board| board.panes),
+            Ok(vec![Pane::Rows, Pane::Notes]),
+            "refresh is a board setting beside the panes"
+        );
+        for body in [
+            "[board]\nrefresh = \"0s\"\n",
+            "[board]\nrefresh = \"61m\"\n",
+            "[board]\nrefresh = 5\n",
+            "[board]\nrefresh = \"5\"\n",
+            "[board]\nrefresh = \"5h\"\n",
+            "[board]\nrefresh = \"fast\"\n",
+            "[board]\npanes = [\"rows\"]\n",
+            "board = 5\n",
+            "[squad.x.board]\nrefresh = \"500ms\"\n",
+        ] {
+            let code = read(body).refresh("x").err().map(|error| error.code);
+            assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn board_presets_overrides_and_validation() {
         let path = temp("panes");
         let read = |body: &str| {
@@ -1199,13 +1344,13 @@ sort = ["state", "-name"]
         let config = read("");
         let crew = config.board("x", Layout::Crew).unwrap();
         assert_eq!(
-            (crew.panes.clone(), crew.sizes.clone()),
-            (vec![Pane::Rows, Pane::Notes], vec![60, 40])
+            crew.split,
+            Split::simple(Direction::LeftRight, &[Pane::Rows, Pane::Notes], &[60, 40])
         );
         let queue = config.board("x", Layout::PrQueue).unwrap();
         assert_eq!(
-            (queue.direction, queue.panes.clone()),
-            (Direction::TopBottom, vec![Pane::Rows, Pane::Detail])
+            queue.split,
+            Split::simple(Direction::TopBottom, &[Pane::Rows, Pane::Detail], &[70, 30])
         );
         assert_eq!(
             config.board("x", Layout::Minimal).unwrap().panes,
@@ -1216,7 +1361,39 @@ sort = ["state", "-name"]
             .board("x", Layout::Crew)
             .unwrap();
         assert_eq!(custom.panes, [Pane::Detail, Pane::Rows, Pane::Replies]);
-        assert_eq!(custom.sizes, [33, 33, 34], "unsized panes share the space");
+        assert_eq!(
+            custom.split,
+            Split::simple(
+                Direction::TopBottom,
+                &[Pane::Detail, Pane::Rows, Pane::Replies],
+                &[33, 33, 34]
+            ),
+            "unsized panes share the space"
+        );
+        // The handbook's nested layout: rows beside detail over notes.
+        let nested = read(
+            "[squad.x.board]\nlayout = { direction = \"left-right\", sizes = [60, 40], panes = [\n  \"rows\",\n  { direction = \"top-bottom\", sizes = [40, 60], panes = [\"detail\", \"notes\"] },\n] }\n",
+        )
+        .board("x", Layout::Crew)
+        .unwrap();
+        assert_eq!(nested.panes, [Pane::Rows, Pane::Detail, Pane::Notes]);
+        assert_eq!(
+            nested.split,
+            Split::Group {
+                direction: Direction::LeftRight,
+                children: vec![
+                    (crate::split::Size::Percent(60), Split::Pane(Pane::Rows)),
+                    (
+                        crate::split::Size::Percent(40),
+                        Split::simple(
+                            Direction::TopBottom,
+                            &[Pane::Detail, Pane::Notes],
+                            &[40, 60]
+                        )
+                    ),
+                ],
+            }
+        );
         let tabs = read("[squad.x.board]\nmode = \"tabs\"\npanes = [\"rows\", \"detail\"]\n")
             .board("x", Layout::Crew)
             .unwrap();
@@ -1237,6 +1414,8 @@ sort = ["state", "-name"]
             "[squad.x.board]\nsizes = [100]\n",
             "[squad.x.board]\nmode = \"tabs\"\nsizes = [60, 40]\n",
             "[squad.x.board]\ncolumns = 2\n",
+            "[squad.x.board]\ndirection = \"left-right\"\nlayout = { direction = \"left-right\", panes = [\"rows\"] }\n",
+            "[squad.x.board]\nmode = \"tabs\"\nlayout = { direction = \"left-right\", panes = [\"rows\"] }\n",
         ] {
             let code = read(body)
                 .board("x", Layout::Crew)

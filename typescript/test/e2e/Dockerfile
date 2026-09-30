@@ -50,6 +50,6 @@ COPY --from=native-tests /native-artifacts/tmt-squad /workspace/rust/target/debu
 ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.
-# TMT_E2E_FILES (validated plain file names, set only for a scoped run) limits the
-# suite to those files and skips the adapter tests of the unchanged core.
-CMD ["sh", "-c", "if [ -z \"$TMT_E2E_FILES\" ]; then /opt/tmt-tests/adapter-tests; fi && cd /workspace/typescript && exec pnpm exec vitest run --config test/e2e/vitest.config.ts $TMT_E2E_FILES"]
+# TMT_E2E_FILES (validated plain file names) limits the suite to those files, and
+# TMT_E2E_ADAPTER_TESTS=0 skips the Rust adapter tests; CI sets both per shard.
+CMD ["sh", "-c", "if [ \"${TMT_E2E_ADAPTER_TESTS:-1}\" = 1 ]; then /opt/tmt-tests/adapter-tests; fi && cd /workspace/typescript && exec pnpm exec vitest run --config test/e2e/vitest.config.ts $TMT_E2E_FILES"]

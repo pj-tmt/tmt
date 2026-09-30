@@ -11,9 +11,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import {
   NATIVE_OFFICE_UNREACHABLE,
   ciGatePasses,
+  e2eGatePasses,
   explainCiSelection,
   globToRegExp,
   nativeGatePasses,
@@ -743,9 +745,24 @@ describe('CI diff and command integration', () => {
       const stdout = capture();
       const stderr = capture();
       runCiScope([base, head], { cwd: root, stdout, stderr, summaryFile });
-      expect(stdout.text()).toBe(
-        'native=true\noffice=false\nnative_office=true\nnative_scope=full\nscoped_native_tests=\nscoped_e2e_files=\n'
-      );
+      const outputs = (text: string) =>
+        Object.fromEntries(
+          text
+            .trim()
+            .split('\n')
+            .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)])
+        );
+      const full = outputs(stdout.text());
+      expect(full).toMatchObject({
+        native: 'true',
+        office: 'false',
+        native_office: 'true',
+        native_scope: 'full',
+        scoped_native_tests: '',
+      });
+      // Every scenario file is in exactly one of the two shards.
+      const shardFiles = [...full.e2e_shard_1.split(' '), ...full.e2e_shard_2.split(' ')];
+      expect(shardFiles.sort()).toEqual(listE2eFiles());
       expect(stderr.text()).toContain('### CI selection');
       expect(stderr.text()).toContain('native scope full.');
       expect(stderr.text()).toContain(
@@ -766,10 +783,15 @@ describe('CI diff and command integration', () => {
       const scoped = capture();
       const scopedLog = capture();
       runCiScope([head, squadHead], { cwd: root, stdout: scoped, stderr: scopedLog });
-      expect(scoped.text()).toBe(
-        'native=true\noffice=false\nnative_office=false\nnative_scope=squad\n' +
-          'scoped_native_tests=squad.test.ts extension-install.test.ts\nscoped_e2e_files=squad.e2e.test.ts\n'
-      );
+      expect(outputs(scoped.text())).toEqual({
+        native: 'true',
+        office: 'false',
+        native_office: 'false',
+        native_scope: 'squad',
+        scoped_native_tests: 'squad.test.ts extension-install.test.ts',
+        e2e_shard_1: 'squad.e2e.test.ts',
+        e2e_shard_2: '',
+      });
       expect(scopedLog.text()).toContain('native scope squad.');
       expect(() => runCiScope(['only-one'], { cwd: root, stdout, stderr })).toThrow(
         'exact base and head'
@@ -842,66 +864,56 @@ describe('required CI gate', () => {
     expect(ciGatePasses(native[0], [...native[1]])).toBe(true);
   });
 
-  const results = (
-    nativeRust: string,
-    unitTests: string,
-    dockerE2e: string,
-    runtimeBuild: string,
-    packedInstall: string
-  ) => ({
-    nativeRust,
-    unitTests,
-    dockerE2e,
-    runtimeBuild,
-    packedInstall,
+  /** The results of the six native jobs, all `success` unless overridden. */
+  const native = (overrides: Record<string, string> = {}) => ({
+    nativeRust: 'success',
+    unitTests: 'success',
+    e2eShard1: 'success',
+    e2eShard2: 'success',
+    runtimeBuild: 'success',
+    packedInstall: 'success',
+    ...overrides,
+  });
+  const allSkipped = {
+    nativeRust: 'skipped',
+    unitTests: 'skipped',
+    e2eShard1: 'skipped',
+    e2eShard2: 'skipped',
+    runtimeBuild: 'skipped',
+    packedInstall: 'skipped',
+  };
+  const squadRun = native({
+    unitTests: 'skipped',
+    e2eShard2: 'skipped',
+    runtimeBuild: 'skipped',
+    packedInstall: 'skipped',
   });
 
   it.each([
-    ['full', results('success', 'success', 'success', 'success', 'success')],
-    ['squad', results('success', 'skipped', 'success', 'skipped', 'skipped')],
-    ['none', results('skipped', 'skipped', 'skipped', 'skipped', 'skipped')],
+    ['full', native()],
+    ['squad', squadRun],
+    ['none', allSkipped],
   ])('accepts exactly the %s native results', (scope, expected) => {
     expect(nativeGatePasses(scope, expected)).toBe(true);
   });
 
   it.each([
-    [
-      'full',
-      results('success', 'skipped', 'success', 'success', 'success'),
-      'a skipped job that must run',
-    ],
-    ['full', results('success', 'success', 'success', 'success', 'failure'), 'a failed job'],
-    ['full', results('success', 'success', 'success', 'success', 'cancelled'), 'a cancelled job'],
-    [
-      'squad',
-      results('success', 'success', 'success', 'skipped', 'skipped'),
-      'unit tests that must be skipped',
-    ],
-    ['squad', results('success', 'skipped', 'skipped', 'skipped', 'skipped'), 'a skipped E2E run'],
-    [
-      'squad',
-      results('skipped', 'skipped', 'success', 'skipped', 'skipped'),
-      'a skipped native contract',
-    ],
-    [
-      'squad',
-      results('success', 'skipped', 'success', 'success', 'skipped'),
-      'a runtime build that must be skipped',
-    ],
-    ['squad', results('success', 'skipped', 'failure', 'skipped', 'skipped'), 'a failed E2E run'],
-    [
-      'none',
-      results('success', 'skipped', 'skipped', 'skipped', 'skipped'),
-      'work when nothing was selected',
-    ],
-    ['unknown', results('success', 'success', 'success', 'success', 'success'), 'an unknown scope'],
-    ['', results('skipped', 'skipped', 'skipped', 'skipped', 'skipped'), 'an empty scope'],
-    [
-      'office',
-      results('success', 'skipped', 'success', 'skipped', 'skipped'),
-      'a component without scoped checks',
-    ],
-    ['squad', results('success', 'skipped', 'success', 'skipped', ''), 'an empty result'],
+    ['full', native({ unitTests: 'skipped' }), 'a skipped job that must run'],
+    ['full', native({ packedInstall: 'failure' }), 'a failed job'],
+    ['full', native({ packedInstall: 'cancelled' }), 'a cancelled job'],
+    ['full', native({ e2eShard2: 'skipped' }), 'a skipped second E2E shard'],
+    ['full', native({ e2eShard1: 'failure' }), 'a failed first E2E shard'],
+    ['squad', { ...squadRun, unitTests: 'success' }, 'unit tests that must be skipped'],
+    ['squad', { ...squadRun, e2eShard1: 'skipped' }, 'a skipped E2E shard'],
+    ['squad', { ...squadRun, e2eShard2: 'success' }, 'a second E2E shard that must be skipped'],
+    ['squad', { ...squadRun, nativeRust: 'skipped' }, 'a skipped native contract'],
+    ['squad', { ...squadRun, runtimeBuild: 'success' }, 'a runtime build that must be skipped'],
+    ['squad', { ...squadRun, e2eShard1: 'failure' }, 'a failed E2E shard'],
+    ['none', { ...allSkipped, nativeRust: 'success' }, 'work when nothing was selected'],
+    ['unknown', native(), 'an unknown scope'],
+    ['', allSkipped, 'an empty scope'],
+    ['office', squadRun, 'a component without scoped checks'],
+    ['squad', { ...squadRun, packedInstall: '' }, 'an empty result'],
   ])('rejects %s with %o (%s)', (scope, actual) => {
     expect(nativeGatePasses(scope, actual)).toBe(false);
   });
@@ -909,6 +921,80 @@ describe('required CI gate', () => {
   it('rejects missing native results rather than claiming a pass', () => {
     expect(nativeGatePasses('full', {} as never)).toBe(false);
     expect(nativeGatePasses('none', undefined as never)).toBe(false);
+    const { e2eShard2: _missing, ...withoutShard } = native();
+    expect(nativeGatePasses('full', withoutShard as never)).toBe(false);
+  });
+
+  describe('Docker E2E gate', () => {
+    it.each([
+      ['full', 'success', 'success'],
+      ['squad', 'success', 'skipped'],
+      ['none', 'skipped', 'skipped'],
+    ])(
+      'passes for %s only with the results the selector implies (%s, %s)',
+      (scope, first, second) => {
+        expect(e2eGatePasses(scope, { e2eShard1: first, e2eShard2: second })).toBe(true);
+      }
+    );
+
+    it.each([
+      ['full', 'skipped', 'success', 'a selected shard that was skipped'],
+      ['full', 'success', 'skipped', 'a selected shard that was skipped'],
+      ['full', 'skipped', 'skipped', 'both shards skipped although native work was selected'],
+      ['full', 'cancelled', 'success', 'a cancelled shard'],
+      ['full', 'success', 'cancelled', 'a cancelled shard'],
+      ['full', 'failure', 'success', 'a failed shard'],
+      ['full', 'success', '', 'a missing shard result'],
+      ['full', '', '', 'both results missing'],
+      ['squad', 'skipped', 'skipped', 'the Squad shard skipped'],
+      ['squad', 'cancelled', 'skipped', 'the Squad shard cancelled'],
+      ['squad', 'success', 'success', 'a second shard that must be skipped'],
+      ['squad', 'success', 'failure', 'a second shard that ran and failed'],
+      ['none', 'success', 'skipped', 'a shard that ran although nothing was selected'],
+      ['none', 'skipped', 'success', 'a shard that ran although nothing was selected'],
+      ['none', 'failure', 'failure', 'failed shards although nothing was selected'],
+      ['', 'skipped', 'skipped', 'an unavailable selector scope'],
+      ['unknown', 'success', 'success', 'an unknown scope'],
+    ])('rejects %s with (%s, %s): %s', (scope, first, second) => {
+      expect(e2eGatePasses(scope, { e2eShard1: first, e2eShard2: second })).toBe(false);
+    });
+
+    it('rejects results that are not there at all', () => {
+      expect(e2eGatePasses('full', {} as never)).toBe(false);
+      expect(e2eGatePasses('full', { e2eShard1: 'success' } as never)).toBe(false);
+      expect(e2eGatePasses('none', undefined as never)).toBe(false);
+    });
+
+    it('fails the command with the same rules, and needs exactly two shard results', () => {
+      const io = () => ({
+        cwd: fileURLToPath(new URL('../../../', import.meta.url)),
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+      });
+      runCiScope(['gate-e2e', 'full', 'success', 'success'], io());
+      runCiScope(['gate-e2e', 'squad', 'success', 'skipped'], io());
+      runCiScope(['gate-e2e', 'none', 'skipped', 'skipped'], io());
+      for (const args of [
+        ['gate-e2e', 'full', 'success', 'skipped'],
+        ['gate-e2e', 'full', 'success'],
+        ['gate-e2e', 'full', 'success', 'success', 'success'],
+        ['gate-e2e', 'none', 'success', 'skipped'],
+        ['gate-e2e', 'full', 'success', 'cancelled'],
+        ['gate-e2e', '', 'skipped', 'skipped'],
+      ]) {
+        expect(() => runCiScope(args, io()), args.join(' ')).toThrow('Docker E2E shards');
+      }
+      runCiScope(
+        ['gate-native', 'squad', 'success', 'skipped', 'success', 'skipped', 'skipped', 'skipped'],
+        io()
+      );
+      expect(() =>
+        runCiScope(
+          ['gate-native', 'full', 'success', 'success', 'success', 'skipped', 'success', 'success'],
+          io()
+        )
+      ).toThrow('native CI work');
+    });
   });
 
   it('fails both stable aggregates when selector output is unavailable', () => {
@@ -977,7 +1063,7 @@ describe('required CI gate', () => {
     );
     const job = (name: string) => {
       const start = workflow.indexOf(`\n  ${name}:\n`);
-      const next = workflow.slice(start + 1).search(/\n {2}[a-z-]+:\n/);
+      const next = workflow.slice(start + 1).search(/\n {2}[a-z0-9-]+:\n/);
       return workflow.slice(start, next < 0 ? undefined : start + 1 + next);
     };
     const steps = (body: string) =>
@@ -990,7 +1076,7 @@ describe('required CI gate', () => {
         }));
 
     const changes = job('changes');
-    for (const output of ['scoped_native_tests', 'scoped_e2e_files']) {
+    for (const output of ['scoped_native_tests', 'e2e_shard_1', 'e2e_shard_2']) {
       expect(changes).toContain(`${output}: \${{ steps.scope.outputs.${output} }}`);
     }
     // A seeding run (no pull request, no diff) builds the whole workspace, so it is the full scope.
@@ -1010,12 +1096,43 @@ describe('required CI gate', () => {
     }
     // The Rust job runs for every native scope, the E2E job for every native scope of a pull request.
     expect(job('native-rust')).toContain("if: needs.changes.outputs.native == 'true'");
-    expect(job('docker-e2e')).toContain(
+    // The E2E suite is two shard jobs; only the first runs for a scoped component, and
+    // only the first of a full run also runs the Rust adapter tests.
+    expect(job('docker-e2e-shard-1')).toContain(
       "if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'"
     );
-    expect(job('docker-e2e')).toContain(
-      'TMT_E2E_FILES: ${{ needs.changes.outputs.scoped_e2e_files }}'
+    expect(job('docker-e2e-shard-1')).toContain(
+      'TMT_E2E_FILES: ${{ needs.changes.outputs.e2e_shard_1 }}'
     );
+    expect(job('docker-e2e-shard-1')).toContain(
+      "TMT_E2E_ADAPTER_TESTS: ${{ needs.changes.outputs.native_scope == 'full' && '1' || '0' }}"
+    );
+    expect(job('docker-e2e-shard-2')).toContain(
+      "if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'"
+    );
+    expect(job('docker-e2e-shard-2')).toContain(
+      'TMT_E2E_FILES: ${{ needs.changes.outputs.e2e_shard_2 }}'
+    );
+    expect(job('docker-e2e-shard-2')).toContain("TMT_E2E_ADAPTER_TESTS: '0'");
+    // Both shards run the same steps (a YAML alias), so they cannot drift apart.
+    expect(job('docker-e2e-shard-1')).toContain('steps: &docker-e2e-steps');
+    expect(job('docker-e2e-shard-2')).toContain('steps: *docker-e2e-steps');
+    // `Docker E2E`, the required check, is a gate over exactly the two shards.
+    const e2eGate = job('docker-e2e');
+    expect(e2eGate).toContain('name: Docker E2E\n');
+    expect(e2eGate).toContain('needs: [changes, docker-e2e-shard-1, docker-e2e-shard-2]');
+    // Like the other gates, only for pull requests: a seeding run has no gate to satisfy.
+    expect(e2eGate).toContain("if: ${{ always() && github.event_name == 'pull_request' }}");
+    expect(e2eGate).toContain('SHARD_1_RESULT: ${{ needs.docker-e2e-shard-1.result }}');
+    expect(e2eGate).toContain('SHARD_2_RESULT: ${{ needs.docker-e2e-shard-2.result }}');
+    expect(e2eGate).toContain(
+      'ci-scope.mjs gate-e2e "$NATIVE_SCOPE" "$SHARD_1_RESULT" "$SHARD_2_RESULT"'
+    );
+    // Each required check name belongs to exactly one job, and no shard reuses one.
+    for (const required of ['Code quality', 'Unit tests', 'Docker E2E', 'Native package matrix']) {
+      expect(workflow.match(new RegExp(`^ {4}name: ${required}$`, 'gm')), required).toHaveLength(1);
+    }
+    expect(workflow.match(/^ {4}name: Docker E2E shard \d\/2$/gm)).toHaveLength(2);
     // Every step of the Rust job either is shared or declares the scope it runs for.
     const shared = [
       'Check out repository',
@@ -1045,16 +1162,17 @@ describe('required CI gate', () => {
       'Verify Squad native contracts',
     ]);
     expect(job('native-rust')).toContain('Reject an unknown native scope');
-    // The gate names the same five jobs, in the order nativeGatePasses expects.
+    // The gate names the same six jobs, in the order nativeGatePasses expects.
     const gate = job('native-install-gate');
     expect(gate).toContain('NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}');
     expect(gate).toContain(
-      'ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"'
+      'ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"'
     );
     for (const [variable, jobName] of [
       ['CONTRACT_RESULT', 'native-rust'],
       ['UNIT_RESULT', 'unit-tests'],
-      ['DOCKER_RESULT', 'docker-e2e'],
+      ['SHARD_1_RESULT', 'docker-e2e-shard-1'],
+      ['SHARD_2_RESULT', 'docker-e2e-shard-2'],
       ['BUILD_RESULT', 'native-runtime-build'],
       ['MATRIX_RESULT', 'packed-native-install'],
     ]) {
@@ -1072,7 +1190,7 @@ describe('required CI gate', () => {
     const browser = read('office-browser.yml');
     const job = (workflow: string, name: string) => {
       const start = workflow.indexOf(`\n  ${name}:\n`);
-      const next = workflow.slice(start + 1).search(/\n {2}[a-z-]+:\n/);
+      const next = workflow.slice(start + 1).search(/\n {2}[a-z0-9-]+:\n/);
       return workflow.slice(start, next < 0 ? undefined : start + 1 + next);
     };
 

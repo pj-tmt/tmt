@@ -20,6 +20,7 @@ mod rows;
 mod runner;
 mod send;
 mod specs;
+mod split;
 mod squad;
 mod status;
 mod template;

@@ -47,7 +47,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
 
   it.each([
     ['.github/workflows/ci.yml', 'packed-native-install'],
-    ['.github/workflows/native-release.yml', 'verify'],
+    ['.github/workflows/native-release-bundle.yml', 'verify'],
   ])('warms xcrun on macOS before the verifier in %s job %s', (workflow, name) => {
     const text = read(workflow);
     const job = jobs(text).get(name);
@@ -65,7 +65,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
   });
 
   it('runs every job that executes a proof consumer on a runner that warms first', () => {
-    for (const workflow of ['ci.yml', 'native-release.yml']) {
+    for (const workflow of ['ci.yml', 'native-release-bundle.yml']) {
       const text = read(`.github/workflows/${workflow}`);
       for (const [name, job] of jobs(text)) {
         const runsProof = proofConsumers().some((script) => job.includes(`${scripts}/${script}`));

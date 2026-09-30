@@ -580,7 +580,12 @@ same job names run Squad's Cargo checks and architecture guard, its native tests
 E2E file, while the CLI runtime builds, packed installs and tooling unit tests are skipped
 because the CLI is unchanged (Squad cannot affect core: the architecture guard rejects any
 dependency in either direction). `Native package matrix` expects exactly that set of results
-for the scope; anything shared, CLI-owned or unrecognized runs the full set. Existing required check names
+for the scope; anything shared, CLI-owned or unrecognized runs the full set. `Docker E2E`, the
+required check, is a gate over two shard jobs that split the E2E scenario files by the committed
+weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs the Rust adapter
+tests): it requires both shards when native work is selected, the first alone for a scoped
+component and neither when nothing native is selected, so a skipped, cancelled or missing
+selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
@@ -2046,7 +2051,10 @@ the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data. A switch never clears the view: `App` keeps the view of each
+painted data. The input loop asks for a reload at the shown squad's `refresh`
+interval (`Config::refresh`: per squad, then top-level `[board]`, then 5 s;
+`None` is off), which each snapshot carries, so a squad that failed to load
+retries at the default. A switch never clears the view: `App` keeps the view of each
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole; a result for a squad the user left only refreshes that cache.
@@ -2055,7 +2063,11 @@ runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
 split or tabs panes (rows, notes, detail, replies) over a per-layout preset,
-validated before raw mode. The notes pane reads the lead's notebook only through
+validated before raw mode. `split` owns how panes sit: a tree of row and column
+splits whose children have a percentage or a grow share (ratatui `Percentage`
+and `Fill`), nested up to three levels; `layout` is its full form and the
+`direction`/`panes`/`sizes` keys its one-level form, and the board draws either
+by one recursive walk. The tree's reading order is the focus order. The notes pane reads the lead's notebook only through
 `tmt api notes.read` (bounded, never creating a file); `board::notes` removes
 every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
@@ -2243,8 +2255,13 @@ third-party notices (including Vite's bundled frontend inventory for Office), an
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
-The release workflow remains an explicit product-selected preparation and
-verification workflow; publication is separately authorized. CLI and Office
+The release workflow remains a product-selected preparation and verification
+workflow; publication is separately authorized. `native-release.yml` is the per-product
+run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
+the build, assemble and verify pipeline, once per draft release that lacks a verified
+bundle; the state lives on the draft itself (`release-publication.json` marks a complete
+bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
+loses nothing and a known-bad commit is not rebuilt. CLI, Office and Squad
 runs share the four-target cargo-dist build and archive verifier, while keeping
 product-qualified bundles, independent versions and separate immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
