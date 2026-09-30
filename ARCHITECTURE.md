@@ -2233,8 +2233,13 @@ third-party notices (including Vite's bundled frontend inventory for Office), an
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
-The release workflow remains an explicit product-selected preparation and
-verification workflow; publication is separately authorized. CLI and Office
+The release workflow remains a product-selected preparation and verification
+workflow; publication is separately authorized. `native-release.yml` is the per-product
+run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
+the build, assemble and verify pipeline, once per draft release that lacks a verified
+bundle; the state lives on the draft itself (`release-publication.json` marks a complete
+bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
+loses nothing and a known-bad commit is not rebuilt. CLI, Office and Squad
 runs share the four-target cargo-dist build and archive verifier, while keeping
 product-qualified bundles, independent versions and separate immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
