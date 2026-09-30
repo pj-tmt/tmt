@@ -274,7 +274,6 @@ pub fn record(config: &mut Config, me: &Me) -> Result<(), SquadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     fn me(name: &str) -> Me {
         Me {
@@ -332,12 +331,10 @@ mod tests {
             std::env::temp_dir().join(format!("tmt-squad-whoami-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let fake = dir.join("tmt");
-        std::fs::write(
+        crate::test_support::write_executable(
             &fake,
-            format!("#!/bin/sh\ncat <<'EOF'\n{stdout}\nEOF\nexit {status}\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+            &format!("#!/bin/sh\ncat <<'EOF'\n{stdout}\nEOF\nexit {status}\n"),
+        );
         let found = super::caller(&Core::at(fake));
         let _ = std::fs::remove_dir_all(dir);
         found

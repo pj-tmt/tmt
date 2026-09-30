@@ -239,15 +239,14 @@ mod tests {
     /// A stand-in core that logs each call: `answer` succeeds, anything else
     /// fails, so the test proves the board needs no other core command.
     fn logging_core(name: &str) -> (Core, std::path::PathBuf, std::path::PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("squad-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("calls");
         let fake = dir.join("tmt");
-        std::fs::write(
+        crate::test_support::write_executable(
             &fake,
-            format!(
+            &format!(
                 "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n\
                  case \"$1\" in\n\
                  answer) echo '{{\"status\":\"submitted\",\"requestId\":\"q1\"}}' ;;\n\
@@ -255,9 +254,7 @@ mod tests {
                  esac\n",
                 log.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         (Core::at(fake), log, dir)
     }
 
