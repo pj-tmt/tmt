@@ -2636,12 +2636,14 @@ dependencies = [
 
 [[package]]
 name = "tmt-squad"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "clap",
+ "nix",
  "pulldown-cmark",
  "ratatui",
  "serde_json",
+ "sha2",
  "signal-hook 0.4.4",
  "subprocess",
  "tmt-cli-style",
