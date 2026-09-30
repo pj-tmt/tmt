@@ -1,4 +1,4 @@
-import { withoutAddress } from './cli-assertions.js';
+import { unknownActivity, withoutAddress } from './cli-assertions.js';
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
@@ -413,6 +413,7 @@ describe.sequential('global identity lifecycle', () => {
           target: fixture.paneTarget(peer.pane),
           cwd: peer.workspace,
           command: 'node',
+          session: { activity: unknownActivity },
         },
       ]);
       expect(fixture.paneMetadata(peer.pane)).toBe(peerMetadata);
@@ -500,6 +501,7 @@ describe.sequential('global identity lifecycle', () => {
           target: fixture.paneTarget(restarted.pane),
           cwd: restarted.workspace,
           command: 'node',
+          session: { activity: unknownActivity },
         },
       ]);
     });
@@ -541,6 +543,7 @@ describe.sequential('global identity lifecycle', () => {
             presence: 'offline',
             pane: null,
             command: '',
+            session: { activity: unknownActivity },
           },
         ],
       });
@@ -632,6 +635,7 @@ describe.sequential('global identity lifecycle', () => {
           target: fixture.paneTarget(fixture.pane),
           cwd: fixture.workspace,
           command: 'node',
+          session: { activity: unknownActivity },
         });
         expect(fixture.paneMetadata(oldPane.pane)).toBe(oldMarkerBytes);
         expect(fixture.paneMetadata(collidingOldPane.pane)).toBe(collidingOldMarkerBytes);
@@ -768,6 +772,7 @@ describe.sequential('global identity lifecycle', () => {
           presence: 'offline',
           pane: null,
           command: '',
+          session: { activity: unknownActivity },
         });
         expect(fixture.paneMetadata(fixture.pane)).toBe(healthyMetadata);
         expect(fixture.paneMetadata(affectedPane.pane)).toBe(affectedMetadata);
