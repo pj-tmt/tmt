@@ -941,8 +941,13 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 
 ## Public command boundary
 
-`rust/crates/tmt-cli/src/grammar.rs` owns core syntax/help/completion and mounts
-the Office subtree from `tmt-office-command::grammar`. Each visible core command
+`rust/crates/tmt-cli/src/grammar.rs` owns the ordered core command registrations,
+shared spec/option helpers and public help projection, and mounts the Office subtree
+from `tmt-office-command::grammar`. Private `grammar/launch.rs`, `presence.rs`,
+`rooms.rs` and `requests.rs` own their command builders; the remaining groups stay
+in the root. Group modules share root helpers and do not import from each other.
+`grammar/completion.rs` and `grammar/extensions.rs` retain completion and external
+command recognition. Each visible core command
 is registered from a `CommandSpec` (summary and examples) through
 `tmt_cli_style::apply`; hidden internal commands have no help page. Squad registers each
 command from a `CommandSpec` in `extensions/tmt-squad/rust/tmt-squad/src/specs.rs` through
