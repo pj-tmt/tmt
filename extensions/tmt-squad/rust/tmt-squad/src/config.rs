@@ -185,6 +185,27 @@ pub struct Tabs {
     pub colors: TabColors,
     /// `[tabs.leads.bind]`, over `[bind]` and the host preset.
     pub leads: Bindings,
+    /// `[tabs.all.bind]`, over the `all` tab's own preset.
+    pub all: Bindings,
+}
+
+/// A built-in tab's table: only `bind`.
+fn tab_bindings(item: &Item, place: &str) -> Result<Bindings, SquadError> {
+    let table = item
+        .as_table_like()
+        .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+    let mut bindings = Bindings::new();
+    for (key, item) in table.iter() {
+        match key {
+            "bind" => bindings = bindings_table(item, &format!("{place}.bind"))?,
+            other => {
+                return Err(invalid(format!(
+                    "`{place}.{other}` is not a tab setting; use bind."
+                )));
+            }
+        }
+    }
+    Ok(bindings)
 }
 
 /// A list of tab names as tab keys, each at most once.
@@ -199,11 +220,12 @@ fn tab_list(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
             .ok_or_else(|| invalid(format!("`{place}` must be a list of tab names.")))?;
         let key = match name {
             "leads" => crate::board::LEADS.to_owned(),
+            "all" => crate::board::ALL.to_owned(),
             _ => {
                 let squad = name.strip_prefix("squad:").unwrap_or(name);
                 if !crate::squad::valid_name(squad) {
                     return Err(invalid(format!(
-                        "`{place}` names `{name}`, which is neither `leads` nor a squad name."
+                        "`{place}` names `{name}`, which is not `leads`, `all` or a squad name."
                     )));
                 }
                 squad.to_owned()
@@ -875,9 +897,9 @@ impl Config {
     }
 
     /// `[tabs]` (#507): the tab order, hidden tabs, the colors by attention
-    /// and the built-in `leads` tab's own bindings. In `order` and `hide`,
-    /// `leads` is the built-in tab and `squad:<name>` names a squad whose name
-    /// is taken by a built-in; any other entry is a squad name.
+    /// and the built-in tabs' own bindings. In `order` and `hide`, `leads`
+    /// and `all` are the built-in tabs and `squad:<name>` names a squad whose
+    /// name is taken by a built-in; any other entry is a squad name.
     pub fn tabs(&self) -> Result<Tabs, SquadError> {
         let mut tabs = Tabs::default();
         let Some(item) = self.document.get("tabs") else {
@@ -891,24 +913,11 @@ impl Config {
                 "order" => tabs.order = tab_list(item, "tabs.order")?,
                 "hide" => tabs.hide = tab_list(item, "tabs.hide")?,
                 "colors" => tabs.colors = tab_colors(item)?,
-                "leads" => {
-                    let leads = item
-                        .as_table_like()
-                        .ok_or_else(|| invalid("`tabs.leads` must be a table."))?;
-                    for (key, item) in leads.iter() {
-                        match key {
-                            "bind" => tabs.leads = bindings_table(item, "tabs.leads.bind")?,
-                            other => {
-                                return Err(invalid(format!(
-                                    "`tabs.leads.{other}` is not a tab setting; use bind."
-                                )));
-                            }
-                        }
-                    }
-                }
+                "leads" => tabs.leads = tab_bindings(item, "tabs.leads")?,
+                "all" => tabs.all = tab_bindings(item, "tabs.all")?,
                 other => {
                     return Err(invalid(format!(
-                        "`tabs.{other}` is not a tabs setting; use order, hide, colors or leads."
+                        "`tabs.{other}` is not a tabs setting; use order, hide, colors, leads or all."
                     )));
                 }
             }
@@ -1614,12 +1623,12 @@ sort = ["state", "-name"]
         };
         assert_eq!(read("").unwrap(), Tabs::default());
         let tabs = read(
-            "[tabs]\norder = [\"leads\", \"infra\", \"squad:leads\"]\nhide = [\"quiet\"]\n\
+            "[tabs]\norder = [\"leads\", \"infra\", \"squad:leads\", \"all\"]\nhide = [\"quiet\"]\n\
              [tabs.colors]\nblocked = \"magenta\"\n[tabs.leads.bind]\nenter = \"run herdr agent focus {pane}\"\n",
         )
         .unwrap();
         // `squad:leads` is the squad named leads, not the built-in tab.
-        assert_eq!(tabs.order, ["@leads", "infra", "leads"]);
+        assert_eq!(tabs.order, ["@leads", "infra", "leads", "@all"]);
         assert_eq!(tabs.hide, ["quiet"]);
         assert_eq!(
             tabs.colors,
@@ -1635,7 +1644,8 @@ sort = ["state", "-name"]
             "[tabs]\norder = \"leads\"\n",
             "[tabs]\norder = [1]\n",
             "[tabs]\norder = [\"Infra\"]\n",
-            "[tabs]\norder = [\"all\", \"squad:x y\"]\n",
+            "[tabs]\norder = [\"everyone\", \"squad:x y\"]\n",
+            "[tabs.all]\nbind = 1\n",
             "[tabs]\nhide = [\"infra\", \"infra\"]\n",
             "[tabs.colors]\nwaiting = \"pink\"\n",
             "[tabs.colors]\nnormal = \"dim\"\n",

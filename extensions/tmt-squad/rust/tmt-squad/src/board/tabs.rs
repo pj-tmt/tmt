@@ -6,6 +6,8 @@ use crate::config::Tabs;
 
 /// The built-in tab with one row per squad lead.
 pub const LEADS: &str = "@leads";
+/// The built-in overview tab with one row per squad.
+pub const ALL: &str = "@all";
 
 /// Whether the key is a built-in tab rather than a squad.
 pub fn builtin(key: &str) -> bool {
@@ -29,7 +31,11 @@ pub fn arrange(squads: &[String], tabs: &Tabs) -> Vec<String> {
         .filter(|key| exists(key))
         .cloned()
         .collect();
-    for key in squads.iter().cloned().chain([LEADS.to_owned()]) {
+    for key in squads
+        .iter()
+        .cloned()
+        .chain([LEADS.to_owned(), ALL.to_owned()])
+    {
         if !keys.contains(&key) {
             keys.push(key);
         }
@@ -55,18 +61,19 @@ mod tests {
         let squads: Vec<String> = ["product", "infra", "quiet"].map(String::from).to_vec();
         assert_eq!(
             arrange(&squads, &Tabs::default()),
-            ["product", "infra", "quiet", LEADS]
+            ["product", "infra", "quiet", LEADS, ALL]
         );
         assert_eq!(
-            arrange(&squads, &tabs(&[LEADS, "infra", "gone"], &[])),
-            [LEADS, "infra", "product", "quiet"],
+            arrange(&squads, &tabs(&[ALL, LEADS, "infra", "gone"], &[])),
+            [ALL, LEADS, "infra", "product", "quiet"],
             "a squad that no longer exists is skipped"
         );
         assert_eq!(
-            arrange(&squads, &tabs(&["quiet"], &["product", LEADS])),
+            arrange(&squads, &tabs(&["quiet"], &["product", LEADS, ALL])),
             ["quiet", "infra"]
         );
         assert_eq!(label(LEADS), "leads");
+        assert_eq!(label(ALL), "all");
         assert_eq!(label("product"), "product");
         assert!(builtin(LEADS) && !builtin("leads"));
     }

@@ -283,12 +283,17 @@ fn summary_line(app: &App) -> Line<'_> {
     let plural = |count: usize, one: &str, many: &str| {
         format!("{count} {}", if count == 1 { one } else { many })
     };
-    let summary = if app.current.as_deref().is_some_and(super::tabs::builtin) {
-        // One row per squad: a person leading two squads is two rows.
-        let rows = view.document["sections"][0]["rows"]
+    // The built-in tabs have one row per squad: a person leading two squads
+    // is two rows on the leads tab.
+    let rows = || {
+        view.document["sections"][0]["rows"]
             .as_array()
-            .map_or(0, Vec::len);
-        plural(rows, "squad lead", "squad leads")
+            .map_or(0, Vec::len)
+    };
+    let summary = if app.current.as_deref() == Some(super::LEADS) {
+        plural(rows(), "squad lead", "squad leads")
+    } else if app.current.as_deref() == Some(super::ALL) {
+        plural(rows(), "squad", "squads")
     } else {
         format!("{lead} · {}", plural(count, "member", "members"))
     };

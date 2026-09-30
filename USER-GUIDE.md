@@ -490,21 +490,31 @@ state never depends on color alone, and `ls --json` reports it as
 states). The second line is the shown squad's summary: `lead sol · 4 members ·
 1 waiting on you`.
 
-Besides one tab per squad, the board has a built-in `leads` tab: one row per
-squad lead, across every squad. Enter jumps to that lead as it does on a squad's
-tab, and `t` talks to the lead in that lead's own squad room. Choose the order
+Besides one tab per squad, the board has two built-in tabs:
+
+- **`leads`:** one row per squad lead, across every squad. Enter jumps to that
+  lead as it does on a squad's tab, and `t` talks to the lead in that lead's own
+  squad room.
+- **`all`:** one row per squad, with its lead, member count and how many members
+  wait on you or are blocked. Enter (the `tab` action) opens that squad's tab.
+ Choose the order
 and hide tabs in `squad.toml`. Tabs you list come first, in your order; the rest
 follow, squads first. Write `squad:<name>` for a squad named like a built-in
 tab. A hidden squad stays reachable with `tmt sq board --squad <name>`. The
-leads tab takes its own bindings over `[bind]`:
+leads tab takes its own bindings over `[bind]`. The all tab's rows are squads,
+not members, so it has only its own bindings (Enter and double-click `tab`, F5
+`refresh`):
 
 ```toml
 [tabs]
-order = ["leads", "product"]
+order = ["all", "leads", "product"]
 hide = ["quiet"]
 
 [tabs.leads.bind]
 enter = "jump"             # the default in tmux
+
+[tabs.all.bind]
+o = "tab"
 ```
 
 Without a terminal, or with `--json`, it prints `status`. Rows and
@@ -610,8 +620,9 @@ A binding is `event = "action [argument]"`. Events are `enter`, `backspace`,
 `ctrl-<letter>` (except `ctrl-c`), `click`, `double-click` or one printable
 character other than the board's own `q`, `j`, `k`, `/` and `?`. Actions are
 `jump`, `back`, `open [{field}]`, `copy [template]`, `run <program> [arguments]`,
-`notes`, `refresh`, `next-pane`, `menu`, `talk`, `reply` and
-`annotate [lead|member]`. An unknown action, event or field syntax makes the
+`notes`, `refresh`, `next-pane`, `menu`, `talk`, `reply`,
+`annotate [lead|member]` and `tab` (open the row's squad tab, on the `all` and
+`leads` tabs). An unknown action, event or field syntax makes the
 board report the configuration error; a field that is empty for the selected
 row refuses the action with a notice and runs nothing.
 

@@ -381,6 +381,11 @@ impl App {
         };
         let count = self.tabs.len() as isize;
         let next = self.tabs[(position as isize + step).rem_euclid(count) as usize].clone();
+        self.go(next)
+    }
+
+    /// Shows the tab `next`, from the cache at once when it was visited.
+    fn go(&mut self, next: String) -> Effect {
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
@@ -494,6 +499,12 @@ impl App {
                     selected: 0,
                 });
                 return Effect::None;
+            }
+            Verb::Tab => {
+                return match row["squad"].as_str() {
+                    Some(squad) => self.go(squad.to_owned()),
+                    None => self.say("tab: this row has no squad."),
+                };
             }
             Verb::Jump => match row["name"].as_str() {
                 Some(name) => Ok(Request::Jump(name.to_owned())),
@@ -1076,6 +1087,31 @@ pub(crate) mod tests {
             press(&mut app, KeyCode::Right),
             Effect::Load("infra".into())
         );
+    }
+
+    #[test]
+    fn enter_on_the_all_tab_opens_that_squad_s_tab() {
+        let mut app = App::new(Some(crate::board::ALL.into()));
+        let mut snapshot = snapshot(
+            crate::board::ALL,
+            json!([{"title": null, "rows": [
+                {"name": "product", "squad": "product", "fields": {}},
+                {"name": "infra", "squad": "infra", "fields": {}},
+            ]}]),
+        );
+        snapshot.view.as_mut().unwrap().bindings =
+            bind(&[("enter", "tab"), ("t", "talk"), ("o", "open")]);
+        app.apply(snapshot);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Load("infra".into())
+        );
+        assert_eq!(app.current.as_deref(), Some("infra"));
+        // A member's row has no squad of its own to open.
+        let mut app = crew(bind(&[("enter", "tab")]), Vec::new());
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.notice.as_deref(), Some("tab: this row has no squad."));
     }
 
     #[test]
