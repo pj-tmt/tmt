@@ -2092,7 +2092,9 @@ built by the same worker from each squad's roster document, joined with one
 `ls` read for presence. Its rows carry their squad, so talk goes to that
 squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
 squads, not members: their `tab` action opens the squad's tab, and member
-bindings don't apply there. `board`
+bindings don't apply there. Moving a tab (Shift+←/→, or a drag on the tab
+line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
+format-preserving replacement that records `me`. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
@@ -2308,9 +2310,13 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
-assets, and read-only jobs run the release commit's scripts on them. CLI, Office and Squad
-runs share the four-target cargo-dist build and archive verifier, while keeping
-product-qualified bundles, independent versions and separate immutable tags.
+assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
+attached the pipeline evaluates the publication gates (commit, immutability, monotonic,
+migration, upgrade) in write-token jobs that run `main`'s code and only read the release
+commit's data; a failed gate leaves `publication-held.json` on the draft, and nothing
+publishes a draft yet. CLI, Office and Squad runs share the four-target cargo-dist build and
+archive verifier, while keeping product-qualified bundles, independent versions and separate
+immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
 bootstrap proof. Archives, their product-specific manifest/checksums and notices,
 plus the CLI bootstrap where applicable, are verified before any public

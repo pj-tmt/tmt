@@ -100,14 +100,17 @@ pub enum Request {
         from: String,
         text: String,
     },
+    /// Save this tab order to `[tabs] order` (tab keys, in order).
+    Reorder(Vec<String>),
 }
 
 impl Request {
-    /// Sending changes request state, so the view reloads afterwards.
+    /// Sending changes request state, and a saved order changes the tabs, so
+    /// the view reloads afterwards.
     pub fn sends(&self) -> bool {
         matches!(
             self,
-            Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. }
+            Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. } | Self::Reorder(_)
         )
     }
 }
@@ -171,6 +174,15 @@ const INPUT_LIMIT: usize = 4000;
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
+/// Where one tab was drawn on the tab line, for clicks and drags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TabHit {
+    pub y: u16,
+    pub x: u16,
+    pub width: u16,
+    pub tab: usize,
+}
+
 /// A screen line of the rows pane and the visible row it shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hit {
@@ -213,6 +225,10 @@ pub struct App {
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
+    /// Where tabs were last drawn.
+    pub tab_hits: RefCell<Vec<TabHit>>,
+    /// The tab a left button went down on, until it is released.
+    dragging: Option<usize>,
 }
 
 fn page_step(code: KeyCode) -> Step {
@@ -382,6 +398,35 @@ impl App {
         let count = self.tabs.len() as isize;
         let next = self.tabs[(position as isize + step).rem_euclid(count) as usize].clone();
         self.go(next)
+    }
+
+    /// Shift+←/→: the current tab trades places with its neighbor, and the
+    /// new order is saved. The ends do not wrap.
+    fn move_current(&mut self, step: isize) -> Effect {
+        let Some(from) = self
+            .current
+            .as_ref()
+            .and_then(|current| self.tabs.iter().position(|tab| tab == current))
+        else {
+            return Effect::None;
+        };
+        match from
+            .checked_add_signed(step)
+            .filter(|to| *to < self.tabs.len())
+        {
+            Some(to) => self.move_tab(from, to),
+            None => Effect::None,
+        }
+    }
+
+    /// Moves one tab to another position and saves the order.
+    fn move_tab(&mut self, from: usize, to: usize) -> Effect {
+        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
+            return Effect::None;
+        }
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        Effect::Act(Request::Reorder(self.tabs.clone()))
     }
 
     /// Shows the tab `next`, from the cache at once when it was visited.
@@ -781,6 +826,12 @@ impl App {
             KeyCode::PageDown if !self.bound(key) => self.select(self.selected + self.rows_page()),
             KeyCode::Home if !self.bound(key) => self.select(0),
             KeyCode::End if !self.bound(key) => self.select(usize::MAX),
+            KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                return self.move_current(-1);
+            }
+            KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                return self.move_current(1);
+            }
             KeyCode::Left => return self.switch(-1),
             KeyCode::Right => return self.switch(1),
             KeyCode::Char('/') => self.searching = true,
@@ -832,6 +883,27 @@ impl App {
                 }
             }
             return Effect::None;
+        }
+        // A press on a tab shows it; releasing it over another tab moves it
+        // there and saves the order.
+        let tab = self.tab_hits.borrow().iter().copied().find(|hit| {
+            hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
+        });
+        match (event.kind, tab) {
+            (MouseEventKind::Down(MouseButton::Left), Some(hit)) => {
+                self.dragging = Some(hit.tab);
+                return match self.tabs.get(hit.tab).cloned() {
+                    Some(key) => self.go(key),
+                    None => Effect::None,
+                };
+            }
+            (MouseEventKind::Up(MouseButton::Left), hit) => {
+                return match (self.dragging.take(), hit) {
+                    (Some(from), Some(to)) => self.move_tab(from, to.tab),
+                    _ => Effect::None,
+                };
+            }
+            _ => {}
         }
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;

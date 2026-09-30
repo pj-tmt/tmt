@@ -11,6 +11,7 @@
 //          the product over one target's staged files; it never reaches GitHub
 //   node release-upgrade.mjs resolve --tag TAG      the commit of the release
 //   node release-upgrade.mjs fetch --product cli|office|squad --tag TAG --directory DIR
+//   node release-upgrade.mjs assess --directory DIR --sha SHA   proved, nothing or predates
 //   node release-upgrade.mjs prove --product P --tag TAG --target T --directory DIR [--skill S]
 // A CLI candidate runs the managed-install lifecycle verifier over the two archives. An extension
 // candidate is installed and upgraded by the newest published CLI, which is what a user's
@@ -25,6 +26,13 @@ import { archivePrefix } from './native-release-policy.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 
+/** The scripts a release's own commit must carry for the proof to run at that commit. */
+export const PROOF_FILES = [
+  'release-upgrade.mjs',
+  'release-versions.mjs',
+  'verify-native-installation.mjs',
+  'verify-native-extension-upgrade.mjs',
+];
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const MANIFEST = 'dist-manifest.json';
 const PLAN = 'plan.json';
@@ -190,6 +198,24 @@ export function proveStaged({ directory, product, tag, target, run, skill }) {
   return { previous: plan.previous };
 }
 
+/**
+ * What the proof can do for a release, from the plan `fetchUpgrade` wrote: `nothing` when the
+ * product has no earlier published release, `predates` (with the reason, worded for the owner)
+ * when the release's commit lacks the proof's scripts, `proved` when the proof can run.
+ * `hasFileAt` says whether a file exists at the release's commit.
+ */
+export function assessUpgrade({ plan, hasFileAt }) {
+  if (!plan.previous) return { outcome: 'nothing', reason: '' };
+  const missing = PROOF_FILES.find((file) => !hasFileAt(`typescript/scripts/${file}`));
+  if (missing) {
+    return {
+      outcome: 'predates',
+      reason: `This release's commit has no ${missing}: it predates the automated upgrade proof, so prove the upgrade by hand, as the native release verification guide describes.`,
+    };
+  }
+  return { outcome: 'proved', reason: '' };
+}
+
 const COMMIT = /^[0-9a-f]{40}$/;
 
 /**
@@ -241,6 +267,7 @@ function main(argv, environment) {
       tag: { type: 'string' },
       target: { type: 'string' },
       directory: { type: 'string' },
+      sha: { type: 'string' },
       skill: { type: 'string', default: 'skills/tmux-team/SKILL.md' },
     },
   });
@@ -276,6 +303,28 @@ function main(argv, environment) {
   }
   const repository = environment.GITHUB_REPOSITORY;
   if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
+  if (command === 'assess') {
+    required(['directory', 'sha']);
+    const plan = JSON.parse(readFileSync(path.join(values.directory, PLAN), 'utf8'));
+    const { outcome, reason } = assessUpgrade({
+      plan,
+      hasFileAt: (file) =>
+        spawnSync(
+          'gh',
+          ['api', '--silent', `repos/${repository}/contents/${file}?ref=${values.sha}`],
+          {
+            encoding: 'utf8',
+            timeout: 60_000,
+          }
+        ).status === 0,
+    });
+    if (reason) report(reason);
+    // A reason may hold any character a file name can; the output is one line, so escape newlines.
+    const lines = [`outcome=${outcome}`, `reason=${reason.replaceAll('\n', ' ')}`].join('\n');
+    if (environment.GITHUB_OUTPUT) appendFileSync(environment.GITHUB_OUTPUT, `${lines}\n`);
+    else process.stdout.write(`${lines}\n`);
+    return;
+  }
   const releases = ghApi({ repository }).listReleases();
   if (command === 'resolve') {
     required(['tag']);
@@ -304,7 +353,7 @@ function main(argv, environment) {
         : `No published ${values.product} release precedes ${values.tag}; nothing was fetched.`
     );
   } else {
-    throw new Error('Usage: release-upgrade.mjs resolve|fetch|prove --tag TAG ...');
+    throw new Error('Usage: release-upgrade.mjs resolve|fetch|assess|prove --tag TAG ...');
   }
 }
 

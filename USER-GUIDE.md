@@ -498,8 +498,11 @@ Besides one tab per squad, the board has two built-in tabs:
 - **`all`:** one row per squad, with its lead, member count and how many members
   wait on you or are blocked. Enter (the `tab` action) opens that squad's tab.
  Choose the order
-and hide tabs in `squad.toml`. Tabs you list come first, in your order; the rest
-follow, squads first. Write `squad:<name>` for a squad named like a built-in
+and hide tabs in `squad.toml`, or on the board. Shift+←/→ moves the current
+tab, and dragging a tab onto another's place moves it there. Either way the
+board writes the new order to `[tabs] order`, changing nothing else in the file,
+and refuses if the file changed since the board read it. Tabs you list come
+first, in your order; the rest follow, squads first. Write `squad:<name>` for a squad named like a built-in
 tab. A hidden squad stays reachable with `tmt sq board --squad <name>`. The
 leads tab takes its own bindings over `[bind]`. The all tab's rows are squads,
 not members, so it has only its own bindings (Enter and double-click `tab`, F5
