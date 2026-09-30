@@ -112,9 +112,12 @@ immutable release's assets or move its tag. A repair needs a new reviewed versio
 Also verify **upgrading from the last published release**, not only fresh installs.
 `Native release upgrade proof` (`.github/workflows/native-release-upgrade.yml`) does this
 on the four matching hosts with real bytes, and runs by hand (`workflow_dispatch`) for any
-draft or published tag. It takes the release's archive and manifest and those of the newest
-published release of the same product below it, each checked against the digest GitHub
-recorded, and runs the scripts of the release's own commit. A CLI release goes through
+draft or published tag, from `main` only. Its `fetch` job, which holds the write token that
+can see draft assets and runs `main`'s code, downloads the release's archive and manifest and
+those of the newest published release of the same product below it, each checked against the
+digest GitHub recorded, and hands them over as a run artifact; the read-only `prove` jobs
+re-check the digests and run the scripts of the release's own commit on them. A CLI release
+goes through
 `verify-native-installation.mjs`: the previous archive is installed pinned, the candidate
 is refused while pinned and installed with `--unpin`, the exact skills are served, SQLite is
 unchanged, the old executable is preserved, a repeat is a no-op and a downgrade is refused.

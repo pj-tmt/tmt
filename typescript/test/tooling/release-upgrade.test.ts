@@ -7,8 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { DraftAsset, DraftRelease } from '../../scripts/release-draft-assets.mjs';
 import {
+  archiveTargets,
+  fetchUpgrade,
   ghAssetDownloader,
-  proveUpgrade,
+  proveStaged,
   releaseCommit,
   selectAssets,
   selectPrevious,
@@ -37,13 +39,21 @@ const prefixOf = (product: string) => (product === 'cli' ? 'tmt-cli' : `tmt-${pr
 const contents = new Map<number, string>();
 let nextId = 1;
 
+const TARGETS = [
+  'aarch64-apple-darwin',
+  'aarch64-unknown-linux-musl',
+  'x86_64-apple-darwin',
+  'x86_64-unknown-linux-musl',
+];
+
 function release(
   tag: string,
   {
     draft = false,
     sha = COMMIT,
     digests = true,
-  }: { draft?: boolean; sha?: string; digests?: boolean } = {}
+    targets = [TARGET],
+  }: { draft?: boolean; sha?: string; digests?: boolean; targets?: string[] } = {}
 ): DraftRelease {
   const product = tag.startsWith('tmt-office-v')
     ? 'office'
@@ -62,7 +72,10 @@ function release(
     tag_name: tag,
     target_commitish: sha,
     created_at: '2026-09-30T00:00:00Z',
-    assets: [asset(`${prefixOf(product)}-${TARGET}.tar.gz`), asset('dist-manifest.json')],
+    assets: [
+      ...targets.map((target) => asset(`${prefixOf(product)}-${target}.tar.gz`)),
+      asset('dist-manifest.json'),
+    ],
   };
 }
 
@@ -195,6 +208,10 @@ describe('selectAssets and stageRelease', () => {
     });
     expect(readFileSync(staged.archive, 'utf8')).toBe(`v5.0.0-alpha.8:tmt-cli-${TARGET}.tar.gz`);
     expect(readFileSync(staged.manifest, 'utf8')).toBe('v5.0.0-alpha.8:dist-manifest.json');
+    expect(staged.digests).toEqual({
+      [`tmt-cli-${TARGET}.tar.gz`]: digestOf(`v5.0.0-alpha.8:tmt-cli-${TARGET}.tar.gz`),
+      'dist-manifest.json': digestOf('v5.0.0-alpha.8:dist-manifest.json'),
+    });
 
     const corrupted = (asset: DraftAsset, file: string) =>
       writeFileSync(file, `${contents.get(asset.id)} tampered`);
@@ -204,63 +221,178 @@ describe('selectAssets and stageRelease', () => {
   });
 });
 
-describe('proveUpgrade', () => {
+describe('archiveTargets', () => {
+  it('lists the targets a release carries an archive for, and ignores every other asset', () => {
+    const cli = release('v5.0.0-alpha.9', { draft: true, targets: [...TARGETS].reverse() });
+    expect(archiveTargets({ release: cli, product: 'cli' })).toEqual(TARGETS);
+    expect(archiveTargets({ release: cli, product: 'office' })).toEqual([]);
+    const withChecksum = {
+      ...cli,
+      assets: [...(cli.assets ?? []), { id: 999, name: `tmt-cli-${TARGET}.tar.gz.sha256` }],
+    };
+    expect(archiveTargets({ release: withChecksum, product: 'cli' })).toEqual(TARGETS);
+  });
+});
+
+describe('fetchUpgrade and proveStaged', () => {
   const releases = [
-    release('v5.0.0-alpha.7'),
-    release('v5.0.0-alpha.8'),
-    release('v5.0.0-alpha.9', { draft: true }),
-    release('tmt-office-v0.1.0-alpha.3'),
-    release('tmt-office-v0.1.0-alpha.4', { draft: true }),
-    release('tmt-squad-v0.1.0-alpha.1', { draft: true }),
+    release('v5.0.0-alpha.7', { targets: TARGETS }),
+    release('v5.0.0-alpha.8', { targets: TARGETS }),
+    release('v5.0.0-alpha.9', { draft: true, targets: TARGETS }),
+    release('tmt-office-v0.1.0-alpha.3', { targets: TARGETS }),
+    release('tmt-office-v0.1.0-alpha.4', { draft: true, targets: TARGETS }),
+    release('tmt-squad-v0.1.0-alpha.1', { draft: true, targets: TARGETS }),
   ];
   const download = (asset: DraftAsset, file: string) =>
     writeFileSync(file, contents.get(asset.id) ?? '');
-  const prove = (input: { product: string; tag: string; skill?: string }) => {
-    const calls: { script: string; args: string[] }[] = [];
-    const directory = mkdtempSync(path.join(root, 'prove-'));
-    const result = proveUpgrade({
-      releases,
-      download,
-      run: (name, args) => calls.push({ script: name, args }),
-      target: TARGET,
+  const fetchInto = (product: string, tag: string, input: { releases?: DraftRelease[] } = {}) => {
+    const directory = mkdtempSync(path.join(root, 'fetch-'));
+    const downloads: string[] = [];
+    const plan = fetchUpgrade({
+      releases: input.releases ?? releases,
+      download: (asset, file) => {
+        downloads.push(asset.name);
+        download(asset, file);
+      },
+      product,
+      tag,
       directory,
+    });
+    return { plan, directory, downloads };
+  };
+  const prove = (
+    directory: string,
+    input: { product: string; tag: string; target?: string; skill?: string }
+  ) => {
+    const calls: { script: string; args: string[] }[] = [];
+    const result = proveStaged({
+      directory,
+      target: TARGET,
+      run: (name, args) => calls.push({ script: name, args }),
       ...input,
     });
-    return { result, calls, directory };
+    return { result, calls };
   };
   const value = (args: string[], flag: string) => {
     expect(args, flag).toContain(flag);
     return args[args.indexOf(flag) + 1];
   };
 
-  it('runs the managed-install lifecycle for a CLI draft over the two staged archives', () => {
-    const { result, calls, directory } = prove({
+  it('stages the candidate and the previous CLI release for every target, with a plan', () => {
+    const { plan, directory, downloads } = fetchInto('cli', 'v5.0.0-alpha.9');
+    expect(plan.previous).toBe('v5.0.0-alpha.8');
+    expect(plan.driver).toBeNull();
+    expect(downloads).toHaveLength(2 * 2 * TARGETS.length);
+    expect(Object.keys(plan.files).sort()).toEqual(
+      TARGETS.flatMap((target) =>
+        ['candidate', 'previous'].flatMap((kind) => [
+          `${target}/${kind}/dist-manifest.json`,
+          `${target}/${kind}/tmt-cli-${target}.tar.gz`,
+        ])
+      ).sort()
+    );
+    expect(plan.files[`${TARGET}/candidate/tmt-cli-${TARGET}.tar.gz`]).toBe(
+      digestOf(`v5.0.0-alpha.9:tmt-cli-${TARGET}.tar.gz`)
+    );
+    expect(
+      readFileSync(path.join(directory, TARGET, 'previous', `tmt-cli-${TARGET}.tar.gz`), 'utf8')
+    ).toBe(`v5.0.0-alpha.8:tmt-cli-${TARGET}.tar.gz`);
+    expect(JSON.parse(readFileSync(path.join(directory, 'plan.json'), 'utf8'))).toEqual(plan);
+  });
+
+  it('adds the newest published CLI as the driver of an extension', () => {
+    const { plan, directory } = fetchInto('office', 'tmt-office-v0.1.0-alpha.4');
+    expect(plan.previous).toBe('tmt-office-v0.1.0-alpha.3');
+    expect(plan.driver).toBe('v5.0.0-alpha.8');
+    expect(plan.files[`${TARGET}/driver/tmt-cli-${TARGET}.tar.gz`]).toBe(
+      digestOf(`v5.0.0-alpha.8:tmt-cli-${TARGET}.tar.gz`)
+    );
+    expect(
+      readFileSync(path.join(directory, TARGET, 'candidate', `tmt-office-${TARGET}.tar.gz`), 'utf8')
+    ).toBe(`tmt-office-v0.1.0-alpha.4:tmt-office-${TARGET}.tar.gz`);
+  });
+
+  it('has nothing to fetch for the first release of a product', () => {
+    const { plan, directory, downloads } = fetchInto('squad', 'tmt-squad-v0.1.0-alpha.1');
+    expect(plan.previous).toBeNull();
+    expect(plan.files).toEqual({});
+    expect(downloads).toEqual([]);
+    expect(prove(directory, { product: 'squad', tag: 'tmt-squad-v0.1.0-alpha.1' })).toEqual({
+      result: { previous: null },
+      calls: [],
+    });
+  });
+
+  it('stages a published release too, against the one before it', () => {
+    expect(fetchInto('cli', 'v5.0.0-alpha.8').plan.previous).toBe('v5.0.0-alpha.7');
+  });
+
+  it('refuses an unknown tag, an extension without a published CLI and a previous release that lacks a target', () => {
+    expect(() => fetchInto('cli', 'v9.9.9')).toThrow('There is no release v9.9.9.');
+    expect(() =>
+      fetchInto('office', 'tmt-office-v0.1.0-alpha.4', {
+        releases: releases.filter((entry) => !entry.tag_name.startsWith('v')),
+      })
+    ).toThrow('needs a published CLI release');
+    expect(() =>
+      fetchInto('cli', 'v5.0.0-alpha.9', {
+        releases: [
+          release('v5.0.0-alpha.8', { targets: [TARGET] }),
+          release('v5.0.0-alpha.9', { draft: true, targets: TARGETS }),
+        ],
+      })
+    ).toThrow('has no tmt-cli-aarch64-unknown-linux-musl.tar.gz');
+    expect(() =>
+      fetchInto('cli', 'v5.0.0-alpha.9', {
+        releases: [
+          release('v5.0.0-alpha.8', { targets: TARGETS }),
+          release('v5.0.0-alpha.9', { draft: true, targets: [] }),
+        ],
+      })
+    ).toThrow('has no archive to upgrade to');
+  });
+
+  it('refuses a download that is not what GitHub recorded', () => {
+    expect(() =>
+      fetchUpgrade({
+        releases,
+        download: (_asset, file) => writeFileSync(file, 'something else'),
+        product: 'cli',
+        tag: 'v5.0.0-alpha.9',
+        directory: mkdtempSync(path.join(root, 'fetch-')),
+      })
+    ).toThrow('does not match its recorded digest');
+  });
+
+  it('runs the managed-install lifecycle for a CLI over the staged files of one target', () => {
+    const { directory } = fetchInto('cli', 'v5.0.0-alpha.9');
+    const { result, calls } = prove(directory, {
       product: 'cli',
       tag: 'v5.0.0-alpha.9',
+      target: 'x86_64-unknown-linux-musl',
       skill: 'skills/tmux-team/SKILL.md',
     });
     expect(result.previous).toBe('v5.0.0-alpha.8');
     expect(calls).toHaveLength(1);
     const [{ script: name, args }] = calls;
+    const target = 'x86_64-unknown-linux-musl';
     expect(name).toBe('verify-native-installation.mjs');
     expect(value(args, '--archive')).toBe(
-      path.join(directory, 'candidate', `tmt-cli-${TARGET}.tar.gz`)
+      path.join(directory, target, 'candidate', `tmt-cli-${target}.tar.gz`)
     );
     expect(value(args, '--previous-archive')).toBe(
-      path.join(directory, 'previous', `tmt-cli-${TARGET}.tar.gz`)
+      path.join(directory, target, 'previous', `tmt-cli-${target}.tar.gz`)
     );
-    expect(readFileSync(value(args, '--previous-archive'), 'utf8')).toBe(
-      `v5.0.0-alpha.8:tmt-cli-${TARGET}.tar.gz`
+    expect(value(args, '--previous-manifest')).toBe(
+      path.join(directory, target, 'previous', 'dist-manifest.json')
     );
-    expect(readFileSync(value(args, '--archive'), 'utf8')).toBe(
-      `v5.0.0-alpha.9:tmt-cli-${TARGET}.tar.gz`
-    );
-    expect(value(args, '--target')).toBe(TARGET);
+    expect(value(args, '--target')).toBe(target);
     expect(value(args, '--skill')).toBe('skills/tmux-team/SKILL.md');
   });
 
-  it('drives an extension draft with the newest published CLI', () => {
-    const { result, calls, directory } = prove({
+  it('drives an extension with the staged CLI', () => {
+    const { directory } = fetchInto('office', 'tmt-office-v0.1.0-alpha.4');
+    const { result, calls } = prove(directory, {
       product: 'office',
       tag: 'tmt-office-v0.1.0-alpha.4',
     });
@@ -268,72 +400,58 @@ describe('proveUpgrade', () => {
     const [{ script: name, args }] = calls;
     expect(name).toBe('verify-native-extension-upgrade.mjs');
     expect(value(args, '--product')).toBe('office');
-    expect(readFileSync(value(args, '--driver-archive'), 'utf8')).toBe(
-      `v5.0.0-alpha.8:tmt-cli-${TARGET}.tar.gz`
-    );
     expect(value(args, '--driver-archive')).toBe(
-      path.join(directory, 'driver', `tmt-cli-${TARGET}.tar.gz`)
+      path.join(directory, TARGET, 'driver', `tmt-cli-${TARGET}.tar.gz`)
     );
-    expect(readFileSync(value(args, '--archive'), 'utf8')).toBe(
-      `tmt-office-v0.1.0-alpha.4:tmt-office-${TARGET}.tar.gz`
+    expect(value(args, '--archive')).toBe(
+      path.join(directory, TARGET, 'candidate', `tmt-office-${TARGET}.tar.gz`)
     );
     expect(args).not.toContain('--skill');
   });
 
-  it('has nothing to upgrade from for the first release of a product, and runs nothing', () => {
-    const { result, calls } = prove({ product: 'squad', tag: 'tmt-squad-v0.1.0-alpha.1' });
-    expect(result.previous).toBeNull();
-    expect(calls).toEqual([]);
+  it('checks the staged files again, since they crossed a job boundary', () => {
+    const { directory } = fetchInto('cli', 'v5.0.0-alpha.9');
+    const file = path.join(directory, TARGET, 'candidate', `tmt-cli-${TARGET}.tar.gz`);
+    writeFileSync(file, 'tampered on the way');
+    expect(() => prove(directory, { product: 'cli', tag: 'v5.0.0-alpha.9', skill: 's' })).toThrow(
+      'does not match its recorded digest'
+    );
+    rmSync(file);
+    expect(() => prove(directory, { product: 'cli', tag: 'v5.0.0-alpha.9', skill: 's' })).toThrow(
+      'missing or does not match'
+    );
   });
 
-  it('proves a published release too, from the one before it', () => {
-    const { result } = prove({ product: 'cli', tag: 'v5.0.0-alpha.8', skill: 'skill' });
-    expect(result.previous).toBe('v5.0.0-alpha.7');
-  });
-
-  it('refuses an unknown tag, a CLI proof without a skill and an extension proof without a CLI', () => {
-    expect(() => prove({ product: 'cli', tag: 'v9.9.9' })).toThrow('There is no release v9.9.9.');
-    expect(() => prove({ product: 'cli', tag: 'v5.0.0-alpha.9' })).toThrow('needs --skill');
+  it('refuses assets staged for another release or target, and a CLI proof without a skill', () => {
+    const { directory } = fetchInto('cli', 'v5.0.0-alpha.9');
+    expect(() => prove(directory, { product: 'cli', tag: 'v5.0.0-alpha.8', skill: 's' })).toThrow(
+      'staged assets are for v5.0.0-alpha.9'
+    );
+    expect(() => prove(directory, { product: 'office', tag: 'v5.0.0-alpha.9' })).toThrow(
+      'staged assets are for'
+    );
     expect(() =>
-      proveUpgrade({
-        releases: releases.filter((entry) => !entry.tag_name.startsWith('v')),
-        download,
-        run: () => {},
-        product: 'office',
-        tag: 'tmt-office-v0.1.0-alpha.4',
+      prove(directory, { product: 'cli', tag: 'v5.0.0-alpha.9', target: 'riscv64', skill: 's' })
+    ).toThrow('no files for riscv64');
+    expect(() => prove(directory, { product: 'cli', tag: 'v5.0.0-alpha.9' })).toThrow(
+      'needs --skill'
+    );
+  });
+
+  it('fails when the verifier fails', () => {
+    const { directory } = fetchInto('cli', 'v5.0.0-alpha.9');
+    expect(() =>
+      proveStaged({
+        directory,
+        product: 'cli',
+        tag: 'v5.0.0-alpha.9',
         target: TARGET,
-        directory: mkdtempSync(path.join(root, 'prove-')),
-      })
-    ).toThrow('needs a published CLI release');
-  });
-
-  it('fails when a verifier fails, and when a download is not what GitHub recorded', () => {
-    expect(() =>
-      proveUpgrade({
-        releases,
-        download,
+        skill: 's',
         run: () => {
           throw new Error('verify-native-installation.mjs failed with 1.');
         },
-        product: 'cli',
-        tag: 'v5.0.0-alpha.9',
-        target: TARGET,
-        directory: mkdtempSync(path.join(root, 'prove-')),
-        skill: 'skill',
       })
     ).toThrow('failed with 1');
-    expect(() =>
-      proveUpgrade({
-        releases,
-        download: (_asset, file) => writeFileSync(file, 'something else'),
-        run: () => {},
-        product: 'cli',
-        tag: 'v5.0.0-alpha.9',
-        target: TARGET,
-        directory: mkdtempSync(path.join(root, 'prove-')),
-        skill: 'skill',
-      })
-    ).toThrow('does not match its recorded digest');
   });
 });
 
@@ -393,24 +511,30 @@ describe('release-upgrade.mjs', () => {
     const directory = mkdtempSync(path.join(root, 'cli-'));
     const bin = path.join(directory, 'bin');
     mkdirSync(bin);
+    const calls = path.join(directory, 'gh-calls');
+    writeFileSync(calls, '');
     writeFileSync(
       path.join(bin, 'gh'),
-      `#!/bin/sh\ncase "$*" in\n  *commits/*) echo ${'c'.repeat(40)} ;;\n  *) echo '${JSON.stringify([releases])}' ;;\nesac\n`
+      `#!/bin/sh\necho "$*" >> '${calls}'\ncase "$*" in\n  *commits/*) echo ${'c'.repeat(40)} ;;\n  *) echo '${JSON.stringify([releases])}' ;;\nesac\n`
     );
     chmodSync(path.join(bin, 'gh'), 0o755);
     const output = path.join(directory, 'output');
     writeFileSync(output, '');
-    const run = (args: string[]) =>
+    const run = (args: string[], environment: Record<string, string> = {}) =>
       spawnSync('node', [script, ...args], {
         encoding: 'utf8',
         env: {
           PATH: `${bin}${path.delimiter}${process.env.PATH}`,
           GITHUB_REPOSITORY: 'wkh237/tmt',
           GITHUB_OUTPUT: output,
+          ...environment,
         },
         timeout: 10_000,
       });
-    return Object.assign(run, { output: () => readFileSync(output, 'utf8') });
+    return Object.assign(run, {
+      output: () => readFileSync(output, 'utf8'),
+      ghCalls: () => readFileSync(calls, 'utf8').split('\n').filter(Boolean).length,
+    });
   }
 
   it('resolves the commit of a draft and of a published release', () => {
@@ -425,26 +549,47 @@ describe('release-upgrade.mjs', () => {
     expect(run(['resolve', '--tag', 'v1.0.0']).stderr).toContain('There is no release v1.0.0.');
   });
 
-  it('reports that a first release has nothing to upgrade from', () => {
+  it('fetches nothing for a first release, and proves offline without gh or a repository', () => {
     const run = fakeGh([release('tmt-squad-v0.1.0-alpha.1', { draft: true })]);
-    const result = run([
-      'prove',
+    const directory = path.join(root, 'none');
+    const fetched = run([
+      'fetch',
       '--product',
       'squad',
       '--tag',
       'tmt-squad-v0.1.0-alpha.1',
-      '--target',
-      TARGET,
       '--directory',
-      path.join(root, 'none'),
+      directory,
     ]);
-    expect(result.status).toBe(0);
-    expect(result.stderr).toContain('No published squad release precedes tmt-squad-v0.1.0-alpha.1');
+    expect(fetched.status).toBe(0);
+    expect(fetched.stderr).toContain(
+      'No published squad release precedes tmt-squad-v0.1.0-alpha.1'
+    );
+    expect(JSON.parse(readFileSync(path.join(directory, 'plan.json'), 'utf8')).previous).toBeNull();
+
+    // `prove` runs the release's own code: it must not need gh, a token or a repository.
+    const offline = run(
+      [
+        'prove',
+        '--product',
+        'squad',
+        '--tag',
+        'tmt-squad-v0.1.0-alpha.1',
+        '--target',
+        TARGET,
+        '--directory',
+        directory,
+      ],
+      { GITHUB_REPOSITORY: '', GH_TOKEN: '' }
+    );
+    expect(offline.status).toBe(0);
+    expect(offline.stderr).toContain('there is nothing to upgrade from');
+    expect(run.ghCalls()).toBe(1);
   });
 
   it('refuses missing options and an unknown command', () => {
     const run = fakeGh([]);
     expect(run(['prove', '--product', 'cli']).stderr).toContain('--tag is required.');
-    expect(run(['bogus']).stderr).toContain('Usage: release-upgrade.mjs prove|resolve');
+    expect(run(['bogus']).stderr).toContain('Usage: release-upgrade.mjs resolve|fetch|prove');
   });
 });

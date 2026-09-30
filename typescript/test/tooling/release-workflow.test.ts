@@ -303,19 +303,40 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(targets(upgrade)).toEqual(targets(bundle));
   });
 
-  it('only reads releases: write access is for listing drafts, and nothing is written', () => {
+  it('only reads releases: write access is for seeing draft assets, and nothing is written', () => {
     expect(upgrade).toMatch(/^permissions:\n {2}contents: read$/m);
-    expect(upgrade.match(/^ {6}contents: write$/gm)).toHaveLength(2);
+    expect(upgrade.match(/^ {6}contents: write$/gm)).toHaveLength(1);
+    expect(job(upgrade, 'fetch')).toMatch(/^ {6}contents: write$/m);
+    expect(job(upgrade, 'prove')).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
     expect(upgrade).not.toMatch(/actions: write|pull-requests:|id-token:|packages:/);
     expect(upgrade).not.toMatch(
-      /gh release (create|edit|upload|delete)|draft=false|--method|upload-artifact|gh workflow run/
+      /gh release (create|edit|upload|delete)|draft=false|--method|gh workflow run/
     );
+  });
+
+  it("fetches with the write token on main's code and proves the release's code read-only", () => {
+    const fetch = job(upgrade, 'fetch');
+    const prove = job(upgrade, 'prove');
+    // The job that holds the write token runs this repository's main, never the release commit.
+    expect(fetch).toContain("if: github.ref == 'refs/heads/main'");
+    expect(fetch).not.toMatch(/^ {10}ref:/m);
+    expect(fetch).toContain('release-upgrade.mjs fetch --product "$PRODUCT" --tag "$RELEASE_TAG"');
+    expect(fetch).not.toContain('pnpm');
+    // The job that runs the release commit's scripts has no token at all.
+    expect(prove).toContain('needs: fetch');
+    expect(prove).toContain('ref: ${{ needs.fetch.outputs.sha }}');
+    expect(prove).not.toMatch(/GH_TOKEN|github\.token|secrets\./);
+    expect(prove).not.toMatch(/gh api|gh release/);
+    // They meet in one run artifact.
+    const name = /name: (upgrade-assets-\$\{\{ inputs\.tag \}\})/.exec(fetch)?.[1];
+    expect(name).toBeDefined();
+    expect(fetch).toContain('actions/upload-artifact@');
+    expect(prove).toContain('actions/download-artifact@');
+    expect(prove).toContain(`name: ${name}`);
   });
 
   it('runs the proof from the commit of the release, and says when that commit predates it', () => {
     const prove = job(upgrade, 'prove');
-    expect(prove).toContain('needs: plan');
-    expect(prove).toContain('ref: ${{ needs.plan.outputs.sha }}');
     for (const script of [
       'release-upgrade.mjs',
       'release-versions.mjs',
@@ -331,5 +352,27 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     // The macOS toolchain lookup is warmed before the archives run.
     expect(prove.indexOf('warm-xcrun')).toBeGreaterThan(0);
     expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs prove'));
+  });
+});
+
+describe('write access and release code', () => {
+  // A job that holds write permission checks out this repository's own ref; a job that runs a
+  // release's code (a draft's commit) is read-only.
+  const workflows = [
+    'native-release.yml',
+    'native-release-bundle.yml',
+    'native-release-upgrade.yml',
+    'release.yml',
+  ];
+
+  it('never gives a job write permission and the code of a release commit together', () => {
+    for (const name of workflows) {
+      const workflow = read(`.github/workflows/${name}`);
+      for (const [jobName, text] of jobs(workflow)) {
+        const writes = /^ {6}[a-z-]+: write$/m.test(text);
+        const checksOutRelease = /^ {10}ref: \$\{\{/m.test(text);
+        expect(writes && checksOutRelease, `${name} job ${jobName}`).toBe(false);
+      }
+    }
   });
 });

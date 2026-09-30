@@ -1,17 +1,23 @@
 #!/usr/bin/env node
 // Proves that a release candidate upgrades from the last published release of its product, with
 // the real bytes of both: the candidate's archive from its release (a draft or a published
-// release), the previous archive from the newest published release below it, each checked
-// against the digest GitHub recorded for the asset before anything runs.
-//   node release-upgrade.mjs prove --product cli|office|squad --tag TAG --target TARGET \
-//     --directory DIR [--skill skills/tmux-team/SKILL.md]
-//   node release-upgrade.mjs resolve --tag TAG      the commit of the release, on stdout
+// release) and the previous archive from the newest published release below it. Two steps, run
+// by two jobs, so that the token that can see draft assets never runs the release's own code:
+//   fetch  (write token, this repository's default ref) downloads the archive and manifest of
+//          the candidate, of the previous release and, for an extension, of the CLI that drives
+//          it, for every target, checks each against the digest GitHub recorded and writes them
+//          with a plan into one directory
+//   prove  (read-only, the release's commit) re-checks those digests and runs the verifier of
+//          the product over one target's staged files; it never reaches GitHub
+//   node release-upgrade.mjs resolve --tag TAG      the commit of the release
+//   node release-upgrade.mjs fetch --product cli|office|squad --tag TAG --directory DIR
+//   node release-upgrade.mjs prove --product P --tag TAG --target T --directory DIR [--skill S]
 // A CLI candidate runs the managed-install lifecycle verifier over the two archives. An extension
 // candidate is installed and upgraded by the newest published CLI, which is what a user's
 // `tmt <extension> install` runs, because an extension release carries no CLI.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -21,6 +27,7 @@ import { compareVersions, publishedReleases, versionOfTag } from './release-vers
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const MANIFEST = 'dist-manifest.json';
+const PLAN = 'plan.json';
 const ASSET_LIMIT = 80 * 1024 * 1024;
 
 /** The newest published release of a product below the candidate's version, or null. */
@@ -31,6 +38,16 @@ export function selectPrevious({ releases, product, candidateTag }) {
       (release) => compareVersions(versionOfTag(release.tag_name, product), candidate) < 0
     ) ?? null
   );
+}
+
+/** The targets a release carries an archive for, from its asset names. */
+export function archiveTargets({ release, product }) {
+  const prefix = `${archivePrefix(product)}-`;
+  return (release.assets ?? [])
+    .map(({ name }) => name)
+    .filter((name) => name.startsWith(prefix) && name.endsWith('.tar.gz'))
+    .map((name) => name.slice(prefix.length, -'.tar.gz'.length))
+    .sort();
 }
 
 /** The archive and manifest of a release for one target; both must carry a GitHub digest. */
@@ -50,10 +67,13 @@ export function selectAssets({ release, product, target }) {
 
 const sha256 = (file) => `sha256:${createHash('sha256').update(readFileSync(file)).digest('hex')}`;
 
-/** Downloads a release's archive and manifest for the target, each checked against its digest. */
+/**
+ * Downloads a release's archive and manifest for the target, each checked against its digest.
+ * `digests` maps each staged file, relative to `directory`, to the digest it was checked against.
+ */
 export function stageRelease({ download, release, product, target, directory }) {
   mkdirSync(directory, { recursive: true });
-  const staged = {};
+  const staged = { digests: {} };
   for (const [role, asset] of Object.entries(selectAssets({ release, product, target }))) {
     const file = path.join(directory, asset.name);
     download(asset, file);
@@ -61,31 +81,85 @@ export function stageRelease({ download, release, product, target, directory }) 
       throw new Error(`${asset.name} of ${release.tag_name} does not match its recorded digest.`);
     }
     staged[role] = file;
+    staged.digests[asset.name] = asset.digest;
   }
   return staged;
 }
 
 /**
- * Proves the candidate's upgrade from the previous published release. `run` executes one
- * verifier script and throws when it fails. Returns the previous tag, or null when the product
- * has no earlier published release and there is nothing to upgrade from.
+ * The fetch step. Stages, for every target of the candidate, the candidate, the previous release
+ * and, for an extension, the newest published CLI under `directory/<target>/<kind>`, and writes
+ * `plan.json` with the tags and the digests. A product with no earlier published release stages
+ * nothing: there is nothing to upgrade from.
  */
-export function proveUpgrade({ releases, download, run, product, tag, target, directory, skill }) {
+export function fetchUpgrade({ releases, download, product, tag, directory }) {
   const candidate = releases.find((release) => release.tag_name === tag);
   if (!candidate) throw new Error(`There is no release ${tag}.`);
   const previous = selectPrevious({ releases, product, candidateTag: tag });
-  if (!previous) return { previous: null };
+  const plan = { product, tag, previous: previous?.tag_name ?? null, driver: null, files: {} };
+  mkdirSync(directory, { recursive: true });
+  if (previous) {
+    const targets = archiveTargets({ release: candidate, product });
+    if (targets.length === 0) throw new Error(`Release ${tag} has no archive to upgrade to.`);
+    let driverRelease = null;
+    if (product !== 'cli') {
+      [driverRelease] = publishedReleases(releases, 'cli');
+      if (!driverRelease)
+        throw new Error('An extension upgrade proof needs a published CLI release.');
+      plan.driver = driverRelease.tag_name;
+    }
+    for (const target of targets) {
+      const stage = (release, kind, releaseProduct) => {
+        const { digests } = stageRelease({
+          download,
+          release,
+          product: releaseProduct,
+          target,
+          directory: path.join(directory, target, kind),
+        });
+        for (const [name, digest] of Object.entries(digests)) {
+          plan.files[path.posix.join(target, kind, name)] = digest;
+        }
+      };
+      stage(candidate, 'candidate', product);
+      stage(previous, 'previous', product);
+      if (driverRelease) stage(driverRelease, 'driver', 'cli');
+    }
+  }
+  writeFileSync(path.join(directory, PLAN), `${JSON.stringify(plan, null, 2)}\n`);
+  return plan;
+}
 
-  const stage = (release, kind, releaseProduct = product) =>
-    stageRelease({
-      download,
-      release,
-      product: releaseProduct,
-      target,
-      directory: path.join(directory, kind),
-    });
-  const now = stage(candidate, 'candidate');
-  const before = stage(previous, 'previous');
+/**
+ * The prove step, over the directory `fetchUpgrade` wrote. Every file is checked against the
+ * digest in the plan again, since it crossed a job boundary, and `run` executes the product's
+ * verifier script over the target's files and throws when it fails. Returns the previous tag, or
+ * null when there was nothing to upgrade from.
+ */
+export function proveStaged({ directory, product, tag, target, run, skill }) {
+  const plan = JSON.parse(readFileSync(path.join(directory, PLAN), 'utf8'));
+  if (plan.product !== product || plan.tag !== tag) {
+    throw new Error(`The staged assets are for ${plan.tag}, not for ${tag}.`);
+  }
+  if (!plan.previous) return { previous: null };
+  const prefix = `${target}/`;
+  const files = Object.entries(plan.files).filter(([name]) => name.startsWith(prefix));
+  if (files.length === 0) throw new Error(`The staged assets have no files for ${target}.`);
+  for (const [name, digest] of files) {
+    const file = path.join(directory, name);
+    if (!existsSync(file) || sha256(file) !== digest) {
+      throw new Error(`Staged ${name} is missing or does not match its recorded digest.`);
+    }
+  }
+  const staged = (kind, kindProduct) => {
+    const base = path.join(directory, target, kind);
+    return {
+      archive: path.join(base, `${archivePrefix(kindProduct)}-${target}.tar.gz`),
+      manifest: path.join(base, MANIFEST),
+    };
+  };
+  const now = staged('candidate', product);
+  const before = staged('previous', product);
   const common = [
     '--archive',
     now.archive,
@@ -102,10 +176,7 @@ export function proveUpgrade({ releases, download, run, product, tag, target, di
     if (!skill) throw new Error('A CLI upgrade proof needs --skill.');
     run('verify-native-installation.mjs', [...common, '--skill', skill]);
   } else {
-    const [driverRelease] = publishedReleases(releases, 'cli');
-    if (!driverRelease)
-      throw new Error('An extension upgrade proof needs a published CLI release.');
-    const driver = stage(driverRelease, 'driver', 'cli');
+    const driver = staged('driver', 'cli');
     run('verify-native-extension-upgrade.mjs', [
       ...common,
       '--product',
@@ -116,7 +187,7 @@ export function proveUpgrade({ releases, download, run, product, tag, target, di
       driver.manifest,
     ]);
   }
-  return { previous: previous.tag_name };
+  return { previous: plan.previous };
 }
 
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -173,16 +244,42 @@ function main(argv, environment) {
       skill: { type: 'string', default: 'skills/tmux-team/SKILL.md' },
     },
   });
-  const repository = environment.GITHUB_REPOSITORY;
-  if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
   const required = (names) => {
     for (const name of names) if (!values[name]) throw new Error(`--${name} is required.`);
   };
+  const report = (line) => {
+    process.stderr.write(`${line}\n`);
+    if (environment.GITHUB_STEP_SUMMARY)
+      appendFileSync(environment.GITHUB_STEP_SUMMARY, `${line}\n`);
+  };
+  if (command === 'prove') {
+    // Offline by design: the release's own code runs here, so no token and no GitHub.
+    required(['product', 'tag', 'target', 'directory']);
+    const { previous } = proveStaged({
+      directory: values.directory,
+      product: values.product,
+      tag: values.tag,
+      target: values.target,
+      skill: values.skill,
+      run: (script, args) => {
+        const result = spawnSync('node', [path.join(here, script), ...args], { stdio: 'inherit' });
+        if (result.error) throw result.error;
+        if (result.status !== 0) throw new Error(`${script} failed with ${result.status}.`);
+      },
+    });
+    report(
+      previous
+        ? `Upgrade proof passed: ${previous} -> ${values.tag} (${values.product}, ${values.target}).`
+        : `No published ${values.product} release precedes ${values.tag}; there is nothing to upgrade from.`
+    );
+    return;
+  }
+  const repository = environment.GITHUB_REPOSITORY;
+  if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
+  const releases = ghApi({ repository }).listReleases();
   if (command === 'resolve') {
     required(['tag']);
-    const release = ghApi({ repository })
-      .listReleases()
-      .find((candidate) => candidate.tag_name === values.tag);
+    const release = releases.find((candidate) => candidate.tag_name === values.tag);
     if (!release) throw new Error(`There is no release ${values.tag}.`);
     const commitOfTag = (tag) =>
       spawnSync('gh', ['api', `repos/${repository}/commits/${tag}`, '--jq', '.sha'], {
@@ -192,31 +289,23 @@ function main(argv, environment) {
     const commit = releaseCommit({ release, commitOfTag });
     if (environment.GITHUB_OUTPUT) appendFileSync(environment.GITHUB_OUTPUT, `sha=${commit}\n`);
     else process.stdout.write(`${commit}\n`);
-    return;
+  } else if (command === 'fetch') {
+    required(['product', 'tag', 'directory']);
+    const plan = fetchUpgrade({
+      releases,
+      download: ghAssetDownloader({ repository }),
+      product: values.product,
+      tag: values.tag,
+      directory: values.directory,
+    });
+    report(
+      plan.previous
+        ? `Fetched ${values.tag} and ${plan.previous}${plan.driver ? ` with ${plan.driver}` : ''} for ${Object.keys(plan.files).length} files.`
+        : `No published ${values.product} release precedes ${values.tag}; nothing was fetched.`
+    );
+  } else {
+    throw new Error('Usage: release-upgrade.mjs resolve|fetch|prove --tag TAG ...');
   }
-  if (command !== 'prove') {
-    throw new Error('Usage: release-upgrade.mjs prove|resolve --tag TAG ...');
-  }
-  required(['product', 'tag', 'target', 'directory']);
-  const { previous } = proveUpgrade({
-    releases: ghApi({ repository }).listReleases(),
-    download: ghAssetDownloader({ repository }),
-    run: (script, args) => {
-      const result = spawnSync('node', [path.join(here, script), ...args], { stdio: 'inherit' });
-      if (result.error) throw result.error;
-      if (result.status !== 0) throw new Error(`${script} failed with ${result.status}.`);
-    },
-    product: values.product,
-    tag: values.tag,
-    target: values.target,
-    directory: values.directory,
-    skill: values.skill,
-  });
-  const line = previous
-    ? `Upgrade proof passed: ${previous} -> ${values.tag} (${values.product}, ${values.target}).`
-    : `No published ${values.product} release precedes ${values.tag}; there is nothing to upgrade from.`;
-  process.stderr.write(`${line}\n`);
-  if (environment.GITHUB_STEP_SUMMARY) appendFileSync(environment.GITHUB_STEP_SUMMARY, `${line}\n`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
