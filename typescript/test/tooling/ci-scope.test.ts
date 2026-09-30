@@ -34,6 +34,40 @@ const { runPackedCommand } = await import(
 );
 
 describe('CI area selection', () => {
+  it('rejects a misspelled private-release declaration', () => {
+    expect(() =>
+      parseComponentMap(
+        JSON.stringify({ components: { addon: { owns: ['addon'], release: 'false' } } })
+      )
+    ).toThrow('release must be boolean');
+  });
+
+  it('leaves the add-on to its always-running workflow without narrowing look-alikes', () => {
+    expect(selectCiAreas(['extensions/tmt-remote/typescript/browser-addon/src/popup.ts'])).toEqual({
+      native: false,
+      office: false,
+      nativeOffice: false,
+    });
+    for (const file of [
+      'extensions/tmt-remote/typescript/browser-addon-other/src/popup.ts',
+      'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
+      '.github/workflows/browser-addon.yml.orig',
+    ]) {
+      expect(selectCiAreas([file])).toMatchObject({ native: true, office: true });
+    }
+    expect(ownerOf('extensions/tmt-remote/typescript/browser-addon/src/popup.ts')).toBe(
+      'browser-addon'
+    );
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/browser-addon.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workflow).toMatch(/^on:\n  pull_request:\n  workflow_dispatch:/m);
+    expect(workflow).not.toMatch(/paths:|continue-on-error/);
+    expect(workflow).toContain('--fail-if-no-match');
+    expect(workflow).toContain('test:browser');
+  });
+
   it('selects Office without the native matrix for app-only changes', () => {
     expect(
       selectCiAreas([

@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "TMT selection — demo shell",
+  "version": "0.0.1",
+  "minimum_chrome_version": "137",
+  "description": "Review a selection for an agent. Local demo only: nothing is sent to TMT.",
+  "permissions": ["activeTab", "scripting", "contextMenus"],
+  "action": { "default_popup": "popup.html", "default_title": "Send selection to agent" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; connect-src 'none'"
+  }
+}

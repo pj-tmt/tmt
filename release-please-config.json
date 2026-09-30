@@ -20,7 +20,8 @@
         "extensions/tmt-office/rust/tmt-office-storage",
         "extensions/tmt-office/skills",
         "extensions/tmt-office/typescript",
-        "extensions/tmt-squad"
+        "extensions/tmt-squad",
+        "extensions/tmt-remote/typescript/browser-addon"
       ],
       "extra-files": [
         {

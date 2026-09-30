@@ -1,0 +1,22 @@
+{
+  "name": "@tmt/browser-addon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit && oxlint --deny-warnings src e2e *.ts && prettier --check .",
+    "test": "vitest run",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/chrome": "0.3.4",
+    "@types/node": "^25.0.3",
+    "typescript": "^5.3.0",
+    "vite": "8.2.2",
+    "vitest": "4.1.11",
+    "oxlint": "^1.34.0",
+    "prettier": "^3.7.4"
+  }
+}
