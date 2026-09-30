@@ -22,6 +22,7 @@ ratatui = { workspace = true, optional = true }
 ratatui = ["dep:ratatui"]
 
 [dev-dependencies]
+crossterm.workspace = true
 insta.workspace = true
 serde_json.workspace = true
 

@@ -25,6 +25,7 @@ clap_complete.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+crossterm.workspace = true
 insta.workspace = true
 tmt-office-model.workspace = true
 syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
