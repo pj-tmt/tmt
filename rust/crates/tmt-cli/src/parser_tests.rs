@@ -2418,3 +2418,39 @@ fn inbox_and_answer_select_an_identity_and_one_body_source() {
         assert_eq!(parse_error(argv).code, "USAGE_ERROR", "arguments: {argv:?}");
     }
 }
+
+#[test]
+fn extension_repair_is_explicit_and_cannot_change_artifact_or_channel() {
+    let result = parsed(&[
+        "extension",
+        "install",
+        "squad",
+        "--repair",
+        "--yes",
+        "--prefix",
+        "/prefix",
+    ]);
+    assert!(matches!(
+        result.invocation,
+        Invocation::ExtensionInstall(crate::invocation::ExtensionInstallRequest::Install {
+            repair: true,
+            yes: true,
+            channel: None,
+            archive: None,
+            manifest: None,
+            ..
+        })
+    ));
+    for extra in [
+        vec!["--channel", "stable"],
+        vec!["--archive", "archive", "--manifest", "manifest"],
+    ] {
+        let mut args = vec!["extension", "install", "squad", "--repair"];
+        args.extend(extra);
+        assert_eq!(parse_error(&args).code, "USAGE_ERROR");
+    }
+    assert_eq!(
+        parse_error(&["extension", "upgrade", "squad", "--repair"]).code,
+        "USAGE_ERROR"
+    );
+}

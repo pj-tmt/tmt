@@ -158,6 +158,37 @@ release and you then downgrade the CLI, the older `tmt` reports "Installed relea
 inventory has changed" for that extension. It refuses to inspect, update or
 remove it, and it changes nothing. Upgrade `tmt` back to fix this.
 
+### Repair a damaged managed extension
+
+A missing, changed or extra file in a managed GitHub release remains an error
+for inspection, ordinary install-over and upgrade. If TMT can establish receipt
+and layout ownership, the error names one repair command:
+
+```sh
+tmt extension install squad --repair --yes --prefix "$HOME/.local"
+```
+
+Repair downloads the exact recorded version, target and artifact from the
+original immutable GitHub release, verifies its provenance and checksum, and
+activates a fresh release directory. It preserves the channel and pin; it never
+selects latest or accepts different same-version bytes. A healthy release is a
+no-op without downloading. Omit `--yes` to review the consent prompt.
+
+The entire damaged release is kept at its original path as the backup, including
+changed and foreign files; success prints that path. Nothing in that directory
+is overwritten, moved or deleted. Retained releases currently have no automatic
+pruning. Published skills are refreshed from the newly verified tree through the
+existing skill-owner policy; foreign provider folders and playbooks stay intact.
+A skill-publication failure after activation leaves the repaired extension
+installed and reports that partial result.
+
+Repair refuses a missing/invalid receipt, mismatched ownership, unsafe managed
+permissions, symlinks or special entries in the old release, foreign command
+links, or an unavailable/nonmatching original artifact. A local receipt is
+installation evidence, not a signature or proof that changed bytes belong to
+TMT. Repair of local-archive installations is not supported yet. `--repair`
+cannot be combined with `--channel`, `--archive` or `--manifest`.
+
 ## Curl bootstrap
 
 The one-line install in the [README][public-install] pipes the release's

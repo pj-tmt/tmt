@@ -2019,6 +2019,24 @@ stays at 16 KiB.
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
 
+Explicit extension `install --repair` is a separate recovery composition in
+`native_install::repair`, limited to GitHub-provenance receipts. `receipt`
+separates bounded metadata/recorded-path validation from payload verification;
+normal readers still require both. An eligible verification failure carries
+`RepairRequired` to the CLI, which owns the single quoted repair-command hint.
+Repair admits only safe owned layouts and no-follow regular files/directories,
+fetches the exact recorded artifact with matching provenance and digests, and
+preserves version/channel/pin. Acquisition holds no installation lock; the stable
+lock and a pre-activation current/receipt revalidation fence publication.
+`publication` shares candidate staging, durable activation, cleanup and typed
+post-activation failures between normal installs and repair. The damaged release
+is retained untouched at its original path, including foreign entries, rather
+than treated as content TMT may overwrite or delete. It is never a verified
+execution candidate; no automatic retention cleanup is implemented. A healthy
+repair is a no-op. Local receipts remain installation evidence, not signatures;
+repair does not claim protection from a hostile same-UID writer. Provider skill
+refresh remains with the existing verified-tree/skill-owner composition.
+
 The active executable is the authority for a managed update. Installer receipts
 are anchored to the installation prefix/current executable, not to
 `ConfigPaths.global_dir`; changing runtime config roots must not fabricate or

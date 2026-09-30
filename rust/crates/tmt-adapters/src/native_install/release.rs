@@ -244,4 +244,4 @@ fn fetch_asset(
 mod release_tests;
 
 #[cfg(test)]
-pub(super) use release_tests::valid_fixture;
+pub(super) use release_tests::{product_fixture, valid_fixture};

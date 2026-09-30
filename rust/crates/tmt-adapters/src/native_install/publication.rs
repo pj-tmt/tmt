@@ -34,6 +34,11 @@ pub(super) struct Layout {
     pub root: PathBuf,
 }
 
+struct ActivationCheck<F> {
+    has_current: bool,
+    validate: F,
+}
+
 fn directory(path: &Path, create: bool) -> io::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
@@ -107,6 +112,13 @@ impl Layout {
     }
 
     pub fn current(&self) -> io::Result<Option<Receipt>> {
+        let Some((release, id)) = self.current_directory()? else {
+            return Ok(None);
+        };
+        Receipt::read_product(self.product, &release, &self.prefix, id).map(Some)
+    }
+
+    pub(super) fn current_directory(&self) -> io::Result<Option<(PathBuf, Uuid)>> {
         let pointer = self.root.join("current");
         let target = match fs::read_link(&pointer) {
             Ok(target) => target,
@@ -123,7 +135,7 @@ impl Layout {
         if !fs::symlink_metadata(&release)?.file_type().is_dir() {
             return Err(invalid("Native current release is not a real directory."));
         }
-        Receipt::read_product(self.product, &release, &self.prefix, id).map(Some)
+        Ok(Some((release, id)))
     }
 
     pub fn check_links(&self, has_current: bool) -> io::Result<()> {
@@ -192,6 +204,56 @@ impl Layout {
         checkpoint: &mut impl FnMut() -> io::Result<()>,
         finalize: impl FnOnce() -> io::Result<()>,
     ) -> io::Result<()> {
+        self.publish_checked(
+            artifact,
+            receipt,
+            verifier,
+            checkpoint,
+            ActivationCheck {
+                has_current: expected_current.is_some(),
+                validate: || {
+                    if self.current()?.map(|receipt| receipt.id) != expected_current {
+                        return Err(invalid(
+                            "Native current release changed during installation.",
+                        ));
+                    }
+                    Ok(())
+                },
+            },
+            finalize,
+        )
+    }
+
+    pub(super) fn publish_repair(
+        &self,
+        artifact: &Artifact,
+        receipt: &Receipt,
+        verifier: Option<ReleaseVerifier<'_>>,
+        checkpoint: &mut impl FnMut() -> io::Result<()>,
+        validate_current: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<()> {
+        self.publish_checked(
+            artifact,
+            receipt,
+            verifier,
+            checkpoint,
+            ActivationCheck {
+                has_current: true,
+                validate: validate_current,
+            },
+            || self.ensure_links(),
+        )
+    }
+
+    fn publish_checked(
+        &self,
+        artifact: &Artifact,
+        receipt: &Receipt,
+        verifier: Option<ReleaseVerifier<'_>>,
+        checkpoint: &mut impl FnMut() -> io::Result<()>,
+        current: ActivationCheck<impl FnOnce() -> io::Result<()>>,
+        finalize: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<()> {
         checkpoint()?;
         let release = self.root.join("releases").join(receipt.id.to_string());
         fs::DirBuilder::new().mode(0o700).create(&release)?;
@@ -243,12 +305,8 @@ impl Layout {
             symlink(format!("releases/{}", receipt.id), &pointer)?;
             pointer_created = true;
             checkpoint()?;
-            if self.current()?.map(|receipt| receipt.id) != expected_current {
-                return Err(invalid(
-                    "Native current release changed during installation.",
-                ));
-            }
-            self.check_links(expected_current.is_some())?;
+            (current.validate)()?;
+            self.check_links(current.has_current)?;
             fs::rename(&pointer, self.root.join("current"))?;
             activated = true;
             File::open(&self.root)?.sync_all()?;
