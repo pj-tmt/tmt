@@ -158,9 +158,9 @@ it.each([
             { args: ['extension', 'hooks', 'disable', 'ctxfix', '--json'] },
             hook('UserPromptSubmit'),
             { args: ['extension', 'hooks', 'enable', 'ctxfix', '--json'] },
-            ...Array.from({ length: 20 }, () => hook('UserPromptSubmit')),
+            ...Array.from({ length: 20 }, () => ({ ...hook('UserPromptSubmit'), measure: true })),
             { args: ['extension', 'hooks', 'disable', 'ctxfix', '--json'] },
-            ...Array.from({ length: 20 }, () => hook('UserPromptSubmit')),
+            ...Array.from({ length: 20 }, () => ({ ...hook('UserPromptSubmit'), measure: true })),
             { args: ['extension', 'hooks', 'enable', 'ctxfix', '--json'] },
             hook('SessionEnd'),
             hook('UserPromptSubmit'), // ended sessions cannot be revived
@@ -204,6 +204,7 @@ it.each([
         return;
       }
       expect(results.every((item) => item.stderr === '')).toBe(true);
+      expect(results[4]).not.toHaveProperty('elapsedMs');
       const fast = results.slice(11, 31);
       const absent = results.slice(32, 52);
       expect(fast.every((result) => result.stdout.includes('Extension ctxfix'))).toBe(true);
@@ -212,6 +213,7 @@ it.each([
         ['fast callback', fast],
         ['no consents', absent],
       ] as const) {
+        expect(samples.every((result) => Number.isFinite(result.elapsedMs))).toBe(true);
         const times = samples.map((result) => result.elapsedMs).sort((a, b) => a - b);
         console.log(
           `${provider} ${label}: n=20 medianMs=${(times[9] + times[10]) / 2} worstMs=${times[19]}`
