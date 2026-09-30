@@ -72,7 +72,7 @@ fn provider_mistakes_are_refused_with_their_place() {
     for (text, expected) in [
         (
             "[squad.p.fields.x]\nevery = \"1m\"\n",
-            "`squad.p.fields.x.run` is required",
+            "`squad.p.fields.x` needs `run` or `preset",
         ),
         (
             "[squad.p.fields.x]\nrun = []\n",
@@ -258,6 +258,7 @@ fn programs_run_directly_and_every_failure_is_a_failed_run() {
         member: "R".into(),
         argv: argv.iter().map(|arg| (*arg).to_owned()).collect(),
         timeout: Duration::from_secs(timeout),
+        output: Output::Line,
     };
     let echo = echo.to_str().unwrap();
     let jobs = [
@@ -339,6 +340,131 @@ fn a_refresh_saves_its_values_and_does_not_repeat_fresh_work() {
     assert_eq!(
         shown[1].fields["pr_state"],
         "open:https://example.com/pull/2"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn the_github_preset_reads_a_pull_request_from_pr_link() {
+    let read = providers("[squad.p.fields.pr]\npreset = \"github-pr\"\nevery = \"2m\"\n").unwrap();
+    assert_eq!(read[0].output, Output::GithubPr);
+    assert_eq!(read[0].every, Duration::from_secs(120));
+    let members = vec![
+        member("R", &[("pr_link", "https://github.com/acme/app/pull/412")]),
+        member("S", &[]),
+    ];
+    let jobs = due(&read, &members, &Cache::at(None), 0);
+    assert_eq!(jobs.len(), 1, "no pr_link, no run");
+    assert_eq!(
+        jobs[0].argv,
+        [
+            "gh",
+            "pr",
+            "view",
+            "https://github.com/acme/app/pull/412",
+            "--json",
+            "number,state,isDraft,reviewDecision"
+        ]
+    );
+    for (text, expected) in [
+        (
+            "[squad.p.fields.pr]\npreset = \"gitlab\"\n",
+            "must be \"github-pr\"",
+        ),
+        (
+            "[squad.p.fields.pr]\npreset = \"github-pr\"\nrun = [\"gh\"]\n",
+            "sets both `run` and `preset`",
+        ),
+        (
+            "[squad.p.fields.pr]\nevery = \"1m\"\n",
+            "needs `run` or `preset",
+        ),
+    ] {
+        let message = error(text);
+        assert!(message.contains(expected), "{text}: {message}");
+    }
+}
+
+#[test]
+fn github_output_becomes_number_state_and_review() {
+    let value = |text: &str| match github_pr(text.as_bytes()) {
+        Outcome::Value { value, color: None } => value,
+        other => panic!("{text}: {other:?}"),
+    };
+    let pr = |state: &str, draft: bool, review: &str| {
+        format!(
+            r#"{{"number":412,"state":"{state}","isDraft":{draft},"reviewDecision":"{review}"}}"#
+        )
+    };
+    assert_eq!(value(&pr("OPEN", false, "")), "#412 open");
+    assert_eq!(value(&pr("OPEN", true, "")), "#412 draft");
+    assert_eq!(
+        value(&pr("OPEN", false, "APPROVED")),
+        "#412 open · approved"
+    );
+    assert_eq!(
+        value(&pr("OPEN", false, "CHANGES_REQUESTED")),
+        "#412 open · changes requested"
+    );
+    assert_eq!(
+        value(&pr("OPEN", false, "REVIEW_REQUIRED")),
+        "#412 open · review required"
+    );
+    assert_eq!(
+        value(&pr("MERGED", false, "APPROVED")),
+        "#412 merged",
+        "review only while open"
+    );
+    assert_eq!(value(&pr("CLOSED", false, "")), "#412 closed");
+    for bad in [
+        "",
+        "not json",
+        r#"{"state":"OPEN"}"#,
+        &pr("LOCKED", false, ""),
+    ] {
+        assert_eq!(github_pr(bad.as_bytes()), Outcome::Failed, "{bad}");
+    }
+}
+
+/// gh missing, logged out (exit 4) or printing something else is a failed
+/// run, shown as `?`; its output is read only after a successful exit.
+#[test]
+fn the_github_preset_degrades_to_a_failed_run() {
+    let dir = scratch("gh");
+    let fake = |name: &str, script: &str| {
+        let path = dir.join(name);
+        crate::test_support::write_executable(&path, script);
+        path.to_str().unwrap().to_owned()
+    };
+    let ok = fake(
+        "ok",
+        "#!/bin/sh\necho '{\"number\":7,\"state\":\"OPEN\",\"isDraft\":false,\"reviewDecision\":\"APPROVED\"}'\n",
+    );
+    let logged_out = fake(
+        "out",
+        "#!/bin/sh\necho 'To get started with GitHub CLI, please run:  gh auth login' >&2\nexit 4\n",
+    );
+    let job = |program: String| Job {
+        field: "pr".into(),
+        member: "R".into(),
+        argv: vec![program, "https://github.com/acme/app/pull/7".into()],
+        timeout: Duration::from_secs(5),
+        output: Output::GithubPr,
+    };
+    assert_eq!(
+        run(&[
+            job(ok),
+            job(logged_out),
+            job(dir.join("gh").to_str().unwrap().to_owned())
+        ]),
+        [
+            Outcome::Value {
+                value: "#7 open · approved".into(),
+                color: None
+            },
+            Outcome::Failed,
+            Outcome::Failed,
+        ]
     );
     let _ = std::fs::remove_dir_all(dir);
 }
