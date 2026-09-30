@@ -4,31 +4,127 @@
 //! module and the host adapters spell a host's name.
 
 use crate::names::ecmascript_space;
+use std::sync::OnceLock;
+pub use tmt_host_grammar::{HostGrammar, HostName};
 
+/// A terminal host. tmux and Herdr are built in; any other host is named by
+/// the driver that serves it (#570). A host is only its name, so stored rows
+/// and JSON read without knowing which drivers are installed; whether one is
+/// belongs to the adapters that run drivers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum HostKind {
     Tmux,
     Herdr,
+    /// A host an out-of-process driver serves. Its syntax is known only
+    /// once that driver is registered; until then no pane ID or target is
+    /// its own.
+    External(HostName),
+}
+
+/// At most this many external hosts are registered for a process.
+pub const MAX_EXTERNAL_HOSTS: usize = 16;
+
+/// The approved drivers' syntax, written once at start and only read after.
+/// Core stays free of other global state; this one is set before the first
+/// name is validated, so every reader sees the same hosts.
+static EXTERNAL: OnceLock<Vec<HostGrammar>> = OnceLock::new();
+
+/// A second registration: the hosts are fixed for the process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlreadyRegistered;
+
+/// Registers the approved drivers' hosts, once per process, before any name
+/// is validated. A declaration that conflicts with a built-in host or an
+/// earlier one is skipped, as is anything past [`MAX_EXTERNAL_HOSTS`].
+/// Returns the names registered.
+pub fn register_external_hosts(
+    grammars: Vec<HostGrammar>,
+) -> Result<Vec<HostName>, AlreadyRegistered> {
+    let mut accepted: Vec<HostGrammar> = Vec::new();
+    for grammar in grammars {
+        if accepted.len() == MAX_EXTERNAL_HOSTS
+            || builtin_conflict(&grammar).is_some()
+            || accepted
+                .iter()
+                .any(|other| grammar.conflict(other).is_some())
+        {
+            continue;
+        }
+        accepted.push(grammar);
+    }
+    let names = accepted
+        .iter()
+        .filter_map(|grammar| HostName::new(grammar.name()))
+        .collect();
+    EXTERNAL.set(accepted).map_err(|_| AlreadyRegistered)?;
+    Ok(names)
+}
+
+fn external_grammars() -> &'static [HostGrammar] {
+    EXTERNAL.get().map_or(&[], Vec::as_slice)
+}
+
+fn external_grammar(name: HostName) -> Option<&'static HostGrammar> {
+    external_grammars()
+        .iter()
+        .find(|grammar| grammar.name() == name.as_str())
+}
+
+/// Why a declared host would be mistaken for a built-in one, if it would: a
+/// built-in host's name, or pane IDs or targets a built-in host reads as its
+/// own.
+pub fn builtin_conflict(grammar: &HostGrammar) -> Option<String> {
+    let sample_id = format!("{}1", grammar.pane_id_prefix());
+    HostKind::ALL.into_iter().find_map(|host| {
+        if grammar.name() == host.as_str() {
+            Some(format!("{} is a built-in host", host.as_str()))
+        } else if host.is_pane_id(&sample_id) {
+            Some(format!("its pane IDs look like {}'s", host.as_str()))
+        } else if grammar
+            .sample_target()
+            .is_some_and(|target| host.is_target(&target))
+        {
+            Some(format!("its targets look like {}'s", host.as_str()))
+        } else {
+            None
+        }
+    })
 }
 
 impl HostKind {
+    /// The built-in hosts.
     pub const ALL: [Self; 2] = [Self::Tmux, Self::Herdr];
 
+    /// The built-in hosts, then the registered external ones.
+    pub fn all() -> impl Iterator<Item = Self> {
+        Self::ALL.into_iter().chain(
+            external_grammars()
+                .iter()
+                .filter_map(|grammar| HostName::new(grammar.name()).map(Self::External)),
+        )
+    }
+
     /// The stored and JSON token.
-    pub const fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             Self::Tmux => "tmux",
             Self::Herdr => "herdr",
+            Self::External(name) => name.as_str(),
         }
     }
 
+    /// A stored token: a built-in host, or any other valid host name,
+    /// whether or not its driver is installed.
     pub fn parse(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|host| host.as_str() == value)
+        Self::ALL
+            .into_iter()
+            .find(|host| host.as_str() == value)
+            .or_else(|| HostName::new(value).map(Self::External))
     }
 
     /// The host whose pane-ID syntax `id` uses; the syntaxes are disjoint.
     pub fn of_pane_id(id: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|host| host.is_pane_id(id))
+        Self::all().find(|host| host.is_pane_id(id))
     }
 
     /// How a user names a pane seen only by its ID and optional target.
@@ -48,6 +144,9 @@ impl HostKind {
                         .bytes()
                         .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
             }),
+            Self::External(name) => {
+                external_grammar(name).is_some_and(|grammar| grammar.is_pane_id(value))
+            }
         }
     }
 
@@ -70,25 +169,25 @@ impl HostKind {
                 .strip_prefix('w')
                 .and_then(|rest| rest.split_once(":p"))
                 .is_some_and(|(workspace, pane)| all_digits(workspace) && all_digits(pane)),
+            Self::External(name) => {
+                external_grammar(name).is_some_and(|grammar| grammar.is_target(canonical))
+            }
         }
     }
 
     /// Whether names shaped like this host's targets were refused from the
-    /// start. Herdr's `wN:pM` arrived later (#479): an identity created
-    /// before may hold such a name, and keeps it.
+    /// start. Herdr's `wN:pM` arrived later (#479), as does every external
+    /// host: an identity created before may hold such a name, and keeps it.
     pub const fn targets_never_named_identities(self) -> bool {
-        match self {
-            Self::Tmux => true,
-            Self::Herdr => false,
-        }
+        matches!(self, Self::Tmux)
     }
 
     /// How a user names a live pane of this host: its pane ID on tmux, its
-    /// public `wN:pM` on Herdr, whose terminal IDs are opaque.
+    /// public target on Herdr and external hosts, whose IDs are opaque.
     pub fn pane_address<'a>(self, id: &'a str, target: Option<&'a str>) -> &'a str {
         match self {
             Self::Tmux => id,
-            Self::Herdr => target.unwrap_or(id),
+            Self::Herdr | Self::External(_) => target.unwrap_or(id),
         }
     }
 }
@@ -144,9 +243,46 @@ mod tests {
         }
         assert_eq!(HostKind::Tmux.as_str(), "tmux");
         assert_eq!(HostKind::Herdr.as_str(), "herdr");
-        for other in ["screen", "TMUX", "Herdr", "", "tmux "] {
+        for other in ["TMUX", "Herdr", "", "tmux ", "9host", "a_b"] {
             assert_eq!(HostKind::parse(other), None, "{other:?}");
         }
+    }
+
+    #[test]
+    fn any_valid_host_name_reads_as_an_external_host() {
+        // No driver is registered in this process: the host still reads and
+        // lists, and no pane ID or target is its own.
+        let host = HostKind::parse("screen").unwrap();
+        assert_eq!(host, HostKind::External(HostName::new("screen").unwrap()));
+        assert_eq!(host.as_str(), "screen");
+        assert!(!host.is_pane_id("screen-1") && !host.is_target("s1"));
+        assert!(!host.targets_never_named_identities());
+        assert_eq!(HostKind::all().collect::<Vec<_>>(), HostKind::ALL);
+    }
+
+    #[test]
+    fn hosts_order_by_name_with_built_ins_first() {
+        let mut hosts =
+            ["zeta", "herdr", "alpha", "tmux"].map(|name| HostKind::parse(name).unwrap());
+        hosts.sort();
+        assert_eq!(
+            hosts.iter().map(HostKind::as_str).collect::<Vec<_>>(),
+            ["tmux", "herdr", "alpha", "zeta"]
+        );
+    }
+
+    #[test]
+    fn a_declaration_like_a_built_in_host_is_refused() {
+        let conflict = |name, prefix, target| {
+            builtin_conflict(&HostGrammar::new(name, prefix, target).unwrap())
+        };
+        assert!(conflict("tmux", "tm-", None).is_some());
+        assert!(conflict("other", "term_", None).is_some(), "Herdr's IDs");
+        assert!(
+            conflict("other", "ot-", Some("w{n}:p{n}")).is_some(),
+            "Herdr's targets"
+        );
+        assert!(conflict("other", "ot-", Some("s{n}")).is_none());
     }
 
     #[test]

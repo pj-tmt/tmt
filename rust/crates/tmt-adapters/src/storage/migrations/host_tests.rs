@@ -24,6 +24,14 @@ fn schema_38(path: &std::path::Path) -> Connection {
     old
 }
 
+/// Schema 39's own rules, before schema 41 widens the host columns.
+fn through_40(path: &std::path::Path) -> Connection {
+    let mut db = Connection::open(path).unwrap();
+    db.pragma_update(None, "foreign_keys", true).unwrap();
+    apply_through(&mut db, 40).unwrap();
+    db
+}
+
 fn bindings_sql(connection: &Connection) -> String {
     connection
         .query_row(
@@ -51,11 +59,7 @@ fn host_upgrade_widens_only_the_transport_check_and_keeps_every_row() {
     let before_row = binding_row(&old);
     old.close().unwrap();
 
-    let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 40);
-    storage.close().unwrap();
-    let db = Connection::open(&path).unwrap();
-    db.pragma_update(None, "foreign_keys", true).unwrap();
+    let db = through_40(&path);
 
     // Only the table name's quoting (from the rename) and the transport
     // CHECK differ from the schema-38 definition.
@@ -107,9 +111,7 @@ fn upgraded_bindings_and_fences_keep_every_rule() {
     let directory = TestDirectory::new();
     let path = directory.path.join("schema38.db");
     schema_38(&path).close().unwrap();
-    Storage::open(&path).unwrap().close().unwrap();
-    let db = Connection::open(&path).unwrap();
-    db.pragma_update(None, "foreign_keys", true).unwrap();
+    let db = through_40(&path);
     db.execute_batch(
         "INSERT INTO identities (id,name,canonical_name,created_at,updated_at) VALUES ('second','Bob','bob','created','updated');",
     )
@@ -219,7 +221,7 @@ fn a_failed_host_upgrade_leaves_schema_38_intact() {
         .execute_batch("DROP TRIGGER reject_host_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 40);
+    assert_eq!(storage.health().unwrap().schema_version, 41);
     storage.close().unwrap();
 }
 
