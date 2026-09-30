@@ -691,9 +691,11 @@ first. Set `[squad.<name>.notes] render = "plain"` to show the text unformatted.
 layout shows rows and notes side by side, pr-queue shows rows over detail, and
 minimal shows rows only.
 
-Keys act on the selected row. Inside tmux, Enter jumps to the member's pane and
-Backspace goes back; in a plain terminal, where the board cannot show another
-pane, Enter opens a menu of the row's actions instead. `o` opens the row's link,
+Keys act on the selected row. Inside tmux, Enter jumps to the member's pane,
+`L` jumps to the squad's lead (on the `all` and `leads` tabs, the lead of the
+selected row's squad) and Backspace goes back; a jump from a popup board closes
+it. In a plain terminal, where the board cannot show another pane, Enter opens
+a menu of the row's actions instead. `o` opens the row's link,
 `y` copies it, `t` talks to the member, `r` replies to it, `a` annotates the
 row for the lead, `n` focuses the notes pane and Tab moves to the next pane;
 `?` lists every key. Rebind keys in `squad.toml`, for all squads or for one section's rows:
@@ -715,7 +717,7 @@ A binding is `event = "action [argument]"`. Events are `enter`, `backspace`,
 `tab`, `space`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1`–`f12`,
 `ctrl-<letter>` (except `ctrl-c`), `click`, `double-click` or one printable
 character other than the board's own `q`, `j`, `k`, `/` and `?`. Actions are
-`jump`, `back`, `open [{field}]`, `copy [template]`, `run <program> [arguments]`,
+`jump [lead]`, `back`, `open [{field}]`, `copy [template]`, `run <program> [arguments]`,
 `notes`, `refresh`, `next-pane`, `menu`, `talk`, `reply`,
 `annotate [lead|member]` and `tab` (open the row's squad tab, on the `all` and
 `leads` tabs). An unknown action, event or field syntax makes the
