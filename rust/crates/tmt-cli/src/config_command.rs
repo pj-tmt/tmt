@@ -5,19 +5,24 @@ use crate::invocation::{ConfigRequest, OutputMode};
 use crate::output::Failure;
 use serde_json::json;
 use std::io::{self, Write};
-use tmt_adapters::config::{ConfigFiles, ConfigPaths, Scope};
+use tmt_adapters::config::{ConfigFiles, ConfigPaths, Scope, ThemeProblem};
 use tmt_core::settings::{EDITABLE_KEYS, LocalClear, ResolvedSettings, Setting, SettingKey};
 
 fn invalid_setting(message: String) -> Failure {
     Failure::new("ERROR", message, 1)
 }
 
+struct Shown {
+    loaded: ResolvedSettings,
+    theme: Vec<(String, String)>,
+    /// A bad theme is reported, never a failure: it must not stop
+    /// `config show`, which Squad reads to find its own file.
+    theme_error: Option<ThemeProblem>,
+    paths: ConfigPaths,
+}
+
 enum Report {
-    Show {
-        loaded: ResolvedSettings,
-        theme: Vec<(String, String)>,
-        paths: ConfigPaths,
-    },
+    Show(Box<Shown>),
     Changed(String),
 }
 
@@ -28,25 +33,25 @@ fn run(request: ConfigRequest) -> Result<Report, Failure> {
     match request {
         ConfigRequest::Show => {
             let loaded = files.load()?;
-            let theme = files.theme()?;
-            // The meaning is checked here, so a bad value names its key.
-            crate::appearance::parse(&theme).map_err(|error| {
-                Failure::new(
-                    "CONFIG_ERROR",
-                    format!(
-                        "Invalid configuration in {} ({}): {}",
-                        files.paths.global_config.display(),
-                        error.key,
-                        error.message
-                    ),
-                    1,
-                )
-            })?;
-            Ok(Report::Show {
+            let (theme, theme_error) = match files.theme()? {
+                Ok(theme) => {
+                    // The meaning is checked here, so a bad value names its key.
+                    let error = crate::appearance::parse(&theme)
+                        .err()
+                        .map(|error| ThemeProblem {
+                            key: error.key,
+                            message: error.message,
+                        });
+                    (theme, error)
+                }
+                Err(problem) => (Vec::new(), Some(problem)),
+            };
+            Ok(Report::Show(Box::new(Shown {
                 loaded,
                 theme,
+                theme_error,
                 paths: files.paths,
-            })
+            })))
         }
         ConfigRequest::Set { key, value, global } => {
             let scope = if global { Scope::Global } else { Scope::Local };
@@ -88,15 +93,36 @@ pub fn execute(request: ConfigRequest, mode: OutputMode) -> io::Result<u8> {
                 tmt_cli_style::message::success(&mut output, terminal, &message)?;
             }
         }
-        Report::Show {
-            loaded,
-            theme,
-            paths,
-        } => {
+        Report::Show(shown) => {
+            let Shown {
+                loaded,
+                theme,
+                theme_error,
+                paths,
+            } = *shown;
             if mode.json {
-                writeln!(output, "{}", show_json(&loaded, &theme, &paths))?;
+                let mut document = show_json(&loaded, &theme, &paths);
+                document["themeError"] = theme_error.as_ref().map_or(
+                    serde_json::Value::Null,
+                    |problem| json!({"key": problem.key, "message": problem.message}),
+                );
+                writeln!(output, "{document}")?;
             } else {
                 show_text(&mut output, terminal, &loaded, &theme, &paths)?;
+                if let Some(problem) = theme_error {
+                    let mut stderr = tmt_cli_style::stream::stderr();
+                    let terminal = stderr.terminal();
+                    tmt_cli_style::message::error(
+                        &mut stderr,
+                        terminal,
+                        &format!(
+                            "{} {}; commands use the terminal's colors until it is fixed",
+                            problem.key,
+                            problem.message.trim_end_matches('.')
+                        ),
+                        None,
+                    )?;
+                }
             }
         }
     }

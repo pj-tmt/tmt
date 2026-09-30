@@ -1,6 +1,6 @@
 use super::*;
 use tmt_core::{
-    binding::session::RuntimeIncarnation,
+    endpoint::ProcessIncarnation,
     request::notification::{NotificationPolicy, NotificationRecord},
 };
 
@@ -28,7 +28,7 @@ pub(super) fn read(db: &Connection, id: &str) -> Result<Option<NotificationRecor
                 (Some(pid), Some(start)) => {
                     let pid = u64::try_from(pid).map_err(|_| rusqlite::Error::InvalidQuery)?;
                     Some(
-                        RuntimeIncarnation::new(pid, &start)
+                        ProcessIncarnation::new(pid, &start)
                             .map_err(|_| rusqlite::Error::InvalidQuery)?,
                     )
                 }
@@ -75,7 +75,7 @@ pub(super) fn insert_notification(
             policy
                 .waiter
                 .as_ref()
-                .map(RuntimeIncarnation::start_identity)
+                .map(ProcessIncarnation::start_identity)
         ],
     )
     .map_err(|error| classify(error, "Create request notification ownership"))?;

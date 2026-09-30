@@ -2424,7 +2424,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-adapters"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2448,7 +2448,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2466,7 +2466,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli-style"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2481,7 +2481,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-command-output"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "serde_json",
  "tmt-adapters",
@@ -2491,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-core"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "icu_casemap",
  "icu_locale_core",
@@ -2505,7 +2505,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-driver-protocol"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -2514,7 +2514,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-host-grammar"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 
 [[package]]
 name = "tmt-office"
@@ -2558,7 +2558,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-model"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "base64 0.22.1",
  "png",
@@ -2573,7 +2573,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-pairing"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",
@@ -2592,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-service"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "nix",
  "serde",
@@ -2604,7 +2604,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-storage"
-version = "5.0.0-alpha.8"
+version = "5.0.0-alpha.9"
 dependencies = [
  "base64 0.22.1",
  "nix",
@@ -2619,6 +2619,19 @@ dependencies = [
  "tmt-office-pairing",
  "tmt-office-service",
  "uuid",
+]
+
+[[package]]
+name = "tmt-remote"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clap",
+ "getrandom 0.4.3",
+ "httparse",
+ "serde_json",
+ "signal-hook 0.4.4",
+ "subprocess",
+ "tmt-cli-style",
 ]
 
 [[package]]
