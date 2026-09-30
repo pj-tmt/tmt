@@ -1266,6 +1266,17 @@ pub(crate) mod tests {
             Some("jump lead: this squad has no lead; set one with tmt squad lead <name>.")
         );
 
+        // A missing lead is data, so a custom binding gets the same missing-field
+        // notice as any other absent value instead of copying a display glyph.
+        assert_eq!(
+            app.perform(&Action::parse("copy {lead}").unwrap()),
+            Effect::None
+        );
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("copy: lead is empty for this row.")
+        );
+
         // The leads tab: the selected row is the lead.
         let mut app = App::new(Some(crate::board::LEADS.into()));
         app.apply(snapshot(
