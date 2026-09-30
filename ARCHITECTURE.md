@@ -1653,11 +1653,13 @@ Configuration errors retain their stable public codes and useful paths only at
 the adapter boundary.
 
 The global file's `theme` object is presentation, not a core setting.
-`ConfigFiles::theme` checks only its shape (an object of strings) and never
+`ConfigFiles::theme` checks only its shape (an object of strings), reporting a
+wrong one as a `ThemeProblem` rather than a configuration error, and never
 affects loading the other settings; `tmt-core` knows nothing of colors. The CLI
 (`appearance`) gives it meaning through `tmt_cli_style::Theme::parse`: `config
-show` reports it resolved with its source and fails with `CONFIG_ERROR` naming a
-bad key, and at startup, only when stdout or stderr is a terminal and the user
+show` reports it resolved with its source and names a bad key in `themeError`
+(an `error:` line in text) while still succeeding, because Squad reads `config
+show` to find its own file; and at startup, only when stdout or stderr is a terminal and the user
 set `theme.base`, `tmt` sets the process theme once
 (`tmt_cli_style::theme::configure`), which `stream::stdout` and
 `stream::stderr` apply at the stream's color depth. A missing or invalid theme
