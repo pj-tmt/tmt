@@ -2105,7 +2105,13 @@ one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
 the single list, and rows that match none follow in one untitled section so
 nobody is hidden. The document carries the board's row grid (`rows`: `columns`
-and `lines`). The board sizes it with `tmt-cli-style`'s one solver
+and `lines`). A column's `from`/`format` (`source::ColumnSource`) reads the
+member's public projection: the `ls --room` row it already joins (`cwd`,
+`target`, the normalized `resume`) and roster metadata, which `rooms.roster`
+returns unprefixed only when a column reads `meta.<key>`. `status::document`
+writes each bound value into the row's field of the column's name, with its
+number for sorting, before sections, filters and sorts read it, so the board and
+`ls` show one value and a binding adds no core call. The board sizes it with `tmt-cli-style`'s one solver
 (`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
 field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or

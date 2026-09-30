@@ -4,6 +4,7 @@
 use crate::{
     config::{Layout, Section, SortKey, States},
     filter::Row,
+    rows::Rows,
     squad::{Member, Squad},
 };
 use serde_json::{Value, json};
@@ -47,9 +48,11 @@ fn sort(rows: &mut [Member], layout: Layout, states: &States) {
     rows.sort_by_key(rank);
 }
 
-/// Missing values sort last in both directions.
+/// Missing values sort last in both directions; a bound column's numbers
+/// sort as numbers, whatever their format shows.
 fn compare(key: &SortKey, states: &States, a: &Member, b: &Member) -> Ordering {
     let (left, right) = (a.value(&key.field), b.value(&key.field));
+    let numbers = (a.numbers.get(&key.field), b.numbers.get(&key.field));
     let ordering = match (left, right) {
         (None, None) => return Ordering::Equal,
         (None, Some(_)) => return Ordering::Greater,
@@ -58,12 +61,44 @@ fn compare(key: &SortKey, states: &States, a: &Member, b: &Member) -> Ordering {
             .rank(Some(left))
             .cmp(&states.rank(Some(right)))
             .then_with(|| left.cmp(right)),
-        (Some(left), Some(right)) => left.cmp(right),
+        (Some(left), Some(right)) => match numbers {
+            (Some(left), Some(right)) => left.total_cmp(right),
+            _ => left.cmp(right),
+        },
     };
     if key.descending {
         ordering.reverse()
     } else {
         ordering
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+        })
+}
+
+/// A bound or formatted column's value replaces the member's field of the
+/// column's name, before anything reads it, so sections, filters, sorts, the
+/// board and `ls` all see the same value. A missing value removes the field.
+fn apply_sources(rows: &Rows, members: &mut [Member], now_ms: u64) {
+    for column in &rows.columns {
+        let Some(source) = column.source() else {
+            continue;
+        };
+        for member in members.iter_mut() {
+            match source.value(member, column.format, now_ms) {
+                Some(value) => member.fields.insert(column.field.clone(), value),
+                None => member.fields.remove(&column.field),
+            };
+            match source.number(member) {
+                Some(number) => member.numbers.insert(column.field.clone(), number),
+                None => member.numbers.remove(&column.field),
+            };
+        }
     }
 }
 
@@ -81,8 +116,10 @@ pub fn document(
     layout: Layout,
     states: &States,
     sections: &[Section],
-    members: Vec<Member>,
+    row_layout: &Rows,
+    mut members: Vec<Member>,
 ) -> Value {
+    apply_sources(row_layout, &mut members, now_ms());
     let (leads, mut members): (Vec<_>, Vec<_>) = members.into_iter().partition(Member::is_lead);
     sort(&mut members, layout, states);
     let all: Vec<&Member> = members.iter().collect();
@@ -313,6 +350,9 @@ mod tests {
                 .iter()
                 .map(|(k, v)| ((*k).into(), (*v).into()))
                 .collect(),
+            meta: Default::default(),
+            seen: Value::Null,
+            numbers: Default::default(),
         }
     }
 
@@ -359,13 +399,91 @@ mod tests {
         ]
     }
 
+    /// A bound column's value is the row's field of the column's name
+    /// before sections, filters and sorts read it; it replaces what an agent
+    /// wrote under that name, and a missing value leaves no field.
+    #[test]
+    fn a_bound_column_is_one_value_for_rows_sections_and_sorts() {
+        let directory = std::env::temp_dir().join(format!("squad-bound-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(
+            &path,
+            "[[squad.product.section]]\ntitle = \"Busy\"\nfilter = \"ctx\"\nsort = [\"-ctx\"]\n\
+             [squad.product.rows]\ncolumns = [\n  { name = \"member\" },\n  \
+             { name = \"ctx\", from = \"session.usage.tokens\", format = \"tokens\" },\n  \
+             { name = \"model\", from = \"session.model\" },\n]\n",
+        )
+        .unwrap();
+        let config = crate::config::Config::read(path).unwrap();
+        let squad = Squad {
+            name: "product".into(),
+            room_id: "room".into(),
+        };
+        let used = |name: &str, tokens: u64| {
+            let mut member = member(name, &[("state", "working")]);
+            member.seen = json!({"resume": {"driver": "claude", "model": "opus",
+                                            "usage": {"tokens": tokens}}});
+            member
+        };
+        // An agent wrote `ctx` itself; the binding decides.
+        let fresh = member("new", &[("ctx", "999k")]);
+        let document = document(
+            &squad,
+            Layout::Crew,
+            &states(Layout::Crew),
+            &config.sections("product").unwrap(),
+            &config.rows("product").unwrap(),
+            vec![
+                used("amy", 250_000),
+                fresh,
+                used("zed", 487_123),
+                used("kai", 1_234_567),
+            ],
+        );
+        let busy = &document["sections"][0];
+        assert_eq!(busy["title"], "Busy");
+        let rows: Vec<(&str, &str, &str)> = busy["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row["name"].as_str().unwrap(),
+                    row["fields"]["ctx"].as_str().unwrap(),
+                    row["fields"]["model"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        // Numbers sort as numbers: 1.2M before 487k, although "4" > "1".
+        assert_eq!(
+            rows,
+            [
+                ("kai", "1.2M", "opus"),
+                ("zed", "487k", "opus"),
+                ("amy", "250k", "opus")
+            ]
+        );
+        let rest = &document["sections"][1]["rows"][0];
+        assert_eq!(rest["name"], "new");
+        assert_eq!(rest["fields"].get("ctx"), None, "no session, no value");
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
     #[test]
     fn crew_puts_pending_first_then_state_order_and_keeps_one_shape() {
         let squad = Squad {
             name: "product".into(),
             room_id: "room".into(),
         };
-        let crew = document(&squad, Layout::Crew, &states(Layout::Crew), &[], members());
+        let crew = document(
+            &squad,
+            Layout::Crew,
+            &states(Layout::Crew),
+            &[],
+            &Rows::preset(),
+            members(),
+        );
         assert_eq!(names(&crew), ["bob", "zed", "amy", "kai"]);
         assert_eq!(crew["squad"]["lead"]["name"], "sol");
         assert_eq!(crew["sections"].as_array().unwrap().len(), 1);
@@ -382,6 +500,7 @@ mod tests {
             Layout::Minimal,
             &states(Layout::Minimal),
             &[],
+            &Rows::preset(),
             members(),
         );
         // No vocabulary: equal states group together, then names.
@@ -424,6 +543,7 @@ mod tests {
             Layout::Crew,
             &states(Layout::Crew),
             &sections,
+            &Rows::preset(),
             members(),
         );
         let titles: Vec<_> = document["sections"]
@@ -475,6 +595,7 @@ mod tests {
             Layout::Crew,
             &states(Layout::Crew),
             &sections,
+            &Rows::preset(),
             members(),
         );
         let listed: Vec<(Value, Vec<&str>)> = document["sections"]
@@ -505,6 +626,7 @@ mod tests {
             Layout::Crew,
             &states(Layout::Crew),
             &sections,
+            &Rows::preset(),
             vec![member("bob", &[("pending", "x")])],
         );
         assert_eq!(
@@ -533,6 +655,7 @@ mod tests {
                 Layout::Crew,
                 &states(Layout::Crew),
                 &[],
+                &Rows::preset(),
                 members,
             );
             document["columns"] = rows["columns"].clone();
