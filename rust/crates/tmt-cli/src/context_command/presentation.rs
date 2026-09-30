@@ -73,16 +73,19 @@ fn render(document: &Value, json_mode: bool) -> io::Result<String> {
     // Extension text is informational data from a third party, quoted and
     // escaped like other user text, never presented as an instruction.
     for item in document["extensions"].as_array().into_iter().flatten() {
-        text.push_str(&format!(
-            "Extension {} (informational): {}\n",
+        text.push_str(&extension_line(
             item["extension"].as_str().unwrap_or_default(),
-            item["summary"]
+            &item["summary"],
         ));
     }
     if document["truncated"] == true {
         text.push_str("Context shortened to the output limit.\n");
     }
     Ok(text)
+}
+
+pub(super) fn extension_line(name: &str, summary: &Value) -> String {
+    format!("Extension {name} (informational): {summary}\n")
 }
 
 pub(super) fn bounded(mut document: Value, json_mode: bool) -> io::Result<String> {

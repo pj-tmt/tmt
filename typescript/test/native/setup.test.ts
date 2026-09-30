@@ -93,15 +93,17 @@ describe('consented provider setup and bounded hook boundary', () => {
 
         // Off by default; the report says nothing about usage.
         expect(await setup()).not.toHaveProperty('usage');
-        expect(events()).toEqual(['SessionStart', 'SessionEnd']);
+        expect(events()).toEqual(['SessionStart', 'SessionEnd', 'UserPromptSubmit']);
         const lifecycle = fs.readFileSync(settings, 'utf8');
         const preview = await runCli(sandbox, ['setup', name, '--usage']);
-        expect(preview.stdout).toContain('SessionStart, SessionEnd and Stop (context usage) hooks');
+        expect(preview.stdout).toContain(
+          'SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage) hooks'
+        );
         expect(preview.stdout).toContain('no transcript content is stored');
         expect(fs.readFileSync(settings, 'utf8')).toBe(lifecycle);
 
         expect(await setup('--usage')).toMatchObject({ changed: true, usage: true });
-        expect(events()).toEqual(['SessionStart', 'SessionEnd', 'Stop']);
+        expect(events()).toEqual(['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop']);
         expect(fs.readFileSync(settings, 'utf8')).toContain(`__hook ${name}`);
         const withUsage = fs.readFileSync(settings, 'utf8');
         // A rerun without a choice keeps it.
