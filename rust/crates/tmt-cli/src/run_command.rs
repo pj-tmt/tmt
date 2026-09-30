@@ -27,11 +27,10 @@ use tmt_core::{
 mod resume;
 mod run;
 
-use resume::{mark_resume_pending, select_command, settle_resume};
 use run::run_bound;
 
 #[cfg(test)]
-use resume::failure_is_trustworthy;
+use resume::{failure_is_trustworthy, select_command};
 #[cfg(test)]
 use tmt_adapters::runtime::RuntimeRegistry;
 #[cfg(test)]

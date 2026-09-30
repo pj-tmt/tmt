@@ -1,8 +1,9 @@
 //! Bound foreground launch and completion retain one owned child and storage lifetime.
 
 use super::{
-    RunRequest, diagnostic, incarnation, mark_resume_pending, observe, observe_admission,
-    select_command, settle_resume, storage_failure,
+    RunRequest, diagnostic, incarnation, observe, observe_admission,
+    resume::{mark_resume_pending, select_command, settle_resume},
+    storage_failure,
 };
 use crate::{
     binding_error::{binding_failure, endpoint_failure},
