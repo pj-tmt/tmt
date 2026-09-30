@@ -446,6 +446,21 @@ pub struct Contribution {
     pub summary: String,
 }
 
+/// Cheap admission gate: read consent only, without verifying or invoking executables.
+/// Full capability and executable verification still happens before delivery.
+pub fn has_context_consent(global_dir: &Path) -> bool {
+    context_consented(&read_consents(&consent_path(global_dir)).unwrap_or_default())
+}
+
+fn context_consented(consents: &[Consent]) -> bool {
+    consents.iter().any(|consent| {
+        consent
+            .capabilities
+            .iter()
+            .any(|value| value == CONTEXT_CAPABILITY)
+    })
+}
+
 /// Asks each enabled `context_v1` extension for one summary, sharing one
 /// deadline. Anything invalid, late, absent or changed is omitted. With no
 /// such extension this reads the consent file once and spawns nothing.
@@ -458,12 +473,7 @@ pub fn context_contributions(
         return Vec::new();
     }
     let consents = read_consents(&consent_path(global_dir)).unwrap_or_default();
-    if !consents.iter().any(|consent| {
-        consent
-            .capabilities
-            .iter()
-            .any(|value| value == CONTEXT_CAPABILITY)
-    }) {
+    if !context_consented(&consents) {
         return Vec::new();
     }
     let Ok(tmt) = std::env::current_exe() else {

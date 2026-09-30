@@ -356,6 +356,15 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::driver_state::state_usage(state)
     }
 
+    fn decode_prompt(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
+        if bytes.len() > crate::runtime::hook_protocol::HOOK_INPUT_LIMIT {
+            return None;
+        }
+        let payload: Payload = serde_json::from_slice(bytes).ok()?;
+        (payload.hook_event_name == "UserPromptSubmit").then_some(())?;
+        ProviderSessionId::new(&payload.session_id).ok()
+    }
+
     fn decode_turn(&self, payload: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
         decode_turn(payload)
     }

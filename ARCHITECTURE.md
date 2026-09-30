@@ -1109,6 +1109,17 @@ layout, opening both databases read-only and never through
 `OfficeStore::open_configured`, so context never migrates, activates,
 reconciles or creates files.
 
+Provider `UserPromptSubmit` hooks use the same generic callback and aggregate
+budget, returning only the attributed extension lines as event-specific
+`additionalContext`. A consent-file capability check returns immediately when no
+extension has consented to context, before host probes or storage reads. Otherwise,
+they require an already running, verified binding whose
+provider session and runtime incarnation match the caller, and recheck the
+binding/preferences after callbacks before handing context to the provider.
+They neither admit a session nor replay the SessionStart identity preamble.
+Setup includes one synchronous prompt-submit entry in its consented plan;
+existing SessionStart and opt-in Stop behavior retain their owners.
+
 With no consent file or no enabled observer, a command performs at most one read
 attempt of the consent file, on its first storage open, and spawns nothing;
 commands that never open storage do no hook work at all. Office implements the
@@ -2278,6 +2289,10 @@ document, and for every other squad from a roster-only document (one
 `rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
 tabs are colored without loading their rows.
 
+Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
+board refresh and reminder timing. Callers retain their accepted units, numeric
+forms, ranges and key-specific error messages; refresh alone wraps `"off"`.
+
 Optional `[squad.<name>.reminders]` config is parsed by
 `Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
 from 1 minute through 24 hours. `staleness` owns observed raw task/state and
@@ -2489,6 +2504,13 @@ evidence. Storage adapter tests prove migrations, transaction rollback,
 contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
+
+Docker E2E `harness.ts` owns fixture resources and process registries.
+`harness/readiness.ts` observes caller-supplied events, panes and process state;
+`harness/cleanup.ts` stops and checks owned process groups and clients. The
+fixture retains cleanup ordering and error precedence. `harness/types.ts` owns
+their suite-local result, event and option shapes; the helpers do not own a second
+fixture lifetime.
 
 Within Docker E2E, `cli-assertions.ts` owns the repeated strict success envelope
 (zero exit, empty stderr, defined parsed JSON), not domain validation or command
