@@ -206,6 +206,25 @@ unchanged in `snapshot` and `probe`. It never interprets the marker.
   protection, staging, size), so the driver adds and interprets nothing.
 - **Missing pane:** each of these answers `not_found`.
 
+**Delivery outcome.** An `input` answer tells core whether text reached the
+pane:
+
+- **Not sent:** the answer is `unsupported`, `not_found`, or `bad_request`. A
+  driver checks the request completely before any effect, so `bad_request`
+  always means nothing was pasted.
+- **Sent:** the answer is `{}`.
+- **Uncertain:** anything else. That covers `failed`, `unavailable`, a timeout,
+  a killed driver, and an answer that doesn't decode. Core reports
+  `DELIVERY_UNCERTAIN` and never retries.
+
+A driver never retries an `input` itself: a second paste could duplicate the
+message.
+
+**Paste, then Enter.** Core may paste and press Enter in one call
+(`enter: true`). Core may also stage them: `input(text, enter: false)`, then
+after its paste-to-Enter delay `input("", enter: true)`. The delay stays core
+policy, and a driver adds no delay of its own.
+
 ## Trust boundary
 
 Everything a driver prints is untrusted input. Core bounds it, parses it

@@ -200,7 +200,9 @@ pub struct CaptureResponse {
 }
 
 /// Paste `text` literally, then press Enter when asked. Core has already
-/// applied its delivery policy; the driver adds and interprets nothing.
+/// applied its delivery policy; the driver adds and interprets nothing, and
+/// never retries. Which answers mean "not sent" is the contract's delivery
+/// outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputRequest {
