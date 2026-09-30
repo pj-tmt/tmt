@@ -1107,7 +1107,9 @@ reconciles or creates files.
 
 Provider `UserPromptSubmit` hooks use the same generic callback and aggregate
 budget, returning only the attributed extension lines as event-specific
-`additionalContext`. They require an already running, verified binding whose
+`additionalContext`. A consent-file capability check returns immediately when no
+extension has consented to context, before host probes or storage reads. Otherwise,
+they require an already running, verified binding whose
 provider session and runtime incarnation match the caller, and recheck the
 binding/preferences after callbacks before handing context to the provider.
 They neither admit a session nor replay the SessionStart identity preamble.

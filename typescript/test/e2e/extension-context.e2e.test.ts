@@ -158,6 +158,10 @@ it.each([
             { args: ['extension', 'hooks', 'disable', 'ctxfix', '--json'] },
             hook('UserPromptSubmit'),
             { args: ['extension', 'hooks', 'enable', 'ctxfix', '--json'] },
+            ...Array.from({ length: 20 }, () => hook('UserPromptSubmit')),
+            { args: ['extension', 'hooks', 'disable', 'ctxfix', '--json'] },
+            ...Array.from({ length: 20 }, () => hook('UserPromptSubmit')),
+            { args: ['extension', 'hooks', 'enable', 'ctxfix', '--json'] },
             hook('SessionEnd'),
             hook('UserPromptSubmit'), // ended sessions cannot be revived
           ].slice(0, retire ? 5 : undefined)
@@ -183,11 +187,12 @@ it.each([
         code: number;
         stdout: string;
         stderr: string;
+        elapsedMs: number;
       }>;
-      expect(results).toHaveLength(retire ? 5 : 13);
+      expect(results).toHaveLength(retire ? 5 : 55);
       expect(results.every((item) => item.code === 0)).toBe(true);
       expect(fs.readFileSync(path.join(fixture.wrapperDir, 'ctxfix-calls'), 'utf8')).toBe(
-        'context\ncontext\n'
+        'context\n'.repeat(retire ? 2 : 22)
       );
       if (retire) {
         expect(results[4].stdout).toBe('');
@@ -199,6 +204,19 @@ it.each([
         return;
       }
       expect(results.every((item) => item.stderr === '')).toBe(true);
+      const fast = results.slice(11, 31);
+      const absent = results.slice(32, 52);
+      expect(fast.every((result) => result.stdout.includes('Extension ctxfix'))).toBe(true);
+      expect(absent.every((result) => result.stdout === '')).toBe(true);
+      for (const [label, samples] of [
+        ['fast callback', fast],
+        ['no consents', absent],
+      ] as const) {
+        const times = samples.map((result) => result.elapsedMs).sort((a, b) => a - b);
+        console.log(
+          `${provider} ${label}: n=20 medianMs=${(times[9] + times[10]) / 2} worstMs=${times[19]}`
+        );
+      }
       const id = JSON.parse(results[1].stdout).id;
       const startup = JSON.parse(results[3].stdout).hookSpecificOutput;
       expect(startup.hookEventName).toBe('SessionStart');
@@ -210,7 +228,7 @@ it.each([
             'Extension ctxfix (informational): "Next turn: \\"quoted\\"\\nsecond line"\n',
         },
       });
-      for (const index of [0, 2, 5, 6, 9, 11, 12]) expect(results[index].stdout).toBe('');
+      for (const index of [0, 2, 5, 6, 9, 53, 54]) expect(results[index].stdout).toBe('');
       expect(JSON.parse(results[7].stdout)).toMatchObject({ id, sessionState: 'running' });
       expect(
         JSON.parse(fs.readFileSync(path.join(fixture.wrapperDir, 'ctxfix-input'), 'utf8'))

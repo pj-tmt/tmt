@@ -441,6 +441,10 @@ fn observe_prompt(
     session: &ProviderSessionId,
     deadline: Instant,
 ) -> Result<String, ()> {
+    let paths = ConfigPaths::discover().map_err(|_| ())?;
+    if !tmt_adapters::extension_hooks::has_context_consent(&paths.global_dir) {
+        return Ok(String::new());
+    }
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(String::new());

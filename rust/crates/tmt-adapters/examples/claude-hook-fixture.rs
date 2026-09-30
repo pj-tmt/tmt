@@ -32,6 +32,7 @@ fn main() {
     let steps: Vec<Step> = serde_json::from_slice(&fs::read(&args[1]).unwrap()).unwrap();
     let mut results = Vec::new();
     for step in steps {
+        let started = std::time::Instant::now();
         let mut child = Command::new(&args[0])
             .args(step.args)
             .stdin(Stdio::piped())
@@ -49,13 +50,14 @@ fn main() {
         }
         drop(child.stdin.take());
         let output = child.wait_with_output().expect("reap fixture-owned CLI");
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
         let badge = Command::new("tmux")
             .args(["-u", "show-options", "-p", "-qv", "-t"])
             .arg(std::env::var("TMUX_PANE").unwrap())
             .arg("@tmux-team.badge")
             .output()
             .expect("read fixture pane badge");
-        results.push(json!({"code":output.status.code(),
+        results.push(json!({"code":output.status.code(), "elapsedMs": elapsed_ms,
             "badge": String::from_utf8(badge.stdout).unwrap().trim(),
             "stdout": String::from_utf8(output.stdout).unwrap(),
             "stderr": String::from_utf8(output.stderr).unwrap()}));
