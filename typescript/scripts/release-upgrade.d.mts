@@ -40,6 +40,11 @@ export function proveStaged(input: {
   run: (script: string, args: string[]) => void;
   skill?: string;
 }): { previous: string | null };
+export const PROOF_FILES: readonly string[];
+export function assessUpgrade(input: {
+  plan: { previous: string | null };
+  hasFileAt: (file: string) => boolean;
+}): { outcome: 'nothing' | 'predates' | 'proved'; reason: string };
 export function releaseCommit(input: {
   release: DraftRelease;
   commitOfTag: (tag: string) => string;

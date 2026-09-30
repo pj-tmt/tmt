@@ -22,6 +22,13 @@ on:
         required: false
         default: ''
         type: string
+    outputs:
+      outcome:
+        description: proved, nothing (no earlier published release) or predates (the commit has no proof scripts)
+        value: ${{ jobs.fetch.outputs.outcome }}
+      reason:
+        description: Why the proof could not run, worded for the owner; empty when it ran or was not needed
+        value: ${{ jobs.fetch.outputs.reason }}
   workflow_dispatch:
     inputs:
       product:
@@ -60,6 +67,8 @@ jobs:
       contents: write
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
+      outcome: ${{ steps.assess.outputs.outcome }}
+      reason: ${{ steps.assess.outputs.reason }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -87,6 +96,16 @@ jobs:
         run: |
           node typescript/scripts/release-upgrade.mjs fetch --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --directory "$RUNNER_TEMP/upgrade-assets"
+      # Whether the proof can run at the release's commit is decided here, from this repository's
+      # main and the API, without checking the commit out: a commit that predates the proof's
+      # scripts is reported with its reason instead of failing a job that has nothing to run.
+      - name: Assess whether the proof can run at that commit
+        id: assess
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          node typescript/scripts/release-upgrade.mjs assess --directory "$RUNNER_TEMP/upgrade-assets" --sha "$RELEASE_SHA"
       - name: Hand the assets to the proof
         uses: actions/upload-artifact@v4
         with:
@@ -98,6 +117,7 @@ jobs:
   prove:
     name: Upgrade ${{ inputs.product }} to ${{ inputs.tag }} (${{ matrix.target }})
     needs: fetch
+    if: needs.fetch.outputs.outcome == 'proved'
     strategy:
       fail-fast: false
       matrix:
@@ -121,14 +141,6 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.fetch.outputs.sha }}
-      - name: Require the upgrade proof at that commit
-        run: |
-          for file in release-upgrade.mjs release-versions.mjs verify-native-installation.mjs verify-native-extension-upgrade.mjs; do
-            if [ ! -f "typescript/scripts/$file" ]; then
-              echo "This release's commit has no $file: it predates the automated upgrade proof, so prove the upgrade by hand, as the native release verification guide describes." >&2
-              exit 1
-            fi
-          done
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
       - name: Install verification dependencies
@@ -149,3 +161,22 @@ jobs:
         run: |
           node typescript/scripts/release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill skills/tmux-team/SKILL.md
+
+  # A release that cannot be proved must not look proved to whoever runs this by hand. The
+  # publication run reads the outcome and the reason from the outputs, whatever this job says.
+  conclude:
+    name: Conclude the upgrade proof of ${{ inputs.tag }}
+    needs: [fetch, prove]
+    if: ${{ !cancelled() && needs.fetch.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Fail a release the proof cannot run for
+        if: needs.fetch.outputs.outcome == 'predates'
+        env:
+          REASON: ${{ needs.fetch.outputs.reason }}
+        run: |
+          echo "$REASON" >&2
+          exit 1

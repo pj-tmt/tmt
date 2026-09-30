@@ -2,9 +2,10 @@ name: Native release bundle
 
 # One pipeline for one product: build and verify the four targets, assemble the
 # authoritative manifest, verify the final bundle on matching hosts and, for a draft
-# release, attach it. Called once per draft by `native-release.yml`, which owns the
-# per-product concurrency group; a group here would cancel the legs of its own caller.
-# Publication is a separate, authorized operation and never happens here.
+# release, attach it and evaluate the publication gates. Called once per draft by
+# `native-release.yml`, which owns the per-product concurrency group; a group here would cancel
+# the legs of its own caller. Publication is a separate, authorized operation and never happens
+# here: a draft that passes the gates is reported, one that fails is held.
 on:
   workflow_call:
     inputs:
@@ -24,6 +25,11 @@ on:
         type: string
       retry:
         description: Retry a draft whose failure was recorded
+        required: false
+        default: false
+        type: boolean
+      hold:
+        description: Run the publication gates again for a complete draft whose publication was held, without the gate its marker names
         required: false
         default: false
         type: boolean
@@ -336,3 +342,88 @@ jobs:
             --jq ".jobs[] | select(.conclusion == \"failure\" and (.name | startswith(\"Release $RELEASE_TAG /\"))) | .name" | paste -sd, -)
           node typescript/scripts/release-draft-assets.mjs record-failure --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jobs "$jobs"
+
+  # The gates a complete draft passes before anything may publish it. Nothing publishes here
+  # yet: a draft that passes them is reported, one that fails is held with `publication-held.json`
+  # and is neither built again nor published until the owner acts. A job that follows a skipped
+  # job is skipped too unless its own condition says otherwise, and `attach` is skipped when a
+  # held draft is checked again, so these jobs name what they need.
+  gates:
+    name: Publication gates for ${{ inputs.tag }}
+    needs: [check, attach]
+    if: ${{ !cancelled() && inputs.tag != '' && needs.check.result == 'success' && ((needs.check.outputs.todo == 'true' && needs.attach.result == 'success') || inputs.hold) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      # Drafts are only visible to a token that can push, and a hold marker is uploaded to the draft.
+      contents: write
+      pull-requests: read
+      checks: read
+    outputs:
+      held: ${{ steps.gates.outputs.held }}
+      skip: ${{ steps.gates.outputs.skip }}
+    steps:
+      # This repository's own ref with its whole history: the gates read the release commit's
+      # data through git and the API and never run its code.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Evaluate the commit, immutability, monotonic and migration gates
+        id: gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          HOLD: ${{ inputs.hold }}
+        run: |
+          if [ "$HOLD" = true ]; then
+            node typescript/scripts/publication-gates.mjs early --product "$PRODUCT" --tag "$RELEASE_TAG" --release-hold
+          else
+            node typescript/scripts/publication-gates.mjs early --product "$PRODUCT" --tag "$RELEASE_TAG"
+          fi
+
+  upgrade:
+    name: Upgrade proof for ${{ inputs.tag }}
+    needs: gates
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.gates.outputs.held == '' && needs.gates.outputs.skip != 'upgrade' }}
+    permissions:
+      # The proof's fetch job sees draft assets with it and checks out this repository's own ref.
+      contents: write
+    uses: ./.github/workflows/native-release-upgrade.yml
+    with:
+      product: ${{ inputs.product }}
+      tag: ${{ inputs.tag }}
+      sha: ${{ inputs.sha }}
+
+  finish:
+    name: Decide the publication of ${{ inputs.tag }}
+    needs: [gates, upgrade]
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.gates.outputs.held == '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Hold the draft, or report that every gate passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          UPGRADE_RESULT: ${{ needs.upgrade.result }}
+          UPGRADE_OUTCOME: ${{ needs.upgrade.outputs.outcome }}
+          UPGRADE_REASON: ${{ needs.upgrade.outputs.reason }}
+          SKIP: ${{ needs.gates.outputs.skip }}
+        run: |
+          node typescript/scripts/publication-gates.mjs finish --product "$PRODUCT" --tag "$RELEASE_TAG" \
+            --upgrade-result "$UPGRADE_RESULT" --upgrade-outcome "$UPGRADE_OUTCOME" \
+            --upgrade-reason "$UPGRADE_REASON" --skip "$SKIP"

@@ -1,5 +1,6 @@
 export const BUNDLE_ASSET: string;
 export const FAILURE_ASSET: string;
+export const HOLD_ASSET: string;
 
 export interface ReleaseAsset {
   readonly name: string;
@@ -23,12 +24,21 @@ export interface PlannedBuild {
 export interface ReleasePlan {
   readonly builds: readonly PlannedBuild[];
   readonly blocked: readonly { readonly tag: string; readonly reason: string }[];
+  readonly held: readonly { readonly tag: string }[];
 }
 
 export function planReleaseBuilds(input: {
   releases: readonly ReleaseObject[];
   product: string;
   retry?: string;
+  hold?: string;
 }): ReleasePlan;
-export function renderPlanSummary(input: ReleasePlan & { product: string; retry?: string }): string;
+export function renderPlanSummary(
+  input: Omit<ReleasePlan, 'held'> & {
+    held?: ReleasePlan['held'];
+    product: string;
+    retry?: string;
+    hold?: string;
+  }
+): string;
 export function releasesFrom(parsed: readonly unknown[]): ReleaseObject[];

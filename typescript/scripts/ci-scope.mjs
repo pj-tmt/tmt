@@ -63,6 +63,10 @@ export function parseComponentMap(text) {
     package: component.package,
     owns: nonEmptyStrings(component.owns, `components.${name}.owns`),
     excludes: component.excludes ?? [],
+    migrations:
+      component.migrations === undefined
+        ? []
+        : nonEmptyStrings(component.migrations, `components.${name}.migrations`),
     selectedBy: (component.selectedBy ?? []).map((glob) => ({ glob, pattern: globToRegExp(glob) })),
     scopedChecks: parseScopedChecks(name, component.scopedChecks),
   }));

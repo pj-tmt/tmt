@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { PROOF_FILES } from '../../scripts/release-upgrade.mjs';
 
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 const read = (relative: string) => readFileSync(path.join(repository, relative), 'utf8');
@@ -55,14 +56,23 @@ describe('per-product release run (native-release.yml)', () => {
       /prepare:\n {8}description:[^\n]*\n {8}required: true\n {8}default: true\n {8}type: boolean/
     );
     expect(job(run, 'plan')).toContain(`'matrix={"include":[{"tag":"","sha":""}]}'`);
-    expect(job(run, 'plan')).toContain('A retry needs prepare turned off.');
+    expect(job(run, 'plan')).toContain('A retry and a released hold need prepare turned off.');
   });
 
   it('grants write access only to the jobs that list or upload to draft releases', () => {
     const writers = [...jobs(run), ...jobs(bundle)]
       .filter(([, text]) => /^ {6}contents: write$/m.test(text))
       .map(([name]) => name);
-    expect(writers.sort()).toEqual(['attach', 'bundle', 'check', 'plan', 'record-failure']);
+    expect(writers.sort()).toEqual([
+      'attach',
+      'bundle',
+      'check',
+      'finish',
+      'gates',
+      'plan',
+      'record-failure',
+      'upgrade',
+    ]);
     expect(run).toMatch(/^permissions:\n {2}contents: read$/m);
     expect(bundle).toMatch(/^permissions:\n {2}contents: read$/m);
   });
@@ -290,12 +300,16 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
 
   it('is callable by the publication run and by hand, for any product and release', () => {
     expect(upgrade).toMatch(
-      /^on:\n {2}workflow_call:\n {4}inputs:\n(?: {6,}[^\n]*\n)+ {2}workflow_dispatch:\n {4}inputs:\n/m
+      /^on:\n {2}workflow_call:\n {4}inputs:\n(?: {4,}[^\n]*\n)+ {2}workflow_dispatch:\n {4}inputs:\n/m
     );
     for (const input of ['product', 'tag', 'sha']) {
       expect(upgrade.match(new RegExp(`^ {6}${input}:$`, 'gm')), input).toHaveLength(2);
     }
     expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/);
+    // The publication run reads the outcome and the reason, whatever the run's own result is.
+    expect(upgrade).toMatch(
+      /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.reason \}\}\n/m
+    );
   });
 
   it('proves on the same four hosts as the bundle verification', () => {
@@ -336,22 +350,121 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
   });
 
   it('runs the proof from the commit of the release, and says when that commit predates it', () => {
+    const fetch = job(upgrade, 'fetch');
     const prove = job(upgrade, 'prove');
-    for (const script of [
-      'release-upgrade.mjs',
-      'release-versions.mjs',
-      'verify-native-installation.mjs',
-      'verify-native-extension-upgrade.mjs',
-    ]) {
-      expect(prove, script).toContain(script);
+    for (const script of PROOF_FILES) {
       expect(read(`typescript/scripts/${script}`), script).not.toBe('');
     }
-    expect(prove).toContain('it predates the automated upgrade proof');
+    expect([...PROOF_FILES].sort()).toEqual(
+      [
+        'release-upgrade.mjs',
+        'release-versions.mjs',
+        'verify-native-installation.mjs',
+        'verify-native-extension-upgrade.mjs',
+      ].sort()
+    );
+    // Whether the release's commit has the scripts is decided in fetch, without a checkout, and
+    // the proof only runs when it does; a release that cannot be proved fails `conclude`.
+    expect(fetch).toContain('release-upgrade.mjs assess --directory "$RUNNER_TEMP/upgrade-assets"');
+    expect(prove).toContain("if: needs.fetch.outputs.outcome == 'proved'");
+    expect(prove).not.toContain('it predates');
+    const conclude = job(upgrade, 'conclude');
+    expect(conclude).toContain("if: needs.fetch.outputs.outcome == 'predates'");
+    expect(conclude).toContain('exit 1');
+    expect(conclude).toContain("if: ${{ !cancelled() && needs.fetch.result == 'success' }}");
     expect(prove).toContain('release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG"');
     expect(prove).toContain('--skill skills/tmux-team/SKILL.md');
     // The macOS toolchain lookup is warmed before the archives run.
     expect(prove.indexOf('warm-xcrun')).toBeGreaterThan(0);
     expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs prove'));
+  });
+});
+
+describe('publication gates (native-release-bundle.yml)', () => {
+  const gates = job(bundle, 'gates');
+  const upgradeJob = job(bundle, 'upgrade');
+  const finish = job(bundle, 'finish');
+
+  it('runs the gates for a draft that was just attached, or a held draft whose hold is released', () => {
+    expect(gates).toContain('needs: [check, attach]');
+    expect(gates).toContain(
+      "if: ${{ !cancelled() && inputs.tag != '' && needs.check.result == 'success' && ((needs.check.outputs.todo == 'true' && needs.attach.result == 'success') || inputs.hold) }}"
+    );
+    expect(bundle).toMatch(
+      /hold:\n {8}description:[^\n]*\n {8}required: false\n {8}default: false\n {8}type: boolean/
+    );
+    expect(gates).toContain(
+      'publication-gates.mjs early --product "$PRODUCT" --tag "$RELEASE_TAG" --release-hold'
+    );
+    expect(gates).toContain(
+      'publication-gates.mjs early --product "$PRODUCT" --tag "$RELEASE_TAG"\n'
+    );
+  });
+
+  it('reads the release commit through git and the API and never checks it out', () => {
+    for (const [name, text] of [
+      ['gates', gates],
+      ['finish', finish],
+    ]) {
+      expect(text, name).not.toMatch(/^ {10}ref:/m);
+      expect(text, name).toMatch(/^ {6}contents: write$/m);
+    }
+    expect(gates).toContain('fetch-depth: 0');
+    expect(gates).toMatch(/^ {6}pull-requests: read$/m);
+    expect(gates).toMatch(/^ {6}checks: read$/m);
+    expect(finish).not.toMatch(/pull-requests|checks:/);
+    expect(gates).not.toMatch(/pnpm|cargo/);
+  });
+
+  it('proves the upgrade only after the other gates passed, and skips it only when the hold names it', () => {
+    expect(upgradeJob).toContain('needs: gates');
+    expect(upgradeJob).toContain(
+      "if: ${{ !cancelled() && needs.gates.result == 'success' && needs.gates.outputs.held == '' && needs.gates.outputs.skip != 'upgrade' }}"
+    );
+    expect(upgradeJob).toContain('uses: ./.github/workflows/native-release-upgrade.yml');
+    expect(upgradeJob).toMatch(/^ {6}contents: write$/m);
+    expect(finish).toContain('needs: [gates, upgrade]');
+    expect(finish).toContain(
+      "if: ${{ !cancelled() && needs.gates.result == 'success' && needs.gates.outputs.held == '' }}"
+    );
+    for (const value of ['result', 'outputs.outcome', 'outputs.reason']) {
+      expect(finish).toContain(`needs.upgrade.${value}`);
+    }
+    expect(finish).toContain('--skip "$SKIP"');
+  });
+
+  it('holds a draft and never builds or publishes: no publishing command, no build job after the gates', () => {
+    expect(bundle).not.toMatch(/gh release (create|edit)|draft=false/);
+    // Every job after `attach` names what it needs, because a job that follows a skipped job is
+    // skipped too unless its condition uses a status function.
+    for (const [name, text] of [
+      ['gates', gates],
+      ['upgrade', upgradeJob],
+      ['finish', finish],
+    ]) {
+      expect(text, name).toContain('!cancelled()');
+    }
+  });
+});
+
+describe('the release run releases a hold (native-release.yml)', () => {
+  it('plans exactly the held draft, only with prepare off, and tells the pipeline', () => {
+    const plan = job(run, 'plan');
+    expect(run).toMatch(
+      /hold:\n {8}description:[^\n]*\n {8}required: false\n {8}default: ''\n {8}type: string/
+    );
+    expect(plan).toContain('plan-release-builds.mjs --product "$PRODUCT" --hold "$HOLD"');
+    expect(plan).toContain('if [ -n "$RETRY" ] || [ -n "$HOLD" ]; then');
+    expect(job(run, 'bundle')).toContain(
+      "hold: ${{ inputs.hold != '' && inputs.hold == matrix.tag }}"
+    );
+  });
+
+  it('grants the pipeline the read access its gates need and nothing more', () => {
+    const bundleJob = job(run, 'bundle');
+    expect(bundleJob).toMatch(
+      /permissions:\n(?: {6}#[^\n]*\n)? {6}contents: write\n {6}actions: read\n {6}pull-requests: read\n {6}checks: read\n/
+    );
   });
 });
 

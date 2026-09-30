@@ -1,7 +1,8 @@
 name: Native release artifacts
 
 # The per-product release run. It builds and verifies the draft releases of one product
-# that lack a verified bundle and attaches the bundle to each draft; it never publishes.
+# that lack a verified bundle, attaches the bundle to each draft and evaluates its publication
+# gates; it never publishes. A dispatch with `hold` runs the gates again for a held draft.
 # Publishing a reviewed bundle is a separate, authorized operation, and ordinary pull
 # requests do not run this costly matrix.
 #
@@ -29,6 +30,11 @@ on:
         type: boolean
       retry:
         description: Tag of a parked draft release to build again (turn prepare off)
+        required: false
+        default: ''
+        type: string
+      hold:
+        description: Tag of a complete draft whose publication is held; runs its gates again without the gate its marker names (turn prepare off)
         required: false
         default: ''
         type: string
@@ -66,16 +72,19 @@ jobs:
           PRODUCT: ${{ inputs.product }}
           PREPARE: ${{ inputs.prepare }}
           RETRY: ${{ inputs.retry }}
+          HOLD: ${{ inputs.hold }}
         run: |
           if [ "$PREPARE" = true ]; then
-            if [ -n "$RETRY" ]; then
-              echo 'A retry needs prepare turned off.' >&2
+            if [ -n "$RETRY" ] || [ -n "$HOLD" ]; then
+              echo 'A retry and a released hold need prepare turned off.' >&2
               exit 1
             fi
             # One pipeline for this main commit, no draft release.
             printf '%s\n' 'matrix={"include":[{"tag":"","sha":""}]}' 'any=true' >> "$GITHUB_OUTPUT"
           elif [ -n "$RETRY" ]; then
             gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs --product "$PRODUCT" --retry "$RETRY"
+          elif [ -n "$HOLD" ]; then
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs --product "$PRODUCT" --hold "$HOLD"
           else
             gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs --product "$PRODUCT"
           fi
@@ -90,12 +99,15 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     permissions:
-      # Granted to the jobs of the called workflow that upload to the draft.
+      # Granted to the jobs of the called workflow that upload to the draft and read its commit.
       contents: write
       actions: read
+      pull-requests: read
+      checks: read
     uses: ./.github/workflows/native-release-bundle.yml
     with:
       product: ${{ inputs.product }}
       tag: ${{ matrix.tag }}
       sha: ${{ matrix.sha }}
       retry: ${{ inputs.retry != '' && inputs.retry == matrix.tag }}
+      hold: ${{ inputs.hold != '' && inputs.hold == matrix.tag }}

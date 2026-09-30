@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BUNDLE_ASSET,
   FAILURE_ASSET,
+  HOLD_ASSET,
   planReleaseBuilds,
   releasesFrom,
   renderPlanSummary,
@@ -115,7 +116,7 @@ describe('release build plan', () => {
       product: 'cli',
       releases: [draft('v5.0.0-alpha.9', '1', [FAILURE_ASSET, BUNDLE_ASSET])],
     });
-    expect(plan).toEqual({ builds: [], blocked: [] });
+    expect(plan).toEqual({ builds: [], blocked: [], held: [] });
   });
 
   it('plans only the retried draft and ignores its failure marker', () => {
@@ -150,6 +151,75 @@ describe('release build plan', () => {
     expect(() =>
       planReleaseBuilds({ product: 'cli', releases: [release], retry: release.tag_name })
     ).toThrow(message);
+  });
+
+  it('lists a complete draft that carries a hold marker as held, and plans no build for it', () => {
+    const releases = [
+      draft('v5.0.0-alpha.9', '1', [BUNDLE_ASSET, HOLD_ASSET]),
+      draft('v5.0.0-alpha.10', '2', [BUNDLE_ASSET]),
+      draft('v5.0.0-alpha.11', '3'),
+    ];
+    const plan = planReleaseBuilds({ product: 'cli', releases });
+    expect(tags(plan)).toEqual(['v5.0.0-alpha.11']);
+    expect(plan.held).toEqual([{ tag: 'v5.0.0-alpha.9' }]);
+    expect(plan.blocked).toEqual([]);
+  });
+
+  it('plans only the draft whose hold is released, which must be bundled and held', () => {
+    const releases = [
+      draft('v5.0.0-alpha.9', '1', [BUNDLE_ASSET, HOLD_ASSET]),
+      draft('v5.0.0-alpha.10', '2', [BUNDLE_ASSET, HOLD_ASSET]),
+      draft('v5.0.0-alpha.11', '3', [BUNDLE_ASSET]),
+      draft('v5.0.0-alpha.12', '4', [HOLD_ASSET]),
+      draft('v5.0.0-alpha.13', '5', [BUNDLE_ASSET, HOLD_ASSET], { target_commitish: 'main' }),
+    ];
+    const plan = planReleaseBuilds({ product: 'cli', releases, hold: 'v5.0.0-alpha.10' });
+    expect(tags(plan)).toEqual(['v5.0.0-alpha.10']);
+    expect(plan.held).toEqual([]);
+    for (const tag of ['v5.0.0-alpha.11', 'v5.0.0-alpha.12']) {
+      expect(() => planReleaseBuilds({ product: 'cli', releases, hold: tag }), tag).toThrow(
+        'has no bundle held by publication-held.json'
+      );
+    }
+    expect(() => planReleaseBuilds({ product: 'cli', releases, hold: 'v5.0.0-alpha.13' })).toThrow(
+      'is not a commit'
+    );
+    expect(() => planReleaseBuilds({ product: 'cli', releases, hold: 'v9.9.9' })).toThrow(
+      'not a draft release of the cli product'
+    );
+    expect(() =>
+      planReleaseBuilds({ product: 'office', releases, hold: 'v5.0.0-alpha.10' })
+    ).toThrow('not a draft release of the office product');
+  });
+
+  it('refuses to retry and to release a hold in one run', () => {
+    expect(() =>
+      planReleaseBuilds({
+        product: 'cli',
+        releases: [draft('v5.0.0-alpha.9', '1', [BUNDLE_ASSET, HOLD_ASSET])],
+        retry: 'v5.0.0-alpha.9',
+        hold: 'v5.0.0-alpha.9',
+      })
+    ).toThrow('separate runs');
+  });
+
+  it('renders the held drafts and a released hold in the run summary', () => {
+    const held = renderPlanSummary({
+      product: 'cli',
+      builds: [],
+      blocked: [],
+      held: [{ tag: 'v5.0.0-alpha.9' }],
+    });
+    expect(held).toContain('**Held drafts**');
+    expect(held).toContain('- `v5.0.0-alpha.9`');
+    expect(held).toContain('publication-held.json');
+    const released = renderPlanSummary({
+      product: 'cli',
+      builds: [{ tag: 'v5.0.0-alpha.9', sha: sha('1'), createdAt: '2026-09-30T01:00:00Z' }],
+      blocked: [],
+      hold: 'v5.0.0-alpha.9',
+    });
+    expect(released).toContain('Releasing the hold of v5.0.0-alpha.9 by dispatch.');
   });
 
   it('refuses to retry a tag that is not listed at all', () => {
