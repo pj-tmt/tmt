@@ -161,7 +161,9 @@ fn squad_view(
     let states = config.states(&squad.name, layout)?;
     let board = config.board(&squad.name, layout)?;
     let sections = config.sections(&squad.name)?;
-    let mut document = status::document(squad, layout, &states, &sections, squad.members(core)?);
+    let rows = config.rows(&squad.name)?;
+    let members = squad.members(core, rows.reads_metadata())?;
+    let mut document = status::document(squad, layout, &states, &sections, &rows, members);
     let sent = requests::overlay(core, squad, me.as_ref(), &mut document)?;
     let others: Vec<&Squad> = squads
         .iter()
@@ -181,7 +183,7 @@ fn squad_view(
         Notes::NotShown
     };
     let view = View {
-        rows: config.rows(&squad.name)?,
+        rows,
         colors: states.colors,
         render: config.notes_render(&squad.name)?,
         bindings: config.bindings(tmux)?,
@@ -388,7 +390,8 @@ fn roster_document(
     let layout = config.layout(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
     let sections = config.sections(&squad.name)?;
-    let mut document = status::document(squad, layout, &states, &sections, roster);
+    let rows = config.rows(&squad.name)?;
+    let mut document = status::document(squad, layout, &states, &sections, &rows, roster);
     if let Some((me, inbox)) = waiting {
         requests::apply_waiting(&mut document, &squad.name, me, inbox);
     }
@@ -469,6 +472,9 @@ mod tests {
                 .iter()
                 .map(|(key, value)| ((*key).into(), (*value).into()))
                 .collect(),
+            meta: Default::default(),
+            seen: Value::Null,
+            numbers: Default::default(),
         }
     }
 

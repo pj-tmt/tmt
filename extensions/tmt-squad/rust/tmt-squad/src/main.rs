@@ -20,6 +20,7 @@ mod requests;
 mod rows;
 mod runner;
 mod send;
+mod source;
 mod specs;
 mod split;
 mod squad;
@@ -825,11 +826,12 @@ fn ls_document(
         let layout = config.layout(&squad.name)?;
         let sections = config.sections(&squad.name)?;
         let states = config.states(&squad.name, layout)?;
-        let mut document =
-            status::document(squad, layout, &states, &sections, squad.members(core)?);
+        let rows = config.rows(&squad.name)?;
+        let members = squad.members(core, rows.reads_metadata())?;
+        let mut document = status::document(squad, layout, &states, &sections, &rows, members);
         requests::overlay(core, squad, you.as_ref().map(|(me, _)| me), &mut document)?;
         document["squad"]["attention"] = attention::Attention::of(&document).document();
-        let rows = config.rows(&squad.name)?.value();
+        let rows = rows.value();
         document["columns"] = rows["columns"].clone();
         document["lines"] = rows["lines"].clone();
         documents.push(document);

@@ -563,6 +563,40 @@ line of every column. The older `[squad.<name>.columns]` table (`show` plus a
 the two, not both. `tmt sq ls` is a list and stays complete: it takes the
 board's fields in order but never drops or cuts a column when piped.
 
+A column shows the member's squad field of its `name` unless `from` binds it to
+the member's own TMT data, read on every refresh with no extra commands:
+
+| `from`                    | Value                                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `member`, `presence`      | the name, and `active`, `offline` or `unknown`                                                           |
+| `cwd`, `target`           | the bound pane's directory and tmux target                                                               |
+| `session.driver`          | the remembered session's driver, such as `claude`                                                        |
+| `session.model`           | the model its provider last reported                                                                     |
+| `session.usage.tokens`    | the context the next request re-sends (`tmt setup --usage`)                                              |
+| `session.usage.remaining` | the context window less those tokens; only when the driver states a window (Codex does, Claude does not) |
+| `meta.<key>`              | the identity's metadata `<key>`                                                                          |
+| `meta.squad.<field>`      | this squad's field, the same as a plain column of that name                                              |
+
+These paths are the same whatever the member's driver, so a member that
+switches from Claude to Codex keeps its columns. Any other path is refused with
+this list. `format` shows the value as `text` (the default), `tokens`
+(`487k`, `1.2M`), `age` (time since a millisecond timestamp: `42s`, `5m`,
+`3h`, `2d`) or `count` (`12,345`); a value that is not a number shows as it
+is, and a `format` without `from` formats the squad field. The bound value
+replaces a field of the same name everywhere, so sections, filters and sorts use
+it; numbers sort as numbers. Squad's own fields (`member`, `role`, `state`,
+`pending`, `note`) cannot take `from` or `format`. A member without the value
+shows it as missing:
+
+```toml
+[squad.product.rows]
+columns = [
+  { name = "member" },
+  { name = "model", from = "session.model" },
+  { name = "ctx",   from = "session.usage.tokens", format = "tokens", align = "right" },
+]
+```
+
 The board is made of panes: `rows`, `notes` (the lead's own notebook, the same
 file as `tmt notes`, read-only), `detail` (the selected row) and `replies`
 (answers to what you sent the squad). Choose them and how they sit:
