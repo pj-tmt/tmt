@@ -1594,10 +1594,15 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 36, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 39, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
+WAL setup retries only classified Busy within one five-second contention budget,
+including SQLite's own bounded busy waits, and verifies the returned journal mode
+is `wal` before migration. Success restores the normal five-second busy timeout;
+exhaustion preserves the original Busy error. Other setup and transaction failures
+are not retried by this policy.
 It classifies OS-denied writes and SQLite read-only/WAL failures as a typed
 not-writable error; a generic CANTOPEN needs independent permission evidence.
 An existing data directory without owner write permission is reported, not repaired.
@@ -2290,9 +2295,13 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
-assets, and read-only jobs run the release commit's scripts on them. CLI, Office and Squad
-runs share the four-target cargo-dist build and archive verifier, while keeping
-product-qualified bundles, independent versions and separate immutable tags.
+assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
+attached the pipeline evaluates the publication gates (commit, immutability, monotonic,
+migration, upgrade) in write-token jobs that run `main`'s code and only read the release
+commit's data; a failed gate leaves `publication-held.json` on the draft, and nothing
+publishes a draft yet. CLI, Office and Squad runs share the four-target cargo-dist build and
+archive verifier, while keeping product-qualified bundles, independent versions and separate
+immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
 bootstrap proof. Archives, their product-specific manifest/checksums and notices,
 plus the CLI bootstrap where applicable, are verified before any public

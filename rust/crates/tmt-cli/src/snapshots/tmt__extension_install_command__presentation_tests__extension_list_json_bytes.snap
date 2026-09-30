@@ -1,0 +1,5 @@
+---
+source: crates/tmt-cli/src/extension_install_command.rs
+expression: document.to_string()
+---
+{"extensions":[{"name":"office","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-office"],"shadowedBy":[]},{"name":"squad","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-squad","tmt-sq"],"shadowedBy":[]}]}

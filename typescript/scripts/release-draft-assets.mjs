@@ -26,7 +26,7 @@ import {
   releaseFlags,
   releasePolicy,
 } from './native-release-policy.mjs';
-import { BUNDLE_ASSET, FAILURE_ASSET, releasesFrom } from './plan-release-builds.mjs';
+import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET, releasesFrom } from './plan-release-builds.mjs';
 
 const MANIFEST = 'dist-manifest.json';
 const DIGEST_ATTEMPTS = 5;
@@ -157,6 +157,46 @@ export function recordFailure({ api, tag, runUrl, sha, jobs, now = new Date() })
     rmSync(directory, { recursive: true, force: true });
   }
   return { recorded: true };
+}
+
+/**
+ * Parks the complete bundle of a draft: uploads which gate held its publication, why, and which
+ * run. A draft that is not complete has nothing to hold, and a draft that already has a marker
+ * gets the new one in its place (the gate that failed last is the one to release).
+ */
+export function recordHold({ api, tag, hold, now = new Date() }) {
+  const release = findDraft(api.listReleases(), tag);
+  if (!hasAsset(release, BUNDLE_ASSET)) throw new Error(`Draft ${tag} has no bundle to hold.`);
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'release-hold-'));
+  try {
+    const file = path.join(directory, HOLD_ASSET);
+    writeFileSync(
+      file,
+      `${JSON.stringify({ tag, ...hold, recordedAt: now.toISOString() }, null, 2)}\n`
+    );
+    for (const stale of assetsOf(release).filter(({ name }) => name === HOLD_ASSET)) {
+      api.deleteAsset(stale.id);
+    }
+    api.upload(release, HOLD_ASSET, file);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+/** Removes the hold marker of a draft, if it has one. Returns whether there was one. */
+export function clearHold({ api, tag }) {
+  const release = findDraft(api.listReleases(), tag);
+  const markers = assetsOf(release).filter(({ name }) => name === HOLD_ASSET);
+  for (const marker of markers) api.deleteAsset(marker.id);
+  return markers.length > 0;
+}
+
+/** The hold marker of a draft (its gate and reason), or null. `download` returns an asset's text. */
+export function readHold({ api, tag, download }) {
+  const marker = assetsOf(findDraft(api.listReleases(), tag)).find(
+    ({ name }) => name === HOLD_ASSET
+  );
+  return marker ? JSON.parse(download(marker)) : null;
 }
 
 /**

@@ -1,0 +1,9 @@
+---
+source: crates/tmt-cli/src/extension_install_command.rs
+expression: text
+---
+EXTENSIONS 2
+  office  not installed        update: available
+  squad   0.1.0-alpha.1…       update: current
+          shadowed on PATH b…
+          shadowed on PATH b…

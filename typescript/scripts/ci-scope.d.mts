@@ -10,6 +10,7 @@ export interface ComponentMap {
     readonly package?: string;
     readonly owns: readonly string[];
     readonly excludes: readonly string[];
+    readonly migrations: readonly string[];
     readonly selectedBy: readonly { readonly glob: string; readonly pattern: RegExp }[];
     readonly scopedChecks?: {
       readonly nativeTests: readonly string[];
