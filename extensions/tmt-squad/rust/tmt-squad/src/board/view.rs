@@ -10,6 +10,7 @@ use crate::{
     config::{BoardMode, Direction, NotesRender, Pane},
     requests::{BODIES, age},
     rows::{Cell as RowCell, Rows},
+    split::Split,
 };
 use ratatui::{
     Frame,
@@ -345,19 +346,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
     };
     match board.mode {
         BoardMode::Split if board.panes.len() == 1 => render_pane(frame, app, board.panes[0], area),
-        BoardMode::Split => {
-            let constraints = board.sizes.iter().map(|size| Constraint::Percentage(*size));
-            let areas = match board.direction {
-                Direction::LeftRight => Layout::horizontal(constraints).split(area),
-                Direction::TopBottom => Layout::vertical(constraints).split(area),
-            };
-            for (pane, rect) in board.panes.iter().zip(areas.iter()) {
-                let block = pane_block(*pane);
-                let inner = block.inner(*rect);
-                frame.render_widget(block, *rect);
-                render_pane(frame, app, *pane, inner);
-            }
-        }
+        BoardMode::Split => render_split(frame, app, &board.split, area, &pane_block),
         BoardMode::Tabs => {
             let [bar, rest] =
                 Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
@@ -371,6 +360,38 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
             let inner = block.inner(rest);
             frame.render_widget(block, rest);
             render_pane(frame, app, focused, inner);
+        }
+    }
+}
+
+/// One split, nested splits within it: each child gets its size or grow
+/// share of the split, and every pane its own bordered block.
+fn render_split(
+    frame: &mut Frame,
+    app: &App,
+    split: &Split,
+    area: Rect,
+    pane_block: &dyn Fn(Pane) -> Block<'static>,
+) {
+    match split {
+        Split::Pane(pane) => {
+            let block = pane_block(*pane);
+            let inner = block.inner(area);
+            frame.render_widget(block, area);
+            render_pane(frame, app, *pane, inner);
+        }
+        Split::Group {
+            direction,
+            children,
+        } => {
+            let constraints = children.iter().map(|(size, _)| size.constraint());
+            let areas = match direction {
+                Direction::LeftRight => Layout::horizontal(constraints).split(area),
+                Direction::TopBottom => Layout::vertical(constraints).split(area),
+            };
+            for ((_, child), rect) in children.iter().zip(areas.iter()) {
+                render_split(frame, app, child, *rect, pane_block);
+            }
         }
     }
 }
@@ -746,12 +767,12 @@ mod tests {
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
                 rows: columns(),
                 colors: BTreeMap::from([("blocked".into(), "amber".into())]),
-                board: crate::config::Board {
-                mode: crate::config::BoardMode::Split,
-                direction: crate::config::Direction::LeftRight,
-                panes: vec![crate::config::Pane::Rows],
-                sizes: vec![100],
-            },
+                board: crate::config::Board::simple(
+                    crate::config::BoardMode::Split,
+                    crate::config::Direction::LeftRight,
+                    vec![crate::config::Pane::Rows],
+                    &[100],
+                ),
             notes: crate::board::app::Notes::NotShown,
                 render: crate::config::NotesRender::Markdown,
                 bindings: crate::action::preset(true),
@@ -1051,11 +1072,47 @@ lines = [
     }
 
     fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::config::Board {
-        crate::config::Board {
+        crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
+    }
+
+    #[test]
+    fn nested_splits_draw_rows_beside_detail_over_notes() {
+        use crate::split::{Size, Split};
+        let board = crate::config::Board {
             mode: BoardMode::Split,
-            direction,
-            panes,
-            sizes,
+            panes: vec![Pane::Rows, Pane::Detail, Pane::Notes],
+            split: Split::Group {
+                direction: Direction::LeftRight,
+                children: vec![
+                    (Size::Percent(60), Split::Pane(Pane::Rows)),
+                    (
+                        Size::Percent(40),
+                        Split::simple(
+                            Direction::TopBottom,
+                            &[Pane::Detail, Pane::Notes],
+                            &[40, 60],
+                        ),
+                    ),
+                ],
+            },
+        };
+        let mut app = paned(board, Notes::Text("## Now\n- tokens".into()));
+        let screen = draw(&app, 100, 22);
+        // Rows take 60 of 100 columns; detail sits over notes in the rest.
+        let right = |line: &str| line.chars().skip(60).collect::<String>();
+        assert!(screen[1].starts_with("┌ rows"), "{screen:#?}");
+        assert!(right(&screen[1]).starts_with("┌ detail"), "{screen:#?}");
+        let notes_top = screen
+            .iter()
+            .position(|line| right(line).starts_with("┌ notes · sol"))
+            .expect("notes block");
+        // 40% of the 20 body lines is detail: notes start 8 lines below it.
+        assert_eq!(notes_top, 1 + 8, "{screen:#?}");
+        assert!(screen.iter().any(|line| right(line).contains("auth-fix")));
+        // Tab walks the panes in reading order.
+        for expected in [Pane::Detail, Pane::Notes, Pane::Rows] {
+            app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+            assert_eq!(app.focused(), expected);
         }
     }
 
@@ -1209,12 +1266,12 @@ lines = [
 
     #[test]
     fn tabs_show_one_pane_and_tab_moves_focus() {
-        let tabs = crate::config::Board {
-            mode: BoardMode::Tabs,
-            direction: Direction::LeftRight,
-            panes: vec![Pane::Rows, Pane::Replies, Pane::Notes],
-            sizes: Vec::new(),
-        };
+        let tabs = crate::config::Board::simple(
+            BoardMode::Tabs,
+            Direction::LeftRight,
+            vec![Pane::Rows, Pane::Replies, Pane::Notes],
+            &[],
+        );
         let mut app = paned(tabs, Notes::Missing);
         let screen = draw(&app, 70, 10);
         assert!(
