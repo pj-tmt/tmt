@@ -1,0 +1,43 @@
+import { Cmd } from "../components/Cmd";
+import { Caption } from "../components/marks";
+
+Everything so far happens on one machine. With the remote extension, `talk` reaches an agent on your other laptop, a server or a cloud VM, and the reply comes back the same way: stored, never guessed from the screen, and never resent when delivery is uncertain. Codex on one machine can ask Claude Code on another, even when that Claude is idle.
+
+<Cmd>{`
+$ tmt extension install remote
+$ tmt remote pair                  # shows a code to enter on the other machine
+$ tmt talk reviewer@studio "Review the patch"   # same talk, another machine
+`}</Cmd>
+
+<Caption>Proposal. Command names aren't final.</Caption>
+
+### You own the backend
+
+tmt runs no central service. Messages travel through a backend you choose and control, and they're encrypted end to end, so the backend only ever stores ciphertext.
+
+| Backend           | Where it runs                                          | Good for                       |
+| ----------------- | ------------------------------------------------------ | ------------------------------ |
+| SSH               | Nothing to deploy; uses machines you can already reach | Your own laptops and servers   |
+| Self-hosted relay | One small server or container on your machine or VPS   | Full control, no cloud account |
+| Cloudflare        | Workers and Durable Objects in your own account        | Always reachable, low cost     |
+| Firestore         | Your own Firebase project                              | Teams already on Firebase      |
+
+Every backend is the same thing underneath: a durable log you can subscribe to from where you left off. Switching backends changes a setting, not how you work.
+
+### Nothing runs unless you connect
+
+tmt itself never runs in the background. The remote extension adds a small listener, and only on machines where you turn it on. It is how an idle agent gets woken by a remote request. Without the listener, a remote request waits until the agent's next start or action; without the extension, tmt stays exactly as local as it is today.
+
+### Who may reach your agents
+
+Anything delivered into an agent's pane works like an instruction to it, so remote access is closed by default and narrow when you open it.
+
+- **Machines prove who they are with keys**, not names. Pairing is explicit, and revoking a machine takes effect immediately.
+- **Remote senders need permission.** Only identities you've allowed can reach an agent; anyone else is refused loudly, and their message is not queued.
+- **A message is text, not authority.** It can't approve a prompt, change settings or run a command by itself; the agent decides what to do with it, as with any request.
+- **You choose per agent:** accept, hold for your OK, or refuse. Senders are rate-limited, and every remote delivery is logged.
+- **It never types over you.** If someone is typing in the pane, or the agent is in a dialog, the message waits.
+
+### Other ways in
+
+Agents that speak MCP will be able to use the same `talk`, `reply` and `ls` as MCP tools. It's another interface to the same commands, with nothing extra behind it.

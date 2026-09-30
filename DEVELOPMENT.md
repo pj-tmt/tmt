@@ -477,6 +477,29 @@ preview/cloud variants. Issuer scenarios independently compare claim
 `grantExpiresAt` with Firestore, including retries and a shortened grant; approval
 and token expiry must not stand in for that value.
 
+## Handbook website
+
+The handbook is a static site in `site/` (Vite, React, TanStack Router, Jotai,
+Tailwind and MDX), with its own lockfile outside the TypeScript workspace.
+Chapters are `site/src/chapters/*.mdx`, registered in `site/src/chapters/index.ts`.
+Colors, fonts and marks come from `site/src/design/tokens.json`, which the
+stylesheet and the design page read. Anything not in a release is marked
+planned.
+
+```sh
+cd site
+pnpm install --frozen-lockfile
+pnpm dev                        # local preview at http://127.0.0.1:5173/tmt/
+pnpm check                      # types, oxlint and oxfmt
+pnpm build                      # dist/ for GitHub Pages, one index.html per route
+SITE_BASE=/ pnpm build          # for a root path, such as a custom domain
+```
+
+`.github/workflows/site.yml` checks and builds the site on pull requests and
+`main`. It deploys to GitHub Pages only from a manual run on `main` with
+`deploy` set. The repository is public, so a deploy publishes the site; the
+owner decides when.
+
 ## Personal-office milestone acceptance
 
 `retained-spaces.spec.ts` proves owner discovery of a revoked grant, opening and
