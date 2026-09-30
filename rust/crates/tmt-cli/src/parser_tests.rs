@@ -1,5 +1,6 @@
 use crate::invocation::IdentityStatusRequest;
 use std::ffi::OsString;
+use tmt_core::driver::descriptor::UsageHook;
 
 #[test]
 fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
@@ -8,6 +9,7 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
         Invocation::Setup {
             provider: None,
             remove: false,
+            usage: UsageHook::Keep,
             yes: false,
         }
     );
@@ -16,6 +18,7 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
         Invocation::Setup {
             provider: Some("claude".into()),
             remove: true,
+            usage: UsageHook::Keep,
             yes: true,
         }
     );
@@ -25,13 +28,31 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
         Invocation::Setup {
             provider: None,
             remove: false,
+            usage: UsageHook::Keep,
             yes: true,
         }
     );
+    // The usage hook is an explicit opt-in or opt-out, never with --remove.
+    for (argv, usage) in [
+        (vec!["setup", "--usage"], UsageHook::Install),
+        (
+            vec!["setup", "codex", "--usage", "--yes"],
+            UsageHook::Install,
+        ),
+        (vec!["setup", "claude", "--no-usage"], UsageHook::Remove),
+    ] {
+        assert!(matches!(
+            parsed(&argv).invocation,
+            Invocation::Setup { usage: parsed, .. } if parsed == usage
+        ));
+    }
     for argv in [
         vec!["setup", "--remove"],
         vec!["setup", "unknown"],
         vec!["setup", "claude", "--force"],
+        vec!["setup", "--usage", "--no-usage"],
+        vec!["setup", "claude", "--remove", "--usage"],
+        vec!["setup", "claude", "--remove", "--no-usage"],
     ] {
         assert!(parse(&args(&argv)).is_err());
     }
@@ -54,6 +75,7 @@ fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
         Invocation::Setup {
             provider: Some("codex".into()),
             remove: false,
+            usage: UsageHook::Keep,
             yes: true
         }
     );

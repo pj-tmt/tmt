@@ -107,7 +107,10 @@ fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::test_support::TestDirectory;
-    use crate::{drivers::claude, setup::plan};
+    use crate::{
+        drivers::claude,
+        setup::{UsageHook, plan},
+    };
 
     #[test]
     fn consented_plan_backs_up_exact_bytes_and_rejects_a_later_edit() {
@@ -121,6 +124,7 @@ mod tests {
             read_settings(&path).unwrap(),
             "/stable/tmt".into(),
             false,
+            UsageHook::Keep,
         )
         .unwrap();
         let backup = apply(&planned).unwrap().unwrap();
@@ -132,6 +136,7 @@ mod tests {
             read_settings(&path).unwrap(),
             "/stable/tmt".into(),
             false,
+            UsageHook::Keep,
         )
         .unwrap();
         assert!(!again.change.changed());
@@ -142,6 +147,7 @@ mod tests {
             read_settings(&path).unwrap(),
             "/stable/tmt".into(),
             true,
+            UsageHook::Keep,
         )
         .unwrap();
         fs::write(&path, "{\"user\":true}").unwrap();

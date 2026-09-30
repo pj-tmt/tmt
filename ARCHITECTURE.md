@@ -1184,11 +1184,12 @@ columns because core correlates hook events on them. One identity has one curren
 runtime: only starting provider events replace the session (clearing a stale
 mark, and keeping driver state only under the same driver), and a confirmed
 launch under another runtime driver drops the previous driver's session and
-state. Persistence is an optional driver interface: `RuntimeLifecycle::state_version`
-names the version a driver reads, and `RuntimeRegistry::reconcile` discards state
+state. Persistence is an optional driver interface: `RuntimeLifecycle::reads_state`
+names the versions a driver reads, and `RuntimeRegistry::reconcile` discards state
 it cannot read and drops sessions of unregistered drivers, which
 `Storage::purge_unregistered_sessions` also sweeps. Driver state holds resume
-essentials only, never transcript content, arguments or secrets.
+essentials only (the model and, opted in, usage numbers), never transcript
+content, arguments or secrets.
 
 Schema 38 adds a resume-pending mark. A resume launch sets it on the exact
 remembered session before the child starts, and any starting provider event clears
@@ -1221,16 +1222,37 @@ Schema 39 admits a second terminal host (Herdr, #479):
 Binding queries still read tmux rows only until the core endpoint types carry
 the host.
 
-The claude and codex drivers implement persistence with a version 1 document,
-`{"model": <slug>}` (`runtime::model_state`). Its only source is the `model` field
+The claude and codex drivers implement persistence with one document
+(`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
+`"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
+optional). A document without usage is still written as version 1, byte for
+byte, and both versions are read. The model's only source is the `model` field
 of a starting hook event, which both providers document (see
 `runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
 then the previous model stays. When a provider sends no model, nothing is stored.
-Drivers never read transcripts or session files, and never infer a model from
-arguments. Resume replays a stored model (`claude --resume <id> --model <m>`,
-`codex resume -m <m> <id>`, following each CLI's recorded usage) only when the
-document is readable and the slug is a safe single argv value. Otherwise it
-resumes with the provider's default.
+A model is never inferred from transcripts or arguments. Resume replays a stored
+model (`claude --resume <id> --model <m>`, `codex resume -m <m> <id>`, following
+each CLI's recorded usage) only when the document is readable and the slug is a
+safe single argv value. Otherwise it resumes with the provider's default.
+
+Context usage (#519) is opt-in: `tmt setup --usage` adds a TMT `Stop` hook next
+to the lifecycle hooks, and `--no-usage` removes only that entry. A turn end is not
+a session transition. The worker verifies the caller exactly as for a lifecycle
+event, and writes only when the binding's current conversation is the
+remembered one the event names. It replaces the remembered state in one
+compare-and-set transaction, and prints nothing, even on failure. This is the one
+place a driver reads its own provider's transcript (`runtime::transcript`), and
+only for usage numbers:
+
+- the path must be a regular `.jsonl` file under the driver's own tree
+  (`~/.claude/projects`, or `$CODEX_HOME/sessions`);
+- it is opened without following a final symlink and without blocking;
+- only the last MiB is read, and a line cut by that window is skipped.
+
+Anything unexpected writes nothing. A start that changes the context
+(startup, clear, compact) drops usage; a resumed Claude start records the
+`context_tokens` it reports. Core never parses the document:
+`RuntimeRegistry::remembered_usage` projects it as `resume.usage`.
 
 Runtime observations retain a driver-supplied PID/start-identity pair and an
 optional provider session ID. Schema 34 additionally retains an optional launch

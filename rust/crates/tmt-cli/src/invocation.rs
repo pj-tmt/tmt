@@ -114,6 +114,7 @@ pub enum Invocation {
     Setup {
         provider: Option<String>,
         remove: bool,
+        usage: tmt_core::driver::descriptor::UsageHook,
         yes: bool,
     },
     ProviderHook {
