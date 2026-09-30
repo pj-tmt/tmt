@@ -41,7 +41,8 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   public bootstrap or permission to replace a user/package-manager installation.
 - Promotion requires passing Code quality, Unit tests, and Docker E2E checks.
 - For a public native alpha, follow the guide's explicit multi-platform
-  release preparation procedure. The manual artifact workflow never publishes;
+  release preparation procedure. A `prepare` run of the manual artifact workflow never
+  publishes;
   all four final native verifiers must pass on the recorded reviewed commit.
   Keep cargo-dist as the merged manifest owner. Authorized publication uses an
   immutable draft-to-published GitHub release and verifies its attestation and
@@ -49,7 +50,8 @@ procedures referenced below; DEVELOPMENT owns ordinary native checks.
   bundle's `release-publication.json` flags: the CLI release is a normal release
   marked latest (the README's `releases/latest/download/install.sh` depends on
   it); Office and Squad releases stay prereleases with `--latest=false`. After
-  publishing, run the guide's `--check-latest` check. Do not equate a
+  a manual publication, run the guide's `--check-latest` check (the pipeline checks
+  its own publications). Do not equate a
   downloadable CI bundle with a published or accepted release.
 - Every CLI or extension release also passes the guide's upgrade from the last
   published release (its public installer, then the candidate's installer and
@@ -89,11 +91,14 @@ gates, the markers and the procedures; this section owns who may publish what.
   enabling or changing release immutability; and this authorization itself.
 - The authorization belongs to the pipeline, not to an agent. An agent still never tags,
   creates, edits or publishes a release by hand, and never dispatches a run that publishes,
-  without the owner's explicit authorization for that release. A dry run and a run that only
-  prepares or verifies are not publication.
+  without the owner's explicit authorization for that release. A run of `native-release.yml`
+  with `prepare` off publishes every draft of the product that passes its gates, and so does
+  its `hold` input for the released draft; `prepare` on (one bundle, no draft), `release.yml`
+  with `dry_run` on and the upgrade proof are not publication.
 - A held draft carries `publication-held.json` with the gate, the reason and the run. Read it,
   then follow the guide: the owner publishes by hand, or releases the hold by dispatch, which
   skips only the gate the marker names.
-- The pipeline does not publish yet (#562). Until it does, alpha publication stays manual and
-  explicitly authorized like any other, and this section describes the authorization it will run
-  under.
+- After it publishes, the pipeline reads the release back (public, immutable, the policy's
+  flags, the tag on the release commit, GitHub's attestation for the release and every asset).
+  A failed check opens an issue and fails the run; nothing is rolled back, and a repair is a new
+  reviewed version.

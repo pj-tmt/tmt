@@ -23,6 +23,7 @@ export interface PlannedBuild {
 
 export interface ReleasePlan {
   readonly builds: readonly PlannedBuild[];
+  readonly awaiting: readonly PlannedBuild[];
   readonly blocked: readonly { readonly tag: string; readonly reason: string }[];
   readonly held: readonly { readonly tag: string }[];
 }
@@ -34,8 +35,9 @@ export function planReleaseBuilds(input: {
   hold?: string;
 }): ReleasePlan;
 export function renderPlanSummary(
-  input: Omit<ReleasePlan, 'held'> & {
+  input: Omit<ReleasePlan, 'held' | 'awaiting'> & {
     held?: ReleasePlan['held'];
+    awaiting?: ReleasePlan['awaiting'];
     product: string;
     retry?: string;
     hold?: string;

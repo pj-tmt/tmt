@@ -224,7 +224,7 @@ describe('publication-gates.mjs early', () => {
     for (const gate of ['commit', 'immutability', 'monotonic', 'migration']) {
       expect(result.summary).toContain(`- passed \`${gate}\``);
     }
-    expect(result.summary).toContain('Every gate passed. Nothing publishes it yet');
+    expect(result.summary).toContain('Every gate passed. The next job publishes the release.');
     expect(uploaded('publication-held.json')).toBeNull();
     expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
   });

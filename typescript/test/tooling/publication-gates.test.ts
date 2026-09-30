@@ -394,7 +394,7 @@ describe('runGates', () => {
 });
 
 describe('renderGateSummary', () => {
-  it('lists each gate and says what a held draft carries, or that nothing publishes yet', () => {
+  it('lists each gate and says what a held draft carries, or that the next job publishes', () => {
     const results = [
       { gate: 'commit', ok: true, reason: '#7 passed' },
       { gate: 'monotonic', ok: false, reason: 'v5.0.0-alpha.8 is already published' },
@@ -410,6 +410,6 @@ describe('renderGateSummary', () => {
     expect(held).toContain('**Held** at `monotonic`');
     expect(held).toContain('publication-held.json');
     const passed = renderGateSummary({ tag: 'v5.0.0-alpha.9', results: [results[0]], held: null });
-    expect(passed).toContain('Every gate passed. Nothing publishes it yet');
+    expect(passed).toContain('Every gate passed. The next job publishes the release.');
   });
 });

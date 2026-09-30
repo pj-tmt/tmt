@@ -32,6 +32,15 @@ export function releaseFlags(product) {
   return [...(policy.prerelease ? ['--prerelease'] : []), `--latest=${policy.latest}`];
 }
 
+/**
+ * `gh release edit` flags that publish a draft under the policy. The prerelease flag is always
+ * set explicitly: release-please makes every draft a prerelease, and the CLI must not stay one.
+ */
+export function publishFlags(product) {
+  const policy = releasePolicy(product);
+  return ['--draft=false', `--prerelease=${policy.prerelease}`, `--latest=${policy.latest}`];
+}
+
 /** The product whose tag this is (`v5.0.0-alpha.9`, `tmt-office-v0.1.0-alpha.4`), or undefined. */
 export function productOfTag(tag) {
   return Object.entries(PRODUCTS).find(

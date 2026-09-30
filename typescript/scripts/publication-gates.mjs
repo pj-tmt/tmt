@@ -182,7 +182,7 @@ export function runGates({ order, checks, skip = '' }) {
 }
 
 /** Markdown for the run summary. */
-export function renderGateSummary({ tag, results, held, published = false }) {
+export function renderGateSummary({ tag, results, held }) {
   const lines = [`### Publication gates for \`${tag}\``, ''];
   for (const { gate, ok, skipped, reason } of results) {
     lines.push(
@@ -193,9 +193,7 @@ export function renderGateSummary({ tag, results, held, published = false }) {
     '',
     held
       ? `**Held** at \`${held.gate}\`: ${held.reason}. It carries \`${HOLD_ASSET}\` until it is published by hand or the hold is released by dispatch.`
-      : published
-        ? 'Every gate passed and the release was published.'
-        : 'Every gate passed. Nothing publishes it yet: publication is a separately authorized step.'
+      : 'Every gate passed. The next job publishes the release.'
   );
   return `${lines.join('\n')}\n`;
 }

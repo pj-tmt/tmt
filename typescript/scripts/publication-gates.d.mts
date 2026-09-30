@@ -58,5 +58,4 @@ export function renderGateSummary(input: {
   tag: string;
   results: readonly GateResult[];
   held: { gate: string; reason: string } | null;
-  published?: boolean;
 }): string;

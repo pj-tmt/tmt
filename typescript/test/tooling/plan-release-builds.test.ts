@@ -67,7 +67,7 @@ describe('release build plan', () => {
     expect(tags(plan)).toEqual(['v5.0.0-alpha.10', 'v5.0.0-alpha.9']);
   });
 
-  it('ignores other products, published releases, tags the policy does not publish, and bundled drafts', () => {
+  it('ignores other products, published releases and tags the policy does not publish, and builds nothing for a bundled draft', () => {
     const plan = planReleaseBuilds({
       product: 'office',
       releases: [
@@ -80,7 +80,32 @@ describe('release build plan', () => {
       ],
     });
     expect(tags(plan)).toEqual(['tmt-office-v0.1.0-alpha.4']);
+    expect(plan.awaiting.map(({ tag }) => tag)).toEqual(['tmt-office-v0.1.0-alpha.5']);
     expect(plan.blocked).toEqual([]);
+  });
+
+  it('lists the complete drafts without a hold as awaiting their publication, oldest first', () => {
+    const plan = planReleaseBuilds({
+      product: 'cli',
+      releases: [
+        draft('v5.0.0-alpha.11', '3', [BUNDLE_ASSET]),
+        draft('v5.0.0-alpha.9', '1', [BUNDLE_ASSET, 'dist-manifest.json']),
+        draft('v5.0.0-alpha.10', '2', [BUNDLE_ASSET, HOLD_ASSET]),
+        draft('v5.0.0-alpha.12', '4'),
+      ],
+    });
+    expect(plan.awaiting.map(({ tag }) => tag)).toEqual(['v5.0.0-alpha.9', 'v5.0.0-alpha.11']);
+    expect(plan.held).toEqual([{ tag: 'v5.0.0-alpha.10' }]);
+    expect(tags(plan)).toEqual(['v5.0.0-alpha.12']);
+  });
+
+  it('parks a complete draft whose target is not a commit, since the commit to publish is unknown', () => {
+    const plan = planReleaseBuilds({
+      product: 'cli',
+      releases: [draft('v5.0.0-alpha.9', '1', [BUNDLE_ASSET], { target_commitish: 'main' })],
+    });
+    expect(plan.awaiting).toEqual([]);
+    expect(plan.blocked[0]?.reason).toContain('commit to publish is unknown');
   });
 
   it('parks a draft whose failure is recorded, and says why', () => {
@@ -116,7 +141,12 @@ describe('release build plan', () => {
       product: 'cli',
       releases: [draft('v5.0.0-alpha.9', '1', [FAILURE_ASSET, BUNDLE_ASSET])],
     });
-    expect(plan).toEqual({ builds: [], blocked: [], held: [] });
+    expect(plan).toEqual({
+      builds: [],
+      awaiting: [{ tag: 'v5.0.0-alpha.9', sha: sha('1'), createdAt: '2026-09-30T01:00:00Z' }],
+      blocked: [],
+      held: [],
+    });
   });
 
   it('plans only the retried draft and ignores its failure marker', () => {
@@ -124,6 +154,7 @@ describe('release build plan', () => {
     const plan = planReleaseBuilds({ product: 'cli', releases, retry: 'v5.0.0-alpha.9' });
     expect(tags(plan)).toEqual(['v5.0.0-alpha.9']);
     expect(plan.blocked).toEqual([]);
+    expect(plan.awaiting).toEqual([]);
   });
 
   it.each([
@@ -247,6 +278,21 @@ describe('release build plan', () => {
       'No draft release needs a build.'
     );
   });
+
+  it('renders the complete drafts that await their publication in the run summary', () => {
+    const text = renderPlanSummary({
+      product: 'cli',
+      builds: [],
+      awaiting: [
+        { tag: 'v5.0.0-alpha.9', sha: sha('1'), createdAt: '2026-09-30T01:00:00Z' },
+        { tag: 'v5.0.0-alpha.10', sha: sha('2'), createdAt: '2026-09-30T02:00:00Z' },
+      ],
+      blocked: [],
+    });
+    expect(text).toContain(
+      'Complete drafts that await their gates and publication, oldest first: `v5.0.0-alpha.9`, `v5.0.0-alpha.10`.'
+    );
+  });
 });
 
 describe('plan-release-builds.mjs', () => {
@@ -281,6 +327,34 @@ describe('plan-release-builds.mjs', () => {
       `matrix=${JSON.stringify({ include: [{ tag: 'v5.0.0-alpha.9', sha: sha('1') }] })}\nany=true\n`
     );
     expect(result.summary).toContain('`v5.0.0-alpha.9`');
+  });
+
+  it('puts builds and complete drafts into one matrix, oldest first, and plans a run for the complete ones alone', () => {
+    const both = run(
+      ['--product', 'cli'],
+      [[draft('v5.0.0-alpha.11', '3'), draft('v5.0.0-alpha.9', '1', [BUNDLE_ASSET])]]
+    );
+    expect(both.output).toBe(
+      `matrix=${JSON.stringify({
+        include: [
+          { tag: 'v5.0.0-alpha.9', sha: sha('1') },
+          { tag: 'v5.0.0-alpha.11', sha: sha('3') },
+        ],
+      })}\nany=true\n`
+    );
+    const resume = run(['--product', 'cli'], [[draft('v5.0.0-alpha.9', '1', [BUNDLE_ASSET])]]);
+    expect(resume.output).toBe(
+      `matrix=${JSON.stringify({ include: [{ tag: 'v5.0.0-alpha.9', sha: sha('1') }] })}\nany=true\n`
+    );
+    expect(resume.summary).toContain('await their gates and publication');
+  });
+
+  it('plans no run for a held draft alone', () => {
+    const held = run(
+      ['--product', 'cli'],
+      [[draft('v5.0.0-alpha.9', '1', [BUNDLE_ASSET, HOLD_ASSET])]]
+    );
+    expect(held.output).toBe('matrix={"include":[]}\nany=false\n');
   });
 
   it('reports an empty plan as an empty matrix', () => {
