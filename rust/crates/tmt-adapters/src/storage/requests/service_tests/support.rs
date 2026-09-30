@@ -1,5 +1,6 @@
+use rusqlite::{Connection, OpenFlags, types::Value};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -118,4 +119,30 @@ pub fn preamble_count(database: &PathBuf, identity_id: &str) -> i64 {
         .optional()
         .expect("read request cadence")
         .unwrap_or(0)
+}
+
+pub fn request_snapshot(database: &Path) -> Vec<Vec<Vec<Value>>> {
+    let connection = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .expect("open independent request oracle");
+    [
+        "SELECT * FROM request_attempts ORDER BY attempt_id",
+        "SELECT * FROM request_responses ORDER BY request_id",
+        "SELECT * FROM preamble_counters ORDER BY identity_id",
+        "SELECT * FROM request_attention_identities ORDER BY identity_id",
+    ]
+    .into_iter()
+    .map(|query| {
+        connection
+            .prepare(query)
+            .unwrap()
+            .query_map([], |row| {
+                (0..row.as_ref().column_count())
+                    .map(|column| row.get(column))
+                    .collect::<rusqlite::Result<Vec<Value>>>()
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    })
+    .collect()
 }

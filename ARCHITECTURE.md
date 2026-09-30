@@ -1949,10 +1949,10 @@ Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode
 shortcuts; this is transport policy, not arbitrary output rewriting. `check`
 remains bounded terminal diagnostics, not a fallback response channel.
 
-`response_input` owns bounded file/stdin acquisition, regular-file checks,
-nonblocking behavior and restoration of inherited descriptor flags. The public
-CLI owns stdin during acquisition. These adapters do not invent background
-threads or a second process runner.
+`response_input` owns bounded file/stdin acquisition and regular-file checks. It
+polls against the deadline before each read and never mutates stdin descriptor
+flags. The public CLI exclusively owns stdin during acquisition. These adapters
+do not invent background threads or a second process runner.
 
 ### Agent drivers
 
@@ -2616,6 +2616,18 @@ connection/rate bounds and shutdown. It has no CoreClient/storage reference.
 owner, which currently denies every request. Startup discovery is not a remote
 operation. The pilot cannot pair, adopt a request, approve, send or subscribe;
 no grant/journal/core DB is created. Denied traffic does not renew the window.
+
+`canonical` owns pure decoded-value local-v1 envelope, enrollment and possession
+framing; `crypto` owns strict Ed25519 verification, full HMAC-SHA256 verification
+and pure receipt-key/proof derivation. Neither module has I/O, clock, storage or
+CoreClient access, and neither is wired into the deny-all door. Referenced agent
+IDs use canonical non-nil UUID syntax independently of core; remote-generated IDs
+remain UUIDv4. Byte construction and valid signatures establish no authority.
+Rust tests consume the independent Python canonical fixtures read-only; Rust-owned
+RFC/Python/WebCrypto vectors exercise cryptographic validity separately. The only
+new production dependencies are the contract's pinned Ed25519 and HMAC primitives,
+with the existing pinned SHA-256 dependency. Real Chrome MV3 security and browser
+interoperability remain later gates; local Node conformance does not replace them.
 
 [`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
 signed-message contract. Pairing/authentication/approval/log/SDK behavior remains

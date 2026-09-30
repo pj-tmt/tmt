@@ -1276,6 +1276,22 @@ node typescript/scripts/release-please-config.mjs --check
 (cd typescript && corepack pnpm exec vitest run test/tooling/release-please-config.test.ts test/tooling/ci-scope.test.ts)
 ```
 
+Pure byte/crypto conformance runs with the remote Rust tests above, including
+shared independent canonical vectors, strict Ed25519 refusals, full HMAC tags and
+receipt domain separation. Regenerate/check only Rust-owned crypto fixtures with:
+
+```bash
+python3 extensions/tmt-remote/rust/tmt-remote/tests/fixtures/mac-reference.py --check
+node extensions/tmt-remote/rust/tmt-remote/tests/fixtures/webcrypto.mjs
+```
+
+Use the repository Node 22 version and repeat the WebCrypto command locally on
+Node 24. No extra required-CI Node setup is needed. The script verifies deterministic
+signatures that Rust independently reproduces and verifies; `--write` regenerates
+the public-test-key fixture. The Python oracle does not import product code.
+These checks do not prove real Chrome key persistence/non-extractability across
+MV3 worker restarts. Pairing, authority and browser integration remain separate.
+
 After building core, put `rust/target/debug` on PATH and run `tmt remote serve`
 (or `--json` for its bound descriptor). Direct invocation requires an absolute
 `TMT_EXECUTABLE`; it never searches for another core. Default hard window is
