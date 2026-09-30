@@ -1,0 +1,251 @@
+# Driver protocol v1
+
+A driver is an executable that tells TMT about a terminal host that TMT does
+not build in, for example Herdr. This document owns the wire format. The
+`tmt-driver-protocol` crate encodes it, and guides link here instead of
+repeating it.
+
+**Status:** the format and the crate exist. `tmt` does not run drivers yet:
+
+- the client arrives in #570 slice 3;
+- Herdr moves out as the first driver in slice 4;
+- `tmt driver install|ls|rm` arrives in slice 6.
+
+Until then, the behavior described below for core is the contract those
+slices implement, not current behavior.
+
+## Invocation
+
+```sh
+tmt-driver-<name> __tmt-driver <protocol> <op>
+```
+
+- **Request:** core writes one JSON request on stdin and closes it.
+- **Answer:** the driver prints one JSON answer on stdout and exits 0.
+- **Malformed invocation:** a wrong subcommand, protocol or arity still gets an
+  error answer, with exit status 2.
+- **stderr** is discarded.
+- **Arguments and environment:** core passes no other arguments. The driver
+  runs with core's environment, plus `TMT_DRIVER_CALL=1`. A `tmt` that sees
+  `TMT_DRIVER_CALL` refuses to write, so a driver that runs `tmt` can neither
+  recurse into itself nor change TMT's state.
+
+## Answers
+
+A driver prints exactly one of these:
+
+```json
+{"ok": { … }}
+{"error": {"code": "not_found", "message": "The pane closed."}}
+```
+
+Error codes:
+
+| Code | Meaning |
+|---|---|
+| `unsupported` | The driver does not implement the operation. Core falls back as for a host without it: a message that cannot be pasted goes to the inbox. |
+| `bad_request` | The request did not parse or broke this contract. |
+| `unavailable` | The host server cannot be reached. |
+| `not_found` | The pane or server is gone, or is no longer the one asked about. |
+| `failed` | Anything else. |
+
+- `message` is at most 512 bytes and contains no control characters. Core shows
+  it as untrusted text.
+- Anything else is a failure: an answer that is not exactly one such object, is
+  over its bound, or is late. Core never uses part of an answer.
+
+Every request carries `deadlineMs`, the time the driver has left. Core kills a
+driver that runs past its operation's deadline.
+
+| Operation | Deadline | Answer bound |
+|---|---|---|
+| `capabilities` | 1 s | 4 KiB |
+| `caller`, `server`, `resolve-target`, `publish`, `clear`, `focus` | 300 ms | 4 KiB |
+| `snapshot`, `probe`, `capture` | 2 s | 1 MiB |
+| `input` | 2 s | 4 KiB |
+
+Requests are at most 1 MiB.
+
+**Member names:** members are camelCase. Both sides ignore members they don't
+know. A protocol-1 addition is therefore optional by construction; a new
+required member needs protocol 2.
+
+## Versions and the compatibility window
+
+`capabilities` lists every protocol the driver speaks. Core uses the highest
+protocol that both sides speak. Each `tmt` release speaks the current protocol
+and the previous one. When protocol 2 ships, protocol 1 stays supported for at
+least one more minor `tmt` release.
+
+## Operations
+
+### `capabilities`
+
+The request is `{}`. The answer:
+
+```json
+{"protocols": [1], "kind": "host", "name": "herdr", "version": "0.1.0",
+ "ops": ["caller", "server", "resolve-target", "snapshot", "probe", "publish", "clear"],
+ "paneId": {"prefix": "term_"}, "target": "w{n}:p{n}",
+ "callerEnv": ["HERDR_PANE_ID", "HERDR_SOCKET_PATH"]}
+```
+
+- **`kind`:** `host`.
+- **`name`:** `[a-z][a-z0-9-]{0,31}`. It is also the host token stored with a
+  binding.
+- **`version`:** 1–64 bytes of text.
+- **`ops`:** the operations the driver implements besides `capabilities`. Any
+  other operation answers `unsupported`.
+- **`paneId.prefix`:** 2–16 characters of `[a-z0-9_-]`. It starts with a letter
+  and ends in `_` or `-`. A pane ID is the prefix followed by 1–64 characters of
+  `[0-9a-z]`. The suffix has no `_` or `-`, so every pane ID has exactly one
+  prefix.
+- **`target`:** how a user names a pane, or `null` when panes have no public
+  name. It is a template of up to 32 characters: literal `[a-z:]` and `{n}`,
+  where `{n}` stands for 1–9 digits. It starts with a letter, holds at least one
+  `{n}`, and never has two `{n}` in a row.
+- **`callerEnv`:** at most 4 environment variables that `caller` reads, each
+  `[A-Z][A-Z0-9_]*` and never `TMT_*`.
+
+Installation refuses a driver when any of these hold:
+
+- its declaration is invalid;
+- it uses a built-in's name;
+- its name or prefix is already used by another installed driver;
+- its sample target (every `{n}` as `1`) is a target of tmux or of another
+  driver, or the reverse.
+
+### `caller`
+
+- **Request:** `{"env": {"HERDR_PANE_ID": "w1:p2", …}}`. It holds only the
+  declared variables that are set.
+- **Answer:** `{"pane": {"id", "socket", "shellPid"}}`, or `{"pane": null}` when
+  the environment names no pane of this host.
+
+Core counts the pane only when `shellPid` is an ancestor of the caller, which it
+checks itself.
+
+### `server`
+
+- **Request:** `{"socket": "/path" | null}`. `null` asks for the driver's
+  default server.
+- **Answer:** `{"server": {"socket", "pid", "startTime"}}`, or `{"server": null}`
+  when no server runs there.
+
+Core gives each incarnation (socket, pid, start time) its own server UUID. A
+restarted server is a new incarnation.
+
+### `resolve-target`
+
+- **Request:** `{"socket", "target"}`.
+- **Answer:** `{"paneId": "…" | null}`.
+
+### `snapshot`
+
+- **Request:** `{"socket", "panes": ["…"] | null}`. `null` asks for every pane.
+- **Answer:** `{"panes": [Pane]}`, listing only panes that were asked about.
+  There are at most 4096 panes, and each ID appears once.
+
+A `Pane`:
+
+```json
+{"id": "term_7", "target": "w1:p2", "cwd": "/src", "command": "claude",
+ "panePid": 4242, "suggestedName": null, "marker": Marker | null}
+```
+
+- **`id` and `target`:** follow the declared syntax.
+- **`cwd`:** an absolute path, or `null`.
+- **`command`:** the foreground command's name, at most 256 bytes.
+- **`panePid`:** the pane's shell. Like every pid, it is in 1 through 2^53 − 1.
+- **Text:** all text is free of control characters.
+
+### `probe`
+
+- **Request:** `{"server": {"socket", "pid", "startTime"}, "panes": ["…"]}`.
+- **Answer:** one of:
+  - `{"state": "live", "panes": [Pane]}`, where the panes are among those asked
+    about;
+  - `{"state": "dead"}`;
+  - `{"state": "unknown"}`.
+
+`dead` means the incarnation is gone. Core believes it only when its own check
+of the recorded server process agrees, and treats it as `unknown` otherwise.
+
+### `publish` and `clear`
+
+A marker lets any process see that a pane is bound:
+
+```json
+{"name", "canonicalName", "identityId", "bindingId", "serverId", "panePid"}
+```
+
+The IDs are UUIDs. The driver stores the marker on the pane and returns it
+unchanged in `snapshot` and `probe`. It never interprets the marker.
+
+- **`publish`:**
+  - request: `{"socket", "paneId", "panePid", "marker"}`;
+  - answer: `{}`;
+  - the driver refuses with `not_found` unless the pane still exists and runs
+    `panePid`.
+- **`clear`:**
+  - request: `{"socket", "paneId", "bindingId"}`;
+  - answer: `{"cleared": bool}`;
+  - the driver removes a marker only when it carries that `bindingId`; a missing
+    pane is `{"cleared": false}`.
+
+### `capture`, `input` and `focus`
+
+| Operation | Request | Answer |
+|---|---|---|
+| `capture` | `{"socket", "paneId", "lines"}` | `{"text"}` |
+| `input` | `{"socket", "paneId", "text", "enter"}` | `{}` |
+| `focus` | `{"socket", "paneId"}` | `{}` |
+
+- **`input`:** the driver pastes `text` literally, then presses Enter when
+  `enter` is true. Core has already applied its delivery policy (`!`
+  protection, staging, size), so the driver adds and interprets nothing.
+- **Missing pane:** each of these answers `not_found`.
+
+## Trust boundary
+
+Everything a driver prints is untrusted input. Core bounds it, parses it
+strictly, and checks every ID, pid and string against the declared grammar
+before use. Core also decides from its own evidence:
+
+- a pane is bound only when core's check of the process identity matches;
+- runtime and liveness come from core's own process inspection of the pane's
+  shell (status is not a driver operation);
+- deliveries are accepted only through core's receipt logic.
+
+**What a driver receives:** it never receives tokens, receipts, requests or
+other identities' data. `caller` receives only the variables the driver
+declared.
+
+**What a driver must not do:**
+
+- open or write TMT's database or files;
+- change consent;
+- run as another user.
+
+This is a contract that core's checks enforce at the boundary above. It is not
+an operating-system sandbox: the driver runs as the user.
+
+**Consent:** an installed driver is consented and fingerprinted like an
+extension hook. Core records its path, SHA-256 digest and metadata fingerprint,
+and re-checks them before use. A changed executable is disabled until it is
+approved again. There is no PATH discovery.
+
+## Conformance
+
+The crate's `conformance::check` runs a driver through any invoker, a spawned
+executable or `serve` in process. It checks:
+
+- the capabilities and the envelope;
+- `unsupported` for undeclared operations;
+- `bad_request` for malformed requests;
+- deadlines and bounds;
+- every declared operation, against a pane and a target that don't exist, so
+  running it against a live server changes nothing there.
+
+Checks that need a bound pane belong to the host's own fixture. A driver
+conforms when `check` reports no findings.
