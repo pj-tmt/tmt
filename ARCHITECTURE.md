@@ -2097,7 +2097,10 @@ line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
 format-preserving replacement that records `me`. A tab line that doesn't
 fit scrolls: `tab_window` keeps the current tab in view, starting as near the
 last frame's first tab as it can. It counts the hidden tabs at each end, and
-only the drawn tabs can be clicked. The switcher (`s`, unless the user bound
+only the drawn tabs can be clicked. Pinned tabs (`[tabs] pin`) come first from
+`tabs::arrange` in `pin`'s order and are drawn before the scrolled window. A
+move never moves or passes a pin, since the saved `order` could not reorder
+them. The switcher (`s`, unless the user bound
 it) filters the tab line's tabs and the hidden ones with `tabs::matching`: a
 prefix match first, then a substring, then the letters in order. A shown
 squad that isn't on the tab line (hidden) is drawn first, selected, with no

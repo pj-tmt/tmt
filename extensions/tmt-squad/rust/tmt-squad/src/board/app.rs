@@ -61,6 +61,8 @@ pub struct Snapshot {
     pub tabs: Vec<String>,
     /// Hidden tabs, still reachable through the switcher.
     pub hidden: Vec<String>,
+    /// How many tabs at the front are pinned.
+    pub pinned: usize,
     /// Every listed squad's attention, for its tab's color and counts.
     pub attention: BTreeMap<String, Attention>,
     pub squad: Option<String>,
@@ -205,6 +207,7 @@ pub struct Hit {
 pub struct App {
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
+    pub pinned: usize,
     /// The quick switcher (`s`), while open.
     pub switcher: Option<Switcher>,
     pub attention: BTreeMap<String, Attention>,
@@ -362,6 +365,7 @@ impl App {
     pub fn apply(&mut self, snapshot: Snapshot) {
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
+        self.pinned = snapshot.pinned;
         self.attention = snapshot.attention;
         if self.current.is_some() && snapshot.squad != self.current {
             if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
@@ -434,10 +438,15 @@ impl App {
         }
     }
 
-    /// Moves one tab to another position and saves the order.
+    /// Moves one tab to another position and saves the order. Pinned tabs
+    /// keep `[tabs] pin`'s order, so only the others move, and never among
+    /// them: a saved `order` could not change where a pin is drawn.
     fn move_tab(&mut self, from: usize, to: usize) -> Effect {
         if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
             return Effect::None;
+        }
+        if from < self.pinned || to < self.pinned {
+            return self.say("Pinned tabs keep the order in [tabs] pin.");
         }
         let tab = self.tabs.remove(from);
         self.tabs.insert(to, tab);
@@ -1033,6 +1042,7 @@ pub(crate) mod tests {
         Snapshot {
             tabs: vec!["infra".into(), "product".into()],
             hidden: Vec::new(),
+            pinned: 0,
             attention: Default::default(),
             squad: Some(squad.into()),
             view: Ok(view(sections)),
@@ -1138,6 +1148,7 @@ pub(crate) mod tests {
         app.apply(Snapshot {
             tabs: vec!["product".into(), "infra".into()],
             hidden: Vec::new(),
+            pinned: 0,
             attention: Default::default(),
             squad: Some("infra".into()),
             view: Err("infra: room not found".into()),
@@ -1528,6 +1539,7 @@ pub(crate) mod tests {
         app.apply(Snapshot {
             tabs: vec!["product".into()],
             hidden: Vec::new(),
+            pinned: 0,
             attention: Default::default(),
             squad: Some("product".into()),
             view: Err("tmt did not finish in time".into()),
