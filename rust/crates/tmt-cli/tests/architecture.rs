@@ -72,6 +72,7 @@ fn workspace_obeys_native_architecture() {
             "tmt-adapters",
             "tmt-cli",
             "tmt-cli-style",
+            "tmt-invoke",
             "tmt-command-output",
             "tmt-driver-protocol",
             "tmt-host-grammar",

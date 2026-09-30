@@ -1242,3 +1242,71 @@ fn remote_keeps_public_command_isolation() {
         1
     );
 }
+
+#[test]
+fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-invoke",
+            vec![
+                dependency("subprocess", "normal", None, None),
+                dependency("nix", "normal", None, None)
+            ]
+        ))
+        .is_empty()
+    );
+    for kind in ["normal", "dev", "build"] {
+        for target in [None, Some("cfg(unix)")] {
+            for name in ["tmt-core", "tmt-adapters", "tmt-cli-style", "serde_json"] {
+                assert_eq!(
+                    policy::dependency_violations(&package(
+                        "tmt-invoke",
+                        vec![dependency(name, kind, target, None)]
+                    ))
+                    .len(),
+                    1
+                );
+            }
+            assert_eq!(
+                policy::dependency_violations(&package(
+                    "tmt-invoke",
+                    vec![dependency("nix", kind, target, Some("alias"))]
+                ))
+                .len(),
+                1
+            );
+        }
+    }
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-remote",
+            vec![dependency("tmt-invoke", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-remote",
+            vec![dependency("tmt-invoke", "normal", None, Some("alias"))]
+        ))
+        .len(),
+        1
+    );
+    assert_exact(
+        &[syntax("tmt-remote", "core.rs", "use tmt_invoke::invoke;")],
+        &[],
+    );
+    for source in [
+        "use tmt_core::identity::Identity;",
+        "pub use tmt_adapters::process;",
+    ] {
+        assert_eq!(
+            policy::source_violations(&[syntax("tmt-invoke", "lib.rs", source)]).len(),
+            1
+        );
+    }
+    assert_exact(
+        &[syntax("tmt-invoke", "lib.rs", "use tmt_invoke::Request;")],
+        &[],
+    );
+}
