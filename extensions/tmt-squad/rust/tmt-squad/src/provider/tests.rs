@@ -153,6 +153,7 @@ fn due_runs_follow_the_argv_and_the_interval() {
         &Outcome::Value {
             value: "OPEN".into(),
             color: None,
+            pr_state: None,
         },
         1_000,
     );
@@ -211,6 +212,7 @@ fn output_is_one_clean_line_or_a_value_with_a_color_token() {
     let value = |value: &str, color: Option<&str>| Outcome::Value {
         value: value.into(),
         color: color.map(str::to_owned),
+        pr_state: None,
     };
     assert_eq!(outcome(b"OPEN\n"), value("OPEN", None));
     assert_eq!(outcome(b"  first\nsecond\n"), value("first", None));
@@ -280,11 +282,13 @@ fn programs_run_directly_and_every_failure_is_a_failed_run() {
         [
             Outcome::Value {
                 value: "a b|$(id)|; rm -rf ~|".into(),
-                color: None
+                color: None,
+                pr_state: None,
             },
             Outcome::Value {
                 value: "on-path".into(),
-                color: None
+                color: None,
+                pr_state: None,
             },
             Outcome::Failed,
             Outcome::Failed,
@@ -388,7 +392,7 @@ fn the_github_preset_reads_a_pull_request_from_pr_link() {
 #[test]
 fn github_output_becomes_number_state_and_review() {
     let value = |text: &str| match github_pr(text.as_bytes()) {
-        Outcome::Value { value, color: None } => value,
+        Outcome::Value { value, .. } => value,
         other => panic!("{text}: {other:?}"),
     };
     let pr = |state: &str, draft: bool, review: &str| {
@@ -416,6 +420,17 @@ fn github_output_becomes_number_state_and_review() {
         "review only while open"
     );
     assert_eq!(value(&pr("CLOSED", false, "")), "#412 closed");
+    for (state, draft, expected) in [
+        ("OPEN", false, "open"),
+        ("OPEN", true, "draft"),
+        ("MERGED", false, "merged"),
+        ("CLOSED", false, "closed"),
+    ] {
+        let Outcome::Value { pr_state, .. } = github_pr(pr(state, draft, "").as_bytes()) else {
+            panic!("valid github JSON must produce a value");
+        };
+        assert_eq!(pr_state.as_deref(), Some(expected));
+    }
     for bad in [
         "",
         "not json",
@@ -460,11 +475,64 @@ fn the_github_preset_degrades_to_a_failed_run() {
         [
             Outcome::Value {
                 value: "#7 open · approved".into(),
-                color: None
+                color: None,
+                pr_state: Some("open".into()),
             },
             Outcome::Failed,
             Outcome::Failed,
         ]
     );
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn only_current_successful_github_preset_states_are_activity_evidence() {
+    let providers =
+        providers("[squad.p.fields.pr_state]\npreset = \"github-pr\"\nevery = \"1m\"\n").unwrap();
+    let linked = member("R", &[("pr_link", "https://example.com/pull/1")]);
+    let jobs = due(
+        &providers,
+        std::slice::from_ref(&linked),
+        &Cache::at(None),
+        1000,
+    );
+    let mut cache = Cache::at(None);
+    let mut parsed = github_pr(br#"{"number":1,"state":"OPEN","isDraft":false}"#);
+    if let Outcome::Value { value, .. } = &mut parsed {
+        *value = "display format changed completely".into();
+    }
+    cache.record(&jobs[0], &parsed, 1000);
+    assert_eq!(
+        cache
+            .github_pr_states(&providers, &linked, 2000)
+            .get("pr_state")
+            .map(String::as_str),
+        Some("open")
+    );
+    assert!(cache.github_pr_states(&providers, &linked, 999).is_empty());
+    assert!(
+        cache
+            .github_pr_states(&providers, &linked, 61001)
+            .is_empty()
+    );
+    let relinked = member("R", &[("pr_link", "https://example.com/pull/2")]);
+    assert!(
+        cache
+            .github_pr_states(&providers, &relinked, 2000)
+            .is_empty()
+    );
+    cache.record(&jobs[0], &Outcome::Failed, 2000);
+    assert!(cache.github_pr_states(&providers, &linked, 2000).is_empty());
+    let text = gh();
+    let jobs = due(&text, std::slice::from_ref(&linked), &Cache::at(None), 1000);
+    cache.record(
+        &jobs[0],
+        &Outcome::Value {
+            value: "#1 merged".into(),
+            color: None,
+            pr_state: None,
+        },
+        1000,
+    );
+    assert!(cache.github_pr_states(&text, &linked, 2000).is_empty());
 }

@@ -1,5 +1,6 @@
 //! `tmt squad` (alias `tmt sq`): an optional extension reached through TMT's
-//! external command dispatch. It keeps no state of its own.
+//! external command dispatch. Core owns authoritative state; disposable
+//! extension caches hold derived values and observed ages.
 
 mod action;
 mod attention;
@@ -26,6 +27,7 @@ mod source;
 mod specs;
 mod split;
 mod squad;
+mod staleness;
 mod status;
 mod template;
 #[cfg(test)]
@@ -838,17 +840,47 @@ fn ls_document(
         let states = config.states(&squad.name, layout)?;
         let rows = config.rows(&squad.name)?;
         let providers = config.providers(&squad.name)?;
+        let reminders = config.reminders(&squad.name)?;
+        // Lock before reading raw member values: older snapshots cannot
+        // overwrite a newer observation from another invocation.
+        let observer = staleness::Observer::begin(config.path(), squad, reminders);
         let mut members = squad.members(core, rows.reads_metadata())?;
+        let mut cached = provider::Cache::load(&squad.name);
+        let notes = if observer.active() {
+            members
+                .iter()
+                .find(|member| member.is_lead())
+                .and_then(|lead| core.api("notes.read", json!({"identityId": lead.id})).ok())
+        } else {
+            None
+        };
+        let room = if observer.active() {
+            requests::room_window(core, squad).ok()
+        } else {
+            None
+        };
+        let observed = observer.record(
+            &members,
+            &providers,
+            &cached,
+            notes.as_ref(),
+            room.as_ref(),
+            status::now_ms(),
+        );
         if refresh_fields {
             provider::refresh(&squad.name, &providers, &members, status::now_ms());
+            cached = provider::Cache::load(&squad.name);
         }
-        provider::apply(
-            &providers,
-            &mut members,
-            &provider::Cache::load(&squad.name),
-        );
+        provider::apply(&providers, &mut members, &cached);
         let mut document = status::document(squad, layout, &states, &sections, &rows, members);
-        requests::overlay(core, squad, you.as_ref().map(|(me, _)| me), &mut document)?;
+        observed.apply(&mut document);
+        requests::overlay_with_room(
+            core,
+            squad,
+            you.as_ref().map(|(me, _)| me),
+            &mut document,
+            room,
+        )?;
         document["squad"]["attention"] = attention::Attention::of(&document).document();
         let rows = rows.value();
         document["columns"] = rows["columns"].clone();
