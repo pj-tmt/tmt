@@ -1109,6 +1109,17 @@ layout, opening both databases read-only and never through
 `OfficeStore::open_configured`, so context never migrates, activates,
 reconciles or creates files.
 
+Provider `UserPromptSubmit` hooks use the same generic callback and aggregate
+budget, returning only the attributed extension lines as event-specific
+`additionalContext`. A consent-file capability check returns immediately when no
+extension has consented to context, before host probes or storage reads. Otherwise,
+they require an already running, verified binding whose
+provider session and runtime incarnation match the caller, and recheck the
+binding/preferences after callbacks before handing context to the provider.
+They neither admit a session nor replay the SessionStart identity preamble.
+Setup includes one synchronous prompt-submit entry in its consented plan;
+existing SessionStart and opt-in Stop behavior retain their owners.
+
 With no consent file or no enabled observer, a command performs at most one read
 attempt of the consent file, on its first storage open, and spawns nothing;
 commands that never open storage do no hook work at all. Office implements the

@@ -166,7 +166,7 @@ pub(super) fn has_owned_hook(provider: &DriverDefinition, text: &str, event: &st
 }
 
 /// The lifecycle events, in the order setup inserts them.
-const LIFECYCLE: [&str; 2] = ["SessionStart", "SessionEnd"];
+const LIFECYCLE: [&str; 3] = ["SessionStart", "SessionEnd", "UserPromptSubmit"];
 /// The opt-in turn-end event that records context usage (#519).
 pub(super) const USAGE: &str = "Stop";
 
@@ -244,7 +244,12 @@ pub(super) fn removed(
     if result == text {
         return Ok(None);
     }
-    trim_inserted(text, result, &[USAGE, LIFECYCLE[1], LIFECYCLE[0]]).map(Some)
+    trim_inserted(
+        text,
+        result,
+        &[USAGE, LIFECYCLE[2], LIFECYCLE[1], LIFECYCLE[0]],
+    )
+    .map(Some)
 }
 
 /// Removes only the usage hook, restoring the bytes it was installed into.
@@ -317,6 +322,7 @@ mod tests {
             "{\n \"permissions\": {\"allow\": []}\n}\n".to_owned(),
             format!("{{\n \"hooks\": {{\"SessionStart\": [{user_hook}]}}\n}}\n"),
             format!("{{\"hooks\":{{\"SessionStart\":[{user_hook}],\"SessionEnd\":[]}}}}"),
+            format!("{{\"hooks\":{{\"UserPromptSubmit\":[{user_hook}]}}}}"),
         ];
         for original in originals {
             for driver in [&claude::DRIVER, &codex::DRIVER] {

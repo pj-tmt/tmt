@@ -13,6 +13,8 @@ use std::{
 struct Step {
     args: Vec<String>,
     input: Option<serde_json::Value>,
+    #[serde(default)]
+    measure: bool,
 }
 
 fn main() {
@@ -32,6 +34,7 @@ fn main() {
     let steps: Vec<Step> = serde_json::from_slice(&fs::read(&args[1]).unwrap()).unwrap();
     let mut results = Vec::new();
     for step in steps {
+        let started = step.measure.then(std::time::Instant::now);
         let mut child = Command::new(&args[0])
             .args(step.args)
             .stdin(Stdio::piped())
@@ -49,16 +52,21 @@ fn main() {
         }
         drop(child.stdin.take());
         let output = child.wait_with_output().expect("reap fixture-owned CLI");
+        let elapsed_ms = started.map(|start| start.elapsed().as_secs_f64() * 1000.0);
         let badge = Command::new("tmux")
             .args(["-u", "show-options", "-p", "-qv", "-t"])
             .arg(std::env::var("TMUX_PANE").unwrap())
             .arg("@tmux-team.badge")
             .output()
             .expect("read fixture pane badge");
-        results.push(json!({"code":output.status.code(),
+        let mut result = json!({"code":output.status.code(),
             "badge": String::from_utf8(badge.stdout).unwrap().trim(),
             "stdout": String::from_utf8(output.stdout).unwrap(),
-            "stderr": String::from_utf8(output.stderr).unwrap()}));
+            "stderr": String::from_utf8(output.stderr).unwrap()});
+        if let Some(elapsed_ms) = elapsed_ms {
+            result["elapsedMs"] = json!(elapsed_ms);
+        }
+        results.push(result);
     }
     let stage = std::path::PathBuf::from(&args[2]).with_extension("pending");
     fs::write(&stage, serde_json::to_vec(&results).unwrap()).unwrap();

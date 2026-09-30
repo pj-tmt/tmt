@@ -52,3 +52,15 @@ with `--help` under a disposable `HOME` (and `CODEX_HOME`) on 2026-09-29:
 - Claude Code 2.1.284, `claude --help`: `Usage: claude [options] [command]
   [prompt]`, with the `--model <model>` and `-r, --resume [value]` options. The
   driver emits `claude --resume <session> --model <model>`.
+
+## Prompt-submit context (#652)
+
+`claude-prompt-submit.json` and `codex-prompt-submit.json` are assembled from
+[Claude's UserPromptSubmit contract](https://code.claude.com/docs/en/hooks#userpromptsubmit)
+and [Codex's hook contract](https://learn.chatgpt.com/docs/hooks#userpromptsubmit),
+retrieved 2026-10-01. IDs, paths and prompt text are placeholders. Local versions
+were Claude Code 2.1.285 and codex-cli 0.159.2; Codex's generated first-party
+schema also lists `userPromptSubmit`. These are documented wire fixtures, not
+recordings from a model run. `runtime::prompt_tests` pins event/session decoding,
+provider-specific context output, bounds and rejection of other event shapes.
+They establish context delivery only; activity ordering is owned by #656.
