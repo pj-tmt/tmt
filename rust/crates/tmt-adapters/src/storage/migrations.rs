@@ -8,6 +8,8 @@ mod announcement_tests;
 #[cfg(test)]
 mod board_scope_tests;
 #[cfg(test)]
+mod change_cursor_tests;
+#[cfg(test)]
 mod dispatch_tests;
 #[cfg(test)]
 mod host_tests;
@@ -209,6 +211,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "admit a second terminal host in bindings, request fences and host servers",
         sql: include_str!("schema/039.sql"),
+    },
+    Migration {
+        name: "advance one change cursor on every change to core-owned records",
+        sql: include_str!("schema/040.sql"),
     },
 ];
 

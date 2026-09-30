@@ -52,7 +52,7 @@ fn lobby_upgrade_preserves_identity_layout_and_rolls_back_on_history_failure() {
     observer.close().unwrap();
 
     let mut upgraded = Storage::open(&path).unwrap();
-    assert_eq!(upgraded.health().unwrap().schema_version, 39);
+    assert_eq!(upgraded.health().unwrap().schema_version, 40);
     let connection = upgraded.connection().unwrap();
     let row: (String, String, String, i64, String, i64) = connection.query_row(
         "SELECT block_id, target_kind, identity_id, revision, layout, updated_at_ms FROM office_local_blocks", [],
@@ -192,7 +192,7 @@ fn customization_upgrade_rolls_back_both_targets_then_preserves_their_exact_byte
     observer.close().unwrap();
 
     let mut upgraded = Storage::open(&path).unwrap();
-    assert_eq!(upgraded.health().unwrap().schema_version, 39);
+    assert_eq!(upgraded.health().unwrap().schema_version, 40);
     let connection = upgraded.connection().unwrap();
     assert_eq!(rows(connection), before_rows);
     let wider = format!("{}{}", r#"{"version":3,"objects":[]}"#, " ".repeat(6000));

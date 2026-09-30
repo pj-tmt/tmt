@@ -97,11 +97,13 @@ function expectNativeSchema(
       version: 39,
       name: 'admit a second terminal host in bindings, request fences and host servers',
     },
+    { version: 40, name: 'advance one change cursor on every change to core-owned records' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
+      'change_cursor',
       'extension_storage_cutovers',
       'host_servers',
       'identity_hooks',
@@ -867,9 +869,14 @@ describe('native SQLite lifecycle compatibility', () => {
         database.close();
       }
       const after = storageSnapshot(sandbox.database);
-      expect(after.tables.filter(({ name }) => name !== 'identities')).toEqual(
-        before.tables.filter(({ name }) => name !== 'identities')
+      // Only identities changed, and the change cursor counted both writes.
+      const changed = new Set(['identities', 'change_cursor']);
+      expect(after.tables.filter(({ name }) => !changed.has(name))).toEqual(
+        before.tables.filter(({ name }) => !changed.has(name))
       );
+      expect(table(after, 'change_cursor').rows).toEqual([
+        { id: 1, value: (table(before, 'change_cursor').rows[0] as { value: number }).value + 2 },
+      ]);
       const identities = new Database(sandbox.database, { readonly: true });
       try {
         expect(
