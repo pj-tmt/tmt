@@ -1,6 +1,7 @@
 use super::*;
 use crate::test_support::TestDirectory;
 use nix::{
+    fcntl::{FcntlArg, OFlag, fcntl},
     sys::stat::Mode,
     unistd::{mkfifo, pipe, write},
 };
@@ -10,7 +11,7 @@ use std::{
 };
 
 #[test]
-fn bounded_wire_input_keeps_its_own_cap_and_restores_flags() {
+fn bounded_wire_input_keeps_its_own_cap_and_flags() {
     let directory = TestDirectory::new();
     let file = directory.path.join("wire");
     let bytes = vec![b'x'; MAX_EXCHANGE_TEXT_BYTES + 1];
@@ -86,7 +87,7 @@ fn file_and_stdin_share_the_byte_cap_and_strict_decoding() {
 }
 
 #[test]
-fn pipe_requires_eof_and_restores_flags_after_success_and_invalid_utf8() {
+fn pipe_requires_eof_and_keeps_flags_after_success_and_invalid_utf8() {
     for (bytes, expected) in [
         (b"".as_slice(), Ok("")),
         (
@@ -112,24 +113,26 @@ fn pipe_requires_eof_and_restores_flags_after_success_and_invalid_utf8() {
 }
 
 #[test]
-fn missing_eof_discards_partial_input_and_restores_both_initial_flag_modes() {
-    for nonblocking in [false, true] {
-        let (reader, writer) = pipe().unwrap();
-        if nonblocking {
-            let flags = OFlag::from_bits_retain(fcntl(&reader, FcntlArg::F_GETFL).unwrap());
-            fcntl(&reader, FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK)).unwrap();
+fn missing_eof_discards_input_and_keeps_both_initial_flag_modes() {
+    for input in [b"".as_slice(), b"partial".as_slice()] {
+        for nonblocking in [false, true] {
+            let (reader, writer) = pipe().unwrap();
+            if nonblocking {
+                let flags = OFlag::from_bits_retain(fcntl(&reader, FcntlArg::F_GETFL).unwrap());
+                fcntl(&reader, FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK)).unwrap();
+            }
+            let flags = fcntl(&reader, FcntlArg::F_GETFL).unwrap();
+            write(&writer, input).unwrap();
+            let before = Instant::now();
+            assert_eq!(
+                stream_result(&reader, Duration::from_millis(20)),
+                Err(ResponseInputFailure::Timeout)
+            );
+            assert!(before.elapsed() < Duration::from_secs(1));
+            assert_eq!(fcntl(&reader, FcntlArg::F_GETFL).unwrap(), flags);
+            // Still-open writer proves timeout was not an accidental EOF success.
+            write(&writer, b"still open").unwrap();
         }
-        let flags = fcntl(&reader, FcntlArg::F_GETFL).unwrap();
-        write(&writer, b"partial").unwrap();
-        let before = Instant::now();
-        assert_eq!(
-            stream_result(&reader, Duration::from_millis(20)),
-            Err(ResponseInputFailure::Timeout)
-        );
-        assert!(before.elapsed() < Duration::from_secs(1));
-        assert_eq!(fcntl(&reader, FcntlArg::F_GETFL).unwrap(), flags);
-        // Still-open writer proves timeout was not an accidental EOF success.
-        write(&writer, b"still open").unwrap();
     }
 }
 
@@ -147,13 +150,57 @@ fn invalid_deadline_does_not_modify_the_descriptor() {
 #[test]
 fn socket_backed_stdin_accepts_eof_from_a_process_launcher() {
     use std::{io::Write, net::Shutdown, os::unix::net::UnixStream};
-    let (reader, mut writer) = UnixStream::pair().unwrap();
-    writer.write_all(b"socket body").unwrap();
-    writer.shutdown(Shutdown::Write).unwrap();
-    assert_eq!(
-        stream_result(&reader, Duration::from_secs(1)).unwrap(),
-        "socket body"
-    );
+    for input in ["", "\u{feff}socket\0\r\n"] {
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        let flags = fcntl(&reader, FcntlArg::F_GETFL).unwrap();
+        writer.write_all(input.as_bytes()).unwrap();
+        writer.shutdown(Shutdown::Write).unwrap();
+        assert_eq!(
+            stream_result(&reader, Duration::from_secs(1)).unwrap(),
+            input
+        );
+        assert_eq!(fcntl(&reader, FcntlArg::F_GETFL).unwrap(), flags);
+    }
+}
+
+#[test]
+fn socket_with_a_silent_or_partial_open_writer_times_out_without_changing_flags() {
+    use std::{io::Write, os::unix::net::UnixStream};
+    for input in [b"".as_slice(), b"partial".as_slice()] {
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        let flags = fcntl(&reader, FcntlArg::F_GETFL).unwrap();
+        writer.write_all(input).unwrap();
+        let before = Instant::now();
+        assert_eq!(
+            stream_result(&reader, Duration::from_millis(20)),
+            Err(ResponseInputFailure::Timeout)
+        );
+        assert!(before.elapsed() < Duration::from_secs(1));
+        assert_eq!(fcntl(&reader, FcntlArg::F_GETFL).unwrap(), flags);
+        writer.write_all(b"still open").unwrap();
+    }
+}
+
+#[test]
+fn pipe_byte_limit_accepts_exact_size_and_rejects_one_extra_byte() {
+    use std::io::Write;
+    for size in [MAX_EXCHANGE_TEXT_BYTES, MAX_EXCHANGE_TEXT_BYTES + 1] {
+        let (reader, writer) = pipe().unwrap();
+        let flags = fcntl(&reader, FcntlArg::F_GETFL).unwrap();
+        std::thread::scope(|scope| {
+            let sender = scope.spawn(move || File::from(writer).write_all(&vec![b'x'; size]));
+            let result = stream_result(&reader, Duration::from_secs(2));
+            let after = fcntl(&reader, FcntlArg::F_GETFL);
+            drop(reader);
+            sender.join().unwrap().unwrap();
+            assert_eq!(after.unwrap(), flags);
+            if size == MAX_EXCHANGE_TEXT_BYTES {
+                assert_eq!(result.unwrap().as_bytes(), vec![b'x'; size]);
+            } else {
+                assert_eq!(result, Err(ResponseInputFailure::TooLarge));
+            }
+        });
+    }
 }
 
 fn file_result(path: &Path) -> Result<String, ResponseInputFailure> {

@@ -31,5 +31,8 @@ syn = { version = "=2.0.119", default-features = false, features = ["full", "par
 # Macro arguments are token streams; the output guard scans them.
 proc-macro2 = { version = "=1.0.107", default-features = false }
 
+[target.'cfg(unix)'.dev-dependencies]
+nix.workspace = true
+
 [lints]
 workspace = true

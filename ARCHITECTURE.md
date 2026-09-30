@@ -1949,10 +1949,10 @@ Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode
 shortcuts; this is transport policy, not arbitrary output rewriting. `check`
 remains bounded terminal diagnostics, not a fallback response channel.
 
-`response_input` owns bounded file/stdin acquisition, regular-file checks,
-nonblocking behavior and restoration of inherited descriptor flags. The public
-CLI owns stdin during acquisition. These adapters do not invent background
-threads or a second process runner.
+`response_input` owns bounded file/stdin acquisition and regular-file checks. It
+polls against the deadline before each read and never mutates stdin descriptor
+flags. The public CLI exclusively owns stdin during acquisition. These adapters
+do not invent background threads or a second process runner.
 
 ### Agent drivers
 
