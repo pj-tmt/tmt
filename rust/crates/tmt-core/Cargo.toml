@@ -10,6 +10,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+tmt-host-grammar.workspace = true
 semver.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 icu_normalizer.workspace = true

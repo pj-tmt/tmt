@@ -15,6 +15,7 @@
 use crate::{
     grid::{self, Track},
     palette::{Terminal, Token},
+    theme::{Depth, Theme},
 };
 use comfy_table::{Attribute, Color, ColumnConstraint, Row, Width, presets};
 use std::io::{self, Write};
@@ -163,11 +164,11 @@ impl Table {
             let mut row = Row::new();
             row.max_height(1);
             for cell in cells {
-                row.add_cell(styled(cell));
+                row.add_cell(styled(cell, terminal.theme));
             }
             if with_actions {
                 let none = Cell::from("");
-                row.add_cell(styled(action.as_ref().unwrap_or(&none)));
+                row.add_cell(styled(action.as_ref().unwrap_or(&none), terminal.theme));
             }
             table.add_row(row);
         }
@@ -269,11 +270,14 @@ fn without_trailing_padding(line: &str) -> String {
     format!("{end}{}", resets.concat())
 }
 
-fn styled(cell: &Cell) -> comfy_table::Cell {
+fn styled(cell: &Cell, theme: Option<(Theme, Depth)>) -> comfy_table::Cell {
     let mut rendered = comfy_table::Cell::new(&cell.text);
     let Some(token) = cell.token else {
         return rendered;
     };
+    if theme.is_some() {
+        return themed(rendered, token.themed(theme));
+    }
     if let Some(color) = token.color().map(dark) {
         rendered = rendered.fg(color);
     }
@@ -281,6 +285,53 @@ fn styled(cell: &Cell) -> comfy_table::Cell {
         Token::Dim | Token::Driver(None) => rendered.add_attribute(Attribute::Dim),
         Token::Title | Token::Literal => rendered.add_attribute(Attribute::Bold),
         _ => rendered,
+    }
+}
+
+/// A themed style on a table cell: its color and its effects.
+fn themed(mut rendered: comfy_table::Cell, style: anstyle::Style) -> comfy_table::Cell {
+    match style.get_fg_color() {
+        Some(anstyle::Color::Rgb(anstyle::RgbColor(r, g, b))) => {
+            rendered = rendered.fg(Color::Rgb { r, g, b });
+        }
+        Some(anstyle::Color::Ansi(color)) => rendered = rendered.fg(ansi(color)),
+        Some(anstyle::Color::Ansi256(index)) => rendered = rendered.fg(Color::AnsiValue(index.0)),
+        None => {}
+    }
+    let effects = style.get_effects();
+    for (effect, attribute) in [
+        (anstyle::Effects::BOLD, Attribute::Bold),
+        (anstyle::Effects::DIMMED, Attribute::Dim),
+        (anstyle::Effects::INVERT, Attribute::Reverse),
+    ] {
+        if effects.contains(effect) {
+            rendered = rendered.add_attribute(attribute);
+        }
+    }
+    rendered
+}
+
+/// Every one of the 16 palette entries in crossterm's names, where the
+/// "dark" names are the standard entries and the plain names the bright.
+fn ansi(color: anstyle::AnsiColor) -> Color {
+    use anstyle::AnsiColor as Ansi;
+    match color {
+        Ansi::Black => Color::Black,
+        Ansi::Red => Color::DarkRed,
+        Ansi::Green => Color::DarkGreen,
+        Ansi::Yellow => Color::DarkYellow,
+        Ansi::Blue => Color::DarkBlue,
+        Ansi::Magenta => Color::DarkMagenta,
+        Ansi::Cyan => Color::DarkCyan,
+        Ansi::White => Color::Grey,
+        Ansi::BrightBlack => Color::DarkGrey,
+        Ansi::BrightRed => Color::Red,
+        Ansi::BrightGreen => Color::Green,
+        Ansi::BrightYellow => Color::Yellow,
+        Ansi::BrightBlue => Color::Blue,
+        Ansi::BrightMagenta => Color::Magenta,
+        Ansi::BrightCyan => Color::Cyan,
+        Ansi::BrightWhite => Color::White,
     }
 }
 

@@ -58,6 +58,14 @@ styles for ratatui from `theme::screen::style`, behind the crate's `ratatui`
 feature, so core links no ratatui. A test keeps the built-in values equal to the
 design tokens.
 
+A `Terminal` carries the stream's theme and depth; `paint` and table cells use
+`Token::themed`, and a stream without a theme renders exactly the 16-color
+output above. The executable sets the process theme once at startup
+(`theme::configure`; a second call is a bug), and `Terminal::stdout` and
+`Terminal::stderr` apply it to colored streams only. Help keeps the 16-color
+styles: clap builds it before any configuration is read. Tests pass a theme in
+the `Terminal` they build rather than configuring the process.
+
 ## Marks
 
 Each mark has one meaning everywhere (`mark::Mark`). A row's leading state mark is

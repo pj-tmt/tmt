@@ -646,6 +646,7 @@ mod presentation_tests {
             tmt_cli_style::Terminal {
                 color: false,
                 width: Some(48),
+                theme: None,
             },
         );
         assert!(text.lines().all(|line| line.chars().count() <= 48));

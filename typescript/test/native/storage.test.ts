@@ -98,6 +98,10 @@ function expectNativeSchema(
       name: 'admit a second terminal host in bindings, request fences and host servers',
     },
     { version: 40, name: 'advance one change cursor on every change to core-owned records' },
+    {
+      version: 41,
+      name: 'admit any approved host driver in bindings, request fences and host servers',
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
