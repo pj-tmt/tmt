@@ -14,6 +14,7 @@ pub use tabs::{ALL, LEADS};
 
 use crate::{
     back,
+    config::Config,
     core::{Core, SquadError},
     effects, send,
 };
@@ -107,6 +108,10 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
             text,
         } => send::annotate(core, &squad, &me, &to, &row, &text)
             .map(|request| format!("Note on {row} sent to {to} ({request})."))
+            .map_err(|error| error.message),
+        Request::Reorder(keys) => Config::load(core)
+            .and_then(|mut config| config.set_tab_order(&keys))
+            .map(|()| "Tab order saved.".to_owned())
             .map_err(|error| error.message),
         Request::Reply {
             me,

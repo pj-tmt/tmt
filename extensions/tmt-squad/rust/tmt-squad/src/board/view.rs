@@ -2,7 +2,7 @@
 //! cells so wide characters never misalign columns.
 
 use super::{
-    app::{App, Hit, Item, Notes},
+    app::{App, Hit, Item, Notes, TabHit},
     markdown,
     notes::{sanitize, wrap},
 };
@@ -33,7 +33,7 @@ const KEYS: &[&str] = &[
     "PgUp PgDn   page the focused pane; Home End go to its top and bottom",
     "wheel       scroll the pane under the pointer",
     "Shift-drag  select text to copy (Option-drag in some terminals)",
-    "← →         switch tab",
+    "← →         switch tab; Shift+← → or drag a tab to move it",
     "/           search; Esc clears",
     "?           this help",
     "q, Esc      close the board",
@@ -239,15 +239,26 @@ fn tab(name: &str, selected: bool, attention: Attention, colors: &TabColors) -> 
     Span::styled(text, style)
 }
 
-/// The first header line: only the tabs, and the loading spinner.
-fn tab_line(app: &App) -> Line<'_> {
+/// The first header line: only the tabs, and the loading spinner. Each
+/// tab's place is recorded for clicks and drags.
+fn tab_line(app: &App, area: Rect) -> Line<'_> {
     let default = TabColors::default();
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
     let mut spans = Vec::new();
-    for key in &app.tabs {
+    let mut x = area.x;
+    for (index, key) in app.tabs.iter().enumerate() {
         let selected = Some(key) == app.current.as_ref();
         let attention = app.attention.get(key).copied().unwrap_or_default();
-        spans.push(tab(super::tabs::label(key), selected, attention, colors));
+        let span = tab(super::tabs::label(key), selected, attention, colors);
+        let width = span.content.width() as u16;
+        app.tab_hits.borrow_mut().push(TabHit {
+            y: area.y,
+            x,
+            width,
+            tab: index,
+        });
+        x = x.saturating_add(width + 1);
+        spans.push(span);
         spans.push(Span::raw(" "));
     }
     if let Some(started) = app.loading_since
@@ -317,6 +328,7 @@ fn summary_line(app: &App) -> Line<'_> {
 
 pub fn render(frame: &mut Frame, app: &App) {
     app.hits.borrow_mut().clear();
+    app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
     let [tabs, summary, body, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -325,7 +337,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    frame.render_widget(Paragraph::new(tab_line(app)), tabs);
+    frame.render_widget(Paragraph::new(tab_line(app, tabs)), tabs);
     frame.render_widget(Paragraph::new(summary_line(app)), summary);
     render_body(frame, app, body);
     let footer_line = if let Some(input) = &app.input {
@@ -1420,6 +1432,74 @@ lines = [
         assert_eq!(screen[1], "2 squad leads");
         assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
         assert_eq!(screen[3], "  product        sol            working    plan");
+    }
+
+    #[test]
+    fn tabs_move_with_shift_arrows_or_a_drag_and_the_order_is_saved() {
+        use crate::board::app::{Effect, Request};
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let mut app = board(json!([{"title": null, "rows": []}]));
+        app.tabs.push(crate::board::LEADS.into());
+        let order = |app: &App| app.tabs.clone();
+        let shift = |code| KeyEvent::new(code, KeyModifiers::SHIFT);
+        assert_eq!(
+            app.key(shift(KeyCode::Right)),
+            Effect::Act(Request::Reorder(
+                ["reviews", "product", crate::board::LEADS]
+                    .map(String::from)
+                    .to_vec()
+            ))
+        );
+        assert_eq!(app.current.as_deref(), Some("product"), "still shown");
+        assert_eq!(
+            app.key(shift(KeyCode::Right)),
+            Effect::Act(Request::Reorder(order(&app)))
+        );
+        assert_eq!(
+            app.key(shift(KeyCode::Right)),
+            Effect::None,
+            "no wrap at the end"
+        );
+
+        // Drag: press on the first tab (showing it), release over the last.
+        let screen = draw(&app, 60, 6);
+        assert_eq!(screen[0], " reviews   leads   product");
+        let mouse = |kind, column| MouseEvent {
+            kind,
+            column,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert_eq!(
+            app.mouse(
+                mouse(MouseEventKind::Down(MouseButton::Left), 2),
+                std::time::Instant::now()
+            ),
+            Effect::Load("reviews".into())
+        );
+        assert_eq!(
+            app.mouse(
+                mouse(MouseEventKind::Up(MouseButton::Left), 22),
+                std::time::Instant::now()
+            ),
+            Effect::Act(Request::Reorder(
+                ["leads", "product", "reviews"]
+                    .map(|name| if name == "leads" {
+                        crate::board::LEADS.to_owned()
+                    } else {
+                        name.to_owned()
+                    })
+                    .to_vec()
+            ))
+        );
+        // Releasing off the tab line moves nothing.
+        app.mouse(
+            mouse(MouseEventKind::Down(MouseButton::Left), 2),
+            std::time::Instant::now(),
+        );
+        let mut away = mouse(MouseEventKind::Up(MouseButton::Left), 2);
+        away.row = 4;
+        assert_eq!(app.mouse(away, std::time::Instant::now()), Effect::None);
     }
 
     #[test]
