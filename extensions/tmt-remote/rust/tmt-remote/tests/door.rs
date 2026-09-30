@@ -180,6 +180,28 @@ fn finite_lifecycle_rate_and_acquisition_cleanup() {
     );
     drop(door);
     let door = Running::new(Duration::from_secs(30));
+    let mut retained = Vec::new();
+    for _ in 0..20 {
+        let mut stream = TcpStream::connect(door.addr).unwrap();
+        stream.write_all(b"POST /r/").unwrap();
+        retained.push(stream);
+    }
+    assert!(
+        door.request(&door.post("/ack", "", "{}"))
+            .starts_with("HTTP/1.1 429")
+    );
+    drop(door);
+    for mut stream in retained {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        let result = stream.read(&mut [0; 1]);
+        assert!(
+            matches!(result, Ok(0)) || result.is_err(),
+            "retained connection leaked"
+        );
+    }
+    let door = Running::new(Duration::from_secs(30));
     for request in [
         "POST /r/",
         door.post("/append", "", "{}").trim_end_matches("{}"),
