@@ -6,13 +6,18 @@
     "The advisory native Office browser shards are selected by consumedByNativeOffice in ci-scope.mjs, not by these rules; its verified denylist has its own tests.",
     "migrations: the source files that list a component's SQLite migrations; a release that has more entries in one than the last published release of that component is held for the owner (typescript/scripts/publication-gates.mjs).",
     "scopedChecks: a component that cannot affect the others (only Squad) lists the native test files and E2E files its own scope runs; ci-scope.mjs turns that into the native_scope outputs.",
-    "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class."
+    "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class.",
+    "A private non-native component may declare release:false and no Cargo package; it still owns files and CI rules, but the release generator rejects native crates under it."
   ],
   "components": {
     "cli": {
       "package": "tmt-cli",
       "owns": ["."],
-      "excludes": ["extensions/tmt-office", "extensions/tmt-squad"],
+      "excludes": [
+        "extensions/tmt-office",
+        "extensions/tmt-squad",
+        "extensions/tmt-remote/typescript/browser-addon"
+      ],
       "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
     },
     "office": {
@@ -37,6 +42,10 @@
         "nativeTests": ["squad.test.ts", "extension-install.test.ts"],
         "e2eFiles": ["squad.e2e.test.ts"]
       }
+    },
+    "browser-addon": {
+      "owns": ["extensions/tmt-remote/typescript/browser-addon"],
+      "release": false
     }
   },
   "rules": [
@@ -68,6 +77,15 @@
       "consumers": [],
       "why": "The handbook website has its own workflow (.github/workflows/site.yml); no native or Office job reads it.",
       "paths": ["site/**", ".github/workflows/site.yml"]
+    },
+    {
+      "id": "browser-addon",
+      "consumers": [],
+      "why": "Private MV3 shell has its own browser-addon.yml workflow filtered to shell and consumed tooling inputs; native and Office jobs read none of its files. Positive and prefix-negative fixtures guard this boundary.",
+      "paths": [
+        "extensions/tmt-remote/typescript/browser-addon/**",
+        ".github/workflows/browser-addon.yml"
+      ]
     },
     {
       "id": "office-web",

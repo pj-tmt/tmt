@@ -135,6 +135,12 @@ export function generateReleasePleaseConfig({ components, workspace }) {
     if (component.owns.length !== 1) {
       throw new Error(`Component ${component.name} must own exactly one root to be a package.`);
     }
+    const owned = crates.filter((crate) => ownerOfCrate(crate) === component.name);
+    if (component.release === false) {
+      if (owned.length > 0)
+        throw new Error(`Private component ${component.name} owns native crates.`);
+      continue;
+    }
     const [packagePath] = component.owns;
     const policy = releasePolicy(component.name);
     const includeComponent = policy.tagPrefix !== 'v';
@@ -144,7 +150,6 @@ export function generateReleasePleaseConfig({ components, workspace }) {
         `Tag prefix ${policy.tagPrefix} of ${component.name} is not ${expectedPrefix}, which release-please would create.`
       );
     }
-    const owned = crates.filter((crate) => ownerOfCrate(crate) === component.name);
     const extraFiles = [];
     const toml = (file, jsonpath) =>
       extraFiles.push({ type: 'toml', path: fromPackage(packagePath, file), jsonpath });

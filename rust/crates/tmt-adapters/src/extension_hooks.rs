@@ -15,8 +15,10 @@
 //! change a command's result. With nothing enabled, the only cost is one read
 //! attempt of the consent file, on the first storage open of a `tmt` process.
 
+pub use crate::executable_trust::Fingerprint;
 use crate::{
     config::ConfigPaths,
+    executable_trust::{self, TrustError},
     process::{CommandRequest, CommandRunner, UnixCommandRunner},
 };
 use rusqlite::Connection;
@@ -24,9 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
     ffi::{OsStr, OsString},
-    fs::{self, File},
-    io::{self, Write},
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
+    fs, io,
     path::{Path, PathBuf},
     sync::{
         Mutex, OnceLock,
@@ -61,34 +61,6 @@ pub struct Consent {
     pub protocol: String,
     pub capabilities: Vec<String>,
     pub consented_at_ms: u64,
-}
-
-/// Metadata that changes whenever the executable is replaced, rewritten or
-/// re-permissioned (the change time moves on every such operation).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Fingerprint {
-    pub device: u64,
-    pub inode: u64,
-    pub size: u64,
-    pub modified_ns: i64,
-    pub changed_ns: i64,
-    pub uid: u32,
-    pub mode: u32,
-}
-
-impl Fingerprint {
-    fn of(metadata: &fs::Metadata) -> Self {
-        Self {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-            size: metadata.size(),
-            modified_ns: metadata.mtime() * 1_000_000_000 + metadata.mtime_nsec(),
-            changed_ns: metadata.ctime() * 1_000_000_000 + metadata.ctime_nsec(),
-            uid: metadata.uid(),
-            mode: metadata.mode(),
-        }
-    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -169,31 +141,15 @@ fn read_consents(path: &Path) -> Result<Vec<Consent>, ExtensionHookError> {
 
 /// Private, atomic replacement: a crash leaves the previous file or the new one.
 fn write_consents(path: &Path, extensions: &[Consent]) -> Result<(), ExtensionHookError> {
-    let directory = path
-        .parent()
-        .ok_or_else(|| ExtensionHookError::Invalid("No settings directory.".into()))?;
-    fs::create_dir_all(directory)?;
-    let staging = directory.join(format!(".{CONSENT_FILE}.{}.tmp", std::process::id()));
+    if path.parent().is_none() {
+        return Err(ExtensionHookError::Invalid("No settings directory.".into()));
+    }
     let bytes = serde_json::to_vec_pretty(&ConsentDocument {
         version: 1,
         extensions: extensions.to_vec(),
     })
     .map_err(|error| ExtensionHookError::Io(io::Error::other(error)))?;
-    let result = (|| {
-        let mut file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&staging)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(&staging, path)?;
-        File::open(directory)?.sync_all()
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&staging);
-    }
-    result.map_err(ExtensionHookError::Io)
+    crate::private_file::replace(path, &bytes).map_err(ExtensionHookError::Io)
 }
 
 pub fn list_consents(paths: &ConfigPaths) -> Result<Vec<Consent>, ExtensionHookError> {
@@ -224,8 +180,7 @@ pub fn enable(
     })?;
     let executable = fs::canonicalize(&resolved)?;
     let metadata = verify_ownership(&executable)?;
-    let bytes = fs::read(&executable)?;
-    let digest = tmt_core::content_digest::sha256(&bytes);
+    let digest = executable_trust::digest(&executable)?;
     let capabilities = probe(&executable, tmt)?;
     let consent = Consent {
         name: name.to_owned(),
@@ -247,32 +202,11 @@ pub fn enable(
     Ok(consent)
 }
 
-/// A hook executable must be a regular executable file owned by the current
-/// user, and neither it nor its directory may be writable by anyone else.
 fn verify_ownership(executable: &Path) -> Result<fs::Metadata, ExtensionHookError> {
-    let metadata = fs::metadata(executable)?;
-    let uid = nix::unistd::getuid().as_raw();
-    if !metadata.is_file() || metadata.mode() & 0o111 == 0 {
-        return Err(ExtensionHookError::Unsafe(format!(
-            "{} is not an executable file.",
-            executable.display()
-        )));
-    }
-    if metadata.uid() != uid || metadata.mode() & 0o022 != 0 {
-        return Err(ExtensionHookError::Unsafe(format!(
-            "{} must be owned by you and not writable by others.",
-            executable.display()
-        )));
-    }
-    let directory = executable.parent().unwrap_or(Path::new("/"));
-    let parent = fs::metadata(directory)?;
-    if parent.mode() & 0o022 != 0 {
-        return Err(ExtensionHookError::Unsafe(format!(
-            "{} must not be writable by others.",
-            directory.display()
-        )));
-    }
-    Ok(metadata)
+    executable_trust::verify_ownership(executable).map_err(|error| match error {
+        TrustError::Unsafe(message) => ExtensionHookError::Unsafe(message),
+        TrustError::Io(error) => ExtensionHookError::Io(error),
+    })
 }
 
 fn invocation(executable: &Path, tmt: &Path, operation: &str) -> Vec<OsString> {
@@ -345,8 +279,7 @@ fn verified(consents: Vec<Consent>, capability: &str) -> Vec<Consent> {
         .into_iter()
         .filter(|consent| {
             consent.capabilities.iter().any(|value| value == capability)
-                && verify_ownership(&consent.path)
-                    .is_ok_and(|metadata| Fingerprint::of(&metadata) == consent.fingerprint)
+                && executable_trust::unchanged(&consent.path, &consent.fingerprint)
         })
         .collect()
 }

@@ -80,6 +80,26 @@ function fixture(): {
 const generate = (input = fixture()) => generateReleasePleaseConfig(input);
 
 describe('release-please configuration generator', () => {
+  it('owns a private browser package without creating a native release or hiding native crates', () => {
+    const input = fixture();
+    const root = 'extensions/tmt-remote/typescript/browser-addon';
+    const privateOwner = parseComponentMap(
+      JSON.stringify({ components: { addon: { owns: [root], release: false } } })
+    ).components[0];
+    input.components = [
+      ...input.components.map((c) =>
+        c.name === 'cli' ? { ...c, excludes: [...c.excludes, root] } : c
+      ),
+      privateOwner,
+    ];
+    input.workspace.files.push(`${root}/src/popup.ts`);
+    const generated = generateReleasePleaseConfig(input);
+    expect(generated.packages[root]).toBeUndefined();
+    expect(generated.packages['.']['exclude-paths']).toContain(root);
+    input.workspace.crates.push(crate('hidden-native', `${root}/rust/hidden`));
+    expect(() => generateReleasePleaseConfig(input)).toThrow('owns native crates');
+  });
+
   it('makes one package per component with the tag the publication policy expects', () => {
     const { packages } = generate();
     expect(Object.keys(packages)).toEqual(['.', 'extensions/tmt-office', 'extensions/tmt-squad']);

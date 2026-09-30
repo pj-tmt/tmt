@@ -5,9 +5,10 @@ not build in, for example Herdr. This document owns the wire format. The
 `tmt-driver-protocol` crate encodes it, and guides link here instead of
 repeating it.
 
-**Status:** the format and the crate exist. `tmt` does not run drivers yet:
+**Status:** the format, the crate, the approval registry and the client that
+runs one driver call exist. `tmt` does not use a driver for any host yet:
 
-- the client arrives in #570 slice 3;
+- slice 3b connects approved drivers to hosts;
 - Herdr moves out as the first driver in slice 4;
 - `tmt driver install|ls|rm` arrives in slice 6.
 
@@ -27,8 +28,9 @@ tmt-driver-<name> __tmt-driver <protocol> <op>
 - **stderr** is discarded.
 - **Arguments and environment:** core passes no other arguments. The driver
   runs with core's environment, plus `TMT_DRIVER_CALL=1`. A `tmt` that sees
-  `TMT_DRIVER_CALL` refuses to write, so a driver that runs `tmt` can neither
-  recurse into itself nor change TMT's state.
+  `TMT_DRIVER_CALL` runs no command except help and `--version`; anything
+  else fails with `DRIVER_CALL_REFUSED` before any effect. A driver that runs
+  `tmt` can therefore neither recurse into itself nor change TMT's state.
 
 ## Answers
 
@@ -250,9 +252,17 @@ This is a contract that core's checks enforce at the boundary above. It is not
 an operating-system sandbox: the driver runs as the user.
 
 **Consent:** an installed driver is consented and fingerprinted like an
-extension hook. Core records its path, SHA-256 digest and metadata fingerprint,
-and re-checks them before use. A changed executable is disabled until it is
-approved again. There is no PATH discovery.
+extension hook, in `<global>/drivers.json` (mode 0600, replaced atomically).
+Approval requires a regular executable owned by the user, with neither it nor
+its directory writable by anyone else. It records the path, the SHA-256
+digest, the metadata fingerprint and the capabilities. Checks at use:
+
+- **Every call:** ownership and the fingerprint (a stat).
+- **Once per process:** the digest, on the driver's first use. Hashing a large
+  driver on every call would cost more than the calls themselves.
+
+A changed executable is not run until it is approved again. There is no PATH
+discovery, and at most 16 drivers can be approved.
 
 ## Conformance
 

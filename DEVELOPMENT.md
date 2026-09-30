@@ -1208,13 +1208,36 @@ objects. Use structured output or a focused formatter test, not mocked
 `console.log`. Apply the [architecture maintenance contract](ARCHITECTURE.md#maintenance-contract)
 when changing an owner, boundary or verification procedure.
 
+## Browser add-on shell
+
+The private MV3 demo shell lives in
+`extensions/tmt-remote/typescript/browser-addon`. It uses the existing pnpm
+workspace and lockfile. It does not connect to TMT or implement pairing/crypto.
+From `typescript/`:
+
+```sh
+corepack pnpm --filter @tmt/browser-addon --fail-if-no-match check
+corepack pnpm --filter @tmt/browser-addon --fail-if-no-match test
+corepack pnpm --filter @tmt/browser-addon --fail-if-no-match build
+corepack pnpm --filter @tmt/browser-addon exec playwright install chromium
+corepack pnpm --filter @tmt/browser-addon --fail-if-no-match test:browser
+```
+
+Browser tests use Playwright's Chromium, a disposable profile and a task-owned
+loopback selection page. They never load the host Chrome profile or team data.
+Load this package's `dist/` as an unpacked add-on in a separate development
+profile to inspect it manually; Chrome 137 or later is required. Both right-click
+Send to agent and the popup capture only after a gesture. All displayed agents
+and replies are demo fixtures; Send does not deliver to an agent. Package code
+uses its own Prettier configuration; shared docs use the tooling formatter.
+
 ## Remote pilot development
 
 The local-build-only remote crate is a foreground deny-all door. It performs
 one public startup capabilities read, then refuses every remote application
 request. Pairing, signing, grants, approval, sends and journal/SDK integration
 are not implemented. The [client contract](contracts/remote-client-v1.md) is
-proposed; [the separately owned browser shell](https://github.com/wkh237/tmt/pull/615)
+proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 
 ```bash

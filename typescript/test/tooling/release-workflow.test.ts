@@ -269,16 +269,22 @@ describe('release workflow (release.yml)', () => {
   });
 
   it('starts a run for exactly the products of the component map and the release configuration', () => {
-    const products = Object.keys(
-      (JSON.parse(read('.github/components.json')) as { components: Record<string, unknown> })
-        .components
-    ).sort();
+    const { components } = JSON.parse(read('.github/components.json')) as {
+      components: Record<string, { release?: boolean; owns: string[] }>;
+    };
+    const products = Object.entries(components)
+      .filter(([, component]) => component.release !== false)
+      .map(([name]) => name)
+      .sort();
+    expect(components['browser-addon'].release).toBe(false);
+    expect(products).not.toContain('browser-addon');
     const matrix = /product:\n((?: {10}- [a-z]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
     expect(matrix.match(/[a-z]+(?=\n)/g)?.sort()).toEqual(products);
     const config = JSON.parse(read('release-please-config.json')) as {
       packages: Record<string, unknown>;
     };
     expect(Object.keys(config.packages)).toHaveLength(products.length);
+    expect(config.packages[components['browser-addon'].owns[0]]).toBeUndefined();
   });
 });
 

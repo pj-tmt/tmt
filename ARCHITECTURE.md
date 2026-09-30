@@ -26,7 +26,8 @@ of native schema and application state.
 ## TypeScript workspace boundary
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
-the `@tmt/office` SPA, and the `@tmt/office-service` trusted pairing service.
+the `@tmt/office` SPA, the `@tmt/office-service` trusted pairing service,
+and the private `@tmt/browser-addon` demo shell.
 The two Office packages live under `extensions/tmt-office/typescript` as
 parent-relative members of that same workspace and lockfile. They resolve only
 their declared dependencies, never root-hoisted tooling packages; Office browser
@@ -618,6 +619,38 @@ a tag disagrees with the policy or a package could leave the alpha line (release
 5.0.0; the flags a published release carries come from the policy when the draft is
 published). Nothing runs the pinned CLI until the release workflow adopts it.
 
+## Browser add-on shell
+
+`extensions/tmt-remote/typescript/browser-addon` is a private Chrome MV3 shell
+in the existing TypeScript workspace/lockfile, not an installed native product
+or a working remote channel. Its composition currently uses a clearly marked
+local demo stub; no crypto, pairing, network or core operations are implemented.
+The shell's types-only `remote-client.ts` is a UI port agreed with the remote
+owner, not a second wire contract or SDK. Future composition may import the
+public SDK; views never import its transport internals.
+
+Browser context-menu clicks and trusted popup actions capture only a top-frame
+selection, URL and title through `activeTab`/`scripting`; `contextMenus` adds the
+selection entry point. There are no host permissions, page-message handlers,
+external connectivity or permanent content scripts. Exact plain-text message
+formatting and escaped hidden-character presentation belong to `message.ts`.
+Source URL admission requires HTTP(S) without username/password; invalid sources
+are refused unchanged before preview, menu persistence or intent freezing,
+including restored captures and intents.
+The popup freezes the reviewed agent UUID, message and operation UUID before
+calling the client. Its origin-owned IndexedDB retains one frozen intent and
+menu capture; restoration retains intent without sending. Explicit status
+recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
+starting another message does not cancel submitted work. Replies render as text.
+The stub's status transitions are UI evidence, never server security acceptance.
+
+The shell's Chromium profile and loopback page fixture are disposable test
+owners. Its separate workflow selects shell and consumed tooling changes,
+fails on empty test discovery and does not narrow unknown-path checks. The component map assigns this package
+to a private `release: false` owner and selects no native/Office jobs for it. The release generator rejects native crates
+under a private owner and excludes the shell from CLI releases. Native remote
+product registration remains a later slice.
+
 ## Runtime layers
 
 The Rust crates have deliberately narrow responsibilities:
@@ -630,8 +663,8 @@ The Rust crates have deliberately narrow responsibilities:
 
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
-implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
-messages, lists, tables, the one column-width solver `grid` that tables and
+implementation of the [CLI style](docs/cli-style.md) (palette, themes over the
+design tokens, marks, values, messages, lists, tables, the one column-width solver `grid` that tables and
 extension boards share, the help registration contract and the one
 interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
@@ -971,10 +1004,13 @@ authentication boundary nor a daemon, batch processor or streaming connection.
 Extensions use `TMT_EXECUTABLE` rather than assuming an installed binary path.
 
 The CLI owns bounded stdin acquisition (EOF within five seconds), JSON publication
-and exit status. `tmt-adapters::api` owns envelope admission and composition;
-identity, room, request history, dispatch and notes retain their existing domain,
-transaction and resource encoders. The same one-shot delivery helper serves
-Office and API dispatch. Explicit identity selects write attribution, not privilege.
+and exit status. `tmt-adapters::api` owns envelope admission and composition.
+Its `api.rs` facade retains the dispatcher, protocol bounds, settings selection
+and storage lifetime. Private `api/` modules own operation-family inputs and
+composition for requests, dispatch, rooms, notes, changes, identity hooks, skills,
+references and identity status. Identity, room, request history, dispatch and
+notes retain their existing domain, transaction and resource encoders. The same
+one-shot delivery helper serves Office and API dispatch. Explicit identity selects write attribution, not privilege.
 Capabilities and unsupported-version discovery never open application storage.
 Input and output bounds are advertised in capabilities; canonical content limits
 still apply independently of JSON escaping.
@@ -1905,9 +1941,25 @@ environment `caller` may read, and `tmt-core` may depend on it to recognize an
 external host's stored pane IDs without taking on the wire crate or serde. The
 protocol crate otherwise depends only on `serde` and `serde_json`, so a
 community driver builds against these two small crates alone. The architecture
-guard allows exactly those edges. Nothing in `tmt`
-calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
-spawning client with consent and fingerprint checks, and move Herdr out.
+guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
+
+`tmt-adapters::host::external` holds the core side of that boundary:
+
+- **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
+  refuses a declaration that a built-in host or another approved driver would
+  read as its own.
+- **`DriverProcess`:** runs one operation through the bounded process owner,
+  under the operation's deadline and output bound, with `TMT_DRIVER_CALL=1`. It
+  decodes the answer against the driver's grammar.
+- **Trust:** `executable_trust` is shared with extension hooks. It checks
+  ownership and the stat fingerprint before every call, and the digest once per
+  process.
+- **Recursion guard:** a `tmt` started with `TMT_DRIVER_CALL` refuses every
+  command but help and `--version` (`DRIVER_CALL_REFUSED`).
+
+The atomic owner-only replacement of such settings files is `private_file`,
+shared with the extension hook consents. Slice 3b connects drivers to hosts
+through `HostKind::External`.
 
 ## Managed skills and native installation
 
@@ -1989,8 +2041,11 @@ a missing command link with a retained activation is reported as invalid and
 explicit uninstall can finish that state.
 
 `tmt extension install|upgrade|uninstall|list` (`tmt-cli::extension_install_command`)
-is the public surface for the official extensions over this path. The names come
-from the fixed product table, never from PATH or archive data. Install, upgrade
+is the public surface for the official extensions over this path. Its facade
+retains dispatch, consent, errors, interruption, rendering and uninstall; private
+`extension_install_command/` modules own install, repair, list/upgrade and skills
+settlement through the existing native-installer and owned-skill adapters. The names
+come from the fixed product table, never from PATH or archive data. Install, upgrade
 and uninstall require consent (`--yes`, or an interactive prompt), and refuse a
 non-interactive run without it. `list` reads local receipts only. `--check` adds a
 bounded release lookup (`latest_release_version`, metadata only), and a failed
@@ -2384,7 +2439,9 @@ inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
 The release workflow remains a product-selected preparation and verification
-workflow; publication is separately authorized. `native-release.yml` is the per-product
+workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
+in the release skill covers the pipeline publishing an alpha draft that passes every gate, and
+nothing else. `native-release.yml` is the per-product
 run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
 the build, assemble and verify pipeline, once per draft release that lacks a verified
 bundle; the state lives on the draft itself (`release-publication.json` marks a complete
@@ -2452,4 +2509,4 @@ signed-message contract. Pairing/authentication/approval/log/SDK behavior remain
 proposed until its implementation slices land; `cloudflare`, `firestore` and
 `relay-v1` remain reserved. Core never owns a listener or remote state. Official
 product/release registration is deferred; cargo-dist excludes this pilot crate.
-For shell ownership, see the [browser add-on slice](https://github.com/wkh237/tmt/pull/615).
+For shell ownership, see the [browser add-on shell](#browser-add-on-shell).

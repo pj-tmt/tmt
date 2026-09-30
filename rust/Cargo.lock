@@ -2440,6 +2440,7 @@ dependencies = [
  "subprocess",
  "tar",
  "tmt-core",
+ "tmt-driver-protocol",
  "tmt-office-model",
  "ureq",
  "uuid",
@@ -2472,6 +2473,8 @@ dependencies = [
  "clap",
  "comfy-table",
  "insta",
+ "ratatui",
+ "serde_json",
  "shlex",
  "unicode-width",
 ]
