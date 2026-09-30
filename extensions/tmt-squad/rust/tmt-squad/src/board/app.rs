@@ -227,6 +227,8 @@ pub struct App {
     pub hits: RefCell<Vec<Hit>>,
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
+    /// The first tab the tab line showed, so it scrolls only as needed.
+    pub tab_start: std::cell::Cell<usize>,
     /// The tab a left button went down on, until it is released.
     dragging: Option<usize>,
 }

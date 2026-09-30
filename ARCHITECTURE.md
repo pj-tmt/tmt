@@ -2094,7 +2094,10 @@ squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
 squads, not members: their `tab` action opens the squad's tab, and member
 bindings don't apply there. Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
-format-preserving replacement that records `me`. `board`
+format-preserving replacement that records `me`. A tab line that doesn't
+fit scrolls: `tab_window` keeps the current tab in view, starting as near the
+last frame's first tab as it can. It counts the hidden tabs at each end, and
+only the drawn tabs can be clicked. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
