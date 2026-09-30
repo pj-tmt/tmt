@@ -14,6 +14,7 @@
 //! binding transaction opens.
 
 pub(crate) mod driver;
+pub mod external;
 
 use crate::{
     herdr::{self, Herdr, HerdrError},

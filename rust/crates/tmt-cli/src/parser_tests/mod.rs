@@ -1,248 +1,16 @@
+mod configuration;
+mod guidance;
+mod identity;
+mod native_install;
+mod notes;
+mod profile;
+mod room;
+mod run;
+mod setup;
+
 use crate::invocation::IdentityStatusRequest;
 use std::ffi::OsString;
 use tmt_core::driver::descriptor::UsageHook;
-
-#[test]
-fn setup_has_one_provider_consent_surface_and_hook_dispatch_is_hidden() {
-    assert_eq!(
-        parsed(&["setup"]).invocation,
-        Invocation::Setup {
-            provider: None,
-            remove: false,
-            usage: UsageHook::Keep,
-            yes: false,
-        }
-    );
-    assert_eq!(
-        parsed(&["setup", "claude", "--remove", "--yes", "--json"]).invocation,
-        Invocation::Setup {
-            provider: Some("claude".into()),
-            remove: true,
-            usage: UsageHook::Keep,
-            yes: true,
-        }
-    );
-    // Guided setup takes --yes for its one plan; --remove needs a driver.
-    assert_eq!(
-        parsed(&["setup", "--yes"]).invocation,
-        Invocation::Setup {
-            provider: None,
-            remove: false,
-            usage: UsageHook::Keep,
-            yes: true,
-        }
-    );
-    // The usage hook is an explicit opt-in or opt-out, never with --remove.
-    for (argv, usage) in [
-        (vec!["setup", "--usage"], UsageHook::Install),
-        (
-            vec!["setup", "codex", "--usage", "--yes"],
-            UsageHook::Install,
-        ),
-        (vec!["setup", "claude", "--no-usage"], UsageHook::Remove),
-    ] {
-        assert!(matches!(
-            parsed(&argv).invocation,
-            Invocation::Setup { usage: parsed, .. } if parsed == usage
-        ));
-    }
-    for argv in [
-        vec!["setup", "--remove"],
-        vec!["setup", "unknown"],
-        vec!["setup", "claude", "--force"],
-        vec!["setup", "--usage", "--no-usage"],
-        vec!["setup", "claude", "--remove", "--usage"],
-        vec!["setup", "claude", "--remove", "--no-usage"],
-    ] {
-        assert!(parse(&args(&argv)).is_err());
-    }
-    assert_eq!(
-        parsed(&["__hook", "claude"]).invocation,
-        Invocation::ProviderHook {
-            provider: "claude".into(),
-            worker: false
-        }
-    );
-    assert_eq!(
-        parsed(&["__hook", "codex"]).invocation,
-        Invocation::ProviderHook {
-            provider: "codex".into(),
-            worker: false
-        }
-    );
-    assert_eq!(
-        parsed(&["setup", "codex", "--yes"]).invocation,
-        Invocation::Setup {
-            provider: Some("codex".into()),
-            remove: false,
-            usage: UsageHook::Keep,
-            yes: true
-        }
-    );
-    assert!(!crate::skill_reminder::eligible_for_drift(&parsed(&[
-        "__hook", "claude"
-    ])));
-    let grammar = crate::grammar::grammar();
-    assert!(grammar.find_subcommand("__hook").unwrap().is_hide_set());
-}
-
-#[test]
-fn run_identity_starts_an_opaque_command_tail() {
-    use std::os::unix::ffi::OsStringExt;
-    let command = vec![
-        OsString::from("claude"),
-        "--help".into(),
-        "--json".into(),
-        "--resume".into(),
-        "--config".into(),
-        "--".into(),
-        "".into(),
-        OsString::from_vec(vec![0xff, b'a']),
-    ];
-    let mut argv = args(&["run", "Alice"]);
-    argv.extend(command.clone());
-    assert_eq!(
-        parse(&argv).unwrap(),
-        Parsed {
-            invocation: Invocation::Run {
-                name: "Alice".into(),
-                command,
-                resume: false,
-                save: false,
-            },
-            mode: OutputMode::default(),
-        }
-    );
-    for misplaced in ["-s", "--save", "--resume", "--help", "-", "--"] {
-        let error = parse(&args(&["run", "Alice", misplaced])).unwrap_err();
-        assert_eq!(error.code, "USAGE_ERROR");
-        assert!(error.message.contains("TMT options go before the name"));
-    }
-    assert_eq!(
-        parsed(&["run", "opus", "claude", "--resume", "x", "--help"]).invocation,
-        Invocation::Run {
-            name: "opus".into(),
-            command: ["claude", "--resume", "x", "--help"]
-                .map(OsString::from)
-                .to_vec(),
-            resume: false,
-            save: false,
-        }
-    );
-    assert_eq!(
-        parsed(&["run", "--resume", "Alice"]).invocation,
-        Invocation::Run {
-            name: "Alice".into(),
-            command: vec![],
-            resume: true,
-            save: false,
-        }
-    );
-    assert_eq!(
-        parsed(&["run", "--help"]).invocation,
-        Invocation::Help(vec!["run".into()])
-    );
-    assert!(parse(&args(&["run", "--resume", "Alice", "claude"])).is_err());
-    assert!(parse(&args(&["run", "--json", "Alice", "claude"])).is_err());
-}
-
-#[test]
-fn run_save_belongs_only_before_the_identity() {
-    for option in ["-s", "--save"] {
-        assert_eq!(
-            parsed(&["run", option, "Alice", "claude", "-s"]).invocation,
-            Invocation::Run {
-                name: "Alice".into(),
-                command: vec!["claude".into(), "-s".into()],
-                resume: false,
-                save: true
-            }
-        );
-        assert_eq!(
-            parsed(&["run", option, "--resume", "Alice"]).invocation,
-            Invocation::Run {
-                name: "Alice".into(),
-                command: vec![],
-                resume: true,
-                save: true
-            }
-        );
-    }
-}
-
-#[test]
-fn whoami_context_is_a_read_mode_not_a_new_command_or_global_option() {
-    assert_eq!(parsed(&["whoami"]).invocation, Invocation::Whoami);
-    assert_eq!(
-        parsed(&["whoami", "--context"]).invocation,
-        Invocation::WhoamiContext
-    );
-    let context = parsed(&["whoami", "--context", "--json"]);
-    assert_eq!(context.invocation, Invocation::WhoamiContext);
-    assert!(context.mode.json);
-    assert!(!crate::skill_reminder::eligible_for_drift(&parsed(&[
-        "whoami",
-        "--context"
-    ])));
-    assert!(parse(&args(&["list", "--context"])).is_err());
-}
-
-#[test]
-fn identity_status_uses_shared_duration_grammar_and_scoped_options() {
-    for (duration, ttl_ms) in [
-        ("1s", 1000),
-        ("1500ms", 1500),
-        ("1.5m", 90000),
-        ("1440m", 86400000),
-    ] {
-        assert_eq!(
-            parsed(&[
-                "identity",
-                "status",
-                "set",
-                "Reviewing",
-                "--mood",
-                "focused",
-                "--for",
-                duration,
-                "--identity",
-                "Alice"
-            ])
-            .invocation,
-            Invocation::Identity(IdentityRequest::Status {
-                identity: Some("Alice".into()),
-                operation: IdentityStatusRequest::Set {
-                    activity: "Reviewing".into(),
-                    mood: Some("focused".into()),
-                    ttl_ms
-                }
-            })
-        );
-    }
-    assert_eq!(
-        parsed(&["identity", "status", "set", "Reviewing"]).invocation,
-        Invocation::Identity(IdentityRequest::Status {
-            identity: None,
-            operation: IdentityStatusRequest::Set {
-                activity: "Reviewing".into(),
-                mood: None,
-                ttl_ms: 3600000
-            }
-        })
-    );
-    for duration in ["0", "999ms", "1441m", "NaN", "1h"] {
-        assert_eq!(
-            parse_error(&["identity", "status", "set", "Reviewing", "--for", duration]).code,
-            "USAGE_ERROR"
-        );
-    }
-    for verb in ["show", "clear"] {
-        assert_eq!(
-            parse_error(&["identity", "status", verb, "--mood", "happy"]).code,
-            "USAGE_ERROR"
-        );
-    }
-}
 
 use super::{
     ContentInput, ExchangeOperation, IdentityFilterRequest, IdentityMetadataRequest,
@@ -302,142 +70,6 @@ fn local_layout_commands_have_one_explicit_revision_fence_and_no_identity_target
         ],
     ] {
         assert_eq!(parse_error(&input).code, "USAGE_ERROR");
-    }
-}
-
-#[test]
-fn room_commands_share_typed_grammar_and_reject_unrelated_flags() {
-    use crate::invocation::RoomOperation;
-    use tmt_core::room::MembershipChange;
-    assert!(
-        matches!(parsed(&["x", "listen", "--room", "Design", "--identity", "Alice"]).invocation,
-        Invocation::Exchange { operation: ExchangeOperation::Listen { room: Some(room), .. }, .. } if room == "Design")
-    );
-    assert_eq!(
-        parsed(&["room", "create", "Design"]).invocation,
-        Invocation::Room(RoomOperation::Create("Design".into()))
-    );
-    assert_eq!(
-        parsed(&["room", "ls"]).invocation,
-        Invocation::Room(RoomOperation::List)
-    );
-    assert_eq!(
-        parsed(&["room", "show", "Design"]).invocation,
-        Invocation::Room(RoomOperation::Show("Design".into()))
-    );
-    for (verb, change) in [
-        ("join", MembershipChange::Join),
-        ("leave", MembershipChange::Leave),
-    ] {
-        assert_eq!(
-            parsed(&["room", verb, "Design", "--identity", "Alice"]).invocation,
-            Invocation::Room(RoomOperation::Membership {
-                room: "Design".into(),
-                identity: Some("Alice".into()),
-                change
-            })
-        );
-        assert_eq!(
-            parsed(&["room", verb, "Design"]).invocation,
-            Invocation::Room(RoomOperation::Membership {
-                room: "Design".into(),
-                identity: None,
-                change
-            })
-        );
-    }
-    assert_eq!(
-        parsed(&["ls", "--temp", "--here", "--all"]).invocation,
-        Invocation::List {
-            target: None,
-            room: None,
-            scope: crate::invocation::ListScope {
-                lifetime: Some(tmt_core::identity::Lifetime::Temporary),
-                here: true,
-                all: true,
-            },
-        }
-    );
-    for input in [
-        vec!["ls", "--saved", "--temp"],
-        vec!["ls", "Alice", "--all"],
-        vec!["ls", "%3", "--here"],
-    ] {
-        assert_eq!(parse_error(&input).code, "USAGE_ERROR", "{input:?}");
-    }
-    assert_eq!(
-        parsed(&["ls", "--saved"]).invocation,
-        Invocation::List {
-            target: None,
-            room: None,
-            scope: crate::invocation::ListScope {
-                lifetime: Some(tmt_core::identity::Lifetime::Saved),
-                ..Default::default()
-            },
-        }
-    );
-    assert_eq!(
-        parsed(&["ls", "--room", "Design"]).invocation,
-        Invocation::List {
-            target: None,
-            room: Some("Design".into()),
-            scope: Default::default(),
-        }
-    );
-    for command in [
-        vec!["room"],
-        vec!["room", "join"],
-        vec!["room", "ls", "--identity", "Alice"],
-        vec!["room", "create", "Design", "--force"],
-        vec!["ls", "Alice", "--room", "Design"],
-        vec!["room", "send", "Design"],
-        vec!["room", "broadcast", "Design", "hello", "--timeout", "1s"],
-        vec!["room", "send", "Design", "hello", "--inbox"],
-    ] {
-        assert!(parse(&args(&command)).is_err(), "{command:?}");
-    }
-    for action in ["create", "ls", "show", "join", "leave", "send", "broadcast"] {
-        for help in ["-h", "--help"] {
-            assert!(matches!(
-                parsed(&["room", action, help]).invocation,
-                Invocation::Help(_)
-            ));
-        }
-    }
-}
-
-#[test]
-fn room_dispatch_uses_the_shared_request_kind_and_operation_identity() {
-    use crate::invocation::RoomOperation;
-    use tmt_core::request::RequestKind;
-    assert!(matches!(
-        parsed(&["talk", "Alice", "Only Alice", "--room", "Design", "--inbox", "--detach"]).invocation,
-        Invocation::Talk { options: TalkOptions { room: Some(room), inbox: true, .. }, .. } if room == "Design"
-    ));
-    for (verb, kind) in [
-        ("send", RequestKind::Request),
-        ("broadcast", RequestKind::Announcement),
-    ] {
-        assert_eq!(
-            parsed(&[
-                "room",
-                verb,
-                "Design",
-                "hello",
-                "--identity",
-                "Alice",
-                "--operation-id",
-                "11111111-1111-4111-8111-111111111111"
-            ])
-            .invocation,
-            Invocation::Room(RoomOperation::Dispatch {
-                room: "Design".into(),
-                message: "hello".into(),
-                identity: Some("Alice".into()),
-                operation_id: Some("11111111-1111-4111-8111-111111111111".into()),
-                kind,
-            })
-        );
     }
 }
 
@@ -810,38 +442,6 @@ fn office_prefix_is_scoped_to_its_subtree_and_file_inputs_are_paired() {
     ] {
         assert_eq!(parse_error(&input).code, "USAGE_ERROR");
     }
-}
-
-#[test]
-fn learn_selects_exact_bundled_guidance_without_breaking_the_core_flag() {
-    assert_eq!(
-        parsed(&["learn"]).invocation,
-        Invocation::Learn { skill: None }
-    );
-    assert_eq!(
-        parsed(&["learn", "--skill"]).invocation,
-        Invocation::Learn {
-            skill: Some("tmux-team".into())
-        }
-    );
-    for name in [
-        "tmux-team",
-        "tmt-inbox",
-        "tmt-office",
-        "tmt-prop-create",
-        "tmt-avatar-create",
-    ] {
-        assert_eq!(
-            parsed(&["learn", "--skill", name]).invocation,
-            Invocation::Learn {
-                skill: Some(name.into())
-            }
-        );
-    }
-    assert_eq!(
-        parse_error(&["learn", "--skill", "unknown"]).code,
-        "USAGE_ERROR"
-    );
 }
 
 #[test]
@@ -1386,183 +986,10 @@ fn office_avatar_commands_have_exact_local_and_revision_grammar() {
     }
 }
 
-#[test]
-fn native_upgrade_alias_and_selection_share_one_typed_contract() {
-    for command in ["upgrade", "update"] {
-        let invocation = parsed(&[
-            command,
-            "--channel",
-            "alpha",
-            "--to",
-            "5.0.0-alpha.3",
-            "--json",
-        ]);
-        assert!(invocation.mode.json);
-        assert_eq!(
-            invocation.invocation,
-            Invocation::Upgrade {
-                channel: Some(tmt_core::native_install::Channel::Alpha),
-                exact: Some("5.0.0-alpha.3".into()),
-                unpin: false,
-            }
-        );
-        assert_eq!(
-            parsed(&[command, "--unpin"]).invocation,
-            Invocation::Upgrade {
-                channel: None,
-                exact: None,
-                unpin: true
-            }
-        );
-        assert_eq!(
-            parse_error(&[command, "--to", "5.0.0", "--unpin", "--json"]).code,
-            "USAGE_ERROR"
-        );
-        assert_eq!(
-            parse_error(&[command, "--channel", "beta", "--json"]).code,
-            "USAGE_ERROR"
-        );
-    }
-}
-
-#[test]
-fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
-    use tmt_core::native_install::{Channel, PinAction};
-    let input = [
-        "__native-install",
-        "--archive",
-        "archive.tar.gz",
-        "--manifest",
-        "manifest.json",
-        "--prefix",
-        "/prefix with spaces",
-        "--channel",
-        "alpha",
-        "--json",
-    ];
-    let parsed = parsed(&input);
-    assert!(parsed.mode.json);
-    assert_eq!(
-        parsed.invocation,
-        Invocation::NativeInstall {
-            product: tmt_core::native_install::Product::Cli,
-            archive: "archive.tar.gz".into(),
-            manifest: "manifest.json".into(),
-            prefix: "/prefix with spaces".into(),
-            channel: Channel::Alpha,
-            pin: PinAction::Preserve,
-        }
-    );
-    for pin in ["--pin", "--unpin"] {
-        let mut args = input.to_vec();
-        args.push(pin);
-        let result = super::parse(&self::args(&args)).unwrap();
-        assert!(
-            matches!(result.invocation, Invocation::NativeInstall { pin: actual, .. }
-            if actual == if pin == "--pin" { PinAction::PinCandidate } else { PinAction::Clear })
-        );
-    }
-    let mut office = input.to_vec();
-    office.extend(["--product", "office"]);
-    assert!(matches!(
-        super::parse(&self::args(&office)).unwrap().invocation,
-        Invocation::NativeInstall {
-            product: tmt_core::native_install::Product::Office,
-            ..
-        }
-    ));
-    let mut invalid_product = input.to_vec();
-    invalid_product.extend(["--product", "third-party"]);
-    assert_eq!(parse_error(&invalid_product).code, "USAGE_ERROR");
-    let mut conflict = input.to_vec();
-    conflict.extend(["--pin", "--unpin"]);
-    assert_eq!(parse_error(&conflict).code, "USAGE_ERROR");
-    assert_eq!(parse_error(&["__native-install"]).code, "USAGE_ERROR");
-    let help = crate::grammar::public_grammar(&crate::grammar::grammar(), true);
-    assert!(help.find_subcommand("__native-install").is_none());
-}
-
-#[test]
-fn negative_config_values_reach_setting_validation_without_accepting_unknown_flags() {
-    let invocation = parsed(&["config", "set", "preambleEvery", "-1", "--json"]);
-    assert_eq!(
-        invocation.invocation,
-        Invocation::Config(crate::invocation::ConfigRequest::Set {
-            key: "preambleEvery".into(),
-            value: "-1".into(),
-            global: false,
-        })
-    );
-    assert!(invocation.mode.json);
-    assert_eq!(
-        parse_error(&["config", "set", "preambleEvery", "--unknown", "--json"]).code,
-        "USAGE_ERROR"
-    );
-}
-
-#[test]
-fn notes_path_has_one_typed_identity_selector_and_json_mode() {
-    assert_eq!(
-        parsed(&["notes", "path", "--identity", "Research & QA", "--json"]),
-        Parsed {
-            invocation: Invocation::NotesPath {
-                identity: Some("Research & QA".into()),
-            },
-            mode: OutputMode { json: true },
-        }
-    );
-    assert_eq!(
-        parsed(&["notes", "path"]).invocation,
-        Invocation::NotesPath { identity: None }
-    );
-    assert_eq!(parse_error(&["notes"]).code, "USAGE_ERROR");
-    assert_eq!(
-        parse_error(&["notes", "path", "unexpected"]).code,
-        "USAGE_ERROR"
-    );
-    assert_eq!(
-        parse_error(&["notes", "path", "--force"]).code,
-        "USAGE_ERROR"
-    );
-}
-
 fn parsed(values: &[&str]) -> Parsed {
     parse(&args(values)).unwrap_or_else(|error| {
         panic!("expected {:?} to parse, got {error:?}", values);
     })
-}
-
-#[test]
-fn preamble_operands_join_without_reparsing_literal_content() {
-    use crate::invocation::PreambleRequest;
-    for (args, content) in [
-        (
-            vec!["preamble", "set", "Alice", "first", "second"],
-            "first second",
-        ),
-        (
-            vec!["preamble", "set", "Alice", "--", "--json", "literal"],
-            "--json literal",
-        ),
-    ] {
-        let parsed = parsed(&args);
-        assert_eq!(
-            parsed.invocation,
-            Invocation::Preamble(PreambleRequest::Set {
-                name: "Alice".into(),
-                content: content.into()
-            })
-        );
-        assert!(!parsed.mode.json);
-    }
-    assert_eq!(
-        parsed(&["preamble"]).invocation,
-        Invocation::Preamble(PreambleRequest::Show(None))
-    );
-    assert_eq!(
-        parsed(&["preamble", "show", "Alice"]).invocation,
-        Invocation::Preamble(PreambleRequest::Show(Some("Alice".into())))
-    );
 }
 
 fn parse_error(values: &[&str]) -> ParseError {
@@ -1911,93 +1338,11 @@ fn retired_wait_and_team_paths_have_distinct_errors() {
 }
 
 #[test]
-fn identity_show_selects_a_name_or_the_verified_caller() {
-    assert_eq!(
-        parsed(&["identity", "show"]).invocation,
-        Invocation::Identity(IdentityRequest::Show(None))
-    );
-    assert_eq!(
-        parsed(&["identity", "show", "Alice"]).invocation,
-        Invocation::Identity(IdentityRequest::Show(Some("Alice".into())))
-    );
-}
-
-#[test]
 fn rejected_placement_option_reports_public_usage() {
     let rejected_option = parse_error(&["role", "show", "--timeout", "1s"]);
     assert_eq!(rejected_option.code, "USAGE_ERROR");
     assert!(rejected_option.message.contains("Usage: tmt role show"));
     assert!(rejected_option.message.contains("tmt help role show"));
-}
-
-#[test]
-fn identity_metadata_and_repeated_filters_have_typed_requests() {
-    assert_eq!(
-        parsed(&[
-            "identity",
-            "meta",
-            "set",
-            "--identity",
-            "alice",
-            "project",
-            "tmt",
-        ])
-        .invocation,
-        Invocation::Identity(IdentityRequest::Metadata {
-            identity: Some("alice".into()),
-            operation: IdentityMetadataRequest::Set {
-                key: "project".into(),
-                value: "tmt".into(),
-            },
-        })
-    );
-    assert_eq!(
-        parsed(&[
-            "identity",
-            "list",
-            "--where",
-            "project=tmt=alpha",
-            "--has",
-            "capability.review",
-            "--where",
-            "department=engineering",
-        ])
-        .invocation,
-        Invocation::Identity(IdentityRequest::List(vec![
-            IdentityFilterRequest::Equals {
-                key: "project".into(),
-                value: "tmt=alpha".into(),
-            },
-            IdentityFilterRequest::Equals {
-                key: "department".into(),
-                value: "engineering".into(),
-            },
-            IdentityFilterRequest::Has("capability.review".into()),
-        ]))
-    );
-    assert_usage_error(
-        &["identity", "list", "--where", "project"],
-        "KEY=VALUE",
-        OutputMode::default(),
-    );
-    let Invocation::Identity(IdentityRequest::Metadata {
-        operation: IdentityMetadataRequest::Set { value, .. },
-        ..
-    }) = parsed(&[
-        "identity",
-        "meta",
-        "set",
-        "--identity",
-        "alice",
-        "key",
-        "--",
-        "--literal-value",
-    ])
-    .invocation
-    else {
-        panic!("expected metadata set request")
-    };
-    assert_eq!(value, "--literal-value");
 }
 
 #[test]
@@ -2292,52 +1637,6 @@ fn nested_exchange_and_role_options_stay_at_their_own_boundaries() {
 }
 
 #[test]
-fn focus_takes_one_identity_or_pane_target() {
-    for target in ["auth-fix", "%2"] {
-        assert_eq!(
-            parsed(&["focus", target, "--json"]).invocation,
-            Invocation::Focus {
-                target: target.into()
-            }
-        );
-    }
-    assert_eq!(parse_error(&["focus"]).code, "USAGE_ERROR");
-    assert_eq!(
-        parsed(&["focus", "--client", "--json"]).invocation,
-        Invocation::FocusClient
-    );
-    assert_eq!(
-        parse_error(&["focus", "auth-fix", "--client"]).code,
-        "USAGE_ERROR"
-    );
-}
-
-#[test]
-fn rename_takes_two_names_at_the_top_level_and_under_identity() {
-    let expected = Invocation::Rename {
-        old: "opus-tmt-peer-2".into(),
-        new: "tmt-peer-2".into(),
-    };
-    assert_eq!(
-        parsed(&["rename", "opus-tmt-peer-2", "tmt-peer-2"]).invocation,
-        expected
-    );
-    assert_eq!(
-        parsed(&[
-            "identity",
-            "rename",
-            "opus-tmt-peer-2",
-            "tmt-peer-2",
-            "--json"
-        ])
-        .invocation,
-        expected
-    );
-    parse_error(&["rename", "only-one"]);
-    parse_error(&["identity", "rename"]);
-}
-
-#[test]
 fn inbox_and_answer_select_an_identity_and_one_body_source() {
     assert_eq!(
         parsed(&[
@@ -2420,7 +1719,7 @@ fn inbox_and_answer_select_an_identity_and_one_body_source() {
 }
 
 #[test]
-fn extension_repair_is_explicit_and_cannot_change_artifact_or_channel() {
+fn extension_repair_accepts_paired_local_inputs_but_cannot_change_channel() {
     let result = parsed(&[
         "extension",
         "install",
@@ -2441,9 +1740,29 @@ fn extension_repair_is_explicit_and_cannot_change_artifact_or_channel() {
             ..
         })
     ));
+    let local = parsed(&[
+        "extension",
+        "install",
+        "squad",
+        "--repair",
+        "--archive",
+        "archive",
+        "--manifest",
+        "manifest",
+    ]);
+    assert!(matches!(
+        local.invocation,
+        Invocation::ExtensionInstall(crate::invocation::ExtensionInstallRequest::Install {
+            repair: true,
+            archive: Some(_),
+            manifest: Some(_),
+            ..
+        })
+    ));
     for extra in [
         vec!["--channel", "stable"],
-        vec!["--archive", "archive", "--manifest", "manifest"],
+        vec!["--archive", "archive"],
+        vec!["--manifest", "manifest"],
     ] {
         let mut args = vec!["extension", "install", "squad", "--repair"];
         args.extend(extra);

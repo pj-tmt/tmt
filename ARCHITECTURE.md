@@ -630,8 +630,8 @@ The Rust crates have deliberately narrow responsibilities:
 
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
-implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
-messages, lists, tables, the one column-width solver `grid` that tables and
+implementation of the [CLI style](docs/cli-style.md) (palette, themes over the
+design tokens, marks, values, messages, lists, tables, the one column-width solver `grid` that tables and
 extension boards share, the help registration contract and the one
 interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
@@ -1901,10 +1901,32 @@ sides:
 - `serve`, a driver's entry point;
 - `conformance::check`, which runs through any invoker.
 
-The crate is a leaf with only `serde` and `serde_json`, so a community driver
-builds against it alone; the architecture guard enforces that. Nothing in `tmt`
-calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
-spawning client with consent and fingerprint checks, and move Herdr out.
+A host's name, pane-ID prefix and target template (parsing, matching and the
+overlap check between hosts) are defined once in `rust/crates/tmt-host-grammar`,
+a leaf with no dependencies at all. The protocol crate wraps it with the
+environment `caller` may read, and `tmt-core` may depend on it to recognize an
+external host's stored pane IDs without taking on the wire crate or serde. The
+protocol crate otherwise depends only on `serde` and `serde_json`, so a
+community driver builds against these two small crates alone. The architecture
+guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
+
+`tmt-adapters::host::external` holds the core side of that boundary:
+
+- **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
+  refuses a declaration that a built-in host or another approved driver would
+  read as its own.
+- **`DriverProcess`:** runs one operation through the bounded process owner,
+  under the operation's deadline and output bound, with `TMT_DRIVER_CALL=1`. It
+  decodes the answer against the driver's grammar.
+- **Trust:** `executable_trust` is shared with extension hooks. It checks
+  ownership and the stat fingerprint before every call, and the digest once per
+  process.
+- **Recursion guard:** a `tmt` started with `TMT_DRIVER_CALL` refuses every
+  command but help and `--version` (`DRIVER_CALL_REFUSED`).
+
+The atomic owner-only replacement of such settings files is `private_file`,
+shared with the extension hook consents. Slice 3b connects drivers to hosts
+through `HostKind::External`.
 
 ## Managed skills and native installation
 
@@ -2050,14 +2072,17 @@ stays at 16 KiB.
   compositions. Application data and provider skills are separate owners.
 
 Explicit extension `install --repair` is a separate recovery composition in
-`native_install::repair`, limited to GitHub-provenance receipts. `receipt`
+`native_install::repair`, for GitHub and local-archive receipts. `receipt`
 separates bounded metadata/recorded-path validation from payload verification;
 normal readers still require both. An eligible verification failure carries
 `RepairRequired` to the CLI, which owns the single quoted repair-command hint.
 Repair admits only safe owned layouts and no-follow regular files/directories,
-fetches the exact recorded artifact with matching provenance and digests, and
-preserves version/channel/pin. Acquisition holds no installation lock; the stable
-lock and a pre-activation current/receipt revalidation fence publication.
+acquires the exact recorded artifact with matching provenance and digests, and
+preserves version/channel/pin. Observation parses the same bounded receipt bytes
+used for revalidation. Local repair requires the original archive and matching
+manifest; it retains local provenance and cannot replace a GitHub source.
+Acquisition holds no installation lock; the stable lock and a pre-activation
+current/receipt revalidation fence publication.
 `publication` shares candidate staging, durable activation, cleanup and typed
 post-activation failures between normal installs and repair. The damaged release
 is retained untouched at its original path, including foreign entries, rather
@@ -2121,7 +2146,10 @@ member through `runner` with the run-binding argument rule
 would start an argument with `-` refused), 4 at a time, bounded in time and
 output. `provider::Cache` keeps each value with the argv that produced it in
 `$XDG_CACHE_HOME/tmt-squad/fields/<squad>.json` (atomic replacement via
-`cache`), so a changed input never shows an old value; `provider::apply` writes
+`cache`: a 0600 file in a 0700 directory), so a changed input never shows an
+old value. `preset = "github-pr"` is a fixed `gh pr view {pr_link}` argv whose
+JSON `provider::github_pr` turns into `#<n> <state>[ · <review>]`; anything
+else from `gh` is a failed run; `provider::apply` writes
 current values into member fields before the document is built, `?` plus the
 row's `failed` list after a failed run. Readers never run providers: `ls` reads
 the cache (`--refresh-fields` runs what is due first), and the board hands each
@@ -2421,3 +2449,15 @@ Every change reports its architecture impact and names the affected Rust owner,
 adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
+
+## Proposed remote client contract
+
+[`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
+remote signed-message contract; no remote runtime or SDK is implemented by that
+document. Its M1 profile is `local-v1` over `loopback-http`, with transport-neutral
+append/subscribe/ack, extension-owned authentication and locally approved held
+sends through the public extension API. Future `cloudflare`/`firestore` bindings
+and `relay-v1` are reserved, not supported. The proposed runtime belongs entirely
+to `extensions/tmt-remote`; core does not listen, stay resident or expose its DB
+as a remote interface. Implementing slices must update this map to describe the
+delivered module, persistence, authority and verification boundaries.

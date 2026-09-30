@@ -1,0 +1,97 @@
+use super::*;
+
+#[test]
+fn native_upgrade_alias_and_selection_share_one_typed_contract() {
+    for command in ["upgrade", "update"] {
+        let invocation = parsed(&[
+            command,
+            "--channel",
+            "alpha",
+            "--to",
+            "5.0.0-alpha.3",
+            "--json",
+        ]);
+        assert!(invocation.mode.json);
+        assert_eq!(
+            invocation.invocation,
+            Invocation::Upgrade {
+                channel: Some(tmt_core::native_install::Channel::Alpha),
+                exact: Some("5.0.0-alpha.3".into()),
+                unpin: false,
+            }
+        );
+        assert_eq!(
+            parsed(&[command, "--unpin"]).invocation,
+            Invocation::Upgrade {
+                channel: None,
+                exact: None,
+                unpin: true
+            }
+        );
+        assert_eq!(
+            parse_error(&[command, "--to", "5.0.0", "--unpin", "--json"]).code,
+            "USAGE_ERROR"
+        );
+        assert_eq!(
+            parse_error(&[command, "--channel", "beta", "--json"]).code,
+            "USAGE_ERROR"
+        );
+    }
+}
+
+#[test]
+fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
+    use tmt_core::native_install::{Channel, PinAction};
+    let input = [
+        "__native-install",
+        "--archive",
+        "archive.tar.gz",
+        "--manifest",
+        "manifest.json",
+        "--prefix",
+        "/prefix with spaces",
+        "--channel",
+        "alpha",
+        "--json",
+    ];
+    let parsed = parsed(&input);
+    assert!(parsed.mode.json);
+    assert_eq!(
+        parsed.invocation,
+        Invocation::NativeInstall {
+            product: tmt_core::native_install::Product::Cli,
+            archive: "archive.tar.gz".into(),
+            manifest: "manifest.json".into(),
+            prefix: "/prefix with spaces".into(),
+            channel: Channel::Alpha,
+            pin: PinAction::Preserve,
+        }
+    );
+    for pin in ["--pin", "--unpin"] {
+        let mut args = input.to_vec();
+        args.push(pin);
+        let result = super::parse(&self::args(&args)).unwrap();
+        assert!(
+            matches!(result.invocation, Invocation::NativeInstall { pin: actual, .. }
+            if actual == if pin == "--pin" { PinAction::PinCandidate } else { PinAction::Clear })
+        );
+    }
+    let mut office = input.to_vec();
+    office.extend(["--product", "office"]);
+    assert!(matches!(
+        super::parse(&self::args(&office)).unwrap().invocation,
+        Invocation::NativeInstall {
+            product: tmt_core::native_install::Product::Office,
+            ..
+        }
+    ));
+    let mut invalid_product = input.to_vec();
+    invalid_product.extend(["--product", "third-party"]);
+    assert_eq!(parse_error(&invalid_product).code, "USAGE_ERROR");
+    let mut conflict = input.to_vec();
+    conflict.extend(["--pin", "--unpin"]);
+    assert_eq!(parse_error(&conflict).code, "USAGE_ERROR");
+    assert_eq!(parse_error(&["__native-install"]).code, "USAGE_ERROR");
+    let help = crate::grammar::public_grammar(&crate::grammar::grammar(), true);
+    assert!(help.find_subcommand("__native-install").is_none());
+}

@@ -623,15 +623,28 @@ the board uses once themes arrive. A failed start, a non-zero exit, a timeout or
 more than 4 KiB of output shows a dim `?`, never an error. A squad defines at
 most 8 providers, and at most 4 programs run at once.
 
+For the common case, `preset = "github-pr"` stands in for `run`: it runs
+`gh pr view {pr_link} --json number,state,isDraft,reviewDecision` and shows
+`#412 open`, `#412 draft`, `#412 merged` or `#412 closed`, and for an open pull
+request its review, as in `#412 open · approved`, `· changes requested` or
+`· review required`. A member without `pr_link` shows `–`; without `gh` on
+`PATH`, or when `gh` is not logged in, it shows `?`.
+
+```toml
+[squad.product.fields.pr]
+preset = "github-pr"     # every and timeout work as above
+```
+
 Show a provider's value with a column of its name, or `from = "fields.<name>"`;
 sections, filters and sorts see it like any field, and it replaces a field of
 the same name that an agent wrote. The board never waits for a provider: it
 shows the last value while providers run in the background, reloads when they
-finish (unless its `refresh` is `"off"`), and runs them again after `every`. Values are kept in
-`$XDG_CACHE_HOME/tmt-squad/fields/` with the arguments that produced them, so a
-member whose `{pr_link}` changed shows `–` until its new value arrives.
-`tmt sq ls` shows the kept values; `tmt sq ls --refresh-fields` first runs the
-providers that are due and waits for them.
+finish (unless its `refresh` is `"off"`), and runs them again after `every`.
+Values are kept in `$XDG_CACHE_HOME/tmt-squad/fields/`, readable only by you,
+with the arguments that produced them, so a member whose `{pr_link}` changed
+shows `–` until its new value arrives. `tmt sq ls` shows the kept values;
+`tmt sq ls --refresh-fields` first runs the providers that are due and waits
+for them.
 
 The board is made of panes: `rows`, `notes` (the lead's own notebook, the same
 file as `tmt notes`, read-only), `detail` (the selected row) and `replies`
