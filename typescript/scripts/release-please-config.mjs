@@ -43,6 +43,8 @@ export function readWorkspace(root = ROOT) {
       name: crate.name,
       manifest,
       dir: dirname(manifest),
+      hasBinary: crate.targets.some(({ kind }) => kind.includes('bin')),
+      dist: crate.metadata?.dist?.dist,
       inheritsVersion: /^version\.workspace\s*=\s*true\s*$/m.test(
         readFileSync(crate.manifest_path, 'utf8')
       ),
@@ -129,6 +131,9 @@ export function generateReleasePleaseConfig({ components, workspace }) {
   const map = { components };
   const ownerOfCrate = (crate) => ownerOf(crate.manifest, map);
   const workspaceOwner = ownerOf(WORKSPACE_MANIFEST, map);
+  const releasedCrates = crates.filter(
+    (crate) => components.find(({ name }) => name === ownerOfCrate(crate))?.release !== false
+  );
   const packages = {};
 
   for (const component of components) {
@@ -137,8 +142,8 @@ export function generateReleasePleaseConfig({ components, workspace }) {
     }
     const owned = crates.filter((crate) => ownerOfCrate(crate) === component.name);
     if (component.release === false) {
-      if (owned.length > 0)
-        throw new Error(`Private component ${component.name} owns native crates.`);
+      if (owned.some((crate) => crate.hasBinary && crate.dist !== false))
+        throw new Error(`Private component ${component.name} owns a binary without dist=false.`);
       continue;
     }
     const [packagePath] = component.owns;
@@ -159,7 +164,7 @@ export function generateReleasePleaseConfig({ components, workspace }) {
     for (const crate of [...owned].sort(byName)) {
       if (!crate.inheritsVersion) toml(crate.manifest, '$.package.version');
     }
-    for (const crate of [...crates].sort(byName)) {
+    for (const crate of [...releasedCrates].sort(byName)) {
       const declaredBy = crate.inheritsVersion ? workspaceOwner : ownerOfCrate(crate);
       if (declaredBy !== component.name) continue;
       if (!/^[a-z0-9-]+$/.test(crate.name)) {

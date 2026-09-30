@@ -21,7 +21,7 @@
         "extensions/tmt-office/skills",
         "extensions/tmt-office/typescript",
         "extensions/tmt-squad",
-        "extensions/tmt-remote/typescript/browser-addon"
+        "extensions/tmt-remote"
       ],
       "extra-files": [
         {

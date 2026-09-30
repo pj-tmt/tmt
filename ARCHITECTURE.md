@@ -2534,14 +2534,26 @@ adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
 
-## Proposed remote client contract
+## Remote extension pilot
+
+`extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
+as `tmt remote`. `main` owns style/foreground composition and one bounded
+startup capabilities call. `core::CoreClient` owns fixed public `api`/`list`
+subprocesses through the supplied absolute `TMT_EXECUTABLE`, with deadline,
+output/cancellation bounds and owned process-group cleanup; no PATH fallback.
+The only TMT crate dependency is the shared leaf `tmt-cli-style`.
+
+`http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
+connection/rate bounds and shutdown. It has no CoreClient/storage reference.
+`transport::Transport` moves append/subscribe/ack envelopes to one message
+owner, which currently denies every request. Startup discovery is not a remote
+operation. The pilot cannot pair, adopt a request, approve, send or subscribe;
+no grant/journal/core DB is created. Denied traffic does not renew the window.
 
 [`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
-remote signed-message contract; no remote runtime or SDK is implemented by that
-document. Its M1 profile is `local-v1` over `loopback-http`, with transport-neutral
-append/subscribe/ack, extension-owned authentication and locally approved held
-sends through the public extension API. Future `cloudflare`/`firestore` bindings
-and `relay-v1` are reserved, not supported. The proposed runtime belongs entirely
-to `extensions/tmt-remote`; core does not listen, stay resident or expose its DB
-as a remote interface. Implementing slices must update this map to describe the
-delivered module, persistence, authority and verification boundaries.
+signed-message contract. Pairing/authentication/approval/log/SDK behavior remains
+proposed until its implementation slices land; `cloudflare`, `firestore` and
+`relay-v1` remain reserved. Core never owns a listener or remote state. Official
+product/release registration is deferred. Its private component owner excludes
+remote versions from real-product releases; cargo-dist excludes this pilot binary.
+For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
