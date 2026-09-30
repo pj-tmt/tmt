@@ -441,9 +441,22 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 
 `tmt squad board` opens the terminal board: squad tabs (←/→), one searchable
 list (`/`), the ◆ rows that wait on you first in the crew layout, and each
-member's note under its row. It refreshes in the background every few seconds
-and re-reads `squad.toml`, so edits apply on the next refresh; `q` or Esc
-closes it. Switching squads never blanks the screen: a squad you already
+member's note under its row. It reloads in the background every 5 seconds
+and re-reads `squad.toml`, so edits apply on the next reload; F5 (the `refresh`
+binding) and the board's own actions reload at once. `q` or Esc closes it. Set
+the interval with `refresh`, per squad or for every board, as whole seconds or
+minutes from `"1s"` to `"60m"`, or `"off"` to reload only on F5 and actions;
+the help overlay (`?`) shows the one in effect:
+
+```toml
+[board]
+refresh = "10s"            # every board
+
+[squad.product.board]
+refresh = "2s"             # this squad's board
+```
+
+Switching squads never blanks the screen: a squad you already
 visited shows at once while it refreshes, and otherwise the current frame stays
 until the new one is ready, with a small spinner if that takes a moment (row
 actions wait until it arrives). Tabs keep their width, so switching never moves

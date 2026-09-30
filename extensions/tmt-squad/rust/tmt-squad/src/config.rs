@@ -12,6 +12,7 @@ use std::{
     io::{self, Read, Write},
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
+    time::Duration,
 };
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
@@ -304,6 +305,33 @@ fn bindings_table(item: &Item, place: &str) -> Result<Bindings, SquadError> {
 
 /// A program as argv: a non-empty array of strings, the first a bare name on
 /// PATH or an absolute path. It never passes through a shell.
+/// The board's reload interval when nothing sets one.
+pub const DEFAULT_REFRESH: Duration = Duration::from_secs(5);
+
+/// `"off"`, or whole seconds or minutes such as `"2s"` or `"1m"`, from 1 s to
+/// 1 h: often enough to be useful, never a busy loop.
+fn refresh(item: &Item, place: &str) -> Result<Option<Duration>, SquadError> {
+    let wrong = || {
+        invalid(format!(
+            "`{place}` must be \"off\" or 1s-60m, such as \"5s\" or \"1m\"."
+        ))
+    };
+    let text = item.as_str().ok_or_else(wrong)?;
+    if text == "off" {
+        return Ok(None);
+    }
+    let (number, unit) = text.split_at(text.len().saturating_sub(1));
+    let seconds = match (number.parse::<u64>(), unit) {
+        (Ok(number), "s") => number,
+        (Ok(number), "m") => number.saturating_mul(60),
+        _ => return Err(wrong()),
+    };
+    if !(1..=3600).contains(&seconds) {
+        return Err(wrong());
+    }
+    Ok(Some(Duration::from_secs(seconds)))
+}
+
 fn program(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
     let malformed = || {
         invalid(format!(
@@ -573,7 +601,7 @@ impl Config {
             .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
         let text = |key: &str| table.get(key).map(|value| value.as_str());
         for (key, _) in table.iter() {
-            if !["mode", "direction", "panes", "sizes", "layout"].contains(&key) {
+            if !["mode", "direction", "panes", "sizes", "layout", "refresh"].contains(&key) {
                 return Err(invalid(format!("`{place}.{key}` is not a board setting.")));
             }
         }
@@ -702,6 +730,36 @@ impl Config {
             sizes.push(0);
         }
         Ok(Board::simple(mode, direction, panes, &sizes))
+    }
+
+    /// How often the board reloads everything: `[squad.<name>.board] refresh`,
+    /// then top-level `[board] refresh`, then [`DEFAULT_REFRESH`]. `None` is
+    /// "off": only F5 and the board's own actions reload.
+    pub fn refresh(&self, squad: &str) -> Result<Option<Duration>, SquadError> {
+        let global = match self.document.get("board") {
+            None => None,
+            Some(item) => {
+                let table = item
+                    .as_table_like()
+                    .ok_or_else(|| invalid("`board` must be a table."))?;
+                if let Some((key, _)) = table.iter().find(|(key, _)| *key != "refresh") {
+                    return Err(invalid(format!("`board.{key}` is not a board setting.")));
+                }
+                table
+                    .get("refresh")
+                    .map(|item| (item, "board.refresh".to_owned()))
+            }
+        };
+        let own = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("board"))
+            .and_then(Item::as_table_like)
+            .and_then(|table| table.get("refresh"))
+            .map(|item| (item, format!("squad.{squad}.board.refresh")));
+        match own.or(global) {
+            None => Ok(Some(DEFAULT_REFRESH)),
+            Some((item, place)) => refresh(item, &place),
+        }
     }
 
     /// `[squad.<name>.notes] render = "markdown" | "plain"`; markdown by default.
@@ -1230,6 +1288,47 @@ sort = ["state", "-name"]
                 .and_then(|_| config.states("x", Layout::Crew))
                 .err()
                 .map(|error| error.code);
+            assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn refresh_is_per_squad_then_global_then_five_seconds() {
+        let path = temp("refresh");
+        let read = |body: &str| {
+            fs::write(&path, body).unwrap();
+            Config::read(path.clone()).unwrap()
+        };
+        let secs = |seconds| Ok(Some(Duration::from_secs(seconds)));
+        assert_eq!(read("").refresh("x"), secs(5));
+        let config = read("[board]\nrefresh = \"2m\"\n[squad.x.board]\nrefresh = \"2s\"\n");
+        assert_eq!(config.refresh("x"), secs(2));
+        assert_eq!(config.refresh("y"), secs(120), "the global value");
+        assert_eq!(read("[board]\nrefresh = \"off\"\n").refresh("x"), Ok(None));
+        assert_eq!(
+            read("[board]\nrefresh = \"60m\"\n").refresh("x"),
+            secs(3600)
+        );
+        assert_eq!(
+            read("[squad.x.board]\nrefresh = \"1s\"\n")
+                .board("x", Layout::Crew)
+                .map(|board| board.panes),
+            Ok(vec![Pane::Rows, Pane::Notes]),
+            "refresh is a board setting beside the panes"
+        );
+        for body in [
+            "[board]\nrefresh = \"0s\"\n",
+            "[board]\nrefresh = \"61m\"\n",
+            "[board]\nrefresh = 5\n",
+            "[board]\nrefresh = \"5\"\n",
+            "[board]\nrefresh = \"5h\"\n",
+            "[board]\nrefresh = \"fast\"\n",
+            "[board]\npanes = [\"rows\"]\n",
+            "board = 5\n",
+            "[squad.x.board]\nrefresh = \"500ms\"\n",
+        ] {
+            let code = read(body).refresh("x").err().map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
