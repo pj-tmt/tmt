@@ -174,13 +174,14 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
             "nix",
         ],
+        "tmt-invoke" => &["subprocess", "nix"],
         "tmt-remote" => &[
             "tmt-cli-style",
+            "tmt-invoke",
             "clap",
             "serde_json",
             "getrandom",
             "httparse",
-            "subprocess",
             "signal-hook",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
@@ -189,7 +190,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .as_array()
         .expect("Cargo dependencies")
         .iter()
-        .filter(|d| d["kind"] != "dev")
+        .filter(|d| name == "tmt-invoke" || d["kind"] != "dev")
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
             // Source paths use canonical crate names. Renaming even an allowed
@@ -499,15 +500,22 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            // Extensions may name their own library and the leaf style crate only.
+            // Public-interface extensions name their own library and approved leaves only.
             if ["tmt-squad", "tmt-remote"].contains(&source.package.as_str())
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
+                && !(source.package == "tmt-remote" && root == "tmt_invoke")
                 && root != source.package.replace('-', "_")
             {
                 violations.push(format!(
                     "{location}: {} reaches TMT only through public commands, not {}",
                     source.package.strip_prefix("tmt-").unwrap(),
+                    path.join("::")
+                ));
+            }
+            if source.package == "tmt-invoke" && root.starts_with("tmt_") && root != "tmt_invoke" {
+                violations.push(format!(
+                    "{location}: invoke leaf cannot reach {}",
                     path.join("::")
                 ));
             }
