@@ -941,8 +941,13 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 
 ## Public command boundary
 
-`rust/crates/tmt-cli/src/grammar.rs` owns core syntax/help/completion and mounts
-the Office subtree from `tmt-office-command::grammar`. Each visible core command
+`rust/crates/tmt-cli/src/grammar.rs` owns the ordered core command registrations,
+shared spec/option helpers and public help projection, and mounts the Office subtree
+from `tmt-office-command::grammar`. Private `grammar/launch.rs`, `presence.rs`,
+`rooms.rs` and `requests.rs` own their command builders; the remaining groups stay
+in the root. Group modules share root helpers and do not import from each other.
+`grammar/completion.rs` and `grammar/extensions.rs` retain completion and external
+command recognition. Each visible core command
 is registered from a `CommandSpec` (summary and examples) through
 `tmt_cli_style::apply`; hidden internal commands have no help page. Squad registers each
 command from a `CommandSpec` in `extensions/tmt-squad/rust/tmt-squad/src/specs.rs` through
@@ -1660,11 +1665,13 @@ Configuration errors retain their stable public codes and useful paths only at
 the adapter boundary.
 
 The global file's `theme` object is presentation, not a core setting.
-`ConfigFiles::theme` checks only its shape (an object of strings) and never
+`ConfigFiles::theme` checks only its shape (an object of strings), reporting a
+wrong one as a `ThemeProblem` rather than a configuration error, and never
 affects loading the other settings; `tmt-core` knows nothing of colors. The CLI
 (`appearance`) gives it meaning through `tmt_cli_style::Theme::parse`: `config
-show` reports it resolved with its source and fails with `CONFIG_ERROR` naming a
-bad key, and at startup, only when stdout or stderr is a terminal and the user
+show` reports it resolved with its source and names a bad key in `themeError`
+(an `error:` line in text) while still succeeding, because Squad reads `config
+show` to find its own file; and at startup, only when stdout or stderr is a terminal and the user
 set `theme.base`, `tmt` sets the process theme once
 (`tmt_cli_style::theme::configure`), which `stream::stdout` and
 `stream::stderr` apply at the stream's color depth. A missing or invalid theme
@@ -2268,7 +2275,10 @@ built by the same worker from each squad's roster document, joined with one
 `ls` read for presence. Its rows carry their squad, so talk goes to that
 squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
 squads, not members: their `tab` action opens the squad's tab, and member
-bindings don't apply there. Moving a tab (Shift+←/→, or a drag on the tab
+bindings don't apply there. `jump lead` (`L` in the tmux preset) resolves a
+lead name in `App::lead`: the document's `squad.lead` on a squad tab, the
+selected row on the leads tab, the row's `lead` field on the all tab; it then
+takes the ordinary jump request, so the popup closes and `back` returns. Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
 format-preserving replacement that records `me`. A tab line that doesn't
 fit scrolls: `tab_window` keeps the current tab in view, starting as near the
@@ -2527,14 +2537,26 @@ adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
 
-## Proposed remote client contract
+## Remote extension pilot
+
+`extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
+as `tmt remote`. `main` owns style/foreground composition and one bounded
+startup capabilities call. `core::CoreClient` owns fixed public `api`/`list`
+subprocesses through the supplied absolute `TMT_EXECUTABLE`, with deadline,
+output/cancellation bounds and owned process-group cleanup; no PATH fallback.
+The only TMT crate dependency is the shared leaf `tmt-cli-style`.
+
+`http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
+connection/rate bounds and shutdown. It has no CoreClient/storage reference.
+`transport::Transport` moves append/subscribe/ack envelopes to one message
+owner, which currently denies every request. Startup discovery is not a remote
+operation. The pilot cannot pair, adopt a request, approve, send or subscribe;
+no grant/journal/core DB is created. Denied traffic does not renew the window.
 
 [`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
-remote signed-message contract; no remote runtime or SDK is implemented by that
-document. Its M1 profile is `local-v1` over `loopback-http`, with transport-neutral
-append/subscribe/ack, extension-owned authentication and locally approved held
-sends through the public extension API. Future `cloudflare`/`firestore` bindings
-and `relay-v1` are reserved, not supported. The proposed runtime belongs entirely
-to `extensions/tmt-remote`; core does not listen, stay resident or expose its DB
-as a remote interface. Implementing slices must update this map to describe the
-delivered module, persistence, authority and verification boundaries.
+signed-message contract. Pairing/authentication/approval/log/SDK behavior remains
+proposed until its implementation slices land; `cloudflare`, `firestore` and
+`relay-v1` remain reserved. Core never owns a listener or remote state. Official
+product/release registration is deferred. Its private component owner excludes
+remote versions from real-product releases; cargo-dist excludes this pilot binary.
+For shell ownership, see the [browser add-on shell](#browser-add-on-shell).

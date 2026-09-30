@@ -2622,6 +2622,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-remote"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clap",
+ "getrandom 0.4.3",
+ "httparse",
+ "serde_json",
+ "signal-hook 0.4.4",
+ "subprocess",
+ "tmt-cli-style",
+]
+
+[[package]]
 name = "tmt-squad"
 version = "0.1.0-alpha.1"
 dependencies = [

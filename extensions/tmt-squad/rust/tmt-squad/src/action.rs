@@ -127,6 +127,11 @@ impl Action {
             } else {
                 rest
             })?],
+            Verb::Jump => match rest {
+                "" => Vec::new(),
+                "lead" => vec![Template::parse("lead")?],
+                other => return Err(format!("jump takes nothing or lead, not '{other}'")),
+            },
             Verb::Annotate => match rest {
                 "" | "lead" => vec![Template::parse("lead")?],
                 "member" => vec![Template::parse("member")?],
@@ -244,6 +249,8 @@ pub fn preset(tmux: bool) -> Bindings {
         ("tab", "next-pane"),
     ]
     .into_iter()
+    // Only a host that can show a pane can jump to the lead.
+    .chain(tmux.then_some(("L", "jump lead")))
     .map(|(event, line)| {
         (
             event.to_owned(),
@@ -367,6 +374,14 @@ mod tests {
     #[test]
     fn presets_differ_only_where_the_host_cannot_jump() {
         let (tmux, plain) = (preset(true), preset(false));
+        assert_eq!(tmux["L"].verb, Verb::Jump);
+        assert_eq!(tmux["L"].args[0].literal(), Some("lead"));
+        assert!(!plain.contains_key("L"), "a plain terminal cannot jump");
+        assert_eq!(Action::parse("jump").unwrap().args.len(), 0);
+        assert_eq!(
+            Action::parse("jump member").unwrap_err(),
+            "jump takes nothing or lead, not 'member'"
+        );
         assert_eq!(tmux["enter"].verb, Verb::Jump);
         assert_eq!(plain["enter"].verb, Verb::Menu);
         assert_eq!(plain["double-click"].verb, Verb::Menu);
