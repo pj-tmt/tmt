@@ -199,7 +199,7 @@ pub enum ExtensionInstallRequest {
         archive: Option<String>,
         manifest: Option<String>,
         yes: bool,
-        /// Restore the exact recorded GitHub artifact, retaining the damaged release.
+        /// Restore the exact recorded artifact, retaining the damaged release.
         repair: bool,
         /// Publish the release's agent skills without asking.
         skills: bool,

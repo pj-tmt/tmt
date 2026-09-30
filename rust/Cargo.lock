@@ -2507,7 +2507,12 @@ version = "5.0.0-alpha.8"
 dependencies = [
  "serde",
  "serde_json",
+ "tmt-host-grammar",
 ]
+
+[[package]]
+name = "tmt-host-grammar"
+version = "5.0.0-alpha.8"
 
 [[package]]
 name = "tmt-office"

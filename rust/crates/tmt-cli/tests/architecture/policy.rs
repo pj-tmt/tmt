@@ -13,7 +13,10 @@ use syn::{
 pub fn dependency_violations(package: &Value) -> Vec<String> {
     let name = package["name"].as_str().expect("Cargo package name");
     let allowed: &[&str] = match name {
+        // The host grammar is core's one workspace dependency: pure syntax,
+        // shared with the driver protocol, never the wire crate itself.
         "tmt-core" => &[
+            "tmt-host-grammar",
             "semver",
             "uuid",
             "icu_casemap",
@@ -87,9 +90,12 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "shlex",
             "unicode-width",
         ],
-        // The driver protocol is a leaf like the style crate: a community
-        // driver builds against it alone, so it may depend on no TMT crate.
-        "tmt-driver-protocol" => &["serde", "serde_json"],
+        // The driver protocol carries no TMT behavior: a community driver
+        // builds against it alone, so its only workspace crate is the grammar.
+        "tmt-driver-protocol" => &["serde", "serde_json", "tmt-host-grammar"],
+        // A host's pane-ID and target syntax, defined once for core and the
+        // driver protocol; it depends on nothing.
+        "tmt-host-grammar" => &[],
         // The command crate also owns the companion invocation boundary and the
         // Office release verifier it hands to native installation.
         "tmt-office-command" => &[

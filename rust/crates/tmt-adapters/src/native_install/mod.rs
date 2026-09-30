@@ -20,7 +20,7 @@ mod publication;
 mod publication_tests;
 mod receipt;
 mod repair;
-pub use repair::{RepairReport, RepairRequired, repair_product};
+pub use repair::{RepairReport, RepairRequired, repair_product, repair_product_from_archive};
 mod release;
 mod skills_tree;
 mod upgrade;
