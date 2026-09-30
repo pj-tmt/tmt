@@ -52,6 +52,8 @@ icu_normalizer = { version = "=2.3.0", default-features = false, features = ["co
 icu_casemap = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 icu_locale_core = { version = "=2.3.0", default-features = false }
 sha2 = { version = "=0.11.0", default-features = false }
+ed25519-dalek = "=3.0.0"
+hmac = "=0.13.0"
 base64 = { version = "=0.22.1", default-features = false, features = ["alloc"] }
 png = "=0.18.1"
 signal-hook = { version = "=0.4.4", default-features = false }
