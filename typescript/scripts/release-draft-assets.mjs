@@ -20,7 +20,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { productOfTag, releaseFlags, releasePolicy } from './native-release-policy.mjs';
+import {
+  archivePrefix,
+  productOfTag,
+  releaseFlags,
+  releasePolicy,
+} from './native-release-policy.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, releasesFrom } from './plan-release-builds.mjs';
 
 const MANIFEST = 'dist-manifest.json';
@@ -38,7 +43,7 @@ export function bundleFiles(product, manifest, tag) {
   if (archives.length !== 4) {
     throw new Error(`Expected four archives in the bundle of ${tag}, found ${archives.length}.`);
   }
-  const prefix = product === 'cli' ? 'tmt-cli-' : `tmt-${product}-`;
+  const prefix = `${archivePrefix(product)}-`;
   for (const name of archives) {
     if (!name.startsWith(prefix) || !name.endsWith('.tar.gz')) {
       throw new Error(`Unexpected archive ${name} in the ${product} bundle.`);

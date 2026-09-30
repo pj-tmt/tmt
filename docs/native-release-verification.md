@@ -110,14 +110,33 @@ and `gh release verify-asset`). Never combine product manifests, replace an
 immutable release's assets or move its tag. A repair needs a new reviewed version.
 
 Also verify **upgrading from the last published release**, not only fresh installs.
-In an isolated HOME and prefix, install the previous published version with its
-own public installer. Then run the candidate installer's `__native-install` over
-that prefix, and run the candidate's `tmt upgrade` against a receipt with that
-version's online (`github-release`) provenance. Both must succeed and leave the
-superseded receipt unchanged. Receipts written by older releases stay readable:
-v5.0.0-alpha.2 through alpha.6 and Office 0.1.0-alpha.1 through alpha.3 record
-the pre-rename repository `wkh237/tmux-team`, which receipt reading accepts as
-the official one (#492).
+`Native release upgrade proof` (`.github/workflows/native-release-upgrade.yml`) does this
+on the four matching hosts with real bytes, and runs by hand (`workflow_dispatch`) for any
+draft or published tag, from `main` only. Its `fetch` job, which holds the write token that
+can see draft assets and runs `main`'s code, downloads the release's archive and manifest and
+those of the newest published release of the same product below it, each checked against the
+digest GitHub recorded, and hands them over as a run artifact; the read-only `prove` jobs
+re-check the digests and run the scripts of the release's own commit on them. A CLI release
+goes through
+`verify-native-installation.mjs`: the previous archive is installed pinned, the candidate
+is refused while pinned and installed with `--unpin`, the exact skills are served, SQLite is
+unchanged, the old executable is preserved, a repeat is a no-op and a downgrade is refused.
+An Office or Squad release is installed over the previous one by the newest published CLI
+with `tmt <extension> install` (`verify-native-extension-upgrade.mjs`): the version
+changes, the previous release stays on disk, a repeat is a no-op, a downgrade is refused and
+no CLI link is created. The first release of a product has nothing to upgrade from and says
+so. A commit that predates these scripts fails the proof with that message; prove it by
+hand as below.
+
+The automated proof does not run `tmt upgrade` or a public installer: the candidate has no
+published release for `tmt upgrade` to find, and production has no test endpoint. By hand,
+in an isolated HOME and prefix, install the previous published version with its own public
+installer. Then run the candidate installer's `__native-install` over that prefix, and run
+the candidate's `tmt upgrade` against a receipt with that version's online
+(`github-release`) provenance. Both must succeed and leave the superseded receipt
+unchanged. Receipts written by older releases stay readable: v5.0.0-alpha.2 through
+alpha.6 and Office 0.1.0-alpha.1 through alpha.3 record the pre-rename repository
+`wkh237/tmux-team`, which receipt reading accepts as the official one (#492).
 
 Before promoting README installation instructions, run the actual public script
 with an isolated HOME, application root and prefix, verify version, exact skill bundle,
