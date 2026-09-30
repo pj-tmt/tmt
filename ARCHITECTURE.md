@@ -971,10 +971,13 @@ authentication boundary nor a daemon, batch processor or streaming connection.
 Extensions use `TMT_EXECUTABLE` rather than assuming an installed binary path.
 
 The CLI owns bounded stdin acquisition (EOF within five seconds), JSON publication
-and exit status. `tmt-adapters::api` owns envelope admission and composition;
-identity, room, request history, dispatch and notes retain their existing domain,
-transaction and resource encoders. The same one-shot delivery helper serves
-Office and API dispatch. Explicit identity selects write attribution, not privilege.
+and exit status. `tmt-adapters::api` owns envelope admission and composition.
+Its `api.rs` facade retains the dispatcher, protocol bounds, settings selection
+and storage lifetime. Private `api/` modules own operation-family inputs and
+composition for requests, dispatch, rooms, notes, changes, identity hooks, skills,
+references and identity status. Identity, room, request history, dispatch and
+notes retain their existing domain, transaction and resource encoders. The same
+one-shot delivery helper serves Office and API dispatch. Explicit identity selects write attribution, not privilege.
 Capabilities and unsupported-version discovery never open application storage.
 Input and output bounds are advertised in capabilities; canonical content limits
 still apply independently of JSON escaping.
