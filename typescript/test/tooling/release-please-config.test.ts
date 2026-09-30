@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { parseComponentMap } from '../../scripts/ci-scope.mjs';
+import { ownerOf, parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
   generateReleasePleaseConfig,
   readWorkspace,
@@ -27,12 +27,16 @@ const crate = (
   name: string,
   dir: string,
   dependencies: string[] = [],
-  inheritsVersion = false
+  inheritsVersion = false,
+  hasBinary = true,
+  dist?: boolean
 ): WorkspaceCrate => ({
   name,
   manifest: `${dir}/Cargo.toml`,
   dir,
   inheritsVersion,
+  hasBinary,
+  dist,
   dependencies,
 });
 
@@ -80,7 +84,7 @@ function fixture(): {
 const generate = (input = fixture()) => generateReleasePleaseConfig(input);
 
 describe('release-please configuration generator', () => {
-  it('owns a private browser package without creating a native release or hiding native crates', () => {
+  it('owns a private browser package without creating a release or hiding an opted-in binary', () => {
     const input = fixture();
     const root = 'extensions/tmt-remote/typescript/browser-addon';
     const privateOwner = parseComponentMap(
@@ -97,7 +101,42 @@ describe('release-please configuration generator', () => {
     expect(generated.packages[root]).toBeUndefined();
     expect(generated.packages['.']['exclude-paths']).toContain(root);
     input.workspace.crates.push(crate('hidden-native', `${root}/rust/hidden`));
-    expect(() => generateReleasePleaseConfig(input)).toThrow('owns native crates');
+    expect(() => generateReleasePleaseConfig(input)).toThrow('binary without dist=false');
+  });
+
+  it('allows private libraries and opted-out binaries but refuses published or unspecified binaries', () => {
+    const input = fixture();
+    const root = 'extensions/private/rust';
+    const owner = parseComponentMap(
+      JSON.stringify({ components: { private: { owns: [root], release: false } } })
+    ).components[0];
+    input.components = [
+      ...input.components.map((c) =>
+        c.name === 'cli' ? { ...c, excludes: [...c.excludes, root] } : c
+      ),
+      owner,
+    ];
+    input.workspace.crates.push(crate('private-library', `${root}/library`, [], true, false));
+    input.workspace.lockNames.add('private-library');
+    expect(generate(input).packages[root]).toBeUndefined();
+    input.workspace.crates.push(crate('private-binary', `${root}/binary`, [], false, true, false));
+    input.workspace.lockNames.add('private-binary');
+    const generated = generate(input);
+    expect(generated.packages[root]).toBeUndefined();
+    expect(generated.packages['.']['exclude-paths']).toContain(root);
+    expect(JSON.stringify(generated)).not.toContain('private-library');
+    expect(JSON.stringify(generated)).not.toContain('private-binary');
+    for (const dist of [true, undefined]) {
+      input.workspace.crates[input.workspace.crates.length - 1] = crate(
+        'private-binary',
+        `${root}/binary`,
+        [],
+        false,
+        true,
+        dist
+      );
+      expect(() => generate(input)).toThrow('binary without dist=false');
+    }
   });
 
   it('makes one package per component with the tag the publication policy expects', () => {
@@ -260,6 +299,15 @@ describe('committed release-please configuration', () => {
     workspace = readWorkspace(`${root}/`);
   }, 30_000);
 
+  const releasedCrates = () => {
+    const map = parseComponentMap(read('.github/components.json'));
+    return workspace.crates.filter(
+      (crate) =>
+        map.components.find((component) => component.name === ownerOf(crate.manifest, map))
+          ?.release !== false
+    );
+  };
+
   const resolveFromPackage = (packagePath: string, file: string) =>
     file.startsWith('/') ? file.slice(1) : packagePath === '.' ? file : `${packagePath}/${file}`;
   const lockedName = (jsonpath: string) =>
@@ -271,14 +319,30 @@ describe('committed release-please configuration', () => {
     );
   });
 
-  it('manages every workspace crate lock entry exactly once, and only real ones', () => {
+  it('reads binary opt-out metadata and excludes the private remote versions', () => {
+    expect(workspace.crates.find(({ name }) => name === 'tmt-remote')).toMatchObject({
+      hasBinary: true,
+      dist: false,
+    });
+    expect(workspace.crates.find(({ name }) => name === 'tmt-core')).toMatchObject({
+      hasBinary: false,
+    });
+    expect(JSON.stringify(config)).not.toContain('tmt-remote/Cargo.toml');
+    expect(JSON.stringify(config)).not.toContain("name.value=='tmt-remote'");
+  });
+
+  it('manages every released workspace crate lock entry exactly once, and only real ones', () => {
     const managed = Object.values(config.packages).flatMap((entry) =>
       entry['extra-files'].flatMap((file) => lockedName(file.jsonpath) ?? [])
     );
-    expect([...managed].sort()).toEqual(workspace.crates.map(({ name }) => name).sort());
+    expect([...managed].sort()).toEqual(
+      releasedCrates()
+        .map(({ name }) => name)
+        .sort()
+    );
   });
 
-  it('manages every declared crate version and the workspace version exactly once', () => {
+  it('manages every released crate version and the workspace version exactly once', () => {
     const managed = Object.entries(config.packages).flatMap(([packagePath, entry]) =>
       entry['extra-files']
         .filter((file) => !file.path.endsWith('Cargo.lock'))
@@ -286,7 +350,7 @@ describe('committed release-please configuration', () => {
     );
     const declared = [
       'rust/Cargo.toml $.workspace.package.version',
-      ...workspace.crates
+      ...releasedCrates()
         .filter(({ inheritsVersion }) => !inheritsVersion)
         .map(({ manifest }) => `${manifest} $.package.version`),
     ];

@@ -4,11 +4,10 @@ use tmt_core::{
     binding::{
         Binding,
         session::{
-            BindingSessionState, HarnessId, ObservedSessionKey, ProviderSessionId,
-            RuntimeIncarnation, RuntimeMode,
+            BindingSessionState, HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeMode,
         },
     },
-    endpoint::ServerEvidence,
+    endpoint::{ProcessIncarnation, ServerEvidence},
 };
 
 const CLAUDE: &str = "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f";
@@ -55,7 +54,7 @@ fn binding(state: RuntimeState, session: Option<&str>) -> Binding {
             last_transition: None,
             state,
             key: session.map(|session| ObservedSessionKey {
-                incarnation: RuntimeIncarnation::new(10, "start").unwrap(),
+                incarnation: ProcessIncarnation::new(10, "start").unwrap(),
                 provider_session: Some(ProviderSessionId::new(session).unwrap()),
             }),
             launch_owner: None,

@@ -49,8 +49,7 @@ fn same_interface_rebind_retains_runtime_observation_and_preferences() {
         state: RuntimeState::Running,
         last_transition: Some(SessionTransition::Resumed),
         key: Some(tmt_core::binding::session::ObservedSessionKey {
-            incarnation: tmt_core::binding::session::RuntimeIncarnation::new(101, "runtime-start")
-                .unwrap(),
+            incarnation: tmt_core::endpoint::ProcessIncarnation::new(101, "runtime-start").unwrap(),
             provider_session: None,
         }),
     };

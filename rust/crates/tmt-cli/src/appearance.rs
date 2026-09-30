@@ -18,7 +18,12 @@ pub fn configure(json: bool) {
         return;
     };
     let files = ConfigFiles { paths };
-    if let Some(theme) = files.theme().ok().and_then(|settings| chosen(&settings)) {
+    if let Some(theme) = files
+        .theme()
+        .ok()
+        .and_then(Result::ok)
+        .and_then(|settings| chosen(&settings))
+    {
         tmt_cli_style::theme::configure(theme);
     }
 }
