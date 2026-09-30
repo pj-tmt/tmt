@@ -436,6 +436,18 @@ fn bindings_table(item: &Item, place: &str) -> Result<Bindings, SquadError> {
 /// The board's reload interval when nothing sets one.
 pub const DEFAULT_REFRESH: Duration = Duration::from_secs(5);
 
+/// Convert whole-unit durations; callers retain their units, ranges and errors.
+pub(crate) fn duration(text: &str, units: &[char]) -> Option<Duration> {
+    let (number, multiplier) = [('s', 1), ('m', 60), ('h', 3600)]
+        .into_iter()
+        .filter(|(unit, _)| units.contains(unit))
+        .find_map(|(unit, multiplier)| {
+            text.strip_suffix(unit).map(|number| (number, multiplier))
+        })?;
+    let seconds = number.parse::<u64>().ok()?.saturating_mul(multiplier);
+    Some(Duration::from_secs(seconds))
+}
+
 /// `"off"`, or whole seconds or minutes such as `"2s"` or `"1m"`, from 1 s to
 /// 1 h: often enough to be useful, never a busy loop.
 fn refresh(item: &Item, place: &str) -> Result<Option<Duration>, SquadError> {
@@ -448,16 +460,10 @@ fn refresh(item: &Item, place: &str) -> Result<Option<Duration>, SquadError> {
     if text == "off" {
         return Ok(None);
     }
-    let (number, unit) = text.split_at(text.len().saturating_sub(1));
-    let seconds = match (number.parse::<u64>(), unit) {
-        (Ok(number), "s") => number,
-        (Ok(number), "m") => number.saturating_mul(60),
-        _ => return Err(wrong()),
-    };
-    if !(1..=3600).contains(&seconds) {
-        return Err(wrong());
-    }
-    Ok(Some(Duration::from_secs(seconds)))
+    duration(text, &['s', 'm'])
+        .filter(|duration| (1..=3600).contains(&duration.as_secs()))
+        .map(Some)
+        .ok_or_else(wrong)
 }
 
 fn program(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
@@ -697,22 +703,11 @@ impl Config {
                         ))
                     };
                     let text = item.as_str().ok_or_else(wrong)?;
-                    let (number, multiplier) = [("s", 1), ("m", 60), ("h", 3600)]
-                        .into_iter()
-                        .find_map(|(unit, multiplier)| {
-                            text.strip_suffix(unit).map(|number| (number, multiplier))
-                        })
+                    reminders.stale_after = duration(text, &['s', 'm', 'h'])
+                        // Reminders historically require digits, unlike the older timings.
+                        .filter(|_| text.as_bytes().first().is_some_and(u8::is_ascii_digit))
+                        .filter(|duration| (60..=86400).contains(&duration.as_secs()))
                         .ok_or_else(wrong)?;
-                    if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
-                        return Err(wrong());
-                    }
-                    let seconds = number
-                        .parse::<u64>()
-                        .ok()
-                        .and_then(|n| n.checked_mul(multiplier))
-                        .filter(|n| (60..=86400).contains(n))
-                        .ok_or_else(wrong)?;
-                    reminders.stale_after = Duration::from_secs(seconds);
                 }
                 _ => {
                     return Err(invalid(format!(
@@ -1240,7 +1235,15 @@ mod tests {
             }
         );
         assert_eq!(config.reminders("other").unwrap(), Reminders::default());
-        for (value, seconds) in [("60s", 60), ("1m", 60), ("24h", 86400), ("1440m", 86400)] {
+        for (value, seconds) in [
+            ("60s", 60),
+            ("1m", 60),
+            ("0005m", 300),
+            ("1h", 3600),
+            ("24h", 86400),
+            ("1440m", 86400),
+            ("86400s", 86400),
+        ] {
             fs::write(
                 &path,
                 format!("[squad.product.reminders]\nstale_after = {value:?}\n"),
@@ -1271,6 +1274,8 @@ mod tests {
             "stale_after = \"-1m\"",
             // Non-ASCII input deliberately exercises the parser boundary.
             "stale_after = \"1分钟\"",
+            "stale_after = \"5分\"",
+            "stale_after = \"5秒\"",
             "stale_after = \"18446744073709551615h\"",
         ] {
             let original = format!("[squad.product.reminders]\n{setting}\n");
@@ -1620,6 +1625,38 @@ sort = ["state", "-name"]
     }
 
     #[test]
+    fn refresh_preserves_accepted_numbers_units_and_off() {
+        for (text, seconds) in [
+            ("1s", Some(1)),
+            ("+5s", Some(5)),
+            ("005s", Some(5)),
+            ("5m", Some(300)),
+            ("+5m", Some(300)),
+            ("60m", Some(3600)),
+            ("3600s", Some(3600)),
+            ("off", None),
+        ] {
+            assert_eq!(
+                refresh(&value(text), "board.refresh").unwrap(),
+                seconds.map(Duration::from_secs),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_non_ascii_duration_reports_the_setting_without_panicking() {
+        // Multi-byte suffixes reproduce the old byte-index split panic.
+        for place in ["board.refresh", "squad.x.board.refresh"] {
+            for text in ["5分", "5秒"] {
+                let error = refresh(&value(text), place).unwrap_err();
+                assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+                assert!(error.message.contains(place), "{error}");
+            }
+        }
+    }
+
+    #[test]
     fn refresh_is_per_squad_then_global_then_five_seconds() {
         let path = temp("refresh");
         let read = |body: &str| {
@@ -1649,6 +1686,7 @@ sort = ["state", "-name"]
             "[board]\nrefresh = 5\n",
             "[board]\nrefresh = \"5\"\n",
             "[board]\nrefresh = \"5h\"\n",
+            "[board]\nrefresh = \"1h\"\n",
             "[board]\nrefresh = \"fast\"\n",
             "[board]\npanes = [\"rows\"]\n",
             "board = 5\n",
