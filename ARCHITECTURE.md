@@ -1594,10 +1594,15 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 36, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 39, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
+WAL setup retries only classified Busy within one five-second contention budget,
+including SQLite's own bounded busy waits, and verifies the returned journal mode
+is `wal` before migration. Success restores the normal five-second busy timeout;
+exhaustion preserves the original Busy error. Other setup and transaction failures
+are not retried by this policy.
 It classifies OS-denied writes and SQLite read-only/WAL failures as a typed
 not-writable error; a generic CANTOPEN needs independent permission evidence.
 An existing data directory without owner write permission is reported, not repaired.
@@ -2066,11 +2071,13 @@ or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
 document, and for every other squad from a roster-only document (one
 `rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
 tabs are colored without loading their rows. `board::tabs` owns the tab
-keys: a squad's name, or a built-in key starting with `@` (`@leads`), which no
-squad name can. `[tabs] order` and `hide` arrange them. The leads tab's view is
+keys: a squad's name, or a built-in key starting with `@` (`@leads`, `@all`),
+which no squad name can. `[tabs] order` and `hide` arrange them. The leads tab's view is
 built by the same worker from each squad's roster document, joined with one
 `ls` read for presence. Its rows carry their squad, so talk goes to that
-squad's room and a jump is the ordinary `tmt focus`. `board`
+squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
+squads, not members: their `tab` action opens the squad's tab, and member
+bindings don't apply there. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
@@ -2283,8 +2290,11 @@ GitHub App token, created only in that job and only in a live run on `main`, is 
 the release pull requests run the required checks; the job runs in the `release`
 Environment and the App credentials are secrets of that Environment, restricted to `main`.
 Until they exist every push is a dry run that opens, merges, creates and starts nothing.
-`release.yml` never publishes. CLI, Office and Squad runs share the four-target cargo-dist build and archive
-verifier, while keeping
+`release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
+published release, its upgrade from the last published release of the same product on the
+four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
+assets, and read-only jobs run the release commit's scripts on them. CLI, Office and Squad
+runs share the four-target cargo-dist build and archive verifier, while keeping
 product-qualified bundles, independent versions and separate immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
 bootstrap proof. Archives, their product-specific manifest/checksums and notices,

@@ -1,0 +1,5 @@
+---
+source: crates/tmt-cli/src/uninstall_command.rs
+expression: "report(&plan, &removed, false).to_string()"
+---
+{"removed":["/prefix/bin/tmt-office","/prefix/lib/tmt-office","/prefix/bin/tmt-squad","/prefix/bin/tmt-sq","/prefix/lib/tmt-squad","/prefix/bin/tmt","/prefix/bin/tmux-team","/prefix/lib/tmux-team"],"kept":[],"officeStopped":false,"data":{"path":"/data/tmux-team","deleted":false}}

@@ -71,8 +71,15 @@ impl Plan {
                 .iter()
                 .map(|path| ("skill", path.clone())),
         );
-        for (_, product) in &self.products {
-            rows.extend(product.removed.iter().map(|path| ("command", path.clone())));
+        for (kind, product) in &self.products {
+            rows.extend(product.removed.iter().map(|path| {
+                let label = if path.ends_with(kind.namespace()) {
+                    "files"
+                } else {
+                    "command"
+                };
+                (label, path.clone())
+            }));
         }
         if self.purge && self.data_exists {
             rows.push(("data", self.data.clone()));
@@ -394,4 +401,83 @@ fn report(plan: &Plan, removed: &[PathBuf], deleted: bool) -> serde_json::Value 
         "officeStopped": plan.office_running,
         "data": {"path": plan.data, "deleted": deleted},
     })
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+
+    fn plan() -> Plan {
+        let prefix = Path::new("/prefix");
+        Plan {
+            office_running: false,
+            hooks: Vec::new(),
+            skills: SkillsRemoval::default(),
+            products: PRODUCTS
+                .into_iter()
+                .map(|product| {
+                    let mut removed: Vec<_> = product
+                        .links()
+                        .iter()
+                        .map(|name| prefix.join("bin").join(name))
+                        .collect();
+                    removed.push(prefix.join(product.namespace()));
+                    (
+                        product,
+                        ProductRemoval {
+                            removed,
+                            kept: Vec::new(),
+                        },
+                    )
+                })
+                .collect(),
+            data: "/data/tmux-team".into(),
+            data_exists: false,
+            purge: false,
+        }
+    }
+
+    #[test]
+    fn uninstall_json_bytes() {
+        let plan = plan();
+        let removed: Vec<_> = plan.removals().into_iter().map(|(_, path)| path).collect();
+        insta::assert_snapshot!(report(&plan, &removed, false).to_string());
+    }
+
+    #[test]
+    fn uninstall_labels_product_directories_as_files() {
+        let plan = plan();
+        let removals = plan.removals();
+        assert_eq!(
+            removals
+                .iter()
+                .filter(|(label, _)| *label == "files")
+                .count(),
+            PRODUCTS.len()
+        );
+        for (product, removal) in &plan.products {
+            for path in &removal.removed {
+                let label = removals
+                    .iter()
+                    .find(|(_, target)| target == path)
+                    .unwrap()
+                    .0;
+                assert_eq!(
+                    label,
+                    if product
+                        .links()
+                        .iter()
+                        .any(|name| path == &Path::new("/prefix/bin").join(name))
+                    {
+                        "command"
+                    } else {
+                        "files"
+                    }
+                );
+            }
+        }
+        let mut output = Vec::new();
+        present(&mut output, tmt_cli_style::Terminal::PLAIN, &plan).unwrap();
+        insta::assert_snapshot!(String::from_utf8(output).unwrap());
+    }
 }

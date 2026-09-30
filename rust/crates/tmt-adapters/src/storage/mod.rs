@@ -23,7 +23,7 @@ use rusqlite::Connection;
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub use bindings::PurgedSession;
@@ -52,6 +52,10 @@ pub struct StorageHealth {
     pub synchronous: &'static str,
     pub fts5: bool,
 }
+
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+const WAL_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+const WAL_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// One invocation-owned connection. The raw handle never crosses this adapter's
 /// boundary. Explicit close reports failures; Connection's RAII remains a safety
@@ -99,12 +103,7 @@ impl Storage {
             connection
                 .pragma_update(None, "foreign_keys", "ON")
                 .map_err(|error| classify(error, "Configure foreign keys"))?;
-            connection
-                .busy_timeout(Duration::from_millis(5000))
-                .map_err(|error| classify(error, "Configure busy timeout"))?;
-            connection
-                .pragma_update(None, "journal_mode", "WAL")
-                .map_err(|error| classify(error, "Configure WAL"))?;
+            configure_wal(&connection)?;
             connection
                 .pragma_update(None, "synchronous", "NORMAL")
                 .map_err(|error| classify(error, "Configure synchronous policy"))?;
@@ -198,6 +197,42 @@ impl Drop for Storage {
             && let Some(connection) = &self.connection
         {
             crate::extension_hooks::drain(connection);
+        }
+    }
+}
+
+fn configure_wal(connection: &Connection) -> Result<(), StorageError> {
+    let deadline = Instant::now() + BUSY_TIMEOUT;
+    loop {
+        // SQLite may skip its busy handler for competing WAL transitions.
+        // Bound both its individual waits and our retries by one deadline.
+        connection
+            .busy_timeout(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(WAL_ATTEMPT_TIMEOUT),
+            )
+            .map_err(|error| classify(error, "Configure busy timeout"))?;
+        let mode = connection
+            .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0));
+        match mode {
+            Ok(mode) if mode == "wal" => {
+                return connection
+                    .busy_timeout(BUSY_TIMEOUT)
+                    .map_err(|error| classify(error, "Configure busy timeout"));
+            }
+            Ok(_) => return Err(incompatible("The SQLite connection could not enable WAL")),
+            Err(error) => {
+                let error = classify(error, "Configure WAL");
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if error.code != StorageErrorCode::Busy || remaining.is_zero() {
+                    return Err(error);
+                }
+                std::thread::sleep(remaining.min(WAL_RETRY_INTERVAL));
+                if Instant::now() >= deadline {
+                    return Err(error);
+                }
+            }
         }
     }
 }

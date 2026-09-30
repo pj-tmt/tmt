@@ -15,6 +15,8 @@ pub use transport::{DeliveryError, DeliveryStage};
 mod evidence_tests;
 #[cfg(test)]
 mod io_tests;
+#[cfg(test)]
+mod server_id_tests;
 
 pub use crate::host::CallerEnvironment;
 
@@ -296,7 +298,23 @@ impl<R: CommandRunner> Tmux<R> {
                     SERVER_ID_OPTION.into(),
                     uuid::Uuid::new_v4().to_string(),
                 ]);
-                self.execute(args, options, TmuxFailure::Command)?;
+                match self.execute(args, options, TmuxFailure::Command) {
+                    Ok(_) => {}
+                    // Another initializer can win the set-only-if-unset race.
+                    // Adopt its ID only after a valid readback, never after an
+                    // operational failure or unconfirmed process cleanup.
+                    Err(error)
+                        if !error.cleanup_failed()
+                            && !error.socket_permission_denied()
+                            && matches!(
+                                error.cause.as_ref().map(|cause| cause.kind),
+                                Some(CommandFailure::Exit {
+                                    code: Some(_),
+                                    signal: None,
+                                })
+                            ) => {}
+                    Err(error) => return Err(error),
+                }
                 read()?
             }
         };

@@ -3,7 +3,7 @@
 //! squad.toml, so configuration edits appear on the next refresh.
 
 use super::{
-    LEADS,
+    ALL, LEADS,
     app::{Notes, Snapshot, View},
     notes::sanitize,
     tabs,
@@ -87,7 +87,7 @@ fn load(
     };
     // A hidden squad is still shown when asked for by name.
     let chosen = match &wanted {
-        Some(key) if (key == LEADS && !names.is_empty()) || names.contains(key) => {
+        Some(key) if (tabs::builtin(key) && tabs.contains(key)) || names.contains(key) => {
             Some(key.clone())
         }
         Some(_) => None,
@@ -110,6 +110,8 @@ fn load(
         let me = crate::me::you(crate::me::current(core, &config)?, caller);
         let (view, found) = if key == LEADS {
             leads_view(core, tmux, &config, &squads, &tabs, me)?
+        } else if key == ALL {
+            all_view(core, &config, &squads, &tabs, me)?
         } else {
             let squad = squads
                 .iter()
@@ -223,6 +225,106 @@ fn leads_view(
     Ok((view, attention))
 }
 
+/// The built-in `all` tab: one row per squad with its lead, member count
+/// and attention, in tab order. Enter opens that squad's tab; the rows are
+/// squads, not members, so no member binding applies here.
+fn all_view(
+    core: &Core,
+    config: &Config,
+    squads: &[Squad],
+    tabs: &[String],
+    me: Option<crate::me::Me>,
+) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
+    let settings = config.tabs()?;
+    let all: Vec<&Squad> = squads.iter().collect();
+    let documents = roster_documents(core, config, &all, me.as_ref(), None);
+    let attention = tab_attention(&documents);
+    let mut bindings = crate::action::parse_bindings(
+        [
+            ("enter", Some("tab")),
+            ("double-click", Some("tab")),
+            ("f5", Some("refresh")),
+        ]
+        .into_iter(),
+        "tabs.all",
+    )
+    .expect("the all tab's preset");
+    bindings.extend(settings.all);
+    let view = View {
+        rows: crate::rows::Rows::overview(),
+        colors: BTreeMap::new(),
+        render: NotesRender::Markdown,
+        bindings,
+        section_bindings: Vec::new(),
+        opener: None,
+        clipboard: None,
+        tab_colors: settings.colors,
+        me: me.map(|me| me.name),
+        replies: Vec::new(),
+        refresh: config.refresh(ALL)?,
+        board: Board::simple(
+            BoardMode::Split,
+            Direction::LeftRight,
+            vec![Pane::Rows],
+            &[100],
+        ),
+        notes: Notes::NotShown,
+        document: all_document(tabs, &documents, &attention),
+    };
+    Ok((view, attention))
+}
+
+/// The `all` tab's document: a row per squad, `name` the squad's, with its
+/// lead, member count and attention counts as fields.
+fn all_document(
+    tabs: &[String],
+    documents: &BTreeMap<String, Value>,
+    attention: &BTreeMap<String, Attention>,
+) -> Value {
+    let rows: Vec<Value> = in_tab_order(tabs, documents)
+        .into_iter()
+        .map(|name| {
+            let document = &documents[name];
+            let lead = document["squad"]["lead"]["name"].as_str().unwrap_or("–");
+            let members = document["sections"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|section| section["rows"].as_array().into_iter().flatten())
+                .filter_map(|row| row["name"].as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len();
+            let attention = attention.get(name).copied().unwrap_or_default();
+            json!({
+                "name": name,
+                "squad": name,
+                "state": attention.state(),
+                "fields": {
+                    "squad": name,
+                    "lead": lead,
+                    "members": members.to_string(),
+                    "waiting": attention.waiting.to_string(),
+                    "blocked": attention.blocked.to_string(),
+                },
+            })
+        })
+        .collect();
+    json!({
+        "squad": {"name": "all", "lead": null},
+        "sections": [{"title": null, "rows": rows}],
+    })
+}
+
+/// Squads in tab order, then squads off the tab line.
+fn in_tab_order<'a>(tabs: &'a [String], documents: &'a BTreeMap<String, Value>) -> Vec<&'a String> {
+    let mut order: Vec<&String> = tabs
+        .iter()
+        .filter(|key| documents.contains_key(*key))
+        .collect();
+    order.extend(documents.keys().filter(|key| !tabs.contains(key)));
+    order
+}
+
 /// Each squad's roster-only status document, with what waits on the user
 /// from one inbox read shared by all, and presence when an `ls` document is
 /// given. A squad that cannot be read is left out.
@@ -281,12 +383,7 @@ fn roster_document(
 /// order (hidden squads last), each carrying its squad as `squad` and as
 /// the `squad` field.
 fn leads_document(tabs: &[String], documents: &BTreeMap<String, Value>) -> Value {
-    let mut order: Vec<&String> = tabs
-        .iter()
-        .filter(|key| documents.contains_key(*key))
-        .collect();
-    order.extend(documents.keys().filter(|key| !tabs.contains(key)));
-    let rows: Vec<Value> = order
+    let rows: Vec<Value> = in_tab_order(tabs, documents)
         .into_iter()
         .filter_map(|name| {
             let mut lead = documents[name]["squad"]["lead"].clone();
@@ -314,6 +411,15 @@ fn tab_attention(documents: &BTreeMap<String, Value>) -> BTreeMap<String, Attent
         LEADS.to_owned(),
         Attention::of(&leads_document(&[], documents)),
     );
+    // Every squad's members, each counted once per squad.
+    let all = attention
+        .iter()
+        .filter(|(key, _)| !tabs::builtin(key))
+        .fold(Attention::default(), |sum, (_, one)| Attention {
+            waiting: sum.waiting + one.waiting,
+            blocked: sum.blocked + one.blocked,
+        });
+    attention.insert(ALL.to_owned(), all);
     attention
 }
 
@@ -463,6 +569,38 @@ mod tests {
                 blocked: 1
             }
         );
+        // The all tab sums its squads: hidden's sol is not waiting there.
+        assert_eq!(
+            attention[ALL],
+            Attention {
+                waiting: 1,
+                blocked: 1
+            }
+        );
+        let all = all_document(&tabs, &documents, &attention);
+        let rows = all["sections"][0]["rows"].as_array().unwrap();
+        let listed: Vec<(&str, &str, &str)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row["name"].as_str().unwrap(),
+                    row["fields"]["lead"].as_str().unwrap(),
+                    row["state"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("product", "sol", "waiting"),
+                ("infra", "rin", "blocked"),
+                ("quiet", "–", "normal"),
+                ("hidden", "sol", "normal"),
+            ],
+            "every squad, with or without a lead, in tab order"
+        );
+        assert_eq!(rows[0]["squad"], "product", "Enter opens this tab");
+        assert_eq!(rows[0]["fields"]["waiting"], "1");
         assert_eq!(attention["quiet"], Attention::default());
         assert_eq!(
             attention["infra"],
