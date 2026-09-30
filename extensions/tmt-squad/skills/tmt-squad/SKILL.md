@@ -24,8 +24,11 @@ squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
 the fields each line of a row shows (`{field, span}`, field null for an empty
 cell).
 
-- `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`) and
-  `lead` (a row, or null).
+- `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`),
+  `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
+  `normal`), `waiting` (members that owe the user a decision or wait for an
+  answer) and `blocked` (members in the `blocked` state). The board colors the
+  squad's tab by it.
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`

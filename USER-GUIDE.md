@@ -460,7 +460,19 @@ Switching squads never blanks the screen: a squad you already
 visited shows at once while it refreshes, and otherwise the current frame stays
 until the new one is ready, with a small spinner if that takes a moment (row
 actions wait until it arrives). Tabs keep their width, so switching never moves
-them. Without a terminal, or with `--json`, it prints `status`. Rows and
+them.
+
+The first header line holds only the tabs. The selected tab is shown in
+reverse. Each tab is colored by what it needs from you: amber when a member
+waits on you (◆, or a request waiting for your answer), red when a member is
+blocked, and plain otherwise. Counts follow the name (`product ◆2 !1`), so the
+state never depends on color alone, and `ls --json` reports it as
+`squad.attention` (`state`, `waiting`, `blocked`). Change the colors in
+`[tabs.colors]` (`waiting = "amber"`, `blocked = "red"`; the same color names as
+states). The second line is the shown squad's summary: `lead sol · 4 members ·
+1 waiting on you`.
+
+Without a terminal, or with `--json`, it prints `status`. Rows and
 state colors are configurable. Every row sits on one grid of columns; a row can
 take more than one line, and on each line a cell can span columns:
 

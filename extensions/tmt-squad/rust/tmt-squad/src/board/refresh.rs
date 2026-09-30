@@ -7,6 +7,7 @@ use super::{
     notes::sanitize,
 };
 use crate::{
+    attention::Attention,
     config::{Config, Pane},
     core::Core,
     requests,
@@ -67,6 +68,7 @@ fn load(
         Err(error) => {
             return Snapshot {
                 squads: Vec::new(),
+                attention: BTreeMap::new(),
                 squad: wanted,
                 view: Err(error.to_string()),
             };
@@ -74,12 +76,13 @@ fn load(
     };
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
     let chosen = match &wanted {
-        Some(name) => squads.into_iter().find(|squad| &squad.name == name),
-        None => squads.into_iter().next(),
+        Some(name) => squads.iter().find(|squad| &squad.name == name),
+        None => squads.first(),
     };
-    let Some(squad) = chosen else {
+    let Some(squad) = chosen.cloned() else {
         return Snapshot {
             squads: names,
+            attention: BTreeMap::new(),
             view: Err(match &wanted {
                 Some(name) => format!("Squad '{name}' does not exist; run: tmt squad init {name}"),
                 None => "No squad exists yet; run: tmt squad init <name>".into(),
@@ -87,6 +90,7 @@ fn load(
             squad: wanted,
         };
     };
+    let mut attention = BTreeMap::new();
     let view = (|| {
         let config = Config::load(core)?;
         let layout = config.layout(&squad.name)?;
@@ -97,6 +101,8 @@ fn load(
         let mut document =
             status::document(&squad, layout, &states, &sections, squad.members(core)?);
         let sent = requests::overlay(core, &squad, me.as_ref(), &mut document)?;
+        attention = others(core, &config, &squads, &squad.name, me.as_ref());
+        attention.insert(squad.name.clone(), Attention::of(&document));
         let mut replies = match &sent {
             Some(sent) if board.panes.contains(&Pane::Replies) => {
                 requests::replies(sent, &document)
@@ -117,6 +123,7 @@ fn load(
             section_bindings: sections.into_iter().map(|section| section.bind).collect(),
             opener: config.program("opener")?,
             clipboard: config.program("clipboard")?,
+            tab_colors: config.tab_colors()?,
             me: me.map(|me| me.name),
             replies,
             refresh: config.refresh(&squad.name)?,
@@ -128,9 +135,62 @@ fn load(
     .map_err(|error: crate::core::SquadError| error.to_string());
     Snapshot {
         squads: names,
+        attention,
         squad: Some(squad.name),
         view,
     }
+}
+
+/// The attention of every squad but the one shown, from its roster alone:
+/// one `rooms.roster` read each, and one inbox read shared by all. A squad
+/// that cannot be read has no entry, so its tab shows no state.
+fn others(
+    core: &Core,
+    config: &Config,
+    squads: &[Squad],
+    shown: &str,
+    me: Option<&crate::me::Me>,
+) -> BTreeMap<String, Attention> {
+    let others: Vec<&Squad> = squads.iter().filter(|squad| squad.name != shown).collect();
+    if others.is_empty() {
+        return BTreeMap::new();
+    }
+    let waiting = match me {
+        Some(me) => match requests::inbox(core, &me.id) {
+            Ok(inbox) => Some((me.id.as_str(), inbox)),
+            Err(_) => return BTreeMap::new(),
+        },
+        None => None,
+    };
+    others
+        .into_iter()
+        .filter_map(|squad| {
+            let roster = squad.roster(core).ok()?;
+            let waiting = waiting.as_ref().map(|(me, inbox)| (*me, inbox));
+            Some((
+                squad.name.clone(),
+                attention(config, squad, roster, waiting).ok()?,
+            ))
+        })
+        .collect()
+}
+
+/// One squad's attention from its roster: the same document `status` builds,
+/// so a tab and `ls --json` never disagree.
+fn attention(
+    config: &Config,
+    squad: &Squad,
+    roster: Vec<crate::squad::Member>,
+    waiting: Option<(&str, &requests::Window)>,
+) -> Result<Attention, crate::core::SquadError> {
+    let layout = config.layout(&squad.name)?;
+    let states = config.states(&squad.name, layout)?;
+    let sections = config.sections(&squad.name)?;
+    let mut document = status::document(squad, layout, &states, &sections, roster);
+    if let Some((me, inbox)) = waiting {
+        requests::apply_waiting(&mut document, &squad.name, me, inbox);
+    }
+    Ok(Attention::of(&document))
 }
 
 /// The lead's notebook through `tmt api notes.read`: bounded, read-only, and
@@ -143,5 +203,75 @@ fn lead_notes(core: &Core, lead: &Value) -> Notes {
         Ok(note) => Notes::Text(sanitize(note["content"].as_str().unwrap_or_default())),
         Err(error) if error.code == "NOTEBOOK_NOT_FOUND" => Notes::Missing,
         Err(error) => Notes::Failed(error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::squad::Member;
+
+    fn member(id: &str, fields: &[(&str, &str)]) -> Member {
+        Member {
+            id: id.into(),
+            name: id.to_lowercase(),
+            lifetime: "saved".into(),
+            presence: "unknown".into(),
+            pane: Value::Null,
+            activity: Value::Null,
+            fields: fields
+                .iter()
+                .map(|(key, value)| ((*key).into(), (*value).into()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_hidden_squad_s_attention_comes_from_its_roster_and_the_shared_inbox() {
+        let directory = std::env::temp_dir().join(format!("squad-refresh-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        // A user section repeats a member: it still counts once.
+        std::fs::write(
+            &path,
+            "[[squad.infra.section]]\ntitle = \"Blocked\"\nfilter = \"state = blocked\"\n",
+        )
+        .unwrap();
+        let config = Config::read(path).unwrap();
+        let squad = Squad {
+            name: "infra".into(),
+            room_id: "room-infra".into(),
+        };
+        let roster = || {
+            vec![
+                member("L", &[("role", "lead"), ("pending", "approve")]),
+                member("A", &[("state", "blocked")]),
+                member("B", &[("state", "working")]),
+            ]
+        };
+        let inbox = requests::Window {
+            items: vec![
+                json!({"requestId": "q1", "from": {"identityId": "B"}, "preview": "?", "preparedAtMs": 1}),
+                json!({"requestId": "q2", "from": {"identityId": "X"}, "preview": "?", "preparedAtMs": 2}),
+            ],
+            complete: true,
+        };
+        assert_eq!(
+            attention(&config, &squad, roster(), Some(("ME", &inbox))).unwrap(),
+            Attention {
+                waiting: 2,
+                blocked: 1
+            },
+            "the lead's decision and B's request; X is not in the squad"
+        );
+        // Without a known user only member-set decisions count.
+        assert_eq!(
+            attention(&config, &squad, roster(), None).unwrap(),
+            Attention {
+                waiting: 1,
+                blocked: 1
+            }
+        );
+        let _ = std::fs::remove_dir_all(directory);
     }
 }

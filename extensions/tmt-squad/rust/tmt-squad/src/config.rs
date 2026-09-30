@@ -176,6 +176,22 @@ impl Layout {
     }
 }
 
+/// Tab colors by attention state; a normal tab keeps the board's own style.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabColors {
+    pub waiting: String,
+    pub blocked: String,
+}
+
+impl Default for TabColors {
+    fn default() -> Self {
+        Self {
+            waiting: "amber".into(),
+            blocked: "red".into(),
+        }
+    }
+}
+
 /// Colors a user may name; the board maps them onto terminal colors.
 pub const COLORS: &[&str] = &[
     "default", "dim", "red", "amber", "green", "cyan", "blue", "magenta",
@@ -784,6 +800,49 @@ impl Config {
                 "`{place}.render` must be markdown or plain."
             ))),
         }
+    }
+
+    /// `[tabs.colors]`: a tab's color by its attention (#507), amber for
+    /// `waiting` (the ◆ color) and red for `blocked` by default.
+    pub fn tab_colors(&self) -> Result<TabColors, SquadError> {
+        let mut colors = TabColors::default();
+        let Some(tabs) = self.document.get("tabs") else {
+            return Ok(colors);
+        };
+        let tabs = tabs
+            .as_table_like()
+            .ok_or_else(|| invalid("`tabs` must be a table."))?;
+        if let Some((key, _)) = tabs.iter().find(|(key, _)| *key != "colors") {
+            return Err(invalid(format!("`tabs.{key}` is not a tabs setting.")));
+        }
+        let Some(item) = tabs.get("colors") else {
+            return Ok(colors);
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid("`tabs.colors` must be a table."))?;
+        for (key, value) in table.iter() {
+            let slot = match key {
+                "waiting" => &mut colors.waiting,
+                "blocked" => &mut colors.blocked,
+                other => {
+                    return Err(invalid(format!(
+                        "`tabs.colors.{other}` is not a tab state; use waiting or blocked."
+                    )));
+                }
+            };
+            *slot = value
+                .as_str()
+                .filter(|color| COLORS.contains(color))
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "`tabs.colors.{key}` must be one of {}.",
+                        COLORS.join(", ")
+                    ))
+                })?
+                .into();
+        }
+        Ok(colors)
     }
 
     /// The state vocabulary: the layout's order and colors, overridden by
@@ -1465,6 +1524,37 @@ sort = ["state", "-name"]
             "[squad.x.notes]\nrender = \"html\"\n",
             "[squad.x.notes]\nwrap = false\n",
             "[squad.x]\nnotes = \"plain\"\n",
+        ] {
+            assert_eq!(
+                read(body).err().map(|e| e.code).as_deref(),
+                Some("SQUAD_CONFIG_INVALID"),
+                "{body}"
+            );
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn tab_colors_default_to_amber_and_red_and_accept_named_colors() {
+        let path = temp("tab-colors");
+        let read = |body: &str| {
+            fs::write(&path, body).unwrap();
+            Config::read(path.clone()).unwrap().tab_colors()
+        };
+        assert_eq!(read("").unwrap(), TabColors::default());
+        assert_eq!(
+            read("[tabs.colors]\nblocked = \"magenta\"\n").unwrap(),
+            TabColors {
+                waiting: "amber".into(),
+                blocked: "magenta".into()
+            }
+        );
+        for body in [
+            "tabs = 1\n",
+            "[tabs]\norder = []\n",
+            "[tabs.colors]\nwaiting = \"pink\"\n",
+            "[tabs.colors]\nnormal = \"dim\"\n",
+            "[tabs]\ncolors = \"amber\"\n",
         ] {
             assert_eq!(
                 read(body).err().map(|e| e.code).as_deref(),
