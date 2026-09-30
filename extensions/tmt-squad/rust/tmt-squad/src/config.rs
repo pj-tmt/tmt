@@ -189,7 +189,7 @@ pub enum Pane {
 }
 
 impl Pane {
-    fn parse(name: &str) -> Option<Self> {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
         match name {
             "rows" => Some(Self::Rows),
             "notes" => Some(Self::Notes),
@@ -225,10 +225,10 @@ pub enum Direction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     pub mode: BoardMode,
-    pub direction: Direction,
+    /// Every pane in focus order (split) or tab order (tabs).
     pub panes: Vec<Pane>,
-    /// Split mode: percentages per pane, summing to 100.
-    pub sizes: Vec<u16>,
+    /// Split mode: how the panes sit, possibly nested.
+    pub split: crate::split::Split,
 }
 
 impl Board {
@@ -248,11 +248,15 @@ impl Board {
             ),
             Layout::Minimal => (Direction::LeftRight, vec![Pane::Rows], vec![100]),
         };
+        Self::simple(BoardMode::Split, direction, panes, &sizes)
+    }
+
+    /// The one-level form: `panes` side by side or stacked at `sizes`.
+    pub fn simple(mode: BoardMode, direction: Direction, panes: Vec<Pane>, sizes: &[u16]) -> Self {
         Self {
-            mode: BoardMode::Split,
-            direction,
+            mode,
+            split: crate::split::Split::simple(direction, &panes, sizes),
             panes,
-            sizes,
         }
     }
 }
@@ -556,33 +560,73 @@ impl Config {
     /// `[squad.<name>.board]` over the layout's preset. Validated before the
     /// terminal changes mode, so a mistake never leaves a half-drawn screen.
     pub fn board(&self, squad: &str, layout: Layout) -> Result<Board, SquadError> {
-        let mut board = Board::preset(layout);
+        let preset = Board::preset(layout);
         let place = format!("squad.{squad}.board");
         let Some(item) = self
             .squad_table(squad)?
             .and_then(|table| table.get("board"))
         else {
-            return Ok(board);
+            return Ok(preset);
         };
         let table = item
             .as_table_like()
             .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
         let text = |key: &str| table.get(key).map(|value| value.as_str());
         for (key, _) in table.iter() {
-            if !["mode", "direction", "panes", "sizes"].contains(&key) {
+            if !["mode", "direction", "panes", "sizes", "layout"].contains(&key) {
                 return Err(invalid(format!("`{place}.{key}` is not a board setting.")));
             }
         }
-        match text("mode") {
-            None => {}
-            Some(Some("split")) => board.mode = BoardMode::Split,
-            Some(Some("tabs")) => board.mode = BoardMode::Tabs,
+        let mode = match text("mode") {
+            None => preset.mode,
+            Some(Some("split")) => BoardMode::Split,
+            Some(Some("tabs")) => BoardMode::Tabs,
             Some(_) => return Err(invalid(format!("`{place}.mode` must be split or tabs."))),
+        };
+        // The full form: a nested split. The one-level keys are its simple
+        // form, so the two are never mixed.
+        if let Some(layout) = table.get("layout") {
+            if let Some(key) = ["direction", "panes", "sizes"]
+                .into_iter()
+                .find(|key| table.get(key).is_some())
+            {
+                return Err(invalid(format!(
+                    "`{place}` sets both `layout` and `{key}`; keep `layout`."
+                )));
+            }
+            if mode == BoardMode::Tabs {
+                return Err(invalid(format!(
+                    "`{place}.layout` applies to split mode only."
+                )));
+            }
+            let split = crate::split::read(layout, &format!("{place}.layout"))?;
+            return Ok(Board {
+                mode,
+                panes: split.panes(),
+                split,
+            });
         }
+        let (mut direction, mut panes, mut sizes) = match &preset.split {
+            crate::split::Split::Group {
+                direction,
+                children,
+            } => (
+                *direction,
+                preset.panes.clone(),
+                children
+                    .iter()
+                    .map(|(size, _)| match size {
+                        crate::split::Size::Percent(percent) => *percent,
+                        crate::split::Size::Grow(_) => 0,
+                    })
+                    .collect::<Vec<u16>>(),
+            ),
+            crate::split::Split::Pane(_) => (Direction::LeftRight, preset.panes.clone(), vec![100]),
+        };
         match text("direction") {
             None => {}
-            Some(Some("left-right")) => board.direction = Direction::LeftRight,
-            Some(Some("top-bottom")) => board.direction = Direction::TopBottom,
+            Some(Some("left-right")) => direction = Direction::LeftRight,
+            Some(Some("top-bottom")) => direction = Direction::TopBottom,
             Some(_) => {
                 return Err(invalid(format!(
                     "`{place}.direction` must be left-right or top-bottom."
@@ -590,8 +634,8 @@ impl Config {
             }
         }
         let panes_set = table.get("panes").is_some();
-        if let Some(panes) = table.get("panes") {
-            let names = panes
+        if let Some(names) = table.get("panes") {
+            let names = names
                 .as_array()
                 .ok_or_else(|| invalid(format!("`{place}.panes` must list panes.")))?;
             let mut chosen = Vec::new();
@@ -612,16 +656,16 @@ impl Config {
             if !chosen.contains(&Pane::Rows) {
                 return Err(invalid(format!("`{place}.panes` must include rows.")));
             }
-            board.panes = chosen;
+            panes = chosen;
         }
-        match (table.get("sizes"), board.mode) {
+        match (table.get("sizes"), mode) {
             (Some(_), BoardMode::Tabs) => {
                 return Err(invalid(format!(
                     "`{place}.sizes` applies to split mode only."
                 )));
             }
-            (Some(sizes), BoardMode::Split) => {
-                board.sizes = sizes
+            (Some(given), BoardMode::Split) => {
+                sizes = given
                     .as_array()
                     .ok_or_else(|| invalid(format!("`{place}.sizes` must list percentages.")))?
                     .iter()
@@ -637,26 +681,27 @@ impl Config {
             }
             // Changed panes without sizes share the width equally.
             (None, _) if panes_set => {
-                let share = 100 / board.panes.len() as u16;
-                board.sizes = vec![share; board.panes.len()];
-                if let Some(last) = board.sizes.last_mut() {
-                    *last += 100 - share * board.panes.len() as u16;
+                let share = 100 / panes.len() as u16;
+                sizes = vec![share; panes.len()];
+                if let Some(last) = sizes.last_mut() {
+                    *last += 100 - share * panes.len() as u16;
                 }
             }
             (None, _) => {}
         }
-        if board.mode == BoardMode::Split
-            && (board.sizes.len() != board.panes.len() || board.sizes.iter().sum::<u16>() != 100)
+        if mode == BoardMode::Split
+            && (sizes.len() != panes.len() || sizes.iter().sum::<u16>() != 100)
         {
             return Err(invalid(format!(
                 "`{place}.sizes` needs one percentage per pane, summing to 100."
             )));
         }
         // In tabs mode the lead's full notes always get their own tab.
-        if board.mode == BoardMode::Tabs && !board.panes.contains(&Pane::Notes) {
-            board.panes.push(Pane::Notes);
+        if mode == BoardMode::Tabs && !panes.contains(&Pane::Notes) {
+            panes.push(Pane::Notes);
+            sizes.push(0);
         }
-        Ok(board)
+        Ok(Board::simple(mode, direction, panes, &sizes))
     }
 
     /// `[squad.<name>.notes] render = "markdown" | "plain"`; markdown by default.
@@ -860,6 +905,7 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::split::Split;
 
     fn temp(name: &str) -> PathBuf {
         let directory =
@@ -1199,13 +1245,13 @@ sort = ["state", "-name"]
         let config = read("");
         let crew = config.board("x", Layout::Crew).unwrap();
         assert_eq!(
-            (crew.panes.clone(), crew.sizes.clone()),
-            (vec![Pane::Rows, Pane::Notes], vec![60, 40])
+            crew.split,
+            Split::simple(Direction::LeftRight, &[Pane::Rows, Pane::Notes], &[60, 40])
         );
         let queue = config.board("x", Layout::PrQueue).unwrap();
         assert_eq!(
-            (queue.direction, queue.panes.clone()),
-            (Direction::TopBottom, vec![Pane::Rows, Pane::Detail])
+            queue.split,
+            Split::simple(Direction::TopBottom, &[Pane::Rows, Pane::Detail], &[70, 30])
         );
         assert_eq!(
             config.board("x", Layout::Minimal).unwrap().panes,
@@ -1216,7 +1262,39 @@ sort = ["state", "-name"]
             .board("x", Layout::Crew)
             .unwrap();
         assert_eq!(custom.panes, [Pane::Detail, Pane::Rows, Pane::Replies]);
-        assert_eq!(custom.sizes, [33, 33, 34], "unsized panes share the space");
+        assert_eq!(
+            custom.split,
+            Split::simple(
+                Direction::TopBottom,
+                &[Pane::Detail, Pane::Rows, Pane::Replies],
+                &[33, 33, 34]
+            ),
+            "unsized panes share the space"
+        );
+        // The handbook's nested layout: rows beside detail over notes.
+        let nested = read(
+            "[squad.x.board]\nlayout = { direction = \"left-right\", sizes = [60, 40], panes = [\n  \"rows\",\n  { direction = \"top-bottom\", sizes = [40, 60], panes = [\"detail\", \"notes\"] },\n] }\n",
+        )
+        .board("x", Layout::Crew)
+        .unwrap();
+        assert_eq!(nested.panes, [Pane::Rows, Pane::Detail, Pane::Notes]);
+        assert_eq!(
+            nested.split,
+            Split::Group {
+                direction: Direction::LeftRight,
+                children: vec![
+                    (crate::split::Size::Percent(60), Split::Pane(Pane::Rows)),
+                    (
+                        crate::split::Size::Percent(40),
+                        Split::simple(
+                            Direction::TopBottom,
+                            &[Pane::Detail, Pane::Notes],
+                            &[40, 60]
+                        )
+                    ),
+                ],
+            }
+        );
         let tabs = read("[squad.x.board]\nmode = \"tabs\"\npanes = [\"rows\", \"detail\"]\n")
             .board("x", Layout::Crew)
             .unwrap();
@@ -1237,6 +1315,8 @@ sort = ["state", "-name"]
             "[squad.x.board]\nsizes = [100]\n",
             "[squad.x.board]\nmode = \"tabs\"\nsizes = [60, 40]\n",
             "[squad.x.board]\ncolumns = 2\n",
+            "[squad.x.board]\ndirection = \"left-right\"\nlayout = { direction = \"left-right\", panes = [\"rows\"] }\n",
+            "[squad.x.board]\nmode = \"tabs\"\nlayout = { direction = \"left-right\", panes = [\"rows\"] }\n",
         ] {
             let code = read(body)
                 .board("x", Layout::Crew)

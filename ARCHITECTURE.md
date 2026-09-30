@@ -2033,7 +2033,11 @@ runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
 split or tabs panes (rows, notes, detail, replies) over a per-layout preset,
-validated before raw mode. The notes pane reads the lead's notebook only through
+validated before raw mode. `split` owns how panes sit: a tree of row and column
+splits whose children have a percentage or a grow share (ratatui `Percentage`
+and `Fill`), nested up to three levels; `layout` is its full form and the
+`direction`/`panes`/`sizes` keys its one-level form, and the board draws either
+by one recursive walk. The tree's reading order is the focus order. The notes pane reads the lead's notebook only through
 `tmt api notes.read` (bounded, never creating a file); `board::notes` removes
 every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
