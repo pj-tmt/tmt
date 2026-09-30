@@ -1594,10 +1594,15 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 36, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 39, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
+WAL setup retries only classified Busy within one five-second contention budget,
+including SQLite's own bounded busy waits, and verifies the returned journal mode
+is `wal` before migration. Success restores the normal five-second busy timeout;
+exhaustion preserves the original Busy error. Other setup and transaction failures
+are not retried by this policy.
 It classifies OS-denied writes and SQLite read-only/WAL failures as a typed
 not-writable error; a generic CANTOPEN needs independent permission evidence.
 An existing data directory without owner write permission is reported, not repaired.
