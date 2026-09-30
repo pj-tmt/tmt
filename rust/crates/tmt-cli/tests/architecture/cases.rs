@@ -1208,6 +1208,35 @@ fn core_crates_cannot_add_office_modules() {
 }
 
 #[test]
+fn remote_crypto_pins_do_not_open_other_dependency_boundaries() {
+    for name in ["ed25519-dalek", "hmac", "sha2"] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-remote",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-remote",
+                vec![dependency(name, "normal", None, Some("alias"))]
+            ))
+            .len(),
+            1
+        );
+    }
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-remote",
+            vec![dependency("curve25519-dalek", "normal", None, None)]
+        ))
+        .len(),
+        1
+    );
+}
+
+#[test]
 fn remote_keeps_public_command_isolation() {
     assert_exact(
         &[syntax(
