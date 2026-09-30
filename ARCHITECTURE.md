@@ -601,7 +601,9 @@ The same map feeds release versioning. `typescript/scripts/release-please-config
 generates `release-please-config.json` from the map (one release-please package per
 component root, minus its excludes), the Cargo workspace (which crates declare their own
 version, which path dependencies a component links, which crates have a `Cargo.lock`
-entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. A
+entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
+`readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata; native
+CLI version expectations reuse that reader once per suite instead of parsing TOML separately. A
 `Cargo.lock` line is updated by whichever component declares that crate's version.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
