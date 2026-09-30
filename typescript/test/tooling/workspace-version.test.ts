@@ -13,6 +13,7 @@ const { readWorkspace } = vi.hoisted(() => ({
             manifest: 'rust/crates/other/Cargo.toml',
             dir: 'rust/crates/other',
             inheritsVersion: true,
+            hasBinary: false,
             dependencies: [],
           },
           {
@@ -21,6 +22,7 @@ const { readWorkspace } = vi.hoisted(() => ({
             manifest: 'rust/crates/tmt-cli/Cargo.toml',
             dir: 'rust/crates/tmt-cli',
             inheritsVersion: false,
+            hasBinary: false,
             dependencies: [],
           },
         ],
