@@ -35,7 +35,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
             "semver",
         ],
+        // Adapters run host drivers through the protocol crate (#570).
         "tmt-adapters" => &[
+            "tmt-driver-protocol",
             "serde",
             "ureq",
             "semver",
