@@ -2,6 +2,7 @@
 //! external command dispatch. It keeps no state of its own.
 
 mod action;
+mod attention;
 mod back;
 mod board;
 mod config;
@@ -827,6 +828,7 @@ fn ls_document(
         let mut document =
             status::document(squad, layout, &states, &sections, squad.members(core)?);
         requests::overlay(core, squad, you.as_ref().map(|(me, _)| me), &mut document)?;
+        document["squad"]["attention"] = attention::Attention::of(&document).document();
         let rows = config.rows(&squad.name)?.value();
         document["columns"] = rows["columns"].clone();
         document["lines"] = rows["lines"].clone();

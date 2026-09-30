@@ -2058,7 +2058,14 @@ retries at the default. A switch never clears the view: `App` keeps the view of 
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole; a result for a squad the user left only refreshes that cache.
-Tabs are the same width selected or not. `board`
+Tabs are the same width selected or not: selection is a style, never extra
+characters. `attention::Attention` is the one definition of a squad's tab
+state, derived from its status document: members waiting on the user (`pending`
+or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
+`squad.attention`. The refresh computes it for the shown squad from that
+document, and for every other squad from a roster-only document (one
+`rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
+tabs are colored without loading their rows. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects

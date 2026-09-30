@@ -7,7 +7,8 @@ use super::{
     notes::{sanitize, wrap},
 };
 use crate::{
-    config::{BoardMode, Direction, NotesRender, Pane},
+    attention::Attention,
+    config::{BoardMode, Direction, NotesRender, Pane, TabColors},
     requests::{BODIES, age},
     rows::{Cell as RowCell, Rows},
     split::Split,
@@ -198,9 +199,9 @@ fn grid_line(
 const SPINNER_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/// One tab, the same width selected or not, so switching never moves the
-/// tabs beside it: the selected one is bracketed, the others padded.
-fn tab(name: &str, selected: bool) -> Span<'static> {
+/// One pane tab (tabs mode), the same width selected or not: the selected
+/// one is bracketed, the others padded.
+fn pane_tab(name: &str, selected: bool) -> Span<'static> {
     if selected {
         Span::styled(
             format!("[{name}]"),
@@ -211,14 +212,42 @@ fn tab(name: &str, selected: bool) -> Span<'static> {
     }
 }
 
-fn header_line(app: &App) -> Line<'_> {
-    let mut spans = vec![Span::styled(
-        "squad  ",
-        Style::new().add_modifier(Modifier::BOLD),
-    )];
+/// One tab. Selection is shown by reversing it, never by extra characters,
+/// so switching never moves the tabs beside it (#504). The tab's attention
+/// colors it and, so color never carries meaning alone, also adds counts:
+/// `◆2` members waiting on you, `!1` blocked.
+fn tab(name: &str, selected: bool, attention: Attention, colors: &TabColors) -> Span<'static> {
+    let mut text = format!(" {name}");
+    if attention.waiting > 0 {
+        text.push_str(&format!(" ◆{}", attention.waiting));
+    }
+    if attention.blocked > 0 {
+        text.push_str(&format!(" !{}", attention.blocked));
+    }
+    text.push(' ');
+    let style = match attention.state() {
+        "waiting" => color(&colors.waiting),
+        "blocked" => color(&colors.blocked),
+        _ if selected => Style::new(),
+        _ => color("dim"),
+    };
+    let style = if selected {
+        style.add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        style
+    };
+    Span::styled(text, style)
+}
+
+/// The first header line: only the tabs, and the loading spinner.
+fn tab_line(app: &App) -> Line<'_> {
+    let default = TabColors::default();
+    let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
+    let mut spans = Vec::new();
     for squad in &app.squads {
         let selected = Some(squad) == app.current.as_ref();
-        spans.push(tab(squad, selected));
+        let attention = app.attention.get(squad).copied().unwrap_or_default();
+        spans.push(tab(squad, selected, attention, colors));
         spans.push(Span::raw(" "));
     }
     if let Some(started) = app.loading_since
@@ -230,29 +259,47 @@ fn header_line(app: &App) -> Line<'_> {
             color("dim"),
         ));
     }
-    if let Some(view) = app.view.as_ref().filter(|_| !app.stale()) {
-        let lead = view.document["squad"]["lead"]["name"]
-            .as_str()
-            .unwrap_or("no lead");
-        // A member can appear in several user sections; count people once.
-        let count = view.document["sections"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|section| section["rows"].as_array().into_iter().flatten())
-            .filter_map(|row| row["name"].as_str())
-            .collect::<std::collections::BTreeSet<_>>()
-            .len();
+    Line::from(spans)
+}
+
+/// The second header line: the shown squad's summary.
+fn summary_line(app: &App) -> Line<'_> {
+    let Some(view) = app.view.as_ref().filter(|_| !app.stale()) else {
+        return Line::default();
+    };
+    let lead = match view.document["squad"]["lead"]["name"].as_str() {
+        Some(lead) => format!("lead {lead}"),
+        None => "no lead".into(),
+    };
+    // A member can appear in several user sections; count people once.
+    let count = view.document["sections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|section| section["rows"].as_array().into_iter().flatten())
+        .filter_map(|row| row["name"].as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let mut spans = vec![Span::styled(
+        format!(
+            "{lead} · {count} {}",
+            if count == 1 { "member" } else { "members" }
+        ),
+        color("dim"),
+    )];
+    let waiting = app
+        .current
+        .as_ref()
+        .and_then(|squad| app.attention.get(squad))
+        .map_or(0, |attention| attention.waiting);
+    if waiting > 0 {
         spans.push(Span::styled(
-            format!(
-                "  {lead} · {count} member{}",
-                if count == 1 { "" } else { "s" }
-            ),
-            color("dim"),
+            format!(" · {waiting} waiting on you"),
+            color(&view.tab_colors.waiting),
         ));
-        if view.document["olderRequestsNotShown"] == true {
-            spans.push(Span::styled(" · older requests not shown", color("dim")));
-        }
+    }
+    if view.document["olderRequestsNotShown"] == true {
+        spans.push(Span::styled(" · older requests not shown", color("dim")));
     }
     Line::from(spans)
 }
@@ -260,13 +307,15 @@ fn header_line(app: &App) -> Line<'_> {
 pub fn render(frame: &mut Frame, app: &App) {
     app.hits.borrow_mut().clear();
     app.scrolls.begin_frame();
-    let [top, body, footer] = Layout::vertical([
+    let [tabs, summary, body, footer] = Layout::vertical([
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    frame.render_widget(Paragraph::new(header_line(app)), top);
+    frame.render_widget(Paragraph::new(tab_line(app)), tabs);
+    frame.render_widget(Paragraph::new(summary_line(app)), summary);
     render_body(frame, app, body);
     let footer_line = if let Some(input) = &app.input {
         Line::from(format!("{} › {}▏", input.prompt, input.text))
@@ -364,7 +413,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
                 Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
             let mut spans = Vec::new();
             for pane in &board.panes {
-                spans.push(tab(pane.title(), *pane == focused));
+                spans.push(pane_tab(pane.title(), *pane == focused));
                 spans.push(Span::raw(" "));
             }
             frame.render_widget(Paragraph::new(Line::from(spans)), bar);
@@ -774,6 +823,7 @@ mod tests {
         let mut app = App::new(Some("product".into()));
         app.apply(Snapshot {
             squads: vec!["product".into(), "reviews".into()],
+            attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
@@ -792,6 +842,7 @@ mod tests {
                 section_bindings: Vec::new(),
                 opener: None,
                 clipboard: None,
+                tab_colors: Default::default(),
                 me: None,
                 replies: Vec::new(),
             }),
@@ -889,16 +940,16 @@ mod tests {
             ),
         ];
         for (width, lines) in golden {
-            assert_eq!(draw(&app, width, 10)[1..9], lines, "at {width} columns");
+            assert_eq!(draw(&app, width, 11)[2..10], lines, "at {width} columns");
         }
     }
 
     #[test]
     fn a_narrow_preset_board_drops_the_link_instead_of_clipping() {
-        let screen = draw(&preset_board(), 44, 10);
-        assert_eq!(screen[1], "  MEMBER         STATE      TASK");
-        assert_eq!(screen[3], "◆ auth-fix       blocked    rotate session …");
-        assert!(screen[1..9].iter().all(|line| line.width() <= 44));
+        let screen = draw(&preset_board(), 44, 11);
+        assert_eq!(screen[2], "  MEMBER         STATE      TASK");
+        assert_eq!(screen[4], "◆ auth-fix       blocked    rotate session …");
+        assert!(screen[2..10].iter().all(|line| line.width() <= 44));
     }
 
     #[test]
@@ -924,26 +975,26 @@ lines = [
 ]
 "#,
         );
-        let wide = draw(&app, 60, 8);
+        let wide = draw(&app, 60, 9);
         assert_eq!(
-            wide[1],
+            wide[2],
             "  MEMBER     STATE     TASK                               PR"
         );
         assert_eq!(
-            wide[2],
+            wide[3],
             "◆ auth-fix   blocked   rotate session tokens           #4242"
         );
-        assert_eq!(wide[3], "             approve the rollout plan");
+        assert_eq!(wide[4], "             approve the rollout plan");
         // Nothing to show on the second line: the row keeps one line.
         assert_eq!(
-            wide[4],
+            wide[5],
             "  docs       working   guide                              #7"
         );
         // Narrow: the prioritized column steps aside and the span shrinks.
-        let narrow = draw(&app, 36, 8);
-        assert_eq!(narrow[1], "  MEMBER     STATE     TASK");
-        assert_eq!(narrow[2], "◆ auth-fix   blocked   rotate sessi…");
-        assert_eq!(narrow[3], "             approve the rollout pl…");
+        let narrow = draw(&app, 36, 9);
+        assert_eq!(narrow[2], "  MEMBER     STATE     TASK");
+        assert_eq!(narrow[3], "◆ auth-fix   blocked   rotate sessi…");
+        assert_eq!(narrow[4], "             approve the rollout pl…");
     }
 
     #[test]
@@ -963,22 +1014,24 @@ lines = [
             {"title": "Needs me", "rows": [row("auth-fix", "blocked", "rotate session tokens", json!({"pending": "approve", "note": "needs a call"}))]},
             {"title": "Everyone", "rows": [row("文件-sweep", "working", "整理安装指南", json!({}))]}
         ]));
-        let screen = draw(&app, 48, 9);
-        assert_eq!(screen[0], "squad  [product]  reviews    sol · 2 members");
-        assert_eq!(screen[1], "  MEMBER     STATE    TASK");
-        assert_eq!(screen[2], "NEEDS ME");
-        assert_eq!(screen[3], "◆ auth-fix   blocked  rotate session tokens");
-        assert_eq!(screen[4], "    note needs a call");
-        assert_eq!(screen[5], "EVERYONE");
-        assert_eq!(screen[6], "  文件-sweep working  整理安装指南");
-        assert!(screen[8].starts_with("⏎ jump"));
+        let screen = draw(&app, 48, 10);
+        // The tab line holds only the tabs; the summary has its own line.
+        assert_eq!(screen[0], " product   reviews");
+        assert_eq!(screen[1], "lead sol · 2 members");
+        assert_eq!(screen[2], "  MEMBER     STATE    TASK");
+        assert_eq!(screen[3], "NEEDS ME");
+        assert_eq!(screen[4], "◆ auth-fix   blocked  rotate session tokens");
+        assert_eq!(screen[5], "    note needs a call");
+        assert_eq!(screen[6], "EVERYONE");
+        assert_eq!(screen[7], "  文件-sweep working  整理安装指南");
+        assert!(screen[9].starts_with("⏎ jump"));
     }
 
     #[test]
     fn a_squad_of_one_has_one_member() {
         let app =
             board(json!([{"title": null, "rows": [row("docs", "working", "guide", json!({}))]}]));
-        assert!(draw(&app, 48, 4)[0].ends_with("sol · 1 member"));
+        assert_eq!(draw(&app, 48, 5)[1], "lead sol · 1 member");
     }
 
     #[test]
@@ -991,16 +1044,16 @@ lines = [
         let lines: Vec<(u16, usize)> = app.hits.borrow().iter().map(|h| (h.y, h.row)).collect();
         assert_eq!(
             lines,
-            [(3, 0), (4, 0), (6, 1)],
+            [(4, 0), (5, 0), (7, 1)],
             "a row's note line clicks the row"
         );
         // Scrolled: only visible lines are clickable, at their screen rows.
         app.selected = 1;
-        draw(&app, 48, 5);
+        draw(&app, 48, 6);
         let lines: Vec<(u16, usize)> = app.hits.borrow().iter().map(|h| (h.y, h.row)).collect();
         // An overflowing pane keeps its last line for the indicator, so two of
         // the three lines show rows.
-        assert_eq!(lines, [(2, 1)]);
+        assert_eq!(lines, [(3, 1)]);
 
         app.view.as_mut().unwrap().bindings = crate::action::preset(false);
         app.help = true;
@@ -1030,7 +1083,7 @@ lines = [
                 .any(|line| line.contains("docs · Enter runs, Esc closes"))
         );
         assert!(screen.iter().any(|line| line.contains("backspace back")));
-        assert!(draw(&App::new(None), 60, 3)[2].starts_with("/ search"));
+        assert!(draw(&App::new(None), 60, 4)[3].starts_with("/ search"));
     }
 
     #[test]
@@ -1077,6 +1130,7 @@ lines = [
         let mut app = App::new(Some("product".into()));
         app.apply(Snapshot {
             squads: vec!["product".into()],
+            attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
@@ -1095,6 +1149,7 @@ lines = [
                 section_bindings: Vec::new(),
                 opener: None,
                 clipboard: None,
+                tab_colors: Default::default(),
                 me: None,
                 replies: Vec::new(),
             }),
@@ -1130,17 +1185,17 @@ lines = [
             },
         };
         let mut app = paned(board, Notes::Text("## Now\n- tokens".into()));
-        let screen = draw(&app, 100, 22);
+        let screen = draw(&app, 100, 23);
         // Rows take 60 of 100 columns; detail sits over notes in the rest.
         let right = |line: &str| line.chars().skip(60).collect::<String>();
-        assert!(screen[1].starts_with("┌ rows"), "{screen:#?}");
-        assert!(right(&screen[1]).starts_with("┌ detail"), "{screen:#?}");
+        assert!(screen[2].starts_with("┌ rows"), "{screen:#?}");
+        assert!(right(&screen[2]).starts_with("┌ detail"), "{screen:#?}");
         let notes_top = screen
             .iter()
             .position(|line| right(line).starts_with("┌ notes · sol"))
             .expect("notes block");
         // 40% of the 20 body lines is detail: notes start 8 lines below it.
-        assert_eq!(notes_top, 1 + 8, "{screen:#?}");
+        assert_eq!(notes_top, 2 + 8, "{screen:#?}");
         assert!(screen.iter().any(|line| right(line).contains("auth-fix")));
         // Tab walks the panes in reading order.
         for expected in [Pane::Detail, Pane::Notes, Pane::Rows] {
@@ -1159,11 +1214,11 @@ lines = [
             ),
             Notes::Text("## Now\n- tokens: waiting on Ben".into()),
         );
-        let screen = draw(&app, 100, 10);
+        let screen = draw(&app, 100, 11);
         // 60% of 100 columns: the notes block starts at column 60.
-        let notes_at = screen[1].find("┌ notes · sol").expect("notes block title");
-        assert_eq!(screen[1][..notes_at].chars().count(), 60, "{screen:#?}");
-        assert!(screen[1].starts_with("┌ rows"));
+        let notes_at = screen[2].find("┌ notes · sol").expect("notes block title");
+        assert_eq!(screen[2][..notes_at].chars().count(), 60, "{screen:#?}");
+        assert!(screen[2].starts_with("┌ rows"));
         assert!(
             screen.iter().any(|line| line.contains("│Now")),
             "markdown heading"
@@ -1178,13 +1233,13 @@ lines = [
             ),
             Notes::NotShown,
         );
-        let screen = draw(&app, 70, 22);
+        let screen = draw(&app, 70, 23);
         let detail_row = screen
             .iter()
             .position(|line| line.starts_with("┌ detail"))
             .unwrap();
         assert_eq!(
-            detail_row, 11,
+            detail_row, 12,
             "detail starts halfway down the 20-line body"
         );
         let detail = screen[detail_row..].join("\n");
@@ -1256,16 +1311,80 @@ lines = [
         ]}]));
         app.view.as_mut().unwrap().rows = crate::rows::Rows::preset();
         for width in [30u16, 44, 60, 100] {
-            let screen = draw(&app, width, 8);
-            // Header, three rows, blank, blank, footer: nothing wrapped.
-            for (line, name) in screen[2..5].iter().zip(["ascii-", "文件", "mix-"]) {
+            let screen = draw(&app, width, 9);
+            // Tabs, summary, header, three rows, blank, blank, footer: nothing
+            // wrapped.
+            for (line, name) in screen[3..6].iter().zip(["ascii-", "文件", "mix-"]) {
                 assert!(line.contains(name), "at {width}: {screen:#?}");
             }
-            assert_eq!(screen[5], "", "at {width}: a row spilled: {screen:#?}");
-            for line in &screen[1..5] {
+            assert_eq!(screen[6], "", "at {width}: a row spilled: {screen:#?}");
+            for line in &screen[2..6] {
                 assert!(line.width() <= usize::from(width), "at {width}: {line:?}");
             }
         }
+    }
+
+    #[test]
+    fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
+        let mut app = board(json!([{"title": null, "rows": [
+            row("auth-fix", "blocked", "rotate", json!({"pending": "approve"})),
+        ]}]));
+        app.attention = BTreeMap::from([
+            (
+                "product".into(),
+                Attention {
+                    waiting: 1,
+                    blocked: 1,
+                },
+            ),
+            (
+                "reviews".into(),
+                Attention {
+                    waiting: 0,
+                    blocked: 2,
+                },
+            ),
+        ]);
+        let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let tabs: String = (0..60)
+            .map(|x| buffer[(x, 0)].symbol().to_owned())
+            .collect();
+        // Counts say what the color says, so no meaning is color-only.
+        assert_eq!(tabs.trim_end(), " product ◆1 !1   reviews !2");
+        let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
+        let product = &buffer[(column("product"), 0)];
+        // Waiting wins over blocked; the selected tab is reversed, not bracketed.
+        assert_eq!(product.fg, color("amber").fg.unwrap_or(Color::Reset));
+        assert!(product.modifier.contains(Modifier::REVERSED));
+        let reviews = &buffer[(column("reviews"), 0)];
+        assert_eq!(reviews.fg, color("red").fg.unwrap_or(Color::Reset));
+        assert!(!reviews.modifier.contains(Modifier::REVERSED));
+
+        let screen = draw(&app, 60, 6);
+        assert_eq!(screen[1], "lead sol · 1 member · 1 waiting on you");
+        // Colors come from [tabs.colors]; without a lead the summary says so.
+        let view = app.view.as_mut().unwrap();
+        view.tab_colors.blocked = "magenta".into();
+        view.document["squad"]["lead"] = Value::Null;
+        app.attention.clear();
+        app.attention.insert(
+            "reviews".into(),
+            Attention {
+                waiting: 0,
+                blocked: 2,
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let tabs: String = (0..60)
+            .map(|x| buffer[(x, 0)].symbol().to_owned())
+            .collect();
+        let reviews = tabs[..tabs.find("reviews").unwrap()].chars().count() as u16;
+        assert_eq!(buffer[(reviews, 0)].fg, Color::Magenta);
+        assert_eq!(draw(&app, 60, 6)[1], "no lead · 1 member");
     }
 
     #[test]
@@ -1285,7 +1404,10 @@ lines = [
                 "{name} moved: {before:?} / {during:?}"
             );
         }
-        assert!(during[0].contains("[reviews]"), "{during:?}");
+        assert_eq!(app.current.as_deref(), Some("reviews"));
+        // Selection is a style, so the tab text is the same either way.
+        assert!(during[0].starts_with(" product   reviews "), "{during:?}");
+        assert_eq!(before[0].trim_end(), " product   reviews");
         assert!(
             during[0].contains("loading"),
             "a slow switch shows a spinner"
@@ -1306,9 +1428,9 @@ lines = [
             &[],
         );
         let mut app = paned(tabs, Notes::Missing);
-        let screen = draw(&app, 70, 10);
+        let screen = draw(&app, 70, 11);
         assert!(
-            screen[1].starts_with("[rows]  replies   notes"),
+            screen[2].starts_with("[rows]  replies   notes"),
             "{screen:#?}"
         );
         assert!(screen.iter().any(|line| line.contains("auth-fix")));
@@ -1316,10 +1438,10 @@ lines = [
             app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         };
         tab(&mut app);
-        let screen = draw(&app, 70, 10);
+        let screen = draw(&app, 70, 11);
         // Same columns as before the switch: only the brackets move.
         assert!(
-            screen[1].starts_with(" rows  [replies]  notes"),
+            screen[2].starts_with(" rows  [replies]  notes"),
             "{screen:#?}"
         );
         assert!(
@@ -1369,7 +1491,7 @@ lines = [
             Notes::Text(text),
         );
         app.view.as_mut().unwrap().render = NotesRender::Plain;
-        let before = draw(&app, 60, 10);
+        let before = draw(&app, 60, 11);
         assert!(before.iter().any(|line| line.contains("line 01")));
         assert!(
             before.iter().any(|line| line.contains("↓ 25")),
@@ -1378,7 +1500,7 @@ lines = [
         // Rows is focused; the wheel over the notes (right half) moves them.
         wheel(&mut app, 45, 5, true);
         wheel(&mut app, 45, 5, true);
-        let after = draw(&app, 60, 10);
+        let after = draw(&app, 60, 11);
         assert!(
             !after.iter().any(|line| line.contains("line 06")),
             "{after:#?}"
@@ -1387,7 +1509,7 @@ lines = [
         assert!(after.iter().any(|line| line.contains("↑ 6  ↓ 19")));
         wheel(&mut app, 45, 5, false);
         assert!(
-            draw(&app, 60, 10)
+            draw(&app, 60, 11)
                 .iter()
                 .any(|line| line.contains("line 04"))
         );

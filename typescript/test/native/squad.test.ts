@@ -459,6 +459,8 @@ describe('squad extension', () => {
         name: 'product',
         layout: 'crew',
         lead: { name: 'Sol' },
+        // The tab state the board colors, never carried by color alone (#507).
+        attention: { state: 'waiting', waiting: 1, blocked: 1 },
       });
       expect(status.body.sections).toHaveLength(1);
       expect(status.body.sections[0].title).toBeNull();
@@ -487,7 +489,13 @@ describe('squad extension', () => {
         .map((match) => match[1])
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
       expect(documentedFields.sort()).toEqual(Object.keys(rows[0]).sort());
-      expect(Object.keys(status.body.squad).sort()).toEqual(['layout', 'lead', 'name', 'roomId']);
+      expect(Object.keys(status.body.squad).sort()).toEqual([
+        'attention',
+        'layout',
+        'lead',
+        'name',
+        'roomId',
+      ]);
       // Without a terminal, the board is exactly status, in text and JSON.
       const statusText = await runCli(sandbox, ['squad', 'status']);
       expect(await runCli(sandbox, ['squad', 'board'])).toEqual(statusText);
@@ -967,6 +975,13 @@ sort = ["-name"]
           (item: { requestId: string }) => item.requestId
         );
       expect(await waiting(), 'oldest first').toEqual(asks);
+      const attention = async () =>
+        (await squad(sandbox, ['ls', '--squad', 'product'])).body.squad.attention;
+      expect(await attention(), 'a request waiting on you counts').toEqual({
+        state: 'waiting',
+        waiting: 1,
+        blocked: 0,
+      });
       // Acknowledging a request (as live delivery does) does not stop it
       // waiting: it stays on the row until it has a final.
       const first = await incoming('Ben', asks[0]);
@@ -1003,6 +1018,7 @@ sort = ["-name"]
       expect(await waiting()).toEqual([asks[1]]);
       expect((await board(asks[1], 'yes')).status).toBe(0);
       expect(await waiting()).toEqual([]);
+      expect(await attention()).toEqual({ state: 'normal', waiting: 0, blocked: 0 });
       expect((await incoming('Ben', asks[1])).acknowledged, 'answering never acknowledges').toBe(
         false
       );
