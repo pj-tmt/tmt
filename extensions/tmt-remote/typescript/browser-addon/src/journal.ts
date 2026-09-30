@@ -53,6 +53,7 @@ export const journal: Journal = {
   },
 };
 export async function saveCapture(capture: Capture): Promise<void> {
+  if (!isCapture(capture)) throw new Error('Selection source URL is invalid.');
   await access('readwrite', (s) => s.put(capture, 'capture'));
 }
 export async function loadCapture(): Promise<Capture | undefined> {

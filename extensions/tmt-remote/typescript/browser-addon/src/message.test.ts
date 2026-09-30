@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { formatMessage, visibleText } from './message.js';
+import { describe, expect, it, vi } from 'vitest';
+import { formatMessage, visibleText, isCapture } from './message.js';
 describe('selection message', () => {
   it('preserves every byte of selection, title, URL and optional note', () => {
     const capture = {
@@ -7,6 +7,7 @@ describe('selection message', () => {
       title: 'title\u202E',
       selection: '  <script>\t\r\n\u200B',
     };
+    expect(isCapture(capture)).toBe(true);
     expect(formatMessage(capture, ' note\u0000')).toBe(
       '[browser] https://example.test/?a=%0A\nTitle: title\u202E\n\nSelection:\n  <script>\t\r\n\u200B\n\nNote:\n note\u0000',
     );
@@ -23,4 +24,26 @@ describe('selection message', () => {
       formatMessage({ url: 'https://x', title: '', selection: 'é'.repeat(32768) }, ''),
     ).toThrow();
   });
+});
+
+it.each([
+  'https://user@example.test/path',
+  'https://:password@example.test/path',
+  'https://user:password@example.test/path',
+])('refuses credentialed source %s before capture storage', async (url) => {
+  const capture = { url, title: 'title', selection: 'text' };
+  expect(isCapture(capture)).toBe(false);
+  expect(() => formatMessage(capture, '')).toThrow();
+  const open = vi.fn();
+  vi.stubGlobal('indexedDB', { open });
+  vi.stubGlobal('chrome', { scripting: { executeScript: async () => [{ result: capture }] } });
+  try {
+    const { captureTab } = await import('./capture.js');
+    const { saveCapture } = await import('./journal.js');
+    await expect(captureTab(1)).rejects.toThrow();
+    await expect(saveCapture(capture)).rejects.toThrow();
+    expect(open).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

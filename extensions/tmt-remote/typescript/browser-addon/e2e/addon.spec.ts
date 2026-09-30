@@ -189,3 +189,51 @@ test('uncertain recovery, empty reply and unavailable result stay distinct', asy
   await expect(popup.locator('#status')).toContainText('Result unavailable');
   await expect(popup.locator('#retry')).toBeHidden();
 });
+
+test('restored credentialed menu capture never enters preview or frozen intent', async () => {
+  await popup.evaluate(async () => {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open('tmt-addon-shell', 1);
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction('values', 'readwrite');
+        tx.objectStore('values').put(
+          {
+            selection: 'secret selection',
+            title: 'title',
+            url: 'https://user:password@example.test/',
+          },
+          'capture',
+        );
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onabort = () => {
+          db.close();
+          reject(new Error('Fixture storage failed'));
+        };
+      };
+    });
+  });
+  await popup.reload();
+  await expect(popup.locator('#status')).toContainText('unavailable');
+  await expect(popup.locator('#preview')).toHaveText('Capture a selection to begin.');
+  await expect(popup.locator('#send')).toBeDisabled();
+  expect(
+    await popup.evaluate(async () => {
+      return await new Promise((resolve) => {
+        const request = indexedDB.open('tmt-addon-shell', 1);
+        request.onsuccess = () => {
+          const db = request.result,
+            tx = db.transaction('values', 'readonly');
+          const intent = tx.objectStore('values').get('intent');
+          tx.oncomplete = () => {
+            resolve(intent.result);
+            db.close();
+          };
+        };
+      });
+    }),
+  ).toBeUndefined();
+});

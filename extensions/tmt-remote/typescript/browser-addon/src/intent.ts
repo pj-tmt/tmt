@@ -1,3 +1,4 @@
+import { assertMessageSource } from './message.js';
 import type { Journal } from './journal.js';
 import type { RemoteClient, SendInput, SendState, ResultState } from './remote-client.js';
 export class Intent {
@@ -12,6 +13,7 @@ export class Intent {
   async restore(): Promise<void> {
     const input = await this.journal.load();
     if (input) {
+      assertMessageSource(input.message);
       this.input = Object.freeze(input);
       this.state = { operationId: input.operationId, state: 'uncertain' };
     }
@@ -19,6 +21,7 @@ export class Intent {
   async send(input?: SendInput): Promise<void> {
     if (!this.input) {
       if (!input) throw new Error('Review a message first.');
+      assertMessageSource(input.message);
       // Persist exact bytes before any call that might have an effect.
       await this.journal.save(input);
       this.input = Object.freeze({ ...input });

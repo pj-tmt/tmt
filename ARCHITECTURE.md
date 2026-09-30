@@ -634,6 +634,9 @@ selection, URL and title through `activeTab`/`scripting`; `contextMenus` adds th
 selection entry point. There are no host permissions, page-message handlers,
 external connectivity or permanent content scripts. Exact plain-text message
 formatting and escaped hidden-character presentation belong to `message.ts`.
+Source URL admission requires HTTP(S) without username/password; invalid sources
+are refused unchanged before preview, menu persistence or intent freezing,
+including restored captures and intents.
 The popup freezes the reviewed agent UUID, message and operation UUID before
 calling the client. Its origin-owned IndexedDB retains one frozen intent and
 menu capture; restoration retains intent without sending. Explicit status

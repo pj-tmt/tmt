@@ -3,11 +3,31 @@ export interface Capture {
   url: string;
   title: string;
 }
+export function isSourceUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      /^https?:\/\//i.test(value) &&
+      !/[\r\n\t]/.test(value) &&
+      ['http:', 'https:'].includes(url.protocol) &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+}
+export function assertMessageSource(message: string): void {
+  const firstLine = message.split('\n', 1)[0];
+  if (!firstLine.startsWith('[browser] ') || !isSourceUrl(firstLine.slice(10)))
+    throw new Error('Source URL must be HTTP(S) without credentials.');
+}
 export function isCapture(value: unknown): value is Capture {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   return (
     ['selection', 'url', 'title'].every((k) => typeof v[k] === 'string') &&
+    isSourceUrl(v.url as string) &&
     new TextEncoder().encode([v.selection, v.url, v.title].join('')).length <= 65536
   );
 }

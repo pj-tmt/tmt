@@ -14,8 +14,6 @@ export async function captureTab(tabId: number): Promise<Capture> {
   const capture: unknown = results[0]?.result;
   if (!isCapture(capture)) throw new Error('The selection is unavailable or too large.');
   if (!capture.selection) throw new Error('Select some text on the page first.');
-  if (!/^https?:\/\//.test(capture.url))
-    throw new Error('Capture is limited to HTTP and HTTPS pages.');
   return capture;
 }
 export async function captureActiveTab(): Promise<Capture> {

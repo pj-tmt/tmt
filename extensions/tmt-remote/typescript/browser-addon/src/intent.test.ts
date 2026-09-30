@@ -31,7 +31,11 @@ function fixture() {
   };
   return { journal, client, intent: new Intent(client, journal) };
 }
-const input = { operationId: 'fixed', agentId: 'uuid', message: 'exact\r\n\u202Ebytes' };
+const input = {
+  operationId: 'fixed',
+  agentId: 'uuid',
+  message: '[browser] https://example.test/?literal=%0A#fragment\nexact\r\n\u202Ebytes',
+};
 it('persists before effects and freezes exact same ID/bytes across explicit retry and restart', async () => {
   const { intent, client, journal } = fixture();
   vi.mocked(client.send).mockImplementation(async (value) => {
@@ -98,3 +102,21 @@ it('storage failure prevents sending and explicit clear does not cancel work', a
   await intent.clear();
   expect(intent.input).toBeUndefined();
 });
+
+it.each(['https://user@example.test/', 'https://:password@example.test/'])(
+  'rejects source %s before freezing, journal writes or client effects, including restoration',
+  async (url) => {
+    const { intent, client, journal } = fixture();
+    const save = vi.spyOn(journal, 'save');
+    const invalid = { ...input, message: `[browser] ${url}\nTitle: title\n\nSelection:\ntext` };
+    await expect(intent.send(invalid)).rejects.toThrow('without credentials');
+    expect(save).not.toHaveBeenCalled();
+    expect(await journal.load()).toBeUndefined();
+    expect(intent.input).toBeUndefined();
+    await journal.save(invalid); // Previously stored input must not enter the preview on restore.
+    await expect(intent.restore()).rejects.toThrow('without credentials');
+    expect(intent.input).toBeUndefined();
+    expect(client.send).not.toHaveBeenCalled();
+    expect(client.operation).not.toHaveBeenCalled();
+  },
+);
