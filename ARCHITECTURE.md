@@ -943,9 +943,11 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 
 `rust/crates/tmt-cli/src/grammar.rs` owns the ordered core command registrations,
 shared spec/option helpers and public help projection, and mounts the Office subtree
-from `tmt-office-command::grammar`. Private `grammar/launch.rs`, `presence.rs`,
-`rooms.rs` and `requests.rs` own their command builders; the remaining groups stay
-in the root. Group modules share root helpers and do not import from each other.
+from `tmt-office-command::grammar`. Private modules under `grammar/` own command
+builders by group: `launch.rs`, `presence.rs`, `rooms.rs`, `requests.rs`,
+`identity.rs`, `settings.rs` and `installation.rs`. Root help/API, retired-command
+and internal-completion registrations stay in the root. Group modules share root
+helpers and do not import from each other.
 `grammar/completion.rs` and `grammar/extensions.rs` retain completion and external
 command recognition. Each visible core command
 is registered from a `CommandSpec` (summary and examples) through
