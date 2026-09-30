@@ -1245,6 +1245,8 @@ uses only a stub. No official remote installer/release exists.
 (cd rust && cargo test --offline --locked -p tmt-remote)
 (cd rust && cargo clippy --offline --locked -p tmt-remote --all-targets -- -D warnings)
 (cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
+node typescript/scripts/release-please-config.mjs --check
+(cd typescript && corepack pnpm exec vitest run test/tooling/release-please-config.test.ts test/tooling/ci-scope.test.ts)
 ```
 
 After building core, put `rust/target/debug` on PATH and run `tmt remote serve`

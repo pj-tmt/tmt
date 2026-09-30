@@ -2508,5 +2508,6 @@ no grant/journal/core DB is created. Denied traffic does not renew the window.
 signed-message contract. Pairing/authentication/approval/log/SDK behavior remains
 proposed until its implementation slices land; `cloudflare`, `firestore` and
 `relay-v1` remain reserved. Core never owns a listener or remote state. Official
-product/release registration is deferred; cargo-dist excludes this pilot crate.
+product/release registration is deferred. Its private component owner excludes
+remote versions from real-product releases; cargo-dist excludes this pilot binary.
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
