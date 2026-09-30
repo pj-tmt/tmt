@@ -86,6 +86,7 @@ fn row(
     };
     let (pane, binding) = live.map_or((None, None), |(pane, binding)| (Some(pane), Some(binding)));
     ListedRow {
+        activity: serde_json::json!({"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}),
         presence: IdentityPresence {
             identity: identity(name, lifetime),
             presence,
@@ -308,7 +309,7 @@ fn an_empty_list_says_so_and_how_to_name_an_agent() {
 }
 
 #[test]
-fn json_rows_only_gain_the_full_address_and_driver() {
+fn json_rows_gain_address_driver_and_activity() {
     let rows = agents();
     let before: Vec<Value> = rows
         .iter()
@@ -328,6 +329,10 @@ fn json_rows_only_gain_the_full_address_and_driver() {
         let object = row.as_object_mut().unwrap();
         let address = object.remove("address").unwrap();
         let driver = object.remove("driver").unwrap();
+        assert_eq!(
+            object.remove("session").unwrap(),
+            serde_json::json!({"activity":{"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}})
+        );
         assert_eq!(row, original.take());
         assert_eq!(
             address.is_null(),
@@ -341,4 +346,55 @@ fn json_rows_only_gain_the_full_address_and_driver() {
     );
     assert_eq!(document["identities"][6]["address"], "tmux:%31");
     assert_eq!(document["identities"][3]["address"], Value::Null);
+}
+
+#[test]
+fn activity_projection_requires_current_scope_and_runtime_evidence() {
+    use tmt_core::binding::session::activity::{ActivityPhase, Event};
+    let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
+    let mut binding = binding(RuntimeState::Running, Some(CLAUDE));
+    let mut remembered = remembered("claude", CLAUDE, false);
+    let key = binding.session.key.as_ref().unwrap();
+    remembered.state = tmt_adapters::runtime::driver_state::after_activity(
+        None,
+        &remembered.provider_session,
+        &key.incarnation,
+        &Event {
+            phase: ActivityPhase::Working,
+            turn: None,
+        },
+        10,
+    );
+    let project = |binding: &Binding, remembered: &RememberedSession, runtime| {
+        crate::output::activity_document(Some(binding), Some(remembered), runtime, &registry)
+    };
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Running),
+        json!({
+            "state":"working", "sinceMs":10, "lastActivityMs":10, "providers":{},
+        })
+    );
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Unknown),
+        json!({
+            "state":"unknown", "sinceMs":null, "lastActivityMs":10, "providers":{},
+        })
+    );
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Ended)["state"],
+        "ended"
+    );
+    binding.session.key.as_mut().unwrap().incarnation =
+        ProcessIncarnation::new(10, "replacement").unwrap();
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Running),
+        json!({
+            "state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{},
+        })
+    );
+    remembered.provider_session = ProviderSessionId::new("other").unwrap();
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Running)["state"],
+        "unknown"
+    );
 }
