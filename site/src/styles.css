@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+/* Tailwind reads the design tokens (virtual:tokens.css, from tokens.json). */
+@theme inline {
+  --color-text: var(--c-text);
+  --color-muted: var(--c-muted);
+  --color-dim: var(--c-dim);
+  --color-accent: var(--c-accent);
+  --color-waiting: var(--c-waiting);
+  --color-working: var(--c-working);
+  --color-review: var(--c-review);
+  --color-blocked: var(--c-blocked);
+  --color-link: var(--c-link);
+  --color-selection: var(--c-selection);
+  --color-paper: var(--c-paper);
+  --color-sheet: var(--c-sheet);
+  --color-rule: var(--c-rule);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-waiting-soft: var(--c-waiting-soft);
+  --color-term: var(--c-term);
+  --color-term-bar: var(--c-term-bar);
+  --color-term-edge: var(--c-term-edge);
+  /* Inside terminal mockups: always the default dark theme. */
+  --color-t-text: var(--t-text);
+  --color-t-dim: var(--t-dim);
+  --color-t-accent: var(--t-accent);
+  --color-t-waiting: var(--t-waiting);
+  --color-t-working: var(--t-working);
+  --color-t-review: var(--t-review);
+  --color-t-blocked: var(--t-blocked);
+  --color-t-link: var(--t-link);
+  --color-t-selection: var(--t-selection);
+  --font-display: var(--f-display);
+  --font-body: var(--f-body);
+  --font-mono: var(--f-mono);
+}
+
+@layer base {
+  html {
+    scroll-padding-top: 24px;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--c-paper);
+    color: var(--c-text);
+    font: 400 17px/1.62 var(--f-body);
+  }
+  @media (min-width: 640px) {
+    body {
+      font-size: 18px;
+    }
+  }
+  a {
+    color: var(--c-accent);
+    text-underline-offset: 3px;
+  }
+  :focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes flash {
+  0% {
+    background: color-mix(in srgb, var(--t-waiting) 35%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.cursor {
+  display: inline-block;
+  width: 0.6em;
+  background: var(--t-text);
+  animation: blink 1s steps(1) infinite;
+}
+.flash {
+  animation: flash 1.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .cursor,
+  .flash {
+    animation: none;
+  }
+}
+
+/* A terminal block keeps its columns: it scrolls sideways on a narrow screen
+   instead of shrinking the text below a readable size. */
+.term-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Tables in chapters: the first column names a command, key or token. */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16px;
+}
+th {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--c-text);
+  color: var(--c-muted);
+  font: 600 11px/1 var(--f-mono);
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+td {
+  padding: 9px 12px 9px 0;
+  border-bottom: 1px solid var(--c-rule);
+  vertical-align: top;
+}
+td:first-child {
+  color: var(--c-muted);
+  font: 400 13px/1.6 var(--f-mono);
+  white-space: nowrap;
+}
+td code,
+th code {
+  white-space: nowrap;
+}
