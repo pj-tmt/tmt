@@ -461,10 +461,14 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 list (`/`), the ◆ rows that wait on you first in the crew layout, and each
 member's note under its row. It reloads in the background every 5 seconds
 and re-reads `squad.toml`, so edits apply on the next reload; F5 (the `refresh`
-binding) and the board's own actions reload at once. `q` or Esc closes it. Set
-the interval with `refresh`, per squad or for every board, as whole seconds or
-minutes from `"1s"` to `"60m"`, or `"off"` to reload only on F5 and actions;
-the help overlay (`?`) shows the one in effect:
+binding) and the board's own actions reload at once. Between those reloads it
+checks every second whether TMT's records (members, requests, rooms, status)
+or `squad.toml` changed, and reloads as soon as they did; a pane opening or
+closing, and an edited notebook, still wait for the interval. `q` or Esc
+closes it. Set the interval with `refresh`, per squad or for every board, as
+whole seconds or minutes from `"1s"` to `"60m"`, or `"off"` to reload only on
+F5 and actions, with no early reloads either; the help overlay (`?`) shows the
+one in effect:
 
 ```toml
 [board]
