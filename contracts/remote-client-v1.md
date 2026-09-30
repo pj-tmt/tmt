@@ -353,7 +353,9 @@ typing/busy/readiness. Direct mode stays disabled pending
 [the later readiness contract](https://github.com/wkh237/tmt/issues/600). Call existing
 `dispatch.create`; core owns idempotency, acceptance and the one-shot advisory wake. Append its
 accepted response with request IDs under the original correlationId. Agent completion is read
-through core and published under that same correlation; no terminal-output completion fallback.
+through core and published under that same correlation as metadata
+`{operationId,requestId,resultState:"pending"|"replied"|"unavailable"}` without a message body;
+the explicit result read supplies the body. No terminal-output completion fallback.
 
 Core/transport timeout, process crash, lost reply or uncertain wake retains the same frozen
 intent/operation ID and reports `uncertain`, not a new send. Recover through authorized
