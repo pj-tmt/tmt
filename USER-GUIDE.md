@@ -505,7 +505,11 @@ tab, and dragging a tab onto another's place moves it there. Either way the
 board writes the new order to `[tabs] order`, changing nothing else in the file,
 and refuses if the file changed since the board read it. Tabs you list come
 first, in your order; the rest follow, squads first. Write `squad:<name>` for a squad named like a built-in
-tab. A hidden squad stays reachable with `tmt sq board --squad <name>`. The
+tab. A hidden squad stays reachable with `tmt sq board --squad <name>` or the switcher: `s` opens a list of every tab,
+hidden ones included, that narrows as you type (letters in order, ignoring
+case); Enter opens the chosen tab and Esc closes the list. While a hidden squad
+is shown, it leads the tab line, selected and marked `(hidden)`. If you bind `s`
+yourself, your binding runs instead. The
 leads tab takes its own bindings over `[bind]`. The all tab's rows are squads,
 not members, so it has only its own bindings (Enter and double-click `tab`, F5
 `refresh`):

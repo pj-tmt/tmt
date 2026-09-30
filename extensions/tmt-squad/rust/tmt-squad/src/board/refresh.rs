@@ -70,6 +70,7 @@ fn load(
         Err(error) => {
             return Snapshot {
                 tabs: Vec::new(),
+                hidden: Vec::new(),
                 attention: BTreeMap::new(),
                 squad: wanted,
                 view: Err(error.to_string()),
@@ -85,9 +86,19 @@ fn load(
         let settings = config.as_ref().ok().and_then(|config| config.tabs().ok());
         tabs::arrange(&names, &settings.unwrap_or_default())
     };
+    let hidden: Vec<String> = if names.is_empty() {
+        Vec::new()
+    } else {
+        names
+            .iter()
+            .cloned()
+            .chain([LEADS.to_owned(), ALL.to_owned()])
+            .filter(|key| !tabs.contains(key))
+            .collect()
+    };
     // A hidden squad is still shown when asked for by name.
     let chosen = match &wanted {
-        Some(key) if (tabs::builtin(key) && tabs.contains(key)) || names.contains(key) => {
+        Some(key) if (tabs::builtin(key) && !names.is_empty()) || names.contains(key) => {
             Some(key.clone())
         }
         Some(_) => None,
@@ -96,6 +107,7 @@ fn load(
     let Some(key) = chosen else {
         return Snapshot {
             tabs,
+            hidden,
             attention: BTreeMap::new(),
             view: Err(match &wanted {
                 Some(name) => format!("Squad '{name}' does not exist; run: tmt squad init {name}"),
@@ -125,6 +137,7 @@ fn load(
     .map_err(|error: crate::core::SquadError| error.to_string());
     Snapshot {
         tabs,
+        hidden,
         attention,
         squad: Some(key),
         view,
