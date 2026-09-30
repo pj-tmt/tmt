@@ -13,6 +13,7 @@ pub mod delivery;
 pub mod dispatch;
 #[cfg(unix)]
 pub mod drivers;
+pub mod executable_trust;
 pub mod extension_command;
 pub mod extension_hooks;
 #[cfg(unix)]
@@ -32,6 +33,7 @@ pub mod native_install;
 pub mod notes;
 #[cfg(unix)]
 pub mod pane_badge;
+pub mod private_file;
 #[cfg(unix)]
 pub mod process;
 #[cfg(unix)]

@@ -1,5 +1,6 @@
 use super::*;
 use crate::test_support::TestDirectory;
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 
 const ID: &str = "11111111-1111-4111-8111-111111111111";

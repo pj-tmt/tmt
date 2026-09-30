@@ -971,10 +971,13 @@ authentication boundary nor a daemon, batch processor or streaming connection.
 Extensions use `TMT_EXECUTABLE` rather than assuming an installed binary path.
 
 The CLI owns bounded stdin acquisition (EOF within five seconds), JSON publication
-and exit status. `tmt-adapters::api` owns envelope admission and composition;
-identity, room, request history, dispatch and notes retain their existing domain,
-transaction and resource encoders. The same one-shot delivery helper serves
-Office and API dispatch. Explicit identity selects write attribution, not privilege.
+and exit status. `tmt-adapters::api` owns envelope admission and composition.
+Its `api.rs` facade retains the dispatcher, protocol bounds, settings selection
+and storage lifetime. Private `api/` modules own operation-family inputs and
+composition for requests, dispatch, rooms, notes, changes, identity hooks, skills,
+references and identity status. Identity, room, request history, dispatch and
+notes retain their existing domain, transaction and resource encoders. The same
+one-shot delivery helper serves Office and API dispatch. Explicit identity selects write attribution, not privilege.
 Capabilities and unsupported-version discovery never open application storage.
 Input and output bounds are advertised in capabilities; canonical content limits
 still apply independently of JSON escaping.
@@ -1905,9 +1908,25 @@ environment `caller` may read, and `tmt-core` may depend on it to recognize an
 external host's stored pane IDs without taking on the wire crate or serde. The
 protocol crate otherwise depends only on `serde` and `serde_json`, so a
 community driver builds against these two small crates alone. The architecture
-guard allows exactly those edges. Nothing in `tmt`
-calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
-spawning client with consent and fingerprint checks, and move Herdr out.
+guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
+
+`tmt-adapters::host::external` holds the core side of that boundary:
+
+- **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
+  refuses a declaration that a built-in host or another approved driver would
+  read as its own.
+- **`DriverProcess`:** runs one operation through the bounded process owner,
+  under the operation's deadline and output bound, with `TMT_DRIVER_CALL=1`. It
+  decodes the answer against the driver's grammar.
+- **Trust:** `executable_trust` is shared with extension hooks. It checks
+  ownership and the stat fingerprint before every call, and the digest once per
+  process.
+- **Recursion guard:** a `tmt` started with `TMT_DRIVER_CALL` refuses every
+  command but help and `--version` (`DRIVER_CALL_REFUSED`).
+
+The atomic owner-only replacement of such settings files is `private_file`,
+shared with the extension hook consents. Slice 3b connects drivers to hosts
+through `HostKind::External`.
 
 ## Managed skills and native installation
 
