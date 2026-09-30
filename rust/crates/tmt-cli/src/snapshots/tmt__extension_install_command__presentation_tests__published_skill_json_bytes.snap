@@ -1,0 +1,5 @@
+---
+source: crates/tmt-cli/src/extension_install_command.rs
+expression: document
+---
+[{"name":"tmt-squad","agent":null,"target":"/home/ada/.agents/skills/tmt-squad","changed":true,"backup":"/home/ada/.agents/.tmt-skill-backups/previous"},{"name":"squad-playbook","agent":null,"target":"/opt/agents/skills/squad-playbook","changed":false,"backup":null}]
