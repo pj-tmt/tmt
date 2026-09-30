@@ -13,7 +13,7 @@ fn event(starting: bool, transition: SessionTransition, session: &str) -> Claude
 
 #[test]
 fn clear_keeps_the_binding_runtime_and_stale_end_cannot_end_the_new_session() {
-    let process = RuntimeIncarnation::new(42, "start-A").unwrap();
+    let process = ProcessIncarnation::new(42, "start-A").unwrap();
     let first = event(true, SessionTransition::Started, "one")
         .propose(
             &BindingSessionState::default(),
@@ -67,8 +67,8 @@ fn clear_keeps_the_binding_runtime_and_stale_end_cannot_end_the_new_session() {
 
 #[test]
 fn only_proven_previous_process_loss_allows_new_incarnation_admission() {
-    let old = RuntimeIncarnation::new(42, "start-A").unwrap();
-    let new = RuntimeIncarnation::new(42, "start-B").unwrap();
+    let old = ProcessIncarnation::new(42, "start-A").unwrap();
+    let new = ProcessIncarnation::new(42, "start-B").unwrap();
     let first = event(true, SessionTransition::Started, "one")
         .propose(
             &BindingSessionState::default(),
@@ -99,8 +99,8 @@ fn only_proven_previous_process_loss_allows_new_incarnation_admission() {
 
 #[test]
 fn hook_start_correlates_a_launched_child_and_resume_preserves_its_owner() {
-    let process = RuntimeIncarnation::new(42, "start-A").unwrap();
-    let owner = RuntimeIncarnation::new(41, "owner-A").unwrap();
+    let process = ProcessIncarnation::new(42, "start-A").unwrap();
+    let owner = ProcessIncarnation::new(41, "owner-A").unwrap();
     let launched = BindingSessionState::default()
         .admit_launched(
             ObservedSessionKey {
@@ -146,8 +146,8 @@ fn hook_start_correlates_a_launched_child_and_resume_preserves_its_owner() {
 
 #[test]
 fn fork_requires_admission_in_the_callers_existing_binding() {
-    let old = RuntimeIncarnation::new(42, "start-A").unwrap();
-    let fork = RuntimeIncarnation::new(43, "start-B").unwrap();
+    let old = ProcessIncarnation::new(42, "start-A").unwrap();
+    let fork = ProcessIncarnation::new(43, "start-B").unwrap();
     let first = event(true, SessionTransition::Started, "one")
         .propose(
             &BindingSessionState::default(),

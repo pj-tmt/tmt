@@ -26,8 +26,7 @@ fn fixture(wait: bool, enabled: bool) -> Fixture {
                     deadline_ms: NOW_MS + 1000,
                     timeout_ms: 1000,
                     waiter: wait.then(|| {
-                        tmt_core::binding::session::RuntimeIncarnation::new(42, "fixture-start")
-                            .unwrap()
+                        tmt_core::endpoint::ProcessIncarnation::new(42, "fixture-start").unwrap()
                     }),
                 },
             )

@@ -1195,3 +1195,50 @@ fn core_crates_cannot_add_office_modules() {
         &[],
     );
 }
+
+#[test]
+fn remote_keeps_public_command_isolation() {
+    assert_exact(
+        &[syntax(
+            "tmt-remote",
+            "main.rs",
+            "use tmt_remote::core::CoreClient; use tmt_cli_style::command;",
+        )],
+        &[],
+    );
+    for name in ["tmt-core", "tmt-adapters", "tmt-office-model"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-remote",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .len(),
+            1
+        );
+    }
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-remote",
+            vec![dependency("tmt-cli-style", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_eq!(
+        policy::source_violations(&[syntax(
+            "tmt-remote",
+            "core.rs",
+            "use tmt_core::room::RoomRepository;"
+        )])
+        .len(),
+        1
+    );
+    assert_eq!(
+        policy::source_violations(&[syntax(
+            "tmt-cli",
+            "extra.rs",
+            "use tmt_remote::core::CoreClient;"
+        )])
+        .len(),
+        1
+    );
+}
