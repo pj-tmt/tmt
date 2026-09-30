@@ -1207,3 +1207,28 @@ Compare exact file bytes, not symlink-directory snapshots or enumerated binary
 objects. Use structured output or a focused formatter test, not mocked
 `console.log`. Apply the [architecture maintenance contract](ARCHITECTURE.md#maintenance-contract)
 when changing an owner, boundary or verification procedure.
+
+## Remote pilot development
+
+The local-build-only remote crate is a foreground deny-all door. It performs
+one public startup capabilities read, then refuses every remote application
+request. Pairing, signing, grants, approval, sends and journal/SDK integration
+are not implemented. The [client contract](contracts/remote-client-v1.md) is
+proposed; [the separately owned browser shell](https://github.com/wkh237/tmt/pull/615)
+uses only a stub. No official remote installer/release exists.
+
+```bash
+cargo build --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote
+cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote
+cargo clippy --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --all-targets -- -D warnings
+cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-cli --test architecture
+```
+
+After building core, put `rust/target/debug` on PATH and run `tmt remote serve`
+(or `--json` for its bound descriptor). Direct invocation requires an absolute
+`TMT_EXECUTABLE`; it never searches for another core. Default hard window is
+one hour (maximum 24 hours); denied traffic cannot reset the 15-minute idle
+deadline, so this interim door closes after at most 15 minutes. Ctrl-C/SIGTERM
+stops it; there is no autostart/LAN/daemon option. Tests use disposable HOME/XDG,
+count startup separately, assert zero request-triggered core calls and run
+socket/process lifecycle acceptance twice. No real model/account/DB is used.

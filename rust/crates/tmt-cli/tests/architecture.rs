@@ -81,7 +81,8 @@ fn workspace_obeys_native_architecture() {
             "tmt-office-pairing",
             "tmt-office-service",
             "tmt-office-storage",
-            "tmt-squad"
+            "tmt-squad",
+            "tmt-remote"
         ]),
         "Review native package boundaries when changing workspace members"
     );
