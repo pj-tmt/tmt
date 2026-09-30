@@ -2261,7 +2261,10 @@ built by the same worker from each squad's roster document, joined with one
 `ls` read for presence. Its rows carry their squad, so talk goes to that
 squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
 squads, not members: their `tab` action opens the squad's tab, and member
-bindings don't apply there. Moving a tab (Shift+←/→, or a drag on the tab
+bindings don't apply there. `jump lead` (`L` in the tmux preset) resolves a
+lead name in `App::lead`: the document's `squad.lead` on a squad tab, the
+selected row on the leads tab, the row's `lead` field on the all tab; it then
+takes the ordinary jump request, so the popup closes and `back` returns. Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
 format-preserving replacement that records `me`. A tab line that doesn't
 fit scrolls: `tab_window` keeps the current tab in view, starting as near the
