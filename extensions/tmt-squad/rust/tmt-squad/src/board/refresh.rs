@@ -390,6 +390,18 @@ mod tests {
             },
             "the lead's decision and B's request; X is not in the squad"
         );
+        // Presence is unknown from the roster alone, and never matters:
+        // blocked and waiting come from fields and requests only (#568).
+        let mut seen = roster();
+        for member in &mut seen {
+            member.presence = "active".into();
+        }
+        assert_eq!(
+            Attention::of(&roster_document(&config, &squad, seen, Some(("ME", &inbox))).unwrap()),
+            Attention::of(
+                &roster_document(&config, &squad, roster(), Some(("ME", &inbox))).unwrap()
+            )
+        );
         // Without a known user only member-set decisions count.
         assert_eq!(
             Attention::of(&roster_document(&config, &squad, roster(), None).unwrap()),
