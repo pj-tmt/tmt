@@ -29,12 +29,10 @@ use tmt_adapters::{
 use tmt_core::{
     binding::{
         self, Binding, BindingRepository,
-        session::{
-            ObservedSessionKey, RuntimeIncarnation, RuntimeLiveness, SessionPreferences,
-            SessionTransition,
-        },
+        session::{ObservedSessionKey, RuntimeLiveness, SessionPreferences, SessionTransition},
     },
     driver::{HookEvent, HookObserver},
+    endpoint::ProcessIncarnation,
     identity::IdentityReader,
     names::normalize_name,
     settings::PaneBadge,
@@ -371,8 +369,8 @@ enum Finished {
 fn finish(
     storage: &mut Storage,
     binding: &Binding,
-    owner: &RuntimeIncarnation,
-    child: &RuntimeIncarnation,
+    owner: &ProcessIncarnation,
+    child: &ProcessIncarnation,
     lifecycle: &dyn RuntimeLifecycle,
 ) -> Result<Finished, StorageError> {
     storage.with_binding_transaction(|records| {

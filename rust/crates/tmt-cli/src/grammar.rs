@@ -28,10 +28,13 @@ macro_rules! spec {
 pub mod completion;
 pub mod extensions;
 
+mod identity;
+mod installation;
 mod launch;
 mod presence;
 mod requests;
 mod rooms;
+mod settings;
 
 /// The root's help; root help adds the extensions discovered on `PATH`.
 pub const ROOT: &CommandSpec = spec!(
@@ -96,20 +99,14 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
                 "Show help for a subcommand" => "tmt help identity show",
             ]
         ))
-            .arg(operand("command-path", false).num_args(0..)),
+        .arg(operand("command-path", false).num_args(0..)),
     )
     .subcommand(
         internal("team", "Retired command")
             .hide(true)
             .arg(operand("scope", false)),
     )
-    .subcommand(general(spec!(
-        "init",
-        "Create workspace settings",
-        [
-            "Create settings for this workspace" => "tmt init",
-        ]
-    )))
+    .subcommand(settings::init())
     .subcommand(launch::run())
     .subcommand(launch::resume())
     .subcommand(presence::list_command())
@@ -117,553 +114,52 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(presence::name())
     .subcommand(presence::marked())
     .subcommand(presence::remove())
-    .subcommand(
-        storage(spec!(
-            "rename",
-            "Rename an identity; its UUID, session, profile, notes and history stay",
-            [
-                "Give an identity a new name" => "tmt rename worker reviewer",
-            ]
-        ))
-        .arg(operand("old", true))
-        .arg(operand("new", true)),
-    )
+    .subcommand(identity::rename())
     .subcommand(requests::talk())
     .subcommand(presence::check())
     .subcommand(presence::focus())
     .subcommand(presence::whoami())
     .subcommand(presence::unbind())
-    .subcommand(
-        general(spec!(
-            "extension",
-            "Manage consented extension integrations",
-            [
-                "List official extensions" => "tmt extension list",
-                "Install Squad" => "tmt extension install squad",
-            ]
-        ))
-            .subcommand_required(true)
-            .subcommand(
-                general(spec!(
-                    "hooks",
-                    "Manage lifecycle hooks for trusted extensions",
-                    [
-                        "List extensions with hooks enabled" => "tmt extension hooks list",
-                        "Deliver lifecycle hooks to Squad" => "tmt extension hooks enable squad",
-                    ]
-                ))
-                    .subcommand_required(true)
-                    .subcommand(
-                        general(spec!(
-                            "enable",
-                            "Trust tmt-<name> on PATH to receive lifecycle observations",
-                            [
-                                "Deliver lifecycle hooks to Squad" => "tmt extension hooks enable squad",
-                            ]
-                        ))
-                        .arg(operand("name", true)),
-                    )
-                    .subcommand(
-                        general(spec!(
-                            "disable",
-                            "Stop delivering hooks to an extension",
-                            [
-                                "Stop hooks for Squad" => "tmt extension hooks disable squad",
-                            ]
-                        ))
-                            .arg(operand("name", true)),
-                    )
-                    .subcommand(general(spec!(
-                        "list",
-                        "List extensions with enabled hooks",
-                        [
-                            "List extensions with hooks enabled" => "tmt extension hooks list",
-                        ]
-                    ))),
-            )
-            .subcommand(
-                extension_target(general(spec!(
-                    "install",
-                    "Install an official extension (office, squad)",
-                    [
-                        "Install Squad" => "tmt extension install squad",
-                        "Install without a prompt" => "tmt extension install squad --yes",
-                    ]
-                )))
-                    .arg(channel_option())
-                    .arg(Arg::new("repair").long("repair").action(ArgAction::SetTrue)
-                        .conflicts_with("channel")
-                        .help("Restore the exact recorded release; retain the damaged files"))
-                    .arg(Arg::new("archive").long("archive").requires("manifest"))
-                    .arg(Arg::new("manifest").long("manifest").requires("archive"))
-                    .arg(
-                        Arg::new("skills")
-                            .long("skills")
-                            .action(ArgAction::SetTrue)
-                            .help("Also publish the agent skills the extension bundles"),
-                    ),
-            )
-            .subcommand(
-                extension_target(general(spec!(
-                    "upgrade",
-                    "Update an installed official extension",
-                    [
-                        "Update Squad" => "tmt extension upgrade squad",
-                        "Install an exact version" => "tmt extension upgrade squad --to 0.1.0-alpha.2",
-                    ]
-                )))
-                    .arg(channel_option())
-                    .arg(Arg::new("to").long("to").conflicts_with("unpin"))
-                    .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
-            )
-            .subcommand(extension_target(general(spec!(
-                "uninstall",
-                "Remove an extension's commands; releases and data are kept",
-                [
-                    "Remove Squad's commands" => "tmt extension uninstall squad",
-                ]
-            ))))
-            .subcommand(
-                general(spec!(
-                    "list",
-                    "List official extensions, versions and PATH shadowing",
-                    [
-                        "List official extensions" => "tmt extension list",
-                        "Also check for newer releases" => "tmt extension list --check",
-                    ]
-                ))
-                    .arg(Arg::new("prefix").long("prefix"))
-                    .arg(
-                        Arg::new("check")
-                            .long("check")
-                            .action(ArgAction::SetTrue)
-                            .help("Also check for a newer release (uses the network)"),
-                    ),
-            ),
-    )
-    .subcommand(
-        general(spec!(
-            "config",
-            "View or modify settings",
-            [
-                "Show settings" => "tmt config show",
-                "Change a setting" => "tmt config set timeout 120",
-            ]
-        ))
-            .subcommand(general(spec!(
-                "show",
-                "Show settings",
-                [
-                    "Show settings and where each comes from" => "tmt config show",
-                ]
-            )))
-            .subcommand(
-                with_options(general(spec!(
-                    "set",
-                    "Set a setting",
-                    [
-                        "Change a workspace setting" => "tmt config set timeout 120",
-                        "Change a global setting" => "tmt config set --global captureLines 200",
-                    ]
-                )), &["global"])
-                    .arg(operand("key", true))
-                    .arg(operand("value", true).allow_negative_numbers(true)),
-            )
-            .subcommand(general(spec!(
-                "clear",
-                "Clear a local setting",
-                [
-                    "Clear a workspace setting" => "tmt config clear timeout",
-                ]
-            )).arg(operand("key", false))),
-    )
-    .subcommand(
-        general(spec!(
-            "preamble",
-            "Manage identity-owned preambles",
-            [
-                "Set an agent's preamble" => "tmt preamble set worker \"Answer in one paragraph\"",
-                "Show preambles" => "tmt preamble show",
-            ]
-        ))
-            .subcommand(general(spec!(
-                "show",
-                "Show preambles",
-                [
-                    "Show every preamble" => "tmt preamble show",
-                    "Show one agent's preamble" => "tmt preamble show worker",
-                ]
-            )).arg(operand("agent", false)))
-            .subcommand(
-                general(spec!(
-                    "set",
-                    "Set a preamble",
-                    [
-                        "Set an agent's preamble" => "tmt preamble set worker \"Answer in one paragraph\"",
-                    ]
-                ))
-                    .arg(operand("agent", true))
-                    .arg(operand("content", true).num_args(1..)),
-            )
-            .subcommand(general(spec!(
-                "clear",
-                "Clear a preamble",
-                [
-                    "Clear an agent's preamble" => "tmt preamble clear worker",
-                ]
-            )).arg(operand("agent", true))),
-    )
+    .subcommand(installation::extension())
+    .subcommand(settings::config())
+    .subcommand(identity::preamble())
     .subcommand(requests::exchanges())
-    .subcommand(
-        storage(spec!(
-            "identity",
-            "Manage identity records, metadata and self-reported status",
-            [
-                "Create a saved identity" => "tmt identity create reviewer",
-                "Show an identity" => "tmt identity show reviewer",
-            ]
-        ))
-        .subcommand_required(true)
-        .subcommand(storage(spec!(
-            "create",
-            "Create or save an identity",
-            [
-                "Create a saved identity" => "tmt identity create reviewer",
-            ]
-        )).arg(operand("name", true)))
-        .subcommand(
-            storage(spec!(
-                "rename",
-                "Rename an identity; its UUID, session, profile, notes and history stay",
-                [
-                    "Give an identity a new name" => "tmt identity rename worker reviewer",
-                ]
-            ))
-            .arg(operand("old", true))
-            .arg(operand("new", true)),
-        )
-        .subcommand(storage(spec!(
-            "show",
-            "Show an identity by name or UUID, or the verified caller",
-            [
-                "Show an identity" => "tmt identity show reviewer",
-                "Show this pane's identity" => "tmt identity show",
-            ]
-        )).arg(operand("name", false)))
-        .subcommand(with_options(
-            storage(spec!(
-                "list",
-                "List non-retired identities",
-                [
-                    "List identities" => "tmt identity list",
-                    "Only those with matching metadata" => "tmt identity list --where team=infra",
-                ]
-            )),
-            &["where", "has"],
-        ))
-        .subcommand(
-            storage(spec!(
-                "status",
-                "Manage expiring self-reported activity, not endpoint presence",
-                [
-                    "Report what you are doing" => "tmt identity status set \"Reviewing PR 444\"",
-                    "Show your status" => "tmt identity status show",
-                ]
-            ))
-            .subcommand_required(true)
-            .subcommand(with_options(
-                storage(spec!(
-                    "show",
-                    "Show current or stale status",
-                    [
-                        "Show your status" => "tmt identity status show",
-                        "Show another identity's status" => "tmt identity status show --identity reviewer",
-                    ]
-                )),
-                &["identity"],
-            ))
-            .subcommand(
-                with_options(
-                    storage(spec!(
-                        "set",
-                        "Replace status and renew its expiry",
-                        [
-                            "Report what you are doing" => "tmt identity status set \"Reviewing PR 444\"",
-                            "For thirty minutes" => "tmt identity status set \"Running the suite\" --for 30m",
-                        ]
-                    )),
-                    &["identity", "mood", "for"],
-                )
-                .arg(operand("activity", true)),
-            )
-            .subcommand(with_options(
-                storage(spec!(
-                    "clear",
-                    "Clear this identity's self-reported status",
-                    [
-                        "Clear your status" => "tmt identity status clear",
-                    ]
-                )),
-                &["identity"],
-            )),
-        )
-        .subcommand(
-            storage(spec!(
-                "meta",
-                "Manage descriptive identity metadata",
-                [
-                    "Set a metadata value" => "tmt identity meta set team infra",
-                    "List metadata" => "tmt identity meta list",
-                ]
-            ))
-                .subcommand_required(true)
-                .subcommand(
-                    with_options(storage(spec!(
-                        "set",
-                        "Set a metadata value",
-                        [
-                            "Set a metadata value" => "tmt identity meta set team infra",
-                        ]
-                    )), &["identity"])
-                        .arg(operand("key", true))
-                        .arg(operand("value", true)),
-                )
-                .subcommand(
-                    with_options(storage(spec!(
-                        "get",
-                        "Get a metadata value",
-                        [
-                            "Read one value" => "tmt identity meta get team",
-                        ]
-                    )), &["identity"])
-                        .arg(operand("key", true)),
-                )
-                .subcommand(with_options(
-                    storage(spec!(
-                        "list",
-                        "List metadata values",
-                        [
-                            "List metadata" => "tmt identity meta list",
-                            "For another identity" => "tmt identity meta list --identity reviewer",
-                        ]
-                    )),
-                    &["identity"],
-                ))
-                .subcommand(
-                    with_options(storage(spec!(
-                        "rm",
-                        "Remove a metadata value",
-                        [
-                            "Remove a value" => "tmt identity meta rm team",
-                        ]
-                    )), &["identity"])
-                        .arg(operand("key", true)),
-                ),
-        ),
-    )
-    .subcommand(
-        storage(spec!(
-            "notes",
-            "Access saved identity notes",
-            [
-                "Print the path of your notes file" => "tmt notes path",
-            ]
-        ))
-            .subcommand_required(true)
-            .subcommand(with_options(
-                storage(spec!(
-                    "path",
-                    "Initialize and print the local Markdown path",
-                    details = "Saved identities only. Edit the returned Markdown file directly; an Office\nnotebook object reads this same file. Office reads never create missing notes.",
-                    [
-                        "Print the path of your notes file" => "tmt notes path",
-                        "For another saved identity" => "tmt notes path --identity reviewer",
-                    ]
-                )),
-                &["identity"],
-            )),
-    )
-    .subcommand(
-        with_options(general(spec!(
-            "role",
-            "Manage role profiles",
-            [
-                "Set your role" => "tmt role set \"Reviews Rust changes\"",
-                "Show your role" => "tmt role show",
-            ]
-        )), &["identity"])
-            .subcommand_required(true)
-            .subcommand(with_options(general(spec!(
-                "show",
-                "Show a role",
-                [
-                    "Show your role" => "tmt role show",
-                    "Show another identity's role" => "tmt role show --identity reviewer",
-                ]
-            )), &["identity"]))
-            .subcommand(
-                with_options(
-                    general(spec!(
-                        "set",
-                        "Set a role from inline text or file",
-                        [
-                            "Set your role" => "tmt role set \"Reviews Rust changes\"",
-                            "Read it from a file" => "tmt role set --file role.md",
-                        ]
-                    )),
-                    &["identity", "file"],
-                )
-                .arg(operand("content", false)),
-            )
-            .subcommand(with_options(
-                general(spec!(
-                    "clear",
-                    "Clear a role",
-                    [
-                        "Clear your role" => "tmt role clear",
-                    ]
-                )),
-                &["identity"],
-            )),
-    )
+    .subcommand(identity::identity())
+    .subcommand(identity::notes())
+    .subcommand(identity::role())
     .subcommand(requests::reply_command())
     .subcommand(requests::result())
     .subcommand(requests::inbox())
     .subcommand(requests::answer())
-    .subcommand(
-        with_options(
-            general(spec!(
-                "install",
-                "Install or refresh agent skills",
-                [
-                    "Install skills for every agent" => "tmt install",
-                    "Only for Claude" => "tmt install claude",
-                ]
-            )),
-            &["force", "dir"],
-        )
-        .arg(
-            operand("agent", false)
-                .value_parser(
-                    names
-                        .into_iter()
-                        .chain(["all"])
-                        .collect::<Vec<_>>(),
-                )
-                .ignore_case(true),
-        ),
-    )
-    .subcommand(general(spec!(
-        "setup",
-        "Set up every detected agent: skills and session hooks, after one approval",
-        [
-            "Review and apply what is missing" => "tmt setup",
-            "Only Claude's session hooks" => "tmt setup claude --yes",
-            "Remove Claude's session hooks" => "tmt setup claude --remove",
-        ]
-    ))
-        .arg(operand("provider", false).value_parser(hooked.clone()))
-        .arg(Arg::new("remove").long("remove").action(ArgAction::SetTrue).requires("provider"))
-        .arg(Arg::new("usage").long("usage").action(ArgAction::SetTrue)
-            .help("Also install the turn-end hook that records context usage")
-            .conflicts_with_all(["no-usage", "remove"]))
-        .arg(Arg::new("no-usage").long("no-usage").action(ArgAction::SetTrue)
-            .help("Remove only the turn-end usage hook")
-            .conflicts_with("remove"))
-        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)))
-    .subcommand(internal("__hook", "Internal bounded provider lifecycle callback").hide(true)
-        .arg(operand("provider", true).value_parser(hooked))
-        .arg(Arg::new("worker").long("worker").hide(true).action(ArgAction::SetTrue)))
+    .subcommand(installation::install(names))
+    .subcommand(installation::setup(hooked.clone()))
+    .subcommand(installation::hook(hooked))
     .subcommand(requests::request_observer())
-    .subcommand(general(spec!(
-        "completion",
-        "Generate shell completion",
-        [
-            "Print the zsh completion script" => "tmt completion zsh",
-        ]
-    )).arg(operand("shell", false)))
-    .subcommand(internal("__complete", "Internal shell completion context").hide(true)
-        .arg(Arg::new("words").num_args(0..).trailing_var_arg(true)
-            .value_parser(clap::builder::OsStringValueParser::new())))
     .subcommand(
         general(spec!(
-            "upgrade",
-            "Upgrade the native CLI and refresh managed skills",
+            "completion",
+            "Generate shell completion",
             [
-                "Update to the latest release on your channel" => "tmt upgrade",
-                "Switch to the stable channel" => "tmt upgrade --channel stable",
-                "Install an exact version" => "tmt upgrade --to 5.0.0-alpha.8",
+                "Print the zsh completion script" => "tmt completion zsh",
             ]
         ))
-        .visible_alias("update")
-        .arg(
-            Arg::new("channel").long("channel").value_parser(
-                tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
-            ),
-        )
-        .arg(Arg::new("to").long("to").conflicts_with("unpin"))
-        .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
+        .arg(operand("shell", false)),
     )
     .subcommand(
-        general(spec!(
-            "uninstall",
-            "Remove TMT from this machine; your data is kept unless --purge",
-            [
-                "Review and remove TMT" => "tmt uninstall",
-                "Also delete identities, messages and notes" => "tmt uninstall --purge",
-            ]
-        ))
-        .arg(
-            Arg::new("purge")
-                .long("purge")
-                .help("Also delete TMT's data directory")
-                .action(ArgAction::SetTrue),
-        )
-        .arg(Arg::new("yes").long("yes").help("Approve without a prompt").action(ArgAction::SetTrue))
-        .arg(Arg::new("prefix").long("prefix").help("The installation prefix (default: this installation's)")),
-    )
-    .subcommand(internal("__native-refresh-skills", "Internal managed skill refresh").hide(true))
-    .subcommand(
-        internal("__native-install", "Internal offline native installation")
+        internal("__complete", "Internal shell completion context")
             .hide(true)
             .arg(
-                Arg::new("product")
-                    .long("product")
-                    .default_value("cli")
-                    .value_parser(
-                        tmt_core::native_install::Product::ALL.map(|product| product.as_str()),
-                    ),
-            )
-            .arg(Arg::new("archive").long("archive").required(true))
-            .arg(Arg::new("manifest").long("manifest").required(true))
-            .arg(Arg::new("prefix").long("prefix").required(true))
-            .arg(
-                Arg::new("channel")
-                    .long("channel")
-                    .required(true)
-                    .value_parser(
-                        tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
-                    ),
-            )
-            .arg(
-                Arg::new("pin")
-                    .long("pin")
-                    .action(ArgAction::SetTrue)
-                    .conflicts_with("unpin"),
-            )
-            .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
+                Arg::new("words")
+                    .num_args(0..)
+                    .trailing_var_arg(true)
+                    .value_parser(clap::builder::OsStringValueParser::new()),
+            ),
     )
-    .subcommand(with_options(
-        general(spec!(
-            "learn",
-            "Read agent guidance",
-            [
-                "Read the tmux-team guidance" => "tmt learn",
-                "Print a bundled skill" => "tmt learn --skill tmt-inbox",
-            ]
-        )),
-        &["skill"],
-    ))
+    .subcommand(installation::upgrade())
+    .subcommand(installation::uninstall())
+    .subcommand(installation::refresh_skills())
+    .subcommand(installation::native_install())
+    .subcommand(installation::learn())
 }
 
 fn bare(name: &'static str) -> Command {

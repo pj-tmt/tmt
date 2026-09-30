@@ -947,9 +947,11 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 
 `rust/crates/tmt-cli/src/grammar.rs` owns the ordered core command registrations,
 shared spec/option helpers and public help projection, and mounts the Office subtree
-from `tmt-office-command::grammar`. Private `grammar/launch.rs`, `presence.rs`,
-`rooms.rs` and `requests.rs` own their command builders; the remaining groups stay
-in the root. Group modules share root helpers and do not import from each other.
+from `tmt-office-command::grammar`. Private modules under `grammar/` own command
+builders by group: `launch.rs`, `presence.rs`, `rooms.rs`, `requests.rs`,
+`identity.rs`, `settings.rs` and `installation.rs`. Root help/API, retired-command
+and internal-completion registrations stay in the root. Group modules share root
+helpers and do not import from each other.
 `grammar/completion.rs` and `grammar/extensions.rs` retain completion and external
 command recognition. Each visible core command
 is registered from a `CommandSpec` (summary and examples) through
@@ -1549,7 +1551,10 @@ Missing or conflicting interface evidence masks the reported runtime to unknown
 without rewriting stored evidence. Recorded running processes are rechecked through
 the bounded `process::runtime` observer before input. It uses a fixed-locale,
 fixed-timezone `ps` start identity (second resolution), not a PID alone or provider
-transcript. Process disappearance, zombie state or a changed start identity reports
+transcript. `tmt_core::endpoint::ProcessIncarnation` (a PID and that opaque start
+token, from core's own inspection) is the one value for comparing a local process:
+runtimes, launch owners, notification waiters and Herdr servers use it, each with
+its own stored columns and lifecycle. Process disappearance, zombie state or a changed start identity reports
 ended. Stopped/traced processes remain unknown rather than ended, allowing later
 resumption without sending input to the shell meanwhile. Inconclusive checks also
 remain unknown and do not permit fallback to legacy unobserved delivery. The probe
@@ -1887,7 +1892,7 @@ while the public `wN:pM` (its target and display address) is reused after a
 restart. A caller's Herdr pane counts only when its shell is an ancestor of the
 caller (`process::ancestry`, shared with tmux); inside both hosts the nearer
 pane wins. A Herdr server incarnation is its server process (the parent of
-every pane shell) and that process's start; Herdr keeps no server-level store,
+every pane shell) as a `ProcessIncarnation` core observes; Herdr keeps no server-level store,
 so TMT's UUID for it comes from core's `HostServerIds` port, implemented by
 `Storage` (`host_servers`) and resolved by `Host::resolve_servers` before any
 binding transaction opens, so the transaction only sees resolved evidence. A
@@ -2561,3 +2566,11 @@ proposed until its implementation slices land; `cloudflare`, `firestore` and
 product/release registration is deferred. Its private component owner excludes
 remote versions from real-product releases; cargo-dist excludes this pilot binary.
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
+
+The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
+TypeScript module owns decoded-value envelope, enrollment and possession signing-byte
+builders and independent exact-byte/SHA-256 fixtures. It uses standard UTF-8 and
+WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
+quality job. It implements no wire decoder, signing, key persistence, transport,
+runtime authority or browser-shell wiring; the proposed contract remains the wire
+and authority definition owner.

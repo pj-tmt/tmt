@@ -614,10 +614,7 @@ impl App {
     /// squad's lead.
     fn lead(&self) -> Result<String, String> {
         let view = self.view.as_ref().ok_or("the board has not loaded yet")?;
-        let named = |name: Option<&str>| {
-            name.filter(|name| !name.is_empty() && *name != "–")
-                .map(str::to_owned)
-        };
+        let named = |name: Option<&str>| name.filter(|name| !name.is_empty()).map(str::to_owned);
         let lead = match self.current.as_deref() {
             Some(super::LEADS) => named(self.selected_row().and_then(|row| row["name"].as_str())),
             Some(super::ALL) => named(
@@ -1258,13 +1255,27 @@ pub(crate) mod tests {
             crate::board::ALL,
             json!([{"title": null, "rows": [
                 {"name": "product", "squad": "product", "fields": {"lead": "sol"}},
-                {"name": "quiet", "squad": "quiet", "fields": {"lead": "–"}},
+                {"name": "quiet", "squad": "quiet", "fields": {"lead": null}},
             ]}]),
         ));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
         press(&mut app, KeyCode::Down);
         assert_eq!(lead(&mut app), Effect::None);
-        assert!(app.notice.as_deref().unwrap().contains("has no lead"));
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("jump lead: this squad has no lead; set one with tmt squad lead <name>.")
+        );
+
+        // A missing lead is data, so a custom binding gets the same missing-field
+        // notice as any other absent value instead of copying a display glyph.
+        assert_eq!(
+            app.perform(&Action::parse("copy {lead}").unwrap()),
+            Effect::None
+        );
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("copy: lead is empty for this row.")
+        );
 
         // The leads tab: the selected row is the lead.
         let mut app = App::new(Some(crate::board::LEADS.into()));
