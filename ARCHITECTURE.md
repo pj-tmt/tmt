@@ -2390,3 +2390,15 @@ Every change reports its architecture impact and names the affected Rust owner,
 adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
+
+## Proposed remote client contract
+
+[`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
+remote signed-message contract; no remote runtime or SDK is implemented by that
+document. Its M1 profile is `local-v1` over `loopback-http`, with transport-neutral
+append/subscribe/ack, extension-owned authentication and locally approved held
+sends through the public extension API. Future `cloudflare`/`firestore` bindings
+and `relay-v1` are reserved, not supported. The proposed runtime belongs entirely
+to `extensions/tmt-remote`; core does not listen, stay resident or expose its DB
+as a remote interface. Implementing slices must update this map to describe the
+delivered module, persistence, authority and verification boundaries.
