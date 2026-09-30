@@ -66,7 +66,7 @@ fn drivers() -> [Driver; 2] {
             tree: ".codex/sessions/2026/09/29",
             line: CODEX_LINE,
             count: "/payload/info/last_token_usage/total_tokens",
-            // total 146577 - reasoning 0, in a 258400 window.
+            // total 146577, in a 258400 window.
             expected: Usage::new(146_577, Some(258_400), NOW).unwrap(),
         },
     ]
@@ -212,9 +212,10 @@ fn codex_reads_the_last_token_count_and_its_window() {
     let reasoning = edited(CODEX_LINE, |value| {
         value["payload"]["info"]["last_token_usage"]["reasoning_output_tokens"] = json!(577);
     });
+    // Reasoning is part of the total Codex reports, as its status card shows.
     assert_eq!(
         codex::transcript_usage(&reasoning),
-        Some((146_000, Some(258_400)))
+        Some((146_577, Some(258_400)))
     );
     let windowless = edited(CODEX_LINE, |value| {
         value["payload"]["info"]
@@ -225,7 +226,7 @@ fn codex_reads_the_last_token_count_and_its_window() {
     assert_eq!(codex::transcript_usage(&windowless), Some((146_577, None)));
     for skipped in [
         edited(CODEX_LINE, |value| {
-            value["payload"]["info"]["last_token_usage"]["reasoning_output_tokens"] = json!(146_578)
+            value["payload"]["info"]["last_token_usage"]["total_tokens"] = json!(-1)
         }),
         edited(CODEX_LINE, |value| {
             value["payload"]["type"] = json!("agent_message")

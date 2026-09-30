@@ -44,7 +44,7 @@ struct Payload {
 }
 
 pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
-    if bytes.len() > 64 * 1024 {
+    if bytes.len() > crate::runtime::hook_protocol::HOOK_INPUT_LIMIT {
         return None;
     }
     let payload: Payload = serde_json::from_slice(bytes).ok()?;
@@ -74,7 +74,7 @@ pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
 
 /// `Stop`: the turn ended. A null transcript path leaves nothing to read.
 pub fn decode_turn(bytes: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
-    if bytes.len() > 64 * 1024 {
+    if bytes.len() > crate::runtime::hook_protocol::HOOK_INPUT_LIMIT {
         return None;
     }
     let payload: Payload = serde_json::from_slice(bytes).ok()?;
@@ -86,10 +86,10 @@ pub fn decode_turn(bytes: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
 }
 
 /// The context usage of one rollout line, from its latest `token_count`
-/// event: the last request's total minus its reasoning output. The visible
-/// output stays in the conversation and reasoning does not;
-/// `cached_input_tokens` is part of `input_tokens`, so it is not added. The
-/// window is the event's `model_context_window` when present.
+/// event: the last request's `total_tokens`, the figure Codex's own status
+/// display reports as the active context size. `cached_input_tokens` is part
+/// of `input_tokens`, so it is not added. The window is the event's
+/// `model_context_window` when present.
 pub fn transcript_usage(line: &str) -> Option<(u64, Option<u64>)> {
     let entry: serde_json::Value = serde_json::from_str(line).ok()?;
     if entry.get("type")?.as_str()? != "event_msg" {
@@ -101,10 +101,7 @@ pub fn transcript_usage(line: &str) -> Option<(u64, Option<u64>)> {
     }
     let info = payload.get("info")?;
     let last = info.get("last_token_usage")?;
-    let tokens = last
-        .get("total_tokens")?
-        .as_u64()?
-        .checked_sub(last.get("reasoning_output_tokens")?.as_u64()?)?;
+    let tokens = last.get("total_tokens")?.as_u64()?;
     let window = match info.get("model_context_window") {
         None | Some(serde_json::Value::Null) => None,
         Some(window) => Some(window.as_u64()?),

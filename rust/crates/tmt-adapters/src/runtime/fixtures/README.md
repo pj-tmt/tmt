@@ -32,13 +32,11 @@ its source listed here.
   `iterations[]`, whose single entry equals the top level here; a test pins that
   the top level is read when they differ. Sidechain and `<synthetic>` messages are
   skipped. The window is not in the transcript, so none is stored.
-- Codex usage is `last_token_usage.total_tokens - reasoning_output_tokens`, with
-  `model_context_window` as the window. `cached_input_tokens` is part of
-  `input_tokens` and is not added. This is **our definition**. Codex's own status
-  display (openai/codex `codex-rs/tui/src/token_usage.rs` at b1e7296, 2026-09-27)
-  reads `last_token_usage.total_tokens` as "the latest active context size",
-  without subtracting reasoning; the two agree whenever a turn has no reasoning
-  output, as in the fixture.
+- Codex usage is `last_token_usage.total_tokens`, with `model_context_window` as
+  the window, as Codex's own status display reads it (openai/codex
+  `codex-rs/tui/src/token_usage.rs` at b1e7296, 2026-09-27: "the latest active
+  context size"). Reasoning output is not subtracted, and `cached_input_tokens`
+  is part of `input_tokens` and is not added.
 - Both formats are unofficial. The Claude hooks reference says the transcript is
   written asynchronously and may lag the current turn, so a recorded value can be
   one turn old. Codex says its transcript "isn't a stable interface for hooks".
