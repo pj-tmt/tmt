@@ -1222,6 +1222,21 @@ Schema 39 admits a second terminal host (Herdr, #479):
 Binding queries still read tmux rows only until the core endpoint types carry
 the host.
 
+Schema 40 adds the change cursor behind the `changes.cursor` API operation
+(contract in [extension-api.md](docs/extension-api.md)). It is a one-row
+`change_cursor` counter. Every core-owned table has three AFTER triggers,
+`<table>_advances_change_cursor_on_{insert,update,delete}`, that advance it
+inside the writing transaction, so no write path can forget. Migration
+bookkeeping and the Office tables fenced by the schema-36 cutover have none.
+An update counts only when some column's value differs (`WHEN OLD.c IS NOT
+NEW.c OR ...`), so a reconcile that rewrites a row with the same values is not
+a change, and `bindings.last_verified_at`, which `list` refreshes while
+reconciling presence, is not compared at all. A later migration that adds a
+core table or a column, or rebuilds a table (as schema 39 rebuilt
+`bindings`), must create or recreate its triggers: `change_cursor_tests` fails
+until every table is covered or deliberately excluded and every column is
+compared.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
@@ -1594,7 +1609,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 39, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 40, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -2021,6 +2036,24 @@ stays at 16 KiB.
   receipts from earlier releases); new receipts always record `wkh237/tmt`;
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
+
+Explicit extension `install --repair` is a separate recovery composition in
+`native_install::repair`, limited to GitHub-provenance receipts. `receipt`
+separates bounded metadata/recorded-path validation from payload verification;
+normal readers still require both. An eligible verification failure carries
+`RepairRequired` to the CLI, which owns the single quoted repair-command hint.
+Repair admits only safe owned layouts and no-follow regular files/directories,
+fetches the exact recorded artifact with matching provenance and digests, and
+preserves version/channel/pin. Acquisition holds no installation lock; the stable
+lock and a pre-activation current/receipt revalidation fence publication.
+`publication` shares candidate staging, durable activation, cleanup and typed
+post-activation failures between normal installs and repair. The damaged release
+is retained untouched at its original path, including foreign entries, rather
+than treated as content TMT may overwrite or delete. It is never a verified
+execution candidate; no automatic retention cleanup is implemented. A healthy
+repair is a no-op. Local receipts remain installation evidence, not signatures;
+repair does not claim protection from a hostile same-UID writer. Provider skill
+refresh remains with the existing verified-tree/skill-owner composition.
 
 The active executable is the authority for a managed update. Installer receipts
 are anchored to the installation prefix/current executable, not to

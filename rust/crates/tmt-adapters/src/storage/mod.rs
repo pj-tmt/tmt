@@ -130,6 +130,18 @@ impl Storage {
         })
     }
 
+    /// The change cursor: advanced by every committed insert, update or
+    /// delete of core-owned records (schema 40). Opaque; compare for equality.
+    pub fn change_cursor(&self) -> Result<u64, StorageError> {
+        self.connection()?
+            .query_row("SELECT value FROM change_cursor WHERE id = 1", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|error| classify(error, "Read change cursor"))
+            // The schema keeps it non-negative.
+            .map(|value| value.unsigned_abs())
+    }
+
     pub fn health(&self) -> Result<StorageHealth, StorageError> {
         let connection = self.connection()?;
         let policy = connection.query_row(

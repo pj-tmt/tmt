@@ -22,6 +22,7 @@ pub const INPUT_LIMIT: usize = dispatch::INPUT_LIMIT + 4096;
 pub const OUTPUT_LIMIT: usize = 12 * 1_048_576 + 65_536;
 const OPS: &[&str] = &[
     "capabilities",
+    "changes.cursor",
     "requests.list",
     "requests.show",
     "dispatch.show",
@@ -94,6 +95,8 @@ struct Envelope {
 }
 pub enum Request {
     Capabilities,
+    /// Read-only: the durable change cursor.
+    ChangeCursor,
     History(HistoryQuery),
     Detail(String),
     Receipt(String),
@@ -292,6 +295,11 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
             Request::Capabilities
+        }
+        "changes.cursor"
+            if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
+        {
+            Request::ChangeCursor
         }
         "requests.list" => {
             Request::History(request_history::decode_history_query(input).ok_or_else(invalid)?)
@@ -537,6 +545,10 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         | Request::Notes(_)
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
+        Request::ChangeCursor => storage
+            .change_cursor()
+            .map(|cursor| serde_json::to_vec(&json!({"cursor": cursor})).expect("change cursor"))
+            .map_err(|_| Fault::unavailable()),
         Request::Roster { room, prefix } => storage
             .room_roster(&room, prefix.as_deref())
             .map(|roster| room::encode_roster(&roster, wall_time_ms()))
@@ -1342,6 +1354,96 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert_eq!(originators, vec![None]);
+    }
+
+    /// The cursor is the same for every read and advances with each write,
+    /// whichever operation made it.
+    #[test]
+    fn changes_cursor_advances_with_writes_and_never_with_reads() {
+        let directory = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
+        Storage::open(&paths.database).unwrap().close().unwrap();
+        let ada = "11111111-1111-4111-8111-111111111111";
+        let room = "55555555-5555-4555-8555-555555555555";
+        rusqlite::Connection::open(&paths.database)
+            .unwrap()
+            .execute(
+                "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES (?, 'Ada', 'ada', 't', 't', 'saved')",
+                [ada],
+            )
+            .unwrap();
+        let run = |operation: &str, extra: serde_json::Value, input: serde_json::Value| {
+            let mut envelope = json!({"version": 1, "operation": operation, "input": input});
+            for (key, value) in extra.as_object().unwrap() {
+                envelope[key] = value.clone();
+            }
+            let request = decode(&envelope.to_string()).unwrap();
+            serde_json::from_slice::<serde_json::Value>(&execute(&paths, request).unwrap()).unwrap()
+        };
+        let cursor = || {
+            run("changes.cursor", json!({}), json!({}))["cursor"]
+                .as_u64()
+                .unwrap()
+        };
+        let reads = || {
+            run("capabilities", json!({}), json!({}));
+            run("requests.list", json!({}), json!({"recipientId": ada}));
+            run("requests.list", json!({}), json!({"roomId": room}));
+            run(
+                "identities.status",
+                json!({}),
+                json!({"identityIds": [ada]}),
+            );
+            run(
+                "references.resolve",
+                json!({}),
+                json!({"identityIds": [ada], "roomIds": [room]}),
+            );
+        };
+
+        let start = cursor();
+        reads();
+        assert_eq!(cursor(), start, "reads never advance it");
+        run(
+            "rooms.write",
+            json!({"originator": "anonymous"}),
+            json!({"roomId": room, "room": {"expectedRevision": 0, "name": "Review", "memberIds": [ada]}}),
+        );
+        let written = cursor();
+        assert!(written > start, "a room write advances it");
+        reads();
+        run("rooms.roster", json!({}), json!({"room": "Review"}));
+        assert_eq!(cursor(), written);
+        run(
+            "dispatch.create",
+            json!({"originator": "anonymous"}),
+            json!({"operationId": "66666666-6666-4666-8666-666666666666",
+                "recipientIds": [ada], "message": "hello"}),
+        );
+        assert!(cursor() > written, "a request advances it");
+        assert!(capabilities_list().contains(&"changes.cursor".to_owned()));
+        // Strict input, as every other operation.
+        assert!(
+            decode(
+                &json!({"version": 1, "operation": "changes.cursor", "input": {"since": 1}})
+                    .to_string()
+            )
+            .is_err()
+        );
+    }
+
+    fn capabilities_list() -> Vec<String> {
+        serde_json::from_slice::<serde_json::Value>(&capabilities()).unwrap()["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|operation| operation.as_str().unwrap().to_owned())
+            .collect()
     }
 
     #[test]

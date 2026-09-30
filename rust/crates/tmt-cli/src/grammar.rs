@@ -463,6 +463,9 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
                     ]
                 )))
                     .arg(channel_option())
+                    .arg(Arg::new("repair").long("repair").action(ArgAction::SetTrue)
+                        .conflicts_with_all(["archive", "manifest", "channel"])
+                        .help("Restore the exact recorded GitHub release; retain the damaged files"))
                     .arg(Arg::new("archive").long("archive").requires("manifest"))
                     .arg(Arg::new("manifest").long("manifest").requires("archive"))
                     .arg(
