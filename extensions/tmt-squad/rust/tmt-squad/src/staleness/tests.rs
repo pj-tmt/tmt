@@ -1,6 +1,6 @@
 use super::*;
-use std::os::unix::fs::MetadataExt;
 use crate::{config::Config, filter::Row};
+use std::os::unix::fs::MetadataExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const LEAD: &str = "11111111-1111-4111-8111-111111111111";
