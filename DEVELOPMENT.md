@@ -783,7 +783,9 @@ protection, and a live-agent demo does not replace deterministic regression test
 The companion package lives at `extensions/tmt-office/rust/tmt-office`, but remains
 in the `rust/Cargo.toml` workspace. Run the same package commands from `rust/`;
 the shared lockfile, toolchain and `rust/target` artifact paths are unchanged.
-Docker build contexts must include both `rust/` and `extensions/tmt-office/rust/`.
+Every Cargo build stage must copy all workspace member directories at their
+workspace-relative paths, including private extensions; `docker-workspace.test.ts`
+checks the E2E, artifact and Office native contexts.
 
 Office storage migration tests live in `tmt-office-storage`
 (`cargo test --locked -p tmt-office-storage`) and build their source databases

@@ -14,6 +14,7 @@ COPY skills/ skills/
 COPY extensions/tmt-office/skills/ extensions/tmt-office/skills/
 # Workspace member: Cargo must load its manifest even when not building it.
 COPY extensions/tmt-squad/ extensions/tmt-squad/
+COPY extensions/tmt-remote/rust/ extensions/tmt-remote/rust/
 COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE ./
 COPY docs/NATIVE-INSTALL.md docs/NATIVE-INSTALL.md
