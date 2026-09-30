@@ -5,7 +5,9 @@ Drivers teach tmt about a program it doesn't know yet.
 <Callout title="Planned.">
   Today every driver is compiled into tmt, and a new one arrives by contributing to the tmt
   repository. This chapter describes where drivers are going: separate packages that anyone can
-  publish. The first to move out is Herdr. Until then, the protocol below may still change.
+  publish. The first to move out is Herdr. Until then, the protocol below may still change. The wire
+  format is owned by
+  [contracts/driver-protocol-v1.md](https://github.com/wkh237/tmt/blob/main/contracts/driver-protocol-v1.md).
 </Callout>
 
 ### Two kinds
@@ -26,7 +28,7 @@ Drivers teach tmt about a program it doesn't know yet.
 
 ### A driver is a program
 
-A driver is an executable named `tmt-driver-<name>`. tmt runs it once per operation, as `tmt-driver-<name> __tmt-driver <protocol> <operation>`, with one JSON request on stdin, and reads one JSON answer from stdout: `{"ok": …}` or `{"error": {"code", "message"}}`. Each operation has a deadline and an output limit, so a stuck or chatty driver can't hold tmt up. Operations are coarse, one per delivery or lookup, and a spawn costs about 1.5 ms, less than one tmux command.
+A driver is an executable named `tmt-driver-<name>`. tmt runs it once per operation, as `tmt-driver-<name> __tmt-driver <protocol> <operation>`, with one JSON request on stdin, and reads one JSON answer from stdout: `{"ok": …}` or `{"error": {"code", "message"}}`. When it can't tell whether a paste reached the pane, the send counts as uncertain and nobody retries it. Each operation has a deadline and an output limit, so a stuck or chatty driver can't hold tmt up. Operations are coarse, one per delivery or lookup, and a spawn costs about 1.5 ms, less than one tmux command.
 
 The first call is always `capabilities`. It returns the protocol versions the driver speaks, its kind, name, version and the operations it implements. tmt uses the highest protocol both sides support, and keeps the previous protocol working for at least one release, so a driver doesn't have to update the day tmt does.
 
