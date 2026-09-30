@@ -2,6 +2,7 @@
 //! `tmt squad ls`, paints from it, and reloads in the background.
 
 mod app;
+mod changes;
 mod markdown;
 pub(crate) mod notes;
 mod refresh;

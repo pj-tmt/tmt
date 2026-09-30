@@ -510,15 +510,19 @@ impl Config {
     /// The file lives next to the global config that `tmt config show` reports,
     /// so TMT alone owns path discovery. A missing file is an empty document.
     pub fn load(core: &Core) -> Result<Self, SquadError> {
+        Self::read(Self::locate(core)?)
+    }
+
+    /// Where squad.toml lives, without reading it.
+    pub fn locate(core: &Core) -> Result<PathBuf, SquadError> {
         let shown = core.json(&["config", "show"])?;
         let global = shown["paths"]["global"]
             .as_str()
             .ok_or_else(|| invalid("tmt config show did not report the global config path."))?;
-        let path = Path::new(global)
+        Ok(Path::new(global)
             .parent()
             .ok_or_else(|| invalid("The global config path has no directory."))?
-            .join("squad.toml");
-        Self::read(path)
+            .join("squad.toml"))
     }
 
     pub fn read(path: PathBuf) -> Result<Self, SquadError> {
