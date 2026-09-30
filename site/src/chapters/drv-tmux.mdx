@@ -1,0 +1,55 @@
+import { Cmd, Code } from "../components/Cmd";
+import { Badge, BadgeBorders, DriverCard } from "../components/samples";
+
+<DriverCard
+  name="tmux"
+  kind="host driver"
+  spec={[
+    [
+      "Knows",
+      "Servers, panes and which process runs in each. Bindings are pane metadata, checked against the live server before any delivery.",
+    ],
+    [
+      "Delivers",
+      <>
+        Pastes a buffer, waits, then presses Enter. <code>!</code> becomes <code>！</code> so it
+        can't trigger an agent's shell mode.
+      </>,
+    ],
+    [
+      "Shows",
+      <>
+        The optional <Badge name="name" state="running" /> badge in your own{" "}
+        <code>pane-border-format</code>. Titles, layout and theme are never changed.
+      </>,
+    ],
+    [
+      "Setup",
+      <>
+        None. Opt into the badge with <code>tmt config set ui.paneBadge on --global</code>.
+      </>,
+    ],
+  ]}
+/>
+
+### Delivery you can trust
+
+Before typing into a pane, tmt checks that the pane still belongs to the name you addressed, on the same tmux server. If sending may have partly happened (for example, the text was pasted but Enter wasn't confirmed), tmt reports it as **uncertain** and never sends again on its own. Look with `tmt check <name>` first, then decide.
+
+### The pane badge
+
+Turn it on once, and each named pane gets a small label you can place in your own pane border:
+
+<BadgeBorders />
+
+<Cmd>{`$ tmt config set ui.paneBadge on --global`}</Cmd>
+
+Then add this fragment where you want it in your own `pane-border-format`:
+
+<Code>{`#{?@tmux-team.badge, [#{@tmux-team.badge}],}`}</Code>
+
+The option keeps tmt's former name, tmux-team, so existing configs keep working. tmt only publishes the label in a pane option. It never changes your pane titles, your border format, your layout or your theme; you decide where the badge goes. The dot shows the recorded session state, not whether the agent is busy.
+
+### When tmux says no
+
+Some agent sandboxes block access to the tmux server. tmt then says exactly that: tmux permission was denied. It doesn't say the pane is missing. It also tells you which sandbox setting to look at.

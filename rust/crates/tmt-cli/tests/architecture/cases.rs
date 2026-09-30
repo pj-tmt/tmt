@@ -975,6 +975,31 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
 }
 
 #[test]
+fn the_driver_protocol_depends_on_no_tmt_crate() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-driver-protocol",
+            ["serde", "serde_json"]
+                .into_iter()
+                .map(|name| dependency(name, "normal", None, None))
+                .collect()
+        ))
+        .is_empty()
+    );
+    for crate_name in ["tmt-core", "tmt-adapters", "tmt-cli-style", "uuid"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-driver-protocol",
+                vec![dependency(crate_name, "normal", None, None)]
+            ))
+            .len(),
+            1,
+            "{crate_name}"
+        );
+    }
+}
+
+#[test]
 fn squad_and_core_are_independent_in_both_directions() {
     // Squad may use its reviewed third-party crates and the leaf style crate,
     // never a workspace crate with TMT behavior.

@@ -1876,6 +1876,24 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
+### Host driver protocol
+
+Terminal hosts that TMT doesn't build in will run out of process as host
+drivers (#570). [`contracts/driver-protocol-v1.md`](contracts/driver-protocol-v1.md)
+owns the wire format. `rust/crates/tmt-driver-protocol` encodes it for both
+sides:
+
+- wire types and per-operation limits;
+- `decode`, which is core's bounded, strict parsing and validation against the
+  pane-ID and target grammar each driver declares;
+- `serve`, a driver's entry point;
+- `conformance::check`, which runs through any invoker.
+
+The crate is a leaf with only `serde` and `serde_json`, so a community driver
+builds against it alone; the architecture guard enforces that. Nothing in `tmt`
+calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
+spawning client with consent and fingerprint checks, and move Herdr out.
+
 ## Managed skills and native installation
 
 Managed agent guidance is a separate filesystem concern. The canonical
@@ -2098,7 +2116,13 @@ loads snapshots off the input loop, collapsing queued requests, so keys act on
 painted data. The input loop asks for a reload at the shown squad's `refresh`
 interval (`Config::refresh`: per squad, then top-level `[board]`, then 5 s;
 `None` is off), which each snapshot carries, so a squad that failed to load
-retries at the default. A switch never clears the view: `App` keeps the view of each
+retries at the default. That timer always runs. Between requests the refresh
+thread checks `board::changes` every second: core's `changes.cursor` (the
+public extension API method) and squad.toml's modification time and length.
+When either moved since the stamp taken just before the last load, it reloads
+that squad early, unless its `refresh` is off. A failed read is never a
+change, and `API_INPUT_INVALID` (a core without the method) stops cursor reads
+for the session, leaving the file check and the interval. A switch never clears the view: `App` keeps the view of each
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole; a result for a squad the user left only refreshes that cache.

@@ -1,0 +1,55 @@
+import { Cmd } from "../components/Cmd";
+import { Terms } from "../components/marks";
+import { Badge, States } from "../components/samples";
+
+<Terms>
+  <dt>identity</dt>
+  <dd>
+    A durable name like <code>reviewer</code>. Names are global, not per folder. Saved ones (
+    <code>-s</code>) outlive their pane; temporary ones retire with it.
+  </dd>
+  <dt>binding</dt>
+  <dd>
+    Where an identity lives right now, such as one tmux pane. tmt refuses to guess when two agents
+    could be the same caller.
+  </dd>
+  <dt>driver</dt>
+  <dd>
+    What tmt knows about one kind of program. The tmux driver knows panes; the Claude Code and Codex
+    drivers know their conversations and hooks.
+  </dd>
+  <dt>extension</dt>
+  <dd>
+    An optional program named <code>tmt-&lt;name&gt;</code> that adds <code>tmt &lt;name&gt;</code>.
+    Squad is one.
+  </dd>
+</Terms>
+
+### Agent states
+
+tmt records whether the agent in a binding is running. The optional pane badge shows it.
+
+<States
+  items={[
+    [<Badge name="reviewer" state="running" />, "Running.", "Messages are pasted into the pane."],
+    [
+      <Badge name="reviewer" state="ended" />,
+      "Ended.",
+      "tmt never pastes into a bare shell. The message waits in the agent's inbox and you're told.",
+    ],
+    [
+      <Badge name="reviewer" state="unknown" />,
+      "Unknown.",
+      "No recent evidence either way. Delivery works as before.",
+    ],
+  ]}
+/>
+
+### What a new session sees
+
+<Cmd>{`
+$ tmt whoami --context
+TMT identity: "reviewer" (saved)
+Originated X items: 3 unacknowledged
+Incoming X items: 0 unacknowledged
+`}</Cmd>
