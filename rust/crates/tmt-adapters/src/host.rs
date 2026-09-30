@@ -13,6 +13,8 @@
 //! through core's `HostServerIds` port, resolved by [`Host::resolve_servers`] before any
 //! binding transaction opens.
 
+pub(crate) mod driver;
+
 use crate::{
     herdr::{self, Herdr, HerdrError},
     process::{CommandError, CommandRunner, UnixCommandRunner},
@@ -136,19 +138,6 @@ pub enum ActionError {
     HostUnsupported,
     Delivery(DeliveryError),
     Process(CommandError),
-}
-
-impl From<tmux::ActionError> for ActionError {
-    fn from(error: tmux::ActionError) -> Self {
-        match error {
-            tmux::ActionError::Evidence(error) => Self::Evidence(HostError::Tmux(error)),
-            tmux::ActionError::Unverified => Self::Unverified,
-            tmux::ActionError::Offline => Self::Offline,
-            tmux::ActionError::HostUnsupported => Self::HostUnsupported,
-            tmux::ActionError::Delivery(error) => Self::Delivery(error),
-            tmux::ActionError::Process(error) => Self::Process(error),
-        }
-    }
 }
 
 impl fmt::Display for ActionError {
@@ -507,15 +496,26 @@ impl<R: CommandRunner> BindingSession<'_, R> {
         self
     }
 
+    /// The driver of a host this session reaches.
+    fn driver(&mut self, host: HostKind) -> &mut dyn driver::HostDriver {
+        match host {
+            HostKind::Tmux => &mut self.tmux,
+            HostKind::Herdr => &mut self.herdr,
+        }
+    }
+
+    fn driver_ref(&self, host: HostKind) -> &dyn driver::HostDriver {
+        match host {
+            HostKind::Tmux => &self.tmux,
+            HostKind::Herdr => &self.herdr,
+        }
+    }
+
     /// Runtime liveness after the caller verified this binding's endpoint.
     pub fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, ActionError> {
-        match binding.server.host {
-            HostKind::Tmux => Ok(self.tmux.observed_runtime(binding)?),
-            HostKind::Herdr => self
-                .herdr
-                .observed_runtime(binding)
-                .map_err(ActionError::Process),
-        }
+        self.driver_ref(binding.server.host)
+            .observed_runtime(binding)
+            .map_err(ActionError::Process)
     }
 }
 
@@ -528,17 +528,11 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     }
 
     fn budget_available(&self) -> bool {
-        match self.primary {
-            HostKind::Tmux => self.tmux.budget_available(),
-            HostKind::Herdr => self.herdr.budget_available(),
-        }
+        self.driver_ref(self.primary).budget_available()
     }
 
     fn current_snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, Self::Error> {
-        match self.primary {
-            HostKind::Tmux => Ok(self.tmux.current_snapshot(panes)?),
-            HostKind::Herdr => Ok(self.herdr.snapshot(Some(panes))?),
-        }
+        self.driver(self.primary).snapshot(panes)
     }
 
     fn probe_binding(
@@ -546,40 +540,24 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
         server: &ServerEvidence,
         panes: &[String],
     ) -> Result<EndpointProbe, Self::Error> {
-        match server.host {
-            HostKind::Tmux => Ok(self.tmux.probe_binding(server, panes)?),
-            HostKind::Herdr => Ok(self.herdr.probe(server, panes)?),
-        }
+        self.driver(server.host).probe(server, panes)
     }
 
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), Self::Error> {
-        match binding.server.host {
-            HostKind::Tmux => Ok(self.tmux.publish(binding, identity)?),
-            HostKind::Herdr => Ok(self.herdr.publish(binding, identity)?),
-        }
+        self.driver(binding.server.host).publish(binding, identity)
     }
 
     fn clear(&mut self, binding: &Binding) -> Result<bool, Self::Error> {
-        match binding.server.host {
-            HostKind::Tmux => Ok(self.tmux.clear(binding)?),
-            HostKind::Herdr => Ok(self.herdr.clear(binding)?),
-        }
+        self.driver(binding.server.host).clear(binding)
     }
 }
 
+/// A binding's own host; an entry without one belongs to the primary host.
 fn binding_host(entry: &BindingEntry, primary: HostKind) -> HostKind {
     entry
         .binding
         .as_ref()
         .map_or(primary, |binding| binding.server.host)
-}
-
-fn lift<T>(result: ActionResult<T, tmux::ActionError>) -> ActionResult<T, ActionError> {
-    match result {
-        ActionResult::Unsupported => ActionResult::Unsupported,
-        ActionResult::Completed(value) => ActionResult::Completed(value),
-        ActionResult::Failed(error) => ActionResult::Failed(error.into()),
-    }
 }
 
 impl<R: CommandRunner> Driver for BindingSession<'_, R> {
@@ -588,43 +566,24 @@ impl<R: CommandRunner> Driver for BindingSession<'_, R> {
     type Launch = ();
 
     fn status(&mut self, entry: &BindingEntry) -> ActionResult<InterfaceStatus, ActionError> {
-        match binding_host(entry, self.primary) {
-            HostKind::Tmux => lift(self.tmux.status(entry)),
-            HostKind::Herdr => match self.herdr.status(entry) {
-                Ok(status) => ActionResult::Completed(status),
-                Err(error) => ActionResult::Failed(error),
-            },
-        }
+        driver::status(self.driver(binding_host(entry, self.primary)), entry)
     }
 
-    /// Herdr delivery arrives in #479 H4; until then the core falls through
-    /// to the Inbox, as for any host without pane input.
+    /// A host without pane input (Herdr until #479 H4) is `Unsupported`, and
+    /// the core falls through to the Inbox.
     fn send(
         &mut self,
         entry: &BindingEntry,
         message: &str,
     ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>> {
-        match binding_host(entry, self.primary) {
-            HostKind::Tmux => match self.tmux.send(entry, message) {
-                ActionResult::Unsupported => ActionResult::Unsupported,
-                ActionResult::Completed(value) => ActionResult::Completed(value),
-                ActionResult::Failed(failure) => ActionResult::Failed(match failure {
-                    SendFailure::NotSent(error) => SendFailure::NotSent(error.into()),
-                    SendFailure::Uncertain(error) => SendFailure::Uncertain(error.into()),
-                    SendFailure::Denied(error) => SendFailure::Denied(error.into()),
-                    SendFailure::AwaitingApproval(error) => {
-                        SendFailure::AwaitingApproval(error.into())
-                    }
-                }),
-            },
-            HostKind::Herdr => ActionResult::Unsupported,
-        }
+        driver::send(
+            self.driver(binding_host(entry, self.primary)),
+            entry,
+            message,
+        )
     }
 
     fn focus(&mut self, entry: &BindingEntry) -> ActionResult<Focused, ActionError> {
-        match binding_host(entry, self.primary) {
-            HostKind::Tmux => lift(self.tmux.focus(entry)),
-            HostKind::Herdr => ActionResult::Failed(ActionError::HostUnsupported),
-        }
+        driver::focus(self.driver(binding_host(entry, self.primary)), entry)
     }
 }

@@ -122,7 +122,7 @@ pub fn lead(core: &Core, squad: &Squad, name: &str) -> Result<Outcome, SquadErro
     ])?;
     // Set the new lead before clearing others, so a failure never leaves none.
     let mut replaced = Vec::new();
-    for member in squad.members(core)? {
+    for member in squad.members(core, false)? {
         if member.is_lead() && member.id != leader.id {
             core.json(&["identity", "meta", "rm", &role, "--identity", &member.id])?;
             replaced.push(member.name);
@@ -239,7 +239,7 @@ pub fn set(
         .collect::<Result<Vec<_>, _>>()?;
     let (member, _) = identity(core, name)?;
     if !squad
-        .members(core)?
+        .members(core, false)?
         .iter()
         .any(|candidate| candidate.id == member.id)
     {

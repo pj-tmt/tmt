@@ -563,6 +563,65 @@ fn a_tmux_session_probes_a_herdr_binding_on_herdr() {
     runner.done();
 }
 
+#[test]
+fn a_herdr_binding_is_neither_sent_to_nor_focused_and_nothing_is_read() {
+    use tmt_core::driver::{ActionResult, Driver};
+    let bound = BindingEntry {
+        identity: identity(),
+        binding: Some(binding(90316)),
+    };
+    let unbound = BindingEntry {
+        identity: identity(),
+        binding: None,
+    };
+    // From a tmux session and from a Herdr one; without a binding, the
+    // entry belongs to the session's own host.
+    for (pane, entries) in [
+        (None, vec![&bound]),
+        (Some("w1:p1"), vec![&bound, &unbound]),
+    ] {
+        let runner = Shared::default();
+        let host = Host::for_caller_with(&environment(pane), runner.clone());
+        let mut session = host.session();
+        for entry in entries {
+            assert!(matches!(
+                session.send(entry, "hello"),
+                ActionResult::Unsupported
+            ));
+            assert!(matches!(
+                session.focus(entry),
+                ActionResult::Failed(crate::host::ActionError::HostUnsupported)
+            ));
+        }
+        assert_eq!(runner.calls(), Vec::<Vec<String>>::new(), "{pane:?}");
+    }
+}
+
+#[test]
+fn a_herdr_status_reads_presence_on_herdr_and_no_runtime_when_gone() {
+    use tmt_core::driver::{ActionResult, Driver, InterfacePresence, InterfaceStatus};
+    let entry = BindingEntry {
+        identity: identity(),
+        binding: Some(binding(GONE_PID)),
+    };
+    let runner = Shared::default();
+    runner.refuse("server_not_running");
+    let host = Host::for_caller_with(&environment(None), runner.clone());
+    assert_eq!(host.kind(), HostKind::Tmux);
+    assert!(matches!(
+        host.session().status(&entry),
+        ActionResult::Completed(InterfaceStatus {
+            presence: InterfacePresence::Gone,
+            runtime: tmt_core::binding::session::RuntimeState::Unknown,
+        })
+    ));
+    // One Herdr status call; no tmux and no process-tree read.
+    let calls = runner.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(calls[0][0], "/usr/bin/env");
+    runner.done();
+}
+
 /// Herdr 0.9.1's observed `report-metadata` semantics: tokens merge key by
 /// key into the source's set, then `--clear-token` keys are removed.
 fn apply_report(tokens: &serde_json::Value, report: &[String]) -> serde_json::Value {
