@@ -44,9 +44,15 @@ export interface CiSelection {
 export interface NativeJobResults {
   readonly nativeRust: string;
   readonly unitTests: string;
-  readonly dockerE2e: string;
+  readonly e2eShard1: string;
+  readonly e2eShard2: string;
   readonly runtimeBuild: string;
   readonly packedInstall: string;
+}
+
+export interface E2eShardResults {
+  readonly e2eShard1: string;
+  readonly e2eShard2: string;
 }
 
 export function globToRegExp(glob: string): RegExp;
@@ -67,6 +73,7 @@ export function nativeGatePasses(
   results: NativeJobResults,
   map?: ComponentMap
 ): boolean;
+export function e2eGatePasses(scope: string, results: E2eShardResults, map?: ComponentMap): boolean;
 export function renderSelectionEvidence(input: {
   readonly base: string;
   readonly head: string;

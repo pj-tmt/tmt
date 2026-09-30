@@ -72,7 +72,7 @@ process.exitCode = args[0] === 'run' ? Number(process.env.TMT_RUNNER_STATUS) : 0
   );
 
   /** Runs the wrapper against a fake `docker` that logs its argv, with TMT_E2E_FILES set. */
-  async function runWrapper(files: string) {
+  async function runWrapper(files: string, adapterTests = '') {
     const sandbox = createSandbox({
       TMT_TEST_CLI: JSON.stringify({
         executable: process.execPath,
@@ -95,6 +95,7 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
       delete sandbox.env.TMT_TEST_CLI;
       delete sandbox.env.TMT_TEST_PEER_CLI;
       sandbox.env.TMT_E2E_FILES = files;
+      sandbox.env.TMT_E2E_ADAPTER_TESTS = adapterTests;
       const result = await runCli(sandbox, []);
       const calls = fs.existsSync(log)
         ? fs
@@ -130,6 +131,41 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
       const { result, calls } = await runWrapper(files);
       expect(result.status).toBe(2);
       expect(result.stderr).toContain('TMT_E2E_FILES must be a space-separated list');
+      expect(calls).toEqual([]);
+    },
+    10_000
+  );
+
+  it.each([
+    ['0', ['--env', 'TMT_E2E_ADAPTER_TESTS=0']],
+    ['1', ['--env', 'TMT_E2E_ADAPTER_TESTS=1']],
+    ['', []],
+  ])(
+    'passes the adapter-test flag %j to the container as one environment value',
+    async (flag, expected) => {
+      const { result, calls } = await runWrapper('', flag);
+      expect(result).toEqual({ status: 0, signal: null, stdout: '', stderr: '' });
+      expect(calls[1].slice(5, -1)).toEqual(expected);
+    },
+    10_000
+  );
+
+  it('forwards the file list and the adapter flag together', async () => {
+    const { calls } = await runWrapper('a.e2e.test.ts b.e2e.test.ts', '0');
+    expect(calls[1].slice(5, -1)).toEqual([
+      '--env',
+      'TMT_E2E_FILES=a.e2e.test.ts b.e2e.test.ts',
+      '--env',
+      'TMT_E2E_ADAPTER_TESTS=0',
+    ]);
+  }, 10_000);
+
+  it.each(['2', 'yes', '00', '0 1', ' 0', 'true', '$HOME'])(
+    'rejects the adapter-test flag %j before building anything',
+    async (flag) => {
+      const { result, calls } = await runWrapper('', flag);
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain('TMT_E2E_ADAPTER_TESTS must be 0 or 1');
       expect(calls).toEqual([]);
     },
     10_000

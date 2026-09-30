@@ -441,9 +441,22 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 
 `tmt squad board` opens the terminal board: squad tabs (←/→), one searchable
 list (`/`), the ◆ rows that wait on you first in the crew layout, and each
-member's note under its row. It refreshes in the background every few seconds
-and re-reads `squad.toml`, so edits apply on the next refresh; `q` or Esc
-closes it. Switching squads never blanks the screen: a squad you already
+member's note under its row. It reloads in the background every 5 seconds
+and re-reads `squad.toml`, so edits apply on the next reload; F5 (the `refresh`
+binding) and the board's own actions reload at once. `q` or Esc closes it. Set
+the interval with `refresh`, per squad or for every board, as whole seconds or
+minutes from `"1s"` to `"60m"`, or `"off"` to reload only on F5 and actions;
+the help overlay (`?`) shows the one in effect:
+
+```toml
+[board]
+refresh = "10s"            # every board
+
+[squad.product.board]
+refresh = "2s"             # this squad's board
+```
+
+Switching squads never blanks the screen: a squad you already
 visited shows at once while it refreshes, and otherwise the current frame stays
 until the new one is ready, with a small spinner if that takes a moment (row
 actions wait until it arrives). Tabs keep their width, so switching never moves
@@ -490,6 +503,21 @@ mode      = "split"            # split or tabs
 direction = "left-right"       # or top-bottom
 panes     = ["rows", "notes"]  # also detail, replies; rows is required
 sizes     = [60, 40]           # split only: one percentage per pane, total 100
+```
+
+Those keys are the simple form of a split. For panes within panes, give the
+split itself as `layout` instead (not together with `direction`, `panes` or
+`sizes`): a split is a row or column of panes, each a pane name or another
+split, up to three levels deep. `sizes` gives each child a percentage, or a
+`{ grow = n }` share of what the percentages leave; without `sizes` the
+children share the split equally. Tab moves through the panes in reading order.
+
+```toml
+[squad.product.board]
+layout = { direction = "left-right", sizes = [60, 40], panes = [
+  "rows",
+  { direction = "top-bottom", sizes = [40, { grow = 1 }], panes = ["detail", "notes"] },
+] }
 ```
 
 Tab moves between panes (or tabs). Every pane scrolls the same way: the mouse

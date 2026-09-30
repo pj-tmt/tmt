@@ -580,7 +580,12 @@ same job names run Squad's Cargo checks and architecture guard, its native tests
 E2E file, while the CLI runtime builds, packed installs and tooling unit tests are skipped
 because the CLI is unchanged (Squad cannot affect core: the architecture guard rejects any
 dependency in either direction). `Native package matrix` expects exactly that set of results
-for the scope; anything shared, CLI-owned or unrecognized runs the full set. Existing required check names
+for the scope; anything shared, CLI-owned or unrecognized runs the full set. `Docker E2E`, the
+required check, is a gate over two shard jobs that split the E2E scenario files by the committed
+weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs the Rust adapter
+tests): it requires both shards when native work is selected, the first alone for a scoped
+component and neither when nothing native is selected, so a skipped, cancelled or missing
+selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
@@ -590,6 +595,28 @@ are written by non-pull-request runs of those two jobs alone, which run on a `ma
 push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
 (GitHub evicts unused caches after seven days) and on manual dispatch. No gate runs
 for them. A seeding run has no diff to select from, so it takes the full native scope.
+
+The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
+generates `release-please-config.json` from the map (one release-please package per
+component root, minus its excludes), the Cargo workspace (which crates declare their own
+version, which path dependencies a component links, which crates have a `Cargo.lock`
+entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. A
+`Cargo.lock` line is updated by whichever component declares that crate's version.
+release-please attributes a commit to a package by the files it touches under the package
+path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
+extension root except the crates the CLI links (today the Office model, command and service
+crates), and a change to those crates counts toward the CLI release as well as Office's. The
+reverse direction cannot be expressed: a change to a core crate an extension links opens an
+extension release only together with a change under that extension's own path.
+`.release-please-manifest.json` holds the last published versions and belongs to
+release-please after its first release pull request. The CLI is pinned with a lockfile in
+`.github/release-please/`, outside the `typescript` workspace so no other job installs it.
+A tooling test fails when the committed config is not what the generator writes, when a
+workspace crate's lock entry or declared version is managed zero or several times, or when
+a tag disagrees with the policy or a package could leave the alpha line (release-please's
+`prerelease` option also keeps the version line, so `false` would graduate 5.0.0-alpha.8 to
+5.0.0; the flags a published release carries come from the policy when the draft is
+published). Nothing runs the pinned CLI until the release workflow adopts it.
 
 ## Runtime layers
 
@@ -2002,7 +2029,10 @@ the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data. A switch never clears the view: `App` keeps the view of each
+painted data. The input loop asks for a reload at the shown squad's `refresh`
+interval (`Config::refresh`: per squad, then top-level `[board]`, then 5 s;
+`None` is off), which each snapshot carries, so a squad that failed to load
+retries at the default. A switch never clears the view: `App` keeps the view of each
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole; a result for a squad the user left only refreshes that cache.
@@ -2011,7 +2041,11 @@ runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
 split or tabs panes (rows, notes, detail, replies) over a per-layout preset,
-validated before raw mode. The notes pane reads the lead's notebook only through
+validated before raw mode. `split` owns how panes sit: a tree of row and column
+splits whose children have a percentage or a grow share (ratatui `Percentage`
+and `Fill`), nested up to three levels; `layout` is its full form and the
+`direction`/`panes`/`sizes` keys its one-level form, and the board draws either
+by one recursive walk. The tree's reading order is the focus order. The notes pane reads the lead's notebook only through
 `tmt api notes.read` (bounded, never creating a file); `board::notes` removes
 every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin

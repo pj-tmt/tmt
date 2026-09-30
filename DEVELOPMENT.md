@@ -256,6 +256,18 @@ jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
+`release-please-config.json` is generated, not hand-edited. After changing the component
+map, a crate's version declaration, the workspace's crates or its dependencies between
+them (including a new file or directory under an extension root, because the CLI's exclude
+list is written out from the tracked files), run
+`node typescript/scripts/release-please-config.mjs --write`; the
+`release-please-config` tooling test (and `--check`) fails while the file is stale; `Code quality`
+runs that test on every pull request, including Squad-only ones whose Unit tests are skipped,
+because Squad's manifest is one of its inputs. The
+generator needs `cargo` and reads no network. Update the pinned release-please CLI in
+`.github/release-please/` with `pnpm install` there and commit its lockfile; the test
+requires an exact version and an integrity hash for every locked package.
+
 For the separate Office Auth/Firestore environment, follow
 [`extensions/tmt-office/typescript/services/office/README.md`](extensions/tmt-office/typescript/services/office/README.md). It uses Docker-contained
 Java and Firebase tooling with a demo project; no host Firebase login is required
@@ -1005,7 +1017,12 @@ transport, identity, talk, or cleanup changes:
 ```
 
 `TMT_E2E_FILES="squad.e2e.test.ts"` (space-separated plain file names) limits the run to those
-E2E files and skips the adapter tests; CI sets it only for the Squad scope.
+E2E files, and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. CI runs the suite as two
+shard jobs behind the required `Docker E2E` gate, each with its own file list from
+`typescript/scripts/e2e-shards.mjs`, balanced by the seconds in
+`typescript/test/e2e/shard-weights.json` (refresh them from a full run when the shards drift
+apart; a missing or stale weight only costs balance, and a guard fails if any scenario file is
+in no shard or two).
 
 The harness builds its pinned image, uses `--network none`, private tmux
 sockets and deterministic mock agents, and selects the Docker-built native
