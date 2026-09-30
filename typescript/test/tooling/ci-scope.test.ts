@@ -1207,18 +1207,58 @@ describe('required CI gate', () => {
     expect(job(browser, 'image')).toContain('docker save tmt-office-browser:ci');
     for (const partitions of ['office-browser', 'native-office-browser']) {
       const body = job(browser, partitions);
-      expect(body).toContain('needs: [changes, image]');
       expect(body).toContain('actions/download-artifact');
       expect(body).toContain('docker load');
       expect(body).not.toContain('docker build');
     }
-    // The same selector outputs decide which partitions run as before.
+    // The selector decides the Office partitions of a pull request.
+    expect(job(browser, 'office-browser')).toContain('needs: [changes, image]');
     expect(job(browser, 'office-browser')).toContain("needs.changes.outputs.office == 'true'");
-    expect(job(browser, 'native-office-browser')).toContain(
-      "needs.changes.outputs.native_office == 'true'"
+  });
+
+  // #424: the native Office shards fail on every run, so they do not run on pull requests until
+  // it is fixed. The fix of #424 puts the selection back and deletes this test.
+  it('pauses the native Office shards on pull requests and keeps them weekly and by dispatch', () => {
+    const browser = readFileSync(
+      fileURLToPath(new URL('../../../.github/workflows/office-browser.yml', import.meta.url)),
+      'utf8'
     );
-    expect(job(browser, 'image')).toContain(
-      "needs.changes.outputs.office == 'true' || needs.changes.outputs.native_office == 'true'"
+    const job = (name: string) => {
+      const start = browser.indexOf(`\n  ${name}:\n`);
+      expect(start, name).toBeGreaterThanOrEqual(0);
+      const next = browser.slice(start + 1).search(/\n {2}[a-z0-9-]+:\n/);
+      return browser.slice(start, next < 0 ? undefined : start + 1 + next);
+    };
+
+    expect(browser).toMatch(
+      /^on:\n {2}pull_request:\n {2}schedule:\n {4}- cron: '\d+ \d+ \* \* [0-6]'\n {2}workflow_dispatch:\n/m
     );
+    expect(browser.match(/cron:/g)).toHaveLength(1);
+    expect(browser).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+
+    // The shards never run for a pull request and no longer depend on the selection.
+    const native = job('native-office-browser');
+    expect(native).toContain('needs: image\n');
+    expect(native).not.toMatch(/changes|native_office/);
+    expect(browser).not.toContain('native_office');
+
+    // `changes` runs for every event so that no job is ever skipped through its dependencies (a
+    // job downstream of a skipped job is skipped too, even past one that uses a status
+    // function). Only a pull request has a diff, so only its steps run and the output is
+    // `false` for a scheduled or dispatched run.
+    const changes = job('changes');
+    expect(changes).not.toMatch(/^ {4}if:/m);
+    expect(changes).toContain("office: ${{ steps.scope.outputs.office || 'false' }}");
+    expect(changes.match(/^ {6}(?:- )?(?:name: [^\n]+\n {8})?if: /gm)).toHaveLength(3);
+    expect(changes.match(/if: github\.event_name == 'pull_request'/g)).toHaveLength(3);
+
+    // The job-level conditions are exactly these: the Office partitions follow the selection,
+    // the image is built for them or for the native shards, and the shards skip pull requests.
+    const condition = (name: string) => /^ {4}if: (.*)$/m.exec(job(name))?.[1];
+    expect(condition('office-browser')).toBe("needs.changes.outputs.office == 'true'");
+    expect(condition('image')).toBe(
+      "github.event_name != 'pull_request' || needs.changes.outputs.office == 'true'"
+    );
+    expect(condition('native-office-browser')).toBe("github.event_name != 'pull_request'");
   });
 });
