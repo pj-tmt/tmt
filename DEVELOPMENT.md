@@ -23,6 +23,7 @@ from `typescript/`; Cargo, Nx and Docker commands run from the repository root.
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
 Rust 1.88; CI also runs the current pinned release toolchain.
+Remote-client tests require `python3` for the independent byte-fixture oracle.
 Shell completion tests require Bash and Zsh. Runtime proof uses the selected
 macOS developer tools or Linux `readelf` (binutils); these are verifier tools,
 not product runtime dependencies.
@@ -247,7 +248,11 @@ no job reads selects nothing beyond Code quality, and the run summary lists ever
 changed path with its owner, rule and selection. A change confined to the Squad extension
 runs a Squad scope under the same job names (its Cargo checks and the architecture guard,
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
-`Native package matrix` expects exactly the scoped results. Shared/unknown paths run both. Code
+`Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
+Remote Rust has an explicit rule retaining full native and Office coverage; the full
+Rust job requires nonempty remote test discovery and runs locked workspace tests,
+Clippy and builds (including MSRV). Its result remains required by the native gate.
+The remote TypeScript and browser paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
 failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser
@@ -902,6 +907,13 @@ optimization rather than debug hashing cost. The independent Office companion
 and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
 and embedded service tests remain separate required checks; process deadlines
 and assertions are unchanged. Local selection still defaults to the debug CLI.
+
+The CLI version expectation uses the shared workspace reader once per suite, running bounded
+`cargo metadata --no-deps --offline --locked`. The reader also reads `rust/Cargo.lock` and
+lists tracked files with `git ls-files -z`, so the suite needs a Git checkout. Cargo, the
+lockfile and workspace resolution inputs must remain available even when selecting an explicit
+CLI executable. The documented build below supplies the resolution inputs; the expectation
+has no alternate version reader.
 
 Build first, then explicitly select the test-only storage probe. The product CLI
 uses its repository-native default; the probe is never an installed SQL command:

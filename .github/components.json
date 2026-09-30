@@ -92,6 +92,12 @@
       ]
     },
     {
+      "id": "remote-rust",
+      "consumers": ["native", "office"],
+      "why": "Remote Rust retains full workspace checks and existing Office consumers; private release ownership does not narrow CI coverage.",
+      "paths": ["extensions/tmt-remote/rust/**"]
+    },
+    {
       "id": "office-web",
       "consumers": ["office"],
       "why": "The Office application and its documentation: checked by the Office web jobs only.",
