@@ -286,7 +286,12 @@ mod tests {
                 )
             }) {
                 ProcessObservation::UnreapedZombie(incarnation) => break incarnation,
-                ProcessObservation::Live(_) if Instant::now() < deadline => {
+                // macOS can report ?E while the owned child is still exiting.
+                // Uncertainty is not exit evidence: wait within the original
+                // budget, then require UnreapedZombie before using its identity.
+                ProcessObservation::Live(_) | ProcessObservation::Unknown
+                    if Instant::now() < deadline =>
+                {
                     std::thread::sleep(Duration::from_millis(5));
                 }
                 other => panic!(
