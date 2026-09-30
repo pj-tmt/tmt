@@ -35,7 +35,7 @@ fn registration_retirement_reopen_and_delivery_preserve_terminal_state() {
     retire(&mut storage, &original);
     storage.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 40);
+    assert_eq!(storage.health().unwrap().schema_version, 41);
     assert_eq!(
         storage.pending_identity_hooks("office", 100).unwrap()[0].hook,
         hook
@@ -246,7 +246,7 @@ fn schema_nine_upgrade_is_atomic_and_preserves_identity() {
     observer.execute_batch("DROP TRIGGER reject_tenth").unwrap();
     observer.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 40);
+    assert_eq!(storage.health().unwrap().schema_version, 41);
     assert_eq!(
         storage
             .find_active_identity_by_id(&original.id)

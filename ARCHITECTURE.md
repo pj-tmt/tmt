@@ -1273,6 +1273,20 @@ core table or a column, or rebuilds a table (as schema 39 rebuilt
 until every table is covered or deliberately excluded and every column is
 compared.
 
+Schema 41 admits any host an approved driver serves (#570). The host columns
+of `bindings`, `request_attempts`, `request_responses` and `host_servers`
+accept any host name (1 to 32 of `[a-z0-9-]`, starting with a letter); inbox
+routes still carry no host, and `host_servers` still has no tmux rows. Each
+table is rebuilt from its own stored definition with exactly that one CHECK
+replaced, its rows copied unchanged, and its stored indexes and triggers
+(schema 40's change-cursor triggers among them) replayed. The source must
+match what migrations 1 through 40 make in a fresh database, for these tables
+and everything that mentions them; anything customized is refused. Like
+schema 9, the rebuild runs with foreign keys off, so dropping
+`request_attempts` does not cascade into `request_notifications`, then checks
+them, all in one immediate transaction that rolls back to schema 40 on any
+failure; foreign keys are restored on every exit.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
@@ -1646,7 +1660,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 40, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 41, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -1867,8 +1881,14 @@ carries its host, so bindings, target evidence and request fences do too; core
 stores and compares pane IDs as opaque strings. Evidence from another host is
 `Unknown`, never proof of loss, and presence is grouped and scoped by host and
 socket (`ServerSelector`). Storage writes `bindings.transport` and new request
-fences' `host` from the endpoint and refuses a stored host it does not know; a
-NULL fence host is tmux. A `Host` handle states why it was chosen:
+fences' `host` from the endpoint. A stored host is only its name: tmux, Herdr, or
+`HostKind::External` for any other valid host name, which reads whether or not
+its driver is installed, and a NULL fence host is tmux. An external host's
+pane-ID and target syntax come from the approved drivers, which the CLI
+registers once at start (`host::external::register_approved`) in core's one
+write-once registry; until its driver is registered, no pane ID or target is
+its own. Whether a driver serves a host is decided in the adapters that run
+drivers, not stored in the core type. A `Host` handle states why it was chosen:
 `for_caller` (a caller-scoped command), `for_server` (a stored binding or request
 endpoint) or `for_target` (an explicit pane target); its methods take endpoints,
 never loose socket or pane strings. Only `tmt-core/src/host.rs`,
@@ -1958,8 +1978,9 @@ guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
   command but help and `--version` (`DRIVER_CALL_REFUSED`).
 
 The atomic owner-only replacement of such settings files is `private_file`,
-shared with the extension hook consents. Slice 3b connects drivers to hosts
-through `HostKind::External`.
+shared with the extension hook consents. The approved drivers' syntax is
+registered with core at start (see the host section above); running their
+operations for a host is still to come in slice 3b.
 
 ## Managed skills and native installation
 

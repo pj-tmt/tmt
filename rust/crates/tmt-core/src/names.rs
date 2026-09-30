@@ -66,9 +66,7 @@ pub fn normalize_name(value: &str) -> String {
 /// name. Each host owns its syntax ([`HostKind::is_target`]).
 pub fn is_pane_target(value: &str) -> bool {
     let canonical = normalize_name(value);
-    HostKind::ALL
-        .into_iter()
-        .any(|host| host.is_target(&canonical))
+    HostKind::all().any(|host| host.is_target(&canonical))
 }
 
 /// A name a new identity (or a rename) may take: never text that a host
@@ -90,8 +88,7 @@ pub fn validate_existing_name(value: &str) -> Result<ValidatedName, NameError> {
         return Err(NameError::EmptyOrControl);
     }
     let canonical_name = normalize_name(value);
-    if HostKind::ALL
-        .into_iter()
+    if HostKind::all()
         .any(|host| host.targets_never_named_identities() && host.is_target(&canonical_name))
     {
         return Err(NameError::PaneTarget);

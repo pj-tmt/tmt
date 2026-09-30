@@ -127,9 +127,13 @@ fn workspace_obeys_native_architecture() {
         &sources,
         &tmt_core::driver::ALL.map(|driver| driver.name),
     ));
+    let built_in_hosts = tmt_core::host::HostKind::ALL;
     violations.extend(host_names::violations(
         &sources,
-        &tmt_core::host::HostKind::ALL.map(|host| host.as_str()),
+        &built_in_hosts
+            .iter()
+            .map(|host| host.as_str())
+            .collect::<Vec<_>>(),
     ));
     let extensions =
         extension_host::sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../extensions"));

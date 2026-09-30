@@ -90,6 +90,8 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
             "tmt runs no command for a host driver; a driver gets what it needs in its request.",
         );
     }
+    // A driver's pane IDs and targets are known once its syntax is registered.
+    tmt_adapters::host::external::register_approved();
     // Companions reach core through this executable, whatever name it has.
     tmt_adapters::core_executable::declare_core();
     let inspect_drift = skill_reminder::eligible_for_drift(&parsed);
