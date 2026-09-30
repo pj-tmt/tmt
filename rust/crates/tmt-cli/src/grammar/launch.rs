@@ -1,6 +1,6 @@
 //! Foreground launch and exact-resume command grammar.
 
-use super::{base, operand, option};
+use crate::grammar::{base, operand, option};
 use clap::{Arg, ArgAction, Command};
 
 pub(super) fn run() -> Command {

@@ -1,9 +1,9 @@
 //! Identity bindings, live presence and pane-view command grammar.
 
-use super::{general, list_filter, operand, option, with_options};
+use crate::grammar::{general, list_filter, operand, option, with_options};
 use clap::{Arg, ArgAction, Command};
 
-pub(super) fn list() -> Command {
+pub(super) fn list_command() -> Command {
     general(spec!(
         "list",
         "List global identities, lifetime and live presence",

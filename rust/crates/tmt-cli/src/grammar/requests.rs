@@ -1,6 +1,6 @@
 //! Durable requests, exchanges and their bounded observer grammar.
 
-use super::{general, internal, operand, option, storage, with_options};
+use crate::grammar::{general, internal, operand, option, storage, with_options};
 use clap::Command;
 
 pub(super) fn talk() -> Command {
@@ -103,7 +103,7 @@ pub(super) fn exchanges() -> Command {
         ))
 }
 
-pub(super) fn reply() -> Command {
+pub(super) fn reply_command() -> Command {
     with_options(
             storage(spec!(
                 "reply",

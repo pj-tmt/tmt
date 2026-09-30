@@ -1,6 +1,6 @@
 //! Shared communication room command grammar.
 
-use super::{operand, storage, with_options};
+use crate::grammar::{operand, storage, with_options};
 use clap::{Arg, Command};
 
 pub(super) fn room() -> Command {

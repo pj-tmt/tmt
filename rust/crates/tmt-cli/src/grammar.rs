@@ -112,7 +112,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     )))
     .subcommand(launch::run())
     .subcommand(launch::resume())
-    .subcommand(presence::list())
+    .subcommand(presence::list_command())
     .subcommand(presence::add())
     .subcommand(presence::name())
     .subcommand(presence::marked())
@@ -526,7 +526,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
                 &["identity"],
             )),
     )
-    .subcommand(requests::reply())
+    .subcommand(requests::reply_command())
     .subcommand(requests::result())
     .subcommand(requests::inbox())
     .subcommand(requests::answer())
