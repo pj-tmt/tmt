@@ -490,6 +490,23 @@ state never depends on color alone, and `ls --json` reports it as
 states). The second line is the shown squad's summary: `lead sol · 4 members ·
 1 waiting on you`.
 
+Besides one tab per squad, the board has a built-in `leads` tab: one row per
+squad lead, across every squad. Enter jumps to that lead as it does on a squad's
+tab, and `t` talks to the lead in that lead's own squad room. Choose the order
+and hide tabs in `squad.toml`. Tabs you list come first, in your order; the rest
+follow, squads first. Write `squad:<name>` for a squad named like a built-in
+tab. A hidden squad stays reachable with `tmt sq board --squad <name>`. The
+leads tab takes its own bindings over `[bind]`:
+
+```toml
+[tabs]
+order = ["leads", "product"]
+hide = ["quiet"]
+
+[tabs.leads.bind]
+enter = "jump"             # the default in tmux
+```
+
 Without a terminal, or with `--json`, it prints `status`. Rows and
 state colors are configurable. Every row sits on one grid of columns; a row can
 take more than one line, and on each line a cell can span columns:

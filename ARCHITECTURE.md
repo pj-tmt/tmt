@@ -2065,7 +2065,12 @@ or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
 `squad.attention`. The refresh computes it for the shown squad from that
 document, and for every other squad from a roster-only document (one
 `rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
-tabs are colored without loading their rows. `board`
+tabs are colored without loading their rows. `board::tabs` owns the tab
+keys: a squad's name, or a built-in key starting with `@` (`@leads`), which no
+squad name can. `[tabs] order` and `hide` arrange them. The leads tab's view is
+built by the same worker from each squad's roster document, joined with one
+`ls` read for presence. Its rows carry their squad, so talk goes to that
+squad's room and a jump is the ordinary `tmt focus`. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
