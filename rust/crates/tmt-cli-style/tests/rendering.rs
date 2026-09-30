@@ -108,6 +108,12 @@ fn agents() -> Vec<Section<'static>> {
 }
 
 fn render_list(terminal: Terminal) -> String {
+    if terminal.color {
+        // Production anstream honors NO_COLOR before enabling color; these explicit
+        // color fixtures override crossterm's cached choice.
+        static COLOR: std::sync::Once = std::sync::Once::new();
+        COLOR.call_once(|| crossterm::style::force_color_output(true));
+    }
     let mut output = Vec::new();
     list::write(&mut output, terminal, &agents()).unwrap();
     visible(output)

@@ -2513,6 +2513,7 @@ version = "5.0.0-alpha.10"
 dependencies = [
  "clap",
  "clap_complete",
+ "crossterm",
  "insta",
  "proc-macro2",
  "serde_json",
@@ -2533,6 +2534,7 @@ dependencies = [
  "anstyle",
  "clap",
  "comfy-table",
+ "crossterm",
  "insta",
  "ratatui",
  "serde_json",

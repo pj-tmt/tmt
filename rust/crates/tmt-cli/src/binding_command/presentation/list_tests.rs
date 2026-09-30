@@ -155,6 +155,12 @@ fn agents() -> Vec<ListedRow> {
 
 /// Rendered against the fixture's home, `/Users/ada`.
 fn render(rows: Vec<ListedRow>, terminal: Terminal, all: bool) -> String {
+    if terminal.color {
+        // Production anstream honors NO_COLOR before enabling color; these explicit
+        // color fixtures override crossterm's cached choice.
+        static COLOR: std::sync::Once = std::sync::Once::new();
+        COLOR.call_once(|| crossterm::style::force_color_output(true));
+    }
     let mut output = Vec::new();
     write_listing(
         &mut output,
