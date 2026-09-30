@@ -43,6 +43,10 @@
       "owns": ["extensions/tmt-remote/typescript/browser-addon"],
       "release": false
     },
+    "remote-client": {
+      "owns": ["extensions/tmt-remote/typescript/remote-client"],
+      "release": false
+    },
     "tmt-remote": {
       "owns": ["extensions/tmt-remote/rust"],
       "release": false

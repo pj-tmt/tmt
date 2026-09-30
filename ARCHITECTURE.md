@@ -2562,3 +2562,11 @@ proposed until its implementation slices land; `cloudflare`, `firestore` and
 product/release registration is deferred. Its private component owner excludes
 remote versions from real-product releases; cargo-dist excludes this pilot binary.
 For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
+
+The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
+TypeScript module owns decoded-value envelope, enrollment and possession signing-byte
+builders and independent exact-byte/SHA-256 fixtures. It uses standard UTF-8 and
+WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
+quality job. It implements no wire decoder, signing, key persistence, transport,
+runtime authority or browser-shell wiring; the proposed contract remains the wire
+and authority definition owner.
