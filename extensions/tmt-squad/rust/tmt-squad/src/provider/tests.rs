@@ -68,6 +68,50 @@ fn a_provider_is_a_program_with_bounded_timing() {
 }
 
 #[test]
+fn provider_durations_preserve_accepted_numbers_units_and_ranges() {
+    for (key, text, seconds) in [
+        ("every", "10s", 10),
+        ("every", "+10s", 10),
+        ("every", "00010s", 10),
+        ("every", "5m", 300),
+        ("every", "+5m", 300),
+        ("every", "1h", 3600),
+        ("every", "+1h", 3600),
+        ("every", "24h", 86400),
+        ("every", "1440m", 86400),
+        ("every", "86400s", 86400),
+        ("timeout", "1s", 1),
+        ("timeout", "+5s", 5),
+        ("timeout", "030s", 30),
+    ] {
+        let body = format!("[squad.p.fields.x]\nrun = [\"gh\"]\n{key} = {text:?}\n");
+        let parsed = providers(&body).unwrap();
+        let actual = if key == "every" {
+            parsed[0].every
+        } else {
+            parsed[0].timeout
+        };
+        assert_eq!(actual, Duration::from_secs(seconds), "{key} = {text}");
+    }
+}
+
+#[test]
+fn provider_non_ascii_duration_reports_the_setting_without_panicking() {
+    // Multi-byte suffixes reproduce the old byte-index split panic.
+    for key in ["every", "timeout"] {
+        for text in ["5分", "5秒"] {
+            let body = format!("[squad.p.fields.x]\nrun = [\"gh\"]\n{key} = {text:?}\n");
+            let result = providers(&body).unwrap_err();
+            assert_eq!(result.code, "SQUAD_CONFIG_INVALID");
+            assert!(
+                result.message.contains(&format!("squad.p.fields.x.{key}")),
+                "{result}"
+            );
+        }
+    }
+}
+
+#[test]
 fn provider_mistakes_are_refused_with_their_place() {
     for (text, expected) in [
         (

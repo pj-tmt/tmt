@@ -23,6 +23,7 @@ from `typescript/`; Cargo, Nx and Docker commands run from the repository root.
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
 Rust 1.88; CI also runs the current pinned release toolchain.
+Remote-client tests require `python3` for the independent byte-fixture oracle.
 Shell completion tests require Bash and Zsh. Runtime proof uses the selected
 macOS developer tools or Linux `readelf` (binutils); these are verifier tools,
 not product runtime dependencies.
@@ -1120,6 +1121,10 @@ validate domain fields. Scenarios retain their exact/partial payload assertions
 and independent SQL oracles. Helpers with a different stderr or parse contract
 remain local. Do not combine partial identity views into a permissive shared
 schema or import product types to manufacture expected results.
+
+Docker scenario imports use `typescript/test/e2e/harness.ts`; its readiness,
+cleanup and type helpers live under `typescript/test/e2e/harness/`. The
+[architecture map](ARCHITECTURE.md#testing-and-evidence-boundaries) defines their ownership.
 
 Shared cross-suite utilities belong in `typescript/test/support/`; suite-only harness,
 assertions and observers stay with their suite. Focused helper tests belong in
