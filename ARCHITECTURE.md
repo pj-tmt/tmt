@@ -1466,9 +1466,10 @@ that inference, not their normal validation. A thread ID is only a correlation
 hint: the current selector does not derive identity from remembered session
 preferences. Automatic current-session correlation remains dependent on the
 runtime hook integration. No caller probe changes bindings or sends input.
-`tmux::BindingSession` also implements the action port: status delegates to the same
-full server/pane/marker evidence evaluator, and send requires present evidence
-before invoking the existing paste-and-Enter transport once. It preserves that
+The action port's policy is written once, in `host::driver`, over each host's
+`HostDriver` (see the host port below). Status delegates to the same full
+server/pane/marker evidence evaluator, and send requires present evidence
+before invoking the host's paste-and-Enter transport once. It preserves that
 transport's preparation-versus-uncertain failure distinction. `focus` (a
 default-`Unsupported` driver action returning the shown and previous interface IDs
 and the host's name for the view that moved)
@@ -1789,7 +1790,15 @@ and `Driver` ports), caller and target resolution, snapshots, capture, send,
 focus and pane cosmetics, over two hosts: `tmt-adapters::tmux` and
 `tmt-adapters::herdr` (#479). A handle has a primary host; its session observes
 new panes there, and probes, marks and clears every stored binding on that
-binding's own host, so presence is complete from either host. `HostError` and
+binding's own host, so presence is complete from either host. Each host
+implements `host::driver::HostDriver`: snapshot, probe, publish, clear, the
+runtime in a pane, input and focus, at the driver protocol's granularity
+(#570). The session picks the driver of an entry's host and runs one binding
+policy over it: `host::driver::{status, send, focus}` decide which evidence
+makes a binding present, when a runtime blocks input, and what a failure
+means. A host without input (`has_input`) is `Unsupported` before any evidence
+is read, and `focus_preflight` refuses before any evidence is read too. The
+out-of-process client of #570 slice 3 implements the same trait. `HostError` and
 the host `ActionError` wrap each host's error and read exactly as it. The
 architecture guard rejects production references to the host modules outside
 `host.rs` and their own directories.
