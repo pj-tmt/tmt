@@ -140,24 +140,7 @@ impl Squad {
     /// observation. A member missing from `ls` (joined in between) is unknown.
     pub fn members(&self, core: &Core) -> Result<Vec<Member>, SquadError> {
         let mut members = self.roster(core)?;
-        let listed = core.json(&["ls", "--room", &self.room_id])?;
-        let presence: HashMap<&str, &Value> = listed["identities"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|row| Some((row["id"].as_str()?, row)))
-            .collect();
-        for member in &mut members {
-            let Some(seen) = presence.get(member.id.as_str()) else {
-                continue;
-            };
-            if let Some(state) = seen["presence"].as_str() {
-                member.presence = state.into();
-            }
-            if seen["pane"].is_string() {
-                member.pane = json!({"id": seen["pane"], "target": seen.get("target"), "cwd": seen.get("cwd")});
-            }
-        }
+        join_presence(&mut members, &core.json(&["ls", "--room", &self.room_id])?);
         Ok(members)
     }
 
@@ -200,6 +183,28 @@ impl Squad {
                 })
             })
             .collect()
+    }
+}
+
+/// Presence and pane from an `ls --json` document, for the members it lists.
+pub fn join_presence(members: &mut [Member], listed: &Value) {
+    let presence: HashMap<&str, &Value> = listed["identities"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| Some((row["id"].as_str()?, row)))
+        .collect();
+    for member in members {
+        let Some(seen) = presence.get(member.id.as_str()) else {
+            continue;
+        };
+        if let Some(state) = seen["presence"].as_str() {
+            member.presence = state.into();
+        }
+        if seen["pane"].is_string() {
+            member.pane =
+                json!({"id": seen["pane"], "target": seen.get("target"), "cwd": seen.get("cwd")});
+        }
     }
 }
 
