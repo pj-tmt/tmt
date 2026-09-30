@@ -1122,8 +1122,9 @@ and independent SQL oracles. Helpers with a different stderr or parse contract
 remain local. Do not combine partial identity views into a permissive shared
 schema or import product types to manufacture expected results.
 
-Docker scenario imports use `typescript/test/e2e/harness.ts`; its readiness,
-cleanup and type helpers live under `typescript/test/e2e/harness/`. The
+Docker scenario imports use the `typescript/test/e2e/harness.ts` facade; the
+fixture, readiness, cleanup and type modules live under
+`typescript/test/e2e/harness/`. The
 [architecture map](ARCHITECTURE.md#testing-and-evidence-boundaries) defines their ownership.
 
 Shared cross-suite utilities belong in `typescript/test/support/`; suite-only harness,

@@ -2505,7 +2505,8 @@ contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
 
-Docker E2E `harness.ts` owns fixture resources and process registries.
+Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
+fixture resources and process registries.
 `harness/readiness.ts` observes caller-supplied events, panes and process state;
 `harness/cleanup.ts` stops and checks owned process groups and clients. The
 fixture retains cleanup ordering and error precedence. `harness/types.ts` owns
