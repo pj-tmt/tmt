@@ -33,7 +33,7 @@ const KEYS: &[&str] = &[
     "PgUp PgDn   page the focused pane; Home End go to its top and bottom",
     "wheel       scroll the pane under the pointer",
     "Shift-drag  select text to copy (Option-drag in some terminals)",
-    "← →         switch squad",
+    "← →         switch tab",
     "/           search; Esc clears",
     "?           this help",
     "q, Esc      close the board",
@@ -244,10 +244,10 @@ fn tab_line(app: &App) -> Line<'_> {
     let default = TabColors::default();
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
     let mut spans = Vec::new();
-    for squad in &app.squads {
-        let selected = Some(squad) == app.current.as_ref();
-        let attention = app.attention.get(squad).copied().unwrap_or_default();
-        spans.push(tab(squad, selected, attention, colors));
+    for key in &app.tabs {
+        let selected = Some(key) == app.current.as_ref();
+        let attention = app.attention.get(key).copied().unwrap_or_default();
+        spans.push(tab(super::tabs::label(key), selected, attention, colors));
         spans.push(Span::raw(" "));
     }
     if let Some(started) = app.loading_since
@@ -280,13 +280,19 @@ fn summary_line(app: &App) -> Line<'_> {
         .filter_map(|row| row["name"].as_str())
         .collect::<std::collections::BTreeSet<_>>()
         .len();
-    let mut spans = vec![Span::styled(
-        format!(
-            "{lead} · {count} {}",
-            if count == 1 { "member" } else { "members" }
-        ),
-        color("dim"),
-    )];
+    let plural = |count: usize, one: &str, many: &str| {
+        format!("{count} {}", if count == 1 { one } else { many })
+    };
+    let summary = if app.current.as_deref().is_some_and(super::tabs::builtin) {
+        // One row per squad: a person leading two squads is two rows.
+        let rows = view.document["sections"][0]["rows"]
+            .as_array()
+            .map_or(0, Vec::len);
+        plural(rows, "squad lead", "squad leads")
+    } else {
+        format!("{lead} · {}", plural(count, "member", "members"))
+    };
+    let mut spans = vec![Span::styled(summary, color("dim"))];
     let waiting = app
         .current
         .as_ref()
@@ -822,7 +828,7 @@ mod tests {
     fn board(sections: Value) -> App {
         let mut app = App::new(Some("product".into()));
         app.apply(Snapshot {
-            squads: vec!["product".into(), "reviews".into()],
+            tabs: vec!["product".into(), "reviews".into()],
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
@@ -1119,7 +1125,7 @@ lines = [
         assert!(
             draw(&app, 60, 12)
                 .iter()
-                .any(|line| line.contains("switch squad"))
+                .any(|line| line.contains("switch tab"))
         );
         let mut failed = App::new(Some("product".into()));
         failed.error = Some("tmt did not finish in time".into());
@@ -1129,7 +1135,7 @@ lines = [
     fn paned(board: crate::config::Board, notes: Notes) -> App {
         let mut app = App::new(Some("product".into()));
         app.apply(Snapshot {
-            squads: vec!["product".into()],
+            tabs: vec!["product".into()],
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
@@ -1385,6 +1391,30 @@ lines = [
         let reviews = tabs[..tabs.find("reviews").unwrap()].chars().count() as u16;
         assert_eq!(buffer[(reviews, 0)].fg, Color::Magenta);
         assert_eq!(draw(&app, 60, 6)[1], "no lead · 1 member");
+    }
+
+    #[test]
+    fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
+        let mut view = board(json!([{"title": null, "rows": [
+            row("sol", "working", "plan", json!({"fields": {"squad": "product", "state": "working", "task": "plan"}})),
+            row("rin", "blocked", "ci", json!({"fields": {"squad": "infra", "state": "blocked", "task": "ci"}})),
+        ]}]))
+        .view
+        .take()
+        .unwrap();
+        view.rows = crate::rows::Rows::leads();
+        let mut app = App::new(Some(crate::board::LEADS.into()));
+        app.apply(Snapshot {
+            tabs: vec!["product".into(), crate::board::LEADS.into()],
+            attention: Default::default(),
+            squad: Some(crate::board::LEADS.into()),
+            view: Ok(view),
+        });
+        let screen = draw(&app, 60, 6);
+        assert_eq!(screen[0], " product   leads");
+        assert_eq!(screen[1], "2 squad leads");
+        assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
+        assert_eq!(screen[3], "  product        sol            working    plan");
     }
 
     #[test]

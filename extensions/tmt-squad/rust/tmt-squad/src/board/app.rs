@@ -57,7 +57,8 @@ pub enum Notes {
 }
 
 pub struct Snapshot {
-    pub squads: Vec<String>,
+    /// Tab keys in order: squad names and built-in tabs (`board::tabs`).
+    pub tabs: Vec<String>,
     /// Every listed squad's attention, for its tab's color and counts.
     pub attention: BTreeMap<String, Attention>,
     pub squad: Option<String>,
@@ -161,6 +162,8 @@ pub struct Input {
     pub prompt: String,
     pub text: String,
     pub compose: Compose,
+    /// The squad the text is sent in: the row's own on the leads tab.
+    pub squad: String,
 }
 
 /// Longest text the composer accepts, in characters.
@@ -179,7 +182,7 @@ pub struct Hit {
 
 #[derive(Default)]
 pub struct App {
-    pub squads: Vec<String>,
+    pub tabs: Vec<String>,
     pub attention: BTreeMap<String, Attention>,
     pub current: Option<String>,
     pub view: Option<View>,
@@ -327,7 +330,7 @@ impl App {
     /// Swaps in a loaded squad in one step. A result for a squad the user
     /// already left is kept for switching back, never shown.
     pub fn apply(&mut self, snapshot: Snapshot) {
-        self.squads = snapshot.squads;
+        self.tabs = snapshot.tabs;
         self.attention = snapshot.attention;
         if self.current.is_some() && snapshot.squad != self.current {
             if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
@@ -372,12 +375,12 @@ impl App {
         let Some(position) = self
             .current
             .as_ref()
-            .and_then(|current| self.squads.iter().position(|squad| squad == current))
+            .and_then(|current| self.tabs.iter().position(|tab| tab == current))
         else {
             return Effect::None;
         };
-        let count = self.squads.len() as isize;
-        let next = self.squads[(position as isize + step).rem_euclid(count) as usize].clone();
+        let count = self.tabs.len() as isize;
+        let next = self.tabs[(position as isize + step).rem_euclid(count) as usize].clone();
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
@@ -520,11 +523,12 @@ impl App {
         }
     }
 
-    fn ask(&mut self, prompt: String, compose: Compose) -> Effect {
+    fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
         self.input = Some(Input {
             prompt,
             text: String::new(),
             compose,
+            squad,
         });
         Effect::None
     }
@@ -541,8 +545,17 @@ impl App {
             );
         }
         let name = row["name"].as_str().unwrap_or_default().to_owned();
+        // A leads-tab row carries its own squad; a squad tab's rows are its own.
+        let squad = row["squad"]
+            .as_str()
+            .map(str::to_owned)
+            .or_else(|| self.current.clone())
+            .unwrap_or_default();
         match action.verb {
-            Verb::Talk => self.ask(format!("talk {name}"), Compose::Talk { to: name }),
+            Verb::Talk => self.ask(format!("talk {name}"), Compose::Talk { to: name }, squad),
+            Verb::Annotate if self.current.as_deref().is_some_and(super::tabs::builtin) => {
+                self.say("Annotate from the squad's own tab.")
+            }
             Verb::Annotate => {
                 let to = if action.args[0].literal() == Some("member") {
                     name.clone()
@@ -555,6 +568,7 @@ impl App {
                 self.ask(
                     format!("note on {name} for {to}"),
                     Compose::Annotate { to, row: name },
+                    squad,
                 )
             }
             _ => {
@@ -594,7 +608,12 @@ impl App {
         match choice {
             Choice::Action(action) => self.perform(&action),
             Choice::Reply { request, from } => {
-                self.ask(format!("reply {from}"), Compose::Reply { request, from })
+                let squad = self.current.clone().unwrap_or_default();
+                self.ask(
+                    format!("reply {from}"),
+                    Compose::Reply { request, from },
+                    squad,
+                )
             }
         }
     }
@@ -625,10 +644,8 @@ impl App {
         }
         let input = self.input.take().expect("composing");
         let text = input.text.trim().to_owned();
-        let (Some(me), Some(squad)) = (
-            self.view.as_ref().and_then(|view| view.me.clone()),
-            self.current.clone(),
-        ) else {
+        let squad = input.squad;
+        let Some(me) = self.view.as_ref().and_then(|view| view.me.clone()) else {
             return Effect::None;
         };
         if text.is_empty() {
@@ -867,7 +884,7 @@ pub(crate) mod tests {
 
     pub(crate) fn snapshot(squad: &str, sections: Value) -> Snapshot {
         Snapshot {
-            squads: vec!["infra".into(), "product".into()],
+            tabs: vec!["infra".into(), "product".into()],
             attention: Default::default(),
             squad: Some(squad.into()),
             view: Ok(view(sections)),
@@ -971,7 +988,7 @@ pub(crate) mod tests {
         ));
         press(&mut app, KeyCode::Right);
         app.apply(Snapshot {
-            squads: vec!["product".into(), "infra".into()],
+            tabs: vec!["product".into(), "infra".into()],
             attention: Default::default(),
             squad: Some("infra".into()),
             view: Err("infra: room not found".into()),
@@ -1009,6 +1026,56 @@ pub(crate) mod tests {
 
     fn bind(entries: &[(&str, &str)]) -> crate::action::Bindings {
         crate::action::parse_bindings(entries.iter().map(|(e, a)| (*e, Some(*a))), "bind").unwrap()
+    }
+
+    #[test]
+    fn the_leads_tab_jumps_to_a_lead_and_talks_in_that_lead_s_squad() {
+        let mut app = App::new(Some(crate::board::LEADS.into()));
+        let mut snapshot = snapshot(
+            crate::board::LEADS,
+            json!([{"title": null, "rows": [
+                member("sol", json!({"squad": "product"})),
+                member("rin", json!({"squad": "infra"})),
+            ]}]),
+        );
+        for (row, squad) in [(0, "product"), (1, "infra")] {
+            snapshot.view.as_mut().unwrap().document["sections"][0]["rows"][row]["squad"] =
+                json!(squad);
+        }
+        snapshot.view.as_mut().unwrap().me = Some("Ben".into());
+        snapshot.tabs = ["product", crate::board::LEADS, "infra"]
+            .map(String::from)
+            .to_vec();
+        app.apply(snapshot);
+        press(&mut app, KeyCode::Down);
+        // Enter jumps through tmt focus, as on a squad's own tab.
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Jump("rin".into()))
+        );
+        press(&mut app, KeyCode::Char('t'));
+        typed(&mut app, "status?");
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Talk {
+                me: "Ben".into(),
+                squad: "infra".into(),
+                to: "rin".into(),
+                text: "status?".into()
+            }),
+            "sent in the lead's own squad room, not a tab's"
+        );
+        press(&mut app, KeyCode::Char('a'));
+        assert!(app.input.is_none());
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("Annotate from the squad's own tab.")
+        );
+        // ← → walk every tab, the built-in one included.
+        assert_eq!(
+            press(&mut app, KeyCode::Right),
+            Effect::Load("infra".into())
+        );
     }
 
     #[test]
@@ -1285,7 +1352,7 @@ pub(crate) mod tests {
             json!([{"title": null, "rows": [row("a", "")]}]),
         ));
         app.apply(Snapshot {
-            squads: vec!["product".into()],
+            tabs: vec!["product".into()],
             attention: Default::default(),
             squad: Some("product".into()),
             view: Err("tmt did not finish in time".into()),
