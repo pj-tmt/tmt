@@ -2047,14 +2047,17 @@ stays at 16 KiB.
   compositions. Application data and provider skills are separate owners.
 
 Explicit extension `install --repair` is a separate recovery composition in
-`native_install::repair`, limited to GitHub-provenance receipts. `receipt`
+`native_install::repair`, for GitHub and local-archive receipts. `receipt`
 separates bounded metadata/recorded-path validation from payload verification;
 normal readers still require both. An eligible verification failure carries
 `RepairRequired` to the CLI, which owns the single quoted repair-command hint.
 Repair admits only safe owned layouts and no-follow regular files/directories,
-fetches the exact recorded artifact with matching provenance and digests, and
-preserves version/channel/pin. Acquisition holds no installation lock; the stable
-lock and a pre-activation current/receipt revalidation fence publication.
+acquires the exact recorded artifact with matching provenance and digests, and
+preserves version/channel/pin. Observation parses the same bounded receipt bytes
+used for revalidation. Local repair requires the original archive and matching
+manifest; it retains local provenance and cannot replace a GitHub source.
+Acquisition holds no installation lock; the stable lock and a pre-activation
+current/receipt revalidation fence publication.
 `publication` shares candidate staging, durable activation, cleanup and typed
 post-activation failures between normal installs and repair. The damaged release
 is retained untouched at its original path, including foreign entries, rather

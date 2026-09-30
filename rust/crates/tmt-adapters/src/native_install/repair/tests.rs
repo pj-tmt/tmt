@@ -255,3 +255,219 @@ fn unavailable_or_different_original_artifact_leaves_everything_unchanged() {
         assert_eq!(tree(&fixture.layout.prefix), before);
     }
 }
+
+#[test]
+fn local_archive_repair_requires_matching_inputs_and_preserves_old_content_and_pin() {
+    let fixture = Fixture::new(true);
+    let receipt_path = fixture.old.join("receipt.json");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+    value["source"] = "local-archive".into();
+    fs::write(&receipt_path, serde_json::to_vec(&value).unwrap()).unwrap();
+    let archive = fixture
+        .layout
+        .prefix
+        .join(value["archive"].as_str().unwrap());
+    let manifest = fixture.layout.prefix.join("manifest.json");
+    fs::write(&archive, &fixture.archive).unwrap();
+    fs::write(&manifest, &fixture.manifest).unwrap();
+    let original = fs::read(fixture.old.join("tmt-squad")).unwrap();
+    fs::write(fixture.old.join("tmt-squad"), b"tampered").unwrap();
+    fs::write(fixture.old.join("foreign.txt"), b"keep foreign bytes").unwrap();
+    let before = tree(&fixture.layout.prefix);
+    let required = fixture.layout.current().unwrap_err();
+    assert!(
+        required
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<RepairRequired>()
+            .unwrap()
+            .requires_archive
+    );
+    let required = fixture.repair().unwrap_err();
+    assert!(required.get_ref().unwrap().is::<RepairRequired>());
+    assert_eq!(tree(&fixture.layout.prefix), before);
+    let missing = repair_product_from_archive(
+        Product::Squad,
+        &fixture.layout.prefix,
+        &archive.with_extension("missing"),
+        &manifest,
+        None,
+        || Ok(()),
+    );
+    assert!(missing.is_err());
+    assert_eq!(tree(&fixture.layout.prefix), before);
+    // Different valid gzip bytes for the same version and file inventory are still not the recorded artifact.
+    use std::io::{Read, Write};
+    let mut tar = Vec::new();
+    flate2::read::GzDecoder::new(fixture.archive.as_slice())
+        .read_to_end(&mut tar)
+        .unwrap();
+    let mut encoder = flate2::GzBuilder::new()
+        .mtime(1)
+        .write(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&tar).unwrap();
+    let other_archive = encoder.finish().unwrap();
+    assert_ne!(
+        artifact::digest(&other_archive),
+        artifact::digest(&fixture.archive)
+    );
+    let mut other_manifest: serde_json::Value = serde_json::from_slice(&fixture.manifest).unwrap();
+    other_manifest["artifacts"][value["archive"].as_str().unwrap()]["checksums"]["sha256"] =
+        artifact::digest(&other_archive).into();
+    fs::write(&archive, other_archive).unwrap();
+    fs::write(&manifest, serde_json::to_vec(&other_manifest).unwrap()).unwrap();
+    let mismatched = tree(&fixture.layout.prefix);
+    let error = repair_product_from_archive(
+        Product::Squad,
+        &fixture.layout.prefix,
+        &archive,
+        &manifest,
+        None,
+        || Ok(()),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("does not match"), "{error}");
+    assert_eq!(tree(&fixture.layout.prefix), mismatched);
+    fs::write(&archive, &fixture.archive).unwrap();
+    fs::write(&manifest, &fixture.manifest).unwrap();
+    let old = tree(&fixture.old);
+    let repaired = repair_product_from_archive(
+        Product::Squad,
+        &fixture.layout.prefix,
+        &archive,
+        &manifest,
+        None,
+        || Ok(()),
+    )
+    .unwrap();
+    assert!(repaired.installation.changed);
+    assert_eq!(repaired.retained_release.as_ref(), Some(&fixture.old));
+    assert_eq!(
+        fs::read(repaired.installation.active_executable).unwrap(),
+        original
+    );
+    assert_eq!(tree(&fixture.old), old);
+    let current = fixture.layout.current().unwrap().unwrap();
+    assert_eq!(current.state, state("1.2.3", Some("1.2.3")));
+    assert!(current.provenance.is_none());
+    assert!(
+        !repair_product_from_archive(
+            Product::Squad,
+            &fixture.layout.prefix,
+            &archive,
+            &manifest,
+            None,
+            || Ok(())
+        )
+        .unwrap()
+        .installation
+        .changed
+    );
+}
+
+#[test]
+fn concurrent_repair_installs_preserve_the_winner_and_clean_losing_staging() {
+    use std::sync::mpsc;
+    let fixture = Fixture::new(true);
+    fs::write(fixture.old.join("tmt-squad"), b"tampered").unwrap();
+    fs::write(fixture.old.join("foreign.txt"), b"keep me").unwrap();
+    let old = tree(&fixture.old);
+    let lock_inode = fs::metadata(fixture.layout.root.join("install.lock"))
+        .unwrap()
+        .ino();
+    let results = std::thread::scope(|scope| {
+        let (ready_a, observe_a) = mpsc::channel();
+        let (start_a, acquire_a) = mpsc::channel();
+        let fixture_ref = &fixture;
+        let a = scope.spawn(move || {
+            repair_with(
+                Product::Squad,
+                &fixture_ref.layout.prefix,
+                None,
+                || Ok(()),
+                |url, _, _, _| {
+                    let bytes = fixture_ref.download(url)?;
+                    if url.ends_with("/assets/422") {
+                        ready_a.send(()).unwrap();
+                        acquire_a
+                            .recv_timeout(Duration::from_secs(5))
+                            .map_err(io::Error::other)?;
+                    }
+                    Ok(bytes)
+                },
+            )
+        });
+        // Start B only after A has released its observation lock for acquisition.
+        observe_a.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (ready_b, observe_b) = mpsc::channel();
+        let (start_b, acquire_b) = mpsc::channel();
+        let b = scope.spawn(move || {
+            repair_with(
+                Product::Squad,
+                &fixture_ref.layout.prefix,
+                None,
+                || Ok(()),
+                |url, _, _, _| {
+                    let bytes = fixture_ref.download(url)?;
+                    if url.ends_with("/assets/422") {
+                        ready_b.send(()).unwrap();
+                        acquire_b
+                            .recv_timeout(Duration::from_secs(5))
+                            .map_err(io::Error::other)?;
+                    }
+                    Ok(bytes)
+                },
+            )
+        });
+        observe_b.recv_timeout(Duration::from_secs(5)).unwrap();
+        start_a.send(()).unwrap();
+        start_b.send(()).unwrap();
+        [a.join().unwrap(), b.join().unwrap()]
+    });
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    let error = results
+        .iter()
+        .find_map(|result| result.as_ref().err())
+        .unwrap()
+        .to_string();
+    assert!(
+        error.contains("changed") || error.contains("Cannot acquire publication lock"),
+        "{error}"
+    );
+    let winner = results.into_iter().find_map(Result::ok).unwrap();
+    let active = fixture.layout.current().unwrap().unwrap();
+    assert_eq!(
+        winner
+            .installation
+            .active_executable
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        active.id.to_string()
+    );
+    assert_eq!(active.state, state("1.2.3", Some("1.2.3")));
+    assert_eq!(tree(&fixture.old), old);
+    assert_eq!(
+        fs::metadata(fixture.layout.root.join("install.lock"))
+            .unwrap()
+            .ino(),
+        lock_inode
+    );
+    assert_eq!(
+        fs::read_dir(fixture.layout.root.join("releases"))
+            .unwrap()
+            .count(),
+        2
+    );
+    assert!(!fs::read_dir(&fixture.layout.root).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".current-")
+    }));
+}

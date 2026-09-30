@@ -160,7 +160,7 @@ remove it, and it changes nothing. Upgrade `tmt` back to fix this.
 
 ### Repair a damaged managed extension
 
-A missing, changed or extra file in a managed GitHub release remains an error
+A missing, changed or extra file in a managed release remains an error
 for inspection, ordinary install-over and upgrade. If TMT can establish receipt
 and layout ownership, the error names one repair command:
 
@@ -168,8 +168,9 @@ and layout ownership, the error names one repair command:
 tmt extension install squad --repair --yes --prefix "$HOME/.local"
 ```
 
-Repair downloads the exact recorded version, target and artifact from the
-original immutable GitHub release, verifies its provenance and checksum, and
+For GitHub installations, repair downloads the exact recorded version, target
+and artifact from the original immutable release, verifies provenance and
+checksum, and
 activates a fresh release directory. It preserves the channel and pin; it never
 selects latest or accepts different same-version bytes. A healthy release is a
 no-op without downloading. Omit `--yes` to review the consent prompt.
@@ -186,8 +187,20 @@ Repair refuses a missing/invalid receipt, mismatched ownership, unsafe managed
 permissions, symlinks or special entries in the old release, foreign command
 links, or an unavailable/nonmatching original artifact. A local receipt is
 installation evidence, not a signature or proof that changed bytes belong to
-TMT. Repair of local-archive installations is not supported yet. `--repair`
-cannot be combined with `--channel`, `--archive` or `--manifest`.
+TMT. For a local-archive installation, supply the original archive and matching
+manifest; the error uses placeholders because their original local locations
+are not recorded:
+
+```sh
+tmt extension install squad --repair --yes --prefix "$HOME/.local" \
+  --archive /path/to/original.tar.gz --manifest /path/to/dist-manifest.json
+```
+
+Local repair uses the same checksum, inventory and exact-artifact checks and
+retains local-archive provenance. Local files cannot override a GitHub receipt;
+that repair must fetch its original GitHub release. Missing, changed or different
+artifacts are refused without activating or deleting anything. `--archive` and
+`--manifest` must be supplied together; `--repair` cannot change `--channel`.
 
 ## Curl bootstrap
 
