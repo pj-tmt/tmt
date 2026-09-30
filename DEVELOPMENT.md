@@ -1241,10 +1241,10 @@ proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 
 ```bash
-cargo build --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote
-cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote
-cargo clippy --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --all-targets -- -D warnings
-cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-cli --test architecture
+(cd rust && cargo build --offline --locked -p tmt-remote)
+(cd rust && cargo test --offline --locked -p tmt-remote)
+(cd rust && cargo clippy --offline --locked -p tmt-remote --all-targets -- -D warnings)
+(cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
 ```
 
 After building core, put `rust/target/debug` on PATH and run `tmt remote serve`
