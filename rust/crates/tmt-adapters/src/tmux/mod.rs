@@ -7,7 +7,7 @@ mod evidence;
 mod focus;
 mod metadata;
 mod transport;
-pub use binding::{ActionError, BindingSession, PaneCosmetics, PaneRefresh};
+pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};
 pub use focus::{ClientView, FocusError, Invoker};
 pub use transport::{DeliveryError, DeliveryStage};
 
