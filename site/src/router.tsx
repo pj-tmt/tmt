@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { createHashHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { pages } from "./chapters";
 import { Chapter, Layout } from "./components/Layout";
 
@@ -10,10 +10,15 @@ export const routeTree = root.addChildren(
   ),
 );
 
+// A preview hosted at an unknown path (SITE_BASE=./) routes in the hash
+// instead, since only that host knows its own path.
+const hashed = import.meta.env.VITE_SITE_HISTORY === "hash";
+
 export const router = createRouter({
   routeTree,
+  history: hashed ? createHashHistory() : undefined,
   // Vite's base ("/tmt/" on GitHub Pages) without its trailing slash.
-  basepath: import.meta.env.BASE_URL.replace(/\/$/, "") || "/",
+  basepath: hashed ? "/" : import.meta.env.BASE_URL.replace(/\/$/, "") || "/",
 });
 
 declare module "@tanstack/react-router" {
