@@ -487,8 +487,10 @@ blocked, and plain otherwise. Counts follow the name (`product ◆2 !1`), so the
 state never depends on color alone, and `ls --json` reports it as
 `squad.attention` (`state`, `waiting`, `blocked`). Change the colors in
 `[tabs.colors]` (`waiting = "amber"`, `blocked = "red"`; the same color names as
-states). The second line is the shown squad's summary: `lead sol · 4 members ·
-1 waiting on you`.
+states). When there are more tabs than fit, the tab line scrolls to keep the
+current tab in view, and counts the tabs off each end (`‹ 3`, `5 ›`). Each count
+takes the color of the most pressing tab it hides. The second line is the shown
+squad's summary: `lead sol · 4 members · 1 waiting on you`.
 
 Besides one tab per squad, the board has two built-in tabs:
 
