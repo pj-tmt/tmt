@@ -591,6 +591,28 @@ push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, we
 (GitHub evicts unused caches after seven days) and on manual dispatch. No gate runs
 for them. A seeding run has no diff to select from, so it takes the full native scope.
 
+The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
+generates `release-please-config.json` from the map (one release-please package per
+component root, minus its excludes), the Cargo workspace (which crates declare their own
+version, which path dependencies a component links, which crates have a `Cargo.lock`
+entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. A
+`Cargo.lock` line is updated by whichever component declares that crate's version.
+release-please attributes a commit to a package by the files it touches under the package
+path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
+extension root except the crates the CLI links (today the Office model, command and service
+crates), and a change to those crates counts toward the CLI release as well as Office's. The
+reverse direction cannot be expressed: a change to a core crate an extension links opens an
+extension release only together with a change under that extension's own path.
+`.release-please-manifest.json` holds the last published versions and belongs to
+release-please after its first release pull request. The CLI is pinned with a lockfile in
+`.github/release-please/`, outside the `typescript` workspace so no other job installs it.
+A tooling test fails when the committed config is not what the generator writes, when a
+workspace crate's lock entry or declared version is managed zero or several times, or when
+a tag disagrees with the policy or a package could leave the alpha line (release-please's
+`prerelease` option also keeps the version line, so `false` would graduate 5.0.0-alpha.8 to
+5.0.0; the flags a published release carries come from the policy when the draft is
+published). Nothing runs the pinned CLI until the release workflow adopts it.
+
 ## Runtime layers
 
 The Rust crates have deliberately narrow responsibilities:

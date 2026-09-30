@@ -1,0 +1,123 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "separate-pull-requests": true,
+  "include-v-in-tag": true,
+  "versioning": "prerelease",
+  "prerelease-type": "alpha",
+  "prerelease": true,
+  "draft": true,
+  "skip-changelog": true,
+  "pull-request-title-pattern": "chore${scope}: release${component} ${version}",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "component": "tmt-cli",
+      "include-component-in-tag": false,
+      "exclude-paths": [
+        "extensions/tmt-office/contracts",
+        "extensions/tmt-office/rust/tmt-office",
+        "extensions/tmt-office/rust/tmt-office-pairing",
+        "extensions/tmt-office/rust/tmt-office-storage",
+        "extensions/tmt-office/skills",
+        "extensions/tmt-office/typescript",
+        "extensions/tmt-squad"
+      ],
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "rust/Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-adapters')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-cli')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-cli-style')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-command-output')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-core')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-office-model')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-office-pairing')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-office-service')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-office-storage')].version"
+        }
+      ]
+    },
+    "extensions/tmt-office": {
+      "release-type": "simple",
+      "component": "tmt-office",
+      "include-component-in-tag": true,
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "rust/tmt-office/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/tmt-office-command/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "/rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-office')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-office-command')].version"
+        }
+      ]
+    },
+    "extensions/tmt-squad": {
+      "release-type": "simple",
+      "component": "tmt-squad",
+      "include-component-in-tag": true,
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "rust/tmt-squad/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "/rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-squad')].version"
+        }
+      ]
+    }
+  }
+}
