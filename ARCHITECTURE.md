@@ -630,8 +630,8 @@ The Rust crates have deliberately narrow responsibilities:
 
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
-implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
-messages, lists, tables, the one column-width solver `grid` that tables and
+implementation of the [CLI style](docs/cli-style.md) (palette, themes over the
+design tokens, marks, values, messages, lists, tables, the one column-width solver `grid` that tables and
 extension boards share, the help registration contract and the one
 interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
@@ -2143,7 +2143,10 @@ member through `runner` with the run-binding argument rule
 would start an argument with `-` refused), 4 at a time, bounded in time and
 output. `provider::Cache` keeps each value with the argv that produced it in
 `$XDG_CACHE_HOME/tmt-squad/fields/<squad>.json` (atomic replacement via
-`cache`), so a changed input never shows an old value; `provider::apply` writes
+`cache`: a 0600 file in a 0700 directory), so a changed input never shows an
+old value. `preset = "github-pr"` is a fixed `gh pr view {pr_link}` argv whose
+JSON `provider::github_pr` turns into `#<n> <state>[ · <review>]`; anything
+else from `gh` is a failed run; `provider::apply` writes
 current values into member fields before the document is built, `?` plus the
 row's `failed` list after a failed run. Readers never run providers: `ls` reads
 the cache (`--refresh-fields` runs what is due first), and the board hands each
@@ -2443,3 +2446,15 @@ Every change reports its architecture impact and names the affected Rust owner,
 adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
+
+## Proposed remote client contract
+
+[`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
+remote signed-message contract; no remote runtime or SDK is implemented by that
+document. Its M1 profile is `local-v1` over `loopback-http`, with transport-neutral
+append/subscribe/ack, extension-owned authentication and locally approved held
+sends through the public extension API. Future `cloudflare`/`firestore` bindings
+and `relay-v1` are reserved, not supported. The proposed runtime belongs entirely
+to `extensions/tmt-remote`; core does not listen, stay resident or expose its DB
+as a remote interface. Implementing slices must update this map to describe the
+delivered module, persistence, authority and verification boundaries.

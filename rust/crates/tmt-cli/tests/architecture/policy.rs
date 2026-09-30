@@ -80,12 +80,15 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-command-output" => &["tmt-core", "tmt-adapters", "tmt-cli-style", "serde_json"],
         // The shared CLI style is a leaf: it may depend on no TMT crate, so any
-        // CLI, core or extension, can render through it.
+        // CLI, core or extension, can render through it. ratatui is optional
+        // (the `ratatui` feature) so full-screen views get the same theme
+        // styles while core links none of it.
         "tmt-cli-style" => &[
             "anstream",
             "anstyle",
             "clap",
             "comfy-table",
+            "ratatui",
             "shlex",
             "unicode-width",
         ],
