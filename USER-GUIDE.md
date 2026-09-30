@@ -580,6 +580,7 @@ the member's own TMT data, read on every refresh with no extra commands:
 | `session.usage.remaining` | the context window less those tokens; only when the driver states a window (Codex does, Claude does not) |
 | `meta.<key>`              | the identity's metadata `<key>`                                                                          |
 | `meta.squad.<field>`      | this squad's field, the same as a plain column of that name                                              |
+| `fields.<name>`           | the value of this squad's field provider `<name>` (below)                                                |
 
 These paths are the same whatever the member's driver, so a member that
 switches from Claude to Codex keeps its columns. Any other path is refused with
@@ -590,7 +591,7 @@ is, and a `format` without `from` formats the squad field. The bound value
 replaces a field of the same name everywhere, so sections, filters and sorts use
 it; numbers sort as numbers. Squad's own fields (`member`, `role`, `state`,
 `pending`, `note`) cannot take `from` or `format`. A member without the value
-shows it as missing:
+shows `–`, the board's one mark for a missing value (an empty cell in `ls`):
 
 ```toml
 [squad.product.rows]
@@ -600,6 +601,37 @@ columns = [
   { name = "ctx",   from = "session.usage.tokens", format = "tokens", align = "right" },
 ]
 ```
+
+For data TMT does not have, such as a pull request's review state, a field
+provider runs a program of yours for each member and shows its output as a
+field of its name:
+
+```toml
+[squad.product.fields.pr_state]
+run     = ["gh", "pr", "view", "{pr_link}", "--json", "state", "-q", ".state"]
+every   = "60s"      # run again after this long; 10s-24h, default 60s
+timeout = "5s"       # 1s-30s, default 5s
+```
+
+`run` follows the rules of a `run` binding below: a literal program on `PATH`
+or an absolute path, never a shell, each `{field}` filling exactly one argument,
+and a value that would begin an argument with `-` refused. A member whose
+placeholder is missing or refused is not run and shows `–`. The program's first
+output line is the value (at most 200 characters, control characters removed);
+it may instead print `{"value": "487k", "color": "review"}`, whose color token
+the board uses once themes arrive. A failed start, a non-zero exit, a timeout or
+more than 4 KiB of output shows a dim `?`, never an error. A squad defines at
+most 8 providers, and at most 4 programs run at once.
+
+Show a provider's value with a column of its name, or `from = "fields.<name>"`;
+sections, filters and sorts see it like any field, and it replaces a field of
+the same name that an agent wrote. The board never waits for a provider: it
+shows the last value while providers run in the background, reloads when they
+finish (unless its `refresh` is `"off"`), and runs them again after `every`. Values are kept in
+`$XDG_CACHE_HOME/tmt-squad/fields/` with the arguments that produced them, so a
+member whose `{pr_link}` changed shows `–` until its new value arrives.
+`tmt sq ls` shows the kept values; `tmt sq ls --refresh-fields` first runs the
+providers that are due and waits for them.
 
 The board is made of panes: `rows`, `notes` (the lead's own notebook, the same
 file as `tmt notes`, read-only), `detail` (the selected row) and `replies`
@@ -693,9 +725,10 @@ e = "run code --reuse-window -- {cwd}"
 The program is a name on `PATH` or an absolute path, written literally. Each
 argument is split once when `squad.toml` loads (double quotes group words), and
 a `{field}` value fills exactly one argument however it is spelled, so it never
-becomes several words or shell syntax. A value can still begin with `-`; when
-the program accepts it, put `--` before field arguments, as above, so such a
-value is read as a file or name rather than an option.
+becomes several words or shell syntax. Agents write row fields, so an argument
+that would begin with `-` because of a value is refused: `{branch}` holding
+`--force` never reaches the program as an option. A literal option such as
+`--wait`, or a value after literal text such as `--head={branch}`, is kept.
 
 Some row actions also work as commands, for scripts, tmux key bindings and
 terminals without the board:

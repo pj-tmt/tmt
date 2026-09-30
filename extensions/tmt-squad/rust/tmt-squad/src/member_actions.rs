@@ -26,7 +26,13 @@ fn document(core: &Core, squad: &Squad, config: &Config) -> Result<Value, SquadE
     let layout = config.layout(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
     let rows = config.rows(&squad.name)?;
-    let members = squad.members(core, rows.reads_metadata())?;
+    let providers = config.providers(&squad.name)?;
+    let mut members = squad.members(core, rows.reads_metadata())?;
+    crate::provider::apply(
+        &providers,
+        &mut members,
+        &crate::provider::Cache::load(&squad.name),
+    );
     Ok(status::document(
         squad,
         layout,
