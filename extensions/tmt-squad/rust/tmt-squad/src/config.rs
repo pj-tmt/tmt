@@ -19,6 +19,22 @@ use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 const FILE_LIMIT: u64 = 1024 * 1024;
 const MAX_SECTIONS: usize = 16;
 
+/// Per-squad observation/reminder policy; enabling never installs hooks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reminders {
+    pub enabled: bool,
+    pub stale_after: Duration,
+}
+
+impl Default for Reminders {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            stale_after: Duration::from_secs(1800),
+        }
+    }
+}
+
 /// One sort key; `-field` sorts descending. `state` follows the layout's order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SortKey {
@@ -654,6 +670,60 @@ impl Config {
             .transpose()
     }
 
+    /// `[squad.<name>.reminders]`, off by default. No global enable switch.
+    pub fn reminders(&self, squad: &str) -> Result<Reminders, SquadError> {
+        let place = format!("squad.{squad}.reminders");
+        let Some(item) = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("reminders"))
+        else {
+            return Ok(Reminders::default());
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+        let mut reminders = Reminders::default();
+        for (key, item) in table.iter() {
+            match key {
+                "enabled" => {
+                    reminders.enabled = item.as_bool().ok_or_else(|| {
+                        invalid(format!("`{place}.enabled` must be true or false."))
+                    })?
+                }
+                "stale_after" => {
+                    let wrong = || {
+                        invalid(format!(
+                            "`{place}.stale_after` must be 1m-24h in whole s/m/h units, such as \"30m\"."
+                        ))
+                    };
+                    let text = item.as_str().ok_or_else(wrong)?;
+                    let (number, multiplier) = [("s", 1), ("m", 60), ("h", 3600)]
+                        .into_iter()
+                        .find_map(|(unit, multiplier)| {
+                            text.strip_suffix(unit).map(|number| (number, multiplier))
+                        })
+                        .ok_or_else(wrong)?;
+                    if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
+                        return Err(wrong());
+                    }
+                    let seconds = number
+                        .parse::<u64>()
+                        .ok()
+                        .and_then(|n| n.checked_mul(multiplier))
+                        .filter(|n| (60..=86400).contains(n))
+                        .ok_or_else(wrong)?;
+                    reminders.stale_after = Duration::from_secs(seconds);
+                }
+                _ => {
+                    return Err(invalid(format!(
+                        "`{place}.{key}` is not a reminder setting; use enabled and stale_after."
+                    )));
+                }
+            }
+        }
+        Ok(reminders)
+    }
+
     /// `[squad.<name>] layout` selects the preset; crew is the default.
     pub fn layout(&self, squad: &str) -> Result<Layout, SquadError> {
         match self
@@ -1152,6 +1222,74 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::split::Split;
+
+    #[test]
+    fn reminders_are_per_squad_off_by_default_and_bounded() {
+        let path = temp("reminders-valid");
+        fs::write(
+            &path,
+            "[squad.product.reminders]\nenabled = true\nstale_after = \"30m\"\n",
+        )
+        .unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert_eq!(
+            config.reminders("product").unwrap(),
+            Reminders {
+                enabled: true,
+                stale_after: Duration::from_secs(1800)
+            }
+        );
+        assert_eq!(config.reminders("other").unwrap(), Reminders::default());
+        for (value, seconds) in [("60s", 60), ("1m", 60), ("24h", 86400), ("1440m", 86400)] {
+            fs::write(
+                &path,
+                format!("[squad.product.reminders]\nstale_after = {value:?}\n"),
+            )
+            .unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            assert_eq!(
+                config.reminders("product").unwrap().stale_after,
+                Duration::from_secs(seconds)
+            );
+            assert!(!config.reminders("product").unwrap().enabled);
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn invalid_reminders_never_mutate_config() {
+        let path = temp("reminders-invalid");
+        for setting in [
+            "enabled = 1",
+            "enabled = \"true\"",
+            "stale_after = 60",
+            "extra = true",
+            "stale_after = \"59s\"",
+            "stale_after = \"25h\"",
+            "stale_after = \"1.5m\"",
+            "stale_after = \"+1m\"",
+            "stale_after = \"-1m\"",
+            // Non-ASCII input deliberately exercises the parser boundary.
+            "stale_after = \"1分钟\"",
+            "stale_after = \"18446744073709551615h\"",
+        ] {
+            let original = format!("[squad.product.reminders]\n{setting}\n");
+            fs::write(&path, &original).unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            let error = config.reminders("product").unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+            assert!(error.message.contains("squad.product.reminders"), "{error}");
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        }
+        fs::write(&path, "[squad.product]\nreminders = true\n").unwrap();
+        assert!(
+            Config::read(path.clone())
+                .unwrap()
+                .reminders("product")
+                .is_err()
+        );
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
 
     fn temp(name: &str) -> PathBuf {
         let directory =

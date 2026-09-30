@@ -32,6 +32,7 @@ const crate = (
   dist?: boolean
 ): WorkspaceCrate => ({
   name,
+  version: '5.0.0-alpha.8',
   manifest: `${dir}/Cargo.toml`,
   dir,
   inheritsVersion,
@@ -430,10 +431,7 @@ describe('committed release-please configuration', () => {
         alpha === undefined ? Number.MAX_SAFE_INTEGER : Number(alpha),
       ];
     };
-    const declared = (name: string) =>
-      read(workspace.crates.find((c) => c.name === name)?.manifest ?? '').match(
-        /^version\s*=\s*"([^"]+)"/m
-      )?.[1] ?? read('rust/Cargo.toml').match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+    const declared = (name: string) => workspace.crates.find((c) => c.name === name)?.version;
     for (const [packagePath, crateName] of [
       ['.', 'tmt-cli'],
       ['extensions/tmt-office', 'tmt-office'],

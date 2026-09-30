@@ -239,13 +239,15 @@ pub enum Outcome {
     Value {
         value: String,
         color: Option<String>,
+        /// Structured github-pr result, independent of its displayed value.
+        pr_state: Option<String>,
     },
     Empty,
     Failed,
 }
 
 /// Cached values of one squad's providers:
-/// `{<field>: {<member id>: {argv, value, color, atMs, failed}}}`.
+/// `{<field>: {<member id>: {argv, value, color, prState, atMs, failed}}}`.
 pub struct Cache {
     path: Option<PathBuf>,
     document: Map<String, Value>,
@@ -264,7 +266,7 @@ impl Cache {
         Self::at(path)
     }
 
-    fn at(path: Option<PathBuf>) -> Self {
+    pub(crate) fn at(path: Option<PathBuf>) -> Self {
         let document = path
             .as_deref()
             .and_then(|path| std::fs::read(path).ok())
@@ -279,18 +281,58 @@ impl Cache {
     }
 
     pub fn record(&mut self, job: &Job, outcome: &Outcome, now_ms: u64) {
-        let (value, color, failed) = match outcome {
-            Outcome::Value { value, color } => (json!(value), json!(color), false),
-            Outcome::Empty => (Value::Null, Value::Null, false),
-            Outcome::Failed => (Value::Null, Value::Null, true),
+        let (value, color, failed, pr_state) = match outcome {
+            Outcome::Value {
+                value,
+                color,
+                pr_state,
+            } => (
+                json!(value),
+                json!(color),
+                false,
+                if job.output == Output::GithubPr {
+                    json!(pr_state)
+                } else {
+                    Value::Null
+                },
+            ),
+            Outcome::Empty => (Value::Null, Value::Null, false, Value::Null),
+            Outcome::Failed => (Value::Null, Value::Null, true, Value::Null),
         };
         let field = self
             .document
             .entry(job.field.clone())
             .or_insert_with(|| json!({}));
         field[&job.member] = json!({
-            "argv": job.argv, "value": value, "color": color, "atMs": now_ms, "failed": failed,
+            "argv": job.argv, "value": value, "color": color, "atMs": now_ms, "failed": failed, "prState": pr_state,
         });
+    }
+
+    /// Successful, current github-pr preset states only. Arbitrary text
+    /// providers never become activity evidence, and this executes nothing.
+    pub fn github_pr_states(
+        &self,
+        providers: &[Provider],
+        member: &Member,
+        now_ms: u64,
+    ) -> std::collections::BTreeMap<String, String> {
+        providers
+            .iter()
+            .filter(|provider| provider.output == Output::GithubPr)
+            .filter_map(|provider| {
+                let argv = argv(provider, &crate::status::row(member))?;
+                let entry = current(self, provider, member, &argv)?;
+                let at = entry["atMs"].as_u64()?;
+                if entry["failed"] != false
+                    || now_ms.checked_sub(at)? > provider.every.as_millis() as u64
+                {
+                    return None;
+                }
+                let state = entry["prState"].as_str()?;
+                matches!(state, "draft" | "open" | "closed" | "merged")
+                    .then(|| (provider.name.clone(), state.to_owned()))
+            })
+            .collect()
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -405,14 +447,18 @@ fn outcome(stdout: &[u8]) -> Outcome {
     };
     match clean(&value) {
         value if value.is_empty() => Outcome::Empty,
-        value => Outcome::Value { value, color },
+        value => Outcome::Value {
+            value,
+            color,
+            pr_state: None,
+        },
     }
 }
 
 /// `#412 open`, `#412 draft`, `#412 merged` or `#412 closed`; an open pull
 /// request adds its review: `#412 open · approved`, `· changes requested` or
 /// `· review required`. Anything else from `gh` is a failed run.
-fn github_pr(stdout: &[u8]) -> Outcome {
+pub(crate) fn github_pr(stdout: &[u8]) -> Outcome {
     let Ok(pr) = serde_json::from_slice::<Value>(stdout) else {
         return Outcome::Failed;
     };
@@ -436,7 +482,11 @@ fn github_pr(stdout: &[u8]) -> Outcome {
         Some(review) => format!("#{number} {state} · {review}"),
         None => format!("#{number} {state}"),
     };
-    Outcome::Value { value, color: None }
+    Outcome::Value {
+        value,
+        color: None,
+        pr_state: Some(state.into()),
+    }
 }
 
 /// Runs one job: a failure to start, a non-zero exit, a timeout or too much
