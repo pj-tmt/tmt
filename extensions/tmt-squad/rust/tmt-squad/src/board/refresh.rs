@@ -427,7 +427,7 @@ fn all_document(
         .into_iter()
         .map(|name| {
             let document = &documents[name];
-            let lead = document["squad"]["lead"]["name"].as_str().unwrap_or("–");
+            let lead = document["squad"]["lead"]["name"].as_str();
             let members = document["sections"]
                 .as_array()
                 .into_iter()
@@ -801,12 +801,12 @@ mod tests {
         );
         let all = all_document(&tabs, &documents, &attention);
         let rows = all["sections"][0]["rows"].as_array().unwrap();
-        let listed: Vec<(&str, &str, &str)> = rows
+        let listed: Vec<(&str, Option<&str>, &str)> = rows
             .iter()
             .map(|row| {
                 (
                     row["name"].as_str().unwrap(),
-                    row["fields"]["lead"].as_str().unwrap(),
+                    row["fields"]["lead"].as_str(),
                     row["state"].as_str().unwrap(),
                 )
             })
@@ -814,15 +814,45 @@ mod tests {
         assert_eq!(
             listed,
             [
-                ("product", "sol", "waiting"),
-                ("infra", "rin", "blocked"),
-                ("quiet", "–", "normal"),
-                ("hidden", "sol", "normal"),
+                ("product", Some("sol"), "waiting"),
+                ("infra", Some("rin"), "blocked"),
+                ("quiet", None, "normal"),
+                ("hidden", Some("sol"), "normal"),
             ],
             "every squad, with or without a lead, in tab order"
         );
         assert_eq!(rows[0]["squad"], "product", "Enter opens this tab");
         assert_eq!(rows[0]["fields"]["waiting"], "1");
+        assert_eq!(rows[2]["fields"]["lead"], Value::Null);
+
+        let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
+        let view = snapshot.view.as_mut().unwrap();
+        view.document = all;
+        view.rows = crate::rows::Rows::overview();
+        let mut app = crate::board::app::App::new(Some(ALL.into()));
+        app.apply(snapshot);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(64, 10)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let screen: Vec<String> = terminal
+            .backend()
+            .buffer()
+            .content()
+            .chunks(64)
+            .map(|line| line.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        let quiet = screen
+            .iter()
+            .find(|line| line.trim_start().starts_with("quiet"))
+            .expect("the leadless squad is visible on the all tab");
+        assert_eq!(
+            quiet.split_whitespace().collect::<Vec<_>>(),
+            ["quiet", "–", "0", "0", "0"],
+            "the view renders the missing lead as a display placeholder"
+        );
+
         assert_eq!(attention["quiet"], Attention::default());
         assert_eq!(
             attention["infra"],
