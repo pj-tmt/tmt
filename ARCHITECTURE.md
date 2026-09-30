@@ -1545,7 +1545,10 @@ Missing or conflicting interface evidence masks the reported runtime to unknown
 without rewriting stored evidence. Recorded running processes are rechecked through
 the bounded `process::runtime` observer before input. It uses a fixed-locale,
 fixed-timezone `ps` start identity (second resolution), not a PID alone or provider
-transcript. Process disappearance, zombie state or a changed start identity reports
+transcript. `tmt_core::endpoint::ProcessIncarnation` (a PID and that opaque start
+token, from core's own inspection) is the one value for comparing a local process:
+runtimes, launch owners, notification waiters and Herdr servers use it, each with
+its own stored columns and lifecycle. Process disappearance, zombie state or a changed start identity reports
 ended. Stopped/traced processes remain unknown rather than ended, allowing later
 resumption without sending input to the shell meanwhile. Inconclusive checks also
 remain unknown and do not permit fallback to legacy unobserved delivery. The probe
@@ -1883,7 +1886,7 @@ while the public `wN:pM` (its target and display address) is reused after a
 restart. A caller's Herdr pane counts only when its shell is an ancestor of the
 caller (`process::ancestry`, shared with tmux); inside both hosts the nearer
 pane wins. A Herdr server incarnation is its server process (the parent of
-every pane shell) and that process's start; Herdr keeps no server-level store,
+every pane shell) as a `ProcessIncarnation` core observes; Herdr keeps no server-level store,
 so TMT's UUID for it comes from core's `HostServerIds` port, implemented by
 `Storage` (`host_servers`) and resolved by `Host::resolve_servers` before any
 binding transaction opens, so the transaction only sees resolved evidence. A

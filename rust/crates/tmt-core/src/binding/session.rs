@@ -5,6 +5,7 @@
 //! neither a provider session ID nor inherited hook text authorizes a binding.
 //! Foreground launch callers use `admit_launched`, not direct owner assignment.
 
+use crate::endpoint::ProcessIncarnation;
 use std::{error::Error, fmt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,38 +230,12 @@ pub struct BindingSessionState {
     pub state: RuntimeState,
     pub key: Option<ObservedSessionKey>,
     /// The foreground wrapper is binding evidence, not provider session identity.
-    pub launch_owner: Option<RuntimeIncarnation>,
-}
-
-/// Drivers supply verified process identity, never a PID or hook environment alone.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeIncarnation {
-    pid: u64,
-    start_identity: ProviderSessionId,
-}
-
-impl RuntimeIncarnation {
-    pub fn new(pid: u64, start_identity: &str) -> Result<Self, SessionValueError> {
-        if !crate::endpoint::valid_process_id(pid) {
-            return Err(SessionValueError::Incarnation);
-        }
-        Ok(Self {
-            pid,
-            start_identity: ProviderSessionId::new(start_identity)
-                .map_err(|_| SessionValueError::Incarnation)?,
-        })
-    }
-    pub fn pid(&self) -> u64 {
-        self.pid
-    }
-    pub fn start_identity(&self) -> &str {
-        self.start_identity.as_str()
-    }
+    pub launch_owner: Option<ProcessIncarnation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservedSessionKey {
-    pub incarnation: RuntimeIncarnation,
+    pub incarnation: ProcessIncarnation,
     /// Codex may not disclose its thread ID at launch. The process is still fenced.
     pub provider_session: Option<ProviderSessionId>,
 }
@@ -279,7 +254,7 @@ impl BindingSessionState {
     pub fn record_launched_exit(
         &self,
         key: ObservedSessionKey,
-        owner: RuntimeIncarnation,
+        owner: ProcessIncarnation,
     ) -> Option<Self> {
         if self.key.as_ref().is_some_and(|old| {
             old.incarnation == key.incarnation
@@ -305,7 +280,7 @@ impl BindingSessionState {
     pub fn admit_launched(
         &self,
         key: ObservedSessionKey,
-        owner: RuntimeIncarnation,
+        owner: ProcessIncarnation,
         transition: SessionTransition,
         child_liveness: RuntimeLiveness,
         owner_liveness: RuntimeLiveness,
@@ -408,7 +383,6 @@ pub enum SessionValueError {
     Harness,
     ProviderSession,
     RuntimeMode,
-    Incarnation,
     DriverState,
 }
 
@@ -418,7 +392,6 @@ impl fmt::Display for SessionValueError {
             Self::Harness => "Invalid harness identifier.",
             Self::ProviderSession => "Invalid provider session identifier.",
             Self::RuntimeMode => "Invalid runtime mode identifier.",
-            Self::Incarnation => "Invalid runtime process incarnation.",
             Self::DriverState => "Invalid or oversized driver state.",
         })
     }
@@ -624,7 +597,7 @@ mod tests {
 
     fn key(start: &str, session: &str) -> ObservedSessionKey {
         ObservedSessionKey {
-            incarnation: RuntimeIncarnation::new(42, start).unwrap(),
+            incarnation: ProcessIncarnation::new(42, start).unwrap(),
             provider_session: Some(ProviderSessionId::new(session).unwrap()),
         }
     }
@@ -632,7 +605,7 @@ mod tests {
     #[test]
     fn launched_admission_requires_two_live_processes_and_preserves_owner_authority() {
         let original = key("child-start", "session-a");
-        let owner = RuntimeIncarnation::new(41, "owner-start").unwrap();
+        let owner = ProcessIncarnation::new(41, "owner-start").unwrap();
         let initial = BindingSessionState::default();
         for child in [
             RuntimeLiveness::Alive,
@@ -671,7 +644,7 @@ mod tests {
             admitted
                 .admit_launched(
                     original.clone(),
-                    RuntimeIncarnation::new(41, "different-start").unwrap(),
+                    ProcessIncarnation::new(41, "different-start").unwrap(),
                     SessionTransition::Resumed,
                     RuntimeLiveness::Alive,
                     RuntimeLiveness::Alive
@@ -694,7 +667,7 @@ mod tests {
     #[test]
     fn fast_launch_completion_never_admits_running_or_replaces_same_child_authority() {
         let key = key("fast-child", "session-a");
-        let owner = RuntimeIncarnation::new(41, "owner-start").unwrap();
+        let owner = ProcessIncarnation::new(41, "owner-start").unwrap();
         let ended = BindingSessionState::default()
             .record_launched_exit(key.clone(), owner.clone())
             .unwrap();
@@ -715,7 +688,7 @@ mod tests {
             ended
                 .record_launched_exit(
                     key.clone(),
-                    RuntimeIncarnation::new(41, "other-owner").unwrap()
+                    ProcessIncarnation::new(41, "other-owner").unwrap()
                 )
                 .is_none()
         );
@@ -727,7 +700,7 @@ mod tests {
     #[test]
     fn hook_events_preserve_launch_ownership_until_a_new_incarnation_is_admitted() {
         let original = key("child-start", "session-a");
-        let owner = RuntimeIncarnation::new(41, "owner-start").unwrap();
+        let owner = ProcessIncarnation::new(41, "owner-start").unwrap();
         let state = BindingSessionState::default()
             .admit_launched(
                 original.clone(),
