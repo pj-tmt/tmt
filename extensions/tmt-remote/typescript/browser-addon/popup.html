@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TMT · Send to agent</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="brand">TMT</span><span class="badge">LOCAL DEMO</span>
+        <h1>Send to agent</h1>
+        <p>Review a selection before sharing it.</p>
+      </header>
+      <p class="notice">Demo only. No connection, keys or messages to TMT.</p>
+      <button id="capture" type="button">Capture current selection</button>
+      <form id="composer">
+        <label for="agent">Agent</label
+        ><select id="agent" required></select>
+        <label for="note">Optional note</label
+        ><textarea
+          id="note"
+          rows="2"
+          maxlength="4096"
+          placeholder="What should the agent do with this?"
+        ></textarea>
+        <section aria-labelledby="preview-heading">
+          <h2 id="preview-heading">Message preview</h2>
+          <p class="hint">
+            Hidden characters appear as escapes. The original text is sent unchanged.
+          </p>
+          <pre id="escaped"></pre>
+          <details>
+            <summary>Exact original text</summary>
+            <pre id="preview">Capture a selection to begin.</pre>
+          </details>
+        </section>
+        <button id="send" type="submit" disabled>Send · demo</button>
+      </form>
+      <section aria-labelledby="status-heading">
+        <h2 id="status-heading">Status &amp; reply</h2>
+        <p id="status" role="status">Ready</p>
+        <pre id="reply"></pre>
+        <button id="recover" type="button" disabled>Check status</button
+        ><button id="retry" type="button" hidden>Retry same message</button
+        ><button id="reset" type="button" hidden>Start new message</button>
+      </section>
+    </main>
+    <script type="module" src="/src/popup.ts"></script>
+  </body>
+</html>

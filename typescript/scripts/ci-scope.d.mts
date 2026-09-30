@@ -8,6 +8,7 @@ export interface ComponentMap {
   readonly components: readonly {
     readonly name: string;
     readonly package?: string;
+    readonly release?: boolean;
     readonly owns: readonly string[];
     readonly excludes: readonly string[];
     readonly migrations: readonly string[];

@@ -196,6 +196,8 @@ every   = "60s"
 timeout = "5s"
 `}</Code>
 
+For the usual case, `preset = "github-pr"` does it for you in place of `run`: it asks `gh` about each member's `pr_link` and shows `#412 open · approved`, `#412 draft` or `#412 merged`. A member without a `pr_link` is skipped; without `gh`, or when it isn't logged in, the column shows `?`.
+
 ### Colors and themes
 
 Color carries meaning, so most of the board stays neutral: only what needs you, what's working and what's stuck stands out. Every color comes from a named **token**, the same set `tmt ls`, the other commands and this site use, and a theme decides what each token looks like. [The design guideline →](/design)
