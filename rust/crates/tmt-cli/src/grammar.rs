@@ -28,6 +28,11 @@ macro_rules! spec {
 pub mod completion;
 pub mod extensions;
 
+mod launch;
+mod presence;
+mod requests;
+mod rooms;
+
 /// The root's help; root help adds the extensions discovered on `PATH`.
 pub const ROOT: &CommandSpec = spec!(
     "tmt",
@@ -81,107 +86,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
             "Answer one JSON request read from stdin" => "tmt api",
         ]
     )));
-    root = root.subcommand(
-        storage(spec!(
-            "room",
-            "Manage shared communication rooms (not access controls)",
-            [
-                "Create a room" => "tmt room create reviewers",
-                "Ask every member of a room" => "tmt room send reviewers \"Please review PR 444\"",
-            ]
-        ))
-        .subcommand_required(true)
-        .subcommand(storage(spec!(
-            "create",
-            "Create an empty room",
-            [
-                "Create a room" => "tmt room create reviewers",
-            ]
-        )).arg(operand("name", true)))
-        .subcommand(storage(spec!(
-            "list",
-            "List rooms and membership counts",
-            [
-                "List rooms and their member counts" => "tmt room list",
-                "The same, as JSON" => "tmt room list --json",
-            ]
-        )).visible_alias("ls"))
-        .subcommand(
-            storage(spec!(
-                "retire",
-                "Stop new room work while retaining content and history",
-                [
-                    "Retire a room, keeping its history" => "tmt room retire reviewers",
-                ]
-            ))
-            .arg(operand("room", true)),
-        )
-        .subcommand(
-            storage(spec!(
-                "show",
-                "Show a room by UUID or unique exact name",
-                [
-                    "Show a room and its members" => "tmt room show reviewers",
-                ]
-            )).arg(operand("room", true)),
-        )
-        .subcommand(
-            with_options(
-                storage(spec!(
-                    "join",
-                    "Join a room without changing other members",
-                    [
-                        "Join a room as this pane's identity" => "tmt room join reviewers",
-                        "Add another identity" => "tmt room join reviewers --identity worker",
-                    ]
-                )),
-                &["identity"],
-            )
-            .arg(operand("room", true)),
-        )
-        .subcommand(
-            with_options(
-                storage(spec!(
-                    "leave",
-                    "Leave a room without deleting its history",
-                    [
-                        "Leave a room" => "tmt room leave reviewers",
-                    ]
-                )),
-                &["identity"],
-            )
-            .arg(operand("room", true)),
-        )
-        .subcommands(
-            [
-                spec!(
-                    "send",
-                    "Queue one replyable inbox request per room member",
-                    [
-                        "Ask every member for a reply" => "tmt room send reviewers \"Please review PR 444\"",
-                    ]
-                ),
-                spec!(
-                    "broadcast",
-                    "Queue a no-reply announcement per room member",
-                    [
-                        "Announce without expecting replies" => "tmt room broadcast reviewers \"Main is green again\"",
-                    ]
-                ),
-            ]
-            .into_iter()
-            .map(|spec| {
-                with_options(storage(spec), &["identity"])
-                    .arg(operand("room", true))
-                    .arg(operand("message", true))
-                    .arg(
-                        Arg::new("operation-id")
-                            .long("operation-id")
-                            .help("Reuse a UUID for safe retry of the same composition"),
-                    )
-            }),
-        ),
-    );
+    root = root.subcommand(rooms::room());
     root.subcommand(
         general(spec!(
             "help",
@@ -205,115 +110,13 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
             "Create settings for this workspace" => "tmt init",
         ]
     )))
-    .subcommand(
-        base(spec!(
-            "run",
-            "Bind this pane and run a command with its original arguments",
-            [
-                "Start an agent in this pane under a temporary name" => "tmt run worker claude",
-                "Keep the identity after the pane is gone" => "tmt run --save worker claude",
-                "Resume the remembered session" => "tmt run --resume worker",
-            ]
-        ))
-            .arg(option("save"))
-            .arg(Arg::new("resume").long("resume").action(ArgAction::SetTrue)
-                .help("Resume the remembered session; put this option before the name"))
-            .arg(Arg::new("run-argv").value_name("NAME [COMMAND...]")
-                .required(true).num_args(1..).trailing_var_arg(true)
-                .value_parser(clap::builder::OsStringValueParser::new())),
-    )
-    .subcommand(
-        base(spec!(
-            "resume",
-            "Resume an identity's remembered session in this pane",
-            [
-                "Resume an identity's last session" => "tmt resume worker",
-                "Forget the remembered session" => "tmt resume --forget worker",
-            ]
-        ))
-            .arg(Arg::new("forget").long("forget").action(ArgAction::SetTrue)
-                .help("Forget the remembered session instead of resuming it"))
-            .arg(Arg::new("retry").long("retry").action(ArgAction::SetTrue)
-                .conflicts_with("forget")
-                .help("Try a session marked stale once more"))
-            .arg(operand("name", true).help("Identity name; TMT options go before it")),
-    )
-    .subcommand(
-        general(spec!(
-            "list",
-            "List global identities, lifetime and live presence",
-            [
-                "List identities and whether they are live" => "tmt list",
-                "List the members of a room" => "tmt list --room reviewers",
-                "The same, as JSON" => "tmt list --json",
-            ]
-        ))
-            .visible_alias("ls")
-            .arg(operand("target", false).conflicts_with("room"))
-            .arg(option("room"))
-            .arg(list_filter("saved", "Only saved identities").conflicts_with("temp"))
-            .arg(list_filter("temp", "Only temporary identities"))
-            .arg(list_filter("here", "Only agents in this tmux session"))
-            .arg(list_filter("all", "Show offline identities one per row")),
-    )
-    .subcommand(
-        with_options(
-            general(spec!(
-                "add",
-                "Bind an explicit pane; temporary unless saved",
-                [
-                    "Bind a pane by its tmux id" => "tmt add %3 worker",
-                    "Keep the identity after the pane is gone" => "tmt add --save %3 worker",
-                ]
-            )),
-            &["save"],
-        )
-        .arg(operand("pane-target", true))
-        .arg(operand("name", true)),
-    )
-    .subcommand(
-        with_options(
-            general(spec!(
-                "name",
-                "Bind this pane; temporary unless saved",
-                [
-                    "Name this pane" => "tmt name worker",
-                    "Keep the identity after the pane is gone" => "tmt name --save worker",
-                ]
-            )),
-            &["save"],
-        )
-        .visible_alias("this")
-        .arg(operand("name", true)),
-    )
-    .subcommand(
-        with_options(
-            general(spec!(
-                "marked",
-                "Bind the pane explicitly marked in tmux; temporary unless saved",
-                [
-                    "Bind the pane you marked in tmux" => "tmt marked worker",
-                ]
-            )),
-            &["save"],
-        )
-        .arg(operand("name", true)),
-    )
-    .subcommand(
-        with_options(
-            general(spec!(
-                "rm",
-                "Retire identity and remove role/preamble; keep pane/exchanges (--force for saved)",
-                [
-                    "Retire a temporary identity" => "tmt rm worker",
-                    "Retire a saved identity" => "tmt rm --force worker",
-                ]
-            )),
-            &["force"],
-        )
-        .visible_alias("remove")
-        .arg(operand("name", true)),
-    )
+    .subcommand(launch::run())
+    .subcommand(launch::resume())
+    .subcommand(presence::list_command())
+    .subcommand(presence::add())
+    .subcommand(presence::name())
+    .subcommand(presence::marked())
+    .subcommand(presence::remove())
     .subcommand(
         storage(spec!(
             "rename",
@@ -325,86 +128,11 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
         .arg(operand("old", true))
         .arg(operand("new", true)),
     )
-    .subcommand(
-        with_options(
-            general(spec!(
-                "talk",
-                "Send a request and wait for its durable reply",
-                [
-                    "Send a message and wait for the reply" => "tmt talk worker \"Run the tests\"",
-                    "Send and return at once" => "tmt talk --detach worker \"Deploy when green\"",
-                    "Queue for an identity with no pane" => "tmt talk --inbox worker \"Review when free\"",
-                ]
-            )),
-            &[
-                "force",
-                "delay",
-                "detach",
-                "timeout",
-                "no-preamble",
-                "identity",
-                "inbox",
-                "room",
-            ],
-        )
-        .visible_alias("send")
-        .arg(operand("target", true))
-        .arg(operand("message", true)),
-    )
-    .subcommand(
-        with_options(
-            general(spec!(
-                "check",
-                "Capture diagnostic pane output",
-                [
-                    "Show recent output from an agent's pane" => "tmt check worker",
-                    "Show the last 50 lines" => "tmt check worker 50",
-                ]
-            )),
-            &["lines"],
-        )
-        .visible_alias("read")
-        .arg(operand("target", true))
-        .arg(operand("capture-lines", false)),
-    )
-    .subcommand(
-        general(spec!(
-            "focus",
-            "Show an identity's or pane's view in your tmux client",
-            [
-                "Show an agent's pane in your tmux client" => "tmt focus worker",
-                "Name your client and the pane it shows" => "tmt focus --client",
-            ]
-        ))
-            .arg(operand("target", false).required_unless_present("client"))
-            .arg(
-                Arg::new("client")
-                    .long("client")
-                    .action(ArgAction::SetTrue)
-                    .conflicts_with("target")
-                    .help("Name your tmux client and the pane it shows; takes no target, switches nothing"),
-            ),
-    )
-    .subcommand(
-        general(spec!(
-            "whoami",
-            "Show this pane's verified identity",
-            [
-                "Show this pane's identity" => "tmt whoami",
-                "Include pending work" => "tmt whoami --context",
-            ]
-        )).arg(
-            Arg::new("context").long("context").action(ArgAction::SetTrue)
-                .help("Read bounded identity and pending-work context without changing state"),
-        ),
-    )
-    .subcommand(general(spec!(
-        "unbind",
-        "Detach this pane; retire temporary identity",
-        [
-            "Detach this pane from its identity" => "tmt unbind",
-        ]
-    )))
+    .subcommand(requests::talk())
+    .subcommand(presence::check())
+    .subcommand(presence::focus())
+    .subcommand(presence::whoami())
+    .subcommand(presence::unbind())
     .subcommand(
         general(spec!(
             "extension",
@@ -585,78 +313,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
                 ]
             )).arg(operand("agent", true))),
     )
-    .subcommand(
-        with_options(
-            storage(spec!(
-                "x",
-                "Inspect and acknowledge exchanges",
-                [
-                    "List unacknowledged exchanges" => "tmt x list",
-                    "Wait for incoming inbox work" => "tmt x listen",
-                ]
-            )),
-            &["identity", "limit", "after"],
-        )
-        .subcommand(with_options(
-            storage(spec!(
-                "list",
-                "List unacknowledged exchanges",
-                [
-                    "List unacknowledged exchanges" => "tmt x list",
-                    "Show at most 20" => "tmt x list --limit 20",
-                ]
-            )),
-            &["identity", "limit", "after"],
-        ))
-        .subcommand(
-            with_options(
-                storage(spec!(
-                    "show",
-                    "Show retained exchange content",
-                    [
-                        "Show one exchange" => "tmt x show req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30",
-                    ]
-                )),
-                &["identity", "incoming"],
-            )
-            .arg(operand("request-id", true)),
-        )
-        .subcommand(
-            with_options(
-                storage(spec!(
-                    "ack",
-                    "Acknowledge an observed revision",
-                    [
-                        "Acknowledge the revision you read" => "tmt x ack --revision 3 req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30",
-                    ]
-                )),
-                &["identity", "incoming"],
-            )
-            .arg(option("revision").required(true))
-            .arg(operand("request-id", true)),
-        )
-        .subcommand(with_options(
-            storage(spec!(
-                "ackall",
-                "Acknowledge the current identity snapshot",
-                [
-                    "Acknowledge everything shown so far" => "tmt x ackall",
-                ]
-            )),
-            &["identity", "incoming"],
-        ))
-        .subcommand(with_options(
-            storage(spec!(
-                "listen",
-                "Wait for incoming inbox activity",
-                [
-                    "Wait for new inbox work" => "tmt x listen",
-                    "Give up after ten minutes" => "tmt x listen --timeout 10m",
-                ]
-            )),
-            &["identity", "room", "timeout", "debounce"],
-        )),
-    )
+    .subcommand(requests::exchanges())
     .subcommand(
         storage(spec!(
             "identity",
@@ -869,60 +526,10 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
                 &["identity"],
             )),
     )
-    .subcommand(
-        with_options(
-            storage(spec!(
-                "reply",
-                "Submit an exact final response",
-                [
-                    "Reply with a message" => "tmt reply req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30 --receipt v2_7OxG2uwfdAFFMd0qNWJDnA --message \"Done: tests pass\"",
-                    "Reply with a file's content" => "tmt reply req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30 --receipt v2_7OxG2uwfdAFFMd0qNWJDnA --file answer.md",
-                ]
-            )),
-            &["file", "message", "stdin"],
-        )
-        .arg(option("receipt").required(true))
-        .arg(operand("request-id", true)),
-    )
-    .subcommand(
-        storage(spec!(
-            "result",
-            "Retrieve a retained final response",
-            [
-                "Print a request's final response" => "tmt result req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30",
-            ]
-        )).arg(operand("request-id", true)),
-    )
-    .subcommand(with_options(
-        storage(spec!(
-            "inbox",
-            "List requests waiting on you for a final response",
-            details = "A request leaves only when it has a final response or its acceptance deadline passes; acknowledging it does not remove it.",
-            [
-                "What is waiting on you" => "tmt inbox",
-                "Only from one identity" => "tmt inbox --from reviewer",
-                "As a named identity outside its pane" => "tmt inbox --identity ben",
-            ]
-        )),
-        &["identity", "limit", "from"],
-    ))
-    .subcommand(
-        with_options(
-            storage(spec!(
-                "answer",
-                "Answer the request an identity is waiting on you for",
-                details = "With several open requests from that identity, nothing is sent until you choose one with --request. With --request the sender may be omitted, as for an anonymous one. If a request gave you a receipt, use tmt reply.",
-                [
-                    "Answer with a message" => "tmt answer reviewer \"Yes, ship it\"",
-                    "Choose one of several open requests" => "tmt answer reviewer \"Yes\" --request req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30",
-                    "Answer a request by ID, also one from an anonymous sender" => "tmt answer --request req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30 \"Done\"",
-                ]
-            )),
-            &["identity", "request", "file", "stdin"],
-        )
-        .arg(operand("from", false))
-        .arg(operand("content", false)),
-    )
+    .subcommand(requests::reply_command())
+    .subcommand(requests::result())
+    .subcommand(requests::inbox())
+    .subcommand(requests::answer())
     .subcommand(
         with_options(
             general(spec!(
@@ -967,8 +574,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(internal("__hook", "Internal bounded provider lifecycle callback").hide(true)
         .arg(operand("provider", true).value_parser(hooked))
         .arg(Arg::new("worker").long("worker").hide(true).action(ArgAction::SetTrue)))
-    .subcommand(internal("__request-observer", "Internal bounded request timeout observer").hide(true)
-        .arg(operand("request-id", true)))
+    .subcommand(requests::request_observer())
     .subcommand(general(spec!(
         "completion",
         "Generate shell completion",
