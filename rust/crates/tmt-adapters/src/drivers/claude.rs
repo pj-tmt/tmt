@@ -5,6 +5,7 @@ pub use crate::runtime::hook_protocol::{
     CONTEXT_LIMIT, HOOK_INPUT_LIMIT, HOOK_TIMEOUT_SECONDS, encode_context,
 };
 use serde::Deserialize;
+pub mod channel;
 use tmt_core::binding::session::{
     BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeState,
     SessionTransition,
@@ -220,6 +221,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     runtime: Some(super::Runtime {
         driver: || Box::new(ClaudeRuntime),
         lifecycle: || Box::new(ClaudeLifecycle),
+        channel: Some(|| Box::new(channel::ClaudeChannel)),
         identify_caller: None,
     }),
 };
@@ -243,6 +245,22 @@ impl tmt_core::driver::Driver for ClaudeRuntime {
 
     fn claims(&self, command: &str) -> Option<tmt_core::binding::session::HarnessId> {
         crate::runtime::claim_named(command, NAME)
+    }
+
+    /// Only an enrolled session (one whose channel server published its record)
+    /// leaves the tmux path; see `contracts/claude-channel-v1.md`.
+    fn send(
+        &mut self,
+        target: &Self::Target,
+        message: &str,
+    ) -> tmt_core::driver::ActionResult<
+        tmt_core::driver::DeliveryAcceptance,
+        tmt_core::driver::SendFailure<Self::Error>,
+    > {
+        let Ok(paths) = crate::config::ConfigPaths::discover() else {
+            return tmt_core::driver::ActionResult::Unsupported;
+        };
+        channel::send(&paths.channel_directory(), target, message)
     }
 
     fn resume(

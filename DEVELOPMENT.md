@@ -986,6 +986,18 @@ manual lifecycle evidence in issue #321 owns that distinction, including the
 Codex cross-mode limitation. Normal `tmt run` does not execute this developer
 check or enforce these version pins on user commands.
 
+The Claude channel launch has its own opt-in provider check, for the one build
+with recorded channel evidence (see the
+[channel contract](contracts/claude-channel-v1.md)):
+
+```bash
+cargo run --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
+  --example channel-contract -- /absolute/claude
+```
+
+It runs only `--version` and `--help`. Unlike the resume check it is enforced on
+user commands: `tmt run --channel` refuses any other build before launching.
+
 `tmt whoami --context [--json]` is the read-only rehydration entry point. It reports
 the verified caller identity and lifetime, up to 500 characters of role text,
 an existing saved notebook path (not its contents), and unacknowledged originated
@@ -1106,6 +1118,7 @@ Keep these boundaries when choosing where a regression belongs:
 | `exchange-watermarks` versus `exchange-attention`              | Gated revision/watermark state and exact late finals versus config isolation, redaction and rebind access                             |
 | `tmux-adapter`, `transport-adapter`                            | Explicit adapter-probe evidence: caller/inventory/markers and delivery/capture stages; not public CLI success                         |
 | `pane-badge`                                                   | Default-off behavior, opt-in updates, theme preservation, rendering, conflicts and cleanup                                            |
+| `claude-channel`                                               | Channel delivery through a mock `claude`: opted-in sessions are never pasted to, never-opted-in ones are, startup race, cleanup       |
 | `executable-selection`, `smoke`                                | Harness selection, causal nested replies, startup and cleanup controls                                                                |
 
 Similar commands do not imply duplicate evidence: native-process tests inspect

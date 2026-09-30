@@ -28,8 +28,12 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 value["offline"] = true.into();
             }
         }
+        if correlation.delivery_uncertain {
+            value["deliveryState"] = "uncertain".into();
+        }
         writeln!(stdout, "{value}")?;
     } else {
+        let completed = report.response.is_some();
         if let Some(response) = report.response {
             let text = if correlation.inbox {
                 format!(
@@ -43,6 +47,13 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 )
             };
             tmt_cli_style::message::success(&mut stdout, terminal, &text)?;
+            if correlation.delivery_uncertain {
+                tmt_cli_style::message::hint(
+                    &mut stdout,
+                    terminal,
+                    "delivery was unconfirmed at send time; this reply confirms it",
+                )?;
+            }
             // The responder's exact text, never styled or escaped.
             writeln!(stdout, "{}", response.body)?;
         } else if correlation.offline {
@@ -68,6 +79,13 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                     "Sent request {} to {} ({})",
                     correlation.request_id, correlation.target, correlation.pane
                 ),
+            )?;
+        }
+        if !completed && correlation.delivery_uncertain {
+            tmt_cli_style::message::hint(
+                &mut stdout,
+                terminal,
+                "delivery is uncertain (the channel gives no receipt); do not resend",
             )?;
         }
         tmt_cli_style::message::hint(

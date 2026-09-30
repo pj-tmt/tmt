@@ -15,7 +15,9 @@ run explicit developer fixtures and verifiers, never serve as a product fallback
 Published releases are immutable. Source changes do not publish replacements
 or migrate application data.
 TMT remains an invocation-owned local CLI, without a remote MCP server, identity
-memory or a separate inbox service. The independently installed Office companion may
+memory or a separate inbox service. The one MCP endpoint is provider-scoped: the
+[Claude channel](#claude-channel) server that an explicitly enrolled launch starts
+as Claude's own child. It is not a TMT MCP service and listens on no network. The independently installed Office companion may
 run one explicit loopback-only browser service; it does not execute CLI work or change
 the CLI's invocation-owned storage policy.
 
@@ -1387,7 +1389,8 @@ own process verification and event mapping; core does not interpret hook ancestr
 First-party and community registrations share the same API; descending priority
 and then harness ID resolve competing claims deterministically. Registration is
 in-process, not dynamic plugin discovery. Explicit launches preserve every argv
-byte; the registry neither executes recognition nor remembers arguments or paths.
+byte, except that `run --channel` lets the driver append its channel enrollment
+arguments after them; the registry neither executes recognition nor remembers arguments or paths.
 Bare relaunch resolves the registered executable through PATH with no arguments.
 Exact resume is runtime-owned, including the mode: the shared constants are
 Claude `default` and Codex `shared`/`embedded`. Provider hooks must record those
@@ -1549,7 +1552,8 @@ process owner. These contracts do not discover or execute plugins, install provi
 hooks or replace the durable retirement receipts in `identity_hooks`. Container
 interfaces remain the existing tmux binding records; the session interface kind
 is reserved, not a shipped session-only binding store. Current
-public messaging still uses its existing tmux transport and request lifecycle.
+public messaging still uses its existing tmux transport and request lifecycle,
+except for a session that opted into the [Claude channel](#claude-channel).
 Implicit caller selection first consults the runtime driver's `identify_caller`
 action. `drivers::codex::caller` owns Codex thread markers and bounded process
 ancestry inspection. It takes one PID/parent/command snapshot and walks it in
@@ -2013,6 +2017,37 @@ and status commands never call it.
 Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
+
+### Claude channel
+
+[`contracts/claude-channel-v1.md`](contracts/claude-channel-v1.md) owns the
+behavior; this is the ownership map (#329).
+
+- `tmt run --channel` (grammar and `run_command`) verifies the provider through
+  `runtime::channel::RuntimeChannel::preflight` (bounded `--version`, exact
+  supported build), then `enroll`s before the child starts: the driver writes the
+  durable enrollment record under `ConfigPaths::channel_directory()` and returns
+  the launch arguments the CLI appends. A launch without `--channel` and the end
+  of the launch `withdraw` it. The CLI never spells the provider's flags.
+- `drivers::claude::channel` owns the flags, the record, the send classification
+  and the pinned constants; `channel/server.rs` is the stdio MCP server the hidden
+  `__channel-server` command dispatches to through the registry. Its calling
+  thread is the only output writer, and it can only complete an enrollment that
+  `run` created.
+- Delivery stays in the existing routing: the driver's `send` is the preferred
+  action of `delivery::send`, whose `send_preferred` only falls back after
+  `Unsupported` or `NotSent`. This driver returns `Unsupported` only for a session
+  with no enrollment; every opted-in outcome is terminal (`Denied` or
+  `Uncertain`), and a write with no provider receipt is the new
+  `DeliveryAcceptance::Unacknowledged`. `talk` maps it to an uncertain wake and
+  keeps waiting for the durable reply; the request service still owns completion.
+- `Failure` carries an optional additive `deliveryState`, and talk fails with
+  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED` for an
+  opted-in session whose channel cannot carry the request.
+- Only the Claude driver registers a channel; `Runtime.channel` is `None` for
+  every other driver. The record is runtime state under the global directory, not
+  a database schema, and grants no authority: a send trusts it only where it
+  matches the stored binding's launch owner and runtime observation.
 
 ### Host driver protocol
 
@@ -2630,6 +2665,8 @@ Every change reports its architecture impact and names the affected Rust owner,
 adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
+The Claude channel server is one driver's provider-scoped endpoint, not a shared
+MCP layer.
 
 ## Remote extension pilot
 

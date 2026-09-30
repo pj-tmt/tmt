@@ -9,7 +9,11 @@ use crate::{
     binding_error::{binding_failure, endpoint_failure},
     output::Failure,
 };
-use std::time::{Duration, Instant};
+use std::{
+    ffi::OsStr,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use tmt_adapters::{
     config::ConfigPaths,
     drivers::Registry,
@@ -21,6 +25,7 @@ use tmt_adapters::{
     },
     runtime::{
         RuntimeRegistry, StateReconciliation,
+        channel::{ChannelError, ChannelPlan, RuntimeChannel},
         lifecycle::{NoLifecycle, RuntimeLifecycle},
     },
     setup::start_hook_installed,
@@ -29,7 +34,9 @@ use tmt_adapters::{
 use tmt_core::{
     binding::{
         self, Binding, BindingRepository,
-        session::{ObservedSessionKey, RuntimeLiveness, SessionPreferences, SessionTransition},
+        session::{
+            HarnessId, ObservedSessionKey, RuntimeLiveness, SessionPreferences, SessionTransition,
+        },
     },
     driver::{HookEvent, HookObserver},
     endpoint::ProcessIncarnation,
@@ -37,6 +44,49 @@ use tmt_core::{
     names::normalize_name,
     settings::PaneBadge,
 };
+
+/// The provider channel a `--channel` launch enrolls, verified before any
+/// binding or spawn. A launch that cannot enroll fails; it never silently starts
+/// without the channel.
+fn channel_preflight<'a>(
+    registry: &'a RuntimeRegistry,
+    claim: Option<&HarnessId>,
+    executable: &OsStr,
+    paths: &ConfigPaths,
+) -> Result<(&'a dyn RuntimeChannel, PathBuf), Failure> {
+    let unsupported = || {
+        Failure::new(
+            "CHANNEL_UNSUPPORTED",
+            "--channel needs a command whose agent driver has a message channel (for example: tmt run --channel worker claude).",
+            1,
+        )
+    };
+    let channel = claim
+        .and_then(|harness| registry.channel(harness))
+        .ok_or_else(unsupported)?;
+    let directory = std::path::absolute(paths.channel_directory()).map_err(|error| {
+        Failure::new(
+            "CHANNEL_UNAVAILABLE",
+            "Could not resolve the channel directory.",
+            1,
+        )
+        .caused_by(error)
+    })?;
+    channel
+        .preflight(
+            executable,
+            &directory,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .map_err(|error| {
+            let code = match error {
+                ChannelError::ProviderVersion { .. } => "CHANNEL_PROVIDER_UNSUPPORTED",
+                _ => "CHANNEL_UNAVAILABLE",
+            };
+            Failure::new(code, format!("{error} No command was launched."), 1)
+        })?;
+    Ok((channel, directory))
+}
 
 pub(super) fn run_bound(
     storage: &mut Storage,
@@ -52,6 +102,7 @@ pub(super) fn run_bound(
         command,
         resume,
         save,
+        channel,
     } = request;
     let mut registry = RuntimeRegistry::first_party();
     // Only the resume path purges or reconciles, and it reports each change once.
@@ -95,6 +146,9 @@ pub(super) fn run_bound(
         .as_ref()
         .and_then(|harness| registry.lifecycle(harness))
         .unwrap_or(&NoLifecycle);
+    let channel = channel
+        .then(|| channel_preflight(&registry, claim.as_ref(), &launch.command.executable, paths))
+        .transpose()?;
     host.resolve_servers(storage).map_err(endpoint_failure)?;
     let bound =
         binding::bind_identity_with_creation(storage, &mut host.session(), pane, name, save)
@@ -195,12 +249,65 @@ pub(super) fn run_bound(
         None => false,
     };
     let owner = incarnation(std::process::id());
-    let child = InteractiveChild::start(&launch.command.executable, &launch.command.args).map_err(
-        |error| {
-            Failure::new("LAUNCH_FAILED", "Could not start the requested command.", 1)
-                .caused_by(error)
-        },
-    )?;
+    let mut args = launch.command.args.clone();
+    if let Some((channel, directory)) = &channel {
+        // The enrollment is durable before the provider starts, so a send can
+        // always tell an opted-in session that is not ready from one that never
+        // opted in. It names this process as the launch owner.
+        let owner = owner.as_ref().ok_or_else(|| {
+            Failure::new(
+                "CHANNEL_UNAVAILABLE",
+                "Could not observe this launch's own process to enroll the channel. No command was launched.",
+                1,
+            )
+        })?;
+        let tmt = tmt_adapters::core_executable::selected().map_err(|error| {
+            Failure::new(
+                "CHANNEL_UNAVAILABLE",
+                "Could not resolve this executable for the channel server. No command was launched.",
+                1,
+            )
+            .caused_by(error)
+        })?;
+        // The provider's own enrollment arguments follow the user's argv,
+        // which stays untouched.
+        args.extend(
+            channel
+                .enroll(&ChannelPlan {
+                    binding_id: &binding.id,
+                    owner,
+                    tmt: &tmt,
+                    directory,
+                })
+                .map_err(|error| {
+                    Failure::new(
+                        "CHANNEL_UNAVAILABLE",
+                        format!("{error} No command was launched."),
+                        1,
+                    )
+                })?,
+        );
+    } else if let Some(harness) = &claim
+        && let Some(channel) = registry.channel(harness)
+        && let Ok(directory) = std::path::absolute(paths.channel_directory())
+    {
+        // A launch without the channel ends any earlier enrollment of this
+        // binding, so an old record cannot reroute this session.
+        channel.withdraw(&directory, &binding.id);
+    }
+    let child = match InteractiveChild::start(&launch.command.executable, &args) {
+        Ok(child) => child,
+        Err(error) => {
+            // Nothing started, so the enrollment written for it has no launch.
+            if let Some((channel, directory)) = &channel {
+                channel.withdraw(directory, &binding.id);
+            }
+            return Err(
+                Failure::new("LAUNCH_FAILED", "Could not start the requested command.", 1)
+                    .caused_by(error),
+            );
+        }
+    };
     let child_evidence = child
         .observe_runtime(Instant::now() + Duration::from_secs(3))
         .unwrap_or(ProcessObservation::Unknown);
@@ -312,8 +419,23 @@ pub(super) fn run_bound(
             .as_ref()
             .is_some_and(|(_, state)| *state == tmt_core::binding::session::RuntimeState::Ended),
     );
-    let status = child.wait(|_| diagnostic("signal observation degraded; waiting for the original command without restarting it."))
-        .map_err(|error| Failure::new("PROCESS_ERROR", "Could not finish observing the requested command.", 1).caused_by(error))?;
+    let waited = child.wait(|_| {
+        diagnostic(
+            "signal observation degraded; waiting for the original command without restarting it.",
+        )
+    });
+    // The enrollment belongs to this launch and ends with it.
+    if let Some((channel, directory)) = &channel {
+        channel.withdraw(directory, &binding.id);
+    }
+    let status = waited.map_err(|error| {
+        Failure::new(
+            "PROCESS_ERROR",
+            "Could not finish observing the requested command.",
+            1,
+        )
+        .caused_by(error)
+    })?;
     if let Some(session) = &launch.resumed {
         settle_resume(
             paths,

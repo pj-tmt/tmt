@@ -4,6 +4,7 @@ mod appearance;
 mod binding_command;
 mod binding_error;
 mod caller_context;
+mod channel_server_command;
 mod check_command;
 mod completion;
 mod config_command;
@@ -168,9 +169,18 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             command,
             resume,
             save,
+            channel,
         } => {
             let resume = resume.then(run_command::Resume::default);
-            return run_command::execute(&name, &command, resume, save);
+            return run_command::execute(&name, &command, resume, save, channel);
+        }
+        Invocation::ChannelServer {
+            harness,
+            binding_id,
+            generation,
+            directory,
+        } => {
+            return channel_server_command::execute(&harness, &binding_id, &generation, &directory);
         }
         Invocation::Resume {
             name,
@@ -180,7 +190,13 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             if forget {
                 return resume_command::forget(&name);
             }
-            return run_command::execute(&name, &[], Some(run_command::Resume { retry }), false);
+            return run_command::execute(
+                &name,
+                &[],
+                Some(run_command::Resume { retry }),
+                false,
+                false,
+            );
         }
         Invocation::Learn { skill } => {
             return guidance_command::execute(skill.as_deref());

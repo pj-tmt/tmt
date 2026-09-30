@@ -42,6 +42,9 @@ struct Correlation {
     identity: Option<Identity>,
     inbox: bool,
     offline: bool,
+    /// The message reached a one-way channel that gives no receipt: it is
+    /// neither confirmed nor safe to resend, and every later failure says so.
+    delivery_uncertain: bool,
 }
 struct Prepared {
     correlation: Correlation,
@@ -59,8 +62,11 @@ struct Report {
 
 impl Correlation {
     fn error(&self, code: &'static str, message: impl Into<String>, status: u8) -> Failure {
-        let failure =
+        let mut failure =
             Failure::new(code, message, status).with_request(self.request_id.clone(), None);
+        if self.delivery_uncertain {
+            failure = failure.with_delivery_state("uncertain");
+        }
         if self.inbox {
             failure.with_inbox_target(&self.target, self.identity.as_ref())
         } else {
@@ -256,7 +262,27 @@ fn deliver(
                 correlation.inbox = true;
                 return Ok(None);
             }
-            if !matches!(outcome, crate::delivery::Delivery::Sent) {
+            if matches!(outcome, crate::delivery::Delivery::Unacknowledged) {
+                // The wake is settled as uncertain above; keep waiting for the
+                // durable reply without resending or pasting.
+                correlation.delivery_uncertain = true;
+            } else if let crate::delivery::Delivery::ChannelUnavailable(fault) = &outcome {
+                // The session opted into a channel that cannot carry this
+                // request. Only a session that never opted in is pasted to.
+                return Err(correlation
+                    .error(
+                        fault.error_code(),
+                        format!(
+                            "{} Nothing was sent and nothing was pasted.",
+                            fault.reason()
+                        ),
+                        1,
+                    )
+                    .suggestion(format!(
+                        "Check the session, then retry later; the request stays queued. {}",
+                        correlation.inspection()
+                    )));
+            } else if !matches!(outcome, crate::delivery::Delivery::Sent) {
                 if let crate::delivery::Delivery::Transport(error) = outcome {
                     if error.socket_permission_denied() {
                         return Err(correlation.socket_error(error));
