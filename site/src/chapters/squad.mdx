@@ -51,7 +51,7 @@ After that you work through the lead. Tell it what you need; it brings members i
 
 ### The board
 
-By default the board is one searchable list of the squad's members. Press `/` and type to narrow it. A <Waiting /> marks a member that's waiting on you, and those rows sort first. Every key works from what's already on screen; slow lookups such as pull request status refresh in the background. `tmt sq ls` prints the same list as text, or as JSON with `--json`, and it's what `tmt sq` shows when there's no terminal. `tmt sq board` always opens the board.
+By default the board is one searchable list of the squad's members. Press `/` and type to narrow it. A <Waiting /> marks a member that's waiting on you, and those rows sort first. Every key works from what's already on screen; slow lookups such as pull request status refresh in the background. The board reloads within about a second when a member, request or room changes, or when you edit `squad.toml`, and it still refreshes on its interval (`refresh`, or `"off"`) for everything else. `tmt sq ls` prints the same list as text, or as JSON with `--json`, and it's what `tmt sq` shows when there's no terminal. `tmt sq board` always opens the board.
 
 <BoardSketch />
 
@@ -157,6 +157,7 @@ A board is laid out the same way at every level, so one set of rules explains al
 
 - **Columns** set a width, or `min`/`max` and a `grow` share of what's left; `align`; `truncate` at the `end` or the `middle` (good for paths and links); and a `priority`. On a narrow screen columns first shrink to their `min`; if a row still doesn't fit, the column with the highest `priority` steps aside first, and columns without one never do.
 - **Lines**: `lines` says how many lines a row takes and what's on each. Each line lists which columns it uses, and a cell can `span` several columns, so a second line can hold what the member is waiting on you for, under the task. A later line with nothing to show is left out.
+- **Where a value comes from**: a column shows the member's squad field of its name, unless `from` binds it to the member's own tmt data: `member`, `presence`, `cwd`, `target`, `session.driver`, `session.model`, `session.usage.tokens`, `session.usage.remaining` (the context window less those tokens, when the driver states a window), `meta.<key>` or `meta.squad.<field>`. The paths are the same for every driver, so a member that switches from Claude to Codex keeps its columns. `format` shows the value as `text`, `tokens` (`487k`), `age` (`5m`) or `count` (`12,345`). Sections, filters and sorts use the same value, and numbers sort as numbers. A missing value shows as `–`, the board's one mark for "nothing here". Squad's own fields (`member`, `role`, `state`, `pending`, `note`) can't be bound.
 - **A cell never wraps.** Text that doesn't fit is cut with `…`, measured by what the terminal draws, so Chinese and emoji line up. The full value is always in the detail pane and in `tmt sq ls`: it's a list, so it shows the board's fields in the same order but never drops a column or cuts one when piped. Widths, spans and priorities shape only the board.
 
 <Code>{`
@@ -166,9 +167,10 @@ columns = [
   { name = "state",  width = 9 },
   { name = "task",   grow = 1, min = 12 },
   { name = "pr",     width = 10, align = "right", priority = 2 },
+  { name = "ctx",    from = "session.usage.tokens", format = "tokens", align = "right" },
 ]
 lines = [
-  ["member", "state", "task", "pr"],
+  ["member", "state", "task", "pr", "ctx"],
   ["",       { field = "pending", span = 3 }],   # a second line under the task
 ]
 `}</Code>
