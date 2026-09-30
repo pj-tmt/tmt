@@ -3,11 +3,14 @@
 //! unsupported, never a silent substitute.
 
 use super::{Herdr, HerdrError, marker};
-use crate::process::{CommandRunner, runtime};
+use crate::{
+    host::{ActionError, DeliveryError, HostError, driver::HostDriver},
+    process::{CommandError, CommandRunner, runtime},
+};
 use std::time::{Duration, Instant};
 use tmt_core::{
-    binding::{Binding, BindingEntry, BindingEvidence, evaluate_binding, session::RuntimeState},
-    driver::{InterfacePresence, InterfaceStatus},
+    binding::{Binding, session::RuntimeState},
+    driver::Focused,
     endpoint::{EndpointProbe, EndpointSnapshot, ServerEvidence},
     host::HostKind,
     identity::Identity,
@@ -229,36 +232,57 @@ impl<'a, R: CommandRunner> Session<'a, R> {
     ) -> Result<RuntimeState, crate::process::CommandError> {
         runtime::binding_runtime(self.herdr.runner(), binding, self.deadline)
     }
+}
 
-    /// Presence and runtime of a Herdr binding, as tmux reports them.
-    pub fn status(
+/// Herdr behind the host-driver trait. Input (#479 H4) and focus (H6) are
+/// not implemented yet: a send is `Unsupported`, so core uses the inbox, and
+/// focus is refused before any evidence is read.
+impl<R: CommandRunner> HostDriver for Session<'_, R> {
+    fn begin_coordination(&mut self) {
+        Session::begin_coordination(self);
+    }
+
+    fn budget_available(&self) -> bool {
+        Session::budget_available(self)
+    }
+
+    fn snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, HostError> {
+        Ok(Session::snapshot(self, Some(panes))?)
+    }
+
+    fn probe(
         &mut self,
-        entry: &BindingEntry,
-    ) -> Result<InterfaceStatus, crate::host::ActionError> {
-        use crate::host::ActionError;
-        let Some(binding) = &entry.binding else {
-            return Ok(InterfaceStatus {
-                presence: InterfacePresence::Gone,
-                runtime: RuntimeState::Unknown,
-            });
-        };
-        self.begin_coordination();
-        let probe = self
-            .probe(&binding.server, std::slice::from_ref(&binding.pane_id))
-            .map_err(|error| ActionError::Evidence(error.into()))?;
-        let presence = match evaluate_binding(entry, &probe) {
-            BindingEvidence::Active(_) => InterfacePresence::Present,
-            BindingEvidence::EndpointLost => InterfacePresence::Gone,
-            BindingEvidence::MarkerMismatch | BindingEvidence::Unknown => {
-                InterfacePresence::Unknown
-            }
-        };
-        let runtime = if presence == InterfacePresence::Present {
-            self.observed_runtime(binding)
-                .map_err(ActionError::Process)?
-        } else {
-            RuntimeState::Unknown
-        };
-        Ok(InterfaceStatus { presence, runtime })
+        server: &ServerEvidence,
+        panes: &[String],
+    ) -> Result<EndpointProbe, HostError> {
+        Ok(Session::probe(self, server, panes)?)
+    }
+
+    fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), HostError> {
+        Ok(Session::publish(self, binding, identity)?)
+    }
+
+    fn clear(&mut self, binding: &Binding) -> Result<bool, HostError> {
+        Ok(Session::clear(self, binding)?)
+    }
+
+    fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, CommandError> {
+        Session::observed_runtime(self, binding)
+    }
+
+    fn has_input(&self) -> bool {
+        false
+    }
+
+    fn input(&mut self, _: &Binding, _: &str) -> Result<(), DeliveryError> {
+        Err(DeliveryError::unsupported())
+    }
+
+    fn focus_preflight(&self, _: Option<&Binding>) -> Result<(), ActionError> {
+        Err(ActionError::HostUnsupported)
+    }
+
+    fn focus(&mut self, _: &Binding) -> Result<Focused, ActionError> {
+        Err(ActionError::HostUnsupported)
     }
 }

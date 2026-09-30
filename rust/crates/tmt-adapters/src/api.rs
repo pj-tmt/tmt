@@ -1,24 +1,29 @@
 //! Versioned local process protocol. Resource owners retain admission and encoding.
 
+mod changes;
+mod dispatch;
+mod identities;
+mod identity_hooks;
+mod notes;
+mod references;
+mod requests;
+mod rooms;
+mod skills;
+
 use crate::{
     config::{ConfigFiles, ConfigPaths},
-    dispatch, notes, request_history,
-    request_runtime::wall_time_ms,
-    room, skill_installation,
-    storage::{RosterError, Storage, StorageError},
+    skill_installation,
+    storage::Storage,
 };
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
 use tmt_core::{
-    dispatch::DispatchInput,
-    identity_hooks::{IdentityHook, IdentityHookState, valid_hook_consumer},
-    identity_metadata::MetadataKey,
-    request::{Originator, RequestService, history::HistoryQuery},
-    room::{RoomRepository, RoomWrite},
+    dispatch::DispatchInput, identity_hooks::IdentityHook, request::history::HistoryQuery,
+    room::RoomWrite,
 };
 
 // Preserve the canonical message limit even when every byte is JSON-escaped.
-pub const INPUT_LIMIT: usize = dispatch::INPUT_LIMIT + 4096;
+pub const INPUT_LIMIT: usize = crate::dispatch::INPUT_LIMIT + 4096;
 pub const OUTPUT_LIMIT: usize = 12 * 1_048_576 + 65_536;
 const OPS: &[&str] = &[
     "capabilities",
@@ -151,113 +156,8 @@ pub enum Request {
     },
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SkillFileInput {
-    path: String,
-    content: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SkillInput {
-    name: String,
-    files: Vec<SkillFileInput>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SkillsInstallInput {
-    owner: String,
-    consent: bool,
-    #[serde(default)]
-    force: bool,
-    skills: Vec<SkillInput>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SkillsRemoveInput {
-    owner: String,
-    consent: bool,
-    /// Only these of the owner's skills; absent means all of them.
-    skills: Option<Vec<String>>,
-}
-
-/// Skills write into the user's provider directories, so the caller must
-/// have asked the user first and say so explicitly.
-fn consented(consent: bool) -> Result<(), Fault> {
-    if consent {
-        Ok(())
-    } else {
-        Err(Fault::new(
-            "API_CONSENT_REQUIRED",
-            "Skill installation changes the user's agent directories; ask the user, then send consent: true.",
-        ))
-    }
-}
-
 /// Bound on UUIDs per `references.resolve` call, identities and rooms together.
 const REFERENCE_LIMIT: usize = 256;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ReferencesInput {
-    #[serde(default)]
-    identity_ids: Vec<String>,
-    #[serde(default)]
-    room_ids: Vec<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct IdentityStatusesInput {
-    identity_ids: Vec<String>,
-}
-
-/// Bound on one pending page; matches the Office consumer's batch.
-const HOOK_PAGE_LIMIT: usize = 16;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct HookInput {
-    consumer: String,
-    identity_id: String,
-    reference: String,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct HookPendingInput {
-    consumer: String,
-    limit: usize,
-}
-
-fn hook(input: &[u8]) -> Result<IdentityHook, Fault> {
-    let value: HookInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-    IdentityHook::new(&value.consumer, &value.identity_id, &value.reference).map_err(|_| invalid())
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RoomInput {
-    room_id: String,
-    room: Box<RawValue>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RoomRetireInput {
-    room_id: String,
-    expected_revision: u64,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RosterInput {
-    room: String,
-    #[serde(default)]
-    metadata_prefix: Option<String>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct IdentityInput {
-    identity_id: String,
-}
 
 pub fn decode(body: &str) -> Result<Request, Fault> {
     if body.len() > INPUT_LIMIT {
@@ -301,184 +201,27 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         {
             Request::ChangeCursor
         }
-        "requests.list" => {
-            Request::History(request_history::decode_history_query(input).ok_or_else(invalid)?)
-        }
-        "requests.show" => {
-            Request::Detail(request_history::decode_history_request(input).ok_or_else(invalid)?)
-        }
-        "dispatch.show" => {
-            Request::Receipt(dispatch::decode_dispatch_lookup(input).ok_or_else(invalid)?)
-        }
+        "requests.list" => Request::History(requests::decode_list(input)?),
+        "requests.show" => Request::Detail(requests::decode_show(input)?),
+        "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
             identity: wire.identity,
-            input: dispatch::decode_input(input).ok_or_else(invalid)?,
+            input: dispatch::decode_create(input)?,
         },
-        "rooms.write" => {
-            let value: RoomInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-            if !tmt_core::dispatch::canonical_id(&value.room_id) {
-                return Err(invalid());
-            }
-            Request::Room {
-                identity: wire.identity,
-                id: value.room_id,
-                input: room::decode_write(value.room.get().as_bytes()).ok_or_else(invalid)?,
-            }
-        }
-        "rooms.retire" => {
-            let value: RoomRetireInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-            if !tmt_core::dispatch::canonical_id(&value.room_id) {
-                return Err(invalid());
-            }
-            Request::RoomRetire {
-                identity: wire.identity,
-                id: value.room_id,
-                expected_revision: room::decode_retire(
-                    json!({"expectedRevision": value.expected_revision})
-                        .to_string()
-                        .as_bytes(),
-                )
-                .ok_or_else(invalid)?,
-            }
-        }
-        "rooms.roster" => {
-            let value: RosterInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-            // The key grammar is prefix-closed: every non-empty prefix of a valid
-            // key is itself a valid key, so key admission also admits prefixes.
-            if value.room.is_empty()
-                || value.room.len() > 256
-                || value
-                    .metadata_prefix
-                    .as_deref()
-                    .is_some_and(|prefix| MetadataKey::parse(prefix).is_err())
-            {
-                return Err(invalid());
-            }
-            Request::Roster {
-                room: value.room,
-                prefix: value.metadata_prefix,
-            }
-        }
-        "identityHooks.register" => Request::HookRegister(hook(input)?),
-        "identityHooks.attempt" => Request::HookAttempt(hook(input)?),
-        "identityHooks.ack" => Request::HookAck(hook(input)?),
-        "references.resolve" => {
-            let value: ReferencesInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-            if value.identity_ids.len() + value.room_ids.len() > REFERENCE_LIMIT
-                || !value
-                    .identity_ids
-                    .iter()
-                    .chain(&value.room_ids)
-                    .all(|id| tmt_core::dispatch::canonical_id(id))
-            {
-                return Err(invalid());
-            }
-            Request::References {
-                identities: value.identity_ids,
-                rooms: value.room_ids,
-            }
-        }
-        "identities.status" => {
-            let value: IdentityStatusesInput =
-                serde_json::from_slice(input).map_err(|_| invalid())?;
-            if value.identity_ids.len() > REFERENCE_LIMIT
-                || !value
-                    .identity_ids
-                    .iter()
-                    .all(|id| tmt_core::dispatch::canonical_id(id))
-            {
-                return Err(invalid());
-            }
-            Request::IdentityStatuses {
-                identities: value.identity_ids,
-            }
-        }
-        "identityHooks.pending" => {
-            let value: HookPendingInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-            if !valid_hook_consumer(&value.consumer)
-                || !(1..=HOOK_PAGE_LIMIT).contains(&value.limit)
-            {
-                return Err(invalid());
-            }
-            Request::HookPending {
-                consumer: value.consumer,
-                limit: value.limit,
-            }
-        }
-        "skills.install" => {
-            let value: SkillsInstallInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-            consented(value.consent)?;
-            Request::SkillsInstall {
-                owner: value.owner,
-                force: value.force,
-                skills: value
-                    .skills
-                    .into_iter()
-                    .map(|skill| skill_installation::OwnedSkill {
-                        name: skill.name,
-                        files: skill
-                            .files
-                            .into_iter()
-                            .map(|file| (file.path, file.content.into_bytes()))
-                            .collect(),
-                    })
-                    .collect(),
-            }
-        }
-        "skills.remove" => {
-            let value: SkillsRemoveInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-            consented(value.consent)?;
-            Request::SkillsRemove {
-                owner: value.owner,
-                skills: value.skills,
-            }
-        }
-        "notes.read" => {
-            let value: IdentityInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-            if !tmt_core::dispatch::canonical_id(&value.identity_id) {
-                return Err(invalid());
-            }
-            Request::Notes(value.identity_id)
-        }
+        "rooms.write" => rooms::decode_write(wire)?,
+        "rooms.retire" => rooms::decode_retire(wire)?,
+        "rooms.roster" => rooms::decode_roster(input)?,
+        "identityHooks.register" => Request::HookRegister(identity_hooks::hook(input)?),
+        "identityHooks.attempt" => Request::HookAttempt(identity_hooks::hook(input)?),
+        "identityHooks.ack" => Request::HookAck(identity_hooks::hook(input)?),
+        "references.resolve" => references::decode(input)?,
+        "identities.status" => identities::decode(input)?,
+        "identityHooks.pending" => identity_hooks::decode_pending(input)?,
+        "skills.install" => skills::decode_install(input)?,
+        "skills.remove" => skills::decode_remove(input)?,
+        "notes.read" => notes::decode(input)?,
         _ => return Err(invalid()),
     })
-}
-
-fn skill_fault(failure: &skill_installation::OwnedFailure) -> Fault {
-    let code = match skill_installation::refusal(&failure.cause) {
-        Some(skill_installation::Refusal::Invalid(_)) => "SKILL_INVALID",
-        Some(skill_installation::Refusal::Claimed { .. }) => "SKILL_OWNED_ELSEWHERE",
-        Some(skill_installation::Refusal::Unmanaged(_)) => "SKILL_CONFLICT",
-        None => "SKILL_INSTALL_FAILED",
-    };
-    Fault::detailed(code, failure.to_string())
-}
-
-fn skills_install(
-    global: &std::path::Path,
-    owner: &str,
-    skills: &[skill_installation::OwnedSkill],
-    force: bool,
-) -> Result<Vec<u8>, Fault> {
-    let env = skill_installation::ProviderEnvironment::capture().map_err(|_| {
-        Fault::new(
-            "SKILL_INSTALL_FAILED",
-            "Could not determine the home directory for agent skills.",
-        )
-    })?;
-    let report = skill_installation::install_owned(&env, global, owner, skills, force)
-        .map_err(|failure| skill_fault(&failure))?;
-    Ok(serde_json::to_vec(&json!({
-        "owner": owner,
-        "published": report.published.iter().map(|item| json!({
-            "name": item.name,
-            "agent": item.agent.map(|agent| agent.name()),
-            "target": item.target,
-            "changed": item.changed,
-            "backup": item.backup,
-        })).collect::<Vec<_>>(),
-    }))
-    .expect("installation report"))
 }
 
 pub fn capabilities() -> Vec<u8> {
@@ -507,24 +250,13 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         force,
     } = request
     {
-        return skills_install(&paths.global_dir, &owner, &skills, force);
+        return skills::install(&paths.global_dir, &owner, &skills, force);
     }
     if let Request::SkillsRemove { owner, skills } = request {
-        return skill_installation::remove_owned(&paths.global_dir, &owner, skills.as_deref())
-            .map(|report| {
-                serde_json::to_vec(&json!({
-                    "owner": owner,
-                    "removed": report.removed,
-                    "kept": report.kept,
-                }))
-                .expect("removal report")
-            })
-            .map_err(|failure| skill_fault(&failure));
+        return skills::remove(&paths.global_dir, &owner, skills);
     }
     if let Request::Notes(id) = request {
-        return notes::read(paths, &id)
-            .map(|note| notes::encode(&note))
-            .map_err(|error| Fault::new(error.code(), "Saved-identity notes could not be read."));
+        return notes::read(paths, id);
     }
     // Only dispatch uses settings; read operations do not depend on unrelated config.
     let settings = if matches!(request, Request::Dispatch { .. }) {
@@ -540,232 +272,41 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         None
     };
     let mut storage = Storage::open(&paths.database).map_err(|_| Fault::unavailable())?;
-    let pending = (|| match request {
+    let pending = match request {
         Request::Capabilities
         | Request::Notes(_)
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
-        Request::ChangeCursor => storage
-            .change_cursor()
-            .map(|cursor| serde_json::to_vec(&json!({"cursor": cursor})).expect("change cursor"))
-            .map_err(|_| Fault::unavailable()),
-        Request::Roster { room, prefix } => storage
-            .room_roster(&room, prefix.as_deref())
-            .map(|roster| room::encode_roster(&roster, wall_time_ms()))
-            .map_err(|error| match error {
-                RosterError::NotFound => Fault::new("ROOM_NOT_FOUND", "Active room was not found."),
-                RosterError::Ambiguous => Fault::new(
-                    "ROOM_AMBIGUOUS",
-                    "Room name is not unique; select the room by UUID.",
-                ),
-                RosterError::Storage(_) => Fault::unavailable(),
-            }),
+        Request::ChangeCursor => changes::cursor(&storage),
+        Request::Roster { room, prefix } => rooms::roster(&storage, room, prefix),
         Request::References { identities, rooms } => {
-            let mut identity_states = Vec::with_capacity(identities.len());
-            for id in &identities {
-                let state = match storage
-                    .find_identity_by_id(id)
-                    .map_err(|_| Fault::unavailable())?
-                {
-                    None => json!({"id": id, "found": false}),
-                    Some(identity) => {
-                        let retired = storage
-                            .find_active_identity_by_id(id)
-                            .map_err(|_| Fault::unavailable())?
-                            .is_none();
-                        json!({"id": id, "found": true, "name": identity.name,
-                            "lifetime": identity.lifetime.as_str(), "retired": retired})
-                    }
-                };
-                identity_states.push(state);
-            }
-            let mut room_states = Vec::with_capacity(rooms.len());
-            for id in &rooms {
-                let state = match storage.find_historical_meeting_room(id) {
-                    Ok(Some(room)) => json!({"id": id, "found": true, "retired": room.retired}),
-                    Ok(None) | Err(crate::storage::RoomStoreError::Invalid) => {
-                        json!({"id": id, "found": false})
-                    }
-                    Err(_) => return Err(Fault::unavailable()),
-                };
-                room_states.push(state);
-            }
-            Ok(
-                serde_json::to_vec(&json!({"identities": identity_states, "rooms": room_states}))
-                    .expect("reference states"),
-            )
+            references::resolve(&mut storage, identities, rooms)
         }
-        Request::IdentityStatuses { identities } => {
-            // One directory read; expiry (`stale`) is applied here, by core.
-            let statuses = storage
-                .list_active_identity_statuses()
-                .map_err(|_| Fault::unavailable())?;
-            let now = crate::request_runtime::wall_time_ms();
-            let mut entries = Vec::with_capacity(identities.len());
-            for id in &identities {
-                entries.push(
-                    match storage
-                        .find_identity_by_id(id)
-                        .map_err(|_| Fault::unavailable())?
-                    {
-                        None => json!({"id": id, "found": false}),
-                        Some(_) => json!({"id": id, "found": true,
-                            "status": crate::identity_status::status_value(statuses.get(id), now)}),
-                    },
-                );
-            }
-            Ok(serde_json::to_vec(&json!({"identities": entries})).expect("identity statuses"))
-        }
-        Request::HookRegister(hook) => {
-            // Identities are never deleted, so existence checked here holds at
-            // registration; a retired identity registers straight to pending.
-            if storage
-                .find_identity_by_id(hook.identity_id())
-                .map_err(|_| Fault::unavailable())?
-                .is_none()
-            {
-                return Err(Fault::new(
-                    "IDENTITY_NOT_FOUND",
-                    "The hook identity was not found.",
-                ));
-            }
-            let state = storage
-                .register_identity_hook(&hook)
-                .map_err(|_| Fault::unavailable())?;
-            Ok(serde_json::to_vec(&json!({"state": match state {
-                IdentityHookState::Registered => "registered",
-                IdentityHookState::Pending => "pending",
-                IdentityHookState::Delivered => "delivered",
-            }}))
-            .expect("hook state"))
-        }
+        Request::IdentityStatuses { identities } => identities::status(&storage, identities),
+        Request::HookRegister(hook) => identity_hooks::register(&mut storage, hook),
         Request::HookPending { consumer, limit } => {
-            let hooks = storage
-                .pending_identity_hooks(&consumer, limit)
-                .map_err(|_| Fault::unavailable())?;
-            let pending = storage
-                .count_pending_identity_hooks(&consumer)
-                .map_err(|_| Fault::unavailable())?;
-            Ok(serde_json::to_vec(&json!({
-                "hooks": hooks.iter().map(|delivery| json!({
-                    "identityId": delivery.hook.identity_id(),
-                    "reference": delivery.hook.reference(),
-                    "attemptCount": delivery.attempt_count,
-                })).collect::<Vec<_>>(),
-                "pending": pending,
-            }))
-            .expect("hook page"))
+            identity_hooks::pending(&storage, consumer, limit)
         }
-        Request::HookAttempt(hook) => {
-            require_delivery(&storage, &hook)?;
-            storage
-                .record_identity_hook_attempt(&hook)
-                .map(|recorded| {
-                    serde_json::to_vec(&json!({"recorded": recorded})).expect("attempt")
-                })
-                .map_err(|_| Fault::unavailable())
-        }
-        Request::HookAck(hook) => {
-            require_delivery(&storage, &hook)?;
-            storage
-                .acknowledge_identity_hook(&hook)
-                .map(|acknowledged| {
-                    serde_json::to_vec(&json!({"acknowledged": acknowledged})).expect("ack")
-                })
-                .map_err(|_| Fault::unavailable())
-        }
-        Request::History(query) => RequestService::new(&mut storage, wall_time_ms)
-            .request_history(query)
-            .map(|value| request_history::encode_history_page(&value))
-            .map_err(request_error),
-        Request::Detail(id) => RequestService::new(&mut storage, wall_time_ms)
-            .request_detail(&id)
-            .map(|value| request_history::encode_history_detail(&value))
-            .map_err(request_error),
-        Request::Receipt(id) => storage
-            .dispatch_receipt(&id)
-            .map_err(|_| Fault::unavailable())?
-            .map(|value| dispatch::encode_receipt(&value))
-            .ok_or_else(|| Fault::new("DISPATCH_NOT_FOUND", "Operation receipt was not found.")),
+        Request::HookAttempt(hook) => identity_hooks::attempt(&mut storage, hook),
+        Request::HookAck(hook) => identity_hooks::ack(&mut storage, hook),
+        Request::History(query) => requests::list_history(&mut storage, query),
+        Request::Detail(id) => requests::show_request(&mut storage, id),
+        Request::Receipt(id) => dispatch::show_receipt(&storage, id),
         Request::Room {
             identity: selector,
             id,
             input,
-        } => {
-            if let Some(selector) = &selector {
-                identity(&mut storage, selector)?;
-            }
-            storage
-                .save_meeting_room(&id, input)
-                .map(|value| room::encode_room(&value))
-                .map_err(|error| {
-                    Fault::new(
-                        error.code(),
-                        "Room write failed; refresh its revision and membership before retrying.",
-                    )
-                })
-        }
+        } => rooms::write(&mut storage, selector, id, input),
         Request::RoomRetire {
             identity: selector,
             id,
             expected_revision,
-        } => {
-            if let Some(selector) = &selector {
-                identity(&mut storage, selector)?;
-            }
-            storage
-                .retire_meeting_room(&id, expected_revision)
-                .map(|value| room::encode_room(&value))
-                .map_err(|error| {
-                    Fault::new(
-                        error.code(),
-                        "Room retirement failed; refresh its revision before retrying.",
-                    )
-                })
-        }
+        } => rooms::retire(&mut storage, selector, id, expected_revision),
         Request::Dispatch {
             identity: selector,
-            mut input,
-        } => {
-            input.originator = match &selector {
-                Some(selector) => Originator::Explicit(identity(&mut storage, selector)?),
-                None => Originator::Unknown,
-            };
-            let settings = settings.expect("dispatch settings");
-            let direct = input.kind == tmt_core::request::RequestKind::Request
-                && input.recipient_ids.len() == 1
-                && !matches!(
-                    input.room.as_ref(),
-                    Some(tmt_core::dispatch::DispatchRoom::Roster { .. })
-                );
-            let (receipt, created) = storage.dispatch_request_with_creation(input, settings.retention_days, wall_time_ms).map_err(|error| Fault::new(error.code(), "Dispatch could not be confirmed; retain the operation ID and recover its receipt."))?;
-            let wake = if direct
-                && created
-                && receipt
-                    .items
-                    .first()
-                    .is_some_and(|item| item.acceptance == tmt_core::dispatch::Acceptance::Queued)
-            {
-                let item = &receipt.items[0];
-                let message = format!(
-                    "[tmt] request {} is queued: tmt x show {} --incoming --identity {} --json",
-                    item.request_id, item.request_id, item.recipient_id
-                );
-                Some(crate::delivery::wake_request(
-                    &mut storage,
-                    &item.request_id,
-                    &item.recipient_id,
-                    &message,
-                    std::time::Duration::from_secs_f64(
-                        settings.paste_enter_delay_ms.min(500.0) / 1000.0,
-                    ),
-                ))
-            } else {
-                None
-            };
-            Ok(dispatch::encode_receipt_with_wake(&receipt, wake))
-        }
-    })();
+            input,
+        } => dispatch::create_dispatch(&mut storage, selector, input, settings),
+    };
     let closed = storage.close();
     let body = pending?;
     closed.map_err(|_| Fault::unavailable())?;
@@ -777,35 +318,6 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     }
     Ok(body)
 }
-/// Attempts and acknowledgments apply only to this consumer's hooks that
-/// retirement queued; a delivered hook answers `false` without changing.
-fn require_delivery(storage: &Storage, hook: &IdentityHook) -> Result<(), Fault> {
-    match storage
-        .identity_hook_state(hook)
-        .map_err(|_| Fault::unavailable())?
-    {
-        None => Err(Fault::new(
-            "HOOK_NOT_FOUND",
-            "This consumer has no such identity hook.",
-        )),
-        Some(IdentityHookState::Registered) => Err(Fault::new(
-            "HOOK_NOT_PENDING",
-            "The hook's identity has not retired.",
-        )),
-        Some(IdentityHookState::Pending | IdentityHookState::Delivered) => Ok(()),
-    }
-}
-
-fn request_error(error: tmt_core::request::RequestError<StorageError>) -> Fault {
-    match error {
-        tmt_core::request::RequestError::Invalid(_) => invalid(),
-        tmt_core::request::RequestError::NotFound => {
-            Fault::new("REQUEST_NOT_FOUND", "Request was not found.")
-        }
-        _ => Fault::unavailable(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

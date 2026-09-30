@@ -16,6 +16,11 @@ use tmt_cli_style::{
     table::{Cell, Column, Table, escape},
 };
 
+/// A member's row as `ls --json` reports it; templates fill from it.
+pub fn row(member: &Member) -> Value {
+    member_value(member)
+}
+
 fn member_value(member: &Member) -> Value {
     let field = |name: &str| {
         member
@@ -27,7 +32,7 @@ fn member_value(member: &Member) -> Value {
         "id": member.id, "name": member.name, "lifetime": member.lifetime,
         "presence": member.presence, "pane": member.pane, "activity": member.activity,
         "state": field("state"), "pending": field("pending"), "note": field("note"),
-        "fields": member.fields,
+        "fields": member.fields, "failed": member.failed,
     })
 }
 
@@ -73,7 +78,7 @@ fn compare(key: &SortKey, states: &States, a: &Member, b: &Member) -> Ordering {
     }
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| {
@@ -353,6 +358,7 @@ mod tests {
             meta: Default::default(),
             seen: Value::Null,
             numbers: Default::default(),
+            failed: Default::default(),
         }
     }
 

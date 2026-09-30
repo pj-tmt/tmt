@@ -211,6 +211,35 @@ describe('native grammar process contract', () => {
     });
   });
 
+  it('runs no command for a host driver, only help and the version', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      // Every host-driver call carries this; a driver that runs tmt changes nothing.
+      sandbox.env.TMT_DRIVER_CALL = '1';
+      for (const args of [
+        ['ls', '--json'],
+        ['room', 'create', 'Nested', '--json'],
+        ['identity', 'create', 'Nested', '--json'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status, args.join(' ')).toBe(1);
+        expectError(result, 'DRIVER_CALL_REFUSED');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect(existsSync(sandbox.database)).toBe(false);
+        expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+      }
+      const version = await runCli(sandbox, ['--version']);
+      expect(version.status, version.stderr).toBe(0);
+      const help = await runCli(sandbox, ['help', 'ls']);
+      expect(help.status, help.stderr).toBe(0);
+      delete sandbox.env.TMT_DRIVER_CALL;
+      const listed = await runCli(sandbox, ['ls', '--json']);
+      expect(listed.status, listed.stderr).toBe(0);
+    });
+  });
+
   it('rejects ignored options in every placement before storage or tmux effects', async () => {
     await withSandbox(async (sandbox) => {
       const tripwire = await calibrateTmuxTripwire(sandbox);

@@ -663,8 +663,8 @@ The Rust crates have deliberately narrow responsibilities:
 
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
-implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
-messages, lists, tables, the one column-width solver `grid` that tables and
+implementation of the [CLI style](docs/cli-style.md) (palette, themes over the
+design tokens, marks, values, messages, lists, tables, the one column-width solver `grid` that tables and
 extension boards share, the help registration contract and the one
 interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
@@ -1004,10 +1004,13 @@ authentication boundary nor a daemon, batch processor or streaming connection.
 Extensions use `TMT_EXECUTABLE` rather than assuming an installed binary path.
 
 The CLI owns bounded stdin acquisition (EOF within five seconds), JSON publication
-and exit status. `tmt-adapters::api` owns envelope admission and composition;
-identity, room, request history, dispatch and notes retain their existing domain,
-transaction and resource encoders. The same one-shot delivery helper serves
-Office and API dispatch. Explicit identity selects write attribution, not privilege.
+and exit status. `tmt-adapters::api` owns envelope admission and composition.
+Its `api.rs` facade retains the dispatcher, protocol bounds, settings selection
+and storage lifetime. Private `api/` modules own operation-family inputs and
+composition for requests, dispatch, rooms, notes, changes, identity hooks, skills,
+references and identity status. Identity, room, request history, dispatch and
+notes retain their existing domain, transaction and resource encoders. The same
+one-shot delivery helper serves Office and API dispatch. Explicit identity selects write attribution, not privilege.
 Capabilities and unsupported-version discovery never open application storage.
 Input and output bounds are advertised in capabilities; canonical content limits
 still apply independently of JSON escaping.
@@ -1499,9 +1502,10 @@ that inference, not their normal validation. A thread ID is only a correlation
 hint: the current selector does not derive identity from remembered session
 preferences. Automatic current-session correlation remains dependent on the
 runtime hook integration. No caller probe changes bindings or sends input.
-`tmux::BindingSession` also implements the action port: status delegates to the same
-full server/pane/marker evidence evaluator, and send requires present evidence
-before invoking the existing paste-and-Enter transport once. It preserves that
+The action port's policy is written once, in `host::driver`, over each host's
+`HostDriver` (see the host port below). Status delegates to the same full
+server/pane/marker evidence evaluator, and send requires present evidence
+before invoking the host's paste-and-Enter transport once. It preserves that
 transport's preparation-versus-uncertain failure distinction. `focus` (a
 default-`Unsupported` driver action returning the shown and previous interface IDs
 and the host's name for the view that moved)
@@ -1822,7 +1826,15 @@ and `Driver` ports), caller and target resolution, snapshots, capture, send,
 focus and pane cosmetics, over two hosts: `tmt-adapters::tmux` and
 `tmt-adapters::herdr` (#479). A handle has a primary host; its session observes
 new panes there, and probes, marks and clears every stored binding on that
-binding's own host, so presence is complete from either host. `HostError` and
+binding's own host, so presence is complete from either host. Each host
+implements `host::driver::HostDriver`: snapshot, probe, publish, clear, the
+runtime in a pane, input and focus, at the driver protocol's granularity
+(#570). The session picks the driver of an entry's host and runs one binding
+policy over it: `host::driver::{status, send, focus}` decide which evidence
+makes a binding present, when a runtime blocks input, and what a failure
+means. A host without input (`has_input`) is `Unsupported` before any evidence
+is read, and `focus_preflight` refuses before any evidence is read too. The
+out-of-process client of #570 slice 3 implements the same trait. `HostError` and
 the host `ActionError` wrap each host's error and read exactly as it. The
 architecture guard rejects production references to the host modules outside
 `host.rs` and their own directories.
@@ -1922,10 +1934,32 @@ sides:
 - `serve`, a driver's entry point;
 - `conformance::check`, which runs through any invoker.
 
-The crate is a leaf with only `serde` and `serde_json`, so a community driver
-builds against it alone; the architecture guard enforces that. Nothing in `tmt`
-calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
-spawning client with consent and fingerprint checks, and move Herdr out.
+A host's name, pane-ID prefix and target template (parsing, matching and the
+overlap check between hosts) are defined once in `rust/crates/tmt-host-grammar`,
+a leaf with no dependencies at all. The protocol crate wraps it with the
+environment `caller` may read, and `tmt-core` may depend on it to recognize an
+external host's stored pane IDs without taking on the wire crate or serde. The
+protocol crate otherwise depends only on `serde` and `serde_json`, so a
+community driver builds against these two small crates alone. The architecture
+guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
+
+`tmt-adapters::host::external` holds the core side of that boundary:
+
+- **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
+  refuses a declaration that a built-in host or another approved driver would
+  read as its own.
+- **`DriverProcess`:** runs one operation through the bounded process owner,
+  under the operation's deadline and output bound, with `TMT_DRIVER_CALL=1`. It
+  decodes the answer against the driver's grammar.
+- **Trust:** `executable_trust` is shared with extension hooks. It checks
+  ownership and the stat fingerprint before every call, and the digest once per
+  process.
+- **Recursion guard:** a `tmt` started with `TMT_DRIVER_CALL` refuses every
+  command but help and `--version` (`DRIVER_CALL_REFUSED`).
+
+The atomic owner-only replacement of such settings files is `private_file`,
+shared with the extension hook consents. Slice 3b connects drivers to hosts
+through `HostKind::External`.
 
 ## Managed skills and native installation
 
@@ -2007,8 +2041,11 @@ a missing command link with a retained activation is reported as invalid and
 explicit uninstall can finish that state.
 
 `tmt extension install|upgrade|uninstall|list` (`tmt-cli::extension_install_command`)
-is the public surface for the official extensions over this path. The names come
-from the fixed product table, never from PATH or archive data. Install, upgrade
+is the public surface for the official extensions over this path. Its facade
+retains dispatch, consent, errors, interruption, rendering and uninstall; private
+`extension_install_command/` modules own install, repair, list/upgrade and skills
+settlement through the existing native-installer and owned-skill adapters. The names
+come from the fixed product table, never from PATH or archive data. Install, upgrade
 and uninstall require consent (`--yes`, or an interactive prompt), and refuse a
 non-interactive run without it. `list` reads local receipts only. `--check` adds a
 bounded release lookup (`latest_release_version`, metadata only), and a failed
@@ -2071,14 +2108,17 @@ stays at 16 KiB.
   compositions. Application data and provider skills are separate owners.
 
 Explicit extension `install --repair` is a separate recovery composition in
-`native_install::repair`, limited to GitHub-provenance receipts. `receipt`
+`native_install::repair`, for GitHub and local-archive receipts. `receipt`
 separates bounded metadata/recorded-path validation from payload verification;
 normal readers still require both. An eligible verification failure carries
 `RepairRequired` to the CLI, which owns the single quoted repair-command hint.
 Repair admits only safe owned layouts and no-follow regular files/directories,
-fetches the exact recorded artifact with matching provenance and digests, and
-preserves version/channel/pin. Acquisition holds no installation lock; the stable
-lock and a pre-activation current/receipt revalidation fence publication.
+acquires the exact recorded artifact with matching provenance and digests, and
+preserves version/channel/pin. Observation parses the same bounded receipt bytes
+used for revalidation. Local repair requires the original archive and matching
+manifest; it retains local provenance and cannot replace a GitHub source.
+Acquisition holds no installation lock; the stable lock and a pre-activation
+current/receipt revalidation fence publication.
 `publication` shares candidate staging, durable activation, cleanup and typed
 post-activation failures between normal installs and repair. The damaged release
 is retained untouched at its original path, including foreign entries, rather
@@ -2135,7 +2175,23 @@ member's public projection: the `ls --room` row it already joins (`cwd`,
 returns unprefixed only when a column reads `meta.<key>`. `status::document`
 writes each bound value into the row's field of the column's name, with its
 number for sorting, before sections, filters and sorts read it, so the board and
-`ls` show one value and a binding adds no core call. The board sizes it with `tmt-cli-style`'s one solver
+`ls` show one value and a binding adds no core call. Field providers
+(`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
+member through `runner` with the run-binding argument rule
+(`Template::fill_argument`: one argument per template, no shell, a value that
+would start an argument with `-` refused), 4 at a time, bounded in time and
+output. `provider::Cache` keeps each value with the argv that produced it in
+`$XDG_CACHE_HOME/tmt-squad/fields/<squad>.json` (atomic replacement via
+`cache`: a 0600 file in a 0700 directory), so a changed input never shows an
+old value. `preset = "github-pr"` is a fixed `gh pr view {pr_link}` argv whose
+JSON `provider::github_pr` turns into `#<n> <state>[ · <review>]`; anything
+else from `gh` is a failed run; `provider::apply` writes
+current values into member fields before the document is built, `?` plus the
+row's `failed` list after a failed run. Readers never run providers: `ls` reads
+the cache (`--refresh-fields` runs what is due first), and the board hands each
+load's members to one fetcher thread that runs due work off the paint path and
+again at the shortest `every`; a save moves the cache directory's stamp, which
+`board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
 (`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
 field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
@@ -2224,7 +2280,7 @@ lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
 under the pointer. Panes keep no scroll state of their own; the rows pane only
-asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template and starts it like the
+asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).
@@ -2383,7 +2439,9 @@ inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
 The release workflow remains a product-selected preparation and verification
-workflow; publication is separately authorized. `native-release.yml` is the per-product
+workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
+in the release skill covers the pipeline publishing an alpha draft that passes every gate, and
+nothing else. `native-release.yml` is the per-product
 run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
 the build, assemble and verify pipeline, once per draft release that lacks a verified
 bundle; the state lives on the draft itself (`release-publication.json` marks a complete
@@ -2429,3 +2487,15 @@ Every change reports its architecture impact and names the affected Rust owner,
 adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
+
+## Proposed remote client contract
+
+[`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
+remote signed-message contract; no remote runtime or SDK is implemented by that
+document. Its M1 profile is `local-v1` over `loopback-http`, with transport-neutral
+append/subscribe/ack, extension-owned authentication and locally approved held
+sends through the public extension API. Future `cloudflare`/`firestore` bindings
+and `relay-v1` are reserved, not supported. The proposed runtime belongs entirely
+to `extensions/tmt-remote`; core does not listen, stay resident or expose its DB
+as a remote interface. Implementing slices must update this map to describe the
+delivered module, persistence, authority and verification boundaries.

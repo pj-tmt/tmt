@@ -15,37 +15,64 @@ Colors are semantic tokens (`palette::Token`). Each maps to one of the terminal'
 16 palette entries or to an effect, so the user's theme decides the shade. No RGB
 or 256-color values are used.
 
-| Token                  | Rendering    | Use                                   |
-| ---------------------- | ------------ | ------------------------------------- |
-| `accent`               | blue         | running, `hint:`, row actions         |
-| `ok`                   | green        | success (`✓`)                         |
-| `warn`                 | yellow       | needs attention                       |
-| `error`                | red          | `error:`, failed                      |
-| `dim`                  | dim          | counts, times, offline, secondary     |
-| `title`                | bold         | section titles and help headings      |
-| `literal`              | bold         | commands and flags a reader types     |
-| driver `claude`        | magenta      | an address or name driven by Claude   |
-| driver `codex`         | cyan         | an address or name driven by Codex    |
-| any other driver       | dim          | including the `tmux:%N` transport     |
+| Token            | Rendering | Use                                 |
+| ---------------- | --------- | ----------------------------------- |
+| `accent`         | blue      | running, `hint:`, row actions       |
+| `ok`             | green     | success (`✓`)                       |
+| `warn`           | yellow    | needs attention                     |
+| `error`          | red       | `error:`, failed                    |
+| `dim`            | dim       | counts, times, offline, secondary   |
+| `title`          | bold      | section titles and help headings    |
+| `literal`        | bold      | commands and flags a reader types   |
+| driver `claude`  | magenta   | an address or name driven by Claude |
+| driver `codex`   | cyan      | an address or name driven by Codex  |
+| any other driver | dim       | including the `tmux:%N` transport   |
 
 Help uses the same tokens through clap `Styles`. A full-screen view, such as the
 Squad board, takes its colors from `Token::color`, not from its own palette.
+
+## Themes
+
+`theme` owns what the design tokens (`site/src/design/tokens.json`) look like in
+a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
+`waiting`, `working`, `review`, `blocked`, `link` and `selection` (a
+background). A `Theme` is a built-in base plus per-role overrides:
+
+| Base        | Rendering                                                                |
+| ----------- | ------------------------------------------------------------------------ |
+| `tmt`       | the tokens' dark values in 24-bit color; the default                     |
+| `tmt-light` | the tokens' light values in 24-bit color                                 |
+| `terminal`  | the tokens' terminal column: the terminal's own 16 colors                |
+| `mono`      | bold (`accent`, `waiting`, `review`, `blocked`) and dim (`muted`, `dim`) |
+
+An override is `#rrggbb`, a color name (`blue`, `bright black`, …), `default`,
+`bold`, `dim` or `reverse`; `Theme::parse` reports a mistake with its setting's
+place. A stream renders at one `Depth`, decided once: none (no color, as for
+`NO_COLOR`, pipes and `--json`), 16 colors, or 24-bit when `COLORTERM` is
+`truecolor` or `24bit`. At 16 colors, `tmt` and `tmt-light` use the terminal
+column rather than the nearest shade, and a hex override uses the nearest of the
+16 colors. `Token::role` names the design token each command-line token shows
+as (`ok` is `working`, `warn` is `waiting`, `error` is `blocked`, the Claude and
+Codex driver colors are `review` and `link`). Full-screen views get the same
+styles for ratatui from `theme::screen::style`, behind the crate's `ratatui`
+feature, so core links no ratatui. A test keeps the built-in values equal to the
+design tokens.
 
 ## Marks
 
 Each mark has one meaning everywhere (`mark::Mark`). A row's leading state mark is
 `●`, `○` or `◌`:
 
-| Mark | Meaning                          |
-| ---- | -------------------------------- |
-| `●`  | running or active                |
-| `○`  | offline or ended                 |
-| `◌`  | bound to a pane, no agent running |
+| Mark | Meaning                                                            |
+| ---- | ------------------------------------------------------------------ |
+| `●`  | running or active                                                  |
+| `○`  | offline or ended                                                   |
+| `◌`  | bound to a pane, no agent running                                  |
 | `↻`  | leads a resume action (`↻ tmt resume <name>`), never a row's state |
-| `✓`  | done                             |
-| `✗`  | failed                           |
-| `!`  | warning                          |
-| `◆`  | waits on your decision           |
+| `✓`  | done                                                               |
+| `✗`  | failed                                                             |
+| `!`  | warning                                                            |
+| `◆`  | waits on your decision                                             |
 
 ## Lists
 
@@ -66,6 +93,7 @@ same parts.
   (`offline: a · b`); a flag such as `--all` expands them.
 - A section-level `hint:` line comes last, only for a next step that applies to
   the whole section.
+
 ```text
 SAVED 3
   ●  astra            codex:019a2f4c   ~/dev/tmux-team
@@ -159,6 +187,7 @@ Examples:
   ```
 
   A `Stream::new` over a buffer is never interactive.
+
 - Whether a person takes part is decided once per invocation by
   `tmt_cli_style::Interaction::detect(json)` and passed to what needs it:
   `view()` for a full-screen view (stdin and stdout are terminals, no `--json`,

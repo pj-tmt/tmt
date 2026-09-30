@@ -28,7 +28,7 @@ toml_edit.workspace = true
 ratatui.workspace = true
 pulldown-cmark.workspace = true
 unicode-width.workspace = true
-tmt-cli-style.workspace = true
+tmt-cli-style = { workspace = true, features = ["ratatui"] }
 
 [target.'cfg(unix)'.dependencies]
 subprocess.workspace = true

@@ -215,6 +215,74 @@ describe('tmt extension install surface', () => {
     });
   }, 60_000);
 
+  it('repairs a local archive exactly and retains its damaged release and foreign files', async () => {
+    await withSandbox(async (sandbox) => {
+      const prefix = path.join(sandbox.root, 'local repair prefix');
+      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'squad');
+      const cli = (args: string[]) =>
+        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+      const inputs = ['--archive', squad.archive, '--manifest', squad.manifest];
+      expect(
+        (
+          await cli([
+            'extension',
+            'install',
+            'squad',
+            '--yes',
+            '--prefix',
+            prefix,
+            '--channel',
+            'alpha',
+            ...inputs,
+          ])
+        ).status
+      ).toBe(0);
+      const current = path.join(prefix, 'lib/tmt-squad/current');
+      const old = realpathSync(current);
+      const receiptBytes = readFileSync(path.join(old, 'receipt.json'));
+      const original = readFileSync(path.join(old, 'LICENSE'));
+      writeFileSync(path.join(old, 'LICENSE'), 'user edits');
+      writeFileSync(path.join(old, 'foreign.txt'), 'keep foreign content');
+      const repair = ['extension', 'install', 'squad', '--repair', '--yes', '--prefix', prefix];
+      for (const args of [['extension', 'list', '--prefix', prefix], repair]) {
+        const result = await cli(args);
+        expect(result.status).toBe(1);
+        const error = expectError(result, 'EXTENSION_REPAIR_REQUIRED').error as { message: string };
+        expect(error.message).toContain(
+          "--archive '<original-archive>' --manifest '<matching-manifest>'"
+        );
+        expect(error.message.match(/tmt extension/g)).toHaveLength(1);
+        expect(realpathSync(current)).toBe(old);
+      }
+      expectError(
+        await cli(['extension', 'install', 'squad', '--repair', '--prefix', prefix, ...inputs]),
+        'EXTENSION_CONSENT_REQUIRED'
+      );
+      const repaired = await cli([...repair, ...inputs]);
+      expect(repaired.status).toBe(0);
+      expect(parseWholeStdout(repaired)).toMatchObject({
+        changed: true,
+        retainedRelease: old,
+        version: squad.version,
+      });
+      const active = realpathSync(current);
+      expect(active).not.toBe(old);
+      expect(readFileSync(path.join(active, 'LICENSE')).equals(original)).toBe(true);
+      expect(existsSync(path.join(active, 'foreign.txt'))).toBe(false);
+      expect(JSON.parse(readFileSync(path.join(active, 'receipt.json'), 'utf8')).source).toBe(
+        'local-archive'
+      );
+      expect(readFileSync(path.join(old, 'LICENSE'), 'utf8')).toBe('user edits');
+      expect(readFileSync(path.join(old, 'foreign.txt'), 'utf8')).toBe('keep foreign content');
+      expect(readFileSync(path.join(old, 'receipt.json')).equals(receiptBytes)).toBe(true);
+      expect(parseWholeStdout(await cli([...repair, ...inputs]))).toMatchObject({
+        changed: false,
+        retainedRelease: null,
+      });
+      expect(realpathSync(current)).toBe(active);
+    });
+  }, 60_000);
+
   it('offers bundled skills, refreshes them by name on update, and uninstall removes every owned skill', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'extension prefix');

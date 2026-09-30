@@ -5,6 +5,7 @@ mod action;
 mod attention;
 mod back;
 mod board;
+mod cache;
 mod config;
 mod consent;
 mod core;
@@ -16,6 +17,7 @@ mod me;
 mod member_actions;
 mod membership;
 mod playbook;
+mod provider;
 mod requests;
 mod rows;
 mod runner;
@@ -134,7 +136,13 @@ fn grammar() -> Command {
         .subcommand(
             build(specs::LS)
                 .alias("status")
-                .arg(squad_option()),
+                .arg(squad_option())
+                .arg(
+                    Arg::new("refresh-fields")
+                        .long("refresh-fields")
+                        .action(ArgAction::SetTrue)
+                        .help("Run field providers that are due before listing"),
+                ),
         )
         .subcommand(
             build(specs::BOARD)
@@ -762,7 +770,8 @@ fn run(
         return me_command(&core, &mut config, text("name"), matches.get_flag("clear"));
     }
     if matches!(command, "ls" | "board") {
-        return ls_document(&core, &mut config, text("squad"));
+        let refresh_fields = command == "ls" && matches.get_flag("refresh-fields");
+        return ls_document(&core, &mut config, text("squad"), refresh_fields);
     }
     let squad = Squad::resolve(&core, text("squad"))?;
     match command {
@@ -811,6 +820,7 @@ fn ls_document(
     core: &Core,
     config: &mut Config,
     explicit: Option<&str>,
+    refresh_fields: bool,
 ) -> Result<Outcome, SquadError> {
     let squads = match explicit {
         Some(_) => vec![Squad::resolve(core, explicit)?],
@@ -827,7 +837,16 @@ fn ls_document(
         let sections = config.sections(&squad.name)?;
         let states = config.states(&squad.name, layout)?;
         let rows = config.rows(&squad.name)?;
-        let members = squad.members(core, rows.reads_metadata())?;
+        let providers = config.providers(&squad.name)?;
+        let mut members = squad.members(core, rows.reads_metadata())?;
+        if refresh_fields {
+            provider::refresh(&squad.name, &providers, &members, status::now_ms());
+        }
+        provider::apply(
+            &providers,
+            &mut members,
+            &provider::Cache::load(&squad.name),
+        );
         let mut document = status::document(squad, layout, &states, &sections, &rows, members);
         requests::overlay(core, squad, you.as_ref().map(|(me, _)| me), &mut document)?;
         document["squad"]["attention"] = attention::Attention::of(&document).document();
@@ -1138,7 +1157,7 @@ mod tests {
         assert!(!complete(&words("-- help ")).contains(&"help".to_owned()));
         assert_eq!(
             complete(&words("-- status --")),
-            ["--help", "--json", "--squad"]
+            ["--help", "--json", "--refresh-fields", "--squad"]
         );
         assert_eq!(complete(&words("-- skill s")), ["show"]);
         assert_eq!(

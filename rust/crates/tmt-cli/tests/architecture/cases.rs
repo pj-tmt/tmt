@@ -975,24 +975,40 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
 }
 
 #[test]
-fn the_driver_protocol_depends_on_no_tmt_crate() {
-    assert!(
+fn the_host_grammar_is_the_only_crate_core_and_the_protocol_share() {
+    let violations = |owner: &str, dependencies: &[&str]| {
         policy::dependency_violations(&package(
-            "tmt-driver-protocol",
-            ["serde", "serde_json"]
-                .into_iter()
+            owner,
+            dependencies
+                .iter()
                 .map(|name| dependency(name, "normal", None, None))
-                .collect()
+                .collect(),
         ))
-        .is_empty()
+        .len()
+    };
+    assert_eq!(
+        violations(
+            "tmt-driver-protocol",
+            &["serde", "serde_json", "tmt-host-grammar"]
+        ),
+        0
     );
+    assert_eq!(violations("tmt-core", &["tmt-host-grammar"]), 0);
+    // Core never takes the wire crate or serde to reach the grammar.
+    for crate_name in ["tmt-driver-protocol", "serde", "serde_json"] {
+        assert_eq!(violations("tmt-core", &[crate_name]), 1, "{crate_name}");
+    }
     for crate_name in ["tmt-core", "tmt-adapters", "tmt-cli-style", "uuid"] {
         assert_eq!(
-            policy::dependency_violations(&package(
-                "tmt-driver-protocol",
-                vec![dependency(crate_name, "normal", None, None)]
-            ))
-            .len(),
+            violations("tmt-driver-protocol", &[crate_name]),
+            1,
+            "{crate_name}"
+        );
+    }
+    // The grammar depends on nothing at all.
+    for crate_name in ["serde", "tmt-core", "tmt-driver-protocol"] {
+        assert_eq!(
+            violations("tmt-host-grammar", &[crate_name]),
             1,
             "{crate_name}"
         );

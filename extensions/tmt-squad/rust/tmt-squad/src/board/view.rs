@@ -184,8 +184,16 @@ fn grid_line(
             _ => "",
         };
         let column = &rows.columns[range.start];
+        let failed = cell.field.as_deref().is_some_and(|field| {
+            row["failed"]
+                .as_array()
+                .is_some_and(|failed| failed.iter().any(|name| name == field))
+        });
         let style = if cell.field.as_deref() == Some("state") {
             color(colors.get(text).map_or("default", String::as_str))
+        } else if failed {
+            // A field provider's run failed: its `?` stays quiet.
+            color("dim")
         } else {
             Style::new()
         };

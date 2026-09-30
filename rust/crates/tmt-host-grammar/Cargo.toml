@@ -1,0 +1,15 @@
+[package]
+name = "tmt-host-grammar"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# A dependency-free leaf: tmt-core and tmt-driver-protocol share this one
+# definition of a terminal host's pane-ID and target syntax.
+[dependencies]
+
+[lints]
+workspace = true

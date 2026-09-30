@@ -14,6 +14,9 @@ pub struct Stamp {
     cursor: Option<Value>,
     /// squad.toml's modification time and length; None when it is missing.
     config: Option<(SystemTime, u64)>,
+    /// The field provider cache directory's modification time: it moves
+    /// when a provider run saves new values.
+    fields: Option<SystemTime>,
 }
 
 impl Stamp {
@@ -23,6 +26,7 @@ impl Stamp {
         Self {
             cursor: Some(json!(cursor)),
             config: None,
+            fields: None,
         }
     }
 
@@ -31,6 +35,7 @@ impl Stamp {
     /// both reads succeeded, so a failed read never triggers a reload.
     pub fn moved(&self, now: &Stamp) -> bool {
         self.config != now.config
+            || self.fields != now.fields
             || matches!((&self.cursor, &now.cursor), (Some(then), Some(now)) if then != now)
     }
 }
@@ -38,16 +43,19 @@ impl Stamp {
 pub struct Changes {
     core: Core,
     config: Option<PathBuf>,
+    fields: Option<PathBuf>,
     /// False once core reports it has no change cursor; never asked again.
     cursor: bool,
 }
 
 impl Changes {
-    /// `config` is squad.toml's path, when it could be found.
-    pub fn new(core: Core, config: Option<PathBuf>) -> Self {
+    /// `config` is squad.toml's path, when it could be found; `fields` the
+    /// field provider cache directory.
+    pub fn new(core: Core, config: Option<PathBuf>, fields: Option<PathBuf>) -> Self {
         Self {
             core,
             config,
+            fields,
             cursor: true,
         }
     }
@@ -59,6 +67,10 @@ impl Changes {
                 let metadata = std::fs::metadata(path).ok()?;
                 Some((metadata.modified().ok()?, metadata.len()))
             }),
+            fields: self
+                .fields
+                .as_ref()
+                .and_then(|path| std::fs::metadata(path).ok()?.modified().ok()),
         }
     }
 
@@ -109,7 +121,11 @@ mod tests {
             ),
         );
         std::fs::write(&cursor, "7").unwrap();
-        let changes = Changes::new(Core::at(fake), Some(config.clone()));
+        let changes = Changes::new(
+            Core::at(fake),
+            Some(config.clone()),
+            Some(dir.join("fields")),
+        );
         (changes, cursor, config, dir)
     }
 
