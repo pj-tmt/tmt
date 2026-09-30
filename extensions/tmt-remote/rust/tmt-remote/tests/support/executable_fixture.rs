@@ -182,7 +182,7 @@ mod tests {
             ))
         })
         .unwrap_err();
-        assert!(calls > 1 && calls <= 50);
+        assert!((1..=50).contains(&calls));
         assert_eq!(error.kind(), io::ErrorKind::ExecutableFileBusy);
         assert_eq!(error.to_string(), "busy original");
         assert!(started.elapsed() < Duration::from_secs(1));
