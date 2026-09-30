@@ -1898,8 +1898,14 @@ sides:
 - `serve`, a driver's entry point;
 - `conformance::check`, which runs through any invoker.
 
-The crate is a leaf with only `serde` and `serde_json`, so a community driver
-builds against it alone; the architecture guard enforces that. Nothing in `tmt`
+A host's name, pane-ID prefix and target template (parsing, matching and the
+overlap check between hosts) are defined once in `rust/crates/tmt-host-grammar`,
+a leaf with no dependencies at all. The protocol crate wraps it with the
+environment `caller` may read, and `tmt-core` may depend on it to recognize an
+external host's stored pane IDs without taking on the wire crate or serde. The
+protocol crate otherwise depends only on `serde` and `serde_json`, so a
+community driver builds against these two small crates alone. The architecture
+guard allows exactly those edges. Nothing in `tmt`
 calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
 spawning client with consent and fingerprint checks, and move Herdr out.
 
