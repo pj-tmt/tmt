@@ -61,6 +61,11 @@
         {
           "type": "toml",
           "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-host-grammar')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-office-model')].version"
         },
         {

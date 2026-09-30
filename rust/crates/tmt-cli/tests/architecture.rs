@@ -74,6 +74,7 @@ fn workspace_obeys_native_architecture() {
             "tmt-cli-style",
             "tmt-command-output",
             "tmt-driver-protocol",
+            "tmt-host-grammar",
             "tmt-office",
             "tmt-office-command",
             "tmt-office-model",
