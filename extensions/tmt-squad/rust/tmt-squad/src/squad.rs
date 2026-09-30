@@ -139,10 +139,7 @@ impl Squad {
     /// One roster snapshot joined with presence from `ls`, which owns host
     /// observation. A member missing from `ls` (joined in between) is unknown.
     pub fn members(&self, core: &Core) -> Result<Vec<Member>, SquadError> {
-        let roster = core.api(
-            "rooms.roster",
-            json!({"room": self.room_id, "metadataPrefix": self.prefix()}),
-        )?;
+        let mut members = self.roster(core)?;
         let listed = core.json(&["ls", "--room", &self.room_id])?;
         let presence: HashMap<&str, &Value> = listed["identities"]
             .as_array()
@@ -150,34 +147,56 @@ impl Squad {
             .flatten()
             .filter_map(|row| Some((row["id"].as_str()?, row)))
             .collect();
+        for member in &mut members {
+            let Some(seen) = presence.get(member.id.as_str()) else {
+                continue;
+            };
+            if let Some(state) = seen["presence"].as_str() {
+                member.presence = state.into();
+            }
+            if seen["pane"].is_string() {
+                member.pane = json!({"id": seen["pane"], "target": seen.get("target"), "cwd": seen.get("cwd")});
+            }
+        }
+        Ok(members)
+    }
+
+    /// The roster alone: names, fields and activity, with presence unknown and
+    /// no pane. Enough for a tab's attention without asking `ls` (#507).
+    pub fn roster(&self, core: &Core) -> Result<Vec<Member>, SquadError> {
+        let roster = core.api(
+            "rooms.roster",
+            json!({"room": self.room_id, "metadataPrefix": self.prefix()}),
+        )?;
         let prefix = self.prefix();
         roster["members"]
             .as_array()
-            .ok_or_else(|| SquadError::new("SQUAD_CORE_UNAVAILABLE", "rooms.roster returned no members."))?
+            .ok_or_else(|| {
+                SquadError::new(
+                    "SQUAD_CORE_UNAVAILABLE",
+                    "rooms.roster returned no members.",
+                )
+            })?
             .iter()
             .map(|member| {
-                let id = text(member, "id")?;
-                let seen = presence.get(id.as_str());
                 Ok(Member {
+                    id: text(member, "id")?,
                     name: text(member, "name")?,
                     lifetime: text(member, "lifetime")?,
-                    presence: seen
-                        .and_then(|row| row["presence"].as_str())
-                        .unwrap_or("unknown")
-                        .into(),
-                    pane: seen.filter(|row| row["pane"].is_string()).map_or(Value::Null, |row| {
-                        json!({"id": row["pane"], "target": row.get("target"), "cwd": row.get("cwd")})
-                    }),
+                    presence: "unknown".into(),
+                    pane: Value::Null,
                     activity: member["status"].clone(),
                     fields: member["metadata"]
                         .as_object()
                         .into_iter()
                         .flatten()
                         .filter_map(|(key, value)| {
-                            Some((key.strip_prefix(&prefix)?.to_owned(), value.as_str()?.to_owned()))
+                            Some((
+                                key.strip_prefix(&prefix)?.to_owned(),
+                                value.as_str()?.to_owned(),
+                            ))
                         })
                         .collect(),
-                    id,
                 })
             })
             .collect()

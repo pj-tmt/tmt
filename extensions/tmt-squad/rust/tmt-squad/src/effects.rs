@@ -317,7 +317,6 @@ mod tests {
 
     #[test]
     fn inside_tmux_the_text_goes_to_a_buffer_on_the_invoker_socket_from_tmux_3_2() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("tmt-squad-tmux-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let fake = dir.join("tmux");
@@ -329,8 +328,7 @@ mod tests {
             calls = calls.display(),
             dir = dir.display()
         );
-        std::fs::write(&fake, script).unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_support::write_executable(&fake, &script);
         let set = |name: &str, value: &str| std::fs::write(dir.join(name), value).unwrap();
 
         set("version", "tmux 3.1c\n");

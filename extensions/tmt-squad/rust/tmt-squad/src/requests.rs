@@ -174,19 +174,34 @@ pub fn overlay(
     let me_id = me.id.clone();
     let fetch = |input| core.api("requests.list", input);
     let room = window(fetch, &json!({"roomId": squad.room_id}))?;
+    let inbox = inbox(core, &me_id)?;
+    apply(document, &squad.name, &me_id, &room, &inbox);
+    Ok(Some(Sent { me: me_id, room }))
+}
+
+/// The requests waiting on the user, from `tmt inbox`.
+pub fn inbox(core: &Core, me_id: &str) -> Result<Window, SquadError> {
     let inbox = core.json(&[
         "inbox",
         "--identity",
-        &me_id,
+        me_id,
         "--limit",
         &(PAGE * PAGES).to_string(),
     ])?;
-    let inbox = Window {
+    Ok(Window {
         items: inbox["items"].as_array().cloned().unwrap_or_default(),
         complete: inbox["more"] != true,
+    })
+}
+
+/// Only what waits on the user, for a squad whose rows are not shown: the
+/// same `waitingOnYou` values, without reading the squad room.
+pub fn apply_waiting(document: &mut Value, squad: &str, me: &str, inbox: &Window) {
+    let room = Window {
+        items: Vec::new(),
+        complete: true,
     };
-    apply(document, &squad.name, &me_id, &room, &inbox);
-    Ok(Some(Sent { me: me_id, room }))
+    apply(document, squad, me, &room, inbox);
 }
 
 /// Finals to the user's requests in the squad room, newest final first:

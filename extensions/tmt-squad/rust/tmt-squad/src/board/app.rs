@@ -5,6 +5,7 @@
 use super::scroll::{Scrolls, Step, WHEEL_LINES};
 use crate::{
     action::{Action, Bindings, Verb},
+    attention::Attention,
     config::{Board, NotesRender, Pane},
     effects,
 };
@@ -35,6 +36,8 @@ pub struct View {
     pub section_bindings: Vec<Bindings>,
     pub opener: Option<Vec<String>>,
     pub clipboard: Option<Vec<String>>,
+    /// `[tabs.colors]`, re-read with every load like the rest of squad.toml.
+    pub tab_colors: crate::config::TabColors,
     /// The user's saved identity, the sender of talk, reply and annotate.
     pub me: Option<String>,
     /// Finals to the user's squad requests, newest first (replies pane).
@@ -55,6 +58,8 @@ pub enum Notes {
 
 pub struct Snapshot {
     pub squads: Vec<String>,
+    /// Every listed squad's attention, for its tab's color and counts.
+    pub attention: BTreeMap<String, Attention>,
     pub squad: Option<String>,
     pub view: Result<View, String>,
 }
@@ -175,6 +180,7 @@ pub struct Hit {
 #[derive(Default)]
 pub struct App {
     pub squads: Vec<String>,
+    pub attention: BTreeMap<String, Attention>,
     pub current: Option<String>,
     pub view: Option<View>,
     pub error: Option<String>,
@@ -322,6 +328,7 @@ impl App {
     /// already left is kept for switching back, never shown.
     pub fn apply(&mut self, snapshot: Snapshot) {
         self.squads = snapshot.squads;
+        self.attention = snapshot.attention;
         if self.current.is_some() && snapshot.squad != self.current {
             if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
                 self.cache.insert(name, view);
@@ -852,6 +859,7 @@ pub(crate) mod tests {
             section_bindings: Vec::new(),
             opener: None,
             clipboard: None,
+            tab_colors: Default::default(),
             me: None,
             replies: Vec::new(),
         }
@@ -860,6 +868,7 @@ pub(crate) mod tests {
     pub(crate) fn snapshot(squad: &str, sections: Value) -> Snapshot {
         Snapshot {
             squads: vec!["infra".into(), "product".into()],
+            attention: Default::default(),
             squad: Some(squad.into()),
             view: Ok(view(sections)),
         }
@@ -963,6 +972,7 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Right);
         app.apply(Snapshot {
             squads: vec!["product".into(), "infra".into()],
+            attention: Default::default(),
             squad: Some("infra".into()),
             view: Err("infra: room not found".into()),
         });
@@ -1276,6 +1286,7 @@ pub(crate) mod tests {
         ));
         app.apply(Snapshot {
             squads: vec!["product".into()],
+            attention: Default::default(),
             squad: Some("product".into()),
             view: Err("tmt did not finish in time".into()),
         });

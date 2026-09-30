@@ -803,11 +803,15 @@ A fixture that writes an executable and then runs it, directly or through an
 installer's verifier, can be refused with ETXTBSY ("Text file busy") in a
 multi-test binary: another test thread's `fork` holds a copy of the write
 descriptor until the child's `exec`, and nothing the writer does closes that
-window. Fixtures wait it out with a bounded retry of only that error; production
-code never retries. `tmt-office-command` does this in `test_support::install_office`
-(`retry_on_text_file_busy`). The opt-in stress test `cargo test -p
-tmt-office-command text_file_busy_stress -- --ignored --nocapture` reproduces the
-race and reports failures with and without the retry.
+window. An installer fixture waits it out with a bounded retry of only that
+error; production code never retries. `tmt-office-command` does this in `test_support::install_office`
+(`retry_on_text_file_busy`). A fixture that only needs a stand-in script,
+such as Squad's fake `tmt` and `tmux`, avoids the window instead by not writing
+the file in the test process: Squad's `test_support::write_executable` has a
+short-lived `sh` write it, so no test thread can fork a copy of the descriptor.
+The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
+-- --ignored --nocapture` reproduces the race and reports failures with and
+without the retry.
 
 Human output and help snapshots (`insta`, a dev-dependency) live beside the
 tests that assert them, such as `rust/crates/tmt-cli-style/tests/snapshots/`.
