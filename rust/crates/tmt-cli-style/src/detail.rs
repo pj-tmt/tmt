@@ -39,6 +39,7 @@ mod tests {
         let narrow = Terminal {
             color: false,
             width: Some(20),
+            theme: None,
         };
         write(
             &mut output,

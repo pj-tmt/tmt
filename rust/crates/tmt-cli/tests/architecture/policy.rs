@@ -454,7 +454,12 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                             && path
                                 .get(2)
                                 .is_some_and(|p| ["Error", "Cursor"].contains(&p.as_str()))));
-                if (root == "std" && !pure_std.contains(&module) && !model_value)
+                // The approved drivers' host syntax, written once at start (#570).
+                let host_registry = source.package == "tmt-core"
+                    && source.file == "host.rs"
+                    && module == "sync"
+                    && path.get(2).is_some_and(|p| p == "OnceLock");
+                if (root == "std" && !pure_std.contains(&module) && !model_value && !host_registry)
                     || ["print", "println", "eprint", "eprintln", "dbg"].contains(&root)
                 {
                     violations.push(format!(

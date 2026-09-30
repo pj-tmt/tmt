@@ -109,6 +109,7 @@ mod tests {
         let color = Terminal {
             color: true,
             width: None,
+            theme: None,
         };
         assert!(text(|out| warning(out, color, "x", None)).starts_with("\u{1b}[33mwarning:"));
     }
