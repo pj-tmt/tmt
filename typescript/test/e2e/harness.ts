@@ -6,119 +6,37 @@ import { fileURLToPath } from 'node:url';
 import { TMUX_COMMAND_INSPECTION } from './tmux-command-inspection.js';
 import { resolveCliExecutables, type CliExecutables } from '../support/cli-executable.mjs';
 
+import type {
+  CliResult,
+  MockEvent,
+  MockPane,
+  CliRunOptions,
+  CliProcess,
+  MetadataBarrierOptions,
+  E2EFixtureOptions,
+} from './harness/types.js';
+import {
+  waitFor,
+  waitForEvent,
+  waitForProcessExit,
+  waitForCapture,
+  readMockEvents,
+  readPaneTarget,
+  waitForMetadataBarrier,
+} from './harness/readiness.js';
+import {
+  killAndWait,
+  processGroupIsRunning,
+  requestObserverPids,
+  stopAttachedClients,
+  processIsRunning,
+  serverIsRunning,
+  waitForCliResults,
+  activeReplyPids,
+} from './harness/cleanup.js';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const mockAgentPath = path.join(repoRoot, 'test', 'e2e', 'mock-agent.mjs');
-
-export interface CliResult<T = unknown> {
-  code: number;
-  stdout: string;
-  stderr: string;
-  json?: T;
-}
-
-export interface MockEvent {
-  event:
-    | 'ready'
-    | 'request'
-    | 'submitted'
-    | 'summary'
-    | 'failure'
-    | 'fake-marker'
-    | 'child-start'
-    | 'child-close'
-    | 'silent'
-    | 'malformed'
-    | 'input'
-    | 'stopped';
-  message?: string;
-  line?: string;
-  requestId?: string;
-  receipt?: string;
-  replyFrame?: string;
-  body?: string;
-  bodyBytes?: number;
-  submittedAtMs?: number;
-  stage?: string;
-  exitCode?: number;
-  childPid?: number;
-  replyInput?: 'stdin' | 'message';
-  error?: { code?: string; message?: string };
-  mode?: string;
-  pid?: number;
-}
-
-export interface MockPane {
-  pane: string;
-  pid: number;
-  workspace: string;
-}
-
-export interface CliRunOptions {
-  cwd?: string;
-  pane?: string;
-  /**
-   * Remove pane context and fail visibly if the CLI attempts to invoke tmux. The
-   * shim refuses every call, so tmux is also unreachable to notification and
-   * transport: use `outsideTmux` to run outside a pane while tmux stays reachable.
-   */
-  withoutTmux?: boolean;
-  /** Remove caller context while keeping tmux available for explicit targets. */
-  outsideTmux?: boolean;
-  /** Narrow caller-context overrides for invalid-evidence scenarios. */
-  caller?: {
-    tmux?: string | null;
-    pane?: string | null;
-  };
-  /** Touch this file when the child has made its first tmux invocation. */
-  progressFile?: string;
-  /** Record transport sequencing without injecting a failure. */
-  transportTrace?: boolean;
-  /** Fail only diagnostic capture, after target resolution has succeeded. */
-  captureFault?: 'exit' | 'overflow' | 'timeout';
-  /** Inject one transport-stage failure into this CLI process only. */
-  transportFault?: {
-    /** set-buffer is safe to fall back from; paste and submit are uncertain. */
-    readonly stage: 'set-buffer' | 'paste' | 'submit';
-  };
-}
-
-export interface CliProcess<T = unknown> {
-  readonly pid: number;
-  readonly result: Promise<CliResult<T>>;
-  /** Kill the CLI and descendants, including a paused tmux wrapper. */
-  kill(signal?: NodeJS.Signals): void;
-}
-
-export interface MetadataBarrierOptions {
-  /** Pause before or after the real durable metadata set-option. */
-  readonly phase: 'before' | 'after';
-  /** Publication is the default; clear pauses durable metadata removal. */
-  readonly operation?: 'publish' | 'clear';
-}
-
-export interface E2EFixtureOptions {
-  /** Test-only selector environment, resolved before allocating fixture resources. */
-  executableEnv?: NodeJS.ProcessEnv;
-  mode?: 'respond' | 'silent' | 'malformed' | 'virtualized' | 'fake-marker' | 'input-log';
-  delayMs?: number;
-  responseBodyBase64?: string;
-  responseBytes?: number;
-  responseMultibyte?: boolean;
-  replyInput?: 'stdin' | 'message';
-  replyDelayMs?: number;
-  replyGate?: boolean;
-  replyFailure?: boolean;
-  holdReplyEof?: boolean;
-  replyRetry?: boolean;
-  replyConflict?: boolean;
-  replyAckLoss?: boolean;
-  summaryFailure?: boolean;
-  globalDir?: string;
-  metadataBarrier?: MetadataBarrierOptions;
-}
-
-/** Time for the CLI to reach a metadata barrier on a loaded host; only a hung CLI exceeds it. */
-const METADATA_BARRIER_TIMEOUT_MS = 10_000;
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -438,7 +356,7 @@ exit ${'$'}status
       () => {
         if (child.pid) {
           try {
-            if (!this.processGroupIsRunning(child.pid)) this.cliProcessPids.delete(child.pid);
+            if (!processGroupIsRunning(child.pid)) this.cliProcessPids.delete(child.pid);
           } catch {
             // Leave the group tracked so fixture cleanup reports the failure.
           }
@@ -448,7 +366,7 @@ exit ${'$'}status
       () => {
         if (child.pid) {
           try {
-            if (!this.processGroupIsRunning(child.pid)) this.cliProcessPids.delete(child.pid);
+            if (!processGroupIsRunning(child.pid)) this.cliProcessPids.delete(child.pid);
           } catch {
             // Leave the group tracked so fixture cleanup reports the failure.
           }
@@ -578,7 +496,7 @@ exit ${'$'}status
     this.serverStarted = false;
 
     await this.waitFor(
-      () => !this.processIsRunning(previousServerPid),
+      () => !processIsRunning(previousServerPid),
       2_000,
       'private tmux server to exit before restart'
     );
@@ -630,13 +548,7 @@ exit ${'$'}status
   }
 
   paneTarget(pane = this.pane): string {
-    return this.tmux([
-      'display-message',
-      '-p',
-      '-t',
-      pane,
-      '#{session_name}:#{window_index}.#{pane_index}',
-    ]).trim();
+    return readPaneTarget((args) => this.tmux(args), pane);
   }
 
   paneSessionId(pane = this.pane): string {
@@ -663,28 +575,14 @@ exit ${'$'}status
   }
 
   events(): MockEvent[] {
-    if (!fs.existsSync(this.logPath)) return [];
-    return fs
-      .readFileSync(this.logPath, 'utf8')
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as MockEvent);
+    return readMockEvents(this.logPath);
   }
 
   async waitForEvent(
     predicate: (event: MockEvent) => boolean,
     timeoutMs = 2_000
   ): Promise<MockEvent> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const event = this.events().find(predicate);
-      if (event) return event;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    throw new Error(
-      `Timed out waiting for mock-agent event. Events: ${JSON.stringify(this.events())}`
-    );
+    return waitForEvent(() => this.events(), predicate, timeoutMs);
   }
 
   async waitFor(
@@ -692,40 +590,16 @@ exit ${'$'}status
     timeoutMs = 2_000,
     description = 'condition'
   ): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (predicate()) return;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    throw new Error(`Timed out waiting for ${description}.`);
+    return waitFor(predicate, timeoutMs, description);
   }
 
-  /**
-   * Wait for the CLI to reach the barrier. This is a readiness wait: reaching it
-   * takes as long as the CLI needs on a loaded host, so the bound is generous and
-   * exists only to end a hung CLI. Pass the CLI process to fail at once, with its
-   * exit status and output, when it exits before reaching the barrier.
-   */
   async waitForMetadataBarrier(
     signal: 'entered' | 'applied' = 'entered',
     options: { child?: CliProcess<unknown>; timeoutMs?: number } = {}
   ): Promise<void> {
-    const barrier = path.join(this.metadataBarrierDirectory, signal);
-    let exited = undefined as CliResult<unknown> | undefined;
-    void options.child?.result.then((result) => {
-      exited = result;
-    });
-    await this.waitFor(
-      () => fs.existsSync(barrier) || exited !== undefined,
-      options.timeoutMs ?? METADATA_BARRIER_TIMEOUT_MS,
-      `metadata barrier '${signal}'`
+    return waitForMetadataBarrier(this.metadataBarrierDirectory, signal, options, (...args) =>
+      this.waitFor(...args)
     );
-    if (!fs.existsSync(barrier) && exited) {
-      throw new Error(
-        `The CLI exited with code ${exited.code} before metadata barrier '${signal}'.\n` +
-          `stdout: ${exited.stdout.trim()}\nstderr: ${exited.stderr.trim()}`
-      );
-    }
   }
 
   releaseMetadataBarrier(): void {
@@ -759,44 +633,15 @@ exit ${'$'}status
   async stop(): Promise<void> {
     const cliPids = [...this.cliProcessPids];
     let cleanupError: Error | undefined;
-    const killAndWait = async (pids: number[], label: string): Promise<number[]> => {
-      for (const pid of pids) {
-        try {
-          process.kill(-pid, 'SIGKILL');
-        } catch (error) {
-          if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH') {
-            cleanupError ??= new Error(`Could not kill E2E ${label} process group ${pid}.`, {
-              cause: error,
-            });
-          }
-        }
-      }
-      const groupsRunning = (): number[] =>
-        pids.filter((pid) => {
-          try {
-            return this.processGroupIsRunning(pid);
-          } catch (error) {
-            cleanupError ??= new Error(`Could not inspect E2E ${label} process group ${pid}.`, {
-              cause: error,
-            });
-            return false;
-          }
-        });
-      const deadline = Date.now() + 1_000;
-      while (Date.now() < deadline && groupsRunning().length > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      return groupsRunning();
+    const recordCleanupError = (error: Error): void => {
+      cleanupError ??= error;
     };
-    const survivors = await killAndWait(cliPids, 'CLI');
+    const survivors = await killAndWait(cliPids, 'CLI', recordCleanupError);
     if (survivors.length > 0) {
       cleanupError = new Error(`E2E CLI process groups survived cleanup: ${survivors.join(', ')}`);
     }
     this.cliProcessPids.clear();
-    await Promise.race([
-      Promise.allSettled(this.cliProcessResults.values()),
-      new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
-    ]);
+    await waitForCliResults(this.cliProcessResults.values());
     if (this.cliProcessResults.size > 0) {
       cleanupError = new Error(
         `E2E CLI processes did not report termination: ${[...this.cliProcessResults.keys()].join(', ')}`
@@ -807,60 +652,13 @@ exit ${'$'}status
     // recorded request IDs and matching live argv may be stopped here.
     const observers = path.join(this.globalDir, 'request-observers');
     if (fs.existsSync(observers)) {
-      const owned: number[] = [];
-      for (const name of fs.readdirSync(observers)) {
-        if (!/^req_[0-9a-f-]+\.log$/.test(name)) continue;
-        const match = fs
-          .readFileSync(path.join(observers, name), 'utf8')
-          .match(/^observer_pid=(\d+)$/m);
-        if (!match) continue;
-        const pid = Number(match[1]);
-        const request = name.slice(0, -4);
-        try {
-          const args = execFileSync('ps', ['-p', String(pid), '-o', 'args='], {
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'ignore'],
-          });
-          if (args.trim().endsWith(`__request-observer ${request}`)) owned.push(pid);
-        } catch {
-          // Already exited. Never signal a recycled PID with different argv.
-        }
-      }
-      const survivors = await killAndWait(owned, 'request observer');
+      const owned = requestObserverPids(observers);
+      const survivors = await killAndWait(owned, 'request observer', recordCleanupError);
       if (survivors.length > 0)
         cleanupError ??= new Error(`Request observers survived cleanup: ${survivors.join(', ')}`);
     }
     const attachedClients = this.attachedClients.splice(0);
-    await Promise.all(
-      attachedClients.map(async (client) => {
-        if (client.exitCode === null && client.signalCode === null) {
-          try {
-            client.kill('SIGKILL');
-          } catch (error) {
-            cleanupError ??= new Error('Could not stop an attached E2E tmux client.', {
-              cause: error,
-            });
-          }
-        }
-        if (client.exitCode !== null || client.signalCode !== null) return;
-        const closed = await new Promise<boolean>((resolve) => {
-          const timer = setTimeout(() => {
-            client.removeListener('close', onClose);
-            resolve(false);
-          }, 1_000);
-          const onClose = (): void => {
-            clearTimeout(timer);
-            resolve(true);
-          };
-          client.once('close', onClose);
-        });
-        if (!closed) {
-          cleanupError ??= new Error(
-            `Attached E2E tmux client ${client.pid ?? 'unknown'} survived cleanup.`
-          );
-        }
-      })
-    );
+    await stopAttachedClients(attachedClients, recordCleanupError);
     if (this.serverStarted) {
       try {
         this.tmux(['kill-server']);
@@ -870,16 +668,10 @@ exit ${'$'}status
     }
     this.serverStarted = false;
     this.started = false;
-    await this.waitForProcessExit();
+    await waitForProcessExit(this.panePids, (pid) => this.mockProcessIsRunning(pid));
 
-    const activeChildren = new Set<number>();
-    for (const event of this.events()) {
-      if (event.childPid === undefined) continue;
-      if (event.event === 'child-start') activeChildren.add(event.childPid);
-      if (event.event === 'child-close') activeChildren.delete(event.childPid);
-    }
-    const replyPids = [...activeChildren];
-    const replySurvivors = await killAndWait(replyPids, 'reply');
+    const replyPids = activeReplyPids(this.events());
+    const replySurvivors = await killAndWait(replyPids, 'reply', recordCleanupError);
     if (replySurvivors.length > 0) {
       cleanupError ??= new Error(
         `E2E reply process groups survived cleanup: ${replySurvivors.join(', ')}`
@@ -891,61 +683,15 @@ exit ${'$'}status
   }
 
   serverIsRunning(): boolean {
-    if (!this.socketPath) return false;
-    try {
-      execFileSync(this.tmuxPath, ['-S', this.socketPath, 'list-sessions'], {
-        stdio: 'ignore',
-      });
-      return true;
-    } catch {
-      return this.serverProcessIsRunning();
-    }
+    return serverIsRunning(this.socketPath, this.tmuxPath, () => this.serverProcessIsRunning());
   }
 
   serverProcessIsRunning(): boolean {
-    return this.processIsRunning(this.serverPid);
-  }
-
-  private processIsRunning(pid: number): boolean {
-    if (!Number.isInteger(pid) || pid <= 0) return false;
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private processGroupIsRunning(pid: number): boolean {
-    if (!Number.isInteger(pid) || pid <= 0) return false;
-    try {
-      process.kill(-pid, 0);
-      return true;
-    } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ESRCH') return false;
-      throw error;
-    }
+    return processIsRunning(this.serverPid);
   }
 
   mockProcessIsRunning(pid = this.panePid): boolean {
-    if (!Number.isInteger(pid) || pid <= 0) return false;
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async waitForProcessExit(timeoutMs = 2_000): Promise<void> {
-    if (this.panePids.length === 0) return;
-    const deadline = Date.now() + timeoutMs;
-    while (
-      Date.now() < deadline &&
-      this.panePids.some((panePid) => this.mockProcessIsRunning(panePid))
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    return processIsRunning(pid);
   }
 
   sendMockInput(lines: string[], pane = this.pane): void {
@@ -966,13 +712,7 @@ exit ${'$'}status
   }
 
   async waitForCapture(predicate: (output: string) => boolean, pane = this.pane): Promise<string> {
-    const deadline = Date.now() + 2_000;
-    while (Date.now() < deadline) {
-      const output = this.capture(100, pane);
-      if (predicate(output)) return output;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    throw new Error(`Timed out waiting for mock-agent pane output.\n${this.capture(100, pane)}`);
+    return waitForCapture(() => this.capture(100, pane), predicate);
   }
 }
 
@@ -988,3 +728,13 @@ export async function withE2EFixture<T>(
     await fixture.stop();
   }
 }
+
+export type {
+  CliResult,
+  MockEvent,
+  MockPane,
+  CliRunOptions,
+  CliProcess,
+  MetadataBarrierOptions,
+  E2EFixtureOptions,
+} from './harness/types.js';
