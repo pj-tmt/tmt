@@ -2,6 +2,8 @@ import type { ComponentMap } from './ci-scope.mjs';
 
 export interface WorkspaceCrate {
   readonly name: string;
+  /** Version resolved by Cargo, including workspace inheritance. */
+  readonly version: string;
   /** Repository-relative path of the crate's Cargo.toml. */
   readonly manifest: string;
   /** Repository-relative directory of the crate. */

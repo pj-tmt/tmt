@@ -16,7 +16,7 @@ const WORKSPACE_MANIFEST = 'rust/Cargo.toml';
 const LOCK_FILE = 'rust/Cargo.lock';
 
 /**
- * Crates, their version declaration, their workspace dependencies, the crates that have a
+ * Crates, their resolved version and version declaration, their workspace dependencies, the crates that have a
  * `Cargo.lock` entry and every tracked file, read from the repository at `root`.
  */
 export function readWorkspace(root = ROOT) {
@@ -41,6 +41,7 @@ export function readWorkspace(root = ROOT) {
     const manifest = relative(root, crate.manifest_path);
     return {
       name: crate.name,
+      version: crate.version,
       manifest,
       dir: dirname(manifest),
       inheritsVersion: /^version\.workspace\s*=\s*true\s*$/m.test(

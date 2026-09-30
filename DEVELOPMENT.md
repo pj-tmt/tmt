@@ -895,6 +895,11 @@ and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
 and embedded service tests remain separate required checks; process deadlines
 and assertions are unchanged. Local selection still defaults to the debug CLI.
 
+The CLI version expectation uses the shared workspace reader once per suite, running bounded
+`cargo metadata --no-deps --offline --locked`. Cargo and the workspace resolution inputs
+must remain available even when selecting an explicit CLI executable. The documented build
+below supplies those inputs; the expectation has no alternate version reader.
+
 Build first, then explicitly select the test-only storage probe. The product CLI
 uses its repository-native default; the probe is never an installed SQL command:
 
