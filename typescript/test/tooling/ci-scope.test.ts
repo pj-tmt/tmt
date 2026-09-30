@@ -42,7 +42,7 @@ describe('CI area selection', () => {
     ).toThrow('release must be boolean');
   });
 
-  it('leaves the add-on to its always-running workflow without narrowing look-alikes', () => {
+  it('selects the add-on workflow only for shell/tool inputs without narrowing look-alikes', () => {
     expect(selectCiAreas(['extensions/tmt-remote/typescript/browser-addon/src/popup.ts'])).toEqual({
       native: false,
       office: false,
@@ -62,8 +62,28 @@ describe('CI area selection', () => {
       new URL('../../../.github/workflows/browser-addon.yml', import.meta.url),
       'utf8'
     );
-    expect(workflow).toMatch(/^on:\n  pull_request:\n  workflow_dispatch:/m);
-    expect(workflow).not.toMatch(/paths:|continue-on-error/);
+    expect(workflow).toMatch(/^on:\n  pull_request:\n    paths:/m);
+    expect(workflow).toMatch(/^  workflow_dispatch:/m);
+    expect(workflow).not.toContain('continue-on-error');
+    const filters = [...workflow.matchAll(/^      - '([^']+)'$/gm)].map((m) => globToRegExp(m[1]));
+    const selected = (file: string) => filters.some((filter) => filter.test(file));
+    for (const file of [
+      'extensions/tmt-remote/typescript/browser-addon/src/popup.ts',
+      '.github/workflows/browser-addon.yml',
+      '.github/actions/setup-tooling/action.yml',
+      'scripts/retry-command.sh',
+      'typescript/package.json',
+      'typescript/pnpm-workspace.yaml',
+      'typescript/pnpm-lock.yaml',
+    ])
+      expect(selected(file), file).toBe(true);
+    for (const file of [
+      'rust/crates/tmt-core/src/lib.rs',
+      'extensions/tmt-remote/typescript/browser-addon-other/src/popup.ts',
+      '.github/workflows/browser-addon.yml.orig',
+      'ARCHITECTURE.md',
+    ])
+      expect(selected(file), file).toBe(false);
     expect(workflow).toContain('--fail-if-no-match');
     expect(workflow).toContain('test:browser');
   });

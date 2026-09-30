@@ -81,7 +81,7 @@
     {
       "id": "browser-addon",
       "consumers": [],
-      "why": "Private MV3 shell has its own browser-addon.yml workflow on every pull request (no path filter); native and Office jobs read none of its files. Positive and prefix-negative fixtures guard this boundary.",
+      "why": "Private MV3 shell has its own browser-addon.yml workflow filtered to shell and consumed tooling inputs; native and Office jobs read none of its files. Positive and prefix-negative fixtures guard this boundary.",
       "paths": [
         "extensions/tmt-remote/typescript/browser-addon/**",
         ".github/workflows/browser-addon.yml"

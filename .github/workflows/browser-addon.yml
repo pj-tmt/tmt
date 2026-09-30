@@ -1,6 +1,14 @@
 name: Browser add-on
 on:
   pull_request:
+    paths:
+      - 'extensions/tmt-remote/typescript/browser-addon/**'
+      - '.github/workflows/browser-addon.yml'
+      - '.github/actions/setup-tooling/**'
+      - 'scripts/retry-command.sh'
+      - 'typescript/package.json'
+      - 'typescript/pnpm-workspace.yaml'
+      - 'typescript/pnpm-lock.yaml'
   workflow_dispatch:
 permissions:
   contents: read

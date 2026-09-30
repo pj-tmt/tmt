@@ -642,8 +642,8 @@ starting another message does not cancel submitted work. Replies render as text.
 The stub's status transitions are UI evidence, never server security acceptance.
 
 The shell's Chromium profile and loopback page fixture are disposable test
-owners. Its separate workflow runs on every PR, fails on empty test discovery
-and does not narrow unknown-path checks. The component map assigns this package
+owners. Its separate workflow selects shell and consumed tooling changes,
+fails on empty test discovery and does not narrow unknown-path checks. The component map assigns this package
 to a private `release: false` owner and selects no native/Office jobs for it. The release generator rejects native crates
 under a private owner and excludes the shell from CLI releases. Native remote
 product registration remains a later slice.
