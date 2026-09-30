@@ -92,7 +92,7 @@ jobs:
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vitest run test/tooling/ci-scope.test.ts
+          pnpm exec vitest run test/tooling/ci-scope.test.ts test/tooling/release-please-config.test.ts
       - name: Require selected Office verification
         env:
           OFFICE_SELECTED: ${{ needs.changes.outputs.office }}
