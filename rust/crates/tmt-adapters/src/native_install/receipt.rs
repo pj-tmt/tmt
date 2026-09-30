@@ -150,7 +150,17 @@ impl Receipt {
             skills_tree::receipt_limit(product),
         )
         .map_err(io::Error::other)?;
-        let value: Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+        Self::parse_metadata(product, &bytes, prefix, id)
+    }
+
+    /// Parse exactly the bounded observation bytes used by activation fencing.
+    pub(super) fn parse_metadata(
+        product: Product,
+        bytes: &[u8],
+        prefix: &Path,
+        id: Uuid,
+    ) -> io::Result<Self> {
+        let value: Value = serde_json::from_slice(bytes).map_err(io::Error::other)?;
         let text = |key: &str| {
             value[key]
                 .as_str()

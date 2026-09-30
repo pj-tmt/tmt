@@ -185,7 +185,16 @@ layout = { direction = "left-right", sizes = [60, 40], panes = [
 ] }
 `}</Code>
 
-Bindings come only from your own config file, never from what agents write on the board. `run` starts the program directly, not through a shell: each `{field}` fills exactly one argument, so a row can't smuggle in extra commands. `open` only opens web links. `tmt sq ls` uses the same sections, so the text and JSON views match the board.
+Bindings come only from your own config file, never from what agents write on the board. `run` starts the program directly, not through a shell: each `{field}` fills exactly one argument, so a row can't smuggle in extra commands, and a value that would start an argument with `-` is refused, so it can't slip in an option either. `open` only opens web links. `tmt sq ls` uses the same sections, so the text and JSON views match the board.
+
+**Field providers** fill a column with data tmt doesn't have, such as a pull request's state. A provider runs a program of yours for each member, under the same rules as `run`, and shows its first line of output as a field of its name. The board never waits for one: it shows the last value while providers run in the background, and runs them again after `every`. A failed run shows a dim `?`, never an error. `tmt sq ls --refresh-fields` runs the ones that are due before listing.
+
+<Code>{`
+[squad.product.fields.pr_state]
+run     = ["gh", "pr", "view", "{pr_link}", "--json", "state", "-q", ".state"]
+every   = "60s"
+timeout = "5s"
+`}</Code>
 
 ### Colors and themes
 
