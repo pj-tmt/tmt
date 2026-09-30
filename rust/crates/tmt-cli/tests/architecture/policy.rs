@@ -84,6 +84,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "shlex",
             "unicode-width",
         ],
+        // The driver protocol is a leaf like the style crate: a community
+        // driver builds against it alone, so it may depend on no TMT crate.
+        "tmt-driver-protocol" => &["serde", "serde_json"],
         // The command crate also owns the companion invocation boundary and the
         // Office release verifier it hands to native installation.
         "tmt-office-command" => &[
