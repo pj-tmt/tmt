@@ -2472,6 +2472,8 @@ dependencies = [
  "clap",
  "comfy-table",
  "insta",
+ "ratatui",
+ "serde_json",
  "shlex",
  "unicode-width",
 ]

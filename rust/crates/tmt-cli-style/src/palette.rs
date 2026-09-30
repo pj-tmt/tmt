@@ -39,6 +39,23 @@ impl Token {
         }
     }
 
+    /// The design token this shows as in a [`crate::Theme`]; None for the
+    /// bold-only tokens. A driver's hue is the token its color names
+    /// (magenta is review, cyan is link).
+    pub fn role(self) -> Option<crate::Role> {
+        use crate::Role;
+        match self {
+            Self::Accent => Some(Role::Accent),
+            Self::Ok => Some(Role::Working),
+            Self::Warn => Some(Role::Waiting),
+            Self::Error => Some(Role::Blocked),
+            Self::Dim | Self::Driver(None) => Some(Role::Dim),
+            Self::Driver(Some(AnsiColor::Magenta)) => Some(Role::Review),
+            Self::Driver(Some(AnsiColor::Cyan)) => Some(Role::Link),
+            Self::Driver(Some(_)) | Self::Title | Self::Literal => None,
+        }
+    }
+
     pub fn effects(self) -> Effects {
         match self {
             Self::Dim | Self::Driver(None) => Effects::DIMMED,
