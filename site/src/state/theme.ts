@@ -29,7 +29,12 @@ export const themeAtom = atom(
   },
 );
 
+// A host page (such as a preview viewer) may already set data-theme for its
+// reader. "system" means that choice, or the OS setting when there is none.
+const hostTheme = document.documentElement.dataset.theme;
+
 export function applyTheme(choice: ThemeChoice) {
-  if (choice === "system") delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = choice;
+  const theme = choice === "system" ? hostTheme : choice;
+  if (theme) document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
 }

@@ -1,4 +1,9 @@
-import { createHashHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import {
+  createHashHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from "@tanstack/react-router";
 import { pages } from "./chapters";
 import { Chapter, Layout } from "./components/Layout";
 
