@@ -11,6 +11,9 @@ mod board_scope_tests;
 mod change_cursor_tests;
 #[cfg(test)]
 mod dispatch_tests;
+mod host_names;
+#[cfg(test)]
+mod host_names_tests;
 #[cfg(test)]
 mod host_tests;
 #[cfg(test)]
@@ -216,9 +219,18 @@ const MIGRATIONS: &[Migration] = &[
         name: "advance one change cursor on every change to core-owned records",
         sql: include_str!("schema/040.sql"),
     },
+    Migration {
+        name: "admit any approved host driver in bindings, request fences and host servers",
+        sql: include_str!("schema/041.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
+    apply_through(connection, MIGRATIONS.len())
+}
+
+/// Applies the pending migrations up to and including version `last`.
+fn apply_through(connection: &mut Connection, last: usize) -> Result<(), StorageError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| classify(error, "Initialize migration history"))?;
@@ -229,10 +241,10 @@ pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
         .commit()
         .map_err(|error| classify(error, "Commit migration history"))?;
     let current = validate_history(connection)?;
-    for (index, migration) in MIGRATIONS.iter().enumerate().skip(current) {
+    for (index, migration) in MIGRATIONS.iter().enumerate().take(last).skip(current) {
         let version = index as u32 + 1;
-        if version == 9 {
-            apply_identity_lifetime(connection, migration)?;
+        if version == 9 || version == 41 {
+            apply_without_foreign_keys(connection, version, migration)?;
         } else {
             apply_version(connection, version, migration)?;
         }
@@ -240,21 +252,42 @@ pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
     Ok(())
 }
 
+#[cfg(test)]
 fn apply_identity_lifetime(
     connection: &mut Connection,
+    migration: &Migration,
+) -> Result<(), StorageError> {
+    apply_without_foreign_keys(connection, 9, migration)
+}
+
+/// A table rebuild: dropping a table with foreign keys on would cascade into
+/// the tables that reference it.
+fn apply_without_foreign_keys(
+    connection: &mut Connection,
+    version: u32,
     migration: &Migration,
 ) -> Result<(), StorageError> {
     // SQLite requires foreign_keys to change outside a transaction.
     // The private opening connection cannot escape during this rebuild.
     let result = set_foreign_keys(connection, false)
-        .map_err(|error| StorageError::migration(9, error))
-        .and_then(|()| apply_version(connection, 9, migration));
+        .map_err(|error| StorageError::migration(version, error))
+        .and_then(|()| apply_version(connection, version, migration));
     // apply_version has committed or dropped its transaction before
     // restoration. Always attempt it, preserving a primary failure.
     // Attempt restoration even if disabling succeeded but its verification failed.
     let restore =
-        set_foreign_keys(connection, true).map_err(|error| StorageError::migration(9, error));
+        set_foreign_keys(connection, true).map_err(|error| StorageError::migration(version, error));
     result.and(restore)
+}
+
+/// What migrations 1 through `last` make in an empty database, to compare a
+/// real source with.
+fn fresh_through(last: usize) -> Result<Connection, StorageError> {
+    let mut connection =
+        Connection::open_in_memory().map_err(|error| classify(error, "Open reference schema"))?;
+    set_foreign_keys(&connection, true)?;
+    apply_through(&mut connection, last)?;
+    Ok(connection)
 }
 
 fn apply_version(
@@ -277,17 +310,24 @@ fn apply_version(
         if version == 39 {
             validate_bindings_source(&transaction, migration)?;
         }
+        if version == 41 {
+            host_names::validate_source(&transaction, &fresh_through(40)?)?;
+            check_foreign_keys(&transaction)?;
+        }
         transaction
             .execute_batch(migration.sql)
             .map_err(|error| classify(error, "Apply migration SQL"))?;
         if version == 6 {
             backfill_retention(&transaction)?;
         }
+        if version == 41 {
+            host_names::rebuild(&transaction)?;
+        }
         transaction.execute(
             "INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
             params![version, migration.name],
         ).map_err(|error| classify(error, "Record migration"))?;
-        if version == 9 || version == 39 {
+        if version == 9 || version == 39 || version == 41 {
             check_foreign_keys(&transaction)?;
         }
         Ok(())

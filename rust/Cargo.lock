@@ -2499,6 +2499,7 @@ dependencies = [
  "semver",
  "serde_json",
  "sha2",
+ "tmt-host-grammar",
  "uuid",
 ]
 

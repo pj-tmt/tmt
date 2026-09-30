@@ -81,6 +81,8 @@ impl CallerEnvironment {
 pub enum HostError {
     Tmux(TmuxError),
     Herdr(HerdrError),
+    /// A host no installed driver serves; nothing was attempted.
+    Unavailable(String),
 }
 
 impl HostError {
@@ -88,13 +90,14 @@ impl HostError {
         match self {
             Self::Tmux(error) => error.cleanup_failed(),
             Self::Herdr(error) => error.cleanup_failed(),
+            Self::Unavailable(_) => false,
         }
     }
 
     pub fn socket_permission_denied(&self) -> bool {
         match self {
             Self::Tmux(error) => error.socket_permission_denied(),
-            Self::Herdr(_) => false,
+            Self::Herdr(_) | Self::Unavailable(_) => false,
         }
     }
 }
@@ -117,6 +120,7 @@ impl fmt::Display for HostError {
         match self {
             Self::Tmux(error) => error.fmt(output),
             Self::Herdr(error) => error.fmt(output),
+            Self::Unavailable(name) => write!(output, "Host driver {name} is not installed."),
         }
     }
 }
@@ -126,6 +130,7 @@ impl std::error::Error for HostError {
         match self {
             Self::Tmux(error) => error.source(),
             Self::Herdr(error) => error.source(),
+            Self::Unavailable(_) => None,
         }
     }
 }
@@ -270,6 +275,7 @@ impl<R: CommandRunner> Host<R> {
                         socket,
                     })
             }
+            HostKind::External(_) => None,
         }
     }
 
@@ -312,6 +318,7 @@ impl<R: CommandRunner> Host<R> {
             primary: self.primary,
             tmux: tmux::BindingSession::new(&self.tmux),
             herdr: herdr::Session::new(&self.herdr),
+            unavailable: driver::Unavailable::default(),
         }
     }
 
@@ -325,6 +332,7 @@ impl<R: CommandRunner> Host<R> {
                 .herdr
                 .caller(environment, Instant::now() + Duration::from_secs(1))?
                 .map(|pane| pane.terminal_id)),
+            HostKind::External(_) => Ok(None),
         }
     }
 
@@ -336,7 +344,7 @@ impl<R: CommandRunner> Host<R> {
     ) -> Result<Option<BindingTargetEvidence>, HostError> {
         match self.primary {
             HostKind::Tmux => Ok(self.tmux.marked_pane(environment, options)?),
-            HostKind::Herdr => Ok(None),
+            HostKind::Herdr | HostKind::External(_) => Ok(None),
         }
     }
 
@@ -348,6 +356,7 @@ impl<R: CommandRunner> Host<R> {
         match self.primary {
             HostKind::Tmux => Ok(self.tmux.resolve_target(target, options)?),
             HostKind::Herdr => Ok(self.herdr.resolve_target(target, options.deadline)?),
+            HostKind::External(_) => Ok(None),
         }
     }
 
@@ -355,6 +364,7 @@ impl<R: CommandRunner> Host<R> {
         match self.primary {
             HostKind::Tmux => Ok(self.tmux.snapshot(options)?),
             HostKind::Herdr => Ok(self.herdr_session(options).snapshot(options.pane_ids)?),
+            other => Err(HostError::Unavailable(other.as_str().to_owned())),
         }
     }
 
@@ -365,6 +375,7 @@ impl<R: CommandRunner> Host<R> {
         match self.primary {
             HostKind::Tmux => Ok(self.tmux.observe_snapshot(options)?),
             HostKind::Herdr => Ok(self.herdr_session(options).snapshot(options.pane_ids)?),
+            other => Err(HostError::Unavailable(other.as_str().to_owned())),
         }
     }
 
@@ -389,6 +400,8 @@ impl<R: CommandRunner> Host<R> {
             HostKind::Herdr => Ok(self
                 .herdr_session(options)
                 .probe(server, options.pane_ids.unwrap_or_default())?),
+            // Without its driver nothing is known, and unknown never retires.
+            HostKind::External(_) => Ok(EndpointProbe::Unknown),
         }
     }
 
@@ -400,6 +413,7 @@ impl<R: CommandRunner> Host<R> {
                     .capture_on(&endpoint.server.socket_path, &endpoint.pane_id, lines)?)
             }
             HostKind::Herdr => Err(HerdrError::unsupported("Reading a Herdr pane").into()),
+            other => Err(HostError::Unavailable(other.as_str().to_owned())),
         }
     }
 
@@ -416,7 +430,7 @@ impl<R: CommandRunner> Host<R> {
                 message,
                 enter_delay,
             ),
-            HostKind::Herdr => Err(DeliveryError::unsupported()),
+            HostKind::Herdr | HostKind::External(_) => Err(DeliveryError::unsupported()),
         }
     }
 
@@ -471,7 +485,9 @@ impl<R: CommandRunner> Host<R> {
                     Err(_) => Ok(PaneRefresh::Failed),
                 }
             }
-            (HostKind::Herdr, PaneCosmetics::Ended) => Ok(PaneRefresh::Absent),
+            (HostKind::Herdr, PaneCosmetics::Ended) | (HostKind::External(_), _) => {
+                Ok(PaneRefresh::Absent)
+            }
         }
     }
 }
@@ -482,6 +498,8 @@ pub struct BindingSession<'a, R> {
     primary: HostKind,
     tmux: tmux::BindingSession<'a, R>,
     herdr: herdr::Session<'a, R>,
+    /// Any other host, which no driver serves here yet.
+    unavailable: driver::Unavailable,
 }
 
 impl<R: CommandRunner> BindingSession<'_, R> {
@@ -502,6 +520,10 @@ impl<R: CommandRunner> BindingSession<'_, R> {
         match host {
             HostKind::Tmux => &mut self.tmux,
             HostKind::Herdr => &mut self.herdr,
+            other => {
+                self.unavailable = driver::Unavailable::of(other);
+                &mut self.unavailable
+            }
         }
     }
 
@@ -509,6 +531,8 @@ impl<R: CommandRunner> BindingSession<'_, R> {
         match host {
             HostKind::Tmux => &self.tmux,
             HostKind::Herdr => &self.herdr,
+            // Its runtime is never observed: its binding is never present.
+            _ => &self.unavailable,
         }
     }
 

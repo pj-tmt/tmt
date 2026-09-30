@@ -133,7 +133,50 @@ impl HostGrammar {
     }
 }
 
-fn valid_name(name: &str) -> bool {
+/// A valid host name held inline, so a host can be `Copy` without leaking or
+/// interning its name. It orders and compares as its text.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HostName {
+    // Zero-padded: no name byte is zero, so padding sorts before any text.
+    bytes: [u8; NAME_MAX],
+}
+
+impl HostName {
+    /// `None` unless [`valid_name`] holds.
+    pub fn new(name: &str) -> Option<Self> {
+        if !valid_name(name) {
+            return None;
+        }
+        let mut bytes = [0; NAME_MAX];
+        bytes[..name.len()].copy_from_slice(name.as_bytes());
+        Some(Self { bytes })
+    }
+
+    pub fn as_str(&self) -> &str {
+        let len = self
+            .bytes
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(NAME_MAX);
+        // Only valid names, which are ASCII, are ever stored.
+        std::str::from_utf8(&self.bytes[..len]).unwrap_or_default()
+    }
+}
+
+impl fmt::Debug for HostName {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), output)
+    }
+}
+
+impl fmt::Display for HostName {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        output.write_str(self.as_str())
+    }
+}
+
+/// Whether `name` is a valid host name, the token stored with a binding.
+pub fn valid_name(name: &str) -> bool {
     (1..=NAME_MAX).contains(&name.len())
         && name.starts_with(|c: char| c.is_ascii_lowercase())
         && name
@@ -255,5 +298,22 @@ mod tests {
         assert!(herdr.conflict(&other("term_", None)).is_some());
         assert!(herdr.conflict(&other("pane-", Some("w{n}:p{n}"))).is_some());
         assert!(herdr.conflict(&herdr.clone()).is_some(), "same name");
+    }
+
+    #[test]
+    fn a_host_name_is_held_inline_and_orders_as_text() {
+        let longest = "a".repeat(32);
+        for name in ["a", "herdr", "fake-host", longest.as_str()] {
+            assert_eq!(HostName::new(name).unwrap().as_str(), name);
+        }
+        for invalid in ["", "Tmux", "9host", "a_b", &"a".repeat(33)] {
+            assert_eq!(HostName::new(invalid), None, "{invalid:?}");
+        }
+        let mut names = ["zeta", "alpha", "al", "alpha-2"].map(|name| HostName::new(name).unwrap());
+        names.sort();
+        assert_eq!(
+            names.map(|name| name.to_string()),
+            ["al", "alpha", "alpha-2", "zeta"]
+        );
     }
 }

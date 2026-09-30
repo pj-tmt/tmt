@@ -47,7 +47,7 @@ fn room_context_migration_rolls_back_and_does_not_invent_historical_scope() {
         .execute_batch("DROP TRIGGER reject_room_context;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 40);
+    assert_eq!(storage.health().unwrap().schema_version, 41);
     let context = RequestService::new(&mut storage, || 2000)
         .get_context("old-request")
         .unwrap()

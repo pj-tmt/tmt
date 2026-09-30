@@ -165,3 +165,68 @@ pub fn focus(
         Err(error) => ActionResult::Failed(error),
     }
 }
+
+/// A host no driver serves in this process, such as a stored binding's host
+/// whose driver isn't installed. It never claims evidence: a probe is
+/// `Unknown`, so the binding is neither verified nor retired; it has no
+/// input, so a send falls through to the inbox; and it can't be focused.
+#[derive(Debug, Default)]
+pub struct Unavailable {
+    name: String,
+}
+
+impl Unavailable {
+    pub fn of(host: tmt_core::host::HostKind) -> Self {
+        Self {
+            name: host.as_str().to_owned(),
+        }
+    }
+
+    fn error(&self) -> HostError {
+        HostError::Unavailable(self.name.clone())
+    }
+}
+
+impl HostDriver for Unavailable {
+    fn begin_coordination(&mut self) {}
+
+    fn budget_available(&self) -> bool {
+        true
+    }
+
+    fn snapshot(&mut self, _: &[String]) -> Result<EndpointSnapshot, HostError> {
+        Err(self.error())
+    }
+
+    fn probe(&mut self, _: &ServerEvidence, _: &[String]) -> Result<EndpointProbe, HostError> {
+        Ok(EndpointProbe::Unknown)
+    }
+
+    fn publish(&mut self, _: &Binding, _: &Identity) -> Result<(), HostError> {
+        Err(self.error())
+    }
+
+    fn clear(&mut self, _: &Binding) -> Result<bool, HostError> {
+        Err(self.error())
+    }
+
+    fn observed_runtime(&self, _: &Binding) -> Result<RuntimeState, CommandError> {
+        Ok(RuntimeState::Unknown)
+    }
+
+    fn has_input(&self) -> bool {
+        false
+    }
+
+    fn input(&mut self, _: &Binding, _: &str) -> Result<(), DeliveryError> {
+        Err(DeliveryError::unsupported())
+    }
+
+    fn focus_preflight(&self, _: Option<&Binding>) -> Result<(), ActionError> {
+        Err(ActionError::Evidence(self.error()))
+    }
+
+    fn focus(&mut self, _: &Binding) -> Result<Focused, ActionError> {
+        Err(ActionError::Evidence(self.error()))
+    }
+}

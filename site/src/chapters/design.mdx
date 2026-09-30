@@ -17,7 +17,7 @@ tmt looks like one product wherever you meet it: the command line, the Squad boa
 
 <TokenTable />
 
-The command line maps the same meanings to its own token names today (`accent`, `ok`, `warn`, `error`, `dim`, and the driver colors), in [docs/cli-style.md](https://github.com/wkh237/tmt/blob/main/docs/cli-style.md). Bringing both to one set of names is planned <Tag kind="planned" />.
+The command line's own token names (`accent`, `ok`, `warn`, `error`, `dim`, and the driver colors) each show as one of these: `ok` is `working`, `warn` is `waiting`, `error` is `blocked`, and the Claude and Codex driver colors are `review` and `link`, as [docs/cli-style.md](https://github.com/wkh237/tmt/blob/main/docs/cli-style.md) lists. The terminal's themes read their values from the same file, and a test fails if the two ever differ.
 
 ### Surfaces
 

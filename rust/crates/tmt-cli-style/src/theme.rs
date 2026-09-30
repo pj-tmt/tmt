@@ -393,6 +393,27 @@ impl Theme {
     }
 }
 
+/// The theme the user chose for command-line output, set once at startup
+/// by the executable that read the configuration. Unset means the
+/// terminal's own 16 colors, exactly as without themes.
+static CONFIGURED: std::sync::OnceLock<Theme> = std::sync::OnceLock::new();
+
+/// Sets the process's theme. Only the executable's startup calls this, and
+/// only once: a second call is a bug. Tests pass a [`Theme`] explicitly
+/// instead.
+pub fn configure(theme: Theme) {
+    let first = CONFIGURED.set(theme).is_ok();
+    debug_assert!(
+        first,
+        "the command-line theme is configured once, at startup"
+    );
+}
+
+/// The theme set at startup, if any.
+pub fn configured() -> Option<Theme> {
+    CONFIGURED.get().copied()
+}
+
 /// Full-screen views draw with ratatui; they get the same styles.
 #[cfg(feature = "ratatui")]
 pub mod screen {

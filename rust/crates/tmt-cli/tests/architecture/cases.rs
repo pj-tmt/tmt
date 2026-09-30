@@ -529,6 +529,29 @@ fn office_consumers_cannot_expand_or_hide_behind_reexports() {
 }
 
 #[test]
+fn core_keeps_one_write_once_host_registry_and_no_other_global_state() {
+    assert_exact(
+        &[syntax("tmt-core", "host.rs", "use std::sync::OnceLock;")],
+        &[],
+    );
+    for (file, text, reference) in [
+        ("host.rs", "use std::sync::Mutex;", "std::sync::Mutex"),
+        (
+            "names.rs",
+            "use std::sync::OnceLock;",
+            "std::sync::OnceLock",
+        ),
+    ] {
+        assert_exact(
+            &[syntax("tmt-core", file, text)],
+            &[&format!(
+                "tmt-core/{file}: non-pure core reference {reference}"
+            )],
+        );
+    }
+}
+
+#[test]
 fn office_model_allows_memory_codecs_not_runtime_effects() {
     assert_exact(
         &[syntax(

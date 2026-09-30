@@ -483,7 +483,7 @@ fn closed_storage_and_immediate_lock_contention_are_reported() {
 }
 
 #[test]
-fn a_binding_stores_its_host_and_an_unknown_stored_host_is_invalid() {
+fn a_binding_stores_its_host_and_reads_any_other_host_by_name() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();
     let identity = create_or_resolve(&mut storage, "Hosted", Lifetime::Saved)
@@ -522,11 +522,24 @@ fn a_binding_stores_its_host_and_an_unknown_stored_host_is_invalid() {
             Ok::<_, StorageError>(())
         })
         .unwrap();
-    // A host this build does not know (written past the CHECK by a newer
-    // schema or by hand) is invalid, never a guess.
+    // Any other host reads by name, whether or not its driver is installed.
+    connection
+        .execute_batch("UPDATE bindings SET transport = 'screen';")
+        .unwrap();
+    storage
+        .with_binding_transaction(|records| {
+            let entry = records.entry_by_id(&identity.id).unwrap().unwrap();
+            assert_eq!(
+                entry.binding.unwrap().server.host,
+                tmt_core::host::HostKind::parse("screen").unwrap()
+            );
+            Ok::<_, StorageError>(())
+        })
+        .unwrap();
+    // Text that is no host name at all is invalid, never a guess.
     connection
         .execute_batch(
-            "PRAGMA ignore_check_constraints = ON; UPDATE bindings SET transport = 'screen';",
+            "PRAGMA ignore_check_constraints = ON; UPDATE bindings SET transport = 'Not a host';",
         )
         .unwrap();
     storage
