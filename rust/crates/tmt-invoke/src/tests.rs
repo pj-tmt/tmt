@@ -42,10 +42,13 @@ impl Fixture {
         limit: usize,
         stop: Option<&AtomicBool>,
     ) -> Result<Output, InvokeError> {
+        // Read the script instead of execing an inode a concurrent fork may hold writable.
+        let mut shell_args = vec![self.program().into_os_string()];
+        shell_args.extend_from_slice(args);
         invoke(
             Request {
-                program: &self.program(),
-                args,
+                program: Path::new("/bin/sh"),
+                args: &shell_args,
                 input,
                 deadline: Instant::now() + timeout,
                 max_stream_bytes: limit,
@@ -231,8 +234,8 @@ fn failed_spawn_and_expired_request_never_leave_a_child() {
     let fixture = Fixture::new("echo started > marker");
     let error = invoke(
         Request {
-            program: &fixture.program(),
-            args: &[],
+            program: Path::new("/bin/sh"),
+            args: &[fixture.program().into_os_string()],
             input: b"",
             deadline: Instant::now(),
             max_stream_bytes: 64,
