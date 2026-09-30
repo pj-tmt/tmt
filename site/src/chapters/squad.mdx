@@ -204,14 +204,17 @@ Color carries meaning, so most of the board stays neutral: only what needs you, 
 
 <TokenTable />
 
-Four themes come built in. **tmt** is the default: soft truecolor for dark terminals. **tmt-light** is the same palette for light backgrounds. **terminal** uses your terminal's own 16 colors, so your color scheme decides. **mono** uses only bold and dim. Themes set text colors only, except for the selection, so your terminal's background always shows through. Where truecolor isn't available, tmt picks the nearest of your 16 colors; with `NO_COLOR` set, or when output goes to a file or another program, there is no color at all, and every state still shows as text or a mark.
+Four themes come built in. **tmt** is the board's default: soft truecolor for dark terminals. **tmt-light** is the same palette for light backgrounds. **terminal** uses your terminal's own 16 colors, so your color scheme decides. **mono** uses only bold and dim. Themes set text colors only, except for the selection, so your terminal's background always shows through. Where truecolor isn't available, tmt picks the nearest of your 16 colors; with `NO_COLOR` set, or when output goes to a file or another program, there is no color at all, and every state still shows as text or a mark. The command line keeps your terminal's own 16 colors, so your terminal theme wins, until you set `base` yourself; then commands use your theme too.
 
 <Code>{`
-# ~/.config/tmux-team/config.toml: every command and the board
-[theme]
-base    = "tmt"                        # tmt, tmt-light, terminal or mono
-waiting = "#e0a458"                    # override any token: hex or a color name
-accent  = "blue"
+// ~/.config/tmux-team/config.json: the board, and every command once you set base
+{
+  "theme": {
+    "base": "tmt",           // tmt, tmt-light, terminal or mono
+    "waiting": "#e0a458",    // override any token: hex or a color name
+    "accent": "blue"
+  }
+}
 `}</Code>
 
 Pick a theme and preview it live from the board's settings view; your choice is written back to your config. A squad can override tokens under `[squad.<name>.theme]`. State colors on rows and tabs use these tokens too: `blocked = { color = "blocked" }`.
