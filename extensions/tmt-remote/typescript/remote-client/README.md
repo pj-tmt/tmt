@@ -13,7 +13,7 @@ third-party crypto. Payload bytes are copied before asynchronous hashing and are
 never parsed, normalized or reserialized. No signing, MAC computation, key
 persistence, pairing, BIP39 corpus, transport or browser-shell integration is included.
 
-From the repository's `typescript` directory with Node 22.23.2 or later and pinned pnpm:
+From the repository's `typescript` directory with Node 22.12.0 or later, pinned pnpm and Python 3:
 
 ```sh
 pnpm --filter @tmt/remote-client install --frozen-lockfile --ignore-scripts
@@ -21,8 +21,10 @@ pnpm --filter @tmt/remote-client --fail-if-no-match check
 pnpm --filter @tmt/remote-client --fail-if-no-match test
 ```
 
-The test runner compiles into an owned temporary directory, checks the independent
-Python 3 oracle, runs Node's test runner and removes output on success or failure.
+The test command checks the independent Python 3 oracle before running the
+workspace-pinned Vitest suite. Oracle failures stop the command before Vitest;
+assertion failures and missing tests also fail the command. Type checking remains
+in the separate `check` command.
 The existing unconditional Code quality CI job runs these commands using the
 repository default Node 22.23.2, including for changes confined to this directory.
 Run the same test command with Node 24 for the contract conformance target. No
