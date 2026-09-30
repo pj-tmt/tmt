@@ -1,0 +1,128 @@
+name: Native release upgrade proof
+
+# Proves that a release (a draft about to be published, or a published one) upgrades from the
+# last published release of its product, with the real archives of both on the four matching
+# hosts: a CLI release through the managed-install lifecycle, an extension release through the
+# newest published CLI's `tmt <extension> install`. It reads releases and downloads their assets;
+# it never creates, edits, uploads to or publishes anything, so a maintainer can run it by hand
+# for any release and the publication run calls it for a draft.
+on:
+  workflow_call:
+    inputs:
+      product:
+        description: Native product of the release
+        required: true
+        type: string
+      tag:
+        description: Release to prove, a draft or a published one
+        required: true
+        type: string
+      sha:
+        description: Commit the release was made from; empty resolves it from the release
+        required: false
+        default: ''
+        type: string
+  workflow_dispatch:
+    inputs:
+      product:
+        description: Native product of the release
+        required: true
+        type: choice
+        options:
+          - cli
+          - office
+          - squad
+      tag:
+        description: Release to prove, a draft or a published one
+        required: true
+        type: string
+      sha:
+        description: Commit the release was made from; empty resolves it from the release
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve the commit of ${{ inputs.tag }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      # Draft releases are only listed for a token that can push; nothing is written.
+      contents: write
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Resolve the commit
+        id: sha
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          if [ -n "$RELEASE_SHA" ]; then
+            echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          else
+            node typescript/scripts/release-upgrade.mjs resolve --tag "$RELEASE_TAG"
+          fi
+
+  prove:
+    name: Upgrade ${{ inputs.product }} to ${{ inputs.tag }} (${{ matrix.target }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # The commit the release was made from: the CLI archive embeds the skills of that commit,
+      # and the verifier compares them with the files next to it.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.sha }}
+      - name: Require the upgrade proof at that commit
+        run: |
+          for file in release-upgrade.mjs release-versions.mjs verify-native-installation.mjs verify-native-extension-upgrade.mjs; do
+            if [ ! -f "typescript/scripts/$file" ]; then
+              echo "This release's commit has no $file: it predates the automated upgrade proof, so prove the upgrade by hand, as the native release verification guide describes." >&2
+              exit 1
+            fi
+          done
+      - name: Set up Node.js and pnpm
+        uses: ./.github/actions/setup-tooling
+      - name: Install verification dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Warm the macOS toolchain lookup
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/warm-xcrun
+      - name: Upgrade from the last published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          node typescript/scripts/release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
+            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill skills/tmux-team/SKILL.md

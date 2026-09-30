@@ -279,3 +279,57 @@ function releasePleasePart(text: string, name: string): string {
   const next = text.indexOf('\n      - ', start + 1);
   return text.slice(start, next < 0 ? undefined : next);
 }
+
+describe('release upgrade proof (native-release-upgrade.yml)', () => {
+  const upgrade = read('.github/workflows/native-release-upgrade.yml');
+  const targets = (workflow: string) =>
+    [...workflow.matchAll(/- target: (\S+)\n\s+runner: (\S+)/g)].map(([, target, runner]) => [
+      target,
+      runner,
+    ]);
+
+  it('is callable by the publication run and by hand, for any product and release', () => {
+    expect(upgrade).toMatch(
+      /^on:\n {2}workflow_call:\n {4}inputs:\n(?: {6,}[^\n]*\n)+ {2}workflow_dispatch:\n {4}inputs:\n/m
+    );
+    for (const input of ['product', 'tag', 'sha']) {
+      expect(upgrade.match(new RegExp(`^ {6}${input}:$`, 'gm')), input).toHaveLength(2);
+    }
+    expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/);
+  });
+
+  it('proves on the same four hosts as the bundle verification', () => {
+    expect(targets(upgrade)).toHaveLength(4);
+    expect(targets(upgrade)).toEqual(targets(bundle));
+  });
+
+  it('only reads releases: write access is for listing drafts, and nothing is written', () => {
+    expect(upgrade).toMatch(/^permissions:\n {2}contents: read$/m);
+    expect(upgrade.match(/^ {6}contents: write$/gm)).toHaveLength(2);
+    expect(upgrade).not.toMatch(/actions: write|pull-requests:|id-token:|packages:/);
+    expect(upgrade).not.toMatch(
+      /gh release (create|edit|upload|delete)|draft=false|--method|upload-artifact|gh workflow run/
+    );
+  });
+
+  it('runs the proof from the commit of the release, and says when that commit predates it', () => {
+    const prove = job(upgrade, 'prove');
+    expect(prove).toContain('needs: plan');
+    expect(prove).toContain('ref: ${{ needs.plan.outputs.sha }}');
+    for (const script of [
+      'release-upgrade.mjs',
+      'release-versions.mjs',
+      'verify-native-installation.mjs',
+      'verify-native-extension-upgrade.mjs',
+    ]) {
+      expect(prove, script).toContain(script);
+      expect(read(`typescript/scripts/${script}`), script).not.toBe('');
+    }
+    expect(prove).toContain('it predates the automated upgrade proof');
+    expect(prove).toContain('release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG"');
+    expect(prove).toContain('--skill skills/tmux-team/SKILL.md');
+    // The macOS toolchain lookup is warmed before the archives run.
+    expect(prove.indexOf('warm-xcrun')).toBeGreaterThan(0);
+    expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs prove'));
+  });
+});

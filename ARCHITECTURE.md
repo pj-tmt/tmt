@@ -2278,9 +2278,11 @@ GitHub App token, created only in that job and only in a live run on `main`, is 
 the release pull requests run the required checks; the job runs in the `release`
 Environment and the App credentials are secrets of that Environment, restricted to `main`.
 Until they exist every push is a dry run that opens, merges, creates and starts nothing.
-`release.yml` never publishes. CLI, Office and Squad runs share the four-target cargo-dist build and archive
-verifier, while keeping
-product-qualified bundles, independent versions and separate immutable tags.
+`release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
+published release, its upgrade from the last published release of the same product on the
+four matching hosts, and only reads releases. CLI, Office and Squad runs share the
+four-target cargo-dist build and archive verifier, while keeping product-qualified
+bundles, independent versions and separate immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
 bootstrap proof. Archives, their product-specific manifest/checksums and notices,
 plus the CLI bootstrap where applicable, are verified before any public
