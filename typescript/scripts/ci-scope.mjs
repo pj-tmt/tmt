@@ -61,6 +61,7 @@ export function parseComponentMap(text) {
   const components = Object.entries(map.components ?? {}).map(([name, component]) => ({
     name,
     package: component.package,
+    release: component.release,
     owns: nonEmptyStrings(component.owns, `components.${name}.owns`),
     excludes: component.excludes ?? [],
     migrations:
@@ -70,6 +71,10 @@ export function parseComponentMap(text) {
     selectedBy: (component.selectedBy ?? []).map((glob) => ({ glob, pattern: globToRegExp(glob) })),
     scopedChecks: parseScopedChecks(name, component.scopedChecks),
   }));
+  for (const component of components) {
+    if (component.release !== undefined && typeof component.release !== 'boolean')
+      throw new Error(`Component ${component.name} release must be boolean.`);
+  }
   if (components.length === 0) throw new Error('The component map has no components.');
   const ids = new Set();
   const rules = (map.rules ?? []).map((rule) => {

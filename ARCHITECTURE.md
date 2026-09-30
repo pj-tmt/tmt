@@ -26,7 +26,8 @@ of native schema and application state.
 ## TypeScript workspace boundary
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
-the `@tmt/office` SPA, and the `@tmt/office-service` trusted pairing service.
+the `@tmt/office` SPA, the `@tmt/office-service` trusted pairing service,
+and the private `@tmt/browser-addon` demo shell.
 The two Office packages live under `extensions/tmt-office/typescript` as
 parent-relative members of that same workspace and lockfile. They resolve only
 their declared dependencies, never root-hoisted tooling packages; Office browser
@@ -617,6 +618,38 @@ a tag disagrees with the policy or a package could leave the alpha line (release
 `prerelease` option also keeps the version line, so `false` would graduate 5.0.0-alpha.8 to
 5.0.0; the flags a published release carries come from the policy when the draft is
 published). Nothing runs the pinned CLI until the release workflow adopts it.
+
+## Browser add-on shell
+
+`extensions/tmt-remote/typescript/browser-addon` is a private Chrome MV3 shell
+in the existing TypeScript workspace/lockfile, not an installed native product
+or a working remote channel. Its composition currently uses a clearly marked
+local demo stub; no crypto, pairing, network or core operations are implemented.
+The shell's types-only `remote-client.ts` is a UI port agreed with the remote
+owner, not a second wire contract or SDK. Future composition may import the
+public SDK; views never import its transport internals.
+
+Browser context-menu clicks and trusted popup actions capture only a top-frame
+selection, URL and title through `activeTab`/`scripting`; `contextMenus` adds the
+selection entry point. There are no host permissions, page-message handlers,
+external connectivity or permanent content scripts. Exact plain-text message
+formatting and escaped hidden-character presentation belong to `message.ts`.
+Source URL admission requires HTTP(S) without username/password; invalid sources
+are refused unchanged before preview, menu persistence or intent freezing,
+including restored captures and intents.
+The popup freezes the reviewed agent UUID, message and operation UUID before
+calling the client. Its origin-owned IndexedDB retains one frozen intent and
+menu capture; restoration retains intent without sending. Explicit status
+recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
+starting another message does not cancel submitted work. Replies render as text.
+The stub's status transitions are UI evidence, never server security acceptance.
+
+The shell's Chromium profile and loopback page fixture are disposable test
+owners. Its separate workflow selects shell and consumed tooling changes,
+fails on empty test discovery and does not narrow unknown-path checks. The component map assigns this package
+to a private `release: false` owner and selects no native/Office jobs for it. The release generator rejects native crates
+under a private owner and excludes the shell from CLI releases. Native remote
+product registration remains a later slice.
 
 ## Runtime layers
 
