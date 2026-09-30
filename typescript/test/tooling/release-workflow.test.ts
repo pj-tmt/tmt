@@ -168,14 +168,45 @@ describe('release workflow (release.yml)', () => {
     expect(releasePlease).toContain('permission-pull-requests: write');
     // The token is scoped to this repository by default: no owner or repositories input.
     expect(releasePlease).not.toMatch(/^ {10}(owner|repositories):/m);
-    // The secrets appear only where the mode is decided and where the token is created.
-    expect([...release.matchAll(/secrets\.(\w+)/g)].map(([, name]) => name)).toEqual([
-      'RELEASE_APP_ID',
-      'RELEASE_APP_PRIVATE_KEY',
+    // The secrets are read in two places: whether they exist, where the mode is decided, and
+    // their values, where the token is created.
+    expect(
+      [...release.matchAll(/secrets\.(\w+)( != '')?/g)].map(
+        ([, name, presence]) => `${name}${presence ? ' (presence)' : ''}`
+      )
+    ).toEqual([
+      'RELEASE_APP_ID (presence)',
+      'RELEASE_APP_PRIVATE_KEY (presence)',
       'RELEASE_APP_ID',
       'RELEASE_APP_PRIVATE_KEY',
     ]);
-    expect(release).toContain('run: node typescript/scripts/release-mode.mjs');
+    const token = releasePleasePart(releasePlease, 'Create the release App token');
+    expect(token).toContain('app-id: ${{ secrets.RELEASE_APP_ID }}');
+    expect(token).toContain('private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}');
+  });
+
+  it('decides the mode from the event, the ref and whether the secrets exist, never their values', () => {
+    const mode = releasePleasePart(
+      job(release, 'release-please'),
+      'Decide whether this run changes anything'
+    );
+    expect([...mode.matchAll(/^ {10}([A-Z_]+):/gm)].map(([, name]) => name)).toEqual([
+      'EVENT',
+      'REF',
+      'DRY_RUN',
+      'HAS_APP_SECRETS',
+    ]);
+    expect(mode).toContain('REF: ${{ github.ref }}');
+    expect(mode).toContain(
+      "HAS_APP_SECRETS: ${{ secrets.RELEASE_APP_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}"
+    );
+    expect(mode).toContain('run: node typescript/scripts/release-mode.mjs');
+  });
+
+  it('reads the App credentials from the release Environment, on the release-please job only', () => {
+    expect(job(release, 'release-please')).toMatch(/^ {4}environment: release$/m);
+    expect(job(release, 'dispatch')).not.toContain('environment:');
+    expect(release.match(/^ {4}environment:/gm)).toHaveLength(1);
   });
 
   it('runs release-please as the pinned CLI, and as a dry run unless the run is live', () => {
