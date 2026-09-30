@@ -520,3 +520,148 @@ fn a_marker_refresh_rewrites_only_this_bindings_marker_and_keeps_opaque_data() {
     );
     assert_eq!(tmux.runner.calls.borrow().len(), 1);
 }
+
+fn tmux_exit(stderr: &str) -> CommandError {
+    let mut error = CommandError::new(CommandFailure::Exit {
+        code: Some(1),
+        signal: None,
+    });
+    error.output = Some(CommandOutput {
+        stdout: Vec::new(),
+        stderr: stderr.as_bytes().to_vec(),
+    });
+    error
+}
+
+fn refused_server_id_set() -> CommandError {
+    tmux_exit("already set: @tmux-team.server-id\n")
+}
+
+fn unset_server_id() -> CommandError {
+    tmux_exit("invalid option: @tmux-team.server-id\n")
+}
+
+#[test]
+fn server_id_adopts_the_winner_after_a_refused_set() {
+    let tmux = Tmux::new(ScriptedRunner::new([
+        Err(unset_server_id()),
+        Err(refused_server_id_set()),
+        Ok(SERVER_ID),
+    ]));
+    let deadline = Instant::now() + Duration::from_millis(500);
+    assert_eq!(
+        tmux.ensure_server_id_on(
+            Some("/tmp/private.sock"),
+            OperationOptions {
+                deadline: Some(deadline),
+                ..Default::default()
+            },
+        )
+        .unwrap(),
+        SERVER_ID
+    );
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0].args, calls[2].args);
+    assert_eq!(
+        &calls[1].args[..6],
+        [
+            "-S",
+            "/tmp/private.sock",
+            "set-option",
+            "-s",
+            "-o",
+            SERVER_ID_OPTION
+        ]
+    );
+    assert!(valid_server_id(&calls[1].args[6]));
+    assert!(calls.iter().all(|call| call.deadline == deadline));
+}
+
+#[test]
+fn server_id_requires_valid_readback_after_either_set_outcome() {
+    for set in [Ok(""), Err(refused_server_id_set())] {
+        let tmux = Tmux::new(ScriptedRunner::new([
+            Err(unset_server_id()),
+            set,
+            Ok("invalid"),
+        ]));
+        assert_eq!(
+            tmux.ensure_server_id(OperationOptions::default())
+                .unwrap_err()
+                .kind,
+            TmuxFailure::Evidence
+        );
+        assert_eq!(tmux.runner.calls.borrow().len(), 3);
+    }
+    let tmux = Tmux::new(ScriptedRunner::new([
+        Err(unset_server_id()),
+        Err(refused_server_id_set()),
+        Err(failure(false)),
+    ]));
+    let error = tmux
+        .ensure_server_id(OperationOptions::default())
+        .unwrap_err();
+    assert!(matches!(error.cause.unwrap().kind, CommandFailure::Timeout));
+}
+
+#[test]
+fn server_id_preserves_operational_set_failures_without_readback() {
+    use crate::scripted_runner::failure_with_kind;
+    let mut denied = refused_server_id_set();
+    denied.output.as_mut().unwrap().stderr =
+        b"error connecting to /tmp/private.sock (Permission denied)\n".to_vec();
+    for error in [
+        failure_with_kind(CommandFailure::Timeout, false),
+        failure_with_kind(CommandFailure::Spawn, false),
+        failure_with_kind(CommandFailure::Io, false),
+        failure_with_kind(CommandFailure::OutputLimit, false),
+        failure_with_kind(
+            CommandFailure::Exit {
+                code: None,
+                signal: Some(9),
+            },
+            false,
+        ),
+        failure_with_kind(
+            CommandFailure::Exit {
+                code: Some(1),
+                signal: None,
+            },
+            true,
+        ),
+        denied,
+    ] {
+        let expected = error.kind;
+        let tmux = Tmux::new(ScriptedRunner::new([Err(unset_server_id()), Err(error)]));
+        let error = tmux
+            .ensure_server_id(OperationOptions::default())
+            .unwrap_err();
+        assert_eq!(error.cause.unwrap().kind, expected);
+        assert_eq!(tmux.runner.calls.borrow().len(), 2);
+    }
+}
+
+#[test]
+fn server_id_reads_an_existing_value_without_setting_it() {
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(SERVER_ID)]));
+    assert_eq!(
+        tmux.ensure_server_id(OperationOptions::default()).unwrap(),
+        SERVER_ID
+    );
+    assert_eq!(tmux.runner.calls.borrow().len(), 1);
+}
+
+#[test]
+fn server_id_reads_back_after_successful_initialization() {
+    let tmux = Tmux::new(ScriptedRunner::new([
+        Err(unset_server_id()),
+        Ok(""),
+        Ok(SERVER_ID),
+    ]));
+    assert_eq!(
+        tmux.ensure_server_id(OperationOptions::default()).unwrap(),
+        SERVER_ID
+    );
+    assert_eq!(tmux.runner.calls.borrow().len(), 3);
+}
