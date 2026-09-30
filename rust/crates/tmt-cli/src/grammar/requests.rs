@@ -3,7 +3,7 @@
 use crate::grammar::{general, internal, operand, option, storage, with_options};
 use clap::Command;
 
-pub(super) fn talk() -> Command {
+pub(in crate::grammar) fn talk() -> Command {
     with_options(
             general(spec!(
                 "talk",
@@ -30,7 +30,7 @@ pub(super) fn talk() -> Command {
         .arg(operand("message", true))
 }
 
-pub(super) fn exchanges() -> Command {
+pub(in crate::grammar) fn exchanges() -> Command {
     with_options(
             storage(spec!(
                 "x",
@@ -103,7 +103,7 @@ pub(super) fn exchanges() -> Command {
         ))
 }
 
-pub(super) fn reply_command() -> Command {
+pub(in crate::grammar) fn reply_command() -> Command {
     with_options(
             storage(spec!(
                 "reply",
@@ -119,7 +119,7 @@ pub(super) fn reply_command() -> Command {
         .arg(operand("request-id", true))
 }
 
-pub(super) fn result() -> Command {
+pub(in crate::grammar) fn result() -> Command {
     storage(spec!(
             "result",
             "Retrieve a retained final response",
@@ -129,7 +129,7 @@ pub(super) fn result() -> Command {
         )).arg(operand("request-id", true))
 }
 
-pub(super) fn inbox() -> Command {
+pub(in crate::grammar) fn inbox() -> Command {
     with_options(
         storage(spec!(
             "inbox",
@@ -145,7 +145,7 @@ pub(super) fn inbox() -> Command {
     )
 }
 
-pub(super) fn answer() -> Command {
+pub(in crate::grammar) fn answer() -> Command {
     with_options(
             storage(spec!(
                 "answer",
@@ -163,7 +163,7 @@ pub(super) fn answer() -> Command {
         .arg(operand("content", false))
 }
 
-pub(super) fn request_observer() -> Command {
+pub(in crate::grammar) fn request_observer() -> Command {
     internal(
         "__request-observer",
         "Internal bounded request timeout observer",

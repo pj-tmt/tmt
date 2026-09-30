@@ -3,7 +3,7 @@
 use crate::grammar::{base, operand, option};
 use clap::{Arg, ArgAction, Command};
 
-pub(super) fn run() -> Command {
+pub(in crate::grammar) fn run() -> Command {
     base(spec!(
         "run",
         "Bind this pane and run a command with its original arguments",
@@ -30,7 +30,7 @@ pub(super) fn run() -> Command {
     )
 }
 
-pub(super) fn resume() -> Command {
+pub(in crate::grammar) fn resume() -> Command {
     base(spec!(
         "resume",
         "Resume an identity's remembered session in this pane",

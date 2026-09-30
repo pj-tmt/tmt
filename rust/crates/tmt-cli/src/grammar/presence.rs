@@ -3,7 +3,7 @@
 use crate::grammar::{general, list_filter, operand, option, with_options};
 use clap::{Arg, ArgAction, Command};
 
-pub(super) fn list_command() -> Command {
+pub(in crate::grammar) fn list_command() -> Command {
     general(spec!(
         "list",
         "List global identities, lifetime and live presence",
@@ -22,7 +22,7 @@ pub(super) fn list_command() -> Command {
     .arg(list_filter("all", "Show offline identities one per row"))
 }
 
-pub(super) fn add() -> Command {
+pub(in crate::grammar) fn add() -> Command {
     with_options(
         general(spec!(
             "add",
@@ -38,7 +38,7 @@ pub(super) fn add() -> Command {
     .arg(operand("name", true))
 }
 
-pub(super) fn name() -> Command {
+pub(in crate::grammar) fn name() -> Command {
     with_options(
         general(spec!(
             "name",
@@ -54,7 +54,7 @@ pub(super) fn name() -> Command {
     .arg(operand("name", true))
 }
 
-pub(super) fn marked() -> Command {
+pub(in crate::grammar) fn marked() -> Command {
     with_options(
         general(spec!(
             "marked",
@@ -68,7 +68,7 @@ pub(super) fn marked() -> Command {
     .arg(operand("name", true))
 }
 
-pub(super) fn remove() -> Command {
+pub(in crate::grammar) fn remove() -> Command {
     with_options(
         general(spec!(
             "rm",
@@ -84,7 +84,7 @@ pub(super) fn remove() -> Command {
     .arg(operand("name", true))
 }
 
-pub(super) fn check() -> Command {
+pub(in crate::grammar) fn check() -> Command {
     with_options(
         general(spec!(
             "check",
@@ -101,7 +101,7 @@ pub(super) fn check() -> Command {
     .arg(operand("capture-lines", false))
 }
 
-pub(super) fn focus() -> Command {
+pub(in crate::grammar) fn focus() -> Command {
     general(spec!(
         "focus",
         "Show an identity's or pane's view in your tmux client",
@@ -120,7 +120,7 @@ pub(super) fn focus() -> Command {
     )
 }
 
-pub(super) fn whoami() -> Command {
+pub(in crate::grammar) fn whoami() -> Command {
     general(spec!(
         "whoami",
         "Show this pane's verified identity",
@@ -137,7 +137,7 @@ pub(super) fn whoami() -> Command {
     )
 }
 
-pub(super) fn unbind() -> Command {
+pub(in crate::grammar) fn unbind() -> Command {
     general(spec!(
         "unbind",
         "Detach this pane; retire temporary identity",

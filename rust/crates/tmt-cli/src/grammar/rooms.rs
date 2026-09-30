@@ -3,7 +3,7 @@
 use crate::grammar::{operand, storage, with_options};
 use clap::{Arg, Command};
 
-pub(super) fn room() -> Command {
+pub(in crate::grammar) fn room() -> Command {
     storage(spec!(
             "room",
             "Manage shared communication rooms (not access controls)",
