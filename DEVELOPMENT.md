@@ -783,7 +783,9 @@ protection, and a live-agent demo does not replace deterministic regression test
 The companion package lives at `extensions/tmt-office/rust/tmt-office`, but remains
 in the `rust/Cargo.toml` workspace. Run the same package commands from `rust/`;
 the shared lockfile, toolchain and `rust/target` artifact paths are unchanged.
-Docker build contexts must include both `rust/` and `extensions/tmt-office/rust/`.
+Every Cargo build stage must copy all workspace member directories at their
+workspace-relative paths, including private extensions; `docker-workspace.test.ts`
+checks the E2E, artifact and Office native contexts.
 
 Office storage migration tests live in `tmt-office-storage`
 (`cargo test --locked -p tmt-office-storage`) and build their source databases
@@ -1051,7 +1053,9 @@ transport, identity, talk, or cleanup changes:
 ```
 
 `TMT_E2E_FILES="squad.e2e.test.ts"` (space-separated plain file names) limits the run to those
-E2E files, and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. CI runs the suite as two
+E2E files (the image passes them to vitest as anchored `test/e2e/<name>` paths, because vitest
+matches a filter by substring and a bare `routing.e2e.test.ts` would also run
+`check-routing.e2e.test.ts` and `session-routing.e2e.test.ts`), and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. CI runs the suite as two
 shard jobs behind the required `Docker E2E` gate, each with its own file list from
 `typescript/scripts/e2e-shards.mjs`, balanced by the seconds in
 `typescript/test/e2e/shard-weights.json` (refresh them from a full run when the shards drift
@@ -1230,3 +1234,30 @@ profile to inspect it manually; Chrome 137 or later is required. Both right-clic
 Send to agent and the popup capture only after a gesture. All displayed agents
 and replies are demo fixtures; Send does not deliver to an agent. Package code
 uses its own Prettier configuration; shared docs use the tooling formatter.
+
+## Remote pilot development
+
+The local-build-only remote crate is a foreground deny-all door. It performs
+one public startup capabilities read, then refuses every remote application
+request. Pairing, signing, grants, approval, sends and journal/SDK integration
+are not implemented. The [client contract](contracts/remote-client-v1.md) is
+proposed; [the separately owned browser shell](#browser-add-on-shell)
+uses only a stub. No official remote installer/release exists.
+
+```bash
+(cd rust && cargo build --offline --locked -p tmt-remote)
+(cd rust && cargo test --offline --locked -p tmt-remote)
+(cd rust && cargo clippy --offline --locked -p tmt-remote --all-targets -- -D warnings)
+(cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
+node typescript/scripts/release-please-config.mjs --check
+(cd typescript && corepack pnpm exec vitest run test/tooling/release-please-config.test.ts test/tooling/ci-scope.test.ts)
+```
+
+After building core, put `rust/target/debug` on PATH and run `tmt remote serve`
+(or `--json` for its bound descriptor). Direct invocation requires an absolute
+`TMT_EXECUTABLE`; it never searches for another core. Default hard window is
+one hour (maximum 24 hours); denied traffic cannot reset the 15-minute idle
+deadline, so this interim door closes after at most 15 minutes. Ctrl-C/SIGTERM
+stops it; there is no autostart/LAN/daemon option. Tests use disposable HOME/XDG,
+count startup separately, assert zero request-triggered core calls and run
+socket/process lifecycle acceptance twice. No real model/account/DB is used.

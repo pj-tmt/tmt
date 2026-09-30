@@ -1,7 +1,7 @@
 //! Advisory originator hints never own a reply body or acknowledge attention.
 
 use super::WakeState;
-use crate::binding::session::RuntimeIncarnation;
+use crate::endpoint::ProcessIncarnation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HintKind {
@@ -14,7 +14,7 @@ pub struct NotificationPolicy {
     pub deadline_ms: u64,
     pub timeout_ms: u64,
     /// Only blocking talk owns response delivery. The detached observer does not.
-    pub waiter: Option<RuntimeIncarnation>,
+    pub waiter: Option<ProcessIncarnation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -300,6 +300,22 @@ describe('squad extension', () => {
     });
   });
 
+  it('keeps working when the global theme is wrong', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      // Squad finds squad.toml through tmt config show; a bad theme must not
+      // stop it (the theme is presentation, reported by config show).
+      writeFileSync(sandbox.globalConfig, JSON.stringify({ theme: { waiting: 'orange' } }));
+      const none = await squad(sandbox, ['ls']);
+      expect(none).toMatchObject({ status: 0, body: { squads: [], you: null } });
+      expect((await runCli(sandbox, ['squad', 'init', 'product', '--json'])).status).toBe(0);
+      const listed = await squad(sandbox, ['ls']);
+      expect(listed.status).toBe(0);
+      expect(listed.body.squads[0].squad.name).toBe('product');
+    });
+  });
+
   it('follows a renamed user through me_id, with hooks off and then on', async () => {
     await withSandbox(async (sandbox) => {
       const bin = installSquad(sandbox);

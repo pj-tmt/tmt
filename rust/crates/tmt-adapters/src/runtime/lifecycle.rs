@@ -3,9 +3,10 @@
 use crate::skill_installation::ProviderEnvironment;
 use std::{path::PathBuf, time::Instant};
 use tmt_core::binding::session::{
-    BindingSessionState, DriverState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
-    RuntimeLiveness, RuntimeMode, SessionPreferences,
+    BindingSessionState, DriverState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness,
+    RuntimeMode, SessionPreferences,
 };
+use tmt_core::endpoint::ProcessIncarnation;
 
 #[derive(Debug, Clone, Copy)]
 pub enum HostEvidence {
@@ -44,7 +45,7 @@ pub trait LifecycleObservation {
     fn propose(
         &self,
         current: &BindingSessionState,
-        process: &RuntimeIncarnation,
+        process: &ProcessIncarnation,
         previous: RuntimeLiveness,
         host: HostEvidence,
         owned_resume: bool,
@@ -96,7 +97,7 @@ pub trait RuntimeLifecycle {
         _caller_pid: u64,
         _pane_pid: u64,
         _deadline: Instant,
-    ) -> Option<RuntimeIncarnation> {
+    ) -> Option<ProcessIncarnation> {
         None
     }
 
@@ -104,7 +105,7 @@ pub trait RuntimeLifecycle {
         &self,
         _pane_pid: u64,
         _deadline: Instant,
-    ) -> Option<RuntimeIncarnation> {
+    ) -> Option<ProcessIncarnation> {
         None
     }
 
@@ -127,7 +128,7 @@ pub trait RuntimeLifecycle {
         &self,
         current: &BindingSessionState,
         key: ObservedSessionKey,
-        owner: RuntimeIncarnation,
+        owner: ProcessIncarnation,
         _preferences: &SessionPreferences,
     ) -> Option<BindingSessionState> {
         current.record_launched_exit(key, owner)

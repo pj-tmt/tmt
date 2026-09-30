@@ -174,6 +174,15 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
             "nix",
         ],
+        "tmt-remote" => &[
+            "tmt-cli-style",
+            "clap",
+            "serde_json",
+            "getrandom",
+            "httparse",
+            "subprocess",
+            "signal-hook",
+        ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
     package["dependencies"]
@@ -490,11 +499,15 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            // The leaf style crate is Squad's one permitted workspace dependency.
-            if source.package == "tmt-squad" && root.starts_with("tmt_") && root != "tmt_cli_style"
+            // Extensions may name their own library and the leaf style crate only.
+            if ["tmt-squad", "tmt-remote"].contains(&source.package.as_str())
+                && root.starts_with("tmt_")
+                && root != "tmt_cli_style"
+                && root != source.package.replace('-', "_")
             {
                 violations.push(format!(
-                    "{location}: squad reaches TMT only through public commands, not {}",
+                    "{location}: {} reaches TMT only through public commands, not {}",
+                    source.package.strip_prefix("tmt-").unwrap(),
                     path.join("::")
                 ));
             }
@@ -510,9 +523,12 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            if root == "tmt_squad" && source.package != "tmt-squad" {
+            if ["tmt_squad", "tmt_remote"].contains(&root)
+                && source.package.replace('-', "_") != root
+            {
                 violations.push(format!(
-                    "{location}: no package may depend on the squad extension: {}",
+                    "{location}: no package may depend on the {} extension: {}",
+                    root.strip_prefix("tmt_").unwrap(),
                     path.join("::")
                 ));
             }

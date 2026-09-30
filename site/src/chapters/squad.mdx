@@ -60,6 +60,7 @@ By default the board is one searchable list of the squad's members. Press `/` an
 | Key                      | On the selected row                                                                                                                                                                                                    |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | enter · double-click · ⌫ | `jump` to the member's own screen, and `back` to where you were. A single click only selects a row. This needs a host that can switch panes; see [Jumping between members](/extensions/squad#jumping-between-members). |
+| L                        | `jump lead`: to the lead of this tab's squad; on **leads** and **all**, to the lead of the selected row's squad. In tmux only.                                                                                         |
 | t · r                    | `talk` to the member, or `reply` to what it's waiting on, through tmt's own `tmt talk` and `tmt answer`. The answer shows up on the board.                                                                             |
 | a                        | `annotate`: send the lead a note about this row (below).                                                                                                                                                               |
 | o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                       |
@@ -102,7 +103,7 @@ Nothing on the board is fixed. Pick a layout preset, then override any part of i
 | pr-queue      | one list, oldest first                           | preparing · ready · sent · merged                  |
 | minimal       | name and state only                              | whatever your lead writes                          |
 
-You can change the panes and their arrangement; add your own **sections**, each a titled list with a filter and a sort; and choose the **columns**, the **states** with their colors and order, and how links open. You also set what every key or click does. A binding is an event (a key like `o`, or `click`, `double-click`) and one line: `jump`, `back`, `talk`, `reply`, `annotate lead`, `open {pr_link}`, `copy {name}: {task}`, or `run <program> {field}…`, where `{field}` is filled from the row. A section can have its own bindings.
+You can change the panes and their arrangement; add your own **sections**, each a titled list with a filter and a sort; and choose the **columns**, the **states** with their colors and order, and how links open. You also set what every key or click does. A binding is an event (a key like `o`, or `click`, `double-click`) and one line: `jump`, `jump lead`, `back`, `talk`, `reply`, `annotate lead`, `open {pr_link}`, `copy {name}: {task}`, or `run <program> {field}…`, where `{field}` is filled from the row. A section can have its own bindings.
 
 <Code>{`
 # ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)

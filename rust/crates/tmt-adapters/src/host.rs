@@ -295,8 +295,8 @@ impl<R: CommandRunner> Host<R> {
             .server_id(&HostServerIncarnation {
                 host: HostKind::Herdr,
                 socket_path: &incarnation.socket,
-                server_pid: incarnation.pid,
-                server_start_time: &incarnation.start,
+                server_pid: incarnation.process.pid(),
+                server_start_time: incarnation.process.start_identity(),
             })
             .map_err(HerdrError::server_ids)?;
         if !tmt_core::endpoint::valid_server_id(&server_id) {
@@ -306,8 +306,8 @@ impl<R: CommandRunner> Host<R> {
             host: HostKind::Herdr,
             server_id,
             socket_path: incarnation.socket,
-            server_pid: incarnation.pid,
-            server_start_time: incarnation.start,
+            server_pid: incarnation.process.pid(),
+            server_start_time: incarnation.process.start_identity().to_owned(),
         });
         Ok(())
     }
