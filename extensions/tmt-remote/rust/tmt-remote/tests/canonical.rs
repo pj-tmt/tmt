@@ -219,9 +219,20 @@ fn reject_bad_enrollment_names_lists_and_origin() {
         })
         .is_err()
     );
+    let distinct_ids: Vec<_> = (1..=257)
+        .map(|n| format!("00000000-0000-4000-8000-{n:012x}"))
+        .collect();
+    let agent_ids: Vec<_> = distinct_ids.iter().map(String::as_str).collect();
     assert!(
         canonical::enrollment(&Enrollment {
-            agent_ids: &vec![id; 257],
+            agent_ids: &agent_ids[..256],
+            ..value
+        })
+        .is_ok()
+    );
+    assert!(
+        canonical::enrollment(&Enrollment {
+            agent_ids: &agent_ids,
             ..value
         })
         .is_err()
