@@ -1,7 +1,8 @@
 //! Cross-operation retention and ownership assertions use independent SQL.
 
 use super::support::{
-    DAY_MS, Fixture, NOW_MS, count_rows, endpoint, preamble_count, prepare_input, service,
+    DAY_MS, Fixture, NOW_MS, count_rows, endpoint, preamble_count, prepare_input, request_snapshot,
+    service,
 };
 use crate::storage::Storage;
 use tmt_core::request::{
@@ -176,16 +177,18 @@ fn late_final_extends_metadata_not_original_prompt_or_attention_acknowledgment()
         .unwrap();
     drop(oracle);
     fixture.set_now(NOW_MS + 3 * DAY_MS);
+    let submission = |body: &str| SubmitResponse {
+        request_id: prepared.request_id.clone(),
+        proof: ResponseProof::Recorded {
+            attempt_id: prepared.attempt_id.clone(),
+            endpoint: target.clone(),
+        },
+        body: body.into(),
+    };
     let final_response = service(&mut fixture)
-        .submit_response(SubmitResponse {
-            request_id: prepared.request_id.clone(),
-            proof: ResponseProof::Recorded {
-                attempt_id: prepared.attempt_id.clone(),
-                endpoint: target,
-            },
-            body: "late final".into(),
-        })
+        .submit_response(submission("late final"))
         .unwrap();
+    assert_eq!(final_response.submitted_at_ms, NOW_MS + 3 * DAY_MS);
     assert_eq!(final_response.response_expires_at_ms, NOW_MS + 93 * DAY_MS);
     let oracle = rusqlite::Connection::open_with_flags(
         &fixture.database,
@@ -225,6 +228,29 @@ fn late_final_extends_metadata_not_original_prompt_or_attention_acknowledgment()
     ).unwrap();
     assert_eq!(attention, (2, 1));
     drop(oracle);
+
+    // The first-submission window has closed, but this body's independent
+    // retention is still live and the original attempt remains retained.
+    let before_retry = request_snapshot(&fixture.database);
+    let before_cursor = fixture.storage.change_cursor().unwrap();
+    for now in [NOW_MS + 7 * DAY_MS, NOW_MS + 7 * DAY_MS + 1] {
+        fixture.set_now(now);
+        assert_eq!(
+            service(&mut fixture)
+                .submit_response(submission("late final"))
+                .unwrap(),
+            final_response
+        );
+        assert_eq!(request_snapshot(&fixture.database), before_retry);
+        assert_eq!(fixture.storage.change_cursor().unwrap(), before_cursor);
+        assert!(matches!(
+            service(&mut fixture).submit_response(submission("conflicting final")),
+            Err(RequestError::Response(ResponseRejection::Conflict))
+        ));
+        assert_eq!(request_snapshot(&fixture.database), before_retry);
+        assert_eq!(fixture.storage.change_cursor().unwrap(), before_cursor);
+    }
+
     fixture.set_now(NOW_MS + 90 * DAY_MS);
     assert!(matches!(
         service(&mut fixture)

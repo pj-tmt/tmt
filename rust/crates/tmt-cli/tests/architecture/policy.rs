@@ -176,6 +176,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-remote" => &[
+            "ed25519-dalek",
+            "hmac",
+            "sha2",
             "tmt-cli-style",
             "tmt-invoke",
             "clap",
