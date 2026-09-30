@@ -9,7 +9,8 @@ use serde_json::Value;
 
 /// Every path `from` accepts, for the validation message and the guide.
 pub const PATHS: &str = "member, presence, cwd, target, session.driver, session.model, \
-     session.usage.tokens, session.usage.remaining, meta.<key>, meta.squad.<field>";
+     session.usage.tokens, session.usage.remaining, meta.<key>, meta.squad.<field>, \
+     fields.<provided field>";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Origin {
@@ -80,8 +81,13 @@ fn metadata_key(key: &str) -> bool {
 }
 
 impl ColumnSource {
-    /// None for a path outside [`PATHS`]. `field` checks a squad field name.
-    pub fn parse(path: &str, field: impl Fn(&str) -> bool) -> Option<Self> {
+    /// None for a path outside [`PATHS`]. `field` checks a squad field
+    /// name; `provided` whether a field provider of that name exists.
+    pub fn parse(
+        path: &str,
+        field: impl Fn(&str) -> bool,
+        provided: impl Fn(&str) -> bool,
+    ) -> Option<Self> {
         let origin = match path {
             "member" => Origin::Member,
             "presence" => Origin::Presence,
@@ -91,6 +97,11 @@ impl ColumnSource {
             "session.model" => Origin::SessionModel,
             "session.usage.tokens" => Origin::UsageTokens,
             "session.usage.remaining" => Origin::UsageRemaining,
+            // A provider's value is the member's field of its name.
+            path if path.starts_with("fields.") => {
+                let name = &path["fields.".len()..];
+                Origin::SquadField(provided(name).then(|| name.to_owned())?)
+            }
             path => match path.strip_prefix("meta.")? {
                 key if key.starts_with("squad.") => {
                     let name = &key["squad.".len()..];
@@ -219,8 +230,12 @@ mod tests {
         name == "state" || name == "pr_link"
     }
 
+    fn provided(name: &str) -> bool {
+        name == "pr_state"
+    }
+
     fn bind(path: &str) -> ColumnSource {
-        ColumnSource::parse(path, field).unwrap_or_else(|| panic!("{path}"))
+        ColumnSource::parse(path, field, provided).unwrap_or_else(|| panic!("{path}"))
     }
 
     fn member(seen: Value) -> Member {
@@ -234,6 +249,7 @@ mod tests {
             fields: BTreeMap::from([("state".into(), "working".into())]),
             meta: BTreeMap::from([("team.role".into(), "reviewer".into())]),
             numbers: BTreeMap::new(),
+            failed: Default::default(),
             seen,
         }
     }
@@ -251,6 +267,7 @@ mod tests {
             "session.usage.remaining",
             "meta.team.role",
             "meta.squad.state",
+            "fields.pr_state",
         ] {
             assert_eq!(bind(path).path, path);
         }
@@ -266,9 +283,13 @@ mod tests {
             "meta.a..b",
             "meta.squad.",
             "meta.squad.Bad",
-            "fields.pr_state",
+            "fields.other",
+            "fields.",
         ] {
-            assert!(ColumnSource::parse(path, field).is_none(), "{path}");
+            assert!(
+                ColumnSource::parse(path, field, provided).is_none(),
+                "{path}"
+            );
         }
         assert!(bind("meta.team.role").reads_metadata());
         assert!(!bind("meta.squad.state").reads_metadata());

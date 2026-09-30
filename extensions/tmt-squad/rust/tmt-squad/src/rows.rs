@@ -20,7 +20,7 @@ const MAX_WIDTH: i64 = 200;
 /// Fields whose meaning Squad itself reads (the name, the lead, a state's
 /// order and color, a decision owed, the note). A bound value replaces the
 /// field of its column's name, so these cannot be bound.
-const OWN_FIELDS: &[&str] = &["member", "role", "state", "pending", "note"];
+pub(crate) const OWN_FIELDS: &[&str] = &["member", "role", "state", "pending", "note"];
 /// Where a growing column starts, and the least an unsized one keeps.
 const NARROWEST: usize = 4;
 
@@ -66,7 +66,9 @@ impl Column {
         match (&self.from, self.format) {
             (Some(from), _) => Some(from.clone()),
             (None, Format::Text) => None,
-            (None, _) => ColumnSource::parse(&format!("meta.squad.{}", self.field), field_name),
+            (None, _) => {
+                ColumnSource::parse(&format!("meta.squad.{}", self.field), field_name, |_| false)
+            }
         }
     }
 
@@ -268,13 +270,26 @@ pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadErro
         (Some(_), Some(_)) => Err(invalid(format!(
             "`squad.{name}` sets both `rows` and `columns`; keep `rows`."
         ))),
-        (Some(rows), None) => read_rows(rows, &format!("squad.{name}.rows")),
+        (Some(rows), None) => {
+            // `from = "fields.<name>"` needs a provider of that name.
+            let provided = |field: &str| {
+                squad
+                    .and_then(|table| table.get("fields"))
+                    .and_then(Item::as_table_like)
+                    .is_some_and(|fields| fields.contains_key(field))
+            };
+            read_rows(rows, &format!("squad.{name}.rows"), &provided)
+        }
         (None, Some(columns)) => read_legacy(columns, &format!("squad.{name}.columns")),
         (None, None) => Ok(Rows::preset()),
     }
 }
 
-fn read_rows(item: &Item, place: &str) -> Result<Rows, SquadError> {
+fn read_rows(
+    item: &Item,
+    place: &str,
+    provided: &dyn Fn(&str) -> bool,
+) -> Result<Rows, SquadError> {
     let table = item
         .as_table_like()
         .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
@@ -310,7 +325,7 @@ fn read_rows(item: &Item, place: &str) -> Result<Rows, SquadError> {
     for (index, entry) in list.into_iter().enumerate() {
         let here = format!("{place}.columns[{index}]");
         let settings = entry.ok_or_else(|| invalid(format!("`{here}` must be a table.")))?;
-        let column = read_column(settings, &here)?;
+        let column = read_column(settings, &here, provided)?;
         if columns.iter().any(|known| known.field == column.field) {
             return Err(invalid(format!(
                 "`{here}.name` repeats the column `{}`.",
@@ -326,7 +341,11 @@ fn read_rows(item: &Item, place: &str) -> Result<Rows, SquadError> {
     Ok(Rows { columns, lines })
 }
 
-fn read_column(settings: &dyn TableLike, here: &str) -> Result<Column, SquadError> {
+fn read_column(
+    settings: &dyn TableLike,
+    here: &str,
+    provided: &dyn Fn(&str) -> bool,
+) -> Result<Column, SquadError> {
     let name = settings
         .get("name")
         .and_then(Item::as_str)
@@ -364,7 +383,7 @@ fn read_column(settings: &dyn TableLike, here: &str) -> Result<Column, SquadErro
                 column.from = Some(
                     value
                         .as_str()
-                        .and_then(|path| ColumnSource::parse(path, field_name))
+                        .and_then(|path| ColumnSource::parse(path, field_name, provided))
                         .ok_or_else(|| invalid(format!("`{place}` must be one of: {PATHS}.")))?,
                 );
             }

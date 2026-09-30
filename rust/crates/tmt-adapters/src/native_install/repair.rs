@@ -17,6 +17,7 @@ pub struct RepairRequired {
     pub product: Product,
     pub prefix: PathBuf,
     pub version: String,
+    pub requires_archive: bool,
     cause: io::Error,
 }
 impl std::fmt::Display for RepairRequired {
@@ -45,7 +46,6 @@ pub(super) fn required(
     cause: io::Error,
 ) -> io::Error {
     if product == Product::Cli
-        || receipt.provenance.is_none()
         || !matches!(
             cause.kind(),
             io::ErrorKind::InvalidData | io::ErrorKind::NotFound
@@ -66,10 +66,11 @@ pub(super) fn required(
                 product,
                 prefix: prefix.into(),
                 version: receipt.state.version.to_string(),
+                requires_archive: receipt.provenance.is_none(),
                 cause,
             },
         ),
-        Err(unsafe_layout) => unsafe_layout,
+        Err(_) => cause,
     }
 }
 
@@ -137,12 +138,7 @@ fn observe(layout: &Layout) -> io::Result<Observation> {
         super::skills_tree::receipt_limit(layout.product),
     )
     .map_err(io::Error::other)?;
-    let receipt = Receipt::read_metadata(layout.product, &directory, &layout.prefix, id)?;
-    if receipt.provenance.is_none() {
-        return Err(invalid(
-            "Repair of local-archive installations is not supported yet; no files were changed.",
-        ));
-    }
+    let receipt = Receipt::parse_metadata(layout.product, &bytes, &layout.prefix, id)?;
     let damaged = match receipt.verify(layout.product, &directory) {
         Ok(()) => false,
         Err(error)
@@ -191,8 +187,80 @@ fn repair_with(
     product: Product,
     prefix: &Path,
     verifier: Option<ReleaseVerifier<'_>>,
-    mut checkpoint: impl FnMut() -> io::Result<()>,
+    checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+) -> io::Result<RepairReport> {
+    repair_using(product, prefix, verifier, checkpoint, |old, prefix| {
+        let Some(provenance) = &old.provenance else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                RepairRequired {
+                    product,
+                    prefix: prefix.into(),
+                    version: old.state.version.to_string(),
+                    requires_archive: true,
+                    cause: invalid(
+                        "Local-archive repair requires the original archive and matching manifest.",
+                    ),
+                },
+            ));
+        };
+        let downloaded = release::download_product(
+            product,
+            old.state.channel,
+            Some(&old.state.version),
+            &old.target,
+            Instant::now() + Duration::from_secs(60),
+            get,
+        )?;
+        if downloaded.provenance.release_id != provenance.release_id
+            || downloaded.provenance.manifest_sha256 != provenance.manifest_sha256
+        {
+            return Err(invalid(
+                "The original release provenance does not match its receipt; repair was refused.",
+            ));
+        }
+        let artifact = artifact::acquire_bytes(
+            product,
+            &downloaded.manifest,
+            &downloaded.archive_name,
+            &downloaded.archive,
+            &old.target,
+        )?;
+        Ok((artifact, Some(downloaded.provenance)))
+    })
+}
+
+/// Local archives restore only local-archive receipts; they never override GitHub provenance.
+pub fn repair_product_from_archive(
+    product: Product,
+    prefix: &Path,
+    archive: &Path,
+    manifest: &Path,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> io::Result<RepairReport> {
+    repair_using(product, prefix, verifier, checkpoint, |old, _| {
+        if old.provenance.is_some() {
+            return Err(invalid(
+                "GitHub-provenance repair must acquire the original GitHub release, not a local archive.",
+            ));
+        }
+        let artifact = artifact::acquire_product(product, manifest, archive, &old.target)?;
+        Ok((artifact, None))
+    })
+}
+
+fn repair_using(
+    product: Product,
+    prefix: &Path,
+    verifier: Option<ReleaseVerifier<'_>>,
+    mut checkpoint: impl FnMut() -> io::Result<()>,
+    acquire: impl FnOnce(
+        &Receipt,
+        &Path,
+    )
+        -> io::Result<(artifact::Artifact, Option<super::receipt::GitHubProvenance>)>,
 ) -> io::Result<RepairReport> {
     if product == Product::Cli {
         return Err(invalid("Repair is only supported for official extensions."));
@@ -220,41 +288,21 @@ fn repair_with(
         });
     }
     let old = &observed.receipt;
-    let downloaded = release::download_product(
-        product,
-        old.state.channel,
-        Some(&old.state.version),
-        &old.target,
-        Instant::now() + Duration::from_secs(60),
-        get,
-    )?;
-    let artifact = artifact::acquire_bytes(
-        product,
-        &downloaded.manifest,
-        &downloaded.archive_name,
-        &downloaded.archive,
-        &old.target,
-    )?;
-    let provenance = old
-        .provenance
-        .as_ref()
-        .expect("observation requires GitHub provenance");
+    let (artifact, provenance) = acquire(old, &layout.prefix)?;
     if artifact.version != old.state.version
         || artifact.target != old.target
         || artifact.name != old.archive_name
         || artifact.sha256 != old.archive_sha256
         || artifact.file_hashes() != old.file_hashes
-        || downloaded.provenance.release_id != provenance.release_id
-        || downloaded.provenance.manifest_sha256 != provenance.manifest_sha256
     {
         return Err(invalid(
-            "The original release artifact or provenance does not match its receipt; repair was refused.",
+            "The original release artifact does not match its receipt; repair was refused.",
         ));
     }
     checkpoint()?;
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
     let mut next = Receipt::new(&artifact, old.state.clone());
-    next.provenance = Some(downloaded.provenance);
+    next.provenance = provenance;
     let report = installed_report(&layout, &artifact.version.to_string(), next.id, true);
     layout
         .publish_repair(&artifact, &next, verifier, &mut checkpoint, || {

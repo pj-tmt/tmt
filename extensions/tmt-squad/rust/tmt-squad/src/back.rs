@@ -9,8 +9,6 @@ use crate::{
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::Write,
-    os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
 };
 
@@ -18,14 +16,7 @@ const LIMIT: usize = 32;
 
 /// `$XDG_CACHE_HOME/tmt-squad/back`, else `~/.cache/tmt-squad/back`.
 pub fn directory() -> Option<PathBuf> {
-    let absolute = |name: &str| {
-        std::env::var_os(name)
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-    };
-    let cache =
-        absolute("XDG_CACHE_HOME").or_else(|| absolute("HOME").map(|home| home.join(".cache")))?;
-    Some(cache.join("tmt-squad").join("back"))
+    crate::cache::directory("back")
 }
 
 /// One client's stack on one server.
@@ -74,23 +65,9 @@ impl Stack {
 
     /// Replaces the file atomically, in a directory only the user can read.
     fn write(&self, from: &[String]) -> Result<(), String> {
-        let directory = self.path.parent().expect("stack files live in a directory");
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(directory)
-            .map_err(|error| format!("Could not create {}: {error}", directory.display()))?;
         let document = json!({"socket": self.socket, "client": self.client, "from": from});
-        let temporary = self
-            .path
-            .with_extension(format!("{}.tmp", std::process::id()));
-        let written = fs::File::create(&temporary)
-            .and_then(|mut file| file.write_all(document.to_string().as_bytes()))
-            .and_then(|()| fs::rename(&temporary, &self.path));
-        if written.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        written.map_err(|error| format!("Could not save the back stack: {error}"))
+        crate::cache::replace(&self.path, document.to_string().as_bytes())
+            .map_err(|error| format!("Could not save the back stack: {error}"))
     }
 
     /// Records where a jump came from; the oldest entries fall off.

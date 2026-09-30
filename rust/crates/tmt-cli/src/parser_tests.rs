@@ -2420,7 +2420,7 @@ fn inbox_and_answer_select_an_identity_and_one_body_source() {
 }
 
 #[test]
-fn extension_repair_is_explicit_and_cannot_change_artifact_or_channel() {
+fn extension_repair_accepts_paired_local_inputs_but_cannot_change_channel() {
     let result = parsed(&[
         "extension",
         "install",
@@ -2441,9 +2441,29 @@ fn extension_repair_is_explicit_and_cannot_change_artifact_or_channel() {
             ..
         })
     ));
+    let local = parsed(&[
+        "extension",
+        "install",
+        "squad",
+        "--repair",
+        "--archive",
+        "archive",
+        "--manifest",
+        "manifest",
+    ]);
+    assert!(matches!(
+        local.invocation,
+        Invocation::ExtensionInstall(crate::invocation::ExtensionInstallRequest::Install {
+            repair: true,
+            archive: Some(_),
+            manifest: Some(_),
+            ..
+        })
+    ));
     for extra in [
         vec!["--channel", "stable"],
-        vec!["--archive", "archive", "--manifest", "manifest"],
+        vec!["--archive", "archive"],
+        vec!["--manifest", "manifest"],
     ] {
         let mut args = vec!["extension", "install", "squad", "--repair"];
         args.extend(extra);

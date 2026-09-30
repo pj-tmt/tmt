@@ -2053,14 +2053,17 @@ stays at 16 KiB.
   compositions. Application data and provider skills are separate owners.
 
 Explicit extension `install --repair` is a separate recovery composition in
-`native_install::repair`, limited to GitHub-provenance receipts. `receipt`
+`native_install::repair`, for GitHub and local-archive receipts. `receipt`
 separates bounded metadata/recorded-path validation from payload verification;
 normal readers still require both. An eligible verification failure carries
 `RepairRequired` to the CLI, which owns the single quoted repair-command hint.
 Repair admits only safe owned layouts and no-follow regular files/directories,
-fetches the exact recorded artifact with matching provenance and digests, and
-preserves version/channel/pin. Acquisition holds no installation lock; the stable
-lock and a pre-activation current/receipt revalidation fence publication.
+acquires the exact recorded artifact with matching provenance and digests, and
+preserves version/channel/pin. Observation parses the same bounded receipt bytes
+used for revalidation. Local repair requires the original archive and matching
+manifest; it retains local provenance and cannot replace a GitHub source.
+Acquisition holds no installation lock; the stable lock and a pre-activation
+current/receipt revalidation fence publication.
 `publication` shares candidate staging, durable activation, cleanup and typed
 post-activation failures between normal installs and repair. The damaged release
 is retained untouched at its original path, including foreign entries, rather
@@ -2117,7 +2120,20 @@ member's public projection: the `ls --room` row it already joins (`cwd`,
 returns unprefixed only when a column reads `meta.<key>`. `status::document`
 writes each bound value into the row's field of the column's name, with its
 number for sorting, before sections, filters and sorts read it, so the board and
-`ls` show one value and a binding adds no core call. The board sizes it with `tmt-cli-style`'s one solver
+`ls` show one value and a binding adds no core call. Field providers
+(`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
+member through `runner` with the run-binding argument rule
+(`Template::fill_argument`: one argument per template, no shell, a value that
+would start an argument with `-` refused), 4 at a time, bounded in time and
+output. `provider::Cache` keeps each value with the argv that produced it in
+`$XDG_CACHE_HOME/tmt-squad/fields/<squad>.json` (atomic replacement via
+`cache`), so a changed input never shows an old value; `provider::apply` writes
+current values into member fields before the document is built, `?` plus the
+row's `failed` list after a failed run. Readers never run providers: `ls` reads
+the cache (`--refresh-fields` runs what is due first), and the board hands each
+load's members to one fetcher thread that runs due work off the paint path and
+again at the shortest `every`; a save moves the cache directory's stamp, which
+`board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
 (`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
 field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
@@ -2206,7 +2222,7 @@ lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
 under the pointer. Panes keep no scroll state of their own; the rows pane only
-asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template and starts it like the
+asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).
