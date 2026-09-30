@@ -71,6 +71,7 @@ fn load(
             return Snapshot {
                 tabs: Vec::new(),
                 hidden: Vec::new(),
+                pinned: 0,
                 attention: BTreeMap::new(),
                 squad: wanted,
                 view: Err(error.to_string()),
@@ -80,8 +81,8 @@ fn load(
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
     let config = Config::load(core);
     // An invalid [tabs] still shows every squad; the view reports the error.
-    let tabs = if names.is_empty() {
-        Vec::new()
+    let (tabs, pinned) = if names.is_empty() {
+        (Vec::new(), 0)
     } else {
         let settings = config.as_ref().ok().and_then(|config| config.tabs().ok());
         tabs::arrange(&names, &settings.unwrap_or_default())
@@ -108,6 +109,7 @@ fn load(
         return Snapshot {
             tabs,
             hidden,
+            pinned,
             attention: BTreeMap::new(),
             view: Err(match &wanted {
                 Some(name) => format!("Squad '{name}' does not exist; run: tmt squad init {name}"),
@@ -138,6 +140,7 @@ fn load(
     Snapshot {
         tabs,
         hidden,
+        pinned,
         attention,
         squad: Some(key),
         view,
