@@ -17,6 +17,7 @@ pub mod message;
 pub mod palette;
 pub mod stream;
 pub mod table;
+pub mod theme;
 pub mod value;
 
 pub use anstyle::{AnsiColor, Effects};
@@ -26,3 +27,4 @@ pub use help::{
 };
 pub use interaction::{Interaction, Mode};
 pub use palette::{Terminal, Token};
+pub use theme::{Base, Depth, Paint, Role, Theme};
