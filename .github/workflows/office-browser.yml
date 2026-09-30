@@ -4,10 +4,11 @@ name: Office browser verification
 # checks. They run in their own workflow so that a red `CI` run means a required
 # or selected check failed, and so that all twelve share one image build.
 #
-# The eight native Office shards are paused on pull requests until #424 is fixed: three
-# of them fail on every run and most of the others intermittently, so on a pull request
-# they only cost runner time. They keep running weekly and on a manual dispatch so the
-# failure set stays visible. The fix of #424 re-enables them on pull requests.
+# The eight native Office shards (#424) and the three local Vite partitions (#574) are paused on
+# pull requests: the shards fail on every run and the local partitions in most, so on a pull
+# request they only cost runner time. They keep running weekly and on a manual dispatch so the
+# failure sets stay visible. The fix of each issue re-enables its partitions on pull requests.
+# The emulator partition still runs on a pull request that selects Office.
 on:
   pull_request:
   schedule:
@@ -27,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Only a pull request has a diff to select from; a scheduled or dispatched run selects no
-    # Office partition and runs the native shards.
+    # emulator partition and runs the local partitions and the native shards.
     outputs:
       office: ${{ steps.scope.outputs.office || 'false' }}
     steps:
@@ -51,8 +52,8 @@ jobs:
   image:
     name: Build Office browser image
     needs: changes
-    # A pull request builds it for the Office partitions only; a scheduled or dispatched run
-    # builds it for the native shards.
+    # A pull request builds it for the emulator partition only; a scheduled or dispatched run
+    # builds it for the local partitions and the native shards.
     if: github.event_name != 'pull_request' || needs.changes.outputs.office == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -73,29 +74,10 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  office-browser:
-    name: Office browser (${{ matrix.label }})
+  office-emulator:
+    name: Office browser (emulator)
     needs: [changes, image]
     if: needs.changes.outputs.office == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - suite: emulator
-            label: emulator
-            partition: emulator
-          - suite: local
-            label: local 1/3
-            partition: local-1
-            shard: 1/3
-          - suite: local
-            label: local 2/3
-            partition: local-2
-            shard: 2/3
-          - suite: local
-            label: local 3/3
-            partition: local-3
-            shard: 3/3
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -113,7 +95,6 @@ jobs:
         run: mkdir -p "$RUNNER_TEMP/office-browser-results" && chmod 777 "$RUNNER_TEMP/office-browser-results"
       - name: Verify emulator sessions with restricted browser destinations
         id: emulator-tests
-        if: matrix.suite == 'emulator'
         continue-on-error: true
         run: |
           docker run --rm --init --shm-size=256m \
@@ -125,9 +106,60 @@ jobs:
             --config /workspace/extensions/tmt-office/typescript/services/office/firebase.json \
             --non-interactive \
             'pnpm --filter @tmt/office exec playwright test --config playwright.emulator.config.ts --max-failures=0'
+      - name: Make browser failure artifacts readable
+        if: always() && (steps.emulator-tests.outcome == 'failure' || steps.emulator-tests.outcome == 'cancelled')
+        run: |
+          docker run --rm --network none \
+            --volume "$RUNNER_TEMP/office-browser-results:/results" \
+            --entrypoint sh \
+            tmt-office-browser:ci \
+            -c 'find /results -mindepth 1 -exec chmod a+rX {} +'
+      - name: Upload browser failure artifacts
+        if: always() && (steps.emulator-tests.outcome == 'failure' || steps.emulator-tests.outcome == 'cancelled')
+        uses: actions/upload-artifact@v4
+        with:
+          name: office-browser-emulator-results
+          path: ${{ runner.temp }}/office-browser-results
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Require emulator browser partition
+        if: always()
+        env:
+          TEST_RESULT: ${{ steps.emulator-tests.outcome }}
+        run: node typescript/scripts/ci-scope.mjs gate true "$TEST_RESULT"
+
+  office-local:
+    name: Office browser (local ${{ matrix.shard }})
+    needs: image
+    # Paused on pull requests until #574 is fixed (see the top of this file).
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1/3
+            partition: local-1
+          - shard: 2/3
+            partition: local-2
+          - shard: 3/3
+            partition: local-3
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download the shared browser image
+        uses: actions/download-artifact@v4
+        with:
+          name: office-browser-image
+          path: ${{ runner.temp }}/image
+      - name: Load the shared browser image
+        run: gunzip -c "$RUNNER_TEMP/image/office-browser-image.tar.gz" | docker load
+      - name: Prepare browser failure artifacts
+        run: mkdir -p "$RUNNER_TEMP/office-browser-results" && chmod 777 "$RUNNER_TEMP/office-browser-results"
       - name: Verify local browser composition without emulator contention
         id: local-tests
-        if: matrix.suite == 'local'
         continue-on-error: true
         run: |
           docker run --rm --init --shm-size=256m --network none \
@@ -136,7 +168,7 @@ jobs:
             pnpm --filter @tmt/office exec playwright test \
             --config playwright.local.config.ts --shard=${{ matrix.shard }} --max-failures=0
       - name: Make browser failure artifacts readable
-        if: always() && (steps.emulator-tests.outcome == 'failure' || steps.emulator-tests.outcome == 'cancelled' || steps.local-tests.outcome == 'failure' || steps.local-tests.outcome == 'cancelled')
+        if: always() && (steps.local-tests.outcome == 'failure' || steps.local-tests.outcome == 'cancelled')
         run: |
           docker run --rm --network none \
             --volume "$RUNNER_TEMP/office-browser-results:/results" \
@@ -144,20 +176,15 @@ jobs:
             tmt-office-browser:ci \
             -c 'find /results -mindepth 1 -exec chmod a+rX {} +'
       - name: Upload browser failure artifacts
-        if: always() && (steps.emulator-tests.outcome == 'failure' || steps.emulator-tests.outcome == 'cancelled' || steps.local-tests.outcome == 'failure' || steps.local-tests.outcome == 'cancelled')
+        if: always() && (steps.local-tests.outcome == 'failure' || steps.local-tests.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
         with:
           name: office-browser-${{ matrix.partition }}-results
           path: ${{ runner.temp }}/office-browser-results
           if-no-files-found: warn
           retention-days: 7
-      - name: Require emulator browser partition
-        if: always() && matrix.suite == 'emulator'
-        env:
-          TEST_RESULT: ${{ steps.emulator-tests.outcome }}
-        run: node typescript/scripts/ci-scope.mjs gate true "$TEST_RESULT"
       - name: Require local browser partition
-        if: always() && matrix.suite == 'local'
+        if: always()
         env:
           TEST_RESULT: ${{ steps.local-tests.outcome }}
         run: node typescript/scripts/ci-scope.mjs gate true "$TEST_RESULT"

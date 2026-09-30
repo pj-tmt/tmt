@@ -20,6 +20,12 @@ use tmt_adapters::{
     native_install::{self, InstallRequest, Product, UpgradeRequest},
     skill_installation::{self, OwnedReport, OwnedSkill, ProviderEnvironment},
 };
+use tmt_cli_style::{
+    Token,
+    list::Section,
+    table::{Cell, Column, Table},
+    value,
+};
 use tmt_core::native_install::{Channel, PinAction};
 
 const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
@@ -155,37 +161,51 @@ fn interruptible(message: &'static str) -> Result<impl FnMut() -> io::Result<()>
     })
 }
 
-/// Human output: a first line that is a success when `done`, then any
-/// further lines as written.
-struct Human {
-    done: bool,
-    text: String,
+/// Keep outcomes and aligned lists typed until the style owner renders them.
+struct Human(Vec<HumanLine>);
+
+enum HumanLine {
+    Plain(String),
+    Success(String),
+    List(Section<'static>),
 }
 
 impl Human {
     fn done(text: String) -> Self {
-        Self { done: true, text }
+        let mut lines = text.lines();
+        Self(
+            std::iter::once(HumanLine::Success(lines.next().unwrap_or_default().into()))
+                .chain(lines.map(|line| HumanLine::Plain(line.into())))
+                .collect(),
+        )
     }
 
     fn plain(text: String) -> Self {
-        Self { done: false, text }
+        Self(
+            text.lines()
+                .map(|line| HumanLine::Plain(line.into()))
+                .collect(),
+        )
     }
 
     fn push(&mut self, line: String) {
-        if !self.text.is_empty() {
-            self.text.push('\n');
-        }
-        self.text.push_str(&line);
+        self.0
+            .extend(line.lines().map(|line| HumanLine::Plain(line.into())));
+    }
+
+    fn push_success(&mut self, line: String) {
+        self.0.push(HumanLine::Success(line));
     }
 
     fn write(&self, output: &mut impl Write, terminal: tmt_cli_style::Terminal) -> io::Result<()> {
-        let mut lines = self.text.lines();
-        if self.done {
-            let first = lines.next().unwrap_or_default();
-            tmt_cli_style::message::success(output, terminal, first)?;
-        }
-        for line in lines {
-            writeln!(output, "{line}")?;
+        for line in &self.0 {
+            match line {
+                HumanLine::Plain(line) => writeln!(output, "{line}")?,
+                HumanLine::Success(line) => {
+                    tmt_cli_style::message::success(output, terminal, line)?
+                }
+                HumanLine::List(section) => section.write(output, terminal)?,
+            }
         }
         Ok(())
     }
@@ -377,8 +397,12 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
         ExtensionInstallRequest::List {
             prefix: selected,
             check,
-        } => listing(&prefix(selected.as_deref())?, check)
-            .map(|(document, text)| Some((document, Human::plain(text)))),
+        } => listing(
+            &prefix(selected.as_deref())?,
+            check,
+            &env::var_os("PATH").unwrap_or_default(),
+        )
+        .map(|(document, human)| Some((document, human))),
     }
 }
 
@@ -510,8 +534,11 @@ fn published_document(report: &OwnedReport) -> Value {
         .collect()
 }
 
-fn published_lines(report: &OwnedReport) -> impl Iterator<Item = String> + '_ {
-    report.published.iter().map(|item| {
+fn published_lines<'a>(
+    report: &'a OwnedReport,
+    home: Option<&'a Path>,
+) -> impl Iterator<Item = String> + 'a {
+    report.published.iter().map(move |item| {
         let mut line = format!(
             "{} agent skill {} at {}",
             if item.changed {
@@ -520,12 +547,12 @@ fn published_lines(report: &OwnedReport) -> impl Iterator<Item = String> + '_ {
                 "Kept current"
             },
             item.name,
-            item.target.display()
+            value::home_path(&item.target, home)
         );
         if let Some(backup) = &item.backup {
             line.push_str(&format!(
                 " (previous folder backed up to {})",
-                backup.display()
+                value::home_path(backup, home)
             ));
         }
         line
@@ -628,7 +655,8 @@ fn settle_skills(
     let mut published = Value::Array(Vec::new());
     if !selected.is_empty() {
         let report = publish(product, &selected)?;
-        published_lines(&report).for_each(|line| human.push(line));
+        let home = env::home_dir();
+        published_lines(&report, home.as_deref()).for_each(|line| human.push_success(line));
         published = published_document(&report);
     }
     let mut removed = Vec::new();
@@ -697,7 +725,11 @@ fn kept(product: Product, prefix: &Path) -> Vec<(&'static str, String)> {
     kept
 }
 
-fn listing(prefix: &Path, check: bool) -> Result<(Value, String), Failure> {
+fn listing(
+    prefix: &Path,
+    check: bool,
+    search: &std::ffi::OsStr,
+) -> Result<(Value, Human), Failure> {
     let mut rows = Vec::new();
     let mut lines = Vec::new();
     for product in Product::ALL
@@ -713,7 +745,7 @@ fn listing(prefix: &Path, check: bool) -> Result<(Value, String), Failure> {
             Ok(false) => None,
             Err(error) => return Err(error),
         };
-        let shadowed = shadowing(product, prefix);
+        let shadowed = shadowing_in(product, prefix, search);
         // Only an explicit --check touches the network; unreachable is unknown.
         let update = if check {
             let channel = state.as_ref().map_or(Channel::Alpha, |state| state.channel);
@@ -742,9 +774,9 @@ fn listing(prefix: &Path, check: bool) -> Result<(Value, String), Failure> {
         if let Some(update) = update {
             row["update"] = update.into();
         }
-        let mut line = match &state {
+        let status = match &state {
             Some(state) => format!(
-                "{name}  {}{}",
+                "{}{}",
                 state.version,
                 state
                     .pinned_version
@@ -752,27 +784,75 @@ fn listing(prefix: &Path, check: bool) -> Result<(Value, String), Failure> {
                     .map(|pinned| format!(" (pinned {pinned})"))
                     .unwrap_or_default()
             ),
-            None => format!("{name}  not installed"),
+            None => "not installed".into(),
         };
-        if let Some(update) = update {
-            line.push_str(&format!("  update: {update}"));
-        }
-        for path in &shadowed {
-            line.push_str(&format!("\n  shadowed on PATH by {path}"));
-        }
-        lines.push(line);
+        lines.push(ExtensionListRow {
+            name: name.into(),
+            status,
+            update,
+            shadowed,
+        });
         rows.push(row);
     }
-    Ok((json!({"extensions": rows}), lines.join("\n")))
+    Ok((
+        json!({"extensions": rows}),
+        extension_list(&lines, env::home_dir().as_deref()),
+    ))
+}
+
+/// Presentation values from the same installation observation used for JSON.
+struct ExtensionListRow {
+    name: String,
+    status: String,
+    update: Option<&'static str>,
+    shadowed: Vec<String>,
+}
+
+fn extension_list(rows: &[ExtensionListRow], home: Option<&Path>) -> Human {
+    let show_update = rows.iter().any(|row| row.update.is_some());
+    let mut columns = vec![Column::Name, Column::Detail];
+    if show_update {
+        columns.push(Column::Fixed);
+    }
+    let mut table = Table::new(&columns);
+    for row in rows {
+        let mut cells = vec![Cell::from(&row.name), Cell::from(&row.status)];
+        if show_update {
+            cells.push(Cell::from(
+                row.update
+                    .map(|update| format!("update: {update}"))
+                    .unwrap_or_default(),
+            ));
+        }
+        table.row(cells);
+        for path in &row.shadowed {
+            let mut cells = vec![
+                Cell::from(""),
+                Cell::styled(
+                    format!(
+                        "shadowed on PATH by {}",
+                        value::home_path(Path::new(path), home)
+                    ),
+                    Token::Dim,
+                ),
+            ];
+            if show_update {
+                cells.push(Cell::from(""));
+            }
+            table.row(cells);
+        }
+    }
+    Human(vec![HumanLine::List(Section {
+        title: "extensions",
+        count: Some(rows.len()),
+        rows: table,
+        note: None,
+        hint: None,
+    })])
 }
 
 /// Every other `tmt-<name>` command on PATH that does not resolve to this
 /// installation's file. Paths are canonicalized; nothing is executed.
-fn shadowing(product: Product, prefix: &Path) -> Vec<String> {
-    let search = env::var_os("PATH").unwrap_or_default();
-    shadowing_in(product, prefix, &search)
-}
-
 fn shadowing_in(product: Product, prefix: &Path, search: &std::ffi::OsStr) -> Vec<String> {
     let mut found = Vec::new();
     for link in product.links() {
@@ -873,5 +953,128 @@ mod tests {
                 .1
                 .contains("tmt office storage status")
         );
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+    use tmt_adapters::skill_installation::OwnedTarget;
+
+    fn published_report() -> OwnedReport {
+        OwnedReport {
+            published: vec![
+                OwnedTarget {
+                    name: "tmt-squad".into(),
+                    agent: None,
+                    target: "/home/ada/.agents/skills/tmt-squad".into(),
+                    changed: true,
+                    backup: Some("/home/ada/.agents/.tmt-skill-backups/previous".into()),
+                },
+                OwnedTarget {
+                    name: "squad-playbook".into(),
+                    agent: None,
+                    target: "/opt/agents/skills/squad-playbook".into(),
+                    changed: false,
+                    backup: None,
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn published_skill_json_bytes() {
+        let document = json!(published_document(&published_report())).to_string();
+        insta::assert_snapshot!(document);
+    }
+
+    #[test]
+    fn extension_list_json_bytes() {
+        // No installed product, network or inherited PATH participates.
+        let root = env::temp_dir().join(format!(
+            "tmt-extension-list-json-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let result = listing(&root, false, root.join("empty-bin").as_os_str());
+        fs::remove_dir_all(&root).unwrap();
+        let (document, _) = result.unwrap();
+        insta::assert_snapshot!(document.to_string());
+    }
+
+    fn render(human: Human, terminal: tmt_cli_style::Terminal) -> String {
+        let mut output = Vec::new();
+        human.write(&mut output, terminal).unwrap();
+        String::from_utf8(output).unwrap()
+    }
+
+    fn mixed_extensions() -> Vec<ExtensionListRow> {
+        vec![
+            ExtensionListRow {
+                name: "office".into(),
+                status: "not installed".into(),
+                update: Some("available"),
+                shadowed: Vec::new(),
+            },
+            ExtensionListRow {
+                name: "squad".into(),
+                status: "0.1.0-alpha.1 (pinned 0.1.0-alpha.1)".into(),
+                update: Some("current"),
+                shadowed: vec![
+                    "/home/ada/.local/other/bin/tmt-squad".into(),
+                    "/opt/other/bin/tmt-sq".into(),
+                ],
+            },
+        ]
+    }
+
+    #[test]
+    fn extension_list_through_a_pipe() {
+        insta::assert_snapshot!(render(
+            extension_list(&mixed_extensions(), Some(Path::new("/home/ada"))),
+            tmt_cli_style::Terminal::PLAIN
+        ));
+    }
+
+    #[test]
+    fn extension_list_on_a_narrow_terminal() {
+        let text = render(
+            extension_list(&mixed_extensions(), Some(Path::new("/home/ada"))),
+            tmt_cli_style::Terminal {
+                color: false,
+                width: Some(48),
+            },
+        );
+        assert!(text.lines().all(|line| line.chars().count() <= 48));
+        insta::assert_snapshot!(text);
+    }
+
+    #[test]
+    fn published_skills_have_success_marks_and_home_paths() {
+        let report = published_report();
+        let mut human = Human::done("Installed squad 0.1.0-alpha.1.".into());
+        for line in published_lines(&report, Some(Path::new("/home/ada"))) {
+            human.push_success(line);
+        }
+        insta::assert_snapshot!(render(human, tmt_cli_style::Terminal::PLAIN));
+    }
+
+    #[test]
+    fn published_skill_paths_are_escaped_by_the_style_owner() {
+        let mut report = published_report();
+        report.published[0].target = "/home/ada/skills/hidden\nline".into();
+        let mut human = Human::plain(String::new());
+        for line in published_lines(&report, Some(Path::new("/home/ada"))) {
+            human.push_success(line);
+        }
+        let text = render(human, tmt_cli_style::Terminal::PLAIN);
+        assert_eq!(text.lines().count(), 2);
+        assert!(text.contains("~/skills/hidden\\nline"));
+        assert!(text.lines().all(|line| line.starts_with("✓ ")));
     }
 }

@@ -171,40 +171,27 @@ fn concurrent_openers_commit_each_migration_only_once() {
 }
 
 #[test]
-fn cold_open_race_only_returns_success_or_retryable_contention() {
-    let fixture = Fixture::new();
-    let mut successful = 0;
-    for result in concurrent_opens(&fixture) {
-        match result {
-            Ok(version) => {
-                assert_eq!(version, 39);
-                successful += 1;
-            }
-            Err(error) => {
-                // Like the TypeScript lifecycle adapter, no retry policy is
-                // hidden here. SQLite may skip its busy handler during a
-                // competing journal-mode transition to avoid deadlock.
-                assert_eq!(error.code, StorageErrorCode::Busy);
-                assert!(error.retryable);
-            }
+fn cold_open_race_initializes_wal_for_every_caller() {
+    for _ in 0..4 {
+        let fixture = Fixture::new();
+        for result in concurrent_opens(&fixture) {
+            assert_eq!(result.unwrap(), 39);
         }
+        assert_complete_history(&fixture);
     }
-    assert!(successful > 0);
-    let mut recovered = Storage::open(&fixture.database).unwrap();
-    assert_eq!(recovered.health().unwrap().schema_version, 39);
-    recovered.close().unwrap();
-    assert_complete_history(&fixture);
 }
 
 fn concurrent_opens(fixture: &Fixture) -> Vec<Result<u32, StorageError>> {
-    let barrier = std::sync::Barrier::new(4);
+    let barrier = std::sync::Barrier::new(8);
     std::thread::scope(|scope| {
-        let handles = (0..4)
+        let handles = (0..8)
             .map(|_| {
                 scope.spawn(|| {
                     barrier.wait();
                     let mut storage = Storage::open(&fixture.database)?;
                     let health = storage.health()?;
+                    assert_eq!(health.journal_mode, "wal");
+                    assert_eq!(health.busy_timeout_ms, 5000);
                     storage.close()?;
                     Ok::<_, StorageError>(health.schema_version)
                 })
@@ -229,4 +216,81 @@ fn assert_complete_history(fixture: &Fixture) {
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .unwrap();
     assert_eq!(check, "ok");
+}
+
+#[test]
+fn wal_retry_budget_preserves_busy_and_releases_failed_open() {
+    use std::error::Error;
+    let fixture = Fixture::new();
+    fs::create_dir(fixture.database.parent().unwrap()).unwrap();
+    let blocker = Connection::open(&fixture.database).unwrap();
+    blocker.execute_batch("CREATE TABLE retained(value TEXT); INSERT INTO retained VALUES ('original'); BEGIN EXCLUSIVE;").unwrap();
+    let started = Instant::now();
+    let error = Storage::open(&fixture.database)
+        .err()
+        .expect("exclusive lock must block WAL setup");
+    let elapsed = started.elapsed();
+    eprintln!("WAL contention ended after {elapsed:?}");
+    assert_eq!(error.code, StorageErrorCode::Busy);
+    assert!(error.retryable);
+    assert_eq!(error.message, "Configure WAL failed");
+    assert_eq!(
+        error
+            .source()
+            .unwrap()
+            .downcast_ref::<rusqlite::Error>()
+            .unwrap()
+            .sqlite_error_code(),
+        Some(rusqlite::ErrorCode::DatabaseBusy)
+    );
+    assert!(
+        elapsed >= BUSY_TIMEOUT.saturating_sub(Duration::from_millis(100)),
+        "retry ended too early: {elapsed:?}"
+    );
+    assert!(
+        elapsed < BUSY_TIMEOUT + Duration::from_secs(1),
+        "retry exceeded budget: {elapsed:?}"
+    );
+    blocker.execute_batch("ROLLBACK").unwrap();
+    blocker.close().unwrap();
+    let mut recovered = Storage::open(&fixture.database).unwrap();
+    assert_eq!(recovered.health().unwrap().journal_mode, "wal");
+    assert_eq!(recovered.health().unwrap().busy_timeout_ms, 5000);
+    assert_eq!(
+        recovered
+            .connection()
+            .unwrap()
+            .query_row("SELECT value FROM retained", [], |row| row
+                .get::<_, String>(0))
+            .unwrap(),
+        "original"
+    );
+    recovered.close().unwrap();
+    assert_complete_history(&fixture);
+}
+
+#[test]
+fn wal_setup_rejects_non_wal_and_non_busy_results_without_retrying() {
+    let memory = Connection::open_in_memory().unwrap();
+    let started = Instant::now();
+    assert_eq!(
+        configure_wal(&memory).unwrap_err().code,
+        StorageErrorCode::IncompatibleSchema
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let fixture = Fixture::new();
+    fs::create_dir(fixture.database.parent().unwrap()).unwrap();
+    fs::write(&fixture.database, b"not a SQLite database").unwrap();
+    let corrupt = Connection::open(&fixture.database).unwrap();
+    let started = Instant::now();
+    assert_eq!(
+        configure_wal(&corrupt).unwrap_err().code,
+        StorageErrorCode::Corrupt
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+    corrupt.close().unwrap();
+    assert_eq!(
+        fs::read(&fixture.database).unwrap(),
+        b"not a SQLite database"
+    );
 }
