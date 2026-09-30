@@ -1,5 +1,9 @@
 use super::*;
-use std::{fs, os::unix::fs::PermissionsExt, sync::atomic::AtomicUsize};
+use std::{
+    fs,
+    os::unix::fs::PermissionsExt,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 struct Fixture(PathBuf);
 impl Fixture {
@@ -83,23 +87,10 @@ fn output_deadline_interruption_and_reaping() {
         );
     }
     let fixture = Fixture::new("exec 1>&- 2>&-; sleep 30");
-    let mut job = Exec::cmd(fixture.0.join("tmt"))
-        .stdout(Redirection::Pipe)
-        .stderr(Redirection::Pipe)
-        .setpgid()
-        .start()
-        .unwrap();
-    // Closed pipes establish readiness before testing observation's deadline.
-    let ready = job
-        .communicate()
-        .unwrap()
-        .limit_time(Duration::from_secs(15))
-        .read_to(&mut Vec::new(), &mut Vec::new());
     let started = Instant::now();
-    let result = observe(&mut job, started + Duration::from_millis(100), 64, &stop);
-    job.send_signal_group(9).unwrap();
-    assert!(job.wait_timeout(Duration::from_secs(2)).unwrap().is_some());
-    ready.unwrap();
+    let result = fixture
+        .client()
+        .call(&["api"], b"", &stop, Duration::from_millis(100), 64);
     assert!(result.unwrap_err().message.contains("timed out"));
     assert!(started.elapsed() < Duration::from_secs(3));
     let fixture = Fixture::new("echo $$ > pid; sleep 30 & echo $! > child; wait");
@@ -129,4 +120,42 @@ fn output_deadline_interruption_and_reaping() {
             std::thread::sleep(Duration::from_millis(10));
         }
     }
+}
+
+#[test]
+fn invocation_errors_keep_public_mappings_and_cleanup_uncertainty() {
+    for phase in [Phase::OpenPipes, Phase::Wait] {
+        assert_eq!(
+            invocation_error(InvokeError {
+                kind: FailureKind::Io(phase),
+                cause: Some(std::io::Error::other("fixture")),
+                cleanup: Cleanup::Confirmed
+            }),
+            RemoteError::new("REMOTE_IO", "Remote I/O failed; the door is closed.")
+        );
+    }
+    assert_eq!(
+        invocation_error(InvokeError {
+            kind: FailureKind::Deadline,
+            cause: None,
+            cleanup: Cleanup::Unconfirmed(std::io::Error::other("denied"))
+        }),
+        failure("Core cleanup could not be confirmed; outcome is unknown.")
+    );
+    assert_eq!(
+        invocation_error(InvokeError {
+            kind: FailureKind::Interrupted,
+            cause: None,
+            cleanup: Cleanup::NotStarted
+        }),
+        failure("Core observation interrupted.")
+    );
+    assert_eq!(
+        invocation_error(InvokeError {
+            kind: FailureKind::Io(Phase::Communicate),
+            cause: None,
+            cleanup: Cleanup::Confirmed
+        }),
+        failure("Core output could not be read within its bound.")
+    );
 }

@@ -849,6 +849,12 @@ The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
 -- --ignored --nocapture` reproduces the race and reports failures with and
 without the retry.
 
+The external-host shell fixtures use a test-local runner with a thirty-second
+execution budget for success cases. This does not change the driver's wire
+`deadlineMs` or output limit. Conformance timing uses scripted elapsed values;
+the late-answer case retains the production runner and deadline. Run the focused
+suite with `cargo test --locked -p tmt-adapters host::external::tests`.
+
 Human output and help snapshots (`insta`, a dev-dependency) live beside the
 tests that assert them, such as `rust/crates/tmt-cli-style/tests/snapshots/`.
 After an intended change, regenerate with `INSTA_UPDATE=always cargo test -p
@@ -900,6 +906,13 @@ optimization rather than debug hashing cost. The independent Office companion
 and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
 and embedded service tests remain separate required checks; process deadlines
 and assertions are unchanged. Local selection still defaults to the debug CLI.
+
+The CLI version expectation uses the shared workspace reader once per suite, running bounded
+`cargo metadata --no-deps --offline --locked`. The reader also reads `rust/Cargo.lock` and
+lists tracked files with `git ls-files -z`, so the suite needs a Git checkout. Cargo, the
+lockfile and workspace resolution inputs must remain available even when selecting an explicit
+CLI executable. The documented build below supplies the resolution inputs; the expectation
+has no alternate version reader.
 
 Build first, then explicitly select the test-only storage probe. The product CLI
 uses its repository-native default; the probe is never an installed SQL command:

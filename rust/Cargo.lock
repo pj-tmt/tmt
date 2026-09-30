@@ -2517,6 +2517,14 @@ name = "tmt-host-grammar"
 version = "5.0.0-alpha.9"
 
 [[package]]
+name = "tmt-invoke"
+version = "5.0.0-alpha.9"
+dependencies = [
+ "nix",
+ "subprocess",
+]
+
+[[package]]
 name = "tmt-office"
 version = "0.1.0-alpha.4"
 dependencies = [
@@ -2630,8 +2638,8 @@ dependencies = [
  "httparse",
  "serde_json",
  "signal-hook 0.4.4",
- "subprocess",
  "tmt-cli-style",
+ "tmt-invoke",
 ]
 
 [[package]]
@@ -2639,9 +2647,11 @@ name = "tmt-squad"
 version = "0.1.0-alpha.2"
 dependencies = [
  "clap",
+ "nix",
  "pulldown-cmark",
  "ratatui",
  "serde_json",
+ "sha2",
  "signal-hook 0.4.4",
  "subprocess",
  "tmt-cli-style",

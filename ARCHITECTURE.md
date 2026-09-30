@@ -605,7 +605,9 @@ The same map feeds release versioning. `typescript/scripts/release-please-config
 generates `release-please-config.json` from the map (one release-please package per
 component root, minus its excludes), the Cargo workspace (which crates declare their own
 version, which path dependencies a component links, which crates have a `Cargo.lock`
-entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. A
+entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
+`readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata; native
+CLI version expectations reuse that reader once per suite instead of parsing TOML separately. A
 `Cargo.lock` line is updated by whichever component declares that crate's version.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
@@ -2274,7 +2276,41 @@ or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
 `squad.attention`. The refresh computes it for the shown squad from that
 document, and for every other squad from a roster-only document (one
 `rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
-tabs are colored without loading their rows. `board::tabs` owns the tab
+tabs are colored without loading their rows.
+
+Optional `[squad.<name>.reminders]` config is parsed by
+`Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
+from 1 minute through 24 hours. `staleness` owns observed raw task/state and
+exact lead-notebook content age, separate from providers and column bindings.
+`ls` acquires its nonblocking cache lock before the roster read, reads notes
+through public `notes.read` only when enabled, and shares the existing bounded
+room history with the request overlay. `Snapshot::apply` adds the same
+`staleness` object to every occurrence of a member UUID and
+`squad.notesStaleness`; text labels derive from those objects. The board's
+observer integration and marks are a later slice, not implemented by this
+status projection.
+
+The private observation cache under `$XDG_CACHE_HOME/tmt-squad/staleness`
+is bounded to 512 KiB and 128 members per room, namespaced by the absolute
+config/data-root path and room UUID, with member/lead UUID ownership. SHA-256
+fingerprints (`sha2`) retain no notebook body. Nonblocking Unix advisory locking
+(`nix::fcntl::Flock`) stays held from
+before the read through atomic cache publication; competing readers report
+unknown and never regress the cache. First observation starts the clock,
+never backdated; unreadable notes, unavailable cache and clock rollback mean
+unknown. Cache loss/corruption restarts grace. Config edits do not
+reset content age. Disabling stops observation; after re-enabling, surviving
+fingerprint matches keep their first-observed time. These are observed content timestamps,
+not core modification times or a history feed. Age determines staleness;
+`activityAfterUpdate` separately records relevant observed PR link/state
+changes or member finals after a row update for future reminder eligibility.
+Only successful unexpired `github-pr` preset cache values and the public room
+history supply that evidence; live idle state is not inferred. This slice
+neither installs hooks nor emits reminders. The planned reminder contributes
+to the lead's next turn through generic consented prompt-submit context, not
+Stop; that generic hook and claims belong to their own follow-up slices.
+
+`board::tabs` owns the tab
 keys: a squad's name, or a built-in key starting with `@` (`@leads`, `@all`),
 which no squad name can. `[tabs] order` and `hide` arrange them. The leads tab's view is
 built by the same worker from each squad's roster document, joined with one
@@ -2548,9 +2584,8 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 `extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
 as `tmt remote`. `main` owns style/foreground composition and one bounded
 startup capabilities call. `core::CoreClient` owns fixed public `api`/`list`
-subprocesses through the supplied absolute `TMT_EXECUTABLE`, with deadline,
-output/cancellation bounds and owned process-group cleanup; no PATH fallback.
-The only TMT crate dependency is the shared leaf `tmt-cli-style`.
+subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
 
 `http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
 connection/rate bounds and shutdown. It has no CoreClient/storage reference.
