@@ -2118,7 +2118,10 @@ member through `runner` with the run-binding argument rule
 would start an argument with `-` refused), 4 at a time, bounded in time and
 output. `provider::Cache` keeps each value with the argv that produced it in
 `$XDG_CACHE_HOME/tmt-squad/fields/<squad>.json` (atomic replacement via
-`cache`), so a changed input never shows an old value; `provider::apply` writes
+`cache`: a 0600 file in a 0700 directory), so a changed input never shows an
+old value. `preset = "github-pr"` is a fixed `gh pr view {pr_link}` argv whose
+JSON `provider::github_pr` turns into `#<n> <state>[ · <review>]`; anything
+else from `gh` is a failed run; `provider::apply` writes
 current values into member fields before the document is built, `?` plus the
 row's `failed` list after a failed run. Readers never run providers: `ls` reads
 the cache (`--refresh-fields` runs what is due first), and the board hands each
