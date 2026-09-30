@@ -2029,7 +2029,10 @@ the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data. A switch never clears the view: `App` keeps the view of each
+painted data. The input loop asks for a reload at the shown squad's `refresh`
+interval (`Config::refresh`: per squad, then top-level `[board]`, then 5 s;
+`None` is off), which each snapshot carries, so a squad that failed to load
+retries at the default. A switch never clears the view: `App` keeps the view of each
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole; a result for a squad the user left only refreshes that cache.

@@ -25,6 +25,8 @@ pub struct View {
     pub rows: crate::rows::Rows,
     pub colors: BTreeMap<String, String>,
     pub board: Board,
+    /// The full-reload interval; `None` reloads only on F5 and actions.
+    pub refresh: Option<std::time::Duration>,
     pub notes: Notes,
     pub render: NotesRender,
     /// The host preset overridden by `[bind]`.
@@ -837,6 +839,7 @@ pub(crate) mod tests {
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
             colors: BTreeMap::new(),
+            refresh: Some(crate::config::DEFAULT_REFRESH),
             board: crate::config::Board::simple(
                 crate::config::BoardMode::Split,
                 crate::config::Direction::LeftRight,

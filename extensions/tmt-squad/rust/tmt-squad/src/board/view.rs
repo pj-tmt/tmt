@@ -59,6 +59,15 @@ fn hints(app: &App) -> String {
 /// Fixed keys, then every binding for the selected row.
 fn help_lines(app: &App) -> Vec<String> {
     let mut lines: Vec<String> = KEYS.iter().map(|line| (*line).to_owned()).collect();
+    if let Some(view) = &app.view {
+        lines.insert(
+            KEYS.len() - 1,
+            match view.refresh {
+                Some(every) => format!("reload      automatically every {}s", every.as_secs()),
+                None => "reload      automatic reload is off".to_owned(),
+            },
+        );
+    }
     for (event, action) in app.bindings() {
         lines.push(format!("{event:<11} {}", action.text));
     }
@@ -235,7 +244,10 @@ fn header_line(app: &App) -> Line<'_> {
             .collect::<std::collections::BTreeSet<_>>()
             .len();
         spans.push(Span::styled(
-            format!("  {lead} · {count} members"),
+            format!(
+                "  {lead} · {count} member{}",
+                if count == 1 { "" } else { "s" }
+            ),
             color("dim"),
         ));
         if view.document["olderRequestsNotShown"] == true {
@@ -767,6 +779,7 @@ mod tests {
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
                 rows: columns(),
                 colors: BTreeMap::from([("blocked".into(), "amber".into())]),
+                refresh: Some(crate::config::DEFAULT_REFRESH),
                 board: crate::config::Board::simple(
                     crate::config::BoardMode::Split,
                     crate::config::Direction::LeftRight,
@@ -962,6 +975,13 @@ lines = [
     }
 
     #[test]
+    fn a_squad_of_one_has_one_member() {
+        let app =
+            board(json!([{"title": null, "rows": [row("docs", "working", "guide", json!({}))]}]));
+        assert!(draw(&app, 48, 4)[0].ends_with("sol · 1 member"));
+    }
+
+    #[test]
     fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
         let mut app = board(json!([
             {"title": "Needs me", "rows": [row("auth-fix", "blocked", "rotate", json!({"note": "needs a call"}))]},
@@ -987,6 +1007,18 @@ lines = [
         let help = draw(&app, 60, 24);
         assert!(
             help.iter().any(|line| line == "y           copy"),
+            "{help:#?}"
+        );
+        assert!(
+            help.iter()
+                .any(|line| line == "reload      automatically every 5s"),
+            "{help:#?}"
+        );
+        app.view.as_mut().unwrap().refresh = None;
+        let help = draw(&app, 60, 24);
+        assert!(
+            help.iter()
+                .any(|line| line == "reload      automatic reload is off"),
             "{help:#?}"
         );
         app.help = false;
@@ -1055,6 +1087,7 @@ lines = [
                 ]}),
                 rows: columns(),
                 colors: BTreeMap::new(),
+                refresh: None,
                 board,
                 notes,
                 render: NotesRender::Markdown,
