@@ -1222,6 +1222,21 @@ Schema 39 admits a second terminal host (Herdr, #479):
 Binding queries still read tmux rows only until the core endpoint types carry
 the host.
 
+Schema 40 adds the change cursor behind the `changes.cursor` API operation
+(contract in [extension-api.md](docs/extension-api.md)). It is a one-row
+`change_cursor` counter. Every core-owned table has three AFTER triggers,
+`<table>_advances_change_cursor_on_{insert,update,delete}`, that advance it
+inside the writing transaction, so no write path can forget. Migration
+bookkeeping and the Office tables fenced by the schema-36 cutover have none.
+An update counts only when some column's value differs (`WHEN OLD.c IS NOT
+NEW.c OR ...`), so a reconcile that rewrites a row with the same values is not
+a change, and `bindings.last_verified_at`, which `list` refreshes while
+reconciling presence, is not compared at all. A later migration that adds a
+core table or a column, or rebuilds a table (as schema 39 rebuilt
+`bindings`), must create or recreate its triggers: `change_cursor_tests` fails
+until every table is covered or deliberately excluded and every column is
+compared.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
@@ -1594,7 +1609,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 39, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 40, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -2095,7 +2110,19 @@ built by the same worker from each squad's roster document, joined with one
 `ls` read for presence. Its rows carry their squad, so talk goes to that
 squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
 squads, not members: their `tab` action opens the squad's tab, and member
-bindings don't apply there. `board`
+bindings don't apply there. Moving a tab (Shift+←/→, or a drag on the tab
+line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
+format-preserving replacement that records `me`. A tab line that doesn't
+fit scrolls: `tab_window` keeps the current tab in view, starting as near the
+last frame's first tab as it can. It counts the hidden tabs at each end, and
+only the drawn tabs can be clicked. Pinned tabs (`[tabs] pin`) come first from
+`tabs::arrange` in `pin`'s order and are drawn before the scrolled window. A
+move never moves or passes a pin, since the saved `order` could not reorder
+them. The switcher (`s`, unless the user bound
+it) filters the tab line's tabs and the hidden ones with `tabs::matching`: a
+prefix match first, then a substring, then the letters in order. A shown
+squad that isn't on the tab line (hidden) is drawn first, selected, with no
+`TabHit`, so it can't be moved. `board`
 runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
@@ -2311,9 +2338,13 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
-assets, and read-only jobs run the release commit's scripts on them. CLI, Office and Squad
-runs share the four-target cargo-dist build and archive verifier, while keeping
-product-qualified bundles, independent versions and separate immutable tags.
+assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
+attached the pipeline evaluates the publication gates (commit, immutability, monotonic,
+migration, upgrade) in write-token jobs that run `main`'s code and only read the release
+commit's data; a failed gate leaves `publication-held.json` on the draft, and nothing
+publishes a draft yet. CLI, Office and Squad runs share the four-target cargo-dist build and
+archive verifier, while keeping product-qualified bundles, independent versions and separate
+immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
 bootstrap proof. Archives, their product-specific manifest/checksums and notices,
 plus the CLI bootstrap where applicable, are verified before any public

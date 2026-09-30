@@ -57,7 +57,7 @@ fn board_scope_upgrade_preserves_entries_receipts_and_atomic_rollback() {
         .unwrap();
     observer.close().unwrap();
     let storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 39);
+    assert_eq!(storage.health().unwrap().schema_version, 40);
     let connection = storage.connection().unwrap();
     assert_eq!(tables.map(|table| contents(connection, table)), expected);
     assert_eq!(connection.query_row("SELECT count(*) FROM pragma_table_info('office_board_entries') WHERE name='category_id'", [], |row| row.get::<_,i64>(0)).unwrap(), 1);

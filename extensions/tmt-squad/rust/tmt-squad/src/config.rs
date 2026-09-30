@@ -181,6 +181,8 @@ impl Layout {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Tabs {
     pub order: Vec<String>,
+    /// Tabs that come first and stay in view when the tab line scrolls.
+    pub pin: Vec<String>,
     pub hide: Vec<String>,
     pub colors: TabColors,
     /// `[tabs.leads.bind]`, over `[bind]` and the host preset.
@@ -912,12 +914,13 @@ impl Config {
             match key {
                 "order" => tabs.order = tab_list(item, "tabs.order")?,
                 "hide" => tabs.hide = tab_list(item, "tabs.hide")?,
+                "pin" => tabs.pin = tab_list(item, "tabs.pin")?,
                 "colors" => tabs.colors = tab_colors(item)?,
                 "leads" => tabs.leads = tab_bindings(item, "tabs.leads")?,
                 "all" => tabs.all = tab_bindings(item, "tabs.all")?,
                 other => {
                     return Err(invalid(format!(
-                        "`tabs.{other}` is not a tabs setting; use order, hide, colors, leads or all."
+                        "`tabs.{other}` is not a tabs setting; use order, pin, hide, colors, leads or all."
                     )));
                 }
             }
@@ -1009,6 +1012,53 @@ impl Config {
     }
 
     fn write_me(&mut self, me: Option<(&str, &str)>) -> Result<(), SquadError> {
+        self.write(|document| match me {
+            Some((name, id)) => {
+                document.insert(
+                    "me",
+                    Item::Value(value(name).into_value().expect("string value")),
+                );
+                document.insert(
+                    "me_id",
+                    Item::Value(value(id).into_value().expect("string value")),
+                );
+            }
+            None => {
+                document.remove("me");
+                document.remove("me_id");
+            }
+        })
+    }
+
+    /// Writes `[tabs] order` (#507), keeping the rest of the file as it is.
+    /// `keys` are tab keys; each is written as `order` reads it back.
+    pub fn set_tab_order(&mut self, keys: &[String]) -> Result<(), SquadError> {
+        let names: toml_edit::Array = keys
+            .iter()
+            .map(|key| match key.as_str() {
+                crate::board::LEADS => "leads".to_owned(),
+                crate::board::ALL => "all".to_owned(),
+                "leads" | "all" => format!("squad:{key}"),
+                squad => squad.to_owned(),
+            })
+            .collect();
+        if !matches!(self.document.get("tabs"), None | Some(Item::Table(_))) {
+            return Err(invalid(
+                "`tabs` is not a [tabs] table, so the order cannot be saved; edit squad.toml.",
+            ));
+        }
+        self.write(|document| {
+            let tabs = document
+                .entry("tabs")
+                .or_insert_with(|| Item::Table(Table::new()));
+            tabs["order"] = toml_edit::value(names);
+        })
+    }
+
+    /// Replaces the file atomically with one edit applied. Refuses if another
+    /// editor changed the file since it was read, rather than overwriting
+    /// their edit.
+    fn write(&mut self, edit: impl FnOnce(&mut DocumentMut)) -> Result<(), SquadError> {
         let current = read_bounded(&self.path).map_err(|error| write_failed(&self.path, error))?;
         if current != self.original {
             return Err(SquadError::new(
@@ -1019,22 +1069,7 @@ impl Config {
                 ),
             ));
         }
-        match me {
-            Some((name, id)) => {
-                self.document.insert(
-                    "me",
-                    Item::Value(value(name).into_value().expect("string value")),
-                );
-                self.document.insert(
-                    "me_id",
-                    Item::Value(value(id).into_value().expect("string value")),
-                );
-            }
-            None => {
-                self.document.remove("me");
-                self.document.remove("me_id");
-            }
-        }
+        edit(&mut self.document);
         let bytes = self.document.to_string().into_bytes();
         publish(&self.path, &bytes).map_err(|error| write_failed(&self.path, error))?;
         self.original = Some(bytes);
@@ -1615,6 +1650,56 @@ sort = ["state", "-name"]
     }
 
     #[test]
+    fn saving_the_tab_order_keeps_the_rest_of_the_file_and_reads_back() {
+        let path = temp("tab-order");
+        let original = "# my board\n[tabs] # arranged by hand\nhide = [\"quiet\"]\n\n[bind]\no = \"open {pr_link}\"\n";
+        fs::write(&path, original).unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        let keys: Vec<String> = [crate::board::ALL, "product", "leads", crate::board::LEADS]
+            .map(String::from)
+            .to_vec();
+        config.set_tab_order(&keys).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            written,
+            "# my board\n[tabs] # arranged by hand\nhide = [\"quiet\"]\norder = [\"all\", \"product\", \"squad:leads\", \"leads\"]\n\n[bind]\no = \"open {pr_link}\"\n"
+        );
+        assert_eq!(
+            Config::read(path.clone()).unwrap().tabs().unwrap().order,
+            keys
+        );
+
+        // A file with no [tabs] gains one; an edit made meanwhile is kept.
+        fs::write(&path, "me = \"Ben\"\n").unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        fs::write(&path, "me = \"Ben\"\n# edited meanwhile\n").unwrap();
+        assert_eq!(
+            config.set_tab_order(&keys).unwrap_err().code,
+            "SQUAD_CONFIG_CHANGED"
+        );
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("edited meanwhile")
+        );
+        let mut config = Config::read(path.clone()).unwrap();
+        config.set_tab_order(&keys[..1]).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        // The file's trailing comment stays last, after the new table.
+        assert_eq!(
+            written,
+            "me = \"Ben\"\n\n[tabs]\norder = [\"all\"]\n# edited meanwhile\n"
+        );
+        fs::write(&path, "tabs = { order = [] }\n").unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        assert_eq!(
+            config.set_tab_order(&keys).unwrap_err().code,
+            "SQUAD_CONFIG_INVALID"
+        );
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn tabs_read_order_hide_colors_and_the_leads_bindings() {
         let path = temp("tabs");
         let read = |body: &str| {
@@ -1623,13 +1708,14 @@ sort = ["state", "-name"]
         };
         assert_eq!(read("").unwrap(), Tabs::default());
         let tabs = read(
-            "[tabs]\norder = [\"leads\", \"infra\", \"squad:leads\", \"all\"]\nhide = [\"quiet\"]\n\
+            "[tabs]\norder = [\"leads\", \"infra\", \"squad:leads\", \"all\"]\nhide = [\"quiet\"]\npin = [\"all\"]\n\
              [tabs.colors]\nblocked = \"magenta\"\n[tabs.leads.bind]\nenter = \"run herdr agent focus {pane}\"\n",
         )
         .unwrap();
         // `squad:leads` is the squad named leads, not the built-in tab.
         assert_eq!(tabs.order, ["@leads", "infra", "leads", "@all"]);
         assert_eq!(tabs.hide, ["quiet"]);
+        assert_eq!(tabs.pin, ["@all"]);
         assert_eq!(
             tabs.colors,
             TabColors {
@@ -1647,6 +1733,7 @@ sort = ["state", "-name"]
             "[tabs]\norder = [\"everyone\", \"squad:x y\"]\n",
             "[tabs.all]\nbind = 1\n",
             "[tabs]\nhide = [\"infra\", \"infra\"]\n",
+            "[tabs]\npin = \"infra\"\n",
             "[tabs.colors]\nwaiting = \"pink\"\n",
             "[tabs.colors]\nnormal = \"dim\"\n",
             "[tabs]\ncolors = \"amber\"\n",

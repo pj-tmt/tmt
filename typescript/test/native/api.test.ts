@@ -133,6 +133,39 @@ describe('public local extension API', () => {
     });
   });
 
+  it('reports one change cursor that writes advance and reads leave alone', async () => {
+    await withSandbox(async (sandbox) => {
+      const cursor = async () => {
+        const result = await api(sandbox, 'changes.cursor', {});
+        expect(result.status).toBe(0);
+        expect(Object.keys(result.body)).toEqual(['cursor']);
+        return result.body.cursor as number;
+      };
+      const start = await cursor();
+      const ada = await identity(sandbox, 'Ada');
+      const created = await cursor();
+      expect(created).not.toBe(start);
+      for (const args of [
+        ['list', '--json'],
+        ['room', 'list', '--json'],
+        ['inbox', '--identity', 'Ada', '--json'],
+      ]) {
+        expect((await runCli(sandbox, args)).status).toBe(0);
+      }
+      await api(sandbox, 'identities.status', { identityIds: [ada] });
+      await api(sandbox, 'requests.list', { recipientId: ada });
+      expect(await cursor()).toBe(created);
+      const sent = await api(
+        sandbox,
+        'dispatch.create',
+        { operationId: randomUUID(), recipientIds: [ada], message: 'hello' },
+        ada
+      );
+      expect(sent.status).toBe(0);
+      expect(await cursor()).not.toBe(created);
+    });
+  });
+
   it('recovers immutable dispatches and pages concurrent history without acknowledging work', async () => {
     await withSandbox(async (sandbox) => {
       const sender = await identity(sandbox, 'Sender');

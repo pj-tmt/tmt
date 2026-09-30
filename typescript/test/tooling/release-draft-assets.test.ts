@@ -11,6 +11,9 @@ import {
   checkDraft,
   ghApi,
   recordFailure,
+  recordHold,
+  clearHold,
+  readHold,
   type DraftRelease,
   type ReleaseApi,
 } from '../../scripts/release-draft-assets.mjs';
@@ -289,6 +292,79 @@ describe('attachBundle', () => {
     rmSync(path.join(missing, 'install.sh'));
     expect(() => attach(fake, missing)).toThrow('The bundle has no install.sh.');
     expect(fake.calls).toEqual([]);
+  });
+});
+
+describe('the hold marker', () => {
+  const hold = {
+    gate: 'migration',
+    reason: 'a new migration',
+    sha: 'a'.repeat(40),
+    runUrl: 'https://example.test/run',
+  };
+  const now = new Date('2026-09-30T02:00:00Z');
+
+  it('parks a complete draft with the gate, the reason and the run', () => {
+    const fake = fakeApi([draft('v5.0.0-alpha.9', ['release-publication.json'])]);
+    let uploaded = '';
+    const api = {
+      ...fake.api,
+      upload: (release: DraftRelease, name: string, file: string) => {
+        uploaded = readFileSync(file, 'utf8');
+        fake.api.upload(release, name, file);
+      },
+    };
+    recordHold({ api, tag: 'v5.0.0-alpha.9', hold, now });
+    expect(fake.calls).toEqual(['upload publication-held.json']);
+    expect(JSON.parse(uploaded)).toEqual({
+      tag: 'v5.0.0-alpha.9',
+      ...hold,
+      recordedAt: '2026-09-30T02:00:00.000Z',
+    });
+  });
+
+  it('replaces a marker that is already there, and refuses a draft without a bundle or a published release', () => {
+    const fake = fakeApi([
+      draft('v5.0.0-alpha.9', ['release-publication.json', 'publication-held.json']),
+    ]);
+    recordHold({ api: fake.api, tag: 'v5.0.0-alpha.9', hold, now });
+    expect(fake.calls).toEqual(['delete 11', 'upload publication-held.json']);
+    expect(() =>
+      recordHold({ api: fakeApi([draft('v5.0.0-alpha.9')]).api, tag: 'v5.0.0-alpha.9', hold, now })
+    ).toThrow('has no bundle to hold');
+    expect(() =>
+      recordHold({
+        api: fakeApi([draft('v5.0.0-alpha.9', ['release-publication.json'], { draft: false })]).api,
+        tag: 'v5.0.0-alpha.9',
+        hold,
+        now,
+      })
+    ).toThrow('published');
+  });
+
+  it('removes the marker and says whether there was one', () => {
+    const held = fakeApi([
+      draft('v5.0.0-alpha.9', ['release-publication.json', 'publication-held.json']),
+    ]);
+    expect(clearHold({ api: held.api, tag: 'v5.0.0-alpha.9' })).toBe(true);
+    expect(held.calls).toEqual(['delete 11']);
+    const clean = fakeApi([draft('v5.0.0-alpha.9', ['release-publication.json'])]);
+    expect(clearHold({ api: clean.api, tag: 'v5.0.0-alpha.9' })).toBe(false);
+    expect(clean.calls).toEqual([]);
+  });
+
+  it('reads the marker of a draft, or nothing', () => {
+    const held = fakeApi([
+      draft('v5.0.0-alpha.9', ['release-publication.json', 'publication-held.json']),
+    ]);
+    const download = (asset: { name: string }) =>
+      JSON.stringify({ gate: 'upgrade', reason: asset.name });
+    expect(readHold({ api: held.api, tag: 'v5.0.0-alpha.9', download })).toEqual({
+      gate: 'upgrade',
+      reason: 'publication-held.json',
+    });
+    const clean = fakeApi([draft('v5.0.0-alpha.9', ['release-publication.json'])]);
+    expect(readHold({ api: clean.api, tag: 'v5.0.0-alpha.9', download })).toBeNull();
   });
 });
 

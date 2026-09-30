@@ -52,7 +52,7 @@ fn host_upgrade_widens_only_the_transport_check_and_keeps_every_row() {
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 39);
+    assert_eq!(storage.health().unwrap().schema_version, 40);
     storage.close().unwrap();
     let db = Connection::open(&path).unwrap();
     db.pragma_update(None, "foreign_keys", true).unwrap();
@@ -219,7 +219,7 @@ fn a_failed_host_upgrade_leaves_schema_38_intact() {
         .execute_batch("DROP TRIGGER reject_host_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 39);
+    assert_eq!(storage.health().unwrap().schema_version, 40);
     storage.close().unwrap();
 }
 

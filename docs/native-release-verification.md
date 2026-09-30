@@ -83,9 +83,27 @@ only after the rule exists. Once the rule exists a dispatch from any other ref, 
 one, is refused by the Environment. Do not add repository secrets of the same names: those
 are readable from every ref.
 
+Once a draft's bundle is attached, the run evaluates the publication gates in order:
+`commit` (the release's commit is on `main` and the pull request that produced it passed
+`Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
+repository's newest published release is immutable, which shows that the setting was on; the
+workflow token cannot read the setting itself), `monotonic` (the release is newer than every
+published release of its product), `migration` (the component's migration list, named in
+`.github/components.json`, has no more entries than at the product's last published release,
+and no commit of the release carries `!` or a `BREAKING CHANGE:` footer) and `upgrade` (the
+proof above; the first release of a product has nothing to upgrade from). A failed gate does
+not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
+`gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
+The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read
+the release commit's data through git and the API. To release a hold once its cause is dealt
+with, publish the draft by hand as below, or dispatch `native-release.yml` on `main` with the
+product, `prepare` off and `hold` set to the tag: the run evaluates the gates again without
+the one gate the marker names (never another) and removes the marker when they pass.
+
 Publication remains a separately authorized operation, not a workflow side
-effect. Verify the selected product run's exact commit and all required PR checks;
-enable GitHub release immutability before creating a draft release.
+effect: a draft that passes every gate is reported, and nothing publishes it yet. Verify the
+selected product run's exact commit and all required PR checks; enable GitHub release
+immutability before creating a draft release.
 
 Each bundle carries `release-publication.json` from
 `typescript/scripts/native-release-policy.mjs`; create the draft with its
@@ -103,7 +121,9 @@ release attaches its four tar.gz archives, final `dist-manifest.json`,
 `tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line
 install uses); an Office release uses the independent `tmt-office-v<version>`
 tag and attaches its four archives and final manifest without a CLI bootstrap, and
-a Squad release does the same under `tmt-squad-v<version>`.
+a Squad release does the same under `tmt-squad-v<version>`. Every release also carries
+`release-publication.json`, the completeness marker uploaded last: it stays on the published
+release (about 100 bytes, and `tmt upgrade` selects assets by exact name and ignores it).
 Verify uploaded SHA-256 digests before publishing each draft. Verify
 `immutable: true`, tag commit and GitHub release attestation (`gh release verify`
 and `gh release verify-asset`). Never combine product manifests, replace an
