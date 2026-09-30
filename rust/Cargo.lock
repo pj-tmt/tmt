@@ -1994,9 +1994,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.44"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6725596c3f2c3a0aef021139e145d4eafe314a6623e4680ca83852b2c67ab2ba"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
@@ -2485,7 +2485,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-adapters"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2509,7 +2509,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2527,7 +2527,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli-style"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2542,7 +2542,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-command-output"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "serde_json",
  "tmt-adapters",
@@ -2552,7 +2552,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-core"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "icu_casemap",
  "icu_locale_core",
@@ -2566,7 +2566,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-driver-protocol"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "serde",
  "serde_json",
@@ -2575,11 +2575,11 @@ dependencies = [
 
 [[package]]
 name = "tmt-host-grammar"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 
 [[package]]
 name = "tmt-invoke"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "nix",
  "subprocess",
@@ -2627,7 +2627,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-model"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "base64 0.22.1",
  "png",
@@ -2642,7 +2642,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-pairing"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",
@@ -2661,7 +2661,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-service"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "nix",
  "serde",
@@ -2673,7 +2673,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-storage"
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 dependencies = [
  "base64 0.22.1",
  "nix",

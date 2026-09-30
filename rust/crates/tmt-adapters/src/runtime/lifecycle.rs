@@ -66,6 +66,15 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// A prompt submission does not establish or replace a session binding.
+    fn decode_prompt(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
+        None
+    }
+
+    fn encode_prompt_context(&self, text: &str) -> Option<String> {
+        super::hook_protocol::encode_event_context("UserPromptSubmit", text)
+    }
+
     /// A turn-end event, recognized even when it carries nothing to read.
     fn decode_turn(&self, _payload: &[u8]) -> Option<TurnEnd> {
         None

@@ -133,6 +133,7 @@ fn consents_are_stored_privately_and_disable_removes_one() {
     let directory = TestDirectory::new();
     let path = consent_path(&directory.path);
     assert!(read_consents(&path).unwrap().is_empty());
+    assert!(!has_context_consent(&directory.path));
     let consent = |name: &str| Consent {
         name: name.into(),
         path: PathBuf::from("/x"),
@@ -162,7 +163,13 @@ fn consents_are_stored_privately_and_disable_removes_one() {
     assert!(disable(&paths, "a").unwrap());
     assert!(!disable(&paths, "a").unwrap());
     assert_eq!(list_consents(&paths).unwrap(), vec![consent("b")]);
+    assert!(!has_context_consent(&directory.path));
+    let mut context = consent("context");
+    context.capabilities = vec![CONTEXT_CAPABILITY.into()];
+    write_consents(&path, &[context]).unwrap();
+    assert!(has_context_consent(&directory.path));
     fs::write(&path, b"{\"version\":2,\"extensions\":[]}").unwrap();
+    assert!(!has_context_consent(&directory.path));
     assert!(matches!(
         read_consents(&path),
         Err(ExtensionHookError::Invalid(_))

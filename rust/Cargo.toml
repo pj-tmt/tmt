@@ -3,7 +3,7 @@ members = ["crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli-style", "cr
 resolver = "3"
 
 [workspace.package]
-version = "5.0.0-alpha.9"
+version = "5.0.0-alpha.10"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -24,7 +24,7 @@ comfy-table = "=8.0.1"
 shlex = "=2.0.1"
 insta = { version = "=1.48.0", default-features = false }
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls", "platform-verifier"] }
-rustls = { version = "=0.23.44", default-features = false, features = ["std", "ring", "tls12"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["std", "ring", "tls12"] }
 rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "ring"] }
 semver = "=1.0.28"
 tar = { version = "=0.4.46", default-features = false }

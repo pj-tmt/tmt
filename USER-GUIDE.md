@@ -50,7 +50,7 @@ from another TMT installation is listed as a change: setup backs it up next to
 the skills folder (`.tmt-skill-backups`) and replaces it. Without a terminal it needs
 `--yes` and otherwise changes nothing. Run `tmt setup claude` or `tmt setup codex`
 to review one agent's exact settings and launcher paths and approve that plan. Noninteractive use requires `--yes`; add `--json` for a
-structured result. This updates only TMT-owned SessionStart/SessionEnd entries in
+structured result. This updates only TMT-owned SessionStart/SessionEnd/UserPromptSubmit entries in
 `~/.claude/settings.json` or Codex's `CODEX_HOME/hooks.json` (default
 `~/.codex/hooks.json`), retaining other hooks and permission settings. It does
 not install the agent, approve provider hook trust, or change permission policy.

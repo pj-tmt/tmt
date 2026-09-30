@@ -283,6 +283,9 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         return observe_turn(provider, &harness, lifecycle, &turn, deadline)
             .map(|()| String::new());
     }
+    if let Some(session) = lifecycle.decode_prompt(input.as_bytes()) {
+        return observe_prompt(provider, &harness, lifecycle, &session, deadline);
+    }
     let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
@@ -427,4 +430,85 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         deadline,
     );
     Ok(encoded)
+}
+
+/// Prompt submission only contributes context to an already admitted session.
+/// It cannot name, bind, resume or revive an identity.
+fn observe_prompt(
+    provider: &str,
+    harness: &HarnessId,
+    lifecycle: &dyn RuntimeLifecycle,
+    session: &ProviderSessionId,
+    deadline: Instant,
+) -> Result<String, ()> {
+    let paths = ConfigPaths::discover().map_err(|_| ())?;
+    if !tmt_adapters::extension_hooks::has_context_consent(&paths.global_dir) {
+        return Ok(String::new());
+    }
+    let host = lifecycle.host_evidence().map_err(|_| ())?;
+    if matches!(host, HostEvidence::Unsupported) {
+        return Ok(String::new());
+    }
+    let Caller::Bound(bound) = verified_caller(provider, lifecycle, host, session, deadline)?
+    else {
+        return Ok(String::new());
+    };
+    let BoundCaller {
+        paths,
+        stored,
+        snapshot,
+        process,
+        ..
+    } = *bound;
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
+    if binding.session.state != tmt_core::binding::session::RuntimeState::Running
+        || !binding.session.key.as_ref().is_some_and(|key| {
+            key.incarnation == process && key.provider_session.as_ref() == Some(session)
+        })
+        || !stored
+            .preferences
+            .remembered
+            .as_ref()
+            .is_some_and(|remembered| {
+                &remembered.harness == harness && &remembered.provider_session == session
+            })
+        || !matches!(
+            evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot.clone())),
+            BindingEvidence::Active(_)
+        )
+    {
+        return Ok(String::new());
+    }
+    let context = crate::context_command::render_extensions(
+        &binding.identity_id,
+        &paths,
+        deadline
+            .checked_sub(Duration::from_millis(200))
+            .unwrap_or(deadline),
+    );
+    if context.is_empty() {
+        return Ok(String::new());
+    }
+    // A callback can run public commands: do not hand its context to a binding
+    // or conversation that changed while the callback was running.
+    let refreshed = Storage::context_by_pane(
+        &paths.database,
+        snapshot.server.host,
+        &binding.pane_id,
+        &snapshot.server.server_id,
+        tmt_adapters::request_runtime::wall_time_ms(),
+    )
+    .map_err(|_| ())?
+    .ok_or(())?;
+    if Instant::now() >= deadline
+        || refreshed.entry.binding.as_ref() != Some(binding)
+        || refreshed.preferences != stored.preferences
+        || !matches!(
+            evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot)),
+            BindingEvidence::Active(_)
+        )
+    {
+        return Err(());
+    }
+    lifecycle.encode_prompt_context(&context).ok_or(())
 }
