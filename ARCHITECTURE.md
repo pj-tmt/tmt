@@ -2400,7 +2400,9 @@ inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
 The release workflow remains a product-selected preparation and verification
-workflow; publication is separately authorized. `native-release.yml` is the per-product
+workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
+in the release skill covers the pipeline publishing an alpha draft that passes every gate, and
+nothing else. `native-release.yml` is the per-product
 run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
 the build, assemble and verify pipeline, once per draft release that lacks a verified
 bundle; the state lives on the draft itself (`release-publication.json` marks a complete
