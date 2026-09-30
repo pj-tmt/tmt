@@ -158,7 +158,7 @@ describe('native configuration process boundary', () => {
     });
   });
 
-  it('reports the theme as written, names a bad key, and never lets it break a command', async () => {
+  it('reports the theme as written, names a bad key without failing, and never lets it break a command', async () => {
     await withSandbox(async (sandbox) => {
       fs.mkdirSync(sandbox.globalDir, { recursive: true });
       fs.writeFileSync(
@@ -170,6 +170,7 @@ describe('native configuration process boundary', () => {
       expect(parseWholeStdout(shown)).toMatchObject({
         resolved: { theme: { base: 'tmt-light', waiting: '#e0a458' } },
         sources: { theme: 'global' },
+        themeError: null,
       });
       const text = await runCli(sandbox, ['config', 'show']);
       expect(text.status).toBe(0);
@@ -184,11 +185,17 @@ describe('native configuration process boundary', () => {
         [['tmt'], 'theme'],
       ] as const) {
         fs.writeFileSync(sandbox.globalConfig, JSON.stringify({ theme }));
+        // An extension finds its own file through config show: a bad theme is
+        // reported by its key and never fails the command.
         const invalid = await runCli(sandbox, ['config', 'show', '--json']);
-        expect(invalid.status).toBe(1);
-        expect(expectError(invalid, 'CONFIG_ERROR').error).toMatchObject({
-          message: expect.stringContaining(`(${key})`),
+        expect(invalid.status).toBe(0);
+        expect(parseWholeStdout(invalid)).toMatchObject({
+          themeError: { key, message: expect.any(String) },
+          paths: { global: sandbox.globalConfig },
         });
+        const human = await runCli(sandbox, ['config', 'show']);
+        expect(human.status).toBe(0);
+        expect(human.stderr).toContain(key);
         // Every other command keeps working with the terminal's colors.
         const listed = await runCli(sandbox, ['ls', '--json']);
         expect(listed.status).toBe(0);

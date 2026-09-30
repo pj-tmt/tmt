@@ -1075,8 +1075,9 @@ the Squad board uses `tmt` unless you choose:
 when the terminal announces it (`COLORTERM=truecolor`); otherwise `tmt` falls
 back to your 16 colors and a hex value to the nearest of them. `NO_COLOR`, a
 pipe or `--json` means no color at all, and help text keeps your terminal's
-colors. `tmt config show` lists the theme and reports a bad value by its key;
-a bad theme never stops another command, which then keeps the default colors.
+colors. `tmt config show` lists the theme and reports a bad value by its key
+(`themeError` in `--json`) without failing; a bad theme never stops another
+command, which then keeps the default colors.
 
 ### Optional pane badge
 
