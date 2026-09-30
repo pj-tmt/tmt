@@ -35,9 +35,11 @@ cell).
   section.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
-  `pending`, `note`, `fields` (every `squad.<name>.*` value, by field name),
-  `annotation` (the user's open note about this row, or null) and `waitingOnYou`
-  (open requests from this member to the user).
+  `pending`, `note`, `fields` (every `squad.<name>.*` value, by field name,
+  with the user's column sources and field providers applied), `failed` (fields
+  whose provider failed; they show `?`), `annotation` (the user's open note
+  about this row, or null) and `waitingOnYou` (open requests from this member to
+  the user).
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
   layout lists it first.
 - States come from the layout: crew uses `working idle blocked review testing

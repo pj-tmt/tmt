@@ -188,6 +188,7 @@ impl Squad {
                     meta: meta.into_iter().collect(),
                     seen: Value::Null,
                     numbers: BTreeMap::new(),
+                    failed: Default::default(),
                 })
             })
             .collect()
@@ -233,6 +234,8 @@ pub struct Member {
     pub seen: Value,
     /// Bound columns' numeric values, so sorts order `1.2M` after `487k`.
     pub numbers: BTreeMap<String, f64>,
+    /// Provided fields whose last run failed; they show as `?`.
+    pub failed: std::collections::BTreeSet<String>,
 }
 
 /// Filterable values: identity basics, self-reported activity and every

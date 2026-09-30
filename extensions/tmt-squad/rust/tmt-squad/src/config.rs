@@ -697,6 +697,16 @@ impl Config {
 
     /// How rows are laid out: `[squad.<name>.rows]`, the older `columns`
     /// table, or the preset.
+    /// `[squad.<name>.fields]`: the squad's field providers.
+    pub fn providers(&self, squad: &str) -> Result<Vec<crate::provider::Provider>, SquadError> {
+        crate::provider::read(
+            self.squad_table(squad)?,
+            squad,
+            crate::rows::field_name,
+            |field| crate::rows::OWN_FIELDS.contains(&field),
+        )
+    }
+
     pub fn rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
         crate::rows::read(self.squad_table(squad)?, squad)
     }
