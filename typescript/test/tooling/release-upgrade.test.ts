@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { DraftAsset, DraftRelease } from '../../scripts/release-draft-assets.mjs';
 import {
+  PROOF_FILES,
   archiveTargets,
+  assessUpgrade,
   fetchUpgrade,
   ghAssetDownloader,
   proveStaged,
@@ -455,6 +457,48 @@ describe('fetchUpgrade and proveStaged', () => {
   });
 });
 
+describe('assessUpgrade', () => {
+  it('has nothing to upgrade from for the first release of a product', () => {
+    const asked: string[] = [];
+    expect(
+      assessUpgrade({
+        plan: { previous: null },
+        hasFileAt: (file) => {
+          asked.push(file);
+          return false;
+        },
+      })
+    ).toEqual({ outcome: 'nothing', reason: '' });
+    expect(asked).toEqual([]);
+  });
+
+  it('can prove when the release commit carries every script the proof runs', () => {
+    const asked: string[] = [];
+    expect(
+      assessUpgrade({
+        plan: { previous: 'v5.0.0-alpha.8' },
+        hasFileAt: (file) => {
+          asked.push(file);
+          return true;
+        },
+      })
+    ).toEqual({ outcome: 'proved', reason: '' });
+    expect(asked).toEqual(PROOF_FILES.map((file) => `typescript/scripts/${file}`));
+  });
+
+  it('names the first missing script and words the reason for the owner', () => {
+    const missing = PROOF_FILES[1];
+    const { outcome, reason } = assessUpgrade({
+      plan: { previous: 'v5.0.0-alpha.8' },
+      hasFileAt: (file) => !file.endsWith(missing),
+    });
+    expect(outcome).toBe('predates');
+    expect(reason).toBe(
+      `This release's commit has no ${missing}: it predates the automated upgrade proof, so prove the upgrade by hand, as the native release verification guide describes.`
+    );
+  });
+});
+
 describe('releaseCommit', () => {
   const commitOfTag = (tag: string) => (tag === 'v5.0.0-alpha.8' ? 'b'.repeat(40) : 'not a commit');
 
@@ -590,6 +634,8 @@ describe('release-upgrade.mjs', () => {
   it('refuses missing options and an unknown command', () => {
     const run = fakeGh([]);
     expect(run(['prove', '--product', 'cli']).stderr).toContain('--tag is required.');
-    expect(run(['bogus']).stderr).toContain('Usage: release-upgrade.mjs resolve|fetch|prove');
+    expect(run(['bogus']).stderr).toContain(
+      'Usage: release-upgrade.mjs resolve|fetch|assess|prove'
+    );
   });
 });

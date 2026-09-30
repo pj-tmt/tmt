@@ -5,7 +5,7 @@
 // while it waited for its concurrency group loses nothing: the run that replaced it plans
 // the same drafts.
 //   gh api --paginate --slurp repos/OWNER/REPO/releases \
-//     | node plan-release-builds.mjs --product cli [--retry TAG]
+//     | node plan-release-builds.mjs --product cli [--retry TAG | --hold TAG]
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -15,6 +15,11 @@ import { productOfTag } from './native-release-policy.mjs';
 export const BUNDLE_ASSET = 'release-publication.json';
 /** Uploaded when a job of a draft's pipeline failed: later runs skip the draft until a retry. */
 export const FAILURE_ASSET = 'verification-failed.json';
+/**
+ * Uploaded when a publication gate failed for a complete bundle: which gate, why and which run. A
+ * held draft is not published until the owner publishes it or releases the hold by dispatch.
+ */
+export const HOLD_ASSET = 'publication-held.json';
 
 const COMMIT = /^[0-9a-f]{40}$/;
 
@@ -23,7 +28,10 @@ const COMMIT = /^[0-9a-f]{40}$/;
  * and the drafts that are parked. A `retry` tag plans exactly that draft, ignoring its failure
  * marker, and refuses a tag that is not an unbundled draft of the product.
  */
-export function planReleaseBuilds({ releases, product, retry = '' }) {
+export function planReleaseBuilds({ releases, product, retry = '', hold = '' }) {
+  if (retry !== '' && hold !== '') {
+    throw new Error('A retry and a released hold are separate runs; give one of them.');
+  }
   const drafts = releases.filter(
     (release) => release.draft === true && productOfTag(release.tag_name) === product
   );
@@ -51,14 +59,39 @@ export function planReleaseBuilds({ releases, product, retry = '' }) {
         `Cannot retry ${retry}: its target ${release.target_commitish} is not a commit.`
       );
     }
-    return { builds: [named(release)], blocked: [] };
+    return { builds: [named(release)], blocked: [], held: [] };
+  }
+
+  if (hold !== '') {
+    const release = drafts.find(({ tag_name: tag }) => tag === hold);
+    if (!release) {
+      throw new Error(
+        `Cannot release the hold of ${hold}: it is not a draft release of the ${product} product.`
+      );
+    }
+    const assets = assetNames(release);
+    if (!assets.has(BUNDLE_ASSET) || !assets.has(HOLD_ASSET)) {
+      throw new Error(
+        `Cannot release the hold of ${hold}: it has no bundle held by ${HOLD_ASSET}.`
+      );
+    }
+    if (!COMMIT.test(release.target_commitish)) {
+      throw new Error(
+        `Cannot release the hold of ${hold}: its target ${release.target_commitish} is not a commit.`
+      );
+    }
+    return { builds: [named(release)], blocked: [], held: [] };
   }
 
   const builds = [];
   const blocked = [];
+  const held = [];
   for (const release of drafts) {
     const assets = assetNames(release);
-    if (assets.has(BUNDLE_ASSET)) continue;
+    if (assets.has(BUNDLE_ASSET)) {
+      if (assets.has(HOLD_ASSET)) held.push({ tag: release.tag_name });
+      continue;
+    }
     if (!COMMIT.test(release.target_commitish)) {
       blocked.push({
         tag: release.tag_name,
@@ -73,18 +106,26 @@ export function planReleaseBuilds({ releases, product, retry = '' }) {
       builds.push(named(release));
     }
   }
-  return { builds: builds.sort(oldestFirst), blocked };
+  return { builds: builds.sort(oldestFirst), blocked, held: held.sort(oldestFirst) };
 }
 
 /** Markdown for the run summary. */
-export function renderPlanSummary({ product, builds, blocked, retry = '' }) {
+export function renderPlanSummary({ product, builds, blocked, held = [], retry = '', hold = '' }) {
   const lines = [`### Release run for ${product}`, ''];
   if (retry !== '') lines.push(`Retrying ${retry} by dispatch.`, '');
+  if (hold !== '') lines.push(`Releasing the hold of ${hold} by dispatch.`, '');
   lines.push(
     builds.length === 0
       ? 'No draft release needs a build.'
       : `Drafts to build and verify, oldest first: ${builds.map(({ tag }) => `\`${tag}\``).join(', ')}.`
   );
+  if (held.length > 0) {
+    lines.push(
+      '',
+      `**Held drafts** (complete, not published; each carries \`${HOLD_ASSET}\` with the gate and the reason):`
+    );
+    for (const { tag } of held) lines.push(`- \`${tag}\``);
+  }
   if (blocked.length > 0) {
     lines.push('', '**Parked drafts** (not built until retried by dispatch or deleted):');
     for (const { tag, reason } of blocked) lines.push(`- \`${tag}\`: ${reason}`);
@@ -100,13 +141,30 @@ export function releasesFrom(parsed) {
 function main(argv, stdin) {
   const { values } = parseArgs({
     args: argv,
-    options: { product: { type: 'string' }, retry: { type: 'string', default: '' } },
+    options: {
+      product: { type: 'string' },
+      retry: { type: 'string', default: '' },
+      hold: { type: 'string', default: '' },
+    },
   });
-  if (!values.product)
-    throw new Error('Usage: plan-release-builds.mjs --product <product> [--retry <tag>]');
+  if (!values.product) {
+    throw new Error(
+      'Usage: plan-release-builds.mjs --product <product> [--retry <tag> | --hold <tag>]'
+    );
+  }
   const releases = releasesFrom(JSON.parse(stdin));
-  const plan = planReleaseBuilds({ releases, product: values.product, retry: values.retry });
-  const summary = renderPlanSummary({ product: values.product, retry: values.retry, ...plan });
+  const plan = planReleaseBuilds({
+    releases,
+    product: values.product,
+    retry: values.retry,
+    hold: values.hold,
+  });
+  const summary = renderPlanSummary({
+    product: values.product,
+    retry: values.retry,
+    hold: values.hold,
+    ...plan,
+  });
   process.stderr.write(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
   const outputs = [

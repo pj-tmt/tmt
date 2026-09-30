@@ -41,6 +41,18 @@ export function recordFailure(input: {
   jobs: readonly string[];
   now?: Date;
 }): { recorded: boolean };
+export function recordHold(input: {
+  api: ReleaseApi;
+  tag: string;
+  hold: { gate: string; reason: string; sha?: string; runUrl?: string };
+  now?: Date;
+}): void;
+export function clearHold(input: { api: ReleaseApi; tag: string }): boolean;
+export function readHold(input: {
+  api: ReleaseApi;
+  tag: string;
+  download: (asset: DraftAsset) => string;
+}): { gate: string; reason: string } | null;
 export function ghApi(input: {
   repository: string;
   env?: NodeJS.ProcessEnv;
