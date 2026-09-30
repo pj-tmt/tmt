@@ -115,11 +115,14 @@ fn failure(code: &'static str, error: io::Error) -> Failure {
         .get_ref()
         .and_then(|cause| cause.downcast_ref::<native_install::RepairRequired>())
     {
-        let command = format!(
+        let mut command = format!(
             "tmt extension install {} --repair --yes --prefix {}",
             required.product.as_str(),
             crate::output::shell_word(&required.prefix.to_string_lossy())
         );
+        if required.requires_archive {
+            command.push_str(" --archive '<original-archive>' --manifest '<matching-manifest>'");
+        }
         return Failure::new("EXTENSION_REPAIR_REQUIRED", format!(
             "Managed {} release {} failed verification: {} No files were changed. Repair this release with: {command}",
             required.product.as_str(), required.version, required), 1).caused_by(error);
@@ -263,7 +266,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
                 previous,
                 changed,
             } = if repair {
-                repair_extension(product, &prefix)?
+                repair_extension(product, &prefix, archive.as_deref(), manifest.as_deref())?
             } else {
                 install(
                     product,
@@ -565,13 +568,32 @@ fn skill_names(skills: &[OwnedSkill]) -> Vec<String> {
     skills.iter().map(|skill| skill.name.clone()).collect()
 }
 
-fn repair_extension(product: Product, prefix: &Path) -> Result<InstalledExtension, Failure> {
-    let result = native_install::repair_product(
-        product,
-        prefix,
-        crate::office_facade::release_verifier(product),
-        interruptible("Extension repair interrupted before activation.")?,
-    )
+fn repair_extension(
+    product: Product,
+    prefix: &Path,
+    archive: Option<&str>,
+    manifest: Option<&str>,
+) -> Result<InstalledExtension, Failure> {
+    let verifier = crate::office_facade::release_verifier(product);
+    let checkpoint = interruptible("Extension repair interrupted before activation.")?;
+    let result = match (archive, manifest) {
+        (Some(archive), Some(manifest)) => native_install::repair_product_from_archive(
+            product,
+            prefix,
+            Path::new(archive),
+            Path::new(manifest),
+            verifier,
+            checkpoint,
+        ),
+        (None, None) => native_install::repair_product(product, prefix, verifier, checkpoint),
+        _ => {
+            return Err(Failure::new(
+                "USAGE_ERROR",
+                "Archive and manifest must be supplied together.",
+                1,
+            ));
+        }
+    }
     .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
     let report = result.installation;
     let mut human = if report.changed {
