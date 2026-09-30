@@ -2606,6 +2606,7 @@ The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/REA
 TypeScript module owns decoded-value envelope, enrollment and possession signing-byte
 builders and independent exact-byte/SHA-256 fixtures. It uses standard UTF-8 and
 WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
-quality job. It implements no wire decoder, signing, key persistence, transport,
+quality job: the independent Python oracle must pass before the workspace-pinned
+Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
 runtime authority or browser-shell wiring; the proposed contract remains the wire
 and authority definition owner.

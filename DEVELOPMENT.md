@@ -23,6 +23,7 @@ from `typescript/`; Cargo, Nx and Docker commands run from the repository root.
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
 Rust 1.88; CI also runs the current pinned release toolchain.
+Remote-client tests require `python3` for the independent byte-fixture oracle.
 Shell completion tests require Bash and Zsh. Runtime proof uses the selected
 macOS developer tools or Linux `readelf` (binutils); these are verifier tools,
 not product runtime dependencies.
