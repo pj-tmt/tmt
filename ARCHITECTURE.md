@@ -941,8 +941,13 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 
 ## Public command boundary
 
-`rust/crates/tmt-cli/src/grammar.rs` owns core syntax/help/completion and mounts
-the Office subtree from `tmt-office-command::grammar`. Each visible core command
+`rust/crates/tmt-cli/src/grammar.rs` owns the ordered core command registrations,
+shared spec/option helpers and public help projection, and mounts the Office subtree
+from `tmt-office-command::grammar`. Private `grammar/launch.rs`, `presence.rs`,
+`rooms.rs` and `requests.rs` own their command builders; the remaining groups stay
+in the root. Group modules share root helpers and do not import from each other.
+`grammar/completion.rs` and `grammar/extensions.rs` retain completion and external
+command recognition. Each visible core command
 is registered from a `CommandSpec` (summary and examples) through
 `tmt_cli_style::apply`; hidden internal commands have no help page. Squad registers each
 command from a `CommandSpec` in `extensions/tmt-squad/rust/tmt-squad/src/specs.rs` through
@@ -1449,8 +1454,12 @@ Successful starts reuse the read-only context formatter;
 ends emit no stdout. Provider configuration is changed only by consented setup,
 not by a hook, ordinary command, or skill installation.
 
-The CLI foreground owner separates command selection, binding, spawn and runtime
-admission. A verified live or stopped previous runtime prevents a second launch.
+The CLI foreground owner (`run_command`) keeps its public entry points, caller and
+configuration selection, and storage startup/close in the facade. Private
+`run_command/run.rs` owns the bound foreground launch and completion;
+`run_command/resume.rs` owns command selection, resume pending marks and settlement.
+The existing flow separates command selection, binding, spawn and runtime admission.
+A verified live or stopped previous runtime prevents a second launch.
 An inconclusive previous-runtime probe permits a degraded launch only after
 fencing that same attachment's stored Running state to Unknown; known Ended is
 preserved. This prevents a recovered probe from reviving delivery into the new
@@ -2263,7 +2272,10 @@ built by the same worker from each squad's roster document, joined with one
 `ls` read for presence. Its rows carry their squad, so talk goes to that
 squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
 squads, not members: their `tab` action opens the squad's tab, and member
-bindings don't apply there. Moving a tab (Shift+←/→, or a drag on the tab
+bindings don't apply there. `jump lead` (`L` in the tmux preset) resolves a
+lead name in `App::lead`: the document's `squad.lead` on a squad tab, the
+selected row on the leads tab, the row's `lead` field on the all tab; it then
+takes the ordinary jump request, so the popup closes and `back` returns. Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
 format-preserving replacement that records `me`. A tab line that doesn't
 fit scrolls: `tab_window` keeps the current tab in view, starting as near the
