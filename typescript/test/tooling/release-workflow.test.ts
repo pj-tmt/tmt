@@ -131,3 +131,151 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
     expect(build).toContain("save-if: ${{ github.ref == 'refs/heads/main' }}");
   });
 });
+
+describe('release workflow (release.yml)', () => {
+  const release = read('.github/workflows/release.yml');
+
+  it('starts on a push to main that changes more than prose, and on a manual dry run by default', () => {
+    expect(release).toMatch(
+      /^on:\n {2}push:\n {4}branches:\n {6}- main\n(?: {4}#[^\n]*\n)* {4}paths-ignore:/m
+    );
+    for (const ignored of ["'**/*.md'", 'docs/**', '.agents/**']) {
+      expect(release).toContain(`      - ${ignored}`);
+    }
+    expect(release).toMatch(
+      /workflow_dispatch:\n {4}inputs:\n {6}dry_run:\n(?: {8}[^\n]*\n)*? {8}default: true\n {8}type: boolean/
+    );
+    expect(release.match(/^ {2}[a-z_]+:$/gm)?.slice(0, 2)).toEqual([
+      '  push:',
+      '  workflow_dispatch:',
+    ]);
+    expect(release).toMatch(
+      /^concurrency:\n {2}group: release-please\n {2}cancel-in-progress: false$/m
+    );
+  });
+
+  it('holds the release App token in one step of one job, only in a live run, pinned by commit', () => {
+    const uses = [...release.matchAll(/uses: actions\/create-github-app-token@(\S+) # (v\S+)/g)];
+    expect(uses).toHaveLength(1);
+    expect(uses[0][1]).toMatch(/^[0-9a-f]{40}$/);
+    const releasePlease = job(release, 'release-please');
+    expect(releasePlease).toContain('actions/create-github-app-token@');
+    expect(job(release, 'dispatch')).not.toContain('create-github-app-token');
+    expect(releasePlease).toMatch(
+      /- name: Create the release App token\n {8}id: app\n {8}if: steps\.mode\.outputs\.live == 'true'/
+    );
+    expect(releasePlease).toContain('permission-contents: write');
+    expect(releasePlease).toContain('permission-pull-requests: write');
+    // The token is scoped to this repository by default: no owner or repositories input.
+    expect(releasePlease).not.toMatch(/^ {10}(owner|repositories):/m);
+    // The secrets are read in two places: whether they exist, where the mode is decided, and
+    // their values, where the token is created.
+    expect(
+      [...release.matchAll(/secrets\.(\w+)( != '')?/g)].map(
+        ([, name, presence]) => `${name}${presence ? ' (presence)' : ''}`
+      )
+    ).toEqual([
+      'RELEASE_APP_ID (presence)',
+      'RELEASE_APP_PRIVATE_KEY (presence)',
+      'RELEASE_APP_ID',
+      'RELEASE_APP_PRIVATE_KEY',
+    ]);
+    const token = releasePleasePart(releasePlease, 'Create the release App token');
+    expect(token).toContain('app-id: ${{ secrets.RELEASE_APP_ID }}');
+    expect(token).toContain('private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}');
+  });
+
+  it('decides the mode from the event, the ref and whether the secrets exist, never their values', () => {
+    const mode = releasePleasePart(
+      job(release, 'release-please'),
+      'Decide whether this run changes anything'
+    );
+    expect([...mode.matchAll(/^ {10}([A-Z_]+):/gm)].map(([, name]) => name)).toEqual([
+      'EVENT',
+      'REF',
+      'DRY_RUN',
+      'HAS_APP_SECRETS',
+    ]);
+    expect(mode).toContain('REF: ${{ github.ref }}');
+    expect(mode).toContain(
+      "HAS_APP_SECRETS: ${{ secrets.RELEASE_APP_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}"
+    );
+    expect(mode).toContain('run: node typescript/scripts/release-mode.mjs');
+  });
+
+  it('reads the App credentials from the release Environment, on the release-please job only', () => {
+    expect(job(release, 'release-please')).toMatch(/^ {4}environment: release$/m);
+    expect(job(release, 'dispatch')).not.toContain('environment:');
+    expect(release.match(/^ {4}environment:/gm)).toHaveLength(1);
+  });
+
+  it('runs release-please as the pinned CLI, and as a dry run unless the run is live', () => {
+    const releasePlease = job(release, 'release-please');
+    expect(releasePlease).toContain('pnpm install --frozen-lockfile --ignore-scripts');
+    expect(releasePlease).toContain('working-directory: .github/release-please');
+    expect(releasePlease).toContain('for command in release-pr github-release; do');
+    expect(releasePlease).toContain('dry=--dry-run');
+    expect(releasePlease).toContain('if [ "$LIVE" = true ]; then dry=; fi');
+    expect(releasePlease).toContain('set -o pipefail');
+    // release-please reads both files from the target branch through the API, not from here.
+    expect(releasePlease).toContain('--config-file release-please-config.json');
+    expect(releasePlease).toContain('--manifest-file .release-please-manifest.json');
+    expect(releasePlease).not.toContain('../');
+    expect(releasePlease).toContain('--target-branch main');
+    expect(releasePlease).not.toMatch(/googleapis\/release-please-action/);
+  });
+
+  it('merges release pull requests through the required checks and never around them', () => {
+    const step = releasePleasePart(job(release, 'release-please'), 'Enable auto-merge');
+    expect(step).toContain("if: steps.mode.outputs.live == 'true'");
+    expect(step).toContain("--label 'autorelease: pending'");
+    expect(step).toContain('gh pr merge "$number" --auto --squash');
+    expect(step).toContain('gh pr update-branch "$number"');
+    for (const bypass of ['--admin', '--force', 'bypass']) expect(release).not.toContain(bypass);
+    // Only the release-please job carries write access through the App token; the workflow token
+    // stays read-only there.
+    const permissions = /permissions:\n((?: {6}[^\n]+\n)+)/.exec(
+      job(release, 'release-please')
+    )?.[1];
+    expect(permissions).toBe('      contents: read\n      pull-requests: read\n');
+  });
+
+  it('starts a release run per product, only in a live run, and never publishes', () => {
+    const dispatch = job(release, 'dispatch');
+    expect(dispatch).toContain('needs: release-please');
+    expect(dispatch).toMatch(/product:\n {10}- cli\n {10}- office\n {10}- squad/);
+    expect(dispatch).toContain('typescript/scripts/plan-release-builds.mjs --product "$PRODUCT"');
+    // `prepare` defaults to true in native-release.yml, so a run that attaches to drafts must
+    // turn it off explicitly, and this is the only place that starts one.
+    expect(dispatch).toContain(
+      'gh workflow run native-release.yml --ref main -f "product=$PRODUCT" -f prepare=false'
+    );
+    expect(dispatch.match(/gh workflow run/g)).toHaveLength(1);
+    expect(dispatch).not.toMatch(/prepare=true|-f "?retry=/);
+    expect(dispatch).toContain('if [ "$LIVE" = true ]; then');
+    expect(dispatch).toContain('contents: write');
+    expect(dispatch).toContain('actions: write');
+    expect(release).not.toMatch(/gh release (create|edit)|draft=false/);
+  });
+
+  it('starts a run for exactly the products of the component map and the release configuration', () => {
+    const products = Object.keys(
+      (JSON.parse(read('.github/components.json')) as { components: Record<string, unknown> })
+        .components
+    ).sort();
+    const matrix = /product:\n((?: {10}- [a-z]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
+    expect(matrix.match(/[a-z]+(?=\n)/g)?.sort()).toEqual(products);
+    const config = JSON.parse(read('release-please-config.json')) as {
+      packages: Record<string, unknown>;
+    };
+    expect(Object.keys(config.packages)).toHaveLength(products.length);
+  });
+});
+
+/** The text of the step whose name starts with `name`, from a job's raw text. */
+function releasePleasePart(text: string, name: string): string {
+  const start = text.indexOf(`- name: ${name}`);
+  expect(start, name).toBeGreaterThanOrEqual(0);
+  const next = text.indexOf('\n      - ', start + 1);
+  return text.slice(start, next < 0 ? undefined : next);
+}

@@ -3,33 +3,45 @@ name: Office browser verification
 # Advisory diagnostics: these partitions never gate merge and are not required
 # checks. They run in their own workflow so that a red `CI` run means a required
 # or selected check failed, and so that all twelve share one image build.
+#
+# The eight native Office shards are paused on pull requests until #424 is fixed: three
+# of them fail on every run and most of the others intermittently, so on a pull request
+# they only cost runner time. They keep running weekly and on a manual dispatch so the
+# failure set stays visible. The fix of #424 re-enables them on pull requests.
 on:
   pull_request:
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: office-browser-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
     name: Select affected Office browser checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Only a pull request has a diff to select from; a scheduled or dispatched run selects no
+    # Office partition and runs the native shards.
     outputs:
-      office: ${{ steps.scope.outputs.office }}
-      native_office: ${{ steps.scope.outputs.native_office }}
+      office: ${{ steps.scope.outputs.office || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
       - name: Select consumers from both sides of the diff
+        if: github.event_name == 'pull_request'
         id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -39,7 +51,9 @@ jobs:
   image:
     name: Build Office browser image
     needs: changes
-    if: needs.changes.outputs.office == 'true' || needs.changes.outputs.native_office == 'true'
+    # A pull request builds it for the Office partitions only; a scheduled or dispatched run
+    # builds it for the native shards.
+    if: github.event_name != 'pull_request' || needs.changes.outputs.office == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -150,8 +164,9 @@ jobs:
 
   native-office-browser:
     name: Native Office browser (${{ matrix.shard }}/8)
-    needs: [changes, image]
-    if: needs.changes.outputs.native_office == 'true'
+    needs: image
+    # Paused on pull requests until #424 is fixed (see the top of this file).
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
