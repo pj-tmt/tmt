@@ -1,0 +1,157 @@
+name: Release
+
+# Runs release-please for the three products: it opens one release pull request per
+# component, a merged one produces a draft release, and this workflow then starts the
+# per-product run (`native-release.yml`) that builds, verifies and attaches the bundle to
+# each draft. It never publishes: publication is a separate, authorized step.
+#
+# Until the owner has added the release App secrets every push is a dry run that opens,
+# merges, creates and starts nothing; a manual run chooses with `dry_run`.
+on:
+  push:
+    branches:
+      - main
+    # Prose is never releasable. Everything else, including the release commits that
+    # release-please itself merges (they change versions and lock files), starts a run.
+    paths-ignore:
+      - '**/*.md'
+      - docs/**
+      - .agents/**
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print what release-please would do; open, merge, create and start nothing
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+# Queued, not cancelled. A pending run replaced by a newer one loses nothing: release-please
+# recomputes everything from `main` and the tags each time.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The App credentials are secrets of this environment, whose deployment branch rule allows
+    # `main` only, so a run from any other ref cannot read them. Until the owner has created
+    # the rule and added the secrets, this job has none and every run is a dry run.
+    environment: release
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      live: ${{ steps.mode.outputs.live }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # The mode script learns whether the secrets exist, never their values, and refuses a
+      # live run anywhere but `main`.
+      - name: Decide whether this run changes anything
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          HAS_APP_SECRETS: ${{ secrets.RELEASE_APP_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}
+        run: node typescript/scripts/release-mode.mjs
+      # The App token exists only in this job and only in a live run. It is what lets the
+      # release pull requests run the required checks, which `GITHUB_TOKEN` cannot start.
+      - name: Create the release App token
+        id: app
+        if: steps.mode.outputs.live == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Set up Node.js and pnpm
+        uses: ./.github/actions/setup-tooling
+      - name: Install the pinned release-please
+        working-directory: .github/release-please
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Run release-please
+        working-directory: .github/release-please
+        env:
+          RELEASE_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          LIVE: ${{ steps.mode.outputs.live }}
+        run: |
+          set -o pipefail
+          dry=--dry-run
+          if [ "$LIVE" = true ]; then dry=; fi
+          for command in release-pr github-release; do
+            printf '### release-please %s%s\n\n```\n' "$command" "${dry:+ (dry run)}" >> "$GITHUB_STEP_SUMMARY"
+            # The config and manifest paths are in the repository: release-please reads them from
+            # the target branch through the API, not from this checkout. $dry is empty or one flag.
+            # shellcheck disable=SC2086
+            pnpm exec release-please "$command" $dry \
+              --token "$RELEASE_TOKEN" \
+              --repo-url "$GITHUB_REPOSITORY" \
+              --target-branch main \
+              --config-file release-please-config.json \
+              --manifest-file .release-please-manifest.json 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+            printf '```\n\n' >> "$GITHUB_STEP_SUMMARY"
+          done
+      # Release pull requests merge through the normal required checks, never around them.
+      # `strict` requires an up-to-date branch and GitHub does not update it by itself, so a
+      # release pull request that fell behind `main` is updated here on every push.
+      - name: Enable auto-merge and keep the release pull requests current
+        if: steps.mode.outputs.live == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          for number in $(gh pr list --label 'autorelease: pending' --state open --json number --jq '.[].number'); do
+            enabled=$(gh pr view "$number" --json autoMergeRequest --jq '.autoMergeRequest != null')
+            if [ "$enabled" != true ]; then gh pr merge "$number" --auto --squash; fi
+            state=$(gh pr view "$number" --json mergeStateStatus --jq .mergeStateStatus)
+            if [ "$state" = BEHIND ]; then gh pr update-branch "$number"; fi
+          done
+
+  dispatch:
+    name: Start the release run for ${{ matrix.product }}
+    needs: release-please
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        product:
+          - cli
+          - office
+          - squad
+    permissions:
+      # Draft releases are only listed for a token that can push; starting a run needs actions.
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Start the run when a draft release needs a build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ matrix.product }}
+          LIVE: ${{ needs.release-please.outputs.live }}
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" > "$RUNNER_TEMP/releases.json"
+          # The planner writes its outputs to $GITHUB_OUTPUT; read them from a file of its own.
+          GITHUB_OUTPUT="$RUNNER_TEMP/plan.txt" node typescript/scripts/plan-release-builds.mjs --product "$PRODUCT" < "$RUNNER_TEMP/releases.json"
+          if grep -qx 'any=true' "$RUNNER_TEMP/plan.txt"; then
+            if [ "$LIVE" = true ]; then
+              gh workflow run native-release.yml --ref main -f "product=$PRODUCT" -f prepare=false
+              echo "Started the $PRODUCT release run." | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Dry run: would start the $PRODUCT release run." | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          fi

@@ -54,6 +54,35 @@ in seven days. Product-qualified artifact names prevent concurrent product runs
 from being mistaken for one bundle. Notices alongside each bundle are
 verification inputs; every archive also contains its own target-filtered notices.
 
+`Release` (`.github/workflows/release.yml`) runs on every push to `main` that changes more
+than prose, and on a manual dispatch with `dry_run` (default on). Its `release-please` job
+runs the pinned release-please CLI (`.github/release-please`, exact version and lockfile
+integrity) against the generated `release-please-config.json` and
+`.release-please-manifest.json`: it opens one release pull request per component, and when
+one is merged it creates the draft release (release-please's drafts, so a published release
+never has to receive assets). A live run, which is only allowed on `main`, creates a GitHub
+App token in that job alone, enables auto-merge (squash) on the open release pull requests,
+which merge through the normal required checks, and updates the ones that fell behind `main`
+(`strict` requires an up-to-date branch; a busy `main` can keep a release pull request behind
+until a quiet moment). A `dispatch` job then starts the per-product run above for every
+product that has a draft without a bundle. The job runs in the `release` Environment and the
+App credentials, `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`, are secrets of that
+Environment, not repository secrets, so only a run its deployment branch rule admits can read
+them; the step that decides the mode is told whether they exist, never their values. Until
+both secrets exist a push is a dry run: `release-please` runs with `--dry-run` and the run
+summary shows what it would open, tag and start; nothing is created. A manual run with
+`dry_run` off and no secrets fails instead of falling back, and so does one on any ref but
+`main`. Neither job publishes.
+
+Owner setup, once, when the release App exists: create the Environment `release` and limit
+its deployment branches to `main`; add `RELEASE_APP_ID` (the numeric App ID) and
+`RELEASE_APP_PRIVATE_KEY` as secrets of that Environment; install the App on this repository
+only, with Contents and Pull requests read/write and no webhook. GitHub creates the
+Environment without a rule the first time the workflow names it, and the secrets are added
+only after the rule exists. Once the rule exists a dispatch from any other ref, even a dry
+one, is refused by the Environment. Do not add repository secrets of the same names: those
+are readable from every ref.
+
 Publication remains a separately authorized operation, not a workflow side
 effect. Verify the selected product run's exact commit and all required PR checks;
 enable GitHub release immutability before creating a draft release.

@@ -2268,8 +2268,18 @@ run (one queued concurrency group per product) and calls `native-release-bundle.
 the build, assemble and verify pipeline, once per draft release that lacks a verified
 bundle; the state lives on the draft itself (`release-publication.json` marks a complete
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
-loses nothing and a known-bad commit is not rebuilt. CLI, Office and Squad
-runs share the four-target cargo-dist build and archive verifier, while keeping
+loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
+(the CLI pinned in `.github/release-please`, configured by the generated
+`release-please-config.json`) on every push to `main` that changes more than prose: it
+opens one release pull request per component, enables auto-merge on them (they merge only
+through the required checks) and keeps them current, creates the draft release for a merged
+one, and starts the per-product run for each product that has a draft without a bundle. A
+GitHub App token, created only in that job and only in a live run on `main`, is what lets
+the release pull requests run the required checks; the job runs in the `release`
+Environment and the App credentials are secrets of that Environment, restricted to `main`.
+Until they exist every push is a dry run that opens, merges, creates and starts nothing.
+`release.yml` never publishes. CLI, Office and Squad runs share the four-target cargo-dist build and archive
+verifier, while keeping
 product-qualified bundles, independent versions and separate immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
 bootstrap proof. Archives, their product-specific manifest/checksums and notices,
