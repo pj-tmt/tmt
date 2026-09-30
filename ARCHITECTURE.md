@@ -2431,6 +2431,13 @@ only then removes fixture state. Signals are sent only to task-owned child
 processes. No host tmux server, provider installation or global environment
 mutation is test evidence.
 
+External-host success fixtures retain real subprocesses but inject a bounded
+fixture deadline through `CommandRunner`; protocol request deadlines and output
+limits remain unchanged. Conformance scenarios supply elapsed time through the
+existing invoker result, separating response checks from scheduler timing. The
+late-answer scenario uses `UnixCommandRunner` with the real protocol deadline
+and checks timeout cleanup; oversized answers must fail with `OutputLimit`.
+
 `typescript/test/support/cli-process.ts` owns each native sandbox's active child runs.
 It also owns `TMUX_TMPDIR` under the sandbox, so ancestor discovery cannot reach
 the host's default tmux server after caller variables are cleared. Native process
