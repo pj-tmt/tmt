@@ -240,37 +240,120 @@ fn tab(name: &str, selected: bool, attention: Attention, colors: &TabColors) -> 
 }
 
 /// The first header line: only the tabs, and the loading spinner. Each
-/// tab's place is recorded for clicks and drags.
+/// tab's place is recorded for clicks and drags. When the tabs do not fit,
+/// the line scrolls to keep the current tab in view, as little as possible
+/// from the last frame, and counts the tabs off each end (`‹ 3`, `5 ›`),
+/// colored by the most pressing state among them.
 fn tab_line(app: &App, area: Rect) -> Line<'_> {
     let default = TabColors::default();
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
-    let mut spans = Vec::new();
+    let attention = |key: &String| app.attention.get(key).copied().unwrap_or_default();
+    let spans: Vec<Span> = app
+        .tabs
+        .iter()
+        .map(|key| {
+            let selected = Some(key) == app.current.as_ref();
+            tab(super::tabs::label(key), selected, attention(key), colors)
+        })
+        .collect();
+    let widths: Vec<u16> = spans
+        .iter()
+        .map(|span| span.content.width() as u16 + 1)
+        .collect();
+    let current = app
+        .current
+        .as_ref()
+        .and_then(|current| app.tabs.iter().position(|key| key == current));
+    let (start, end) = tab_window(&widths, current, app.tab_start.get(), area.width);
+    app.tab_start.set(start);
+    let off = |keys: &[String]| {
+        let sum = keys
+            .iter()
+            .map(attention)
+            .fold(Attention::default(), |sum, one| Attention {
+                waiting: sum.waiting + one.waiting,
+                blocked: sum.blocked + one.blocked,
+            });
+        match sum.state() {
+            "waiting" => color(&colors.waiting),
+            "blocked" => color(&colors.blocked),
+            _ => color("dim"),
+        }
+    };
+    let mut line = Vec::new();
     let mut x = area.x;
-    for (index, key) in app.tabs.iter().enumerate() {
-        let selected = Some(key) == app.current.as_ref();
-        let attention = app.attention.get(key).copied().unwrap_or_default();
-        let span = tab(super::tabs::label(key), selected, attention, colors);
-        let width = span.content.width() as u16;
+    if start > 0 {
+        let text = format!("‹ {start} ");
+        x = x.saturating_add(text.width() as u16);
+        line.push(Span::styled(text, off(&app.tabs[..start])));
+    }
+    for (index, span) in spans.into_iter().enumerate().take(end).skip(start) {
         app.tab_hits.borrow_mut().push(TabHit {
             y: area.y,
             x,
-            width,
+            width: widths[index] - 1,
             tab: index,
         });
-        x = x.saturating_add(width + 1);
-        spans.push(span);
-        spans.push(Span::raw(" "));
+        x = x.saturating_add(widths[index]);
+        line.push(span);
+        line.push(Span::raw(" "));
+    }
+    if end < app.tabs.len() {
+        line.push(Span::styled(
+            format!("{} › ", app.tabs.len() - end),
+            off(&app.tabs[end..]),
+        ));
     }
     if let Some(started) = app.loading_since
         && started.elapsed() >= SPINNER_DELAY
     {
         let frame = (started.elapsed().as_millis() / 100) as usize % SPINNER.len();
-        spans.push(Span::styled(
+        line.push(Span::styled(
             format!("{} loading", SPINNER[frame]),
             color("dim"),
         ));
     }
-    Line::from(spans)
+    Line::from(line)
+}
+
+/// The tabs `[start, end)` that fit in `room` columns with the overflow
+/// counts, keeping `current` in view and starting as near `previous` as it
+/// allows. A tab wider than the whole line still shows, cut at the edge.
+fn tab_window(
+    widths: &[u16],
+    current: Option<usize>,
+    previous: usize,
+    room: u16,
+) -> (usize, usize) {
+    let count = widths.len();
+    if widths
+        .iter()
+        .map(|width| usize::from(*width))
+        .sum::<usize>()
+        <= usize::from(room)
+    {
+        return (0, count);
+    }
+    // Room for one count, whichever end it is on: "‹ N " or "N › ".
+    let counter = count.to_string().len() + 3;
+    let current = current.unwrap_or(0).min(count.saturating_sub(1));
+    let mut start = previous.min(current);
+    loop {
+        let mut used = if start > 0 { counter } else { 0 };
+        let mut end = start;
+        while end < count {
+            let right = if end + 1 < count { counter } else { 0 };
+            if used + usize::from(widths[end]) + right > usize::from(room) && end > start {
+                break;
+            }
+            used += usize::from(widths[end]);
+            end += 1;
+        }
+        if current < end || start >= current {
+            return (start, end.max(start + 1));
+        }
+        start += 1;
+    }
 }
 
 /// The second header line: the shown squad's summary.
@@ -1500,6 +1583,65 @@ lines = [
         let mut away = mouse(MouseEventKind::Up(MouseButton::Left), 2);
         away.row = 4;
         assert_eq!(app.mouse(away, std::time::Instant::now()), Effect::None);
+    }
+
+    #[test]
+    fn many_tabs_scroll_to_keep_the_current_one_and_count_the_rest() {
+        // Every tab is 8 columns with its gap; 40 columns hold four, or three
+        // beside one count.
+        let widths = [8u16; 10];
+        assert_eq!(tab_window(&[8, 8], Some(1), 0, 40), (0, 2), "all fit");
+        assert_eq!(tab_window(&widths, Some(0), 0, 40), (0, 4));
+        assert_eq!(tab_window(&widths, Some(3), 0, 40), (0, 4));
+        // Moving right scrolls only as far as needed, then left keeps it.
+        let (start, end) = tab_window(&widths, Some(4), 0, 40);
+        assert!(start > 0 && (start..end).contains(&4), "{start}..{end}");
+        assert_eq!(tab_window(&widths, Some(4), start, 40), (start, end));
+        assert_eq!(tab_window(&widths, Some(9), start, 40).1, 10);
+        assert_eq!(tab_window(&widths, Some(2), 5, 40).0, 2);
+        // A tab wider than the line still shows.
+        assert_eq!(tab_window(&[80, 8], Some(0), 0, 40), (0, 1));
+
+        let names: Vec<String> = (0..9).map(|n| format!("sq{n}")).collect();
+        let mut app = board(json!([{"title": null, "rows": []}]));
+        app.tabs = names.clone();
+        app.current = Some("sq7".into());
+        app.attention.insert(
+            "sq1".into(),
+            Attention {
+                waiting: 0,
+                blocked: 1,
+            },
+        );
+        app.attention.insert(
+            "sq8".into(),
+            Attention {
+                waiting: 2,
+                blocked: 0,
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(32, 6)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let line: String = (0..32)
+            .map(|x| buffer[(x, 0)].symbol().to_owned())
+            .collect();
+        assert!(line.starts_with("‹ "), "{line:?}");
+        assert!(
+            line.contains(" sq7 "),
+            "the current tab stays in view: {line:?}"
+        );
+        assert!(line.trim_end().ends_with("1 ›"), "{line:?}");
+        // The left count hides a blocked tab, the right one a waiting tab.
+        assert_eq!(buffer[(0, 0)].fg, color("red").fg.unwrap());
+        let right = line.trim_end().chars().count() as u16 - 1;
+        assert_eq!(buffer[(right, 0)].fg, color("amber").fg.unwrap());
+        // Only shown tabs can be clicked, at their drawn places.
+        let hits = app.tab_hits.borrow().clone();
+        assert!(hits.iter().all(|hit| hit.tab >= app.tab_start.get()));
+        let seven = hits.iter().find(|hit| hit.tab == 7).unwrap();
+        let at = line[..line.find(" sq7").unwrap()].chars().count() as u16;
+        assert_eq!(seven.x, at);
     }
 
     #[test]
