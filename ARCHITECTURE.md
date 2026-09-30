@@ -1228,11 +1228,14 @@ Schema 40 adds the change cursor behind the `changes.cursor` API operation
 `<table>_advances_change_cursor_on_{insert,update,delete}`, that advance it
 inside the writing transaction, so no write path can forget. Migration
 bookkeeping and the Office tables fenced by the schema-36 cutover have none.
-An update that sets only `bindings.last_verified_at`, which `list` refreshes
-while reconciling presence, is not a change. A later migration that adds a
-core table, or rebuilds one (as schema 39 rebuilt `bindings`), must create or
-recreate its triggers: `change_cursor_tests` fails until every table is
-covered or deliberately excluded.
+An update counts only when some column's value differs (`WHEN OLD.c IS NOT
+NEW.c OR ...`), so a reconcile that rewrites a row with the same values is not
+a change, and `bindings.last_verified_at`, which `list` refreshes while
+reconciling presence, is not compared at all. A later migration that adds a
+core table or a column, or rebuilds a table (as schema 39 rebuilt
+`bindings`), must create or recreate its triggers: `change_cursor_tests` fails
+until every table is covered or deliberately excluded and every column is
+compared.
 
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds

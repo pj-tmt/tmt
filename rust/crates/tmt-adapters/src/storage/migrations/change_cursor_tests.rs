@@ -141,19 +141,40 @@ fn insert_update_and_delete_each_advance_the_cursor_on_every_core_table() {
             .unwrap_or_else(|error| panic!("{table}: {error}"));
         assert_eq!(cursor(&connection), before + 1, "{table} insert");
 
-        let changed = columns
+        // Rewriting every column with its own value is not a change.
+        let same: Vec<String> = columns
             .iter()
-            .find(|column| !OBSERVATIONS.contains(&(table.as_str(), column.as_str())))
-            .unwrap();
+            .map(|column| format!("{column} = {column}"))
+            .collect();
         connection
-            .execute(&format!("UPDATE {table} SET {changed} = {changed}"), [])
+            .execute(&format!("UPDATE {table} SET {}", same.join(", ")), [])
             .unwrap();
-        assert_eq!(cursor(&connection), before + 2, "{table} update");
+        assert_eq!(cursor(&connection), before + 1, "{table} same-value update");
+
+        // A new value in any compared column is; one column at a time, so a
+        // column added later without being compared fails here.
+        let mut expected = before + 1;
+        for (column, value) in columns.iter().zip(&values) {
+            if OBSERVATIONS.contains(&(table.as_str(), column.as_str())) {
+                continue;
+            }
+            let other = match value {
+                Value::Integer(_) => Value::Integer(2),
+                Value::Blob(_) => Value::Blob(vec![1]),
+                Value::Real(_) => Value::Real(2.0),
+                _ => Value::Text(format!("{column}-changed")),
+            };
+            connection
+                .execute(&format!("UPDATE {table} SET {column} = ?"), [other])
+                .unwrap();
+            expected += 1;
+            assert_eq!(cursor(&connection), expected, "{table}.{column} update");
+        }
 
         connection
             .execute(&format!("DELETE FROM {table}"), [])
             .unwrap();
-        assert_eq!(cursor(&connection), before + 3, "{table} delete");
+        assert_eq!(cursor(&connection), expected + 1, "{table} delete");
     }
 }
 

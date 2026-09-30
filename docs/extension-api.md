@@ -97,7 +97,8 @@ dispatch receipts; hooks; host servers. It is opaque: compare it with the value
 you last saw for equality only, never for order or distance, and never persist
 it across data roots. It is not a subscription and carries no description of
 what changed. It does not cover what core does not store as records: a pane's
-live presence (a binding's verification time is an observation, not a change),
+live presence (a binding's verification time is an observation, not a change,
+and a write that leaves every value the same is not a change either),
 notebook files, configuration files, and any extension's own storage. A client
 that reloads on a changed cursor must still reload on its own interval for
 those, and must treat `API_INPUT_INVALID` for this operation (an older core) as
