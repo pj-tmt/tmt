@@ -64,7 +64,14 @@ pub fn plan_hook_removal(
                 continue;
             }
         };
-        match plan(driver, settings.clone(), before, PathBuf::from("/"), true) {
+        match plan(
+            driver,
+            settings.clone(),
+            before,
+            PathBuf::from("/"),
+            true,
+            super::UsageHook::Keep,
+        ) {
             Ok(planned) if planned.change.changed() => steps.push(HookStep::Remove(planned)),
             Ok(_) if is_recorded => steps.push(HookStep::Forget {
                 driver: name.clone(),

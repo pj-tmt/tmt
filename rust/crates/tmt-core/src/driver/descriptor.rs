@@ -20,6 +20,17 @@ pub enum HookFormat {
     SessionHooksJson,
 }
 
+/// The opt-in turn-end hook that records context usage (#519), as a setup
+/// request. Without a choice, setup keeps whatever TMT hook is installed: a
+/// re-run never turns usage on or off by itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UsageHook {
+    #[default]
+    Keep,
+    Install,
+    Remove,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DriverDescriptor {
     /// The stable driver ID: the harness ID in storage and the provider name

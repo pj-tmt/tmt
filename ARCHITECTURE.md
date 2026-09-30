@@ -580,7 +580,12 @@ same job names run Squad's Cargo checks and architecture guard, its native tests
 E2E file, while the CLI runtime builds, packed installs and tooling unit tests are skipped
 because the CLI is unchanged (Squad cannot affect core: the architecture guard rejects any
 dependency in either direction). `Native package matrix` expects exactly that set of results
-for the scope; anything shared, CLI-owned or unrecognized runs the full set. Existing required check names
+for the scope; anything shared, CLI-owned or unrecognized runs the full set. `Docker E2E`, the
+required check, is a gate over two shard jobs that split the E2E scenario files by the committed
+weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs the Rust adapter
+tests): it requires both shards when native work is selected, the first alone for a scoped
+component and neither when nothing native is selected, so a skipped, cancelled or missing
+selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
@@ -1179,11 +1184,12 @@ columns because core correlates hook events on them. One identity has one curren
 runtime: only starting provider events replace the session (clearing a stale
 mark, and keeping driver state only under the same driver), and a confirmed
 launch under another runtime driver drops the previous driver's session and
-state. Persistence is an optional driver interface: `RuntimeLifecycle::state_version`
-names the version a driver reads, and `RuntimeRegistry::reconcile` discards state
+state. Persistence is an optional driver interface: `RuntimeLifecycle::reads_state`
+names the versions a driver reads, and `RuntimeRegistry::reconcile` discards state
 it cannot read and drops sessions of unregistered drivers, which
 `Storage::purge_unregistered_sessions` also sweeps. Driver state holds resume
-essentials only, never transcript content, arguments or secrets.
+essentials only (the model and, opted in, usage numbers), never transcript
+content, arguments or secrets.
 
 Schema 38 adds a resume-pending mark. A resume launch sets it on the exact
 remembered session before the child starts, and any starting provider event clears
@@ -1216,16 +1222,37 @@ Schema 39 admits a second terminal host (Herdr, #479):
 Binding queries still read tmux rows only until the core endpoint types carry
 the host.
 
-The claude and codex drivers implement persistence with a version 1 document,
-`{"model": <slug>}` (`runtime::model_state`). Its only source is the `model` field
+The claude and codex drivers implement persistence with one document
+(`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
+`"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
+optional). A document without usage is still written as version 1, byte for
+byte, and both versions are read. The model's only source is the `model` field
 of a starting hook event, which both providers document (see
 `runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
 then the previous model stays. When a provider sends no model, nothing is stored.
-Drivers never read transcripts or session files, and never infer a model from
-arguments. Resume replays a stored model (`claude --resume <id> --model <m>`,
-`codex resume -m <m> <id>`, following each CLI's recorded usage) only when the
-document is readable and the slug is a safe single argv value. Otherwise it
-resumes with the provider's default.
+A model is never inferred from transcripts or arguments. Resume replays a stored
+model (`claude --resume <id> --model <m>`, `codex resume -m <m> <id>`, following
+each CLI's recorded usage) only when the document is readable and the slug is a
+safe single argv value. Otherwise it resumes with the provider's default.
+
+Context usage (#519) is opt-in: `tmt setup --usage` adds a TMT `Stop` hook next
+to the lifecycle hooks, and `--no-usage` removes only that entry. A turn end is not
+a session transition. The worker verifies the caller exactly as for a lifecycle
+event, and writes only when the binding's current conversation is the
+remembered one the event names. It replaces the remembered state in one
+compare-and-set transaction, and prints nothing, even on failure. This is the one
+place a driver reads its own provider's transcript (`runtime::transcript`), and
+only for usage numbers:
+
+- the path must be a regular `.jsonl` file under the driver's own tree
+  (`~/.claude/projects`, or `$CODEX_HOME/sessions`);
+- it is opened without following a final symlink and without blocking;
+- only the last MiB is read, and a line cut by that window is skipped.
+
+Anything unexpected writes nothing. A start that changes the context
+(startup, clear, compact) drops usage; a resumed Claude start records the
+`context_tokens` it reports. Core never parses the document:
+`RuntimeRegistry::remembered_usage` projects it as `resume.usage`.
 
 Runtime observations retain a driver-supplied PID/start-identity pair and an
 optional provider session ID. Schema 34 additionally retains an optional launch
@@ -2235,8 +2262,13 @@ third-party notices (including Vite's bundled frontend inventory for Office), an
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
-The release workflow remains an explicit product-selected preparation and
-verification workflow; publication is separately authorized. CLI and Office
+The release workflow remains a product-selected preparation and verification
+workflow; publication is separately authorized. `native-release.yml` is the per-product
+run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
+the build, assemble and verify pipeline, once per draft release that lacks a verified
+bundle; the state lives on the draft itself (`release-publication.json` marks a complete
+bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
+loses nothing and a known-bad commit is not rebuilt. CLI, Office and Squad
 runs share the four-target cargo-dist build and archive verifier, while keeping
 product-qualified bundles, independent versions and separate immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill

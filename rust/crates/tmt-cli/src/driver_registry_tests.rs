@@ -79,6 +79,7 @@ fn setup_and_detection_come_from_the_registry() {
         None,
         "/stable/tmt".into(),
         false,
+        setup::UsageHook::Keep,
     )
     .unwrap();
     assert!(plan.change.after.contains("__hook fixture-agent"));

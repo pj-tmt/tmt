@@ -24,6 +24,9 @@ pub struct ClaudeObservation {
     pub session: ProviderSessionId,
     /// The model the provider reported for this event, unvalidated.
     pub model: Option<String>,
+    /// Documented for a resumed or forked start: the tokens its first request
+    /// re-sends, which is the conversation's context usage.
+    pub context_tokens: Option<u64>,
     pub transition: SessionTransition,
     pub starting: bool,
 }
@@ -102,6 +105,10 @@ struct Payload {
     model: Option<String>,
     source: Option<String>,
     reason: Option<String>,
+    /// Read only for a turn end (#519), under the driver's own tree.
+    transcript_path: Option<String>,
+    /// Documented for a resumed start; any other shape is ignored.
+    context_tokens: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,7 +119,7 @@ pub enum HookInputError {
 }
 
 /// Unknown future events fail without a state guess. Additional provider fields
-/// are ignored; in particular, transcript paths and cwd are never read or trusted.
+/// are ignored; cwd is never read, and a transcript path only by a turn end.
 pub fn decode_hook(bytes: &[u8]) -> Result<ClaudeObservation, HookInputError> {
     if bytes.len() > HOOK_INPUT_LIMIT {
         return Err(HookInputError::TooLarge);
@@ -146,9 +153,56 @@ pub fn decode_hook(bytes: &[u8]) -> Result<ClaudeObservation, HookInputError> {
     Ok(ClaudeObservation {
         session,
         model: payload.model,
+        context_tokens: payload
+            .context_tokens
+            .as_ref()
+            .and_then(serde_json::Value::as_u64),
         transition,
         starting,
     })
+}
+
+/// `Stop`: the main agent's turn ended. Subagent stops are not decoded.
+pub fn decode_turn(bytes: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
+    if bytes.len() > HOOK_INPUT_LIMIT {
+        return None;
+    }
+    let payload: Payload = serde_json::from_slice(bytes).ok()?;
+    (payload.hook_event_name == "Stop").then_some(())?;
+    Some(crate::runtime::lifecycle::TurnEnd {
+        session: ProviderSessionId::new(&payload.session_id).ok()?,
+        transcript: payload.transcript_path.map(Into::into),
+    })
+}
+
+/// The context usage of one transcript line: the last main-conversation
+/// assistant message's input, cache-read and cache-creation tokens. The
+/// top-level usage is read; per-request `iterations` are not summed again.
+/// Sidechain and synthetic messages carry no conversation usage.
+pub fn transcript_usage(line: &str) -> Option<u64> {
+    let entry: serde_json::Value = serde_json::from_str(line).ok()?;
+    if entry.get("type")?.as_str()? != "assistant"
+        || entry
+            .get("isSidechain")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    {
+        return None;
+    }
+    let message = entry.get("message")?;
+    if message.get("model").and_then(serde_json::Value::as_str) == Some("<synthetic>") {
+        return None;
+    }
+    let usage = message.get("usage")?.as_object()?;
+    let cache = |name: &str| match usage.get(name) {
+        None => Some(0),
+        Some(value) => value.as_u64(),
+    };
+    usage
+        .get("input_tokens")?
+        .as_u64()?
+        .checked_add(cache("cache_read_input_tokens")?)?
+        .checked_add(cache("cache_creation_input_tokens")?)
 }
 
 /// The launcher is selected and validated by setup, retaining its stable symlink
@@ -214,12 +268,39 @@ impl tmt_core::driver::Driver for ClaudeRuntime {
 pub struct ClaudeLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
-    fn state_version(&self) -> Option<u16> {
-        Some(crate::runtime::model_state::MODEL_STATE_VERSION)
+    fn reads_state(&self, version: u16) -> bool {
+        crate::runtime::driver_state::reads(version)
     }
 
     fn state_model(&self, state: &tmt_core::binding::session::DriverState) -> Option<String> {
-        crate::runtime::model_state::state_model(state)
+        crate::runtime::driver_state::state_model(state)
+    }
+
+    fn state_usage(
+        &self,
+        state: &tmt_core::binding::session::DriverState,
+    ) -> Option<crate::runtime::driver_state::Usage> {
+        crate::runtime::driver_state::state_usage(state)
+    }
+
+    fn decode_turn(&self, payload: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
+        decode_turn(payload)
+    }
+
+    fn turn_state(
+        &self,
+        turn: &crate::runtime::lifecycle::TurnEnd,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        previous: Option<&tmt_core::binding::session::DriverState>,
+        now_ms: u64,
+    ) -> Option<tmt_core::binding::session::DriverState> {
+        let tokens = crate::runtime::transcript::latest(
+            &environment.home().join(".claude/projects"),
+            turn.transcript.as_deref()?,
+            transcript_usage,
+        )?;
+        let usage = crate::runtime::driver_state::Usage::new(tokens, None, now_ms)?;
+        crate::runtime::driver_state::after_turn(usage, previous)
     }
 
     fn observe_replacement(
@@ -279,8 +360,17 @@ impl crate::runtime::lifecycle::LifecycleObservation for ClaudeObservation {
     fn driver_state(
         &self,
         previous: Option<&tmt_core::binding::session::DriverState>,
+        now_ms: u64,
     ) -> Option<tmt_core::binding::session::DriverState> {
-        crate::runtime::model_state::next_state(self.model.as_deref(), previous)
+        // Only a continued conversation keeps usage, and only as reported.
+        let usage = matches!(
+            self.transition,
+            SessionTransition::Resumed | SessionTransition::Forked
+        )
+        .then_some(self.context_tokens)
+        .flatten()
+        .and_then(|tokens| crate::runtime::driver_state::Usage::new(tokens, None, now_ms));
+        crate::runtime::driver_state::after_start(self.model.as_deref(), usage, previous)
     }
     fn starting(&self) -> bool {
         self.starting

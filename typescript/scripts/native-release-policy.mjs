@@ -26,15 +26,20 @@ export function releaseFlags(product) {
   return [...(policy.prerelease ? ['--prerelease'] : []), `--latest=${policy.latest}`];
 }
 
+/** The product whose tag this is (`v5.0.0-alpha.9`, `tmt-office-v0.1.0-alpha.4`), or undefined. */
+export function productOfTag(tag) {
+  return Object.entries(PRODUCTS).find(
+    ([, policy]) =>
+      tag.startsWith(policy.tagPrefix) && /^\d/.test(tag.slice(policy.tagPrefix.length))
+  )?.[0];
+}
+
 /**
  * After publication: the repository's latest release must be a CLI tag, so the
  * one-line installer URL resolves to a CLI `install.sh`.
  */
 export function checkLatestTag(tag) {
-  const owner = Object.values(PRODUCTS).find(
-    (policy) => tag.startsWith(policy.tagPrefix) && /^\d/.test(tag.slice(policy.tagPrefix.length))
-  );
-  if (owner !== PRODUCTS.cli) {
+  if (productOfTag(tag) !== 'cli') {
     throw new Error(
       `The latest release ${tag} is not a CLI release; install.sh would not resolve.`
     );

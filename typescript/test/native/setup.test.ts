@@ -71,6 +71,63 @@ describe('consented provider setup and bounded hook boundary', () => {
     }
   );
 
+  it.each(['claude', 'codex'])(
+    '%s adds the usage hook only on request, keeps it on rerun and removes it exactly',
+    async (name) => {
+      await withSandbox(async (sandbox) => {
+        const bin = path.join(sandbox.root, 'bin');
+        fs.mkdirSync(bin);
+        fs.symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+        sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+        const provider = path.join(sandbox.home, `.${name}`);
+        fs.mkdirSync(provider);
+        const settings = path.join(provider, name === 'claude' ? 'settings.json' : 'hooks.json');
+        const original = '{\n "permissions": {"allow": []}\n}\n';
+        fs.writeFileSync(settings, original);
+        const events = () => Object.keys(JSON.parse(fs.readFileSync(settings, 'utf8')).hooks ?? {});
+        const setup = async (...flags: string[]) => {
+          const result = await runCli(sandbox, ['setup', name, ...flags, '--yes', '--json']);
+          expect(result.status, result.stderr).toBe(0);
+          return JSON.parse(result.stdout);
+        };
+
+        // Off by default; the report says nothing about usage.
+        expect(await setup()).not.toHaveProperty('usage');
+        expect(events()).toEqual(['SessionStart', 'SessionEnd']);
+        const lifecycle = fs.readFileSync(settings, 'utf8');
+        const preview = await runCli(sandbox, ['setup', name, '--usage']);
+        expect(preview.stdout).toContain('SessionStart, SessionEnd and Stop (context usage) hooks');
+        expect(preview.stdout).toContain('no transcript content is stored');
+        expect(fs.readFileSync(settings, 'utf8')).toBe(lifecycle);
+
+        expect(await setup('--usage')).toMatchObject({ changed: true, usage: true });
+        expect(events()).toEqual(['SessionStart', 'SessionEnd', 'Stop']);
+        expect(fs.readFileSync(settings, 'utf8')).toContain(`__hook ${name}`);
+        const withUsage = fs.readFileSync(settings, 'utf8');
+        // A rerun without a choice keeps it.
+        expect(await setup()).toMatchObject({ changed: false, usage: true });
+        expect(fs.readFileSync(settings, 'utf8')).toBe(withUsage);
+
+        const opted = await runCli(sandbox, ['setup', name, '--no-usage']);
+        expect(opted.stdout).toContain(`Remove TMT-owned ${name} Stop (context usage) hook`);
+        expect(await setup('--no-usage')).not.toHaveProperty('usage');
+        expect(fs.readFileSync(settings, 'utf8')).toBe(lifecycle);
+
+        await setup('--usage');
+        expect(await setup('--remove')).not.toHaveProperty('usage');
+        expect(fs.readFileSync(settings, 'utf8')).toBe(original);
+        for (const conflict of [
+          ['--usage', '--no-usage'],
+          ['--remove', '--usage'],
+        ]) {
+          const refused = await runCli(sandbox, ['setup', name, ...conflict, '--yes', '--json']);
+          expect(refused.status).not.toBe(0);
+          expect(JSON.parse(refused.stdout).error.code).toBe('USAGE_ERROR');
+        }
+      });
+    }
+  );
+
   it('stops before changing settings when the setup record is invalid', async () => {
     await withSandbox(async (sandbox) => {
       const bin = path.join(sandbox.root, 'bin');

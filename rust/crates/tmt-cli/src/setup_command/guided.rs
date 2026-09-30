@@ -3,14 +3,14 @@
 //! or configured; session hooks only to agents whose executable is here. It
 //! plans only what is missing, asks once, then applies skills before hooks.
 
-use super::failure;
+use super::{USAGE_NOTE, failure};
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::json;
 use std::{io::Write, path::PathBuf};
 use tmt_adapters::{
     config::ConfigPaths,
     drivers::{Detection, DriverDefinition, Registry},
-    setup::{self, SetupEnvironment, SetupPlan, record},
+    setup::{self, SetupEnvironment, SetupPlan, UsageHook, record},
     skill_installation::{self, ProviderEnvironment, SkillState, SkillTarget},
 };
 use tmt_cli_style::{
@@ -67,6 +67,7 @@ fn plan(
     environment: &SetupEnvironment,
     env: &ProviderEnvironment,
     global: &std::path::Path,
+    usage: UsageHook,
 ) -> Result<Plan, Failure> {
     let detections = drivers.detect(env);
     let mut core: Vec<(&'static DriverDefinition, SkillTarget)> = Vec::new();
@@ -96,8 +97,15 @@ fn plan(
             .to_path_buf();
         let before = setup::read_settings(&path).map_err(failure)?;
         hooks.push(
-            setup::plan(driver, path, before, environment.launcher.clone(), false)
-                .map_err(failure)?,
+            setup::plan(
+                driver,
+                path,
+                before,
+                environment.launcher.clone(),
+                false,
+                usage,
+            )
+            .map_err(failure)?,
         );
     }
     Ok(Plan {
@@ -169,7 +177,7 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
         changes.row([
             Cell::styled("hooks", Token::Dim),
             Cell::from(home(&hooks.change.path)),
-            Cell::styled("SessionStart, SessionEnd", Token::Dim),
+            Cell::styled(hooks.events(), Token::Dim),
         ]);
     }
     let mut kept = Table::new(&[Column::Detail, Column::Detail]);
@@ -205,7 +213,11 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
             hint: None,
         });
     }
-    list::write(output, terminal, &sections)
+    list::write(output, terminal, &sections)?;
+    if plan.hook_changes().any(|hooks| hooks.usage) {
+        writeln!(output, "{USAGE_NOTE}")?;
+    }
+    Ok(())
 }
 
 fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Value {
@@ -236,10 +248,17 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
     ));
     json!({
         "detectedProviders": plan.detections.iter().filter(|(_, detection)| gets_skills(detection)).map(|(driver, _)| driver.name()).collect::<Vec<_>>(),
-        "integrations": plan.hooks.iter().map(|hooks| json!({
-            "provider": hooks.provider, "current": !hooks.change.changed(),
-            "settingsPath": hooks.change.path, "launcher": hooks.launcher
-        })).collect::<Vec<_>>(),
+        "integrations": plan.hooks.iter().map(|hooks| {
+            let mut integration = json!({
+                "provider": hooks.provider, "current": !hooks.change.changed(),
+                "settingsPath": hooks.change.path, "launcher": hooks.launcher
+            });
+            // Additive: present only while the usage hook is installed.
+            if hooks.usage {
+                integration["usage"] = json!(true);
+            }
+            integration
+        }).collect::<Vec<_>>(),
         "agents": plan.detections.iter().map(|(driver, detection)| json!({"name": driver.name(), "state": state(detection)})).collect::<Vec<_>>(),
         "plan": changes,
         "kept": plan.occupied().map(|skill| &skill.target).collect::<Vec<_>>(),
@@ -251,6 +270,7 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
 pub(super) fn run(
     drivers: &Registry,
     environment: &SetupEnvironment,
+    usage: UsageHook,
     yes: bool,
     mode: OutputMode,
     output: &mut Stream<impl Write>,
@@ -260,7 +280,7 @@ pub(super) fn run(
     let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
     // An unreadable record is preserved and stops setup before any change.
     record::read(&global).map_err(failure)?;
-    let plan = plan(drivers, environment, &env, &global)?;
+    let plan = plan(drivers, environment, &env, &global, usage)?;
     if !mode.json {
         present(output, terminal, &plan).map_err(failure)?;
     }

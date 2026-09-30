@@ -25,6 +25,8 @@ mod split;
 mod squad;
 mod status;
 mod template;
+#[cfg(test)]
+mod test_support;
 
 use crate::{
     config::Config, consent::Consent, core::Core, core::SquadError, membership::Outcome,
