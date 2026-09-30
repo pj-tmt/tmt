@@ -238,23 +238,61 @@ mod tests {
     #[test]
     fn fast_owned_exit_retains_start_evidence_without_authorizing_delivery() {
         use crate::process::{
-            UnixCommandRunner,
-            runtime::{ProcessObservation, observe_runtime_process},
+            CommandError, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner,
+            runtime::{ProcessObservation, observe_owned_child, observe_runtime_process},
         };
-        use std::time::Instant;
+        use std::{cell::RefCell, time::Instant};
+
+        // Record only this observation's bounded ps attempts. Forward the
+        // original request unchanged so diagnostics cannot hide uncertainty.
+        #[derive(Default)]
+        struct RecordingRunner {
+            attempts: RefCell<Vec<(Duration, Duration, String)>>,
+        }
+        impl CommandRunner for RecordingRunner {
+            fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                let started = Instant::now();
+                let remaining = request.deadline.saturating_duration_since(started);
+                let result = UnixCommandRunner.execute(request);
+                let elapsed = started.elapsed();
+                let evidence = match &result {
+                    Ok(output) => format!(
+                        "stdout={:?}, stderr={:?}",
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr),
+                    ),
+                    Err(error) => format!("{error:?}"),
+                };
+                self.attempts
+                    .borrow_mut()
+                    .push((remaining, elapsed, evidence));
+                result
+            }
+        }
+
         let _invocation = INVOCATION.lock().unwrap();
         let child =
             InteractiveChild::start(OsStr::new("/bin/sh"), &["-c".into(), "exit 23".into()])
                 .unwrap();
         let pid = child.pid();
         let deadline = Instant::now() + Duration::from_secs(3);
+        let runner = RecordingRunner::default();
         let incarnation = loop {
-            match child.observe_runtime(deadline).unwrap() {
+            runner.attempts.borrow_mut().clear();
+            match observe_owned_child(&runner, &child, deadline).unwrap_or_else(|error| {
+                panic!(
+                    "owned runtime probe failed: {error:?}; ps attempts (remaining, elapsed, result): {:?}",
+                    runner.attempts.borrow(),
+                )
+            }) {
                 ProcessObservation::UnreapedZombie(incarnation) => break incarnation,
                 ProcessObservation::Live(_) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(5));
                 }
-                other => panic!("expected an owned unreaped exit, received {other:?}"),
+                other => panic!(
+                    "expected an owned unreaped exit, received {other:?}; ps attempts (remaining, elapsed, result): {:?}",
+                    runner.attempts.borrow(),
+                ),
             }
         };
         assert_eq!(incarnation.pid(), u64::from(pid));
