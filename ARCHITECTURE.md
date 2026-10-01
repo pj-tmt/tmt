@@ -702,7 +702,9 @@ facade, which PR B of #355 removes.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. It follows the actual Rust module tree, checks reviewed
-layer edges and shared declaration ownership, and fails closed for unsupported
+layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
+ledger (crate, canonical name and target, with a reason per row); aliases are rejected,
+and the invoke leaf remains guarded for every dependency kind. The guard fails closed for unsupported
 module remapping or incomplete discovery. It also checks that the CLI crates
 reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
 each CLI checks every command's help against the style
