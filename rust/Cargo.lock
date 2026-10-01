@@ -2592,6 +2592,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-colab"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ed25519-dalek",
+ "getrandom 0.4.3",
+ "nix",
+ "rusqlite",
+ "sha2",
+]
+
+[[package]]
 name = "tmt-command-output"
 version = "5.0.0-alpha.25"
 dependencies = [

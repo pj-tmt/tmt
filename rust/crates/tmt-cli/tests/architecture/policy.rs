@@ -205,6 +205,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-tui" => &["roxmltree", "tmt-cli-style"],
+        "tmt-colab" => &["ed25519-dalek", "getrandom", "nix", "rusqlite", "sha2"],
         "tmt-remote" => &[
             "ed25519-dalek",
             "hmac",
@@ -551,10 +552,11 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 ));
             }
             // Public-interface extensions name their own library and approved leaves only.
-            if ["tmt-squad", "tmt-remote"].contains(&source.package.as_str())
+            if ["tmt-squad", "tmt-remote", "tmt-colab"].contains(&source.package.as_str())
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
-                && !(source.package == "tmt-remote" && root == "tmt_invoke")
+                && !(["tmt-remote", "tmt-colab"].contains(&source.package.as_str())
+                    && root == "tmt_invoke")
                 && root != source.package.replace('-', "_")
             {
                 violations.push(format!(

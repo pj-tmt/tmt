@@ -1500,3 +1500,22 @@ describe('required CI gate', () => {
     expect(job('office-local')).toContain('name: office-browser-${{ matrix.partition }}-results');
   });
 });
+
+it.each(['Cargo.toml', 'src/store.rs', 'tests/state.rs'])(
+  'keeps private Colab Rust %s in full workspace CI',
+  (suffix) => {
+    const files = ['extensions/tmt-colab/rust/tmt-colab/' + suffix];
+    expect(explainCiSelection(files)).toMatchObject([
+      { owner: 'tmt-colab', rule: 'colab-rust', native: true, office: true, nativeOffice: true },
+    ]);
+    expect(selectNativeScope(files)).toBe('full');
+    expect(
+      isReleased(
+        parseComponentMap(
+          readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+        ),
+        'tmt-colab'
+      )
+    ).toBe(false);
+  }
+);
