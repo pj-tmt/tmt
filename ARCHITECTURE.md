@@ -2028,6 +2028,33 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
+### Codex queue transport groundwork
+
+`drivers/codex/queue` owns exact native request/receipt validation, while
+`drivers/codex/transport` owns synchronous WebSocket framing and the absolute
+I/O deadline. The only new transport dependency is adapter-local tungstenite,
+exactly pinned with default features disabled and `handshake` enabled; no TLS
+or async runtime enters core or shared ports. The architecture dependency guard
+permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
+owns limits, version qualification and receipt semantics. These modules are
+unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
+integration must be proven before user-facing activation in the later #719 slices.
+
+`drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),
+using the existing nonblocking file lock for compare/write/remove. It stores
+exact launch/process/thread coordinates but no capability material and owns no
+binding transaction. The launcher must validate new-launch authority before
+calling it; record-level takeover and withdrawal remain generation/incarnation
+scoped. The same contract owns this persistence definition and its still-pending
+launcher/crash-cleanup integration. This adds no user-facing registration.
+
+`drivers/codex/server` and `attachment` add unregistered endpoint/foreground
+planning (#738). A launch-owned process group and private capability share one
+cleanup owner; process cleanup precedes inode-checked file removal. Attachment
+planning resolves cwd once and names an exact thread. The channel contract owns
+the startup, credential and failure limits; real continuity and launcher crash
+recovery remain final consumer acceptance gates.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent
