@@ -84,6 +84,11 @@ function fixture(): {
 
 const generate = (input = fixture()) => generateReleasePleaseConfig(input);
 
+const lockEntries = (config: ReleasePleaseConfig, packagePath: string) =>
+  config.packages[packagePath]['extra-files']
+    .filter((file) => file.path.endsWith('Cargo.lock'))
+    .map((file) => `${file.path} ${file.jsonpath.match(/=='([^']+)'/)?.[1]}`);
+
 describe('release-please configuration generator', () => {
   it('owns a private browser package without creating a release or hiding an opted-in binary', () => {
     const input = fixture();
@@ -125,7 +130,9 @@ describe('release-please configuration generator', () => {
     const generated = generate(input);
     expect(generated.packages[root]).toBeUndefined();
     expect(generated.packages['.']['exclude-paths']).toContain(root);
-    expect(JSON.stringify(generated)).not.toContain('private-library');
+    // The library inherits the workspace version, so the CLI release still updates its lock entry;
+    // the binary declares its own version and nobody releases it.
+    expect(lockEntries(generated, '.')).toContain('rust/Cargo.lock private-library');
     expect(JSON.stringify(generated)).not.toContain('private-binary');
     for (const dist of [true, undefined]) {
       input.workspace.crates[input.workspace.crates.length - 1] = crate(
@@ -138,6 +145,39 @@ describe('release-please configuration generator', () => {
       );
       expect(() => generate(input)).toThrow('binary without dist=false');
     }
+  });
+
+  it('releases nothing for a parked extension but keeps the lock entries of its inherited versions', () => {
+    const input = fixture();
+    input.components = input.components.map((c) =>
+      c.name === 'office' ? { ...c, release: false } : c
+    );
+    input.workspace.crates[2] = crate(
+      'office-model',
+      'extensions/tmt-office/rust/model',
+      ['core'],
+      true,
+      false
+    );
+    input.workspace.crates[3] = crate(
+      'office',
+      'extensions/tmt-office/rust/office',
+      ['office-model', 'core'],
+      false,
+      true,
+      false
+    );
+    const generated = generate(input);
+    expect(Object.keys(generated.packages)).toEqual(['.', 'extensions/tmt-squad']);
+    // office-model inherits the workspace version, so a CLI release must still update its lock
+    // entry or the next `cargo --locked` fails; the office binary declares its own version.
+    expect(lockEntries(generated, '.')).toEqual([
+      'rust/Cargo.lock cli',
+      'rust/Cargo.lock core',
+      'rust/Cargo.lock office-model',
+    ]);
+    expect(JSON.stringify(generated)).not.toContain("name.value=='office'");
+    expect(JSON.stringify(generated)).not.toContain('rust/office/Cargo.toml');
   });
 
   it('makes one package per component with the tag the publication policy expects', () => {
@@ -161,6 +201,10 @@ describe('release-please configuration generator', () => {
       const prefix = config['include-component-in-tag'] ? `${config.component}-v` : 'v';
       expect(prefix, product).toBe(policy.tagPrefix);
     }
+  });
+
+  it('rebuilds every open release pull request on each run, so a conflict with main clears', () => {
+    expect(generate()).toMatchObject({ 'always-update': true });
   });
 
   it('keeps every package in the alpha line: a false prerelease would graduate it to a stable version', () => {
@@ -195,19 +239,15 @@ describe('release-please configuration generator', () => {
   });
 
   it('gives each lock entry to whoever declares the crate version, anchored at the root for extensions', () => {
-    const { packages } = generate();
-    const lockEntries = (packagePath: string) =>
-      packages[packagePath]['extra-files']
-        .filter((file) => file.path.endsWith('Cargo.lock'))
-        .map((file) => `${file.path} ${file.jsonpath.match(/=='([^']+)'/)?.[1]}`);
+    const config = generate();
     // office-model inherits the workspace version, so the CLI release changes its lock entry.
-    expect(lockEntries('.')).toEqual([
+    expect(lockEntries(config, '.')).toEqual([
       'rust/Cargo.lock cli',
       'rust/Cargo.lock core',
       'rust/Cargo.lock office-model',
     ]);
-    expect(lockEntries('extensions/tmt-office')).toEqual(['/rust/Cargo.lock office']);
-    expect(lockEntries('extensions/tmt-squad')).toEqual(['/rust/Cargo.lock squad']);
+    expect(lockEntries(config, 'extensions/tmt-office')).toEqual(['/rust/Cargo.lock office']);
+    expect(lockEntries(config, 'extensions/tmt-squad')).toEqual(['/rust/Cargo.lock squad']);
   });
 
   it('keeps the extension crates the CLI links and excludes the rest of each extension root', () => {
@@ -300,12 +340,17 @@ describe('committed release-please configuration', () => {
     workspace = readWorkspace(`${root}/`);
   }, 30_000);
 
+  // A crate that inherits the workspace version is released by the owner of rust/Cargo.toml.
   const releasedCrates = () => {
     const map = parseComponentMap(read('.github/components.json'));
+    const workspaceOwner = ownerOf('rust/Cargo.toml', map);
     return workspace.crates.filter(
       (crate) =>
-        map.components.find((component) => component.name === ownerOf(crate.manifest, map))
-          ?.release !== false
+        map.components.find(
+          (component) =>
+            component.name ===
+            (crate.inheritsVersion ? workspaceOwner : ownerOf(crate.manifest, map))
+        )?.release !== false
     );
   };
 
@@ -394,6 +439,8 @@ describe('committed release-please configuration', () => {
   it('creates drafts, one pull request per component, and the tags the release policy publishes', () => {
     expect(config).toMatchObject({
       draft: true,
+      // Without it an open release pull request that conflicts with main is never rewritten.
+      'always-update': true,
       'separate-pull-requests': true,
       'include-v-in-tag': true,
       versioning: 'prerelease',
@@ -403,7 +450,6 @@ describe('committed release-please configuration', () => {
     });
     const products = {
       '.': 'cli',
-      'extensions/tmt-office': 'office',
       'extensions/tmt-squad': 'squad',
     };
     expect(Object.keys(config.packages)).toEqual(Object.keys(products));
@@ -434,7 +480,6 @@ describe('committed release-please configuration', () => {
     const declared = (name: string) => workspace.crates.find((c) => c.name === name)?.version;
     for (const [packagePath, crateName] of [
       ['.', 'tmt-cli'],
-      ['extensions/tmt-office', 'tmt-office'],
       ['extensions/tmt-squad', 'tmt-squad'],
     ]) {
       const [published, declaredNow] = [manifest[packagePath], declared(crateName) as string];

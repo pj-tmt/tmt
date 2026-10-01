@@ -74,6 +74,7 @@ interface Scenario {
   hold?: { gate: string; reason: string } | null;
   draftCommit?: 'candidate' | 'branch';
   published?: boolean;
+  draftTag?: string;
 }
 
 function scenario(options: Scenario = {}) {
@@ -143,7 +144,7 @@ function scenario(options: Scenario = {}) {
       {
         id: 2,
         draft: options.published !== true,
-        tag_name: 'v5.0.0-alpha.9',
+        tag_name: options.draftTag ?? 'v5.0.0-alpha.9',
         target_commitish: options.draftCommit === 'branch' ? 'main' : candidate,
         created_at: '2026-09-30T00:40:00Z',
         published_at: options.published ? '2026-09-30T02:00:00Z' : null,
@@ -222,12 +223,41 @@ describe('publication-gates.mjs early', { timeout: 10_000 }, () => {
     const result = run(early);
     expect(result.status).toBe(0);
     expect(result.output).toBe('held=\nskip=\n');
-    for (const gate of ['commit', 'immutability', 'monotonic', 'migration']) {
+    for (const gate of ['channel', 'commit', 'immutability', 'monotonic', 'migration']) {
       expect(result.summary).toContain(`- passed \`${gate}\``);
     }
-    expect(result.summary).toContain('Every gate passed. Nothing publishes it yet');
+    expect(result.summary).toContain('Every gate passed. The next job publishes the release.');
     expect(uploaded('publication-held.json')).toBeNull();
     expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
+  });
+
+  it.each(['v5.0.0', 'v5.0.0-beta.1', 'v5.0.0-rc.2'])(
+    'holds the release %s at the channel gate, without gathering any other evidence',
+    (tag) => {
+      const { run, uploaded, calls } = scenario({ hold: null, draftTag: tag });
+      const result = run(['early', '--product', 'cli', '--tag', tag]);
+      expect(result.status).toBe(0);
+      expect(result.output).toBe('held=channel\nskip=\n');
+      expect(result.summary).toContain('- FAILED `channel`');
+      expect(result.summary).toContain('**Held** at `channel`');
+      expect(uploaded('publication-held.json')).toMatchObject({ tag, gate: 'channel' });
+      expect(uploaded('publication-held.json').reason).toContain('not an alpha release');
+      // Nothing after the channel gate ran: no pull request and no check-run lookup.
+      expect(calls().filter((call) => call.join(' ').match(/\/pulls|\/check-runs/))).toEqual([]);
+    }
+  );
+
+  it('never releases a hold of the channel gate, since a release that is not an alpha is published by hand', () => {
+    const { run, uploaded } = scenario({
+      draftTag: 'v5.0.0',
+      hold: { gate: 'channel', reason: 'v5.0.0 is not an alpha release' },
+    });
+    const result = run(['early', '--product', 'cli', '--tag', 'v5.0.0', '--release-hold']);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('held by the channel gate');
+    expect(result.stderr).toContain('published by hand');
+    expect(result.output).toBe('');
+    expect(uploaded('publication-held.json')).toBeNull();
   });
 
   it('holds a draft whose pull request failed a required check, with the marker on the draft', () => {
@@ -250,12 +280,18 @@ describe('publication-gates.mjs early', { timeout: 10_000 }, () => {
     expect(Date.parse(marker.recordedAt)).not.toBeNaN();
   });
 
-  it('holds a draft that adds a migration, and one that carries a breaking commit', () => {
+  it('publishes an alpha draft that adds migrations and reports the count in the summary', () => {
     const migration = scenario({ migrations: 3, hold: null });
-    expect(migration.run(early).output).toBe('held=migration\nskip=\n');
-    expect(migration.uploaded('publication-held.json')?.reason).toBe(
-      `${MIGRATIONS} has 3 migrations, 2 in v5.0.0-alpha.8`
-    );
+    const result = migration.run(early);
+    expect(result.output).toBe('held=\nskip=\n');
+    expect(result.summary).toContain(`${MIGRATIONS} has 3 migrations, 2 in v5.0.0-alpha.8`);
+    expect(migration.uploaded('publication-held.json')).toBeNull();
+  });
+
+  it('holds a draft that carries a breaking commit, with or without a new migration', () => {
+    const both = scenario({ migrations: 3, subject: 'feat!: drop a table', hold: null });
+    expect(both.run(early).output).toBe('held=migration\nskip=\n');
+    expect(both.uploaded('publication-held.json')?.reason).toContain('is a breaking change');
     const breaking = scenario({ subject: 'feat(api)!: drop a flag', hold: null });
     expect(breaking.run(early).output).toBe('held=migration\nskip=\n');
     expect(breaking.uploaded('publication-held.json')?.reason).toContain('is a breaking change');
@@ -293,7 +329,7 @@ describe('publication-gates.mjs early', { timeout: 10_000 }, () => {
 describe('publication-gates.mjs early --release-hold', { timeout: 10_000 }, () => {
   it('skips exactly the gate the marker names and runs the others', () => {
     const { run, uploaded } = scenario({
-      migrations: 3,
+      subject: 'feat!: drop a flag',
       hold: { gate: 'migration', reason: 'held earlier' },
     });
     const result = run([...early, '--release-hold']);
@@ -305,7 +341,7 @@ describe('publication-gates.mjs early --release-hold', { timeout: 10_000 }, () =
 
   it('never skips a different gate: another failure replaces the marker', () => {
     const { run, uploaded } = scenario({
-      migrations: 3,
+      subject: 'feat!: drop a flag',
       immutable: false,
       hold: { gate: 'migration', reason: 'held earlier' },
     });

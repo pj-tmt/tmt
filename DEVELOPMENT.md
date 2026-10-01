@@ -815,6 +815,17 @@ cargo build --locked --example tmux-probe
 cargo +1.88.0 build --locked
 ```
 
+For the unregistered Codex queue transport (#736), focused deterministic checks
+are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
+`cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
+tests own local loopback peers and exercise receipt loss and absolute deadlines;
+they do not start a model or inspect provider credentials. Dependency review
+also records exact features/graph, Rust 1.88, licenses, current advisories and an
+actual CLI release baseline/candidate under one toolchain/profile. Label a
+zero delta from unused/dead-stripped groundwork honestly and repeat the size
+measurement after the final consumer links it. See the
+[owning contract](contracts/codex-channel-v1.md) for remaining integration gates.
+
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
 
@@ -838,16 +849,22 @@ Product identity proofs are package-scoped, matching per-product release builds:
 compare `cargo build --locked --release -p tmt-cli` alone, at the same checkout
 path, before and after a change.
 
-A fixture that writes an executable and then runs it, directly or through an
-installer's verifier, can be refused with ETXTBSY ("Text file busy") in a
-multi-test binary: another test thread's `fork` holds a copy of the write
-descriptor until the child's `exec`, and nothing the writer does closes that
-window. An installer fixture waits it out with a bounded retry of only that
-error; production code never retries. `tmt-office-command` does this in `test_support::install_office`
-(`retry_on_text_file_busy`). A fixture that only needs a stand-in script,
-such as Squad's fake `tmt` and `tmux`, avoids the window instead by not writing
-the file in the test process: Squad's `test_support::write_executable` has a
-short-lived `sh` write it, so no test thread can fork a copy of the descriptor.
+A fixture that writes an executable and then runs it can be refused with
+ETXTBSY ("Text file busy") in a multi-test binary: another test thread's `fork`
+holds a copy of the write descriptor until the child's `exec`, and nothing the
+writer does closes that window. Pick the rule by who writes the file and who
+runs it. Production code never retries ETXTBSY.
+
+- The test writes a script and controls how it runs: run `/bin/sh <script>`
+  so nothing execs the written inode (the `tmt-invoke` and `tmt-adapters` tests).
+- The test writes a stand-in that something else must exec by path, such as a
+  fake `tmt` or `tmux` on `PATH`: let a short-lived `sh` write the file, so no
+  test thread holds its descriptor (Squad's `test_support::write_executable`).
+- The product writes the executable and then execs it, as an installer and its
+  verifier do: the fixture waits out the window with a bounded retry of only
+  that error (`tmt-office-command`'s `test_support::install_office`,
+  `retry_on_text_file_busy`).
+
 The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
 -- --ignored --nocapture` reproduces the race and reports failures with and
 without the retry.
@@ -987,6 +1004,17 @@ Help-parser acceptance does not prove that a session can actually resume: the
 manual lifecycle evidence in issue #321 owns that distinction, including the
 Codex cross-mode limitation. Normal `tmt run` does not execute this developer
 check or enforce these version pins on user commands.
+
+The Claude channel provider has its own opt-in check, for the one build with
+recorded channel evidence (see the [channel contract](contracts/claude-channel-v1.md)):
+
+```bash
+cargo run --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
+  --example channel-contract -- /absolute/claude
+```
+
+It runs only `--version` and `--help`. The channel launch preflight applies the same
+version pin to user commands once `tmt run --channel` ships (#715).
 
 `tmt whoami --context [--json]` is the read-only rehydration entry point. It reports
 the verified caller identity and lifetime, up to 500 characters of role text,

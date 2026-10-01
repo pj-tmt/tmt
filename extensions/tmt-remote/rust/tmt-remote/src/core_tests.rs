@@ -1,9 +1,11 @@
 use super::*;
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
     sync::atomic::{AtomicUsize, Ordering},
 };
+#[path = "../tests/support/executable_fixture.rs"]
+mod executable_fixture;
+
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 struct Fixture(PathBuf);
 impl Fixture {
@@ -15,12 +17,11 @@ impl Fixture {
         ));
         fs::create_dir(&root).unwrap();
         let fixture = Self(root);
-        fs::write(
-            fixture.0.join("tmt"),
-            format!("#!/bin/sh\ncd '{}'\n{}\n", fixture.0.display(), script),
+        executable_fixture::write_executable(
+            &fixture.0.join("tmt"),
+            &format!("cd '{}'\n{}\n", fixture.0.display(), script),
         )
         .unwrap();
-        fs::set_permissions(fixture.0.join("tmt"), fs::Permissions::from_mode(0o700)).unwrap();
         fixture
     }
     fn client(&self) -> CoreClient {
@@ -91,7 +92,11 @@ fn output_deadline_interruption_and_reaping() {
     let result = fixture
         .client()
         .call(&["api"], b"", &stop, Duration::from_millis(100), 64);
-    assert!(result.unwrap_err().message.contains("timed out"));
+    let error = result.unwrap_err();
+    assert!(
+        error.message.contains("timed out"),
+        "expected timeout, got {error:?}"
+    );
     assert!(started.elapsed() < Duration::from_secs(3));
     let fixture = Fixture::new("echo $$ > pid; sleep 30 & echo $! > child; wait");
     std::thread::scope(|scope| {

@@ -32,23 +32,38 @@ pub(super) fn upgrade_extension(
     if !ask(yes, mode, &format!("Update the {name} extension"))? {
         return Ok(None);
     }
+    upgrade_at(product, &prefix, channel, to.as_deref(), unpin, None)
+}
+
+pub(super) fn upgrade_at(
+    product: Product,
+    prefix: &Path,
+    channel: Option<Channel>,
+    to: Option<&str>,
+    unpin: bool,
+    selected: Option<&str>,
+) -> Result<Outcome, Failure> {
+    let name = product.as_str();
     let executable = prefix.join("bin").join(product.executable());
-    native_install::inspect_product_prefix(product, &prefix)
+    native_install::inspect_product_prefix(product, prefix)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
     // The skills the replaced release carried: only those may be pruned.
     let previous = native_install::release_skill_names(product, &executable)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
-    let report = native_install::upgrade_product(
-        product,
-        UpgradeRequest {
-            executable: &executable,
-            channel,
-            exact: to.as_deref(),
-            unpin,
-        },
-        crate::office_facade::release_verifier(product),
-        interruptible("Extension update interrupted before activation.")?,
-    )
+    let request = UpgradeRequest {
+        executable: &executable,
+        channel,
+        exact: to,
+        unpin,
+    };
+    let verifier = crate::office_facade::release_verifier(product);
+    let checkpoint = interruptible("Extension update interrupted before activation.")?;
+    let report = match selected {
+        Some(version) => native_install::upgrade_product_selected(
+            product, request, version, verifier, checkpoint,
+        ),
+        None => native_install::upgrade_product(product, request, verifier, checkpoint),
+    }
     .map_err(|error| {
         failure(
             "EXTENSION_UPGRADE_FAILED",
