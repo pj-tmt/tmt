@@ -853,17 +853,37 @@ describe('Office-owned browser PR selection', () => {
   });
 
   it.each([
+    '.github/workflows/office-browser.yml',
+    '.dockerignore',
+    'typescript/scripts/verify-office-emulators.mjs',
+    'extensions/tmt-office/typescript/services/office/Dockerfile',
+    'extensions/tmt-office/typescript/apps/office/e2e/native-office-fixture.ts',
+  ])('verifies browser machinery when it changes: %s', (file) => {
+    expect(selectOfficeBrowser([file])).toBe(true);
+  });
+
+  it.each([
+    '.github/components.json',
+    'typescript/package.json',
+    'typescript/pnpm-lock.yaml',
+    'typescript/pnpm-workspace.yaml',
+    'typescript/scripts/ci-scope.mjs',
+    'typescript/scripts/ci-scope.d.mts',
+    'typescript/test/tooling/ci-scope.test.ts',
+    'typescript/test/support/cli-process.ts',
+    'typescript/test/e2e/harness.ts',
+    'typescript/test/e2e/harness/fixture.ts',
     'rust/crates/tmt-adapters/src/api.rs',
     'rust/Cargo.lock',
-    'typescript/pnpm-lock.yaml',
-    'typescript/test/support/cli-process.ts',
     'contracts/remote-client-v1.md',
     'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
     '.github/workflows/ci.yml',
-    '.github/workflows/office-browser.yml',
     'docs/cli-style.md',
     'unmapped/new-file',
     'extensions/tmt-office-other/src/main.rs',
+    'typescript/test/support-other/fixture.ts',
+    'typescript/test/e2e/harness-other/fixture.ts',
+    'typescript/test/e2e/binding.e2e.test.ts',
     'docs/office-other/architecture.md',
     'extensions/tmt-squad/rust/tmt-squad/src/main.rs',
   ])('does not spend PR browser runners on non-Office path %s', (file) => {

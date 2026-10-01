@@ -229,13 +229,27 @@ export function selectCiAreas(paths, map = componentMap()) {
   };
 }
 
+// Office-local browser harnesses/build files are already component-owned. These
+// are the browser-specific machinery inputs outside that component; shared
+// dependency and generic fixture changes rely on the weekly/manual safety net.
+const OFFICE_BROWSER_INPUTS = new Set([
+  '.github/workflows/office-browser.yml',
+  '.dockerignore',
+  'typescript/scripts/verify-office-emulators.mjs',
+]);
+
 /**
- * Parked Office browser diagnostics follow ownership on pull requests, not core
- * dependencies. Weekly/manual runs cover every partition regardless of this flag.
+ * Parked Office browser PRs follow ownership plus browser-specific machinery,
+ * not shared inputs or core dependencies. Weekly/manual runs cover every partition.
  * Empty or unknown paths select no browser work; required CI stays conservative.
  */
 export function selectOfficeBrowser(paths, map = componentMap()) {
-  return paths.some((path) => ownerOf(path, map) === 'office' || path.startsWith('docs/office/'));
+  return paths.some(
+    (path) =>
+      ownerOf(path, map) === 'office' ||
+      path.startsWith('docs/office/') ||
+      OFFICE_BROWSER_INPUTS.has(path)
+  );
 }
 
 /**
@@ -413,7 +427,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const officeBrowser = selectOfficeBrowser(selection.paths);
   const evidence =
     renderSelectionEvidence({ base: args[0], head: args[1], ...selection }) +
-    `\nOffice browser PR selection (Office-owned paths): ${officeBrowser}.\n`;
+    `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;

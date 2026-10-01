@@ -323,10 +323,13 @@ that serial scenarios exhaust a per-job deadline:
 emulator-backed contracts, three local Vite shards, and eight native-local shards.
 The eight native-local shards (#424) and the three local Vite shards (#574) are paused on
 pull requests until they are fixed and run weekly and by manual dispatch instead; a pull
-request runs only the emulator partition, and only for Office-owned paths.
+request runs only the emulator partition, for Office-owned paths or its own
+verification machinery.
 `office_browser` selects paths owned by Office in `.github/components.json`
-(including its test fixtures) plus `docs/office/**`; it does not follow core
-dependencies or shared/unknown inputs. Scheduled and manual runs cover all twelve
+(including its test fixtures) plus `docs/office/**` and browser-specific machinery
+listed in `selectOfficeBrowser` (the browser workflow, emulator verifier and
+Docker context policy). Shared dependency/selector/generic fixture changes rely
+on the weekly/manual safety net to catch Office build breakage. Scheduled and manual runs cover all twelve
 partitions, including the emulator, regardless of paths. Required CI selection
 remains conservative and independent of this advisory cost policy.
 One `image` job builds the `browser-tests` target once and shares it as a one-day
@@ -370,7 +373,7 @@ the workspace crates so the denylist cannot go stale.
 - Run the local browser suite above before opening a PR for an Office-affecting
   change, and record the result in the PR.
 - On a pull request, the `Office browser verification` workflow runs only the emulator
-  partition, and only when `office_browser` is selected (Office-owned paths).
+  partition, and only when `office_browser` is selected (Office ownership or verification machinery).
   The native Office shards and the local Vite shards do not run on pull requests until #424 and #574 are fixed, because they
   fail on most runs: weekly/manual runs include them and the emulator, all twelve together, and
   `ci-scope.mjs` still computes `native_office` for the change that re-enables the native
