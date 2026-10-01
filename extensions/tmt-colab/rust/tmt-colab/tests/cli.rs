@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
-    net::TcpStream,
+    net::{TcpListener, TcpStream},
     os::unix::fs::PermissionsExt,
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -90,7 +90,7 @@ impl Pilot {
     fn start(&mut self) -> Value {
         self.child = Some(
             self.command()
-                .args(["serve", "--json"])
+                .args(["serve", "--port", "0", "--json"])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .spawn()
@@ -152,6 +152,7 @@ fn help_and_invalid_core_fail_without_creating_application_state() {
     let long = pilot.command().args(["help", "serve"]).output().unwrap();
     assert!(short.status.success() && long.status.success());
     assert_eq!(short.stdout, long.stdout);
+    assert!(String::from_utf8_lossy(&short.stdout).contains("default 7341"));
     for args in [["serve", "--bind", "0.0.0.0"], ["serve", "--port", "65536"]] {
         assert!(
             !pilot
@@ -183,7 +184,10 @@ fn help_and_invalid_core_fail_without_creating_application_state() {
                 cmd.env("TMT_EXECUTABLE", path);
             }
         }
-        let output = cmd.args(["serve", "--json"]).output().unwrap();
+        let output = cmd
+            .args(["serve", "--port", "0", "--json"])
+            .output()
+            .unwrap();
         assert!(!output.status.success());
         assert_eq!(
             serde_json::from_slice::<Value>(&output.stdout).unwrap()["error"]["code"],
@@ -253,7 +257,11 @@ fn listing_is_read_only_and_foreground_shutdown_releases_state_and_sockets_twice
             pilot.call(&["spaces", "--json"]),
             json!({"spaces":[{"spaceId":id,"backend":"local","running":true}]})
         );
-        let duplicate = pilot.command().args(["serve", "--json"]).output().unwrap();
+        let duplicate = pilot
+            .command()
+            .args(["serve", "--port", "0", "--json"])
+            .output()
+            .unwrap();
         assert!(!duplicate.status.success());
         assert_eq!(
             serde_json::from_slice::<Value>(&duplicate.stdout).unwrap()["error"]["code"],
@@ -274,4 +282,26 @@ fn listing_is_read_only_and_foreground_shutdown_releases_state_and_sockets_twice
             "created core files"
         );
     }
+}
+
+#[test]
+fn occupied_port_fails_with_a_port_hint() {
+    let pilot = Pilot::new(None);
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+    let output = pilot
+        .command()
+        .args(["serve", "--port", &port, "--json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let message = error["error"]["message"].as_str().unwrap();
+    assert!(message.contains(&format!("port {port} is busy")));
+    assert!(message.contains("--port 0"));
+    // Failure releases the service lock and leaves an explicit free-port retry usable.
+    let mut pilot = pilot;
+    pilot.start();
+    pilot.stop();
 }

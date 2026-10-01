@@ -1411,8 +1411,9 @@ PATH="$PWD/rust/target/debug:$PATH" tmt colab serve --json
 ```
 
 After building a core supporting `storage.root` (#860) and the extension, put
-`rust/target/debug` on PATH and run `tmt colab serve` (`--port` selects a port;
-zero selects a free one). Direct invocation requires an absolute
+`rust/target/debug` on PATH and run `tmt colab serve` (default port 7341).
+A busy port fails with a `--port` hint; `--port 0` selects a free port.
+Direct invocation requires an absolute
 `TMT_EXECUTABLE`. `tmt colab serve --json` prints one plain JSON descriptor with
 space ID and working URL; Ctrl-C/SIGTERM closes sockets, joins workers and
 releases the service lock. `tmt colab spaces --json` lists the local space and

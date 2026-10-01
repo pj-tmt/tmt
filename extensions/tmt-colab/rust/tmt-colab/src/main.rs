@@ -28,8 +28,8 @@ fn grammar() -> Command {
         name: "serve",
         summary: "Serve a local space in the foreground",
         examples: &[Example {
-            command: "tmt colab serve --port 7341",
-            note: "Choose a loopback port",
+            command: "tmt colab serve --port 0",
+            note: "Choose a free loopback port",
         }],
         outputs: OutputModes::HumanAndJson,
         details: "Ctrl-C or SIGTERM closes the listener and all workers. APIs and upgrades are denied.",
@@ -51,9 +51,9 @@ fn grammar() -> Command {
             tmt_cli_style::command(&SERVE).arg(
                 Arg::new("port")
                     .long("port")
-                    .default_value("0")
+                    .default_value("7341")
                     .value_parser(clap::value_parser!(u16))
-                    .help("IPv4 loopback port; 0 selects a free port"),
+                    .help("IPv4 loopback port (default 7341); 0 selects a free port"),
             ),
         )
         .subcommand(tmt_cli_style::command(&SPACES))
@@ -240,6 +240,17 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn serve_defaults_to_the_fixed_port() {
+        let matches = grammar().try_get_matches_from(["colab", "serve"]).unwrap();
+        assert_eq!(
+            matches
+                .subcommand_matches("serve")
+                .unwrap()
+                .get_one::<u16>("port"),
+            Some(&7341)
+        );
+    }
     #[test]
     fn help_and_examples_obey_shared_style() {
         let help = |words: &[String]| match tmt_cli_style::route(&grammar(), words) {

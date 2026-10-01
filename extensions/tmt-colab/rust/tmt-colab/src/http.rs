@@ -23,7 +23,16 @@ struct Worker {
 }
 impl Door {
     pub fn bind(port: u16) -> Result<Self> {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))?;
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AddrInUse {
+                std::io::Error::new(
+                    error.kind(),
+                    format!("Loopback port {port} is busy; choose another with --port, or use --port 0 for a free port."),
+                )
+            } else {
+                error
+            }
+        })?;
         listener.set_nonblocking(true)?;
         let host = listener.local_addr()?.to_string();
         let origin = format!("http://{host}");
