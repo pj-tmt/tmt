@@ -44,6 +44,9 @@ pub(super) struct FakeEndpoint {
     pub(super) publish_calls: usize,
     pub(super) clear_calls: usize,
     pub(super) probe_calls: Vec<(String, Vec<String>)>,
+    /// What core's own process inspection would observe for each pane pid.
+    pub(super) starts: std::collections::HashMap<u64, String>,
+    pub(super) incarnation_calls: usize,
 }
 
 impl FakeEndpoint {
@@ -66,6 +69,8 @@ impl FakeEndpoint {
             publish_calls: 0,
             clear_calls: 0,
             probe_calls: Vec::new(),
+            starts: Default::default(),
+            incarnation_calls: 0,
         }
     }
 
@@ -97,6 +102,15 @@ impl FakeEndpoint {
 
 impl BindingEndpoint for FakeEndpoint {
     type Error = EndpointFailure;
+
+    fn pane_incarnation(
+        &mut self,
+        _: &ServerEvidence,
+        pane_pid: u64,
+    ) -> Result<Option<String>, Self::Error> {
+        self.incarnation_calls += 1;
+        Ok(self.starts.get(&pane_pid).cloned())
+    }
 
     fn begin_coordination(&mut self) {
         self.begin_calls += 1;

@@ -1311,6 +1311,27 @@ schema 9, the rebuild runs with foreign keys off, so dropping
 them, all in one immediate transaction that rolls back to schema 40 on any
 failure; foreign keys are restored on every exit.
 
+Schema 42 adds `bindings.pane_incarnation`, beside `pane_pid`. It holds the
+start token of the `ProcessIncarnation` that core observes for the pane shell
+when a binding is created (`BindingEndpoint::pane_incarnation`). It never comes
+from a host's or driver's text.
+
+- **Existing rows:** bindings made before schema 42 keep NULL until they rebind;
+  there is no backfill.
+- **Verification:** `evaluate_binding` treats a known recorded value and a known
+  observed value that differ as a reused pid, which is `EndpointLost`. NULL, or a
+  failed observation, is unknown and proves neither loss nor sameness; the pid
+  and marker rules decide as before.
+- **Read paths don't observe:** on macOS one `ps` costs about 110 ms, so tmux and
+  Herdr reads (`ls`, status, send) leave the observed value unknown and never
+  compare; their pane IDs are already unique within a server incarnation.
+- **Cost:** recording costs one `ps` per new binding.
+- **External hosts:** pane IDs are declared by the driver, so external hosts will
+  observe on verification, scoped to the binding's pane.
+- **Format:** the column admits 1 to 256 printable ASCII bytes, not all blank,
+  matching what `ProcessIncarnation` accepts.
+- **Cursor:** the bindings cursor update trigger compares the column.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
@@ -1731,7 +1752,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 41, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 42, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.

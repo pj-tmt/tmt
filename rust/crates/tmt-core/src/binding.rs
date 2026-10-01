@@ -16,7 +16,10 @@ pub use operations::{
 };
 
 use crate::{
-    endpoint::{BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence},
+    endpoint::{
+        BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence,
+        incarnations_differ,
+    },
     identity::{Identity, IdentityReader, IdentityRepository},
     names::{NameError, ValidatedName},
 };
@@ -29,6 +32,10 @@ pub struct Binding {
     pub server: ServerEvidence,
     pub pane_id: String,
     pub pane_pid: u64,
+    /// The start token core observed for `pane_pid` when the binding was
+    /// made; `None` for bindings made before it was recorded, or when that
+    /// observation failed.
+    pub pane_incarnation: Option<String>,
     pub session: session::BindingSessionState,
 }
 
@@ -203,6 +210,16 @@ pub trait BindingEndpoint {
     ) -> Result<EndpointProbe, Self::Error>;
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), Self::Error>;
     fn clear(&mut self, binding: &Binding) -> Result<bool, Self::Error>;
+    /// The start token of a pane shell's [`ProcessIncarnation`], observed by
+    /// core when a binding is made; `None` when it can't be observed. Read
+    /// paths don't ask: on macOS one `ps` costs about 110 ms.
+    ///
+    /// [`ProcessIncarnation`]: crate::endpoint::ProcessIncarnation
+    fn pane_incarnation(
+        &mut self,
+        server: &ServerEvidence,
+        pane_pid: u64,
+    ) -> Result<Option<String>, Self::Error>;
 }
 
 #[derive(Debug)]

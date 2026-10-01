@@ -384,6 +384,41 @@ fn frozen_target_rejects_pane_id_reuse_before_publication() {
 }
 
 #[test]
+fn a_bind_records_the_observed_pane_incarnation_or_leaves_it_unknown() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2"]);
+    endpoint.pane_mut("%1").pane_pid = 101;
+    endpoint
+        .starts
+        .insert(101, "ps-v1:Thu Oct 1 09:00:00 2026".into());
+
+    bind_identity(&mut storage, &mut endpoint, "%1", "Alice", false).unwrap();
+    bind_identity(&mut storage, &mut endpoint, "%2", "Bob", false).unwrap();
+    // Observed once per new binding, never by the reads around it.
+    assert_eq!(endpoint.incarnation_calls, 2);
+    let mut stored = |name: &str| {
+        let identity = storage.find_identity(name).unwrap().unwrap();
+        storage
+            .with_binding_transaction(|records| records.entry_by_id(&identity.id))
+            .unwrap()
+            .unwrap()
+            .binding
+            .unwrap()
+            .pane_incarnation
+    };
+    assert_eq!(
+        stored("alice").as_deref(),
+        Some("ps-v1:Thu Oct 1 09:00:00 2026")
+    );
+    assert_eq!(stored("bob"), None, "an unobserved start stays unknown");
+    // Binding the same pane again keeps the binding; nothing is observed.
+    bind_identity(&mut storage, &mut endpoint, "%1", "Alice", false).unwrap();
+    assert_eq!(endpoint.incarnation_calls, 2);
+    storage.close().unwrap();
+}
+
+#[test]
 fn expiry_after_publication_rolls_back_binding_without_losing_identity() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();

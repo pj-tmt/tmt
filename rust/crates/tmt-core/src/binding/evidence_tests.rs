@@ -28,6 +28,7 @@ fn fixture(name: &str) -> (Identity, Binding, EndpointSnapshot) {
         server: server.clone(),
         pane_id: "%9".into(),
         pane_pid: 654,
+        pane_incarnation: None,
         session: Default::default(),
     };
     let pane = PaneObservation {
@@ -36,6 +37,7 @@ fn fixture(name: &str) -> (Identity, Binding, EndpointSnapshot) {
         cwd: Some("/repo".into()),
         command: "codex".into(),
         pane_pid: binding.pane_pid,
+        pane_incarnation: None,
         suggested_name: Some("codex".into()),
         marker: Some(binding.marker(&identity)),
     };
@@ -152,6 +154,36 @@ fn pane_loss_and_replacement_are_endpoint_loss() {
         evaluate_binding(&entry(&identity, &binding), &EndpointProbe::Dead),
         BindingEvidence::EndpointLost
     );
+}
+
+#[test]
+fn a_reused_pane_pid_is_endpoint_loss_only_when_both_starts_are_known() {
+    let (identity, mut binding, mut snapshot) = fixture("Alice");
+    let evaluate = |binding: &Binding, snapshot: &EndpointSnapshot| {
+        evaluate_binding(&entry(&identity, binding), &live(snapshot.clone()))
+    };
+    // Same pid, same start: the same pane.
+    binding.pane_incarnation = Some("ps-v1:Thu Oct 1 09:00:00 2026".into());
+    snapshot.panes[0].pane_incarnation = binding.pane_incarnation.clone();
+    assert!(matches!(
+        evaluate(&binding, &snapshot),
+        BindingEvidence::Active(_)
+    ));
+    // Same pid, another start: the pid was reused, even with a copied marker.
+    snapshot.panes[0].pane_incarnation = Some("ps-v1:Thu Oct 1 09:00:01 2026".into());
+    assert_eq!(evaluate(&binding, &snapshot), BindingEvidence::EndpointLost);
+    // An unknown start on either side proves nothing; the pid and marker decide.
+    snapshot.panes[0].pane_incarnation = None;
+    assert!(matches!(
+        evaluate(&binding, &snapshot),
+        BindingEvidence::Active(_)
+    ));
+    binding.pane_incarnation = None;
+    snapshot.panes[0].pane_incarnation = Some("ps-v1:Thu Oct 1 09:00:01 2026".into());
+    assert!(matches!(
+        evaluate(&binding, &snapshot),
+        BindingEvidence::Active(_)
+    ));
 }
 
 #[test]
