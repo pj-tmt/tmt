@@ -248,22 +248,15 @@ changed path with its owner, rule and selection. A change confined to the Squad 
 runs a Squad scope under the same job names (its Cargo checks and the architecture guard,
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
 `Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
-Remote Rust has an explicit rule retaining full native and Office coverage; the full
-Rust workers require nonempty remote test discovery and run locked workspace
-tests/builds, fmt/Clippy, Office local-service verification and native process
-tests. The MSRV worker reads `workspace.package.rust-version` in `rust/Cargo.toml` and runs
-`cargo +"$MSRV" check --locked --workspace --all-targets` for full and Squad scopes.
+The [CI selection and worker model](ARCHITECTURE.md#ci-selection-and-worker-model)
+owns worker responsibilities, scope expectations, fixture handoff and cache policy.
+To reproduce the MSRV check, read `workspace.package.rust-version` from
+`rust/Cargo.toml` into `MSRV`, then run
+`cargo +"$MSRV" check --locked --workspace --all-targets` from `rust/`.
 Rustup resolves the manifest's two-part minimum to its latest patch release,
 rather than duplicating a patch pin in the workflow.
-`Native Rust contracts` requires all selected workers and remains required by the
-native gate. Squad skips only the Office worker; none skips the aggregate.
-The native worker receives the feature-enabled Office companion from a dedicated
-fixture producer and checks its SHA-256 before use, so native and Office checks start together
-after fixture production while Clippy and workspace tests run independently. CI sets
-`CARGO_PROFILE_DEV_DEBUG=0` and `CARGO_INCREMENTAL=0` globally. Workers share the
-Rust dependency cache with workspace tests as its sole main-only writer; MSRV
-and runtime-target caches keep their own single main-only writers.
-The remote TypeScript and browser paths are outside that Rust rule. Code
+Remote Rust retains full native and Office coverage; remote TypeScript and browser
+paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
 failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser

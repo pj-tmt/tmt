@@ -322,6 +322,8 @@ const NATIVE_JOBS = [
   'packedInstall',
 ];
 const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
+/** Positional result order accepted by the gate-rust CLI. */
+export const RUST_WORKERS = ['clippy', 'tests', 'office', 'process', 'msrv'];
 
 /**
  * What each native job must have reported for the scope. A scoped component runs
@@ -347,6 +349,15 @@ function expectedNativeResults(scope, map) {
   };
 }
 
+function expectedRustResults(scope, map) {
+  const native = expectedNativeResults(scope, map)?.nativeRust;
+  if (!native) return undefined;
+  return {
+    ...Object.fromEntries(RUST_WORKERS.map((worker) => [worker, native])),
+    office: scope === 'squad' ? 'skipped' : native,
+  };
+}
+
 function gatePasses(jobs, scope, results, map) {
   const expected = expectedNativeResults(scope, map);
   if (!expected || jobs.some((job) => typeof results?.[job] !== 'string')) return false;
@@ -365,11 +376,12 @@ export function e2eGatePasses(scope, results, map = componentMap()) {
 
 /** `Native Rust contracts`: clippy, tests, Office feature, native fixtures and MSRV. */
 export function rustGatePasses(scope, results, map = componentMap()) {
-  const expected = expectedNativeResults(scope, map)?.nativeRust;
-  if (!expected || results?.length !== 5) return false;
-  return results.every(
-    (result, index) => result === (scope === 'squad' && index === 2 ? 'skipped' : expected)
+  const expected = expectedRustResults(scope, map);
+  if (!expected || results?.length !== RUST_WORKERS.length) return false;
+  const byWorker = Object.fromEntries(
+    RUST_WORKERS.map((worker, index) => [worker, results[index]])
   );
+  return RUST_WORKERS.every((worker) => byWorker[worker] === expected[worker]);
 }
 
 export function readChangedCiSelection(base, head, cwd) {
