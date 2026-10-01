@@ -6,7 +6,9 @@ import { ownerOf, parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
   EARLY_GATES,
   GATES,
+  UNSKIPPABLE_GATE,
   REQUIRED_CONTEXTS,
+  checkChannel,
   checkCommit,
   checkImmutability,
   checkMigration,
@@ -120,8 +122,53 @@ describe('required contexts and gate order', () => {
     for (const context of REQUIRED_CONTEXTS) {
       expect(ci, context).toMatch(new RegExp(`^ {4}name: ${context}$`, 'm'));
     }
-    expect(GATES).toEqual(['commit', 'immutability', 'monotonic', 'migration', 'upgrade']);
-    expect(EARLY_GATES).toEqual(GATES.slice(0, 4));
+    expect(GATES).toEqual([
+      'channel',
+      'commit',
+      'immutability',
+      'monotonic',
+      'migration',
+      'upgrade',
+    ]);
+    expect(EARLY_GATES).toEqual(GATES.slice(0, 5));
+    // The cheapest, tag-only gate runs first, and releasing a hold can never skip it.
+    expect(GATES[0]).toBe(UNSKIPPABLE_GATE);
+  });
+});
+
+describe('checkChannel', () => {
+  it.each([
+    ['cli', 'v5.0.0-alpha.9'],
+    ['cli', 'v5.0.0-alpha.10'],
+    ['office', 'tmt-office-v0.1.0-alpha.4'],
+    ['squad', 'tmt-squad-v0.1.0-alpha.2'],
+  ])('lets the alpha release %s %s publish automatically', (product, tag) => {
+    expect(checkChannel({ product, tag }).ok).toBe(true);
+  });
+
+  it.each([
+    ['cli', 'v5.0.0', 'stable'],
+    ['cli', 'v5.1.3', 'stable'],
+    ['squad', 'tmt-squad-v0.1.0', 'stable'],
+    ['office', 'tmt-office-v1.0.0', 'stable'],
+    ['cli', 'v5.0.0-beta.1', 'beta'],
+    ['cli', 'v5.0.0-rc.1', 'release candidate'],
+    ['squad', 'tmt-squad-v0.1.0-beta.2', 'beta'],
+    ['cli', 'v5.0.0-alpha', 'alpha without a number'],
+    ['cli', 'v5.0.0-alpha.1.2', 'alpha with a longer label'],
+    ['cli', 'v5.0.0-alpha.x', 'alpha with a word'],
+    ['cli', 'v5.0.0-alpha.9-rc.1', 'another label after the alpha'],
+  ])('holds %s %s (%s) for the owner', (product, tag) => {
+    const outcome = checkChannel({ product, tag });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toContain('not an alpha release');
+    expect(outcome.reason).toContain('by hand');
+  });
+
+  it('refuses a tag of another product instead of judging it', () => {
+    expect(() => checkChannel({ product: 'cli', tag: 'tmt-squad-v0.1.0-alpha.2' })).toThrow(
+      'is not a cli tag'
+    );
   });
 });
 
@@ -255,8 +302,8 @@ describe('checkMigration', () => {
   const files = ['rust/crates/tmt-adapters/src/storage/migrations.rs'];
   const previous = { tag: 'v5.0.0-alpha.8', counts: { [files[0]]: 24 } };
   const commit = (subject: string, body = '') => ({ sha: 'b'.repeat(40), subject, body });
-  const check = (counts: Record<string, number>, commits = [commit('fix: a bug')]) =>
-    checkMigration({ files, counts, previous, commits });
+  const check = (counts: Record<string, number>, commits = [commit('fix: a bug')], alpha = false) =>
+    checkMigration({ files, counts, previous, commits, alpha });
 
   it('passes a release with the same migrations and no breaking commit', () => {
     expect(check({ [files[0]]: 24 }).ok).toBe(true);
@@ -276,6 +323,39 @@ describe('checkMigration', () => {
       commits: [],
     });
     expect(result.reason).toContain('1 migrations, 0 in v5.0.0-alpha.8');
+  });
+
+  it('publishes an alpha with more entries and says how many, outside the alpha channel it holds', () => {
+    const alpha = check({ [files[0]]: 27 }, [commit('feat: a table')], true);
+    expect(alpha.ok).toBe(true);
+    expect(alpha.reason).toContain(`${files[0]} has 27 migrations, 24 in v5.0.0-alpha.8`);
+    expect(alpha.reason).toContain('an alpha publishes its migrations');
+    expect(check({ [files[0]]: 27 }, [commit('feat: a table')], false).ok).toBe(false);
+    // The same for a file the last published release did not have.
+    expect(
+      checkMigration({
+        files,
+        counts: { [files[0]]: 1 },
+        previous: { tag: 'v5.0.0-alpha.8', counts: {} },
+        commits: [],
+        alpha: true,
+      }).ok
+    ).toBe(true);
+  });
+
+  it('still holds an alpha that carries a breaking commit, with or without a new migration', () => {
+    for (const count of [24, 25]) {
+      const result = check({ [files[0]]: count }, [commit('feat(api)!: drop the flag')], true);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toContain('is a breaking change: feat(api)!: drop the flag');
+    }
+    expect(
+      check(
+        { [files[0]]: 25 },
+        [commit('feat: rename', 'Why.\n\nBREAKING CHANGE: the flag is gone')],
+        true
+      ).ok
+    ).toBe(false);
   });
 
   it('holds a breaking commit, by its marker or its footer', () => {
@@ -376,15 +456,15 @@ describe('runGates', () => {
     const { called, checks } = make('monotonic');
     const { held } = runGates({ order: EARLY_GATES, checks });
     expect(held).toEqual({ gate: 'monotonic', reason: 'monotonic failed' });
-    expect(called).toEqual(['commit', 'immutability', 'monotonic']);
+    expect(called).toEqual(['channel', 'commit', 'immutability', 'monotonic']);
   });
 
   it('skips exactly the named gate, and still stops at a different failure', () => {
     const { called, checks } = make('commit');
     const released = runGates({ order: EARLY_GATES, checks, skip: 'commit' });
     expect(released.held).toBeNull();
-    expect(called).toEqual(['immutability', 'monotonic', 'migration']);
-    expect(released.results[0]).toMatchObject({ gate: 'commit', skipped: true });
+    expect(called).toEqual(['channel', 'immutability', 'monotonic', 'migration']);
+    expect(released.results[1]).toMatchObject({ gate: 'commit', skipped: true });
 
     const other = make('migration');
     expect(runGates({ order: EARLY_GATES, checks: other.checks, skip: 'commit' }).held?.gate).toBe(
@@ -394,7 +474,7 @@ describe('runGates', () => {
 });
 
 describe('renderGateSummary', () => {
-  it('lists each gate and says what a held draft carries, or that nothing publishes yet', () => {
+  it('lists each gate and says what a held draft carries, or that the next job publishes', () => {
     const results = [
       { gate: 'commit', ok: true, reason: '#7 passed' },
       { gate: 'monotonic', ok: false, reason: 'v5.0.0-alpha.8 is already published' },
@@ -410,6 +490,6 @@ describe('renderGateSummary', () => {
     expect(held).toContain('**Held** at `monotonic`');
     expect(held).toContain('publication-held.json');
     const passed = renderGateSummary({ tag: 'v5.0.0-alpha.9', results: [results[0]], held: null });
-    expect(passed).toContain('Every gate passed. Nothing publishes it yet');
+    expect(passed).toContain('Every gate passed. The next job publishes the release.');
   });
 });

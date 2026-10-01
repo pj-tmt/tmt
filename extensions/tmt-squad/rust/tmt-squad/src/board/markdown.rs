@@ -6,9 +6,10 @@
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
 };
+use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthChar;
 
 /// One logical line before wrapping: a first-line prefix, the indent for
@@ -21,6 +22,7 @@ struct Block {
 
 struct Renderer<'a> {
     source: &'a str,
+    look: crate::look::Look,
     blocks: Vec<Block>,
     current: Option<Block>,
     bold: usize,
@@ -173,14 +175,14 @@ impl Renderer<'_> {
             Event::Start(Tag::Link { dest_url, .. }) => self.link = Some(dest_url.to_string()),
             Event::End(TagEnd::Link) => {
                 if let Some(url) = self.link.take() {
-                    self.push(&format!(" ({url})"), Style::new().fg(Color::DarkGray));
+                    self.push(&format!(" ({url})"), self.look.role(Role::Dim));
                 }
             }
             Event::Text(text) => {
                 let style = self.style();
                 self.push(&text, style);
             }
-            Event::Code(code) => self.push(&code, Style::new().fg(Color::Cyan)),
+            Event::Code(code) => self.push(&code, self.look.role(Role::Accent)),
             Event::SoftBreak => self.push(" ", Style::new()),
             Event::HardBreak => {
                 let indent = self.current.as_ref().map_or(0, |block| block.indent);
@@ -191,7 +193,7 @@ impl Renderer<'_> {
                 self.blocks.push(Block {
                     prefix: String::new(),
                     indent: 0,
-                    spans: vec![("───".into(), Style::new().fg(Color::DarkGray))],
+                    spans: vec![("───".into(), self.look.role(Role::Dim))],
                 });
             }
             // Inline HTML, footnote references and anything else: as written.
@@ -205,9 +207,10 @@ impl Renderer<'_> {
 }
 
 /// Renders sanitized notes as styled lines wrapped to `width` display cells.
-pub fn render(text: &str, width: usize) -> Vec<Line<'static>> {
+pub fn render(text: &str, width: usize, look: crate::look::Look) -> Vec<Line<'static>> {
     let mut renderer = Renderer {
         source: text,
+        look,
         blocks: Vec::new(),
         current: None,
         bold: 0,
@@ -278,6 +281,7 @@ fn wrap(block: Block, width: usize) -> Vec<Line<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::look::Look;
 
     fn text(lines: &[Line]) -> Vec<String> {
         lines
@@ -304,7 +308,7 @@ mod tests {
     #[test]
     fn the_supported_subset_is_styled_and_nested_lists_indent() {
         let notes = "## Now\n\n- tokens: **waiting** on Ben\n  - *login* vs `sweep`\n- see [PR 412](https://x/412)\n\n1. first\n2. second\n";
-        let lines = render(notes, 60);
+        let lines = render(notes, 60, Look::default());
         assert_eq!(
             text(&lines),
             [
@@ -333,7 +337,10 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::ITALIC)
         );
-        assert_eq!(style_of(&lines, "sweep").fg, Some(Color::Cyan));
+        assert_eq!(
+            style_of(&lines, "sweep").fg,
+            Look::default().role(Role::Accent).fg
+        );
         assert!(
             style_of(&lines, "412")
                 .add_modifier
@@ -344,7 +351,7 @@ mod tests {
     #[test]
     fn unsupported_blocks_are_shown_as_their_source() {
         let notes = "| a | b |\n|---|---|\n| 1 | 2 |\n\n<div>raw html</div>\n\n```sh\ntmt x\n```\n\n> quoted\n\nsee ![diagram](d.png) and <b>bold</b>[^1]\n\n[^1]: footnote\n";
-        let rendered = text(&render(notes, 80));
+        let rendered = text(&render(notes, 80, Look::default()));
         for expected in [
             "| a | b |",
             "|---|---|",
@@ -372,7 +379,7 @@ mod tests {
     #[test]
     fn wrapping_respects_width_hanging_indent_and_wide_characters() {
         let notes = "- 安装指南 consolidates the install guide into one page with platform tabs\n";
-        let lines = render(notes, 20);
+        let lines = render(notes, 20, Look::default());
         for line in &lines {
             let width: usize = line.spans.iter().map(|span| cells(&span.content)).sum();
             assert!(width <= 20, "{line:?}");
@@ -383,7 +390,7 @@ mod tests {
             rendered[1..].iter().all(|line| line.starts_with("  ")),
             "{rendered:#?}"
         );
-        let long = text(&render(&"x".repeat(45), 20));
+        let long = text(&render(&"x".repeat(45), 20, Look::default()));
         assert_eq!(long, ["x".repeat(20), "x".repeat(20), "x".repeat(5)]);
     }
 
@@ -391,7 +398,7 @@ mod tests {
     fn hostile_notes_render_without_any_control_or_format_character() {
         let hostile =
             "# \u{1b}]0;PWNED\u{7}Title\n\n- \u{1b}[2J**bold**\u{202e}rev\n\n`\u{9b}31mcode`";
-        let lines = render(&crate::board::notes::sanitize(hostile), 40);
+        let lines = render(&crate::board::notes::sanitize(hostile), 40, Look::default());
         let all: String = lines
             .iter()
             .flat_map(|line| line.spans.iter().map(|span| span.content.to_string()))

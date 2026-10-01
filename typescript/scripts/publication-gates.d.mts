@@ -1,6 +1,7 @@
 export const REQUIRED_CONTEXTS: readonly string[];
 export const EARLY_GATES: readonly string[];
 export const GATES: readonly string[];
+export const UNSKIPPABLE_GATE: string;
 
 export interface GateOutcome {
   readonly ok: boolean;
@@ -22,6 +23,7 @@ export function checkCommit(input: {
     completed_at: string;
   }[];
 }): GateOutcome;
+export function checkChannel(input: { product: string; tag: string }): GateOutcome;
 export function checkImmutability(input: {
   releases: readonly {
     tag_name: string;
@@ -42,6 +44,8 @@ export function checkMigration(input: {
   counts: Record<string, number>;
   previous: { tag: string; counts: Record<string, number> } | null;
   commits: readonly { sha: string; subject: string; body?: string }[];
+  /** An alpha publishes new migrations; any other release is held for them. Defaults to false. */
+  alpha?: boolean;
 }): GateOutcome;
 export function checkUpgrade(input: {
   result: string;
@@ -58,5 +62,4 @@ export function renderGateSummary(input: {
   tag: string;
   results: readonly GateResult[];
   held: { gate: string; reason: string } | null;
-  published?: boolean;
 }): string;

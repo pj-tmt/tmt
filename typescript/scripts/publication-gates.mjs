@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 // The gates a complete draft release passes before anything may publish it, in order:
+//   channel       the release is an alpha (`X.Y.Z-alpha.N`); any other version is the owner's to publish
 //   commit        the release's commit is on main and its pull request passed the required checks
 //   immutability  the repository's newest published release is immutable, so the setting is on
 //   monotonic     the release is newer than every published release of its product
-//   migration     no new SQLite migration and no breaking change since the last published release
+//   migration     no breaking change since the last published release, and outside the alpha channel
+//                 no new SQLite migration (an alpha publishes its migrations, which are forward-only)
 //   upgrade       the upgrade from the last published release was proven (native-release-upgrade.yml)
 // A failed gate holds the draft: `publication-held.json` on the draft says which gate, why and
 // which run, and the draft is neither built again nor published until the owner publishes it by
-// hand or releases the hold by dispatch, which skips only the gate named in the marker.
+// hand or releases the hold by dispatch, which skips only the gate named in the marker (never
+// `channel`: a release that is not an alpha is published by hand, with the owner's explicit OK).
 //   node publication-gates.mjs early --product P --tag TAG [--release-hold]
 //   node publication-gates.mjs finish --product P --tag TAG --upgrade-result R --upgrade-outcome O \
 //        [--upgrade-reason TEXT] [--skip GATE]
@@ -21,7 +24,12 @@ import { ownerOf, parseComponentMap } from './ci-scope.mjs';
 import { HOLD_ASSET } from './plan-release-builds.mjs';
 import { clearHold, ghApi, readHold, recordHold } from './release-draft-assets.mjs';
 import { selectPrevious } from './release-upgrade.mjs';
-import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
+import {
+  compareVersions,
+  isAlphaVersion,
+  publishedReleases,
+  versionOfTag,
+} from './release-versions.mjs';
 
 /** The required contexts of `main`, which the pull request of the release commit must have passed. */
 export const REQUIRED_CONTEXTS = [
@@ -31,12 +39,27 @@ export const REQUIRED_CONTEXTS = [
   'Native package matrix',
 ];
 /** The gates that need no proof run, cheapest first. */
-export const EARLY_GATES = ['commit', 'immutability', 'monotonic', 'migration'];
+export const EARLY_GATES = ['channel', 'commit', 'immutability', 'monotonic', 'migration'];
+/** The gate a hold release never skips: publishing a non-alpha release is the owner's act. */
+export const UNSKIPPABLE_GATE = 'channel';
 export const GATES = [...EARLY_GATES, 'upgrade'];
 
 const pass = (reason = '') => ({ ok: true, reason });
 const fail = (reason) => ({ ok: false, reason });
 const short = (sha) => sha.slice(0, 8);
+
+/**
+ * The standing authorization covers alpha releases only. A stable version or another pre-release
+ * label (beta, rc) passes every other gate and must still not publish without the owner.
+ */
+export function checkChannel({ product, tag }) {
+  const version = versionOfTag(tag, product);
+  return isAlphaVersion(version)
+    ? pass(`${version} is an alpha release`)
+    : fail(
+        `${tag} is not an alpha release (X.Y.Z-alpha.N); only alpha releases publish automatically, any other the owner publishes by hand`
+      );
+}
 
 /**
  * `pullRequest` is the merged pull request that produced the commit, with its head commit;
@@ -129,23 +152,27 @@ export function isBreaking({ subject, body = '' }) {
 }
 
 /**
- * Holds a release that carries a new migration or a breaking change: `counts` are the entries of
- * each of the component's migration files at the candidate's commit and at the last published
- * release's (`previous.counts`), `commits` the release's own commits.
+ * Holds a release that carries a breaking change, and outside the alpha channel one that carries
+ * a new migration: `counts` are the entries of each of the component's migration files at the
+ * candidate's commit and at the last published release's (`previous.counts`), `commits` the
+ * release's own commits. An alpha publishes its migrations, which are forward-only, so it only
+ * reports them.
  */
-export function checkMigration({ files, counts, previous, commits }) {
+export function checkMigration({ files, counts, previous, commits, alpha = false }) {
   if (!previous) return pass('the first release of the product: nothing to compare with');
-  for (const file of files) {
-    if (counts[file] > (previous.counts[file] ?? 0)) {
-      return fail(
-        `${file} has ${counts[file]} migrations, ${previous.counts[file] ?? 0} in ${previous.tag}`
-      );
-    }
-  }
+  const added = files.find((file) => counts[file] > (previous.counts[file] ?? 0));
+  const growth = added
+    ? `${added} has ${counts[added]} migrations, ${previous.counts[added] ?? 0} in ${previous.tag}`
+    : '';
+  if (added && !alpha) return fail(growth);
   const breaking = commits.find(isBreaking);
   if (breaking)
     return fail(`commit ${short(breaking.sha)} is a breaking change: ${breaking.subject}`);
-  return pass(`no new migration and no breaking change since ${previous.tag}`);
+  return pass(
+    added
+      ? `${growth}; an alpha publishes its migrations, and no commit is a breaking change`
+      : `no new migration and no breaking change since ${previous.tag}`
+  );
 }
 
 /**
@@ -182,7 +209,7 @@ export function runGates({ order, checks, skip = '' }) {
 }
 
 /** Markdown for the run summary. */
-export function renderGateSummary({ tag, results, held, published = false }) {
+export function renderGateSummary({ tag, results, held }) {
   const lines = [`### Publication gates for \`${tag}\``, ''];
   for (const { gate, ok, skipped, reason } of results) {
     lines.push(
@@ -193,9 +220,7 @@ export function renderGateSummary({ tag, results, held, published = false }) {
     '',
     held
       ? `**Held** at \`${held.gate}\`: ${held.reason}. It carries \`${HOLD_ASSET}\` until it is published by hand or the hold is released by dispatch.`
-      : published
-        ? 'Every gate passed and the release was published.'
-        : 'Every gate passed. Nothing publishes it yet: publication is a separately authorized step.'
+      : 'Every gate passed. The next job publishes the release.'
   );
   return `${lines.join('\n')}\n`;
 }
@@ -245,6 +270,7 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
   const sha = release.target_commitish;
   const component = map.components.find(({ name }) => name === product);
   return {
+    channel: () => checkChannel({ product, tag }),
     commit: () => {
       const onMain = spawn('git', ['merge-base', '--is-ancestor', sha, 'HEAD']).status === 0;
       const pulls = onMain ? ghJson(['api', `repos/${repository}/commits/${sha}/pulls`]) : [];
@@ -267,6 +293,7 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
     immutability: () => checkImmutability({ releases }),
     monotonic: () => checkMonotonic({ releases, product, tag }),
     migration: () => {
+      const alpha = isAlphaVersion(versionOfTag(tag, product));
       const previousRelease = selectPrevious({ releases, product, candidateTag: tag });
       const count = (at) =>
         Object.fromEntries(component.migrations.map((file) => [file, fileCount(at, file)]));
@@ -276,6 +303,7 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
           counts: {},
           previous: null,
           commits: [],
+          alpha,
         });
       }
       const previousSha = git([
@@ -288,6 +316,7 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
         counts: count(sha),
         previous: { tag: previousRelease.tag_name, counts: count(previousSha) },
         commits: releaseCommits({ from: previousSha, to: sha, product, map }),
+        alpha,
       });
     },
   };
@@ -352,6 +381,11 @@ function main(argv, environment) {
     if (values['release-hold']) {
       const hold = readHold({ api, tag: values.tag, download: assetText({ repository }) });
       if (!hold) throw new Error(`Draft ${values.tag} carries no ${HOLD_ASSET} to release.`);
+      if (hold.gate === UNSKIPPABLE_GATE) {
+        throw new Error(
+          `Draft ${values.tag} is held by the ${UNSKIPPABLE_GATE} gate: a release that is not an alpha is published by hand, with the owner's explicit OK, never by releasing the hold.`
+        );
+      }
       skip = hold.gate;
     }
     const { held, results } = runGates({
