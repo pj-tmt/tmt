@@ -231,28 +231,22 @@ fn a_plain_relaunch_outside_tmt_run_leaves_the_ended_enrollment_stale_for_the_ne
     let (ended, recorded) = (dead_owner(), provider(4242));
     // The binding still names the old launch owner; the runtime now observed for
     // it is a live process that is not the Claude the enrollment names.
-    for (name, record) in [
-        ("ready record", ready(&ended, &recorded)),
-        ("pending record", intent(&ended)),
-    ] {
-        let scratch = Scratch::new();
-        publish(&scratch.0, &record);
-        let before = fs::read(record_path(&scratch.0, BINDING)).unwrap();
-        assert_eq!(
-            deliver(
-                &scratch,
-                &entry(BINDING, Some(ended.clone()), Some(live_owner())),
-                MESSAGE
-            ),
-            ActionResult::Unsupported,
-            "{name}"
-        );
-        assert_eq!(
-            fs::read(record_path(&scratch.0, BINDING)).unwrap(),
-            before,
-            "{name}: the record is untouched"
-        );
-    }
+    let scratch = Scratch::new();
+    publish(&scratch.0, &ready(&ended, &recorded));
+    let before = fs::read(record_path(&scratch.0, BINDING)).unwrap();
+    assert_eq!(
+        deliver(
+            &scratch,
+            &entry(BINDING, Some(ended.clone()), Some(live_owner())),
+            MESSAGE
+        ),
+        ActionResult::Unsupported
+    );
+    assert_eq!(
+        fs::read(record_path(&scratch.0, BINDING)).unwrap(),
+        before,
+        "the record is untouched"
+    );
 }
 
 #[test]
@@ -280,21 +274,50 @@ fn an_ended_enrollment_stays_stale_unless_a_different_live_runtime_is_proven() {
     ] {
         let scratch = Scratch::new();
         publish(&scratch.0, &ready(&ended, &recorded));
-        assert_eq!(
-            fault(deliver(
-                &scratch,
-                &entry(BINDING, Some(ended.clone()), running),
-                MESSAGE
-            )),
-            ("denied", ChannelFault::Stale),
-            "{name}"
-        );
+        assert_stale(&scratch, &ended, running, name);
+    }
+    // A record that never named a valid Claude cannot prove that a live runtime
+    // is a different one: the launch owner may have died before the handshake
+    // while its original child still runs and is still the observed runtime.
+    for (name, record) in [
+        ("pending record", intent(&ended)),
+        (
+            "unparseable recorded Claude",
+            Record {
+                claude: Some(Process {
+                    pid: 0,
+                    start: String::new(),
+                }),
+                ..intent(&ended)
+            },
+        ),
+    ] {
+        let scratch = Scratch::new();
+        publish(&scratch.0, &record);
+        assert_stale(&scratch, &ended, Some(live_owner()), name);
     }
     // Stale is actionable: it says how to recover.
     assert!(
         ChannelFault::Stale
             .reason()
             .contains("Relaunch the agent with `tmt run`")
+    );
+}
+
+fn assert_stale(
+    scratch: &Scratch,
+    ended: &ProcessIncarnation,
+    running: Option<ProcessIncarnation>,
+    name: &str,
+) {
+    assert_eq!(
+        fault(deliver(
+            scratch,
+            &entry(BINDING, Some(ended.clone()), running),
+            MESSAGE
+        )),
+        ("denied", ChannelFault::Stale),
+        "{name}"
     );
 }
 

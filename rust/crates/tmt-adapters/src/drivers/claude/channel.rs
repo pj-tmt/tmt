@@ -158,11 +158,14 @@ fn send_within(
                 // A plain relaunch outside `tmt run` leaves the binding's launch
                 // owner at the old one. If the runtime now observed for the binding
                 // is positively alive and is not the Claude this enrollment names,
-                // the enrollment is stale for it: baseline, record untouched.
+                // the enrollment is stale for it: baseline, record untouched. That
+                // needs a valid recorded Claude to differ from: a record that never
+                // named one (the launch owner died before the handshake) cannot
+                // tell the original child, which may still run, from a new one.
                 let recorded = record.claude.as_ref().and_then(Process::incarnation);
                 let running = binding.session.key.as_ref().map(|key| &key.incarnation);
-                if let Some(running) = running
-                    && Some(running) != recorded.as_ref()
+                if let (Some(recorded), Some(running)) = (&recorded, running)
+                    && running != recorded
                     && liveness(running) == RuntimeLiveness::Alive
                 {
                     return ActionResult::Unsupported;
