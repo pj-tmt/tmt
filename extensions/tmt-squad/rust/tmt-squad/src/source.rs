@@ -240,6 +240,7 @@ mod tests {
 
     fn member(seen: Value) -> Member {
         Member {
+            lead_marker: None,
             id: "R".into(),
             name: "rin".into(),
             lifetime: "saved".into(),
