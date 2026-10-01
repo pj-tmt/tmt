@@ -2026,6 +2026,14 @@ owns limits, version qualification and receipt semantics. These modules are
 unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
 integration must be proven before user-facing activation in the later #719 slices.
 
+`drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),
+using the existing nonblocking file lock for compare/write/remove. It stores
+exact launch/process/thread coordinates but no capability material and owns no
+binding transaction. The launcher must validate new-launch authority before
+calling it; record-level takeover and withdrawal remain generation/incarnation
+scoped. The same contract owns this persistence definition and its still-pending
+launcher/crash-cleanup integration. This adds no user-facing registration.
+
 ### Host driver protocol
 
 Terminal hosts that TMT doesn't build in will run out of process as host
