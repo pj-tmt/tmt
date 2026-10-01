@@ -1136,6 +1136,8 @@ fixture, readiness, cleanup and type modules live under
 Shared cross-suite utilities belong in `typescript/test/support/`; suite-only harness,
 assertions and observers stay with their suite. Focused helper tests belong in
 `typescript/test/tooling/` and must prove rejection as well as positive behavior.
+The tooling [import-direction guard](ARCHITECTURE.md#testing-and-evidence-boundaries)
+checks these suite/support and harness boundaries without starting Docker.
 
 For ordinary developer checks, run:
 
