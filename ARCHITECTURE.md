@@ -2414,7 +2414,7 @@ drawn there. `board::scroll` is the one scroll owner: every pane hands its
 lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
-under the pointer. Panes keep no scroll state of their own; the rows pane only
+under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
 asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
