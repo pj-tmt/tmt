@@ -60,129 +60,109 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void>
 }
 
 describe('packed command verifier', () => {
-  it(
-    'returns exact UTF-8 stdout, including complete JSON and empty output',
-    { timeout: 10_000 },
-    () => {
-      const root = createFixture();
-      try {
-        const value = {
-          empty: '',
-          unicode: '東京🙂',
-          newline: 'first\r\nsecond',
-          nul: '\0',
-          bom: '\uFEFF',
-        };
-        const output = JSON.stringify(value);
-        expect(runNode(root, `process.stdout.write(${JSON.stringify(output)});`)).toBe(output);
-        expect(runNode(root, '')).toBe('');
-      } finally {
-        removeFixture(root);
-      }
+  it('returns exact UTF-8 stdout, including complete JSON and empty output', () => {
+    const root = createFixture();
+    try {
+      const value = {
+        empty: '',
+        unicode: '東京🙂',
+        newline: 'first\r\nsecond',
+        nul: '\0',
+        bom: '\uFEFF',
+      };
+      const output = JSON.stringify(value);
+      expect(runNode(root, `process.stdout.write(${JSON.stringify(output)});`)).toBe(output);
+      expect(runNode(root, '')).toBe('');
+    } finally {
+      removeFixture(root);
     }
-  );
+  });
 
-  it(
-    'accepts an expected exit-one failure but rejects it as unexpected by default',
-    { timeout: 10_000 },
-    () => {
-      const root = createFixture();
-      try {
-        const failure = 'process.exitCode = 1;';
-        expect(runNode(root, failure, { expectedStatus: 1 })).toBe('');
-        expect(() => runNode(root, failure)).toThrow('Packed command failed');
-      } finally {
-        removeFixture(root);
-      }
+  it('accepts an expected exit-one failure but rejects it as unexpected by default', () => {
+    const root = createFixture();
+    try {
+      const failure = 'process.exitCode = 1;';
+      expect(runNode(root, failure, { expectedStatus: 1 })).toBe('');
+      expect(() => runNode(root, failure)).toThrow('Packed command failed');
+    } finally {
+      removeFixture(root);
     }
-  );
+  });
 
-  it(
-    'names the command, the status and both output streams, which a --json CLI fills on stdout',
-    { timeout: 10_000 },
-    () => {
-      const root = createFixture();
+  it('names the command, the status and both output streams, which a --json CLI fills on stdout', () => {
+    const root = createFixture();
+    try {
+      const script =
+        'process.stdout.write(\'{"error":{"message":"unrecognized subcommand squad"}}\'); process.exitCode = 2;';
+      let message = '';
       try {
-        const script =
-          'process.stdout.write(\'{"error":{"message":"unrecognized subcommand squad"}}\'); process.exitCode = 2;';
-        let message = '';
+        runNode(root, script);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      const [first, ...rest] = message.split('\n');
+      // The first line alone says what ran, how it ended and what it said.
+      expect(first).toBe(
+        'Packed command failed (exited 2, expected 0): node: unrecognized subcommand squad'
+      );
+      expect(rest.join('\n')).toContain(`command: ${process.execPath} --eval`);
+      expect(rest.join('\n')).toContain(
+        'stdout: {"error":{"message":"unrecognized subcommand squad"}}'
+      );
+      expect(rest.join('\n')).toContain('stderr: ');
+      expect(() => runNode(root, "process.stderr.write('a diagnostic\\n');")).toThrow(
+        /^Packed command emitted unexpected diagnostics: node: a diagnostic\ncommand: .*\nstderr: a diagnostic/
+      );
+      // A long stream is cut, so the message stays readable.
+      const long = runNode(root, "process.stdout.write('x'.repeat(5000)); process.exitCode = 1;", {
+        expectedStatus: 1,
+      });
+      expect(long).toHaveLength(5000);
+      expect(() =>
+        runNode(root, "process.stdout.write('y'.repeat(5000)); process.exitCode = 1;")
+      ).toThrow(/y{2000}\.\.\. \(5000 characters\)/);
+    } finally {
+      removeFixture(root);
+    }
+  });
+
+  it('puts the executable, its first three subcommand words and the first line it said on one line', () => {
+    const root = createFixture();
+    try {
+      // Run by node, so no executable is written. It fails the way a CLI does, per its mode.
+      const script = path.join(root, 'fake-tmt.mjs');
+      writeFileSync(
+        script,
+        [
+          'const mode = process.argv[2];',
+          "if (mode === 'json') process.stdout.write(JSON.stringify({ error: { message: 'error: no such thing\\n\\nUsage: tmt' } }));",
+          "if (mode === 'plain') process.stdout.write('\\n  first line\\nsecond line\\n');",
+          "if (mode === 'long') process.stderr.write('z'.repeat(500));",
+          'process.exitCode = 1;',
+        ].join('\n')
+      );
+      const firstLine = (...args: string[]): string => {
         try {
-          runNode(root, script);
+          runPackedCommand(process.execPath, [script, ...args], { cwd: root, env: process.env });
         } catch (error) {
-          message = (error as Error).message;
+          return (error as Error).message.split('\n')[0];
         }
-        const [first, ...rest] = message.split('\n');
-        // The first line alone says what ran, how it ended and what it said.
-        expect(first).toBe(
-          'Packed command failed (exited 2, expected 0): node: unrecognized subcommand squad'
-        );
-        expect(rest.join('\n')).toContain(`command: ${process.execPath} --eval`);
-        expect(rest.join('\n')).toContain(
-          'stdout: {"error":{"message":"unrecognized subcommand squad"}}'
-        );
-        expect(rest.join('\n')).toContain('stderr: ');
-        expect(() => runNode(root, "process.stderr.write('a diagnostic\\n');")).toThrow(
-          /^Packed command emitted unexpected diagnostics: node: a diagnostic\ncommand: .*\nstderr: a diagnostic/
-        );
-        // A long stream is cut, so the message stays readable.
-        const long = runNode(
-          root,
-          "process.stdout.write('x'.repeat(5000)); process.exitCode = 1;",
-          {
-            expectedStatus: 1,
-          }
-        );
-        expect(long).toHaveLength(5000);
-        expect(() =>
-          runNode(root, "process.stdout.write('y'.repeat(5000)); process.exitCode = 1;")
-        ).toThrow(/y{2000}\.\.\. \(5000 characters\)/);
-      } finally {
-        removeFixture(root);
-      }
+        throw new Error('The command was expected to fail.');
+      };
+      const head = `Packed command failed (exited 1, expected 0): node ${script}`;
+      // A --json error message wins over the streams; words stop at an option and at three.
+      expect(firstLine('json', '--yes')).toBe(`${head} json: error: no such thing`);
+      expect(firstLine('plain', 'a', 'b', 'c')).toBe(`${head} plain a: first line`);
+      expect(firstLine('long', '--yes')).toBe(
+        `${head} long: ${'z'.repeat(160)}... (500 characters)`
+      );
+      expect(firstLine('silent')).toBe(`${head} silent`);
+    } finally {
+      removeFixture(root);
     }
-  );
+  });
 
-  it(
-    'puts the executable, its first three subcommand words and the first line it said on one line',
-    { timeout: 10_000 },
-    () => {
-      const root = createFixture();
-      try {
-        // Run by node, so no executable is written. It fails the way a CLI does, per its mode.
-        const script = path.join(root, 'fake-tmt.mjs');
-        writeFileSync(
-          script,
-          [
-            'const mode = process.argv[2];',
-            "if (mode === 'json') process.stdout.write(JSON.stringify({ error: { message: 'error: no such thing\\n\\nUsage: tmt' } }));",
-            "if (mode === 'plain') process.stdout.write('\\n  first line\\nsecond line\\n');",
-            "if (mode === 'long') process.stderr.write('z'.repeat(500));",
-            'process.exitCode = 1;',
-          ].join('\n')
-        );
-        const firstLine = (...args: string[]): string => {
-          try {
-            runPackedCommand(process.execPath, [script, ...args], { cwd: root, env: process.env });
-          } catch (error) {
-            return (error as Error).message.split('\n')[0];
-          }
-          throw new Error('The command was expected to fail.');
-        };
-        const head = `Packed command failed (exited 1, expected 0): node ${script}`;
-        // A --json error message wins over the streams; words stop at an option and at three.
-        expect(firstLine('json', '--yes')).toBe(`${head} json: error: no such thing`);
-        expect(firstLine('plain', 'a', 'b', 'c')).toBe(`${head} plain a: first line`);
-        expect(firstLine('long', '--yes')).toBe(
-          `${head} long: ${'z'.repeat(160)}... (500 characters)`
-        );
-        expect(firstLine('silent')).toBe(`${head} silent`);
-      } finally {
-        removeFixture(root);
-      }
-    }
-  );
-
-  it('rejects a signal termination and nonempty stderr', { timeout: 10_000 }, () => {
+  it('rejects a signal termination and nonempty stderr', () => {
     const root = createFixture();
     try {
       expect(() => runNode(root, "process.kill(process.pid, 'SIGTERM');")).toThrow(
@@ -241,7 +221,7 @@ describe('packed command verifier', () => {
     }
   );
 
-  it('reports a missing executable as a spawn failure', { timeout: 10_000 }, () => {
+  it('reports a missing executable as a spawn failure', () => {
     const root = createFixture();
     try {
       expect(() =>
