@@ -177,12 +177,22 @@ describe('bundleFiles', () => {
 describe('checkDraft', () => {
   it('asks for a build when the draft has neither a bundle nor a recorded failure', () => {
     const { api } = fakeApi([draft('v5.0.0-alpha.9', ['partial.tar.gz'])]);
-    expect(checkDraft({ api, tag: 'v5.0.0-alpha.9' })).toEqual({ todo: true, reason: '' });
+    expect(checkDraft({ api, tag: 'v5.0.0-alpha.9' })).toEqual({
+      todo: true,
+      awaiting: false,
+      reason: '',
+    });
   });
 
-  it('skips a draft that already carries the bundle', () => {
-    const { api, calls } = fakeApi([draft('v5.0.0-alpha.9', ['release-publication.json'])]);
-    expect(checkDraft({ api, tag: 'v5.0.0-alpha.9', retry: true }).todo).toBe(false);
+  it('skips a draft that already carries the bundle, and says it awaits its publication unless it is held', () => {
+    const { api, calls } = fakeApi([
+      draft('v5.0.0-alpha.9', ['release-publication.json']),
+      draft('v5.0.0-alpha.10', ['release-publication.json', 'publication-held.json']),
+    ]);
+    const complete = checkDraft({ api, tag: 'v5.0.0-alpha.9', retry: true });
+    expect([complete.todo, complete.awaiting]).toEqual([false, true]);
+    const held = checkDraft({ api, tag: 'v5.0.0-alpha.10' });
+    expect([held.todo, held.awaiting]).toEqual([false, false]);
     expect(calls).toEqual([]);
   });
 
@@ -190,7 +200,8 @@ describe('checkDraft', () => {
     const { api, calls, releases } = fakeApi([
       draft('v5.0.0-alpha.9', ['verification-failed.json', 'keep.txt']),
     ]);
-    expect(checkDraft({ api, tag: 'v5.0.0-alpha.9' }).todo).toBe(false);
+    const parked = checkDraft({ api, tag: 'v5.0.0-alpha.9' });
+    expect([parked.todo, parked.awaiting]).toEqual([false, false]);
     expect(calls).toEqual([]);
     expect(checkDraft({ api, tag: 'v5.0.0-alpha.9', retry: true }).todo).toBe(true);
     expect(calls).toEqual(['delete 10']);
@@ -492,11 +503,36 @@ describe('release-draft-assets.mjs', () => {
       });
     const parked = run(['check', '--tag', 'v5.0.0-alpha.9']);
     expect(parked.status).toBe(0);
-    expect(readFileSync(output, 'utf8')).toBe('todo=false\n');
+    expect(readFileSync(output, 'utf8')).toBe('todo=false\nawaiting=false\n');
     expect(parked.stderr).toContain('skipped, its failure is recorded');
     const unknown = run(['check', '--tag', 'v9.9.9']);
     expect(unknown.status).toBe(1);
     expect(unknown.stderr).toContain('There is no release v9.9.9.');
     expect(run(['bogus', '--tag', 'x']).stderr).toContain('Usage: release-draft-assets.mjs');
+  });
+
+  it('reports a complete draft without a hold as awaiting its publication', () => {
+    const directory = mkdtempSync(path.join(root, 'awaiting-'));
+    const bin = path.join(directory, 'bin');
+    mkdirSync(bin);
+    writeFileSync(
+      path.join(bin, 'gh'),
+      `#!/bin/sh\necho '${JSON.stringify([[draft('v5.0.0-alpha.9', ['release-publication.json'])]])}'\n`
+    );
+    chmodSync(path.join(bin, 'gh'), 0o755);
+    const output = path.join(directory, 'output');
+    writeFileSync(output, '');
+    const result = spawnSync('node', [script, 'check', '--tag', 'v5.0.0-alpha.9'], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        GITHUB_REPOSITORY: 'wkh237/tmt',
+        GITHUB_OUTPUT: output,
+      },
+      timeout: 10_000,
+    });
+    expect(result.status).toBe(0);
+    expect(readFileSync(output, 'utf8')).toBe('todo=false\nawaiting=true\n');
+    expect(result.stderr).toContain('complete, waits for its publication');
   });
 });

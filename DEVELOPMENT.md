@@ -192,16 +192,15 @@ selects only tooling tests; `office:test` explicitly selects app tests and fails
 on empty discovery. Office uses Oxfmt; tooling and repository docs use the
 `typescript/.prettierrc` Prettier configuration. Run
 `pnpm --filter @tmt/office format` for app formatting, not the tooling formatter.
-The distinct Vitest versions are lockfile-owned, not a claim that native tests
-were migrated to the newer app runner.
+Root tooling, native, stress and Docker suites use Vitest 4 alongside the
+extension packages; their separate configurations retain their own test discovery.
 Office wire-schema conformance is a nested tooling test. From `typescript`, run
 `corepack pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
 [`extensions/tmt-office/contracts`](extensions/tmt-office/contracts/README.md) for its single source of truth,
 versioning and limits. Design vectors are not executable authorization or crash
 recovery evidence; downstream suites must prove those behaviors separately.
-Root tooling runs at most two suite workers to avoid simultaneous subprocess
-startup overwhelming the existing per-test budgets; assertion/time limits are
-unchanged. Native process and tmux configurations keep their own execution rules.
+Root tooling uses the threads pool with at most two suite workers. Native process, stress and tmux
+configurations also select the threads pool and retain their own execution rules.
 
 For an Office-only clean checkout, use `pnpm office:install`. It installs from
 the app directory against the same workspace lockfile, without workspace recursion.
@@ -813,6 +812,17 @@ cargo build --locked --example tmux-probe
 cargo +1.88.0 build --locked
 ```
 
+For the unregistered Codex queue transport (#736), focused deterministic checks
+are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
+`cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
+tests own local loopback peers and exercise receipt loss and absolute deadlines;
+they do not start a model or inspect provider credentials. Dependency review
+also records exact features/graph, Rust 1.88, licenses, current advisories and an
+actual CLI release baseline/candidate under one toolchain/profile. Label a
+zero delta from unused/dead-stripped groundwork honestly and repeat the size
+measurement after the final consumer links it. See the
+[owning contract](contracts/codex-channel-v1.md) for remaining integration gates.
+
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
 
@@ -836,16 +846,22 @@ Product identity proofs are package-scoped, matching per-product release builds:
 compare `cargo build --locked --release -p tmt-cli` alone, at the same checkout
 path, before and after a change.
 
-A fixture that writes an executable and then runs it, directly or through an
-installer's verifier, can be refused with ETXTBSY ("Text file busy") in a
-multi-test binary: another test thread's `fork` holds a copy of the write
-descriptor until the child's `exec`, and nothing the writer does closes that
-window. An installer fixture waits it out with a bounded retry of only that
-error; production code never retries. `tmt-office-command` does this in `test_support::install_office`
-(`retry_on_text_file_busy`). A fixture that only needs a stand-in script,
-such as Squad's fake `tmt` and `tmux`, avoids the window instead by not writing
-the file in the test process: Squad's `test_support::write_executable` has a
-short-lived `sh` write it, so no test thread can fork a copy of the descriptor.
+A fixture that writes an executable and then runs it can be refused with
+ETXTBSY ("Text file busy") in a multi-test binary: another test thread's `fork`
+holds a copy of the write descriptor until the child's `exec`, and nothing the
+writer does closes that window. Pick the rule by who writes the file and who
+runs it. Production code never retries ETXTBSY.
+
+- The test writes a script and controls how it runs: run `/bin/sh <script>`
+  so nothing execs the written inode (the `tmt-invoke` and `tmt-adapters` tests).
+- The test writes a stand-in that something else must exec by path, such as a
+  fake `tmt` or `tmux` on `PATH`: let a short-lived `sh` write the file, so no
+  test thread holds its descriptor (Squad's `test_support::write_executable`).
+- The product writes the executable and then execs it, as an installer and its
+  verifier do: the fixture waits out the window with a bounded retry of only
+  that error (`tmt-office-command`'s `test_support::install_office`,
+  `retry_on_text_file_busy`).
+
 The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
 -- --ignored --nocapture` reproduces the race and reports failures with and
 without the retry.
@@ -879,6 +895,15 @@ When changing a guard, exercise a real positive and negative source/dependency
 fixture and restore the checkout exactly. A stale lockfile or an unexecuted
 test is not evidence that the guard worked. Core must remain free of concrete
 I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
+
+### Internal TUI markup admission
+
+From `rust/`, run `cargo test --locked -p tmt-tui` and
+`cargo +1.88.0 test --locked -p tmt-tui` for structural XML admission and its
+byte/depth/node limits. Run the architecture test for dependency changes.
+The crate has no executable or board consumer; these tests use in-memory XML,
+not application configuration, SQLite or a terminal. Later admission/rendering
+stages must not treat a structural template as a fully validated scene.
 
 ## Native process and shared tests
 

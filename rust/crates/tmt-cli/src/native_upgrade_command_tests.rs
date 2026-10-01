@@ -86,3 +86,49 @@ fn retry_guidance_retains_an_explicit_pin() {
     report.state.pinned_version = Some(report.state.version.clone());
     assert!(retry_hint(&report).contains("upgrade --to 5.0.0"));
 }
+
+#[test]
+fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
+    let report = UpgradeReport {
+        installation: native_install::InstallReport {
+            executable: "/managed/bin/tmt".into(),
+            active_executable: "/managed/releases/new/tmt".into(),
+            version: "5.0.0".into(),
+            changed: true,
+        },
+        state: tmt_core::native_install::InstalledVersion {
+            version: "5.0.0".parse().unwrap(),
+            channel: Channel::Stable,
+            pinned_version: None,
+        },
+        skipped_pinned: false,
+    };
+    let squad = json!({"product":"squad","status":"changed","version":"1.1.0"});
+    let rows = product_rows(Some(&report), None, vec![squad.clone()]);
+    assert_eq!(rows[0]["status"], "changed");
+    assert_eq!(rows[0]["version"], "5.0.0");
+    assert_eq!(rows[1], squad);
+    let mode = OutputMode { json: true };
+    let consent = json!({"product":"squad","status":"consentRequired","hint":"tmt upgrade --yes"});
+    assert_eq!(
+        publish_products(Some(&report), None, None, vec![consent], mode).unwrap(),
+        0
+    );
+    let failure = json!({"product":"office","status":"failed","error":{"code":"EXTENSION_UPGRADE_FAILED","message":"refused"}});
+    assert_eq!(
+        publish_products(Some(&report), None, None, vec![failure, squad], mode).unwrap(),
+        1
+    );
+    // This nonexistent prefix would fail inspection if the extension phase ran.
+    assert_eq!(
+        finish(
+            &report,
+            None,
+            Some(Failure::new("NATIVE_UPGRADE_FAILED", "CLI failed", 7)),
+            true,
+            mode
+        )
+        .unwrap(),
+        7
+    );
+}

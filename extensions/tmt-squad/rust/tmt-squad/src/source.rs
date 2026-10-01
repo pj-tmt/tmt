@@ -240,6 +240,7 @@ mod tests {
 
     fn member(seen: Value) -> Member {
         Member {
+            lead_marker: None,
             id: "R".into(),
             name: "rin".into(),
             lifetime: "saved".into(),
@@ -249,6 +250,7 @@ mod tests {
             fields: BTreeMap::from([("state".into(), "working".into())]),
             meta: BTreeMap::from([("team.role".into(), "reviewer".into())]),
             numbers: BTreeMap::new(),
+            colors: Default::default(),
             failed: Default::default(),
             seen,
         }

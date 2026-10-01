@@ -8,6 +8,33 @@ use syn::{
     visit::{self, Visit},
 };
 
+// Exact dev edges: one reviewed row with its fixture reason per dependency.
+// Versions/features remain Cargo-owned; aliases require canonical crate names.
+// tmt-invoke retains its stricter all-kind leaf policy below.
+const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
+    ("tmt-adapters", "tmt-office-model", None), // storage migration model fixtures
+    ("tmt-adapters", "nix", Some("cfg(unix)")), // subprocess and pipe fixtures
+    ("tmt-adapters", "rcgen", Some("cfg(unix)")), // release HTTP TLS certificates
+    ("tmt-adapters", "rustls", Some("cfg(unix)")), // release HTTP TLS server
+    ("tmt-cli", "crossterm", None),             // binding presentation fixtures
+    ("tmt-cli", "insta", None),                 // command rendering snapshots
+    ("tmt-cli", "proc-macro2", None),           // architecture syntax fixtures
+    ("tmt-cli", "syn", None),                   // architecture AST checks
+    ("tmt-cli", "tmt-office-model", None),      // Office parser fixtures
+    ("tmt-cli", "nix", Some("cfg(unix)")),      // stdin signal and observer readiness fixtures
+    ("tmt-cli", "rusqlite", Some("cfg(unix)")), // request-observer SQL oracle
+    ("tmt-cli-style", "crossterm", None),       // table terminal-style assertions
+    ("tmt-cli-style", "insta", None),           // rendering snapshots
+    ("tmt-cli-style", "serde_json", None),      // theme serialization assertions
+    ("tmt-office", "png", None),                // whiteboard image fixtures
+    ("tmt-office", "rusqlite", None),           // whiteboard and world SQL oracles
+    ("tmt-office", "tmt-office-storage", None), // in-process props fixtures
+    ("tmt-office-command", "flate2", None),     // compressed release archive fixtures
+    ("tmt-office-command", "png", None),        // whiteboard image fixtures
+    ("tmt-office-command", "tar", None),        // release archive fixtures
+    ("tmt-office-storage", "png", None),        // stored image fixtures
+];
+
 // These are reviewed layer permissions, not a second version/dependency graph.
 // Cargo metadata is the inventory, including renamed and target/build entries.
 pub fn dependency_violations(package: &Value) -> Vec<String> {
@@ -37,6 +64,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Adapters run host drivers through the protocol crate (#570).
         "tmt-adapters" => &[
+            // Provider-local synchronous WebSocket framing; no core/TLS/async use.
+            "tungstenite",
             "tmt-driver-protocol",
             "serde",
             "ureq",
@@ -175,6 +204,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "nix",
         ],
         "tmt-invoke" => &["subprocess", "nix"],
+        "tmt-tui" => &["roxmltree", "tmt-cli-style"],
         "tmt-remote" => &[
             "ed25519-dalek",
             "hmac",
@@ -193,9 +223,26 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .as_array()
         .expect("Cargo dependencies")
         .iter()
-        .filter(|d| name == "tmt-invoke" || d["kind"] != "dev")
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
+            if d["kind"] == "dev" && !["tmt-invoke", "tmt-tui"].contains(&name) {
+                let target = d["target"].as_str();
+                let entry = format!("({name:?}, {dependency:?}, {target:?}),");
+                let ledger = "DEV_DEPENDENCIES in rust/crates/tmt-cli/tests/architecture/policy.rs";
+                let reviewed = DEV_DEPENDENCIES.contains(&(name, dependency, target));
+                if reviewed && d["rename"].is_null() {
+                    return None;
+                }
+                let action = if reviewed {
+                    format!("remove rename from the {name} Cargo.toml; {ledger} already reviews {entry}")
+                } else {
+                    format!("remove any rename and, after review, add {entry} // <review reason> to {ledger}")
+                };
+                return Some(format!(
+                    "{name}: unreviewed dev dependency {dependency} (target={}, rename={}); {action}",
+                    d["target"], d["rename"]
+                ));
+            }
             // Source paths use canonical crate names. Renaming even an allowed
             // package requires an explicit policy review instead of bypassing
             // the source-layer checks through a new external crate alias.
@@ -520,6 +567,21 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 violations.push(format!(
                     "{location}: invoke leaf cannot reach {}",
                     path.join("::")
+                ));
+            }
+            if source.package == "tmt-tui"
+                && root.starts_with("tmt_")
+                && !["tmt_tui", "tmt_cli_style"].contains(&root)
+            {
+                violations.push(format!(
+                    "{location}: TUI leaf cannot reach {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_tui" && source.package != "tmt-tui" {
+                violations.push(format!(
+                    "{location}: unreviewed TUI consumer {}",
+                    source.package
                 ));
             }
             // Terminal hosts are reached through the host port (#486); only it

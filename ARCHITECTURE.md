@@ -610,7 +610,12 @@ version, which path dependencies a component links, which crates have a `Cargo.l
 entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
 `readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata; native
 CLI version expectations reuse that reader once per suite instead of parsing TOML separately. A
-`Cargo.lock` line is updated by whichever component declares that crate's version.
+`Cargo.lock` line is updated by whichever component declares that crate's version: a crate
+that inherits the workspace version is declared by the owner of `rust/Cargo.toml`, even when
+a private `release: false` component owns the crate, because the next locked build fails
+when that release leaves its entry behind. Office is parked this way: it owns its files and
+CI scope but has no release-please package, manifest entry or release run, and its binary
+opts out of cargo-dist with `dist = false`.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
@@ -620,6 +625,9 @@ extension release only together with a change under that extension's own path.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
 `.github/release-please/`, outside the `typescript` workspace so no other job installs it.
+The config sets `always-update`: release-please otherwise leaves an open release pull request
+untouched while its notes are unchanged, so a conflict with `main` (every release pull request
+edits the shared manifest, and adjacent lines conflict) would never clear.
 A tooling test fails when the committed config is not what the generator writes, when a
 workspace crate's lock entry or declared version is managed zero or several times, or when
 a tag disagrees with the policy or a package could leave the alpha line (release-please's
@@ -647,8 +655,9 @@ are refused unchanged before preview, menu persistence or intent freezing,
 including restored captures and intents.
 The popup freezes the reviewed agent UUID, message and operation UUID before
 calling the client. Its origin-owned IndexedDB retains one frozen intent and
-menu capture; restoration retains intent without sending. Explicit status
-recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
+menu capture; restoration retains intent without sending. The shell exports journal schema
+and key constants; IndexedDB ownership and worker-readiness fallback helpers are test-only.
+Explicit status recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
 starting another message does not cancel submitted work. Replies render as text.
 The stub's status transitions are UI evidence, never server security acceptance.
 
@@ -693,9 +702,22 @@ lifecycle and its private receipt, shared by the Office commands, Office storage
 switch and the companion. No core crate declares an `office_*` module except the
 facade, which PR B of #355 removes.
 
+`rust/crates/tmt-tui` is an internal, unpublished presentation leaf for TMT
+markup. Its version-1 structural admission accepts bounded XML and produces a
+template with source locations, not a renderable scene. It refuses declarations
+and excessive depth before tree allocation and bounds parser nodes. Utility,
+binding, geometry and paint stages are not implemented yet. No product consumes
+it. The guard permits only XML parsing and the shared style leaf, never core,
+adapters or extension behavior; reverse product edges require adoption review.
+The private component has no release; its inherited version/lock entry follows
+the workspace, while product notices include only their actual dependency graph.
+
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
-dependency guard. It follows the actual Rust module tree, checks reviewed
-layer edges and shared declaration ownership, and fails closed for unsupported
+dependency guard. One reviewed manifest table owns both the fixed workspace
+package names and their documented manifest locations. It follows the actual
+Rust module tree, checks reviewed layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
+ledger (crate, canonical name and target, with a reason per row); aliases are rejected,
+and the invoke leaf remains guarded for every dependency kind. The guard fails closed for unsupported
 module remapping or incomplete discovery. It also checks that the CLI crates
 reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
 each CLI checks every command's help against the style
@@ -747,7 +769,7 @@ Office reads core-owned identities and rooms only through the UUID-keyed
 `active_identities`, `room`, and a batch `resolve`), separate from the CLI selector
 port `CoreAccess`. Production implements it as `ProcessReferences`: it runs the
 invoking `tmt` (`TMT_EXECUTABLE`, else `tmt` on `PATH`, never itself) through the
-supervised process runner, using `tmt --json identity list` and the
+supervised process runner, using `tmt --json identity ls` and the
 `references.resolve` API operation, so the Office binary never opens or migrates
 the core database. The in-process `CoreStore` is compiled only for tests and the
 `in-process-core` feature, and a crate test forbids `Storage::open` and
@@ -765,7 +787,7 @@ profile presence and self-reported status. The browser is the local owner, so it
 writes use the API's `"originator":"anonymous"` (no writer identity, exactly like the
 CLI without `--identity`; it grants nothing beyond same-user CLI calls). Each handler
 maps core's error codes through an explicit status table and reports anything else as
-unavailable storage. Presence comes from `tmt list --json`, which verifies tmux
+unavailable storage. Presence comes from `tmt ls --json`, which verifies tmux
 endpoints, and status from the batch `identities.status` operation, so a profile poll
 is two processes. Unit tests run the same operations in-process behind `LocalCore`;
 a crate test forbids `Storage::open` and `tmt_adapters::storage` in service code.
@@ -1130,16 +1152,25 @@ until the user enables it.
 
 ### Core command surface
 
+The Clap grammar owns primary names and accepted aliases. Listing uses `ls`,
+removal uses `rm`, identity renaming uses `mv`, and record display uses `show`.
+Long spellings remain hidden aliases and resolve to the same typed invocation;
+help, examples and guidance use the primaries. Root `uninstall` remains distinct
+from identity retirement. Core names and all aliases, including `mv`, are reserved
+before external PATH dispatch. The recursive listing guard in `tmt-cli-style::audit`
+covers core, embedded Office and the separate Squad grammar. Options, operation
+enums, JSON API method names and persistence semantics are unchanged by spelling.
+
 The maintained public surface is:
 
 - `init`, `config`, `completion`, `learn` and `install` for local setup and
   guidance;
-- identity and binding commands: `identity` create/show/list and metadata
-  set/get/list/remove with exact filters, `list`/`ls`, `add`, `name`/`this`,
-  `whoami`, `unbind`, `rm`/`remove`;
+- identity and binding commands: `identity` create/show/ls/mv and metadata
+  set/show/ls/rm with exact filters, `ls`, `add`, `name`/`this`,
+  `whoami`, `unbind`, `rm`, `mv`;
 - saved-identity notes through `notes path`;
 - the versioned local extension interface through `api`;
-- profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
+- profile and exchange commands: `role`, `preamble`, `x ls|show|ack|ackall`,
   `reply`, `result`, `inbox`, `answer`, `talk`/`send`, `check`/`read`;
 - `focus <identity|pane>`, which shows a verified pane in the
   invoking user's own tmux client and reports that client (see the driver
@@ -1159,7 +1190,7 @@ JSON and human output use the same typed result and status contracts.
 `identity show <name>` remains a storage-only named read. Without a name it
 uses the shared verified-caller selector before opening storage; an unavailable
 or unbound caller does not fall back to a working directory, active pane or sole
-stored identity. `identity list` and bare `preamble show` remain collection reads.
+stored identity. `identity ls` and bare `preamble show` remain collection reads.
 `OutputMode` contains only the supported JSON selection. Unsupported
 `--verbose`/`-v` and `--debug` flags are absent from the grammar and fail with
 `USAGE_ERROR` before effects; literal message/option-value text is unchanged.
@@ -1292,7 +1323,7 @@ inside the writing transaction, so no write path can forget. Migration
 bookkeeping and the Office tables fenced by the schema-36 cutover have none.
 An update counts only when some column's value differs (`WHEN OLD.c IS NOT
 NEW.c OR ...`), so a reconcile that rewrites a row with the same values is not
-a change, and `bindings.last_verified_at`, which `list` refreshes while
+a change, and `bindings.last_verified_at`, which `ls` refreshes while
 reconciling presence, is not compared at all. A later migration that adds a
 core table or a column, or rebuilds a table (as schema 39 rebuilt
 `bindings`), must create or recreate its triggers: `change_cursor_tests` fails
@@ -1312,6 +1343,27 @@ schema 9, the rebuild runs with foreign keys off, so dropping
 `request_attempts` does not cascade into `request_notifications`, then checks
 them, all in one immediate transaction that rolls back to schema 40 on any
 failure; foreign keys are restored on every exit.
+
+Schema 42 adds `bindings.pane_incarnation`, beside `pane_pid`. It holds the
+start token of the `ProcessIncarnation` that core observes for the pane shell
+when a binding is created (`BindingEndpoint::pane_incarnation`). It never comes
+from a host's or driver's text.
+
+- **Existing rows:** bindings made before schema 42 keep NULL until they rebind;
+  there is no backfill.
+- **Verification:** `evaluate_binding` treats a known recorded value and a known
+  observed value that differ as a reused pid, which is `EndpointLost`. NULL, or a
+  failed observation, is unknown and proves neither loss nor sameness; the pid
+  and marker rules decide as before.
+- **Read paths don't observe:** on macOS one `ps` costs about 110 ms, so tmux and
+  Herdr reads (`ls`, status, send) leave the observed value unknown and never
+  compare; their pane IDs are already unique within a server incarnation.
+- **Cost:** recording costs one `ps` per new binding.
+- **External hosts:** pane IDs are declared by the driver, so external hosts will
+  observe on verification, scoped to the binding's pane.
+- **Format:** the column admits 1 to 256 printable ASCII bytes, not all blank,
+  matching what `ProcessIncarnation` accepts.
+- **Cursor:** the bindings cursor update trigger compares the column.
 
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
@@ -1666,7 +1718,7 @@ retry. A failed retirement is reported as a secondary diagnostic
 Conclusive pane/server death or explicit unbind retires temporary names without
 erasing retained exchanges; saved identities remain available offline. Saved
 removal requires explicit force. Neither removal nor unbind kills a pane.
-`list` may show verified foreign-server identities, but `talk`/`check` routing
+`ls` may show verified foreign-server identities, but `talk`/`check` routing
 remains current-server-only. Pane number, presentation title and socket pathname
 alone are not endpoint identity. Publication and recovery preserve the full
 server/pane process evidence; ambiguous observations fail closed.
@@ -1727,7 +1779,12 @@ show` to find its own file; and at startup, only when stdout or stderr is a term
 set `theme.base`, `tmt` sets the process theme once
 (`tmt_cli_style::theme::configure`), which `stream::stdout` and
 `stream::stderr` apply at the stream's color depth. A missing or invalid theme
-leaves every command on the terminal's own 16 colors.
+leaves every command on the terminal's own 16 colors. The Squad board reads the
+same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
+(`look`), defaulting to `tmt`; a bad global theme is a notice on the board, a
+bad squad theme a `squad.toml` error. Only `tmt-cli-style` names colors: the
+native architecture test (`colors`) rejects color literals in other production
+code, the Rust extensions included.
 
 `json_document` owns editable config/tmux metadata number compatibility:
 IEEE-754 values with non-finite opaque values serialized as null. Known invalid
@@ -1737,7 +1794,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 41, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 42, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -1911,7 +1968,7 @@ cleanup.
 
 The CLI and the `delivery` and `pane_badge` adapters reach the terminal host
 only through `tmt-adapters::host::Host`. Extensions never do: they read presence
-from `tmt list --json` and the caller from `tmt whoami`, and the architecture
+from `tmt ls --json` and the caller from `tmt whoami`, and the architecture
 guard rejects any extension source, test code included, that names the host
 port, the tmux or Herdr module, or core's `binding`, `endpoint` or `host`
 model. The host port holds the binding session (the core `BindingEndpoint`
@@ -2019,6 +2076,18 @@ and status commands never call it.
 Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
+
+### Codex queue transport groundwork
+
+`drivers/codex/queue` owns exact native request/receipt validation, while
+`drivers/codex/transport` owns synchronous WebSocket framing and the absolute
+I/O deadline. The only new transport dependency is adapter-local tungstenite,
+exactly pinned with default features disabled and `handshake` enabled; no TLS
+or async runtime enters core or shared ports. The architecture dependency guard
+permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
+owns limits, version qualification and receipt semantics. These modules are
+unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
+integration must be proven before user-facing activation in the later #719 slices.
 
 ### Provider channels
 
@@ -2231,19 +2300,19 @@ links without deleting releases or application data. It is recoverable, not a mu
 a missing command link with a retained activation is reported as invalid and
 explicit uninstall can finish that state.
 
-`tmt extension install|upgrade|uninstall|list` (`tmt-cli::extension_install_command`)
+`tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
 is the public surface for the official extensions over this path. Its facade
 retains dispatch, consent, errors, interruption, rendering and uninstall; private
 `extension_install_command/` modules own install, repair, list/upgrade and skills
 settlement through the existing native-installer and owned-skill adapters. The names
 come from the fixed product table, never from PATH or archive data. Install, upgrade
 and uninstall require consent (`--yes`, or an interactive prompt), and refuse a
-non-interactive run without it. `list` reads local receipts only. `--check` adds a
+non-interactive run without it. `ls` reads local receipts only. `--check` adds a
 bounded release lookup (`latest_release_version`, metadata only), and a failed
 lookup reports `unknown`. Shadowing canonicalizes every `tmt-<name>` on PATH and
 reports those that resolve elsewhere, without executing them. Root help groups
 discovered extension names that resolve to the same file (`squad (also: sq)`).
-`tmt office install|upgrade|status|uninstall` keeps its own Office-specific
+`tmt office install|upgrade|status|rm` keeps its own Office-specific
 flow for now.
 
 An extension's agent skills belong to one owner named after it (`squad`,
@@ -2297,6 +2366,21 @@ stays at 16 KiB.
   receipts from earlier releases); new receipts always record `wkh237/tmt`;
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
+
+`native_upgrade_command` upgrades the CLI and refreshes its managed skills before
+asking the newly installed executable to upgrade installed official products.
+The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
+pending versions; the parent owns one terminal consent question and sends that
+exact plan on stdin to the new executable with `--yes`. It validates the bounded
+plan/result reports and exit status. Unsupported older targets fail with a rerun
+hint; old-process extension logic is never used as a fallback.
+`extension_install_command::upgrade_all` in the new executable discovers products
+in its managed CLI prefix and retains each channel/pin. A selected
+version uses the same native acquisition/activation path without creating an exact
+version pin; extension verification and skill settlement retain their existing owners.
+JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
+Product failures remain independent in the aggregate report; CLI failure stops the
+extension phase, while a pinned CLI permits it. No rollback or second installer exists.
 
 Explicit extension `install --repair` is a separate recovery composition in
 `native_install::repair`, for GitHub and local-archive receipts. `receipt`
@@ -2354,7 +2438,25 @@ through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 
 Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
-squads and removal clears exactly one namespace. `ls` (alias `status`) joins
+squads and removal clears exactly one namespace. Leadership is the reserved
+identity metadata key `squad.<name>.lead.marker` (`true` or `false`), outside the
+user field/column grammar; `role` and `lead` remain ordinary free-text fields.
+The roster parses that key into `Member::lead_marker` and omits it from public
+`fields`, so field enumeration and copy/provider/column consumers never see it.
+`Member::is_lead` reads that value, falling back to `role == "lead"` only for an
+unconverted member. Before applying `set` pairs, the membership owner records
+a marker only when a role write would change that legacy-derived leadership.
+Conversion is per member because sequential core writes can fail partway through
+a squad-wide conversion. New additions need no marker unless their existing
+metadata would make them lead; in that case `add` writes `false` before joining.
+`squad lead` preflights the core metadata capacity for every required marker
+before any write, records `true` before joining the new lead, then sets previous
+leads to `false`, preserving all role text. A concurrent metadata write after
+preflight can still split this sequence; it is not a transaction. Removal clears the reserved key with the
+rest of that squad's namespace. A required new marker at the identity metadata
+capacity limit returns the existing core error before the role pairs or join,
+rather than silently changing leadership. Reads never convert state.
+`ls` (alias `status`) joins
 one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
@@ -2366,7 +2468,13 @@ member's public projection: the `ls --room` row it already joins (`cwd`,
 returns unprefixed only when a column reads `meta.<key>`. `status::document`
 writes each bound value into the row's field of the column's name, with its
 number for sorting, before sections, filters and sorts read it, so the board and
-`ls` show one value and a binding adds no core call. Field providers
+`ls` show one value and a binding adds no core call. It also owns cell color
+resolution: a column's numeric `color` thresholds (`rows::Threshold`, validated
+theme tokens, strictly increasing) over the bound number or the field read as a
+number, else a field provider's token, which `provider::apply` keeps only when
+it names a theme token. The row carries the result as `colors` (`{field: token}`,
+omitted when empty); the board styles those cells through the theme, `state`
+keeps its state colors, and `ls` text stays uncolored. Field providers
 (`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
 member through `runner` with the run-binding argument rule
 (`Template::fill_argument`: one argument per template, no shell, a value that
@@ -2393,7 +2501,18 @@ the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data. The input loop asks for a reload at the shown squad's `refresh`
+painted data. Input, snapshots and deferred tab attention share one event channel;
+a snapshot wakes the painter directly. The input loop rebuilds only after a
+state/input/resize change or when displayed clock text or the delayed spinner
+changes. Each immutable view owns disposable markdown wrapping and grid-width
+derivations keyed by effective pane width (and grid search); replacing the view
+invalidates them, and the scroll renderer copies only visible lines.
+A switch advances the worker's generation, cancelling superseded core reads in
+Squad's existing bounded process-group runner. Cancellation kills and reaps the
+child group without changing ordinary command deadlines or output bounds;
+queued results carry their generation and cannot replace a newer view. Worker
+shutdown cancels its core read, disconnects requests and joins after terminal
+restoration. The input loop asks for a reload at the shown squad's `refresh`
 interval (`Config::refresh`: per squad, then top-level `[board]`, then 5 s;
 `None` is off), which each snapshot carries, so a squad that failed to load
 retries at the default. That timer always runs. Between requests the refresh
@@ -2405,15 +2524,21 @@ change, and `API_INPUT_INVALID` (a core without the method) stops cursor reads
 for the session, leaving the file check and the interval. A switch never clears the view: `App` keeps the view of each
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
-swaps in whole; a result for a squad the user left only refreshes that cache.
+swaps in whole. An uncached switch that lasts at least 100 ms shows a spinner in
+the fixed summary header, ticking every 80 ms; cached switches show no loading
+indicator. F5 defaults to refresh in squad, leads and all views; squad/leads
+bindings can rebind it through `[bind]`, while all keeps its own `[tabs.all.bind]`.
 Tabs are the same width selected or not: selection is a style, never extra
 characters. `attention::Attention` is the one definition of a squad's tab
 state, derived from its status document: members waiting on the user (`pending`
 or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
 `squad.attention`. The refresh computes it for the shown squad from that
-document, and for every other squad from a roster-only document (one
-`rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
-tabs are colored without loading their rows.
+document and publishes that view first. The same worker then computes every
+other squad's attention from a roster-only document (one `rooms.roster` read
+each, plus one `inbox` read shared by all, and no `ls`). Previous tab attention
+stays visible until that generation's update arrives; a newer switch preempts
+this lower-priority work. The cross-squad leads/all views still read the rosters
+needed for their own rows before publication.
 
 Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
 board refresh and reminder timing. Callers retain their accepted units, numeric
@@ -2423,13 +2548,21 @@ Optional `[squad.<name>.reminders]` config is parsed by
 `Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
 from 1 minute through 24 hours. `staleness` owns observed raw task/state and
 exact lead-notebook content age, separate from providers and column bindings.
-`ls` acquires its nonblocking cache lock before the roster read, reads notes
-through public `notes.read` only when enabled, and shares the existing bounded
-room history with the request overlay. `Snapshot::apply` adds the same
-`staleness` object to every occurrence of a member UUID and
-`squad.notesStaleness`; text labels derive from those objects. The board's
-observer integration and marks are a later slice, not implemented by this
-status projection.
+`observe` is the one read sequence for a squad's status, used by `ls` and the
+board's squad tabs alike: it acquires the nonblocking cache lock before the
+roster read, reads the lead's notes through public `notes.read` only when the
+observation can publish (or the board shows the notes pane, which then reuses
+that one read), records, and hands the bounded room history to the request
+overlay. Providers never run there: `ls --refresh-fields` refreshes between
+observing and building the document, the board only hands members to its
+fetcher thread. `Snapshot::apply` adds the same `staleness` object to every
+occurrence of a member UUID and `squad.notesStaleness`; text labels derive from
+those objects. The board draws a stale row in the `dim` token with its label at
+the row's right edge, reserving that room only when no column would be hidden,
+and adds the notes' label to the notes pane title in `waiting`; the label text
+carries the meaning without color. The leads and all tabs read rosters without
+an observer and show no marks. Content age is unrelated to `App::loading`, the
+previous squad's frame while a switch loads.
 
 The private observation cache under `$XDG_CACHE_HOME/tmt-squad/staleness`
 is bounded to 512 KiB and 128 members per room, namespaced by the absolute
@@ -2498,7 +2631,10 @@ prefers the configured program, then, inside tmux, `tmux -S <invoker socket>
 load-buffer -w -`: `-V` must report 3.2 or later, and `show -sv set-clipboard`
 decides whether the text reached the clipboard or only a buffer. Otherwise copy
 writes OSC 52 to `/dev/tty`. `jump` checks membership and then calls `tmt
-focus`; squad has no focus logic of its own.
+focus`; squad has no focus logic of its own. `jump --lead` finds the squad
+from `--squad`, else the caller's identity (`tmt whoami`) in exactly one
+squad roster, else the only squad, and jumps to that roster's lead the same
+way; no lead is a refusal before any focus.
 `action` parses `[bind]` and `[squad.<name>.section.bind]` once per load into
 events and actions whose arguments are templates; bad events, actions or field
 syntax are configuration errors. The board resolves the selected row's section
@@ -2511,7 +2647,7 @@ drawn there. `board::scroll` is the one scroll owner: every pane hands its
 lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
-under the pointer. Panes keep no scroll state of their own; the rows pane only
+under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
 asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
@@ -2519,7 +2655,9 @@ disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 Every jump pushes the pane the client left, under the client `tmt focus`
 reports; `back` asks core for the invoker's client with `tmt focus --client`,
 pops its entry and focuses it, so squad still never talks to tmux about clients.
-`hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back`)
+`hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back|lead`;
+the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it
+passes `TMUX_PANE=#{pane_id}` for core to name the caller)
 and owns one `source-file` line in the user's tmux configuration. It edits that
 file only after consent, rereads it before publication, keeps a byte-exact
 backup and replaces it atomically with the original mode; removal drops only
@@ -2574,7 +2712,7 @@ observation for `me_id` at once; the hooks are optional, and the same repair
 happens on the next command that reads `me`. The `tmt-squad` lead skill source lives under
 `extensions/tmt-squad/skills/` and is embedded only in the squad executable,
 never in the core skill bundle. Optional playbooks (`tmt squad playbook
-list|show|install|remove`, first `tmux-squad`) live beside it in
+ls|show|install|rm`, first `tmux-squad`) live beside it in
 `extensions/tmt-squad/playbooks/`, deliberately not under `skills/`: the release
 archive ships and the extension installer offers every skill under `skills/`,
 while a playbook is installed only on request, and a test pins that no playbook is
@@ -2582,8 +2720,8 @@ in that tree. `playbook.rs` holds the one catalog of embedded sources and regist
 subtree through `tmt-cli-style` (summary and examples per command, `--json` from
 squad's global option); it is Squad's first dependency on that crate. `show`
 prints the exact bytes; `install` asks (the same `consent` helper as `hotkeys`),
-then calls `skills.install` as owner `squad`, and `remove` calls `skills.remove`
-with the playbook's name, so the lead skill and `tmt extension uninstall squad`
+then calls `skills.install` as owner `squad`, and `rm` calls `skills.remove`
+with the playbook's name, so the lead skill and `tmt extension rm squad`
 are unaffected. Squad never writes a provider directory and never executes a
 playbook. Squad's dependencies must not change the CLI
 product: the proof is package-scoped (`-p tmt-cli` alone), because combined
@@ -2678,17 +2816,17 @@ third-party notices (including Vite's bundled frontend inventory for Office), an
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
-The release workflow remains a product-selected preparation and verification
+The release workflow is a product-selected preparation, verification and publication
 workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
 in the release skill covers the pipeline publishing an alpha draft that passes every gate, and
 nothing else. `native-release.yml` is the per-product
 run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
-the build, assemble and verify pipeline, once per draft release that lacks a verified
-bundle; the state lives on the draft itself (`release-publication.json` marks a complete
+the build, assemble, verify and publish pipeline, once per draft release that lacks a verified
+bundle or is complete and waits for its publication; the state lives on the draft itself (`release-publication.json` marks a complete
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
-`release-please-config.json`) on every push to `main` that changes more than prose: it
+`release-please-config.json`) on every push to `main`, documentation included: it
 opens one release pull request per component, enables auto-merge on them (they merge only
 through the required checks) and keeps them current, creates the draft release for a merged
 one, and starts the per-product run for each product that has a draft without a bundle. A
@@ -2700,10 +2838,16 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
 assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
-attached the pipeline evaluates the publication gates (commit, immutability, monotonic,
-migration, upgrade) in write-token jobs that run `main`'s code and only read the release
-commit's data; a failed gate leaves `publication-held.json` on the draft, and nothing
-publishes a draft yet. CLI, Office and Squad runs share the four-target cargo-dist build and
+attached the pipeline evaluates the publication gates (channel, commit, immutability,
+monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release
+commit's data; a failed gate leaves `publication-held.json` on the draft. A draft that
+passes them is published by `typescript/scripts/release-publish.mjs` in a write-token job on
+`main`'s code (it reads the draft again and refuses a version that is not an alpha, a
+component with `release: false`, a draft without the bundle and one with a hold or failure
+marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
+prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
+the policy's flags, the tag on the release commit and GitHub's attestation for the release and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. A read-only `native-release-smoke.yml` then installs the published release as a user does, on the four hosts in an isolated environment: the public installer and `tmt upgrade` for the CLI, the newest published CLI's extension install for an extension; its failures are reported on the same issue by a separate job. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
@@ -2732,7 +2876,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 
 `extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
 as `tmt remote`. `main` owns style/foreground composition and one bounded
-startup capabilities call. `core::CoreClient` owns fixed public `api`/`list`
+startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 `rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
 

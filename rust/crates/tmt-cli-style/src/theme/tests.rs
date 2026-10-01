@@ -246,14 +246,8 @@ fn command_line_tokens_have_their_design_token() {
     assert_eq!(Token::Error.role(), Some(Role::Blocked));
     assert_eq!(Token::Dim.role(), Some(Role::Dim));
     assert_eq!(Token::Driver(None).role(), Some(Role::Dim));
-    assert_eq!(
-        Token::Driver(Some(AnsiColor::Magenta)).role(),
-        Some(Role::Review)
-    );
-    assert_eq!(
-        Token::Driver(Some(AnsiColor::Cyan)).role(),
-        Some(Role::Link)
-    );
+    assert_eq!(Token::Driver(Some(Role::Review)).role(), Some(Role::Review));
+    assert_eq!(Token::Driver(Some(Role::Link)).role(), Some(Role::Link));
     assert_eq!(Token::Title.role(), None);
     assert_eq!(Token::Literal.role(), None);
 }

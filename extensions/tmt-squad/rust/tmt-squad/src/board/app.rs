@@ -23,6 +23,7 @@ use std::{
 pub struct View {
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
+    pub(super) derived: RefCell<super::derived::Derived>,
     pub rows: crate::rows::Rows,
     pub colors: BTreeMap<String, String>,
     pub board: Board,
@@ -42,6 +43,10 @@ pub struct View {
     pub me: Option<String>,
     /// Finals to the user's squad requests, newest first (replies pane).
     pub replies: Vec<Value>,
+    /// The squad's theme at the terminal's depth: every color the board draws.
+    pub look: crate::look::Look,
+    /// Why the board uses the default theme, when the global one is wrong.
+    pub theme_notice: Option<String>,
 }
 
 /// The lead's notebook, already sanitized for display.
@@ -356,7 +361,7 @@ impl App {
     }
 
     /// The view on screen belongs to another squad while a switch loads.
-    pub fn stale(&self) -> bool {
+    pub fn loading(&self) -> bool {
         self.view.is_some() && self.shown != self.current
     }
 
@@ -366,7 +371,9 @@ impl App {
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
-        self.attention = snapshot.attention;
+        self.attention
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
+        self.attention.extend(snapshot.attention);
         if self.current.is_some() && snapshot.squad != self.current {
             if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
                 self.cache.insert(name, view);
@@ -378,7 +385,7 @@ impl App {
         match snapshot.view {
             Ok(view) => {
                 self.focus = self.focus.min(view.board.panes.len().saturating_sub(1));
-                let changed = self.stale() || self.view.is_none();
+                let changed = self.loading() || self.view.is_none();
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
@@ -393,9 +400,9 @@ impl App {
                 self.error = None;
             }
             Err(error) => {
-                // The switch failed: the error is the state, not a stale frame
+                // The switch failed: the error is the state, not the previous frame
                 // that keeps saying it is loading. The old view stays cached.
-                if self.stale()
+                if self.loading()
                     && let (Some(previous), Some(name)) = (self.view.take(), self.shown.take())
                 {
                     self.cache.entry(name).or_insert(previous);
@@ -464,6 +471,7 @@ impl App {
         // Never blank the screen: a visited squad shows from the cache at
         // once; otherwise the current frame stays until the new one arrives.
         if let Some(cached) = self.cache.remove(&next) {
+            self.loading_since = None;
             let previous = self.view.replace(cached);
             if let (Some(previous), Some(name)) = (previous, self.shown.replace(next.clone())) {
                 self.cache.insert(name, previous);
@@ -478,6 +486,20 @@ impl App {
             .as_ref()
             .and_then(|view| view.board.panes.get(self.focus).copied())
             .unwrap_or(Pane::Rows)
+    }
+
+    /// Focuses the pane drawn under the pointer, if any.
+    fn focus_at(&mut self, column: u16, row: u16) {
+        let Some(pane) = self.scrolls.pane_at(column, row) else {
+            return;
+        };
+        if let Some(position) = self
+            .view
+            .as_ref()
+            .and_then(|view| view.board.panes.iter().position(|p| *p == pane))
+        {
+            self.focus = position;
+        }
     }
 
     fn next_pane(&mut self) {
@@ -512,7 +534,7 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
-        if self.stale() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
+        if self.loading() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
         }
@@ -965,7 +987,7 @@ impl App {
     }
 
     /// The wheel scrolls the pane under the pointer, whichever is focused.
-    /// A left click selects the row under it, then runs its `click` binding;
+    /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
         if self.menu.is_some() || self.input.is_some() || self.help || self.switcher.is_some() {
@@ -1009,6 +1031,7 @@ impl App {
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;
         }
+        self.focus_at(event.column, event.row);
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
@@ -1028,6 +1051,15 @@ impl App {
         }
     }
 
+    /// How the board draws now: the shown squad's theme, or the default
+    /// one before the first load.
+    pub fn look(&self) -> crate::look::Look {
+        self.view.as_ref().map_or_else(
+            || crate::look::Look::new(tmt_cli_style::Theme::default()),
+            |view| view.look,
+        )
+    }
+
     pub fn selected_row(&self) -> Option<&Value> {
         self.rows().get(self.selected).map(|(_, row)| *row)
     }
@@ -1044,6 +1076,7 @@ pub(crate) mod tests {
 
     fn view(sections: Value) -> View {
         View {
+            derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
             colors: BTreeMap::new(),
@@ -1061,6 +1094,8 @@ pub(crate) mod tests {
             opener: None,
             clipboard: None,
             tab_colors: Default::default(),
+            look: Default::default(),
+            theme_notice: None,
             me: None,
             replies: Vec::new(),
         }
@@ -1141,7 +1176,7 @@ pub(crate) mod tests {
         // Nothing is blanked: product's frame stays until infra arrives, and
         // its rows take no actions meanwhile.
         assert_eq!(names(&app), ["a"]);
-        assert!(app.stale() && app.loading_since.is_some());
+        assert!(app.loading() && app.loading_since.is_some());
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(app.notice.as_deref(), Some("Loading infra…"));
         // A late product result is kept for switching back, never shown.
@@ -1155,14 +1190,14 @@ pub(crate) mod tests {
             json!([{"title": null, "rows": [row("i", "")]}]),
         ));
         assert_eq!(names(&app), ["i"]);
-        assert!(!app.stale() && app.loading_since.is_none());
+        assert!(!app.loading() && app.loading_since.is_none());
         // Back to product: at once, from the cache (the late result).
         assert_eq!(
             press(&mut app, KeyCode::Left),
             Effect::Load("product".into())
         );
         assert_eq!(names(&app), ["late"]);
-        assert!(!app.stale(), "a cached squad is the current one at once");
+        assert!(!app.loading(), "a cached squad is the current one at once");
     }
 
     #[test]
@@ -1181,7 +1216,7 @@ pub(crate) mod tests {
             squad: Some("infra".into()),
             view: Err("infra: room not found".into()),
         });
-        assert!(!app.stale() && app.loading_since.is_none());
+        assert!(!app.loading() && app.loading_since.is_none());
         assert!(app.view.is_none());
         assert_eq!(app.error.as_deref(), Some("infra: room not found"));
         press(&mut app, KeyCode::Enter);

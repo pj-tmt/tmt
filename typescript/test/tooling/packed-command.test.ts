@@ -60,44 +60,36 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void>
 }
 
 describe('packed command verifier', () => {
-  it(
-    'returns exact UTF-8 stdout, including complete JSON and empty output',
-    { timeout: 10_000 },
-    () => {
-      const root = createFixture();
-      try {
-        const value = {
-          empty: '',
-          unicode: '東京🙂',
-          newline: 'first\r\nsecond',
-          nul: '\0',
-          bom: '\uFEFF',
-        };
-        const output = JSON.stringify(value);
-        expect(runNode(root, `process.stdout.write(${JSON.stringify(output)});`)).toBe(output);
-        expect(runNode(root, '')).toBe('');
-      } finally {
-        removeFixture(root);
-      }
+  it('returns exact UTF-8 stdout, including complete JSON and empty output', () => {
+    const root = createFixture();
+    try {
+      const value = {
+        empty: '',
+        unicode: '東京🙂',
+        newline: 'first\r\nsecond',
+        nul: '\0',
+        bom: '\uFEFF',
+      };
+      const output = JSON.stringify(value);
+      expect(runNode(root, `process.stdout.write(${JSON.stringify(output)});`)).toBe(output);
+      expect(runNode(root, '')).toBe('');
+    } finally {
+      removeFixture(root);
     }
-  );
+  });
 
-  it(
-    'accepts an expected exit-one failure but rejects it as unexpected by default',
-    { timeout: 10_000 },
-    () => {
-      const root = createFixture();
-      try {
-        const failure = 'process.exitCode = 1;';
-        expect(runNode(root, failure, { expectedStatus: 1 })).toBe('');
-        expect(() => runNode(root, failure)).toThrow('Packed command failed');
-      } finally {
-        removeFixture(root);
-      }
+  it('accepts an expected exit-one failure but rejects it as unexpected by default', () => {
+    const root = createFixture();
+    try {
+      const failure = 'process.exitCode = 1;';
+      expect(runNode(root, failure, { expectedStatus: 1 })).toBe('');
+      expect(() => runNode(root, failure)).toThrow('Packed command failed');
+    } finally {
+      removeFixture(root);
     }
-  );
+  });
 
-  it('rejects a signal termination and nonempty stderr', { timeout: 10_000 }, () => {
+  it('rejects a signal termination and nonempty stderr', () => {
     const root = createFixture();
     try {
       expect(() => runNode(root, "process.kill(process.pid, 'SIGTERM');")).toThrow(
@@ -156,7 +148,7 @@ describe('packed command verifier', () => {
     }
   );
 
-  it('reports a missing executable as a spawn failure', { timeout: 10_000 }, () => {
+  it('reports a missing executable as a spawn failure', () => {
     const root = createFixture();
     try {
       expect(() =>

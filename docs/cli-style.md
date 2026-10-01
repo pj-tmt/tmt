@@ -24,12 +24,15 @@ or 256-color values are used.
 | `dim`            | dim       | counts, times, offline, secondary   |
 | `title`          | bold      | section titles and help headings    |
 | `literal`        | bold      | commands and flags a reader types   |
-| driver `claude`  | magenta   | an address or name driven by Claude |
-| driver `codex`   | cyan      | an address or name driven by Codex  |
+| driver `claude`  | magenta   | `review`: an address driven by Claude |
+| driver `codex`   | cyan      | `link`: an address driven by Codex    |
 | any other driver | dim       | including the `tmux:%N` transport   |
 
 Help uses the same tokens through clap `Styles`. A full-screen view, such as the
-Squad board, takes its colors from `Token::color`, not from its own palette.
+Squad board, draws only design tokens, through `theme::screen::style`. This crate
+is the only place a color is named: elsewhere, production code writes no
+`Color::Red`, `Color::Rgb`, `AnsiColor` or `RgbColor`, and the native
+architecture test enforces it for the CLIs and the Rust extensions.
 
 ## Themes
 
@@ -52,8 +55,8 @@ place. A stream renders at one `Depth`, decided once: none (no color, as for
 `truecolor` or `24bit`. At 16 colors, `tmt` and `tmt-light` use the terminal
 column rather than the nearest shade, and a hex override uses the nearest of the
 16 colors. `Token::role` names the design token each command-line token shows
-as (`ok` is `working`, `warn` is `waiting`, `error` is `blocked`, the Claude and
-Codex driver colors are `review` and `link`). Full-screen views get the same
+as (`ok` is `working`, `warn` is `waiting`, `error` is `blocked`; a driver token
+carries its design token, which the CLI picks from the descriptor's hue). Full-screen views get the same
 styles for ratatui from `theme::screen::style`, behind the crate's `ratatui`
 feature, so core links no ratatui. A test keeps the built-in values equal to the
 design tokens.
@@ -147,6 +150,16 @@ Human output shows readable forms (`value`). `--json` always keeps the full valu
 - Line messages use these labels, lowercase everywhere; marks are for list rows.
 - One-line messages drop a single final period. The stored message, and
   therefore `--json`, keeps it.
+
+## Command names
+
+Use `ls` for listing, `rm` for removal/reset, `mv` for identity renaming, and
+`show` for displaying a record. Root `uninstall` retains its distinct whole-product
+meaning; descriptive domain verbs remain when a shell verb would mislead. Old
+long spellings stay accepted as hidden aliases: help, docs and examples show the
+primary names; completion may offer both. Removal help must state exactly what
+is removed or reset and what is retained. The recursive `list_spelling_report`
+guard checks `ls` with a hidden `list` alias in every nested listing command.
 
 ## Help
 

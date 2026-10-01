@@ -28,12 +28,16 @@ fn member_value(member: &Member) -> Value {
             .get(name)
             .map_or(Value::Null, |value| value.as_str().into())
     };
-    json!({
+    let mut row = json!({
         "id": member.id, "name": member.name, "lifetime": member.lifetime,
         "presence": member.presence, "pane": member.pane, "activity": member.activity,
         "state": field("state"), "pending": field("pending"), "note": field("note"),
         "fields": member.fields, "failed": member.failed, "staleness": crate::staleness::unavailable("disabled"),
-    })
+    });
+    if !member.colors.is_empty() {
+        row["colors"] = json!(member.colors);
+    }
+    row
 }
 
 /// Crew puts rows that owe the user a decision first; then the layout's state
@@ -107,6 +111,35 @@ fn apply_sources(rows: &Rows, members: &mut [Member], now_ms: u64) {
     }
 }
 
+/// Each cell's color token: a column's threshold the value reaches wins over
+/// a provider's suggested token; otherwise the cell has none. The value is
+/// the bound number when there is one, else the field's text read as a
+/// number. `state` keeps its state colors.
+fn apply_colors(rows: &Rows, members: &mut [Member]) {
+    for member in members.iter_mut() {
+        member.colors.remove("state");
+        for column in rows
+            .columns
+            .iter()
+            .filter(|column| !column.color.is_empty())
+        {
+            if column.field == "state" {
+                continue;
+            }
+            let number = member.numbers.get(&column.field).copied().or_else(|| {
+                member
+                    .fields
+                    .get(&column.field)
+                    .and_then(|text| text.trim().parse::<f64>().ok())
+                    .filter(|number| number.is_finite())
+            });
+            if let Some(token) = number.and_then(|number| column.threshold(number)) {
+                member.colors.insert(column.field.clone(), token.to_owned());
+            }
+        }
+    }
+}
+
 fn rows(members: &[&Member]) -> Vec<Value> {
     members.iter().map(|member| member_value(member)).collect()
 }
@@ -125,6 +158,7 @@ pub fn document(
     mut members: Vec<Member>,
 ) -> Value {
     apply_sources(row_layout, &mut members, now_ms());
+    apply_colors(row_layout, &mut members);
     let (leads, mut members): (Vec<_>, Vec<_>) = members.into_iter().partition(Member::is_lead);
     sort(&mut members, layout, states);
     let all: Vec<&Member> = members.iter().collect();
@@ -354,6 +388,87 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cell_colors_come_from_thresholds_then_providers_and_only_when_set() {
+        let directory =
+            std::env::temp_dir().join(format!("squad-cell-colors-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(
+            &path,
+            "[squad.product.rows]\ncolumns = [\n  { name = \"member\" },\n  \
+             { name = \"ctx\", from = \"session.usage.tokens\", format = \"tokens\",\n    \
+               color = [{ at = 400000, token = \"review\" }, { at = 600000, token = \"red\" }] },\n  \
+             { name = \"score\", color = [{ at = 10, token = \"working\" }] },\n  \
+             { name = \"state\", color = [{ at = 0, token = \"blocked\" }] },\n]\n",
+        )
+        .unwrap();
+        let config = crate::config::Config::read(path).unwrap();
+        let squad = Squad {
+            name: "product".into(),
+            room_id: "room".into(),
+        };
+        let used = |name: &str, tokens: u64, fields: &[(&str, &str)]| {
+            let mut member = member(name, fields);
+            member.seen = json!({"resume": {"usage": {"tokens": tokens}}});
+            member
+        };
+        // A provider suggested a color for `ctx` and for `score`.
+        let suggested = |mut member: Member| {
+            member.colors.insert("ctx".into(), "link".into());
+            member.colors.insert("score".into(), "accent".into());
+            member
+        };
+        let document = document(
+            &squad,
+            Layout::Minimal,
+            &states(Layout::Minimal),
+            &[],
+            &config.rows("product").unwrap(),
+            vec![
+                used("below", 399_999, &[("score", "9")]),
+                used("at", 400_000, &[("score", "10")]),
+                used("over", 650_000, &[("score", "ten"), ("state", "working")]),
+                suggested(used("hinted", 399_999, &[("score", "12.5")])),
+                suggested(used("quiet", 100, &[])),
+                member("plain", &[]),
+            ],
+        );
+        let colors = |name: &str| {
+            document["sections"][0]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["name"] == name)
+                .unwrap()
+                .get("colors")
+                .cloned()
+        };
+        // Below the first threshold, and no suggestion: no key at all.
+        assert_eq!(colors("below"), None);
+        // Exactly `at` reaches it; the highest reached wins; an alias stays
+        // as written, a token name. Text that is not a number gets none.
+        assert_eq!(
+            colors("at"),
+            Some(json!({"ctx": "review", "score": "working"}))
+        );
+        assert_eq!(colors("over"), Some(json!({"ctx": "red"})));
+        // A threshold the value reaches beats the provider's suggestion; one
+        // it does not reach leaves the suggestion.
+        assert_eq!(
+            colors("hinted"),
+            Some(json!({"ctx": "link", "score": "working"}))
+        );
+        assert_eq!(
+            colors("quiet"),
+            Some(json!({"ctx": "link", "score": "accent"}))
+        );
+        // `state` keeps its state colors; no missing value is colored.
+        assert_eq!(colors("plain"), None);
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
     fn a_decision_owed_leads_the_row_over_presence() {
         let row = |presence: &str, pending: Option<&str>| json!({"presence": presence, "pending": pending});
         assert_eq!(mark(&row("active", Some("approve"))), Mark::Decision);
@@ -365,6 +480,7 @@ mod tests {
 
     fn member(name: &str, fields: &[(&str, &str)]) -> Member {
         Member {
+            lead_marker: None,
             id: format!("id-{name}"),
             name: name.into(),
             lifetime: "temporary".into(),
@@ -378,6 +494,7 @@ mod tests {
             meta: Default::default(),
             seen: Value::Null,
             numbers: Default::default(),
+            colors: Default::default(),
             failed: Default::default(),
         }
     }

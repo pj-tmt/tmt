@@ -617,6 +617,9 @@ esac
             pinned: true,
             pinnedVersion: fixture.version,
             skippedPinned: true,
+            products: [
+              { product: 'cli', status: 'skippedPinned', version: fixture.version, error: null },
+            ],
             skills: null,
             pathWarning: null,
           });

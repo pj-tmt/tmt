@@ -83,6 +83,7 @@ impl Drop for Fixture {
 
 fn member(id: &str, fields: &[(&str, &str)]) -> Member {
     Member {
+        lead_marker: None,
         id: id.into(),
         name: id.into(),
         lifetime: "saved".into(),
@@ -96,6 +97,7 @@ fn member(id: &str, fields: &[(&str, &str)]) -> Member {
         meta: BTreeMap::new(),
         seen: Value::Null,
         numbers: BTreeMap::new(),
+        colors: Default::default(),
         failed: Default::default(),
     }
 }

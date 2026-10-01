@@ -589,11 +589,19 @@ fn dependency_policy_handles_normal_build_target_renamed_and_dev_entries() {
             vec![
                 dependency("uuid", "normal", None, None),
                 dependency("sha2", "normal", None, None),
-                dependency("semver", "normal", None, None),
-                dependency("serde_json", "dev", None, None)
+                dependency("semver", "normal", None, None)
             ],
         )),
         Vec::<String>::new(),
+    );
+    // The removed, unused core dev dependency must not retain permission.
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-core",
+            vec![dependency("serde_json", "dev", None, None)]
+        ))
+        .len(),
+        1
     );
     assert_eq!(
         policy::dependency_violations(&package(
@@ -630,6 +638,93 @@ fn dependency_policy_handles_normal_build_target_renamed_and_dev_entries() {
         vec![
             "tmt-core: unreviewed production dependency uuid (kind=\"normal\", target=null, rename=\"ids\")"
         ],
+    );
+}
+
+#[test]
+fn dev_dependencies_require_an_exact_reviewed_edge() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-cli",
+            vec![dependency("rusqlite", "dev", Some("cfg(unix)"), None)]
+        ))
+        .is_empty()
+    );
+    for target in [None, Some("cfg(windows)")] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-cli",
+                vec![dependency("rusqlite", "dev", target, None)]
+            )),
+            vec![format!(
+                "tmt-cli: unreviewed dev dependency rusqlite (target={}, rename=null); remove any rename and, after review, add (\"tmt-cli\", \"rusqlite\", {target:?}), // <review reason> to DEV_DEPENDENCIES in rust/crates/tmt-cli/tests/architecture/policy.rs",
+                json!(target)
+            )]
+        );
+    }
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-adapters",
+            vec![dependency(
+                "nix",
+                "dev",
+                Some("cfg(unix)"),
+                Some("unix_helpers")
+            )]
+        )),
+        vec![
+            "tmt-adapters: unreviewed dev dependency nix (target=\"cfg(unix)\", rename=\"unix_helpers\"); remove rename from the tmt-adapters Cargo.toml; DEV_DEPENDENCIES in rust/crates/tmt-cli/tests/architecture/policy.rs already reviews (\"tmt-adapters\", \"nix\", Some(\"cfg(unix)\")),"
+        ]
+    );
+    // A production permission is not a dev permission, even in a leaf crate.
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-core",
+            vec![dependency("uuid", "dev", None, None)]
+        ))
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn every_workspace_crate_reviews_new_dev_dependencies() {
+    for owner in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-cli-style",
+        "tmt-command-output",
+        "tmt-host-grammar",
+        "tmt-driver-protocol",
+        "tmt-invoke",
+        "tmt-remote",
+        "tmt-squad",
+        "tmt-office",
+        "tmt-office-command",
+        "tmt-office-model",
+        "tmt-office-pairing",
+        "tmt-office-service",
+        "tmt-office-storage",
+    ] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency("tempfile", "dev", None, None)]
+            ))
+            .len(),
+            1,
+            "{owner} must not silently accept a new dev edge"
+        );
+    }
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-core",
+            vec![dependency("tempfile", "dev", None, None)]
+        )),
+        vec![
+            "tmt-core: unreviewed dev dependency tempfile (target=null, rename=null); remove any rename and, after review, add (\"tmt-core\", \"tempfile\", None), // <review reason> to DEV_DEPENDENCIES in rust/crates/tmt-cli/tests/architecture/policy.rs"
+        ]
     );
 }
 
@@ -1348,5 +1443,66 @@ fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
     assert_exact(
         &[syntax("tmt-invoke", "lib.rs", "use tmt_invoke::Request;")],
         &[],
+    );
+}
+
+#[test]
+fn tui_admission_is_an_internal_presentation_leaf() {
+    for name in ["roxmltree", "tmt-cli-style"] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-tui",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+    }
+    for kind in ["normal", "dev", "build"] {
+        for name in ["tmt-core", "tmt-adapters", "tmt-squad"] {
+            assert_eq!(
+                policy::dependency_violations(&package(
+                    "tmt-tui",
+                    vec![dependency(name, kind, Some("cfg(unix)"), None)]
+                ))
+                .len(),
+                1
+            );
+        }
+    }
+    for owner in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-cli-style",
+        "tmt-squad",
+    ] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency("tmt-tui", "normal", None, None)]
+            ))
+            .len(),
+            1
+        );
+        assert!(
+            !policy::source_violations(&[syntax(owner, "lib.rs", "use tmt_tui::parse;")])
+                .is_empty()
+        );
+    }
+    assert_exact(
+        &[syntax("tmt-tui", "lib.rs", "use tmt_cli_style::Role;")],
+        &[],
+    );
+    assert_eq!(
+        policy::source_violations(&[syntax("tmt-tui", "lib.rs", "use tmt_core::identity;")]).len(),
+        1
+    );
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-tui",
+            vec![dependency("roxmltree", "normal", None, Some("alias"))]
+        ))
+        .len(),
+        1
     );
 }

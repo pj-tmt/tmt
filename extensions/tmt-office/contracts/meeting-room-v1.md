@@ -123,7 +123,7 @@ that operation directly; HTTP retains conditional full-roster replacement.
 
 ### Retirement
 
-`tmt room retire <room>` permanently retires a communication room, not its spatial
+`tmt room rm <room>` permanently retires a communication room, not its spatial
 area. The shared repository performs a revision-checked transition; HTTP uses
 `POST /api/v1/local/rooms/<uuid>/retire` with `{expectedRevision}`. Room snapshots
 include `retired: boolean`. An exact retirement retry returns the retained retired
@@ -135,7 +135,7 @@ edits, dispatch and new spatial bindings exclude retired rooms. An existing area
 unchanged binding may remain while its furniture or geometry is edited. Retiring a
 room never removes a map area or changes a saved layout.
 
-`room show <uuid>`, `x listen --room <uuid>` and `office board list --room <uuid>`
+`room show <uuid>`, `x listen --room <uuid>` and `office board ls --room <uuid>`
 may resolve a retired UUID for history;
 retired names are not selection aliases. A newly created same-name room has a new
 UUID and inherits no members or content. Existing request reply/ack operations and
@@ -165,8 +165,8 @@ are permitted; resolve them by UUID. Listing and membership are not authorizatio
 boundaries. `ls --room` filters the existing presence projection and preserves
 its reconciliation policy; it cannot be combined with a positional identity/pane.
 
-JSON uses `{room:{id,name,revision,retired,memberIds}}` for create/show/join/leave/retire and
-`{rooms:[...]}` for room list. Scoped `ls` preserves its existing `identities`
+JSON uses `{room:{id,name,revision,retired,memberIds}}` for create/show/join/leave/rm and
+`{rooms:[...]}` for room ls. Scoped `ls` preserves its existing `identities`
 envelope. Success exits 0; not-found room or identity exits 3; invalid/ambiguous
 selection, revision conflict and storage failure exit 1 with the normal structured
 CLI error. Human output uses the shared aligned table; `-h` and `--help` use the

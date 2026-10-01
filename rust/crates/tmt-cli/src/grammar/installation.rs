@@ -8,7 +8,7 @@ pub(in crate::grammar) fn extension() -> Command {
         "extension",
         "Manage consented extension integrations",
         [
-            "List official extensions" => "tmt extension list",
+            "List official extensions" => "tmt extension ls",
             "Install Squad" => "tmt extension install squad",
         ]
     ))
@@ -18,7 +18,7 @@ pub(in crate::grammar) fn extension() -> Command {
             "hooks",
             "Manage lifecycle hooks for trusted extensions",
             [
-                "List extensions with hooks enabled" => "tmt extension hooks list",
+                "List extensions with hooks enabled" => "tmt extension hooks ls",
                 "Deliver lifecycle hooks to Squad" => "tmt extension hooks enable squad",
             ]
         ))
@@ -43,13 +43,16 @@ pub(in crate::grammar) fn extension() -> Command {
             ))
             .arg(operand("name", true)),
         )
-        .subcommand(general(spec!(
-            "list",
-            "List extensions with enabled hooks",
-            [
-                "List extensions with hooks enabled" => "tmt extension hooks list",
-            ]
-        ))),
+        .subcommand(
+            general(spec!(
+                "ls",
+                "List extensions with enabled hooks",
+                [
+                    "List extensions with hooks enabled" => "tmt extension hooks ls",
+                ]
+            ))
+            .alias("list"),
+        ),
     )
     .subcommand(
         extension_target(general(spec!(
@@ -90,22 +93,26 @@ pub(in crate::grammar) fn extension() -> Command {
         .arg(Arg::new("to").long("to").conflicts_with("unpin"))
         .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
     )
-    .subcommand(extension_target(general(spec!(
-        "uninstall",
-        "Remove an extension's commands; releases and data are kept",
-        [
-            "Remove Squad's commands" => "tmt extension uninstall squad",
-        ]
-    ))))
-    .subcommand(
+    .subcommand(extension_target(
         general(spec!(
-            "list",
-            "List official extensions, versions and PATH shadowing",
+            "rm",
+            "Remove an extension's commands; releases and data are kept",
             [
-                "List official extensions" => "tmt extension list",
-                "Also check for newer releases" => "tmt extension list --check",
+                "Remove Squad's commands" => "tmt extension rm squad",
             ]
         ))
+        .alias("uninstall"),
+    ))
+    .subcommand(
+        general(spec!(
+            "ls",
+            "List official extensions, versions and PATH shadowing",
+            [
+                "List official extensions" => "tmt extension ls",
+                "Also check for newer releases" => "tmt extension ls --check",
+            ]
+        ))
+        .alias("list")
         .arg(Arg::new("prefix").long("prefix"))
         .arg(
             Arg::new("check")
@@ -184,7 +191,7 @@ pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
 pub(in crate::grammar) fn upgrade() -> Command {
     general(spec!(
         "upgrade",
-        "Upgrade the native CLI and refresh managed skills",
+        "Upgrade TMT, managed skills and installed official extensions",
         [
             "Update to the latest release on your channel" => "tmt upgrade",
             "Switch to the stable channel" => "tmt upgrade --channel stable",
@@ -192,6 +199,7 @@ pub(in crate::grammar) fn upgrade() -> Command {
         ]
     ))
     .visible_alias("update")
+    .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
     .arg(
         Arg::new("channel")
             .long("channel")
@@ -231,6 +239,27 @@ pub(in crate::grammar) fn uninstall() -> Command {
 
 pub(in crate::grammar) fn refresh_skills() -> Command {
     internal("__native-refresh-skills", "Internal managed skill refresh").hide(true)
+}
+
+pub(in crate::grammar) fn upgrade_extensions() -> Command {
+    internal(
+        "__native-upgrade-extensions",
+        "Internal extension upgrade plan/apply",
+    )
+    .hide(true)
+    .arg(
+        Arg::new("plan")
+            .long("plan")
+            .action(ArgAction::SetTrue)
+            .conflicts_with("yes")
+            .required_unless_present("yes"),
+    )
+    .arg(
+        Arg::new("yes")
+            .long("yes")
+            .action(ArgAction::SetTrue)
+            .required_unless_present("plan"),
+    )
 }
 
 pub(in crate::grammar) fn native_install() -> Command {
