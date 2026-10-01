@@ -22,7 +22,7 @@ from `typescript/`; Cargo, Nx and Docker commands run from the repository root.
 
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
-Rust 1.88; CI also runs the current pinned release toolchain.
+Rust 1.95; CI also runs the current pinned release toolchain.
 Remote-client tests require `python3` for the independent byte-fixture oracle.
 Shell completion tests require Bash and Zsh. Runtime proof uses the selected
 macOS developer tools or Linux `readelf` (binutils); these are verifier tools,
@@ -249,8 +249,18 @@ runs a Squad scope under the same job names (its Cargo checks and the architectu
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
 `Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
 Remote Rust has an explicit rule retaining full native and Office coverage; the full
-Rust job requires nonempty remote test discovery and runs locked workspace tests,
-Clippy and builds (including MSRV). Its result remains required by the native gate.
+Rust checks require nonempty remote test discovery and run locked workspace tests,
+Clippy and builds. A parallel `Native Rust MSRV` job runs
+`cargo +"$MSRV" check --locked --workspace --all-targets` for both full and Squad
+scopes, reading `MSRV` from `workspace.package.rust-version` in `rust/Cargo.toml`.
+Rustup resolves the manifest's two-part minimum to its latest patch release,
+rather than duplicating a patch pin in the workflow.
+It replaces the MSRV executable builds and expands Squad MSRV coverage to the
+whole workspace without changing the declared minimum. Its separate
+`native-rust-msrv` cache has one writer, the MSRV job on main; PRs only restore.
+`Native Rust contracts` is the fail-closed aggregator of these two workers. It
+requires both to succeed, rejects missing selection, and stays skipped for scope
+`none`, preserving the outer native gate and required-check names.
 The remote TypeScript and browser paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
@@ -259,6 +269,14 @@ partitions run in their own workflow (below), so a red `CI` run means one of its
 jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
+
+Linux CI package installation uses `.github/actions/apt-install`: each apt update
+or install attempt has a 120-second timeout with a 10-second forced-kill grace.
+The existing retry helper makes at most three attempts, with 5- and 10-second
+backoffs. Apt also uses 30-second HTTP/HTTPS network timeouts and two acquisition
+retries. The action removes the unused Chrome source before updating; package
+selection stays with each caller. Revisit the attempt bound before adding large
+packages to the current small dependency sets.
 
 `release-please-config.json` is generated, not hand-edited. After changing the component
 map, a crate's version declaration, the workspace's crates or its dependencies between
@@ -323,7 +341,15 @@ that serial scenarios exhaust a per-job deadline:
 emulator-backed contracts, three local Vite shards, and eight native-local shards.
 The eight native-local shards (#424) and the three local Vite shards (#574) are paused on
 pull requests until they are fixed and run weekly and by manual dispatch instead; a pull
-request runs only the emulator partition.
+request runs only the emulator partition, for Office-owned paths or its own
+verification machinery.
+`office_browser` selects paths owned by Office in `.github/components.json`
+(including its test fixtures) plus `docs/office/**` and browser-specific machinery
+listed in `selectOfficeBrowser` (the browser workflow, emulator verifier and
+Docker context policy). Shared dependency/selector/generic fixture changes rely
+on the weekly/manual safety net to catch Office build breakage. Scheduled and manual runs cover all twelve
+partitions, including the emulator, regardless of paths. Required CI selection
+remains conservative and independent of this advisory cost policy.
 One `image` job builds the `browser-tests` target once and shares it as a one-day
 artifact; every partition loads that image and never builds it.
 Local partitions do not start Firebase, while native-local shards use the container
@@ -365,9 +391,9 @@ the workspace crates so the denylist cannot go stale.
 - Run the local browser suite above before opening a PR for an Office-affecting
   change, and record the result in the PR.
 - On a pull request, the `Office browser verification` workflow runs only the emulator
-  partition, and only when `office` is selected. The native Office shards and the local
-  Vite shards do not run on pull requests until #424 and #574 are fixed, because they
-  fail on most runs: they run weekly and on a manual dispatch, all eleven together, and
+  partition, and only when `office_browser` is selected (Office ownership or verification machinery).
+  The native Office shards and the local Vite shards do not run on pull requests until #424 and #574 are fixed, because they
+  fail on most runs: weekly/manual runs include them and the emulator, all twelve together, and
   `ci-scope.mjs` still computes `native_office` for the change that re-enables the native
   shards. Their results are advisory: they are not required checks and never gate merge,
   and a red run of that workflow is a browser diagnostic, not a `CI` failure.
@@ -809,7 +835,7 @@ cargo test --locked
 cargo build --locked
 cargo build --locked --example storage-probe
 cargo build --locked --example tmux-probe
-cargo +1.88.0 build --locked
+cargo +1.95.0 build --locked
 ```
 
 For the unregistered Codex queue transport (#736), focused deterministic checks
@@ -817,11 +843,22 @@ are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
 `cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
 tests own local loopback peers and exercise receipt loss and absolute deadlines;
 they do not start a model or inspect provider credentials. Dependency review
-also records exact features/graph, Rust 1.88, licenses, current advisories and an
+also records exact features/graph, Rust 1.95, licenses, current advisories and an
 actual CLI release baseline/candidate under one toolchain/profile. Label a
 zero delta from unused/dead-stripped groundwork honestly and repeat the size
 measurement after the final consumer links it. See the
 [owning contract](contracts/codex-channel-v1.md) for remaining integration gates.
+
+Private Codex enrollment state (#737) is checked with
+`cargo test --locked -p tmt-adapters drivers::codex::record`. These tests own
+isolated temporary records and inject liveness evidence; they verify lock-scoped
+state changes and replacement preservation, not real crashed-server recovery.
+
+Owned Codex startup and attachment planning (#738) are covered by
+`cargo test --locked -p tmt-adapters drivers::codex`. The server cases launch
+isolated shell stand-ins and check observable process/file cleanup; cwd probes
+compare relative and absolute `-C`. They do not start Codex or a model and do not
+replace the final live foreground continuity gate.
 
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
@@ -888,7 +925,7 @@ The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash
 cargo test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
-cargo +1.88.0 test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
+cargo +1.95.0 test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
 ```
 
 When changing a guard, exercise a real positive and negative source/dependency
@@ -899,7 +936,7 @@ I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
 ### Internal TUI markup admission
 
 From `rust/`, run `cargo test --locked -p tmt-tui` and
-`cargo +1.88.0 test --locked -p tmt-tui` for structural XML admission and its
+`cargo +1.95.0 test --locked -p tmt-tui` for structural XML admission and its
 byte/depth/node limits. Run the architecture test for dependency changes.
 The crate has no executable or board consumer; these tests use in-memory XML,
 not application configuration, SQLite or a terminal. Later admission/rendering

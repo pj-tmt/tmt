@@ -1,8 +1,8 @@
 name: Install apt packages
 description: >-
   Updates the package index and installs packages on a Linux runner, with the
-  network steps under a bounded retry. It first drops the runner image's Google
-  Chrome apt source: no job here uses it, and its index has failed with a hash
+  network steps under a bounded retry and per-attempt timeout. It first drops
+  the runner image's Google Chrome apt source: no job here uses it, and its index has failed with a hash
   mismatch that failed the whole update. Does nothing on other operating systems.
 inputs:
   packages:
@@ -21,7 +21,10 @@ runs:
           sudo rm -f "$source"
         done
         retry="$GITHUB_WORKSPACE/scripts/retry-command.sh"
-        "$retry" 3 5 sudo apt-get update
+        # Current callers install small packages (zsh, binutils, musl-tools).
+        # Revisit this bound before adding large packages. Kill stuck children too.
+        apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+        "$retry" 3 5 sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" update
         # The package list is intentionally split into separate arguments.
         # shellcheck disable=SC2086
-        "$retry" 3 5 sudo apt-get install --no-install-recommends -y $PACKAGES
+        "$retry" 3 5 sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" install --no-install-recommends -y $PACKAGES
