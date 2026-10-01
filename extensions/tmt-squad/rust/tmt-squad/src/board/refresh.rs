@@ -565,7 +565,7 @@ fn all_view(
         [
             ("enter", Some("tab")),
             ("double-click", Some("tab")),
-            ("f5", Some("refresh")),
+            ("ctrl-r", Some("refresh")),
         ]
         .into_iter(),
         "tabs.all",
@@ -860,7 +860,7 @@ mod tests {
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("infra".into())));
     }
 
-    /// `refresh = "off"` means F5 and actions only: no early reload either.
+    /// `refresh = "off"` means ctrl-r and actions only: no early reload either.
     #[test]
     fn a_view_with_automatic_reload_off_is_never_reloaded_early() {
         use std::sync::atomic::Ordering;
@@ -1162,8 +1162,8 @@ mod tests {
         assert_eq!(*steps.borrow(), ["shown", "attention"]);
     }
     #[test]
-    fn squad_leads_and_all_default_to_f5_refresh_and_keep_their_override_owners() {
-        let path = std::env::temp_dir().join(format!("squad-f5-{}.toml", std::process::id()));
+    fn squad_leads_and_all_default_to_ctrl_r_refresh_and_keep_their_override_owners() {
+        let path = std::env::temp_dir().join(format!("squad-ctrl-r-{}.toml", std::process::id()));
         let executable = path.with_extension("tmt");
         crate::test_support::write_executable(
             &executable,
@@ -1178,7 +1178,7 @@ mod tests {
                 crate::action::Verb::Refresh,
             ),
             (
-                "[bind]\nf5 = \"copy\"\n[tabs.leads.bind]\nf5 = \"notes\"\n[tabs.all.bind]\nf5 = \"notes\"\n",
+                "[bind]\nctrl-r = \"copy\"\n[tabs.leads.bind]\nctrl-r = \"notes\"\n[tabs.all.bind]\nctrl-r = \"notes\"\n",
                 crate::action::Verb::Copy,
                 crate::action::Verb::Notes,
                 crate::action::Verb::Notes,
@@ -1187,19 +1187,18 @@ mod tests {
             std::fs::write(&path, body).unwrap();
             let config = Config::read(path.clone()).unwrap();
             for tmux in [false, true] {
-                assert_eq!(config.bindings(tmux).unwrap()["f5"].verb, squad);
-                assert_eq!(
-                    leads_view(&core, tmux, &config, &[], &[], None)
-                        .unwrap()
-                        .0
-                        .bindings["f5"]
-                        .verb,
-                    leads
-                );
-                assert_eq!(
-                    all_view(&core, &config, &[], &[], None).unwrap().0.bindings["f5"].verb,
-                    all
-                );
+                let squad_bindings = config.bindings(tmux).unwrap();
+                assert_eq!(squad_bindings["ctrl-r"].verb, squad);
+                assert!(!squad_bindings.contains_key("f5"));
+                let leads_bindings = leads_view(&core, tmux, &config, &[], &[], None)
+                    .unwrap()
+                    .0
+                    .bindings;
+                assert_eq!(leads_bindings["ctrl-r"].verb, leads);
+                assert!(!leads_bindings.contains_key("f5"));
+                let all_bindings = all_view(&core, &config, &[], &[], None).unwrap().0.bindings;
+                assert_eq!(all_bindings["ctrl-r"].verb, all);
+                assert!(!all_bindings.contains_key("f5"));
             }
         }
         std::fs::remove_file(path).unwrap();

@@ -2526,8 +2526,10 @@ visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole. An uncached switch that lasts at least 100 ms shows a spinner in
 the fixed summary header, ticking every 80 ms; cached switches show no loading
-indicator. F5 defaults to refresh in squad, leads and all views; squad/leads
+indicator. `ctrl-r` defaults to refresh in squad, leads and all views; squad/leads
 bindings can rebind it through `[bind]`, while all keeps its own `[tabs.all.bind]`.
+The effective `ctrl-r` refresh binding is dispatched before text inputs, preserving
+search and composed messages. F5 has no default binding but remains configurable.
 Tabs are the same width selected or not: selection is a style, never extra
 characters. `attention::Attention` is the one definition of a squad's tab
 state, derived from its status document: members waiting on the user (`pending`

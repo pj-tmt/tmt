@@ -27,7 +27,7 @@ pub struct View {
     pub rows: crate::rows::Rows,
     pub colors: BTreeMap<String, String>,
     pub board: Board,
-    /// The full-reload interval; `None` reloads only on F5 and actions.
+    /// The full-reload interval; `None` reloads only on ctrl-r and actions.
     pub refresh: Option<std::time::Duration>,
     pub notes: Notes,
     pub render: NotesRender,
@@ -848,6 +848,14 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
+        // Refresh keeps text inputs intact and uses the same override owner
+        // as ordinary keys; rebinding ctrl-r does not force a refresh.
+        if event_name(key).as_deref() == Some("ctrl-r")
+            && let Some(action) = self.bindings().remove("ctrl-r")
+            && action.verb == Verb::Refresh
+        {
+            return self.perform(&action);
+        }
         if self.input.is_some() {
             return self.input_key(key);
         }
@@ -859,7 +867,12 @@ impl App {
         }
         if self.searching {
             match key.code {
-                KeyCode::Char(character) if !character.is_control() => self.search.push(character),
+                KeyCode::Char(character)
+                    if !character.is_control()
+                        && !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                {
+                    self.search.push(character);
+                }
                 KeyCode::Backspace => {
                     self.search.pop();
                 }
@@ -1557,6 +1570,77 @@ pub(crate) mod tests {
         assert_eq!(app.notice.as_deref(), Some("Nothing to go back to."));
         app.finished(Err("Pane '%5' was not found.".into()));
         assert_eq!(app.notice.as_deref(), Some("Pane '%5' was not found."));
+    }
+
+    #[test]
+    fn ctrl_r_refreshes_without_typing_into_search_or_message_inputs() {
+        for tmux in [false, true] {
+            let mut app = crew(crate::action::preset(tmux), Vec::new());
+            let refresh = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+            assert_eq!(app.key(refresh), Effect::Refresh);
+            assert_eq!(press(&mut app, KeyCode::F(5)), Effect::None);
+            app.searching = true;
+            app.search = "auth".into();
+            assert_eq!(app.key(refresh), Effect::Refresh);
+            assert!(app.searching);
+            assert_eq!(app.search, "auth");
+            app.searching = false;
+            for compose in [
+                Compose::Talk {
+                    to: "auth-fix".into(),
+                },
+                Compose::Annotate {
+                    to: "sol".into(),
+                    row: "auth-fix".into(),
+                },
+                Compose::Reply {
+                    request: "q1".into(),
+                    from: "auth-fix".into(),
+                },
+            ] {
+                app.input = Some(Input {
+                    prompt: "message".into(),
+                    text: "draft".into(),
+                    compose: compose.clone(),
+                    squad: "product".into(),
+                });
+                assert_eq!(app.key(refresh), Effect::Refresh);
+                let input = app.input.as_ref().unwrap();
+                assert_eq!(input.text, "draft");
+                assert_eq!(input.compose, compose);
+            }
+        }
+    }
+
+    #[test]
+    fn ctrl_r_keeps_normalization_and_effective_binding_overrides() {
+        let mut global = crate::action::preset(true);
+        global.extend(bind(&[("ctrl-r", "copy"), ("f5", "refresh")]));
+        let mut app = crew(global, vec![bind(&[("ctrl-r", "refresh")])]);
+        let refresh = KeyEvent::new(
+            KeyCode::Char('R'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        );
+        assert_eq!(event_name(refresh).as_deref(), Some("ctrl-r"));
+        assert_eq!(app.key(refresh), Effect::Refresh, "section wins");
+        app.view.as_mut().unwrap().section_bindings.clear();
+        assert!(matches!(
+            app.key(refresh),
+            Effect::Act(Request::Copy { .. })
+        ));
+        assert_eq!(
+            press(&mut app, KeyCode::F(5)),
+            Effect::Refresh,
+            "explicit F5 works"
+        );
+        app.searching = true;
+        app.search = "auth".into();
+        assert_eq!(
+            app.key(refresh),
+            Effect::None,
+            "rebound ctrl-r does not refresh an input"
+        );
+        assert_eq!(app.search, "auth", "control keys never become search text");
     }
 
     #[test]

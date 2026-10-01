@@ -321,6 +321,9 @@ describe('squad extension', () => {
       expect(completions[0].stdout).toBe('set\nskill\n');
       expect(completions[1].stdout).toBe(completions[0].stdout);
       const skill = await runCli(sandbox, ['sq', 'skill', 'show']);
+      expect(skill.stdout).toContain('`ctrl-r` refreshes the board in squad, leads and all views');
+      expect(skill.stdout).toContain('`f5 = "refresh"` binding remains supported');
+      expect(skill.stdout).not.toContain('Ctrl-R');
       expect(skill.stdout).toBe(
         readFileSync(
           fileURLToPath(
@@ -1059,6 +1062,15 @@ describe('squad extension', () => {
       expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
       expect(help.stdout).toMatch(/\n {2}ls +List the members/);
       expect(help.stdout).not.toMatch(/\n {2}status /);
+      // Explicit F5 remains valid while the host preset uses ctrl-r.
+      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        toml,
+        `${readFileSync(toml, 'utf8')}\n[bind]\nctrl-r = "refresh"\nf5 = "refresh"\n`
+      );
+      const rebound = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(rebound.status).toBe(0);
+      expect(rebound.body.sections).toEqual(one.body.sections);
     });
   });
 
