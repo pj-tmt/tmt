@@ -32,6 +32,7 @@ mod tests {
         for result in [
             ActionResult::Completed(DeliveryAcceptance::Queued),
             ActionResult::Completed(DeliveryAcceptance::Submitted),
+            ActionResult::Completed(DeliveryAcceptance::Unacknowledged),
             ActionResult::Failed(SendFailure::Uncertain(())),
             ActionResult::Failed(SendFailure::Denied(())),
             ActionResult::Failed(SendFailure::AwaitingApproval(())),
