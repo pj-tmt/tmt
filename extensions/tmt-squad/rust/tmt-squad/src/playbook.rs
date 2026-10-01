@@ -1,7 +1,7 @@
 //! Optional playbooks: guidance skills for lead agents, embedded in the
 //! executable. Squad never runs one. `install` hands the skill to core's
 //! extension-skill door (`skills.install`), owned by `squad`, so agents find it
-//! in their provider skill directories; `remove` retracts only that skill.
+//! in their provider skill directories; `rm` retracts only that skill.
 
 use crate::{
     consent::{Consent, ask},
@@ -36,7 +36,7 @@ pub fn grammar() -> Command {
     let name = || {
         Arg::new("playbook")
             .required(true)
-            .help("Playbook name (see `playbook list`)")
+            .help("Playbook name (see `playbook ls`)")
     };
     let yes = || {
         Arg::new("yes")
@@ -49,7 +49,7 @@ pub fn grammar() -> Command {
         summary: "Optional layouts for lead agents to propose (squad never runs them)",
         examples: &[
             Example {
-                command: "tmt squad playbook list",
+                command: "tmt squad playbook ls",
                 note: "See which playbooks exist",
             },
             Example {
@@ -65,22 +65,25 @@ pub fn grammar() -> Command {
         details: "",
     })
     .subcommand_required(true)
-    .subcommand(tmt_cli_style::command(&CommandSpec {
-        name: "list",
-        summary: "List the playbooks",
-        examples: &[
-            Example {
-                command: "tmt squad playbook list",
-                note: "List names and descriptions",
-            },
-            Example {
-                command: "tmt squad playbook list --json",
-                note: "Read them from a script",
-            },
-        ],
-        outputs: OutputModes::Human,
-        details: "",
-    }))
+    .subcommand(
+        tmt_cli_style::command(&CommandSpec {
+            name: "ls",
+            summary: "List the playbooks",
+            examples: &[
+                Example {
+                    command: "tmt squad playbook ls",
+                    note: "List names and descriptions",
+                },
+                Example {
+                    command: "tmt squad playbook ls --json",
+                    note: "Read them from a script",
+                },
+            ],
+            outputs: OutputModes::Human,
+            details: "",
+        })
+        .alias("list"),
+    )
     .subcommand(
         tmt_cli_style::command(&CommandSpec {
             name: "show",
@@ -132,15 +135,16 @@ pub fn grammar() -> Command {
     )
     .subcommand(
         tmt_cli_style::command(&CommandSpec {
-            name: "remove",
+            name: "rm",
             summary: "Remove only this playbook's skill",
             examples: &[Example {
-                command: "tmt squad playbook remove tmux-squad",
+                command: "tmt squad playbook rm tmux-squad",
                 note: "Ask, then remove it from your agents",
             }],
             outputs: OutputModes::Human,
             details: "",
         })
+        .alias("remove")
         .arg(name())
         .arg(yes()),
     )
@@ -252,7 +256,7 @@ pub fn install(
 pub fn remove(core: &Core, name: &str, consent: Consent) -> Result<Value, SquadError> {
     let playbook = find(name)?;
     let plan = format!(
-        "tmt squad playbook remove will remove the skill '{}' that squad published into your agents' skill directories.\n  A copy you replaced or edited is kept, and squad's other skills (such as tmt-squad) stay.",
+        "tmt squad playbook rm will remove the skill '{}' that squad published into your agents' skill directories.\n  A copy you replaced or edited is kept, and squad's other skills (such as tmt-squad) stay.",
         playbook.name
     );
     ask(consent, &plan, "Remove this playbook?")?;

@@ -55,7 +55,7 @@ pub trait CoreReferences {
 }
 
 /// Core references through the invoking `tmt`: `tmt api references.resolve`
-/// for UUID lookups (at most 256 per call) and `tmt identity list --json` for
+/// for UUID lookups (at most 256 per call) and `tmt identity ls --json` for
 /// the active roster. `TMT_EXECUTABLE` selects the executable; a direct run
 /// falls back to `tmt` on PATH, never to this binary itself.
 pub struct ProcessReferences {

@@ -50,7 +50,7 @@ pub const ME: &CommandSpec = spec!(
     "me",
     "Show, set or clear which saved identity is you (for ◆ waiting on you)",
     details = "Without a recorded identity, ◆ uses the saved identity bound to your pane, and
-talk, reply, annotate and replies act as the pane's identity. It follows tmt rename.",
+talk, reply, annotate and replies act as the pane's identity. It follows tmt mv.",
     [
         "See who you are" => "tmt squad me",
         "Record your saved identity" => "tmt squad me ada",
@@ -77,10 +77,10 @@ pub const ADD: &CommandSpec = spec!(
 );
 
 pub const REMOVE: &CommandSpec = spec!(
-    "remove",
+    "rm",
     "Remove a member and clear its squad fields; the agent keeps running",
     [
-        "Remove a member; the agent keeps running" => "tmt squad remove auth-fix",
+        "Remove a member; the agent keeps running" => "tmt squad rm auth-fix",
     ]
 );
 
@@ -96,7 +96,7 @@ pub const SET: &CommandSpec = spec!(
 
 pub const LS: &CommandSpec = spec!(
     "ls",
-    "List the members as text, or JSON with --json (alias: status)",
+    "List the members as text, or JSON with --json",
     [
         "List every member and what needs you" => "tmt squad ls",
         "Read the squad from a script" => "tmt squad ls --json",
@@ -133,12 +133,12 @@ pub const HOTKEYS_INSTALL: &CommandSpec = spec!(
 );
 
 pub const HOTKEYS_REMOVE: &CommandSpec = spec!(
-    "remove",
+    "rm",
     "Remove only squad's line and squad's bindings",
     details = "The rest of your tmux configuration is not touched.",
     [
-        "Ask, then remove squad's keys" => "tmt squad hotkeys remove",
-        "Remove them without a prompt" => "tmt squad hotkeys remove --yes",
+        "Ask, then remove squad's keys" => "tmt squad hotkeys rm",
+        "Remove them without a prompt" => "tmt squad hotkeys rm --yes",
     ]
 );
 

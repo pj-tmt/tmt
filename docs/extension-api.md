@@ -85,7 +85,7 @@ confused with a failed lookup; more than 256 IDs or a non-canonical UUID is
 in input order. Core applies expiry: `status.stale` is computed at read time, and an
 expired status is still returned (stale) so a client can show it as such. Unknown IDs
 are `{id, found:false}` entries, not errors. It never reports presence; join it with
-`tmt list --json`, which verifies tmux endpoints.
+`tmt ls --json`, which verifies tmux endpoints.
 
 `changes.cursor` tells a client cheaply whether anything it may read has
 changed, so it can reload only then. The cursor advances with every committed
@@ -113,7 +113,7 @@ unchanged as the next request's `before`. Concurrent new requests above that cur
 will appear on a fresh first page; final-state changes can appear when detail is
 reread. This is not a live change feed. Reads never mark incoming work as read.
 Use `tmt x` and its revision cursor for attention, and the ordinary JSON commands
-for identity, presence, room list/show/retire, reply and result. Notes accepts a
+for identity, presence, room ls/show/retire, reply and result. Notes accepts a
 saved identity UUID, never a caller-selected path, and does not initialize a file.
 
 Identity hooks are durable identity-retirement subscriptions. A consumer

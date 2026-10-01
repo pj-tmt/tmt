@@ -125,6 +125,50 @@ pub fn commands(root: &Command, program: &[&str]) -> BTreeSet<String> {
     out
 }
 
+/// Recursively enforce the public listing spelling, including nested extension
+/// trees: `ls` is primary and `list` remains an accepted, hidden alias.
+pub fn list_spelling_report(root: &Command, program: &[&str]) -> Vec<String> {
+    fn visit(command: &Command, path: String, out: &mut Vec<String>) {
+        let listing = command.get_name() == "list"
+            || command.get_name() == "ls"
+            || command.get_all_aliases().any(|alias| alias == "list");
+        if listing
+            && (command.get_name() != "ls"
+                || !command.get_all_aliases().any(|alias| alias == "list")
+                || command.get_visible_aliases().any(|alias| alias == "list"))
+        {
+            out.push(format!("{path}: use primary ls with hidden alias list"));
+        }
+        for child in command.get_subcommands() {
+            visit(child, format!("{path} {}", child.get_name()), out);
+        }
+    }
+    let mut out = Vec::new();
+    visit(root, program.join(" "), &mut out);
+    out
+}
+
+#[cfg(test)]
+mod listing_tests {
+    use super::*;
+
+    #[test]
+    fn listing_guard_reaches_nested_commands_and_checks_both_spellings() {
+        let root = Command::new("test").subcommand(
+            Command::new("extension")
+                .subcommand(Command::new("list").alias("ls"))
+                .subcommand(Command::new("nested").subcommand(Command::new("ls")))
+                .subcommand(
+                    Command::new("other").subcommand(Command::new("ls").visible_alias("list")),
+                ),
+        );
+        assert_eq!(list_spelling_report(&root, &["test"]).len(), 3);
+        let valid = Command::new("test")
+            .subcommand(Command::new("nested").subcommand(Command::new("ls").alias("list")));
+        assert!(list_spelling_report(&valid, &["test"]).is_empty());
+    }
+}
+
 fn visit(command: &Command, path: Vec<String>, probe: &Probe, out: &mut Vec<Violation>) {
     let mut fail = |rule, detail: String| {
         out.push(Violation {

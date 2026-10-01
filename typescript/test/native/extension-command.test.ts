@@ -14,6 +14,35 @@ function extension(sandbox: Sandbox, name: string, script: string): string {
 }
 
 describe('PATH extension command contract', () => {
+  it('reserves mv and rename before PATH dispatch and preserves the identity UUID', async () => {
+    await withSandbox(async (sandbox) => {
+      for (const name of ['mv', 'rename']) {
+        extension(sandbox, name, 'printf "WRONG EXTENSION\\n"; exit 99');
+      }
+      const created = await runCli(sandbox, ['identity', 'create', 'worker', '--json']);
+      expect(created.status).toBe(0);
+      const id = JSON.parse(created.stdout).identity.id;
+      for (const [command, old, next] of [
+        ['mv', 'worker', 'reviewer'],
+        ['rename', 'reviewer', 'worker'],
+      ]) {
+        const renamed = await runCli(sandbox, [command!, old!, next!, '--json']);
+        expect(renamed.status).toBe(0);
+        const shown = await runCli(sandbox, ['identity', 'show', next!, '--json']);
+        expect(JSON.parse(shown.stdout).identity).toMatchObject({ id, name: next });
+        const help = await runCli(sandbox, ['help', command!]);
+        expect(help.stdout).toContain('Usage: tmt mv ');
+        expect(help.stdout).not.toContain('WRONG EXTENSION');
+      }
+      const help = await runCli(sandbox, ['help']);
+      for (const name of ['mv', 'rename']) {
+        expect(help.stdout).toMatch(
+          new RegExp(`^ {2}tmt-${name} +ignored: reserved core command`, 'm')
+        );
+      }
+    });
+  });
+
   it('executes the exact tail, preserves stdin/output/exit and exposes the invoking executable', async () => {
     await withSandbox(async (sandbox) => {
       extension(

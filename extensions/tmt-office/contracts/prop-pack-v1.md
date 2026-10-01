@@ -224,8 +224,8 @@ JSON success is one object on stdout, with empty stderr and exit zero.
 tmt office prop validate --file <pack.tmtprop.json> --json
 tmt office prop preview --file <pack.tmtprop.json> --json
 tmt office prop install --local --file <pack.tmtprop.json> --if-revision <catalog-revision> --json
-tmt office prop remove --local <digest> --if-revision <catalog-revision> --json
-tmt office prop list --local [--limit <1..20>] [--cursor <opaque-cursor>] --json
+tmt office prop rm --local <digest> --if-revision <catalog-revision> --json
+tmt office prop ls --local [--limit <1..20>] [--cursor <opaque-cursor>] --json
 tmt office prop show --local <digest> --json
 ```
 

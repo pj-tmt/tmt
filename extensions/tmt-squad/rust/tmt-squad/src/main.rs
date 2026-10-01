@@ -127,7 +127,7 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
-            build(specs::REMOVE)
+            build(specs::REMOVE).alias("remove")
                 .arg(operand("name", "Member to remove"))
                 .arg(squad_option()),
         )
@@ -139,7 +139,7 @@ fn grammar() -> Command {
         )
         .subcommand(
             build(specs::LS)
-                .alias("status")
+                .alias("status").alias("list")
                 .arg(squad_option())
                 .arg(
                     Arg::new("refresh-fields")
@@ -183,7 +183,7 @@ fn grammar() -> Command {
                         ),
                 )
                 .subcommand(
-                    build(specs::HOTKEYS_REMOVE)
+                    build(specs::HOTKEYS_REMOVE).alias("remove")
                         .arg(
                             Arg::new("yes")
                                 .long("yes")
@@ -559,7 +559,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
                 )
             })
             .collect(),
-        "remove" => {
+        "rm" => {
             let cleared = fields(&document["cleared"]);
             done(
                 terminal,
@@ -676,7 +676,7 @@ fn playbook_command(matches: &ArgMatches, interaction: Interaction) -> Result<Ou
         .map(String::as_str)
         .unwrap_or_default();
     match action {
-        "list" => Ok(playbook::catalog()),
+        "ls" => Ok(playbook::catalog()),
         "show" => playbook::embedded(name),
         "install" => playbook::install(
             &Core::discover()?,
@@ -764,7 +764,7 @@ fn run(
                 flag("print"),
                 Consent::new(flag("yes"), interaction.prompt()),
             ),
-            "remove" => hotkeys::remove(
+            "rm" => hotkeys::remove(
                 &core,
                 &config,
                 Consent::new(flag("yes"), interaction.prompt()),
@@ -796,7 +796,7 @@ fn run(
     match command {
         "lead" => membership::lead(&core, &squad, text("name").unwrap_or_default()),
         "add" => membership::add(&core, &squad, config.layout(&squad.name)?, &many("names")),
-        "remove" => membership::remove(&core, &squad, text("name").unwrap_or_default()),
+        "rm" => membership::remove(&core, &squad, text("name").unwrap_or_default()),
         "jump" => member_actions::jump(&core, &squad, &config, text("member").unwrap_or_default()),
         "open" => member_actions::open(
             &core,
@@ -1186,7 +1186,7 @@ mod tests {
             complete(&words("-- ")),
             [
                 "add", "annotate", "back", "board", "copy", "help", "hotkeys", "init", "jump",
-                "lead", "ls", "me", "open", "playbook", "remove", "set", "skill"
+                "lead", "ls", "me", "open", "playbook", "rm", "set", "skill"
             ]
         );
         assert_eq!(complete(&words("-- h")), ["help", "hotkeys"]);
@@ -1205,16 +1205,13 @@ mod tests {
         assert_eq!(complete(&words("-- skill s")), ["show"]);
         assert_eq!(
             complete(&words("-- playbook ")),
-            ["install", "list", "remove", "show"]
+            ["install", "ls", "rm", "show"]
         );
         assert_eq!(
             complete(&words("-- playbook install --")),
             ["--force", "--help", "--json", "--print", "--yes"]
         );
-        assert_eq!(
-            complete(&words("-- hotkeys ")),
-            ["install", "remove", "show"]
-        );
+        assert_eq!(complete(&words("-- hotkeys ")), ["install", "rm", "show"]);
         assert_eq!(
             complete(&words("-- hotkeys install --")),
             ["--config", "--help", "--json", "--print", "--yes"]
