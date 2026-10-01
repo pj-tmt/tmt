@@ -2064,7 +2064,9 @@ never approves it or writes trust configuration (see the channel contract).
 native consumer (#739). The supervisor owns the original
 endpoint process handle; launcher EOF requests endpoint cleanup but preserves
 the provider enrollment. Explicit withdrawal is reserved for no-child or
-confirmed foreground reap. Provider records retain the pre-spawn pane address
+confirmed foreground reap. Pre-handoff startup failures retire only after
+confirmed cleanup; a complete Ready frame may already have escaped, so a later
+flush failure retains evidence. Provider records retain the pre-spawn pane address
 and Unknown/Known foreground state; app-server readiness is never foreground
 lifetime proof. The channel contract owns takeover, pruning and manual recovery
 limits. Codex registers through the shared `Runtime.channel` port; native enrollment
