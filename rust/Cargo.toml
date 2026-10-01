@@ -5,7 +5,7 @@ resolver = "3"
 [workspace.package]
 version = "5.0.0-alpha.25"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 license = "MIT"
 publish = false
 repository = "https://github.com/wkh237/tmt"

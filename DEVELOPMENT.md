@@ -22,7 +22,7 @@ from `typescript/`; Cargo, Nx and Docker commands run from the repository root.
 
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
-Rust 1.88; CI also runs the current pinned release toolchain.
+Rust 1.95; CI also runs the current pinned release toolchain.
 Remote-client tests require `python3` for the independent byte-fixture oracle.
 Shell completion tests require Bash and Zsh. Runtime proof uses the selected
 macOS developer tools or Linux `readelf` (binutils); these are verifier tools,
@@ -817,7 +817,7 @@ cargo test --locked
 cargo build --locked
 cargo build --locked --example storage-probe
 cargo build --locked --example tmux-probe
-cargo +1.88.0 build --locked
+cargo +1.95.0 build --locked
 ```
 
 For the unregistered Codex queue transport (#736), focused deterministic checks
@@ -825,7 +825,7 @@ are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
 `cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
 tests own local loopback peers and exercise receipt loss and absolute deadlines;
 they do not start a model or inspect provider credentials. Dependency review
-also records exact features/graph, Rust 1.88, licenses, current advisories and an
+also records exact features/graph, Rust 1.95, licenses, current advisories and an
 actual CLI release baseline/candidate under one toolchain/profile. Label a
 zero delta from unused/dead-stripped groundwork honestly and repeat the size
 measurement after the final consumer links it. See the
@@ -901,7 +901,7 @@ The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash
 cargo test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
-cargo +1.88.0 test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
+cargo +1.95.0 test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
 ```
 
 When changing a guard, exercise a real positive and negative source/dependency
@@ -912,7 +912,7 @@ I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
 ### Internal TUI markup admission
 
 From `rust/`, run `cargo test --locked -p tmt-tui` and
-`cargo +1.88.0 test --locked -p tmt-tui` for structural XML admission and its
+`cargo +1.95.0 test --locked -p tmt-tui` for structural XML admission and its
 byte/depth/node limits. Run the architecture test for dependency changes.
 The crate has no executable or board consumer; these tests use in-memory XML,
 not application configuration, SQLite or a terminal. Later admission/rendering
