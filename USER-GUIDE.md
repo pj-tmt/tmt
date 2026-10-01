@@ -838,7 +838,7 @@ choose other keys in `squad.toml`:
 popup = "S"      # the defaults; a single key, C-x, M-x or F1-F12
 pane  = "B"
 back  = "b"      # optional: prefix b runs `tmt squad back`
-lead  = "L"      # optional: prefix L runs `tmt squad jump --lead` for its pane
+lead  = "J"      # optional: prefix J runs `tmt squad jump --lead` for its pane
 ```
 
 The bindings run the `tmt` found on your PATH (for example `~/.local/bin/tmt`),

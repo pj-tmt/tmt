@@ -1583,13 +1583,13 @@ sort = ["state", "-name"]
         );
         fs::write(
             &path,
-            "[tmux]\npopup = \"C-s\"\npane = \"F5\"\nback = \"b\"\nlead = \"L\"\n",
+            "[tmux]\npopup = \"C-s\"\npane = \"F5\"\nback = \"b\"\nlead = \"J\"\n",
         )
         .unwrap();
         let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
         assert_eq!((keys.popup.as_str(), keys.pane.as_str()), ("C-s", "F5"));
         assert_eq!(keys.back.as_deref(), Some("b"));
-        assert_eq!(keys.lead.as_deref(), Some("L"));
+        assert_eq!(keys.lead.as_deref(), Some("J"));
         for body in [
             "[tmux]\npopup = \"\"\n",
             "[tmux]\npopup = \"SS\"\n",
@@ -1602,7 +1602,7 @@ sort = ["state", "-name"]
             "[tmux]\npane = \"S\"\n",
             "[tmux]\nback = \"B\"\n",
             "[tmux]\nlead = \"S\"\n",
-            "[tmux]\nback = \"L\"\nlead = \"L\"\n",
+            "[tmux]\nback = \"J\"\nlead = \"J\"\n",
             "[tmux]\nlead = \"#\"\n",
             "[tmux]\nhotkey = \"S\"\n",
             "tmux = \"S\"\n",

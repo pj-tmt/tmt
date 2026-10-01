@@ -748,14 +748,14 @@ mod tests {
         // The lead key passes its own pane, which a run-shell job lacks.
         let with_lead = bindings(
             &TmuxKeys {
-                lead: Some("L".into()),
+                lead: Some("J".into()),
                 ..keys()
             },
             Path::new("/x/tmt"),
         )
         .unwrap();
         assert!(with_lead.ends_with(
-            "bind-key -N \"tmt squad lead\" L run-shell \"TMUX_PANE=#{pane_id} '/x/tmt' squad jump --lead\"\n"
+            "bind-key -N \"tmt squad lead\" J run-shell \"TMUX_PANE=#{pane_id} '/x/tmt' squad jump --lead\"\n"
         ));
         assert!(!with_back.contains("jump --lead"), "lead is opt-in");
         assert_eq!(
