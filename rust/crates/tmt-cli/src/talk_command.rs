@@ -3,6 +3,8 @@
 mod observation;
 mod preparation;
 mod presentation;
+#[cfg(test)]
+mod tests;
 
 use crate::{
     invocation::{Invocation, OutputMode, TalkOptions},
@@ -42,6 +44,9 @@ struct Correlation {
     identity: Option<Identity>,
     inbox: bool,
     offline: bool,
+    /// The message reached a one-way channel that gives no receipt: it is
+    /// neither confirmed nor safe to resend, and every later failure says so.
+    delivery_uncertain: bool,
 }
 struct Prepared {
     correlation: Correlation,
@@ -57,10 +62,29 @@ struct Report {
     response: Option<FinalResponse>,
 }
 
+/// Records what a send attempt left behind. A channel write without a receipt is
+/// noted on the correlation first, so even a failure to settle it reports that
+/// delivery is uncertain and must not be resent.
+fn settle_delivery(
+    correlation: &mut Correlation,
+    outcome: &crate::delivery::Delivery,
+    settle: impl FnOnce(tmt_core::request::WakeState) -> Result<(), RequestError<StorageError>>,
+) -> Result<(), Failure> {
+    if matches!(outcome, crate::delivery::Delivery::Unacknowledged) {
+        correlation.delivery_uncertain = true;
+    }
+    let settlement = outcome.wake_state();
+    settle(settlement).map_err(|error| {
+        correlation.state_error(
+            error,
+            settlement != tmt_core::request::WakeState::Unavailable,
+        )
+    })
+}
+
 impl Correlation {
     fn error(&self, code: &'static str, message: impl Into<String>, status: u8) -> Failure {
-        let failure =
-            Failure::new(code, message, status).with_request(self.request_id.clone(), None);
+        let failure = self.correlated(Failure::new(code, message, status));
         if self.inbox {
             failure.with_inbox_target(&self.target, self.identity.as_ref())
         } else {
@@ -80,26 +104,38 @@ impl Correlation {
             )
         }
     }
+    /// Ties a failure to this request and keeps the channel's uncertainty on it.
+    fn correlated(&self, failure: Failure) -> Failure {
+        let failure = failure.with_request(self.request_id.clone(), None);
+        if self.delivery_uncertain {
+            failure.with_delivery_state("uncertain")
+        } else {
+            failure
+        }
+    }
+
     fn state_error(&self, error: RequestError<StorageError>, possible_delivery: bool) -> Failure {
         let error = match error {
             RequestError::Repository(storage) => {
-                return Failure::storage_access(
-                storage,
-                &self.data_dir,
-                if possible_delivery {
-                    "Pane input may have happened; inspect the retained request before retrying."
-                } else {
-                    "No message was sent; inspect the retained request before retrying."
-                },
-                "REQUEST_STATE_ERROR",
-                if possible_delivery {
-                    "Request state failed after transport; delivery may have occurred."
-                } else {
-                    "Request state failed before transport; no message was sent."
-                },
-            )
-            .with_request(self.request_id.clone(), None)
-                .suggestion(self.inspection());
+                return self
+                    .correlated(Failure::storage_access(
+                        storage,
+                        &self.data_dir,
+                        if self.delivery_uncertain {
+                            "The channel write may have been delivered; do not resend. Inspect the retained request."
+                        } else if possible_delivery {
+                            "Pane input may have happened; inspect the retained request before retrying."
+                        } else {
+                            "No message was sent; inspect the retained request before retrying."
+                        },
+                        "REQUEST_STATE_ERROR",
+                        if possible_delivery {
+                            "Request state failed after transport; delivery may have occurred."
+                        } else {
+                            "Request state failed before transport; no message was sent."
+                        },
+                    ))
+                    .suggestion(self.inspection());
             }
             other => other,
         };
@@ -185,6 +221,39 @@ fn deliver(
             }
             return Err(correlation.interrupted());
         }
+        // A pane that resolved to no active identity is pasted to directly, but that
+        // does not prove it never opted into a channel: existing evidence (or being
+        // unable to tell) stops it before anything is attempted.
+        // A pane no identity claims is pasted to directly, behind the same check as
+        // every baseline paste: the drivers' own enrollment records for this pane.
+        if let Some(endpoint) = &prepared.endpoint
+            && correlation.identity.is_none()
+        {
+            let pane = tmt_adapters::runtime::channel::PaneAddress {
+                server: &endpoint.server,
+                pane_id: &endpoint.pane_id,
+                pane_pid: endpoint.pane_pid,
+            };
+            match crate::delivery::pane_channel_evidence(
+                &pane,
+                None,
+                &tmt_adapters::config::ConfigPaths::channel_directory_in(&correlation.data_dir),
+            ) {
+                Ok(skipped) => {
+                    for record in skipped {
+                        warn_unattributed_record(&record);
+                    }
+                }
+                Err(evidence) => {
+                    RequestService::new(&mut *storage, wall_time_ms)
+                        .settle(&prepared.attempt_id, Settlement::DefinitelyFailed)
+                        .map_err(|error| correlation.state_error(error, false))?;
+                    return Err(correlation
+                        .error(evidence.fault.error_code(), nothing_pasted(&evidence), 1)
+                        .suggestion(correlation.inspection()));
+                }
+            }
+        }
         if prepared.endpoint.is_some()
             && let Err(primary) =
                 RequestService::new(&mut *storage, wall_time_ms).begin_send(&prepared.attempt_id)
@@ -224,7 +293,7 @@ fn deliver(
             let outcome = if correlation.offline {
                 crate::delivery::Delivery::Offline
             } else if eligible {
-                crate::delivery::send(
+                let attempt = crate::delivery::send(
                     storage,
                     &identity.id,
                     &prepared.payload,
@@ -238,25 +307,37 @@ fn deliver(
                         "DELIVERY_PREPARATION_FAILED",
                         "Could not verify delivery state.",
                     )
-                })?
+                })?;
+                for record in &attempt.unattributed {
+                    warn_unattributed_record(record);
+                }
+                attempt.delivery
             } else {
                 crate::delivery::Delivery::Unavailable
             };
-            let settlement = outcome.wake_state();
-            RequestService::new(&mut *storage, wall_time_ms)
-                .settle_request_delivery(&correlation.request_id, settlement)
-                .map_err(|error| {
-                    correlation.state_error(
-                        error,
-                        settlement != tmt_core::request::WakeState::Unavailable,
-                    )
-                })?;
+            let request_id = correlation.request_id.clone();
+            settle_delivery(correlation, &outcome, |settlement| {
+                RequestService::new(&mut *storage, wall_time_ms)
+                    .settle_request_delivery(&request_id, settlement)
+            })?;
             if matches!(outcome, crate::delivery::Delivery::Offline) {
                 correlation.offline = true;
                 correlation.inbox = true;
                 return Ok(None);
             }
-            if !matches!(outcome, crate::delivery::Delivery::Sent) {
+            if matches!(outcome, crate::delivery::Delivery::Unacknowledged) {
+                // Settled as an uncertain wake above; keep waiting for the
+                // durable reply without resending or pasting.
+            } else if let crate::delivery::Delivery::ChannelUnavailable(evidence) = &outcome {
+                // The session opted into a channel that cannot carry this
+                // request. Only a session that never opted in is pasted to.
+                return Err(correlation
+                    .error(evidence.fault.error_code(), nothing_pasted(evidence), 1)
+                    .suggestion(format!(
+                        "Check the session, then retry later; the request stays queued. {}",
+                        correlation.inspection()
+                    )));
+            } else if !matches!(outcome, crate::delivery::Delivery::Sent) {
                 if let crate::delivery::Delivery::Transport(error) = outcome {
                     if error.socket_permission_denied() {
                         return Err(correlation.socket_error(error));
@@ -490,4 +571,29 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => presentation::publish(report, mode),
         Err(error) => error.publish(mode),
     }
+}
+
+/// What both paste sites tell the user when channel evidence stops a paste: the
+/// driver's reason with the record at fault and its recovery.
+fn nothing_pasted(evidence: &tmt_adapters::runtime::channel::EvidenceError) -> String {
+    format!(
+        "{} Nothing was sent and nothing was pasted.",
+        evidence.message()
+    )
+}
+
+/// A channel record that names no pane (unreadable, or written by an older `tmt`)
+/// protects and blocks nothing; it is reported so it can be removed.
+fn warn_unattributed_record(record: &std::path::Path) {
+    let mut stderr = tmt_cli_style::stream::stderr();
+    let terminal = stderr.terminal();
+    let _ = tmt_cli_style::message::warning(
+        &mut stderr,
+        terminal,
+        &format!(
+            "Skipped channel record {}: it names no pane, so it cannot protect or block this one.",
+            record.display()
+        ),
+        Some("delete it if its session is gone"),
+    );
 }

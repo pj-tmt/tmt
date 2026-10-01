@@ -6,6 +6,7 @@
   "prerelease-type": "alpha",
   "prerelease": true,
   "draft": true,
+  "always-update": true,
   "skip-changelog": true,
   "pull-request-title-pattern": "chore${scope}: release${component} ${version}",
   "packages": {
@@ -88,33 +89,6 @@
           "type": "toml",
           "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-office-storage')].version"
-        }
-      ]
-    },
-    "extensions/tmt-office": {
-      "release-type": "simple",
-      "component": "tmt-office",
-      "include-component-in-tag": true,
-      "extra-files": [
-        {
-          "type": "toml",
-          "path": "rust/tmt-office/Cargo.toml",
-          "jsonpath": "$.package.version"
-        },
-        {
-          "type": "toml",
-          "path": "rust/tmt-office-command/Cargo.toml",
-          "jsonpath": "$.package.version"
-        },
-        {
-          "type": "toml",
-          "path": "/rust/Cargo.lock",
-          "jsonpath": "$.package[?(@.name.value=='tmt-office')].version"
-        },
-        {
-          "type": "toml",
-          "path": "/rust/Cargo.lock",
-          "jsonpath": "$.package[?(@.name.value=='tmt-office-command')].version"
         }
       ]
     },

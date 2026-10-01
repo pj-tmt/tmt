@@ -302,8 +302,8 @@ describe('checkMigration', () => {
   const files = ['rust/crates/tmt-adapters/src/storage/migrations.rs'];
   const previous = { tag: 'v5.0.0-alpha.8', counts: { [files[0]]: 24 } };
   const commit = (subject: string, body = '') => ({ sha: 'b'.repeat(40), subject, body });
-  const check = (counts: Record<string, number>, commits = [commit('fix: a bug')]) =>
-    checkMigration({ files, counts, previous, commits });
+  const check = (counts: Record<string, number>, commits = [commit('fix: a bug')], alpha = false) =>
+    checkMigration({ files, counts, previous, commits, alpha });
 
   it('passes a release with the same migrations and no breaking commit', () => {
     expect(check({ [files[0]]: 24 }).ok).toBe(true);
@@ -323,6 +323,39 @@ describe('checkMigration', () => {
       commits: [],
     });
     expect(result.reason).toContain('1 migrations, 0 in v5.0.0-alpha.8');
+  });
+
+  it('publishes an alpha with more entries and says how many, outside the alpha channel it holds', () => {
+    const alpha = check({ [files[0]]: 27 }, [commit('feat: a table')], true);
+    expect(alpha.ok).toBe(true);
+    expect(alpha.reason).toContain(`${files[0]} has 27 migrations, 24 in v5.0.0-alpha.8`);
+    expect(alpha.reason).toContain('an alpha publishes its migrations');
+    expect(check({ [files[0]]: 27 }, [commit('feat: a table')], false).ok).toBe(false);
+    // The same for a file the last published release did not have.
+    expect(
+      checkMigration({
+        files,
+        counts: { [files[0]]: 1 },
+        previous: { tag: 'v5.0.0-alpha.8', counts: {} },
+        commits: [],
+        alpha: true,
+      }).ok
+    ).toBe(true);
+  });
+
+  it('still holds an alpha that carries a breaking commit, with or without a new migration', () => {
+    for (const count of [24, 25]) {
+      const result = check({ [files[0]]: count }, [commit('feat(api)!: drop the flag')], true);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toContain('is a breaking change: feat(api)!: drop the flag');
+    }
+    expect(
+      check(
+        { [files[0]]: 25 },
+        [commit('feat: rename', 'Why.\n\nBREAKING CHANGE: the flag is gone')],
+        true
+      ).ok
+    ).toBe(false);
   });
 
   it('holds a breaking commit, by its marker or its footer', () => {

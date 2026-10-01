@@ -15,7 +15,7 @@
 //   node release-upgrade.mjs prove --product P --tag TAG --target T --directory DIR [--skill S]
 // A CLI candidate runs the managed-install lifecycle verifier over the two archives. An extension
 // candidate is installed and upgraded by the newest published CLI, which is what a user's
-// `tmt <extension> install` runs, because an extension release carries no CLI.
+// `tmt extension install <extension>` runs, because an extension release carries no CLI.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';

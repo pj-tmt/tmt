@@ -67,8 +67,7 @@ process.exitCode = args[0] === 'run' ? Number(process.env.TMT_RUNNER_STATUS) : 0
       } finally {
         fs.rmSync(sandbox.root, { recursive: true, force: true });
       }
-    },
-    10_000
+    }
   );
 
   /** Runs the wrapper against a fake `docker` that logs its argv, with TMT_E2E_FILES set. */
@@ -121,8 +120,7 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
       expect(result).toEqual({ status: 0, signal: null, stdout: '', stderr: '' });
       expect(calls[1].slice(0, 5)).toEqual(['run', '--rm', '--init', '--network', 'none']);
       expect(calls[1].slice(5, -1)).toEqual(expected);
-    },
-    10_000
+    }
   );
 
   it.each(['../squad.e2e.test.ts', 'a;b', 'a  b', ' a', '$HOME', 'a\nb', 'squad*'])(
@@ -132,8 +130,7 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
       expect(result.status).toBe(2);
       expect(result.stderr).toContain('TMT_E2E_FILES must be a space-separated list');
       expect(calls).toEqual([]);
-    },
-    10_000
+    }
   );
 
   it.each([
@@ -146,8 +143,7 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
       const { result, calls } = await runWrapper('', flag);
       expect(result).toEqual({ status: 0, signal: null, stdout: '', stderr: '' });
       expect(calls[1].slice(5, -1)).toEqual(expected);
-    },
-    10_000
+    }
   );
 
   it('forwards the file list and the adapter flag together', async () => {
@@ -158,7 +154,7 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
       '--env',
       'TMT_E2E_ADAPTER_TESTS=0',
     ]);
-  }, 10_000);
+  });
 
   it.each(['2', 'yes', '00', '0 1', ' 0', 'true', '$HOME'])(
     'rejects the adapter-test flag %j before building anything',
@@ -167,7 +163,6 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
       expect(result.status).toBe(2);
       expect(result.stderr).toContain('TMT_E2E_ADAPTER_TESTS must be 0 or 1');
       expect(calls).toEqual([]);
-    },
-    10_000
+    }
   );
 });

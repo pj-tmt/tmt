@@ -17,7 +17,7 @@ use toml_edit::{Item, TableLike};
 const MAX_COLUMNS: usize = 12;
 const MAX_LINES: usize = 4;
 const MAX_WIDTH: i64 = 200;
-/// Fields whose meaning Squad itself reads (the name, the lead, a state's
+/// Fields kept as Squad's own data (the name, free-text role, a state's
 /// order and color, a decision owed, the note). A bound value replaces the
 /// field of its column's name, so these cannot be bound.
 pub(crate) const OWN_FIELDS: &[&str] = &["member", "role", "state", "pending", "note"];

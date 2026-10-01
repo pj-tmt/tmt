@@ -19,7 +19,19 @@ unless `--no-skill` is supplied. Reload the agent after installation.
 The native runtime requires macOS or Linux and tmux for pane operations, but no
 Node.js, Rust toolchain or source checkout. Native `tmt upgrade` (also
 available as `tmt update`) follows its retained stable/alpha channel; use
-`--to <version>` to pin or `--unpin` to resume channel updates. Package-manager
+`--to <version>` to pin the CLI or `--unpin` to resume its channel updates.
+After the CLI and managed skills succeed, installed official extensions are checked
+on their own recorded channels. Pins are independent: a pinned CLI does not prevent
+extension updates, and pinned extensions stay unchanged. Interactive use asks once,
+listing extension version changes. Use `tmt upgrade --yes` to consent without a prompt;
+in JSON or non-terminal use without it, pending extensions report `consentRequired`
+and the same rerun command, without changing extensions or failing the command.
+Missing extensions are never installed. Results list each product; an extension
+failure makes the command fail but does not undo other successful updates.
+If an older target CLI cannot run the extension-upgrade phase, the report fails
+with a hint to run `tmt upgrade` again; it never uses the previous CLI's installer.
+`--channel` and `--to` select only the CLI; clear an extension pin with
+`tmt extension upgrade <name> --unpin`. Package-manager
 installations from older releases are a separate legacy TypeScript runtime.
 Use their original manager to remove them before switching; current repository
 source is not an npm product installation. See the replacement guidance below.
@@ -494,12 +506,12 @@ actions wait until it arrives). Tabs keep their width, so switching never moves
 them.
 
 The first header line holds only the tabs. The selected tab is shown in
-reverse. Each tab is colored by what it needs from you: amber when a member
-waits on you (◆, or a request waiting for your answer), red when a member is
-blocked, and plain otherwise. Counts follow the name (`product ◆2 !1`), so the
+reverse. Each tab is colored by what it needs from you: `waiting` when a member
+waits on you (◆, or a request waiting for your answer), `blocked` when a member
+is blocked, and plain otherwise. Counts follow the name (`product ◆2 !1`), so the
 state never depends on color alone, and `ls --json` reports it as
 `squad.attention` (`state`, `waiting`, `blocked`). Change the colors in
-`[tabs.colors]` (`waiting = "amber"`, `blocked = "red"`; the same color names as
+`[tabs.colors]` (`waiting = "waiting"`, `blocked = "blocked"`; the same names as
 states). When there are more tabs than fit, the tab line scrolls to keep the
 current tab in view, and counts the tabs off each end (`‹ 3`, `5 ›`). Each count
 takes the color of the most pressing tab it hides. Tabs listed in
@@ -561,8 +573,8 @@ lines = [
 ]
 
 [squad.product.states]
-blocked = { color = "red", sort = 0 }   # colors: default, dim, red, amber, green,
-                                        # cyan, blue, magenta; sort 0-999 orders states
+blocked = { color = "blocked", sort = 0 }  # color: default or a theme token;
+                                          # sort 0-999 orders states
 ```
 
 A column has a `width`, or `min`/`max` and a `grow` share of what is left;
@@ -759,6 +771,7 @@ terminals without the board:
 
 ```sh
 tmt squad jump auth-fix                     # show its pane in your tmux client
+tmt squad jump --lead                       # show your squad's lead
 tmt squad back                              # return to where the last jump came from
 tmt squad open auth-fix                     # pr_link, else link, else another *_link
 tmt squad open auth-fix --link issue_link
@@ -799,7 +812,10 @@ jump, from the board or the command, records where your tmux client came from;
 where your client is now: the member's pane, a new popup, or a key binding such
 as `bind B run-shell "tmt squad back"`. A board left behind by its own jump no
 longer shows your client, so its Backspace cannot return it. With nothing
-recorded, `back` says so and changes nothing. The record is disposable, kept per
+recorded, `back` says so and changes nothing. `jump --lead` jumps to the lead
+of the squad you are in (the identity of the pane you run it from), of the only
+squad, or of `--squad <name>`; if you are in several squads it asks for
+`--squad`, and a squad without a lead is an error that changes nothing. The record is disposable, kept per
 tmux server and client under `$XDG_CACHE_HOME/tmt-squad` (or
 `~/.cache/tmt-squad`), at most 32 entries.
 
@@ -834,6 +850,7 @@ choose other keys in `squad.toml`:
 popup = "S"      # the defaults; a single key, C-x, M-x or F1-F12
 pane  = "B"
 back  = "b"      # optional: prefix b runs `tmt squad back`
+lead  = "J"      # optional: prefix J runs `tmt squad jump --lead` for its pane
 ```
 
 The bindings run the `tmt` found on your PATH (for example `~/.local/bin/tmt`),
@@ -1087,6 +1104,21 @@ pipe or `--json` means no color at all, and help text keeps your terminal's
 colors. `tmt config show` lists the theme and reports a bad value by its key
 (`themeError` in `--json`) without failing; a bad theme never stops another
 command, which then keeps the default colors.
+
+Every color on the board is one of these tokens: a state's or tab's `color` in
+`squad.toml` is `default` (no color) or a token, and the older names `red`,
+`amber`, `green`, `blue`, `cyan` and `magenta` still work as `blocked`,
+`waiting`, `working`, `accent`, `link` and `review`. A squad can change the
+theme of its own board in `squad.toml`, over the global one; its `base` wins:
+
+```toml
+[squad.product.theme]
+base = "tmt-light"
+waiting = "#b8862b"
+```
+
+A mistake there is a `squad.toml` error named by its key. A bad global theme
+leaves the board on `tmt` and says so on the board's summary line.
 
 ### Optional pane badge
 

@@ -35,7 +35,8 @@ cell).
   section.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
-  `pending`, `note`, `fields` (every `squad.<name>.*` value, by field name,
+  `pending`, `note`, `fields` (the `squad.<name>.*` values except the internal
+  leadership marker, by field name,
   with the user's column sources and field providers applied), `failed` (fields
   whose provider failed; they show `?`), `annotation` (the user's open note
   about this row, or null) and `waitingOnYou` (open requests from this member to
@@ -82,6 +83,14 @@ tmt squad remove <name>                       # leaves the squad; the agent keep
   bytes. `field=` removes a field.
 - `set` applies its pairs in order and reports what it applied. After a
   failure, re-run it with the same pairs.
+- `tmt squad lead <name>` selects the lead independently of free-text `role`
+  and `lead` fields. Setting or clearing either field never changes leadership,
+  and selecting a new lead preserves every member's role text.
+- Legacy members with only `role=lead` still appear as lead until a role write
+  would change leadership or `squad lead` records their separate marker. Listing
+  and opening the board never perform that conversion. The reserved metadata suffix `lead.marker` is not a
+  user field and never appears in row `fields`; leadership is shown through
+  `squad.lead` and the section partition.
 - Removing a member clears its fields for this squad only. Its requests and
   notes keep the history.
 - `tmt squad annotate` acts as you: the identity of the pane you run in (or
@@ -138,7 +147,9 @@ Missing or unreadable notes, unavailable cache and rollback clocks are unknown.
 Cache loss/corruption starts a new period; config edits do not reset age.
 Disabling stops observation; after re-enabling, surviving fingerprint matches
 keep their first-observed time. Disabled observation does no cache work and
-never creates a notebook.
+never creates a notebook. The board dims a stale row and shows its age at the
+row's end, and puts the notes' age on the notes pane title; the leads and all
+tabs show no ages.
 
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant

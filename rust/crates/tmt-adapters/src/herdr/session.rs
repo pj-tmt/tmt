@@ -270,6 +270,13 @@ impl<R: CommandRunner> HostDriver for Session<'_, R> {
         Session::observed_runtime(self, binding)
     }
 
+    fn pane_incarnation(&mut self, pane_pid: u64) -> Result<Option<String>, HostError> {
+        Ok(
+            crate::process::runtime::observe_start(self.herdr.runner(), pane_pid, self.deadline)
+                .map_err(HerdrError::command)?,
+        )
+    }
+
     fn has_input(&self) -> bool {
         false
     }

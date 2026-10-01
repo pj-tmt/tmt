@@ -114,6 +114,7 @@ pub(super) fn prepare(
             .or_else(|| observed.as_ref().and_then(|value| value.identity.clone())),
         inbox: input.options.inbox || offline,
         offline,
+        delivery_uncertain: false,
     };
     if let Some(room) = &room
         && !correlation

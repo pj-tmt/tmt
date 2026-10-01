@@ -12,6 +12,7 @@ use tmt_core::{
     driver::{ActionResult, DeliveryAcceptance, Driver, HarnessResume, HarnessStart, SendFailure},
 };
 
+pub mod channel;
 pub mod driver_state;
 pub(crate) mod evidence;
 pub mod hook_protocol;
@@ -42,6 +43,7 @@ impl RuntimeCommand {
 pub enum RuntimeError {
     InvalidSession,
     InvalidRegistration,
+    Channel(channel::ChannelFault),
 }
 
 impl fmt::Display for RuntimeError {
@@ -51,6 +53,7 @@ impl fmt::Display for RuntimeError {
             Self::InvalidRegistration => {
                 "Runtime registration requires a unique harness ID and a bare command name."
             }
+            Self::Channel(fault) => return fault.fmt(formatter),
         })
     }
 }
@@ -65,6 +68,7 @@ struct Registration {
     priority: i32,
     driver: Box<RegisteredDriver>,
     lifecycle: Option<Box<dyn lifecycle::RuntimeLifecycle>>,
+    channel: Option<Box<dyn channel::RuntimeChannel>>,
 }
 
 /// First-party and community drivers use the same registration boundary.
@@ -98,6 +102,11 @@ impl RuntimeRegistry {
             registry
                 .register_lifecycle(&harness, (runtime.lifecycle)())
                 .expect("registered driver lifecycle");
+            if let Some(channel) = runtime.channel {
+                registry
+                    .register_channel(&harness, channel())
+                    .expect("registered driver channel");
+            }
         }
         registry
     }
@@ -136,6 +145,7 @@ impl RuntimeRegistry {
             priority,
             driver,
             lifecycle: None,
+            channel: None,
         });
         self.registrations.sort_by(|a, b| {
             b.priority
@@ -158,6 +168,80 @@ impl RuntimeRegistry {
             .ok_or(RuntimeError::InvalidRegistration)?;
         entry.lifecycle = Some(lifecycle);
         Ok(())
+    }
+
+    pub fn register_channel(
+        &mut self,
+        harness: &HarnessId,
+        channel: Box<dyn channel::RuntimeChannel>,
+    ) -> Result<(), RuntimeError> {
+        let entry = self
+            .registrations
+            .iter_mut()
+            .find(|entry| &entry.harness == harness)
+            .filter(|entry| entry.channel.is_none())
+            .ok_or(RuntimeError::InvalidRegistration)?;
+        entry.channel = Some(channel);
+        Ok(())
+    }
+
+    /// The driver that has an enrollment on record for this binding, whichever
+    /// harness the identity currently prefers: the enrollment is written before the
+    /// preference is, so it, not the preference, decides who owns the route.
+    /// `Err` when any driver cannot tell, or when two claim the same binding.
+    pub fn enrolled_harness(
+        &self,
+        directory: &Path,
+        binding_id: &str,
+    ) -> Result<Option<HarnessId>, channel::ChannelFault> {
+        let mut found = None;
+        for entry in &self.registrations {
+            let Some(channel) = &entry.channel else {
+                continue;
+            };
+            if channel.enrolled(directory, binding_id)?
+                && found.replace(entry.harness.clone()).is_some()
+            {
+                return Err(channel::ChannelFault::Mismatch);
+            }
+        }
+        Ok(found)
+    }
+
+    /// What the drivers' enrollments say about one pane, whatever binding or
+    /// identity the pane has now. The first driver that finds a live or unconfirmed
+    /// enrollment attributed to it decides; records no driver could attribute are
+    /// merged so the caller can name them. A driver that cannot tell makes it
+    /// unknown (`Err`).
+    pub fn enrolled_in_pane(
+        &self,
+        directory: &Path,
+        pane: &channel::PaneAddress<'_>,
+        binding_id: Option<&str>,
+        deadline: std::time::Instant,
+    ) -> Result<channel::PaneEvidence, channel::EvidenceError> {
+        let mut merged = channel::PaneEvidence::default();
+        for entry in &self.registrations {
+            let Some(channel) = &entry.channel else {
+                continue;
+            };
+            let found = channel.enrolled_in_pane(directory, pane, binding_id, deadline)?;
+            merged.skipped.extend(found.skipped);
+            if found.enrolled {
+                merged.enrolled = true;
+                return Ok(merged);
+            }
+        }
+        Ok(merged)
+    }
+
+    /// The harness's channel, if its driver offers one.
+    pub fn channel(&self, harness: &HarnessId) -> Option<&dyn channel::RuntimeChannel> {
+        self.registrations
+            .iter()
+            .find(|entry| &entry.harness == harness)?
+            .channel
+            .as_deref()
     }
 
     pub fn lifecycle(&self, harness: &HarnessId) -> Option<&dyn lifecycle::RuntimeLifecycle> {
@@ -428,6 +512,289 @@ mod tests {
             )
             .unwrap();
         assert_eq!(ended.state, RuntimeState::Ended);
+    }
+
+    struct CommunityChannel;
+    impl channel::RuntimeChannel for CommunityChannel {
+        fn preflight(
+            &self,
+            _: &OsStr,
+            _: &std::path::Path,
+            _: std::time::Instant,
+        ) -> Result<Option<String>, channel::ChannelError> {
+            Ok(None)
+        }
+
+        fn enrolled(&self, _: &std::path::Path, _: &str) -> Result<bool, channel::ChannelFault> {
+            Ok(false)
+        }
+
+        fn enrolled_in_pane(
+            &self,
+            _: &std::path::Path,
+            _: &channel::PaneAddress<'_>,
+            _: Option<&str>,
+            _: std::time::Instant,
+        ) -> Result<channel::PaneEvidence, channel::EvidenceError> {
+            Ok(channel::PaneEvidence::default())
+        }
+
+        fn enroll(
+            &self,
+            _: &channel::ChannelPlan<'_>,
+        ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
+            Err(channel::ChannelError::Unsupported)
+        }
+    }
+
+    struct Answering(Result<bool, channel::ChannelFault>);
+    impl channel::RuntimeChannel for Answering {
+        fn preflight(
+            &self,
+            _: &OsStr,
+            _: &std::path::Path,
+            _: std::time::Instant,
+        ) -> Result<Option<String>, channel::ChannelError> {
+            Ok(None)
+        }
+
+        fn enrolled(&self, _: &std::path::Path, _: &str) -> Result<bool, channel::ChannelFault> {
+            self.0
+        }
+
+        fn enrolled_in_pane(
+            &self,
+            _: &std::path::Path,
+            _: &channel::PaneAddress<'_>,
+            _: Option<&str>,
+            _: std::time::Instant,
+        ) -> Result<channel::PaneEvidence, channel::EvidenceError> {
+            Ok(channel::PaneEvidence::default())
+        }
+
+        fn enroll(
+            &self,
+            _: &channel::ChannelPlan<'_>,
+        ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
+            Err(channel::ChannelError::Unsupported)
+        }
+    }
+
+    struct InPane(Result<channel::PaneEvidence, channel::EvidenceError>);
+    impl channel::RuntimeChannel for InPane {
+        fn preflight(
+            &self,
+            _: &OsStr,
+            _: &std::path::Path,
+            _: std::time::Instant,
+        ) -> Result<Option<String>, channel::ChannelError> {
+            Ok(None)
+        }
+
+        fn enrolled(&self, _: &std::path::Path, _: &str) -> Result<bool, channel::ChannelFault> {
+            Ok(false)
+        }
+
+        fn enrolled_in_pane(
+            &self,
+            _: &std::path::Path,
+            _: &channel::PaneAddress<'_>,
+            _: Option<&str>,
+            _: std::time::Instant,
+        ) -> Result<channel::PaneEvidence, channel::EvidenceError> {
+            self.0.clone()
+        }
+
+        fn enroll(
+            &self,
+            _: &channel::ChannelPlan<'_>,
+        ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
+            Err(channel::ChannelError::Unsupported)
+        }
+    }
+
+    #[test]
+    fn a_pane_is_enrolled_when_any_driver_says_so_and_unknown_when_one_cannot_tell() {
+        use channel::PaneEvidence;
+        let directory = std::path::Path::new("/channels");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let server = tmt_core::endpoint::ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: "server".into(),
+            socket_path: "/tmp/tmux-test".into(),
+            server_pid: 1,
+            server_start_time: "start".into(),
+        };
+        let pane = channel::PaneAddress {
+            server: &server,
+            pane_id: "%1",
+            pane_pid: 2,
+        };
+        let ask = |answers: &[(&str, Result<PaneEvidence, channel::EvidenceError>)]| {
+            let mut registry = RuntimeRegistry::default();
+            for (name, answer) in answers {
+                registry
+                    .register(id(name), name, 0, Community { id: id(name) })
+                    .unwrap();
+                registry
+                    .register_channel(&id(name), Box::new(InPane(answer.clone())))
+                    .unwrap();
+            }
+            registry.enrolled_in_pane(directory, &pane, Some("binding"), deadline)
+        };
+        let none = || Ok(PaneEvidence::default());
+        let live = || {
+            Ok(PaneEvidence {
+                enrolled: true,
+                skipped: vec![],
+            })
+        };
+        let skipping = |name: &str| {
+            Ok(PaneEvidence {
+                enrolled: false,
+                skipped: vec![std::path::PathBuf::from(name)],
+            })
+        };
+        let unreadable = channel::EvidenceError::at(
+            channel::ChannelFault::InvalidRecord,
+            std::path::Path::new("/channels/a.json"),
+        );
+        // No driver, or none with evidence: the baseline applies.
+        assert_eq!(ask(&[]), Ok(PaneEvidence::default()));
+        assert_eq!(
+            ask(&[("a", none()), ("b", none())]),
+            Ok(PaneEvidence::default())
+        );
+        // Any one driver that finds an enrollment decides, in any order.
+        assert!(ask(&[("a", none()), ("b", live())]).unwrap().enrolled);
+        assert!(ask(&[("b", none()), ("a", live())]).unwrap().enrolled);
+        // Records no driver could attribute are merged so the caller can name them,
+        // and never make the pane enrolled.
+        assert_eq!(
+            ask(&[
+                ("a", skipping("/channels/x.json")),
+                ("b", skipping("/channels/y.json"))
+            ]),
+            Ok(PaneEvidence {
+                enrolled: false,
+                skipped: vec!["/channels/x.json".into(), "/channels/y.json".into()],
+            })
+        );
+        // A driver that cannot tell is terminal and keeps naming its file, unless an
+        // earlier driver (priority, then name) already found the enrollment.
+        assert_eq!(
+            ask(&[("a", Err(unreadable.clone())), ("b", none())]),
+            Err(unreadable.clone())
+        );
+        assert_eq!(
+            ask(&[("a", none()), ("b", Err(unreadable.clone()))]),
+            Err(unreadable.clone())
+        );
+        assert!(
+            ask(&[("a", live()), ("b", Err(unreadable))])
+                .unwrap()
+                .enrolled
+        );
+    }
+
+    fn registry_answering(
+        answers: &[(&str, Result<bool, channel::ChannelFault>)],
+    ) -> RuntimeRegistry {
+        let mut registry = RuntimeRegistry::default();
+        for (name, answer) in answers {
+            registry
+                .register(id(name), name, 0, Community { id: id(name) })
+                .unwrap();
+            registry
+                .register_channel(&id(name), Box::new(Answering(*answer)))
+                .unwrap();
+        }
+        registry
+    }
+
+    #[test]
+    fn the_enrolled_driver_is_found_by_evidence_alone_and_never_guessed() {
+        let directory = std::path::Path::new("/channels");
+        let owner = |answers: &[(&str, Result<bool, channel::ChannelFault>)]| {
+            registry_answering(answers).enrolled_harness(directory, "binding")
+        };
+        // Nothing enrolled, whatever drivers exist: the baseline applies.
+        assert_eq!(
+            RuntimeRegistry::default().enrolled_harness(directory, "b"),
+            Ok(None)
+        );
+        assert_eq!(owner(&[("a", Ok(false)), ("b", Ok(false))]), Ok(None));
+        // Exactly one driver holds the record: it owns the route, in any order.
+        assert_eq!(
+            owner(&[("a", Ok(false)), ("b", Ok(true))]),
+            Ok(Some(id("b")))
+        );
+        assert_eq!(
+            owner(&[("b", Ok(true)), ("a", Ok(false))]),
+            Ok(Some(id("b")))
+        );
+        // Two drivers claiming one binding is ambiguous, never resolved by order.
+        assert_eq!(
+            owner(&[("a", Ok(true)), ("b", Ok(true))]),
+            Err(channel::ChannelFault::Mismatch)
+        );
+        // A driver that cannot tell is terminal even when another says "no" or "yes".
+        for others in [Ok(false), Ok(true)] {
+            assert_eq!(
+                owner(&[
+                    ("a", Err(channel::ChannelFault::InvalidRecord)),
+                    ("b", others)
+                ]),
+                Err(channel::ChannelFault::InvalidRecord),
+                "{others:?}"
+            );
+            assert_eq!(
+                owner(&[
+                    ("b", others),
+                    ("a", Err(channel::ChannelFault::Unverifiable))
+                ]),
+                Err(channel::ChannelFault::Unverifiable),
+                "{others:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn channel_registration_is_harness_owned_and_only_claude_has_one_so_far() {
+        let mut registry = RuntimeRegistry::first_party();
+        assert!(registry.channel(&id("claude")).is_some());
+        assert!(registry.channel(&id("codex")).is_none());
+        assert!(
+            registry
+                .register_channel(&id("missing"), Box::new(CommunityChannel))
+                .is_err()
+        );
+        registry
+            .register(
+                id("community"),
+                "community",
+                0,
+                Community {
+                    id: id("community"),
+                },
+            )
+            .unwrap();
+        assert!(registry.channel(&id("community")).is_none());
+        registry
+            .register_channel(&id("community"), Box::new(CommunityChannel))
+            .unwrap();
+        assert!(registry.channel(&id("community")).is_some());
+        // A harness that already has a channel cannot be given a second one.
+        assert!(
+            registry
+                .register_channel(&id("claude"), Box::new(CommunityChannel))
+                .is_err()
+        );
+        assert!(
+            registry
+                .register_channel(&id("community"), Box::new(CommunityChannel))
+                .is_err()
+        );
     }
 
     impl Driver for Community {
