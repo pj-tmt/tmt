@@ -860,6 +860,10 @@ isolated shell stand-ins and check observable process/file cleanup; cwd probes
 compare relative and absolute `-C`. They do not start Codex or a model and do not
 replace the final live foreground continuity gate.
 
+The adapter `process::cleanup_policy_tests` must pass under both `cargo test` and
+nextest: isolated re-exec cases prove timeout cleanup regardless of whether the
+test runner makes its harness a process-group leader.
+
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
 
