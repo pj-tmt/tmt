@@ -790,7 +790,7 @@ describe.sequential('Claude channel delivery', () => {
     });
   }, 120_000);
 
-  it('a record that names no pane is reported by name and blocks nothing, at both paste sites', async () => {
+  it('a record that names no pane is reported by name and blocks nothing, at both paste sites (a name, then the unbound raw pane)', async () => {
     await withE2EFixture(async (fixture) => {
       const plain = start(fixture, 'Plain', { channel: false, env: { MOCK_AUTOREPLY: '0' } });
       await ready(fixture, plain, 'Plain');
@@ -812,30 +812,36 @@ describe.sequential('Claude channel delivery', () => {
       );
       fs.writeFileSync(damaged, '{ not json', { mode: 0o600 });
       const trace = installTmuxTrace(fixture);
-      for (const [target, text] of [
-        ['Plain', 'by name'],
-        [plain.pane, '# by pane'],
-      ] as const) {
-        const result = await talk(fixture, target, text, ['--detach', '--no-preamble']);
-        expect(result.code, `${target}: ${result.stdout}${result.stderr}`).toBe(0);
+      const skipped = (result: CliResult<Record<string, unknown>>, site: string) => {
+        expect(result.code, `${site}: ${result.stdout}${result.stderr}`).toBe(0);
         for (const record of [older, damaged]) {
-          expect(result.stderr, `${target} names ${record}`).toContain(
+          expect(result.stderr, `${site} names ${record}`).toContain(
             `Skipped channel record ${record}`
           );
         }
-        expect(result.stderr).toContain('delete it if its session is gone');
-      }
+        expect(result.stderr, site).toContain('delete it if its session is gone');
+      };
+      // A name resolves to the live binding and reaches the pane through `send`.
+      skipped(await talk(fixture, 'Plain', 'by name', ['--detach', '--no-preamble']), 'by name');
       await fixture.waitFor(
         () => named(plain, 'paste').some((line) => String(line.line).includes('by name')),
         10_000,
         'the named send was pasted'
+      );
+      // With the session ended and the marker lost, observation deletes the binding:
+      // the pane is a raw target and `talk` runs the same check itself.
+      expect(await quit(plain)).toBe('0');
+      fixture.tmux(['set-option', '-p', '-u', '-t', plain.pane, '@tmux-team.agent']);
+      await fixture.runJsonCli(['ls'], { pane: plain.pane });
+      skipped(
+        await talk(fixture, plain.pane, '# by pane', ['--detach', '--no-preamble']),
+        'by pane'
       );
       await fixture.waitForCapture((output) => output.includes('# by pane'), plain.pane);
       expect(terminalWrites(trace, plain.pane).length).toBeGreaterThan(0);
       // The records are only reported, never removed or rewritten.
       expect(fs.readFileSync(damaged, 'utf8')).toBe('{ not json');
       expect(fs.existsSync(older)).toBe(true);
-      expect(await quit(plain)).toBe('0');
     });
   }, 90_000);
 

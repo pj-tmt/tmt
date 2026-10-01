@@ -1933,6 +1933,39 @@ mod pane {
     }
 
     #[test]
+    fn the_named_recovery_quotes_an_apostrophe_in_a_path_and_removes_exactly_those_files() {
+        assert_eq!(shell_quoted(Path::new("/a/it's")), r"'/a/it'\''s'");
+        let scratch = Scratch::new();
+        let directory = scratch.0.join("it's here");
+        ensure_private_directory(&directory).unwrap();
+        publish(&directory, &record_for(None, None));
+        fs::write(socket_path(&directory, BINDING), "").unwrap();
+        let bystander = directory.join("another.json");
+        fs::write(&bystander, "{}").unwrap();
+        // The unknown evidence of that record prints the command verbatim.
+        let error = pane_enrolled(
+            &Ps::new(&[]),
+            &directory,
+            &address(&server()),
+            None,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap_err();
+        let command = recovery(&directory, BINDING);
+        assert!(error.message().contains(&command), "{}", error.message());
+        // Run by a shell as printed, it removes the record and the socket and
+        // nothing else, whatever the quote in the path.
+        let status = std::process::Command::new("/bin/sh")
+            .args(["-c", &command])
+            .status()
+            .unwrap();
+        assert!(status.success(), "{command}");
+        assert!(!record_path(&directory, BINDING).exists());
+        assert!(!socket_path(&directory, BINDING).exists());
+        assert!(bystander.exists());
+    }
+
+    #[test]
     fn an_observation_that_cannot_be_told_is_terminal_for_this_pane_and_names_the_recovery() {
         let scratch = Scratch::new();
         publish(&scratch.0, &record_for(Some(FOREGROUND), None));
