@@ -38,6 +38,7 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
     ("tmt-cli", "rust/crates/tmt-cli/Cargo.toml"),
     ("tmt-cli-style", "rust/crates/tmt-cli-style/Cargo.toml"),
     ("tmt-invoke", "rust/crates/tmt-invoke/Cargo.toml"),
+    ("tmt-tui", "rust/crates/tmt-tui/Cargo.toml"),
     (
         "tmt-command-output",
         "rust/crates/tmt-command-output/Cargo.toml",
