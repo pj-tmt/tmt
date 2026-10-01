@@ -199,6 +199,7 @@ impl Squad {
                     meta: meta.into_iter().collect(),
                     seen: Value::Null,
                     numbers: BTreeMap::new(),
+                    colors: BTreeMap::new(),
                     failed: Default::default(),
                 })
             })
@@ -247,6 +248,9 @@ pub struct Member {
     pub seen: Value,
     /// Bound columns' numeric values, so sorts order `1.2M` after `487k`.
     pub numbers: BTreeMap<String, f64>,
+    /// Each cell's color token, by field: a provider's suggestion, then the
+    /// column's threshold over it. Resolved by `status::document`.
+    pub colors: BTreeMap<String, String>,
     /// Provided fields whose last run failed; they show as `?`.
     pub failed: std::collections::BTreeSet<String>,
 }

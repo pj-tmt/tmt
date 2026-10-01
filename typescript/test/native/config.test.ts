@@ -70,7 +70,7 @@ describe('native configuration process boundary', () => {
         ['ui.paneBadge', 'on', 'global', 'global CLI', "'on' or 'off'"],
       ]);
       expect(result.stdout).toContain(
-        'hint: CLI numeric writes use unsigned decimal integers; config clear removes local overrides only\n'
+        'hint: CLI numeric writes use unsigned decimal integers; config rm removes local overrides only\n'
       );
       expect(result.stdout).toContain('\nPATHS\n');
       expect(result.stdout).toContain(`  global  ${sandbox.globalConfig}\n`);

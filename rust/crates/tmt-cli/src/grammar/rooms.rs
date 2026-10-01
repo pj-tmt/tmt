@@ -21,21 +21,21 @@ pub(in crate::grammar) fn room() -> Command {
             ]
         )).arg(operand("name", true)))
         .subcommand(storage(spec!(
-            "list",
+            "ls",
             "List rooms and membership counts",
             [
-                "List rooms and their member counts" => "tmt room list",
-                "The same, as JSON" => "tmt room list --json",
+                "List rooms and their member counts" => "tmt room ls",
+                "The same, as JSON" => "tmt room ls --json",
             ]
-        )).visible_alias("ls"))
+        )).alias("list"))
         .subcommand(
             storage(spec!(
-                "retire",
+                "rm",
                 "Stop new room work while retaining content and history",
                 [
-                    "Retire a room, keeping its history" => "tmt room retire reviewers",
+                    "Retire a room, keeping its history" => "tmt room rm reviewers",
                 ]
-            ))
+            )).alias("retire")
             .arg(operand("room", true)),
         )
         .subcommand(

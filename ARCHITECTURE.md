@@ -766,7 +766,7 @@ Office reads core-owned identities and rooms only through the UUID-keyed
 `active_identities`, `room`, and a batch `resolve`), separate from the CLI selector
 port `CoreAccess`. Production implements it as `ProcessReferences`: it runs the
 invoking `tmt` (`TMT_EXECUTABLE`, else `tmt` on `PATH`, never itself) through the
-supervised process runner, using `tmt --json identity list` and the
+supervised process runner, using `tmt --json identity ls` and the
 `references.resolve` API operation, so the Office binary never opens or migrates
 the core database. The in-process `CoreStore` is compiled only for tests and the
 `in-process-core` feature, and a crate test forbids `Storage::open` and
@@ -784,7 +784,7 @@ profile presence and self-reported status. The browser is the local owner, so it
 writes use the API's `"originator":"anonymous"` (no writer identity, exactly like the
 CLI without `--identity`; it grants nothing beyond same-user CLI calls). Each handler
 maps core's error codes through an explicit status table and reports anything else as
-unavailable storage. Presence comes from `tmt list --json`, which verifies tmux
+unavailable storage. Presence comes from `tmt ls --json`, which verifies tmux
 endpoints, and status from the batch `identities.status` operation, so a profile poll
 is two processes. Unit tests run the same operations in-process behind `LocalCore`;
 a crate test forbids `Storage::open` and `tmt_adapters::storage` in service code.
@@ -1149,16 +1149,25 @@ until the user enables it.
 
 ### Core command surface
 
+The Clap grammar owns primary names and accepted aliases. Listing uses `ls`,
+removal uses `rm`, identity renaming uses `mv`, and record display uses `show`.
+Long spellings remain hidden aliases and resolve to the same typed invocation;
+help, examples and guidance use the primaries. Root `uninstall` remains distinct
+from identity retirement. Core names and all aliases, including `mv`, are reserved
+before external PATH dispatch. The recursive listing guard in `tmt-cli-style::audit`
+covers core, embedded Office and the separate Squad grammar. Options, operation
+enums, JSON API method names and persistence semantics are unchanged by spelling.
+
 The maintained public surface is:
 
 - `init`, `config`, `completion`, `learn` and `install` for local setup and
   guidance;
-- identity and binding commands: `identity` create/show/list and metadata
-  set/get/list/remove with exact filters, `list`/`ls`, `add`, `name`/`this`,
-  `whoami`, `unbind`, `rm`/`remove`;
+- identity and binding commands: `identity` create/show/ls/mv and metadata
+  set/show/ls/rm with exact filters, `ls`, `add`, `name`/`this`,
+  `whoami`, `unbind`, `rm`, `mv`;
 - saved-identity notes through `notes path`;
 - the versioned local extension interface through `api`;
-- profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
+- profile and exchange commands: `role`, `preamble`, `x ls|show|ack|ackall`,
   `reply`, `result`, `inbox`, `answer`, `talk`/`send`, `check`/`read`;
 - `focus <identity|pane>`, which shows a verified pane in the
   invoking user's own tmux client and reports that client (see the driver
@@ -1178,7 +1187,7 @@ JSON and human output use the same typed result and status contracts.
 `identity show <name>` remains a storage-only named read. Without a name it
 uses the shared verified-caller selector before opening storage; an unavailable
 or unbound caller does not fall back to a working directory, active pane or sole
-stored identity. `identity list` and bare `preamble show` remain collection reads.
+stored identity. `identity ls` and bare `preamble show` remain collection reads.
 `OutputMode` contains only the supported JSON selection. Unsupported
 `--verbose`/`-v` and `--debug` flags are absent from the grammar and fail with
 `USAGE_ERROR` before effects; literal message/option-value text is unchanged.
@@ -1311,7 +1320,7 @@ inside the writing transaction, so no write path can forget. Migration
 bookkeeping and the Office tables fenced by the schema-36 cutover have none.
 An update counts only when some column's value differs (`WHEN OLD.c IS NOT
 NEW.c OR ...`), so a reconcile that rewrites a row with the same values is not
-a change, and `bindings.last_verified_at`, which `list` refreshes while
+a change, and `bindings.last_verified_at`, which `ls` refreshes while
 reconciling presence, is not compared at all. A later migration that adds a
 core table or a column, or rebuilds a table (as schema 39 rebuilt
 `bindings`), must create or recreate its triggers: `change_cursor_tests` fails
@@ -1331,6 +1340,27 @@ schema 9, the rebuild runs with foreign keys off, so dropping
 `request_attempts` does not cascade into `request_notifications`, then checks
 them, all in one immediate transaction that rolls back to schema 40 on any
 failure; foreign keys are restored on every exit.
+
+Schema 42 adds `bindings.pane_incarnation`, beside `pane_pid`. It holds the
+start token of the `ProcessIncarnation` that core observes for the pane shell
+when a binding is created (`BindingEndpoint::pane_incarnation`). It never comes
+from a host's or driver's text.
+
+- **Existing rows:** bindings made before schema 42 keep NULL until they rebind;
+  there is no backfill.
+- **Verification:** `evaluate_binding` treats a known recorded value and a known
+  observed value that differ as a reused pid, which is `EndpointLost`. NULL, or a
+  failed observation, is unknown and proves neither loss nor sameness; the pid
+  and marker rules decide as before.
+- **Read paths don't observe:** on macOS one `ps` costs about 110 ms, so tmux and
+  Herdr reads (`ls`, status, send) leave the observed value unknown and never
+  compare; their pane IDs are already unique within a server incarnation.
+- **Cost:** recording costs one `ps` per new binding.
+- **External hosts:** pane IDs are declared by the driver, so external hosts will
+  observe on verification, scoped to the binding's pane.
+- **Format:** the column admits 1 to 256 printable ASCII bytes, not all blank,
+  matching what `ProcessIncarnation` accepts.
+- **Cursor:** the bindings cursor update trigger compares the column.
 
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
@@ -1681,7 +1711,7 @@ retry. A failed retirement is reported as a secondary diagnostic
 Conclusive pane/server death or explicit unbind retires temporary names without
 erasing retained exchanges; saved identities remain available offline. Saved
 removal requires explicit force. Neither removal nor unbind kills a pane.
-`list` may show verified foreign-server identities, but `talk`/`check` routing
+`ls` may show verified foreign-server identities, but `talk`/`check` routing
 remains current-server-only. Pane number, presentation title and socket pathname
 alone are not endpoint identity. Publication and recovery preserve the full
 server/pane process evidence; ambiguous observations fail closed.
@@ -1757,7 +1787,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 41, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 42, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -1931,7 +1961,7 @@ cleanup.
 
 The CLI and the `delivery` and `pane_badge` adapters reach the terminal host
 only through `tmt-adapters::host::Host`. Extensions never do: they read presence
-from `tmt list --json` and the caller from `tmt whoami`, and the architecture
+from `tmt ls --json` and the caller from `tmt whoami`, and the architecture
 guard rejects any extension source, test code included, that names the host
 port, the tmux or Herdr module, or core's `binding`, `endpoint` or `host`
 model. The host port holds the binding session (the core `BindingEndpoint`
@@ -2063,8 +2093,13 @@ ownership map.
   provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
   `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
   provider child's environment (never ambient or persisted), optionally the
-  provider session the driver created before the child starts, and a consuming
-  `withdraw`. The driver
+  provider session the driver created before the child starts, `foreground_started`
+  and a consuming `withdraw`. `ChannelPlan` carries the identity and a `PaneAddress`
+  (tmux server incarnation, pane ID, pane process), which the driver persists in its
+  enrollment before the child starts. A launcher calls `foreground_started` once
+  with the exact child incarnation it spawned and observed, before admission, and
+  retires the lease only when no child was spawned or its wait returned; on any other
+  path it drops the lease and the record stays. The driver
   plans the command from the user's command and owns everything that proves a
   cleanup is for exactly that launch; the CLI neither parses provider arguments
   nor inspects the lease. A driver registers it in `Runtime.channel`, which
@@ -2082,11 +2117,26 @@ ownership map.
   is `DeliveryAcceptance::Unacknowledged`, a terminal acceptance that routing
   never retries or falls back from. The record layout and the launch comparison
   stay inside each driver.
-- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(ChannelFault)`.
-  `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting for the
-  durable reply; `ChannelUnavailable` stops the request with
-  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`.
-  `Failure` carries an optional additive `deliveryState`.
+- A paste never runs on "no record under this binding" alone. `RuntimeChannel::enrolled_in_pane`
+  asks each registered driver, by the pane address its enrollments persisted and
+  never through a stored binding (observation deletes the binding of a pane that
+  lost its marker), whether a live or unconfirmed enrollment belongs to this pane. It
+  returns `PaneEvidence` (`enrolled`, plus `skipped` records no driver could
+  attribute) or an `EvidenceError` (fault, record at fault, the driver's recovery
+  text). `RuntimeRegistry::enrolled_in_pane` merges the drivers (first error wins),
+  and `delivery::guarded_paste` and `delivery::pane_channel_evidence` are the only
+  gates in front of the two places that paste: the baseline fallback of
+  `delivery::send` and the raw-pane path of `talk`. Which driver carries an
+  identity's delivery is decided by `RuntimeRegistry::enrolled_harness` (an
+  enrollment names its driver before any preferred harness exists) and only
+  otherwise by the preference.
+- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(EvidenceError)`,
+  and `delivery::send` returns an `Attempt` (the `Delivery` plus the skipped records
+  to report). `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting
+  for the durable reply; `ChannelUnavailable` stops the request with
+  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`
+  (`DELIVERY_PREPARATION_FAILED` for other evidence), and `talk` shows the driver's
+  record and recovery text. `Failure` carries an optional additive `deliveryState`.
 - `drivers::claude::channel` owns the Claude record and the send classification
   behind `ClaudeRuntime::send`. It reads the stored binding and the per-binding
   record under the channel directory, applies the launch-applicability rule, waits
@@ -2094,15 +2144,26 @@ ownership map.
   owner-only socket; the record grants nothing unless it matches the binding's
   launch owner and runtime observation. Without the discovered configuration the
   outcome is `Denied`, never `NotSent`.
-- The same module owns enrollment and the stdio MCP server (`channel/server.rs`).
-  `ClaudeChannel::enroll` writes the per-launch record and returns a lease that
-  withdraws only what it wrote. Every mutation of a record or socket (the enroll
-  write, the server's readiness publish, bind and socket removal, and the lease's
-  withdraw) runs under one lock file in the channel directory, taken through
-  `file_lock::exclusive`, and proceeds only while the record still carries the
-  caller's generation and launch owner, so a stale launcher or server can never
-  replace or remove a newer enrollment. The server's calling thread is its only
-  output writer, and it can only complete an enrollment that `enroll` created.
+- The same module owns enrollment, the pane lookup and the stdio MCP server
+  (`channel/server.rs`). `ClaudeChannel::enroll` writes the per-launch record (with
+  identity, pane address and, later, the published foreground) and returns a lease
+  that withdraws only what it wrote and keeps the record while a recorded provider
+  process may still run. `enrolled_in_pane` reads only `<uuid>.json` records and
+  observes only the exact process incarnations an attributed record names (launch
+  owner, foreground, provider): a record whose recorded processes are gone has
+  ended, one that never recorded a foreground is unknown and terminal for its own
+  pane with a named `rm` recovery, and a record that names no pane is skipped and
+  reported. `enroll` takes over a record of the same binding only when it is
+  positively over, or when only its owner was recorded and the launch is in the very
+  pane it names, and prunes other ended launches from one process snapshot.
+  Every mutation of a record or socket (the enroll write, the lease's foreground
+  publication and withdraw, the server's readiness publish, bind and socket
+  removal) runs under one lock file in the channel directory, taken through
+  `file_lock::exclusive`. Apart from `enroll`'s own takeover rule, each proceeds
+  only while the record still carries the caller's generation and launch owner, so a
+  stale launcher or server can never replace or remove a newer enrollment. The
+  server's calling thread is its only output writer, and it can only complete an
+  enrollment that `enroll` created.
 - Claude registers its channel in `Runtime.channel`, but no CLI entry point calls
   `enroll` or `serve` yet, so no record is ever written and every session still
   uses its existing transport.
@@ -2227,19 +2288,19 @@ links without deleting releases or application data. It is recoverable, not a mu
 a missing command link with a retained activation is reported as invalid and
 explicit uninstall can finish that state.
 
-`tmt extension install|upgrade|uninstall|list` (`tmt-cli::extension_install_command`)
+`tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
 is the public surface for the official extensions over this path. Its facade
 retains dispatch, consent, errors, interruption, rendering and uninstall; private
 `extension_install_command/` modules own install, repair, list/upgrade and skills
 settlement through the existing native-installer and owned-skill adapters. The names
 come from the fixed product table, never from PATH or archive data. Install, upgrade
 and uninstall require consent (`--yes`, or an interactive prompt), and refuse a
-non-interactive run without it. `list` reads local receipts only. `--check` adds a
+non-interactive run without it. `ls` reads local receipts only. `--check` adds a
 bounded release lookup (`latest_release_version`, metadata only), and a failed
 lookup reports `unknown`. Shadowing canonicalizes every `tmt-<name>` on PATH and
 reports those that resolve elsewhere, without executing them. Root help groups
 discovered extension names that resolve to the same file (`squad (also: sq)`).
-`tmt office install|upgrade|status|uninstall` keeps its own Office-specific
+`tmt office install|upgrade|status|rm` keeps its own Office-specific
 flow for now.
 
 An extension's agent skills belong to one owner named after it (`squad`,
@@ -2395,7 +2456,13 @@ member's public projection: the `ls --room` row it already joins (`cwd`,
 returns unprefixed only when a column reads `meta.<key>`. `status::document`
 writes each bound value into the row's field of the column's name, with its
 number for sorting, before sections, filters and sorts read it, so the board and
-`ls` show one value and a binding adds no core call. Field providers
+`ls` show one value and a binding adds no core call. It also owns cell color
+resolution: a column's numeric `color` thresholds (`rows::Threshold`, validated
+theme tokens, strictly increasing) over the bound number or the field read as a
+number, else a field provider's token, which `provider::apply` keeps only when
+it names a theme token. The row carries the result as `colors` (`{field: token}`,
+omitted when empty); the board styles those cells through the theme, `state`
+keeps its state colors, and `ls` text stays uncolored. Field providers
 (`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
 member through `runner` with the run-binding argument rule
 (`Template::fill_argument`: one argument per template, no shell, a value that
@@ -2616,7 +2683,7 @@ observation for `me_id` at once; the hooks are optional, and the same repair
 happens on the next command that reads `me`. The `tmt-squad` lead skill source lives under
 `extensions/tmt-squad/skills/` and is embedded only in the squad executable,
 never in the core skill bundle. Optional playbooks (`tmt squad playbook
-list|show|install|remove`, first `tmux-squad`) live beside it in
+ls|show|install|rm`, first `tmux-squad`) live beside it in
 `extensions/tmt-squad/playbooks/`, deliberately not under `skills/`: the release
 archive ships and the extension installer offers every skill under `skills/`,
 while a playbook is installed only on request, and a test pins that no playbook is
@@ -2624,8 +2691,8 @@ in that tree. `playbook.rs` holds the one catalog of embedded sources and regist
 subtree through `tmt-cli-style` (summary and examples per command, `--json` from
 squad's global option); it is Squad's first dependency on that crate. `show`
 prints the exact bytes; `install` asks (the same `consent` helper as `hotkeys`),
-then calls `skills.install` as owner `squad`, and `remove` calls `skills.remove`
-with the playbook's name, so the lead skill and `tmt extension uninstall squad`
+then calls `skills.install` as owner `squad`, and `rm` calls `skills.remove`
+with the playbook's name, so the lead skill and `tmt extension rm squad`
 are unaffected. Squad never writes a provider directory and never executes a
 playbook. Squad's dependencies must not change the CLI
 product: the proof is package-scoped (`-p tmt-cli` alone), because combined
@@ -2780,7 +2847,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 
 `extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
 as `tmt remote`. `main` owns style/foreground composition and one bounded
-startup capabilities call. `core::CoreClient` owns fixed public `api`/`list`
+startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 `rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
 

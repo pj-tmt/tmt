@@ -15,7 +15,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
+import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 
 // Scenario-local selector: the built squad extension, never an installed copy.
 const squadExecutable =
@@ -86,6 +86,38 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('dispatches rm and remove identically while retaining the identity and its other metadata', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const id = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
+      expect(
+        (
+          await runCli(sandbox, [
+            'identity',
+            'meta',
+            'set',
+            'team',
+            'infra',
+            '--identity',
+            'worker',
+          ])
+        ).status
+      ).toBe(0);
+      for (const command of ['rm', 'remove']) {
+        expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+        expect((await squad(sandbox, ['set', 'worker', 'task=Review'])).status).toBe(0);
+        expect((await squad(sandbox, [command, 'worker'])).status).toBe(0);
+        expect(observe(sandbox).members).toEqual([]);
+        expect(observe(sandbox).metadata).toEqual([
+          { identity: 'worker', key: 'team', value: 'infra' },
+        ]);
+        const shown = await runCli(sandbox, ['identity', 'show', 'worker', '--json']);
+        expect(JSON.parse(shown.stdout).identity.id).toBe(id);
+      }
+    });
+  });
+
   it('reports observed age without changing board metadata or creating missing notes', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -767,22 +799,39 @@ describe('squad extension', () => {
           ])
         ).status
       ).toBe(0);
-      const db = new Database(sandbox.database);
-      try {
-        const insert = db.prepare(
-          'INSERT INTO identity_metadata (identity_id, key, value) VALUES (?, ?, ?)'
-        );
-        for (let i = 0; i < 63; i++) insert.run(sol, `fixture${i}`, 'value');
-      } finally {
-        db.close();
+      // Reach core's real boundary through its public validation path.
+      for (let i = 0; i < 63; i++) {
+        const filled = await runCli(sandbox, [
+          'identity',
+          'meta',
+          'set',
+          `fixture${i}`,
+          'value',
+          '--identity',
+          sol,
+          '--json',
+        ]);
+        expect(filled.status).toBe(0);
       }
       const before = observe(sandbox);
+      expect(before.metadata.filter((row) => row.identity === 'Sol')).toHaveLength(64);
+      const overflow = await runCli(sandbox, [
+        'identity',
+        'meta',
+        'set',
+        'overflow',
+        'value',
+        '--identity',
+        sol,
+        '--json',
+      ]);
+      expect(overflow.status).toBe(1);
+      const coreError = parseWholeStdout(overflow).error;
+      expect(coreError).toMatchObject({ code: 'IDENTITY_METADATA_INVALID' });
+      expect(observe(sandbox)).toEqual(before);
       const failed = await squad(sandbox, ['lead', 'Rin']);
       expect(failed.status).toBe(1);
-      expect(failed.body.error).toEqual({
-        code: 'IDENTITY_METADATA_INVALID',
-        message: 'An identity may have at most 64 metadata entries.',
-      });
+      expect(failed.body.error).toEqual(coreError);
       expect(observe(sandbox)).toEqual(before);
       const listing = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(listing.body.squad.lead.id).toBe(sol);

@@ -18,10 +18,11 @@ const LEGACY_UPDATE_ARGUMENTS = [
 const HELP_NEIGHBORS = [
   'help',
   'init',
-  'list',
+  'ls',
   'add',
   'name',
   'rm',
+  'mv',
   'talk',
   'check',
   'whoami',
@@ -126,23 +127,29 @@ function expectRetiredNamesAndFlagsAbsent(output: string, shell?: 'bash' | 'zsh'
   expect(output).not.toContain('tmt__subcmd__migrate)');
 }
 
-const HELP_ALIASES = [
-  ['list', 'ls'],
+const VISIBLE_HELP_ALIASES = [
   ['name', 'this'],
-  ['rm', 'remove'],
   ['talk', 'send'],
   ['check', 'read'],
   ['upgrade', 'update'],
 ] as const;
 
 function expectHelpAliasesPresent(output: string): void {
-  for (const [command, alias] of HELP_ALIASES) {
+  for (const [command, alias] of VISIBLE_HELP_ALIASES) {
     expect(output).toMatch(new RegExp(`^\\s+${command}\\b[^\\n]*\\[alias: ${alias}\\]`, 'm'));
+  }
+  // Accepted long spellings are hidden from help; completion may offer them.
+  for (const alias of ['list', 'rename', 'remove']) {
+    expect(output).not.toMatch(new RegExp(`^\\s+${alias}\\b`, 'm'));
+    expect(output).not.toMatch(new RegExp(`\\[alias(?:es)?:[^\\]\\n]*\\b${alias}\\b`, 'm'));
   }
 }
 
 function expectNeighborsPresent(output: string, shell?: 'bash' | 'zsh'): void {
-  const names = [...HELP_NEIGHBORS, ...(shell ? HELP_ALIASES.map(([, alias]) => alias) : [])];
+  const names = [
+    ...HELP_NEIGHBORS,
+    ...(shell ? VISIBLE_HELP_ALIASES.map(([, alias]) => alias) : []),
+  ];
   const bashCommands =
     shell === 'bash'
       ? output.match(/^\s+tmt\)\n\s+opts="([^"\n]+)"/m)?.[1].split(/\s+/)

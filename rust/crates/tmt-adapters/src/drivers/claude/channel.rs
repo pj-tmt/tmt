@@ -5,18 +5,20 @@
 use crate::{
     process::{
         CommandRequest, CommandRunner, UnixCommandRunner,
+        ps::query_ps,
         runtime::{ProcessObservation, observe_runtime_process},
     },
     runtime::{
         RuntimeCommand, RuntimeError,
         channel::{
-            ChannelEnrollment, ChannelError, ChannelFault, ChannelPlan, RuntimeChannel,
-            ServeRequest,
+            ChannelEnrollment, ChannelError, ChannelFault, ChannelPlan, EvidenceError, PaneAddress,
+            PaneEvidence, RuntimeChannel, ServeRequest,
         },
     },
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     ffi::{OsStr, OsString},
     fs,
     io::{self, BufRead, Read, Write},
@@ -33,9 +35,17 @@ use tmt_core::{
 
 mod server;
 
-/// The only provider build with recorded channel evidence. Widening it needs
-/// new evidence and a reviewed change here (see the contract).
-pub const SUPPORTED_VERSIONS: &[&str] = &["2.1.285 (Claude Code)"];
+/// The oldest provider build with recorded channel evidence. A build is accepted
+/// when it is this one or newer within the same major line; whether a newer build
+/// really speaks the channel is decided by the handshake itself (a session that
+/// never becomes ready is terminal and never pasted to). Lowering the minimum or
+/// accepting another major line needs new evidence and a reviewed change here.
+pub const MINIMUM_VERSION: &str = "2.1.285";
+/// The builds on which the channel was exercised against the real provider; any
+/// other accepted build launches with an advisory that names it.
+pub const TESTED_VERSIONS: &[&str] = &["2.1.285"];
+/// Every `--version` line of the product ends with this.
+const PRODUCT_SUFFIX: &str = " (Claude Code)";
 /// The MCP server name Claude sees; it is the `server:<name>` channel entry.
 pub const SERVER_NAME: &str = "tmt";
 pub const MCP_CONFIG_FLAG: &str = "--mcp-config";
@@ -97,9 +107,62 @@ impl Process {
 pub(super) struct Record {
     pub version: u8,
     pub binding_id: String,
+    /// The identity the launch ran as, persisted before spawn. Absent only in a
+    /// record written without attribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_id: Option<String>,
     pub generation: String,
     pub launch_owner: Process,
+    /// The pane the launch runs in, persisted before spawn from the binding the
+    /// launcher holds, so the record can be matched to the pane after the binding
+    /// is gone. A record without it cannot be attributed to any pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane: Option<PaneRecord>,
+    /// The foreground child the launcher spawned and observed (`foreground_started`).
+    /// Absent until then, which is "unknown", never "ended".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground: Option<Process>,
     pub claude: Option<Process>,
+}
+
+/// A pane as an enrollment names it: the full server incarnation, the pane ID on
+/// it and the pane's process, so a reused pane ID on another server never matches.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(super) struct PaneRecord {
+    pub host: String,
+    pub server_id: String,
+    pub socket_path: String,
+    pub server_pid: u64,
+    pub server_start_time: String,
+    pub pane_id: String,
+    pub pane_pid: u64,
+}
+
+impl PaneRecord {
+    /// `None` when the address cannot identify a pane later.
+    fn of(pane: &PaneAddress<'_>) -> Option<Self> {
+        let server = pane.server;
+        let complete = !server.server_id.is_empty()
+            && !server.socket_path.is_empty()
+            && server.server_pid > 0
+            && !server.server_start_time.is_empty()
+            && !pane.pane_id.is_empty()
+            && pane.pane_pid > 0;
+        complete.then(|| Self {
+            host: server.host.as_str().to_owned(),
+            server_id: server.server_id.clone(),
+            socket_path: server.socket_path.clone(),
+            server_pid: server.server_pid,
+            server_start_time: server.server_start_time.clone(),
+            pane_id: pane.pane_id.to_owned(),
+            pane_pid: pane.pane_pid,
+        })
+    }
+
+    fn is(&self, pane: &PaneAddress<'_>) -> bool {
+        Self::of(pane).as_ref() == Some(self)
+    }
 }
 
 /// One ingress connection carries exactly one frame.
@@ -173,7 +236,7 @@ impl RuntimeChannel for ClaudeChannel {
         executable: &OsStr,
         directory: &Path,
         deadline: Instant,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<Option<String>, ChannelError> {
         check_provider(&UnixCommandRunner, executable, directory, deadline)
     }
 
@@ -193,31 +256,35 @@ impl RuntimeChannel for ClaudeChannel {
         if !socket_fits(plan.directory, plan.binding_id) {
             return Err(ChannelError::PathTooLong);
         }
+        let Some(pane) = PaneRecord::of(&plan.pane) else {
+            return Err(ChannelError::Unattributed);
+        };
         ensure_private_directory(plan.directory).map_err(|_| ChannelError::Enrollment)?;
         let owner = Process::of(plan.owner);
         // A fresh generation per launch tells a relaunched server from a stale one.
         let generation = uuid::Uuid::new_v4().to_string();
         locked(plan.directory, || {
             // The newest launch of a binding replaces an earlier enrollment only
-            // when that one is positively over: its owner is conclusively gone,
-            // or it is this very launch. Anything alive, different or
-            // unverifiable stays untouched and refuses this launch.
+            // when that one is positively over (see `may_take_over`), or it is this
+            // very launch. Anything alive, different or unverifiable stays
+            // untouched and refuses this launch.
             match read_record(plan.directory, plan.binding_id) {
                 Ok(None) => {}
                 Ok(Some(old)) if old.launch_owner == owner => {}
-                Ok(Some(old)) => match old.launch_owner.incarnation().map(|old| liveness(&old)) {
-                    Some(RuntimeLiveness::Gone) => {}
-                    _ => return Err(ChannelError::Occupied),
-                },
-                Err(_) => return Err(ChannelError::Occupied),
+                Ok(Some(old)) if may_take_over(&old, &pane) => {}
+                Ok(Some(_)) | Err(_) => return Err(ChannelError::Occupied),
             }
+            prune_ended(plan.directory, plan.binding_id);
             write_record(
                 plan.directory,
                 &Record {
                     version: RECORD_VERSION,
                     binding_id: plan.binding_id.to_owned(),
+                    identity_id: Some(plan.identity_id.to_owned()),
                     generation: generation.clone(),
                     launch_owner: owner.clone(),
+                    pane: Some(pane.clone()),
+                    foreground: None,
                     claude: None,
                 },
             )
@@ -254,6 +321,20 @@ impl RuntimeChannel for ClaudeChannel {
         }))
     }
 
+    fn enrolled(&self, directory: &Path, binding_id: &str) -> Result<bool, ChannelFault> {
+        read_record(directory, binding_id).map(|record| record.is_some())
+    }
+
+    fn enrolled_in_pane(
+        &self,
+        directory: &Path,
+        pane: &PaneAddress<'_>,
+        binding_id: Option<&str>,
+        deadline: Instant,
+    ) -> Result<PaneEvidence, EvidenceError> {
+        pane_enrolled(&UnixCommandRunner, directory, pane, binding_id, deadline)
+    }
+
     fn serve(
         &self,
         request: &ServeRequest<'_>,
@@ -264,14 +345,59 @@ impl RuntimeChannel for ClaudeChannel {
     }
 }
 
+/// How a provider build stands against the recorded evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildStatus {
+    /// The channel was exercised on exactly this build.
+    Tested,
+    /// Accepted by the range rule only; its handshake is the compatibility check.
+    Untested,
+}
+
+/// Parses a whole `--version` line as `<major>.<minor>.<patch> (Claude Code)` with
+/// canonical decimal numbers; anything else is not a version line.
+fn parse_build(line: &str) -> Option<([u32; 3], &str)> {
+    let number = line.strip_suffix(PRODUCT_SUFFIX)?;
+    let mut parts = number.split('.');
+    let mut parsed = [0; 3];
+    for slot in &mut parsed {
+        let part = parts.next()?;
+        if part.is_empty()
+            || !part.bytes().all(|byte| byte.is_ascii_digit())
+            || (part.len() > 1 && part.starts_with('0'))
+        {
+            return None;
+        }
+        *slot = part.parse().ok()?;
+    }
+    parts.next().is_none().then_some((parsed, number))
+}
+
+/// The status of a provider's `--version` line, or `None` when it is not a
+/// version line, is older than [`MINIMUM_VERSION`] or is another major line.
+pub fn build_status(line: &str) -> Option<BuildStatus> {
+    let (minimum, _) = parse_build(&format!("{MINIMUM_VERSION}{PRODUCT_SUFFIX}"))
+        .expect("the minimum is a canonical version");
+    let (build, number) = parse_build(line)?;
+    if build[0] != minimum[0] || build < minimum {
+        return None;
+    }
+    Some(if TESTED_VERSIONS.contains(&number) {
+        BuildStatus::Tested
+    } else {
+        BuildStatus::Untested
+    })
+}
+
 /// The pre-launch check, single-shot: the directory must fit a socket path, and
-/// the provider's bounded `--version` must be exactly the recorded build.
+/// the provider's bounded `--version` must be a build the range rule accepts. An
+/// accepted build that was never tested comes back with an advisory naming it.
 fn check_provider(
     runner: &dyn CommandRunner,
     executable: &OsStr,
     directory: &Path,
     deadline: Instant,
-) -> Result<(), ChannelError> {
+) -> Result<Option<String>, ChannelError> {
     // A binding ID is a 36-character UUID; check the longest path up front.
     if !directory.is_absolute() || !socket_fits(directory, &"0".repeat(36)) {
         return Err(ChannelError::PathTooLong);
@@ -287,10 +413,14 @@ fn check_provider(
         })
         .map_err(|_| ChannelError::ProviderUnavailable)?;
     let found = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if SUPPORTED_VERSIONS.contains(&found.as_str()) {
-        Ok(())
-    } else {
-        Err(ChannelError::ProviderVersion { found })
+    match build_status(&found) {
+        Some(BuildStatus::Tested) => Ok(None),
+        Some(BuildStatus::Untested) => Ok(Some(format!(
+            "Claude Code {} has not been tested with message channels (tested: {}). Channel delivery depends on its handshake completing; if it never does, requests to this session fail as not ready and nothing is pasted.",
+            found.strip_suffix(PRODUCT_SUFFIX).unwrap_or(&found),
+            TESTED_VERSIONS.join(", ")
+        ))),
+        None => Err(ChannelError::ProviderVersion { found }),
     }
 }
 
@@ -313,16 +443,39 @@ impl ChannelEnrollment for Lease {
         &[]
     }
 
+    /// Records the spawned foreground in this launch's enrollment, under the
+    /// directory lock and only while the record still carries exactly this
+    /// launch's generation and owner.
+    fn foreground_started(&mut self, foreground: &ProcessIncarnation) -> Result<(), ChannelError> {
+        let process = Process::of(foreground);
+        locked(&self.directory, || {
+            match read_record(&self.directory, &self.binding_id) {
+                Ok(Some(mut record))
+                    if record.generation == self.generation
+                        && record.launch_owner == self.owner =>
+                {
+                    record.foreground = Some(process);
+                    write_record(&self.directory, &record).map_err(|_| ChannelError::Enrollment)
+                }
+                _ => Err(ChannelError::Enrollment),
+            }
+        })
+        .map_err(|_| ChannelError::Enrollment)?
+    }
+
     /// Removes the record and socket only if the record still carries exactly
-    /// this launch's generation and owner, under the directory lock. A
-    /// replacement enrollment, or a record this launch never wrote, is left
-    /// alone, and so is everything when the lock cannot be taken.
+    /// this launch's generation and owner, under the directory lock, and no
+    /// process it names as the provider can still be running. A replacement
+    /// enrollment, or a record this launch never wrote, is left alone, and so is
+    /// everything when the lock cannot be taken. The launcher calls this only for
+    /// a launch that never spawned or whose child was confirmed reaped.
     fn withdraw(self: Box<Self>) {
         let _ = locked(&self.directory, || {
             let ours = matches!(
                 read_record(&self.directory, &self.binding_id),
                 Ok(Some(record)) if record.generation == self.generation
                     && record.launch_owner == self.owner
+                    && record.claude.as_ref().is_none_or(is_gone)
             );
             if ours {
                 let _ = fs::remove_file(record_path(&self.directory, &self.binding_id));
@@ -484,6 +637,247 @@ fn send_within(
     exchange(&mut stream, &record.generation, message)
 }
 
+/// A whole-system `ps` snapshot of pid and parent only (used to prune).
+const PS_SNAPSHOT_LIMIT: usize = 4 * 1024 * 1024;
+/// Other enrollments one `enroll` looks at when it prunes ended launches.
+const PRUNE_EXAMINED: usize = 64;
+
+/// Whether a recorded process is conclusively gone (exact incarnation, not a
+/// reused pid); anything unverifiable is not.
+fn is_gone(process: &Process) -> bool {
+    process
+        .incarnation()
+        .is_some_and(|incarnation| liveness(&incarnation) == RuntimeLiveness::Gone)
+}
+
+/// A new launch of a binding replaces the earlier enrollment only when nothing the
+/// old record names can still be running: its owner and every recorded process
+/// (foreground, provider) are conclusively gone. When nothing but the owner was
+/// ever recorded (the launcher died before it published the foreground) nothing
+/// proves where the foreground went, and only an explicit relaunch in the very
+/// pane the record names may replace it. A live or unverifiable process, or such a
+/// record for another or an unnamed pane, refuses the launch.
+fn may_take_over(old: &Record, pane: &PaneRecord) -> bool {
+    if !is_gone(&old.launch_owner) {
+        return false;
+    }
+    let recorded: Vec<&Process> = old.foreground.iter().chain(old.claude.iter()).collect();
+    if recorded.is_empty() {
+        return old.pane.as_ref() == Some(pane);
+    }
+    recorded.into_iter().all(is_gone)
+}
+
+/// Quotes a path for a shell command that is printed for the user to run.
+fn shell_quoted(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+}
+
+/// The recovery a user runs after verifying that nothing of the launch is left.
+fn recovery(directory: &Path, binding_id: &str) -> String {
+    format!(
+        "rm -- {} {}",
+        shell_quoted(&record_path(directory, binding_id)),
+        shell_quoted(&socket_path(directory, binding_id)),
+    )
+}
+
+/// Whether an enrollment attributed to `pane` is live, or unconfirmed because its
+/// foreground was never recorded. It reads this driver's records, matches each to
+/// the pane through the address it persisted at enroll (never through a stored
+/// binding, which observation may have deleted) and observes only that record's
+/// own exact incarnations: the launch owner, the foreground, the provider. A
+/// record that recorded a foreground, or the provider (the Claude Code process
+/// itself, which is the foreground; the channel server is its child and never counts),
+/// and whose processes are all gone has ended and is not evidence; one that recorded
+/// neither stays unknown
+/// (terminal for this pane) even when its launcher is gone, because nothing proves
+/// where the agent it may have started went. A record
+/// that cannot be attributed (unreadable, older, naming no pane) never blocks an
+/// unrelated pane and is reported in `skipped`, unless its file is named for
+/// `binding_id`, the binding being delivered to, which makes it that binding's
+/// own invalid evidence. Evidence about this pane that cannot be told is an error.
+/// The whole work is bounded by the one `deadline` (the directory read, every
+/// record read and each observation); there is no record-count cap, a leftover
+/// costs one small read, and with no records the cost is one directory read.
+fn pane_enrolled<R: CommandRunner>(
+    runner: &R,
+    directory: &Path,
+    pane: &PaneAddress<'_>,
+    binding_id: Option<&str>,
+    deadline: Instant,
+) -> Result<PaneEvidence, EvidenceError> {
+    let mut evidence = PaneEvidence::default();
+    let unverifiable = || EvidenceError::at(ChannelFault::Unverifiable, directory);
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(evidence),
+        Err(_) => return Err(unverifiable()),
+    };
+    for entry in entries {
+        if Instant::now() >= deadline {
+            return Err(unverifiable());
+        }
+        let entry = entry.map_err(|_| unverifiable())?;
+        let name = entry.file_name();
+        // This driver's namespace is exactly `<binding-id>.json`; sockets, the lock
+        // and every other driver's files are never opened.
+        let Some(stem) = name.to_str().and_then(owned_record_stem) else {
+            continue;
+        };
+        let path = entry.path();
+        let record = match read_record(directory, stem) {
+            Ok(Some(record)) if record.version == RECORD_VERSION && record.binding_id == stem => {
+                record
+            }
+            // Withdrawn between the listing and the read.
+            Ok(None) => continue,
+            Ok(Some(_)) | Err(_) => {
+                if binding_id == Some(stem) {
+                    return Err(EvidenceError::at(ChannelFault::InvalidRecord, &path)
+                        .with_detail(format!(
+                            "The enrollment record of this pane's own binding is unreadable. After confirming that the session it belonged to is gone, remove it with: {}.",
+                            recovery(directory, stem)
+                        )));
+                }
+                evidence.skipped.push(path);
+                continue;
+            }
+        };
+        let Some(recorded) = &record.pane else {
+            evidence.skipped.push(path);
+            continue;
+        };
+        if !recorded.is(pane) {
+            continue;
+        }
+        let processes = [
+            Some(&record.launch_owner),
+            record.foreground.as_ref(),
+            record.claude.as_ref(),
+        ];
+        for process in processes.into_iter().flatten() {
+            match observe_runtime_process(runner, process.pid, deadline) {
+                Ok(ProcessObservation::Live(seen) | ProcessObservation::Stopped(seen)) => {
+                    if Process::of(&seen) == *process {
+                        evidence.enrolled = true;
+                        return Ok(evidence);
+                    }
+                }
+                Ok(ProcessObservation::Gone) => {}
+                _ => {
+                    return Err(
+                        EvidenceError::at(ChannelFault::Unverifiable, &path).with_detail(format!(
+                            "Process {} of this pane's enrollment could not be observed. Retry, or after confirming that it is gone remove the enrollment with: {}.",
+                            process.pid,
+                            recovery(directory, stem)
+                        )),
+                    );
+                }
+            }
+        }
+        if record.foreground.is_none() && record.claude.is_none() {
+            // The launcher died before it recorded the foreground: nothing proves
+            // that the agent it may have started is gone.
+            return Err(
+                EvidenceError::at(ChannelFault::Unverifiable, &path).with_detail(format!(
+                    "A `tmt run --channel` launch in pane {} on the tmux server at {} ended before it recorded its agent process, so that agent cannot be proven gone. After confirming that no agent started by launch owner {} (started {}) still runs in that pane, remove its enrollment with: {}. Nothing is pasted until then.",
+                    recorded.pane_id,
+                    recorded.socket_path,
+                    record.launch_owner.pid,
+                    record.launch_owner.start,
+                    recovery(directory, stem)
+                )),
+            );
+        }
+    }
+    Ok(evidence)
+}
+
+/// This driver's enrollment records: exactly `<binding-id>.json`.
+fn owned_record_stem(name: &str) -> Option<&str> {
+    let stem = name.strip_suffix(".json")?;
+    (stem.len() == 36 && uuid::Uuid::parse_str(stem).is_ok()).then_some(stem)
+}
+
+/// Every process and its parent from one bounded snapshot.
+fn process_parents<R: CommandRunner>(
+    runner: &R,
+    deadline: Instant,
+) -> Result<HashMap<u64, u64>, ChannelFault> {
+    let output = query_ps(
+        runner,
+        &["-A".into(), "-o".into(), "pid=,ppid=".into()],
+        deadline,
+        PS_SNAPSHOT_LIMIT,
+    )
+    .map_err(|_| ChannelFault::Unverifiable)?;
+    let text = std::str::from_utf8(&output.stdout).map_err(|_| ChannelFault::Unverifiable)?;
+    let mut parents = HashMap::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let mut fields = line.split_whitespace();
+        let (Some(pid), Some(parent), None) = (fields.next(), fields.next(), fields.next()) else {
+            return Err(ChannelFault::Unverifiable);
+        };
+        let (Ok(pid), Ok(parent)) = (pid.parse::<u64>(), parent.parse::<u64>()) else {
+            return Err(ChannelFault::Unverifiable);
+        };
+        if parents.insert(pid, parent).is_some() {
+            return Err(ChannelFault::Unverifiable);
+        }
+    }
+    Ok(parents)
+}
+
+/// Removes the enrollment (record and socket) of launches that are over in every
+/// way the record can show: it recorded a foreground or a provider, and the launch
+/// owner and every recorded process are absent from one process snapshot. A record
+/// that never recorded either (the unconfirmed case), has a live or unobservable
+/// process, is unreadable, or is not this driver's is left alone, as is the binding
+/// being enrolled. It runs under the directory lock, looks at a bounded number of
+/// records, and never blocks an enrollment.
+fn prune_ended(directory: &Path, keep: &str) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    let mut candidates = Vec::new();
+    for entry in entries.flatten().take(PRUNE_EXAMINED * 4) {
+        let name = entry.file_name();
+        let Some(binding_id) = name.to_str().and_then(owned_record_stem) else {
+            continue;
+        };
+        if binding_id == keep {
+            continue;
+        }
+        if let Ok(Some(record)) = read_record(directory, binding_id)
+            && record.version == RECORD_VERSION
+            && record.binding_id == binding_id
+            && (record.foreground.is_some() || record.claude.is_some())
+        {
+            candidates.push(record);
+        }
+        if candidates.len() == PRUNE_EXAMINED {
+            break;
+        }
+    }
+    if candidates.is_empty() {
+        return;
+    }
+    let Ok(alive) = process_parents(&UnixCommandRunner, Instant::now() + OWNER_PROBE) else {
+        return;
+    };
+    for record in candidates {
+        let absent = |process: &Process| !alive.contains_key(&process.pid);
+        if absent(&record.launch_owner)
+            && record.foreground.as_ref().is_none_or(absent)
+            && record.claude.as_ref().is_none_or(absent)
+        {
+            let _ = fs::remove_file(record_path(directory, &record.binding_id));
+            let _ = fs::remove_file(socket_path(directory, &record.binding_id));
+        }
+    }
+}
+
 /// Whether the process is the recorded incarnation, observed within a bound.
 fn liveness(process: &ProcessIncarnation) -> RuntimeLiveness {
     match observe_runtime_process(
@@ -528,13 +922,12 @@ fn await_ready(
 /// Whether a reread is the enrollment that was verified: everything but the
 /// readiness (`claude`), which the server completes, is the enrollment's identity.
 fn same_enrollment(verified: &Record, reread: &Record) -> bool {
-    Record {
+    let settled = |record: &Record| Record {
         claude: None,
-        ..reread.clone()
-    } == Record {
-        claude: None,
-        ..verified.clone()
-    }
+        foreground: None,
+        ..record.clone()
+    };
+    settled(reread) == settled(verified)
 }
 
 /// Everything after the connection exists is uncertain unless the endpoint

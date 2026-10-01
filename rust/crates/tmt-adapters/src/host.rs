@@ -575,6 +575,14 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     fn clear(&mut self, binding: &Binding) -> Result<bool, Self::Error> {
         self.driver(binding.server.host).clear(binding)
     }
+
+    fn pane_incarnation(
+        &mut self,
+        server: &ServerEvidence,
+        pane_pid: u64,
+    ) -> Result<Option<String>, Self::Error> {
+        self.driver(server.host).pane_incarnation(pane_pid)
+    }
 }
 
 /// A binding's own host; an entry without one belongs to the primary host.

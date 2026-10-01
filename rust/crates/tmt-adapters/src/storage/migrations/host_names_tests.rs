@@ -12,7 +12,7 @@ const SERVER: &str = "00000000-0000-4000-8000-000000000001";
 
 /// A schema-40 database with a tmux binding, a pane request with its response
 /// and notification, an inbox request and a Herdr server record.
-fn schema_40(path: &std::path::Path) -> Connection {
+pub(super) fn schema_40(path: &std::path::Path) -> Connection {
     let mut db = Connection::open(path).unwrap();
     test_support::seed_history(&mut db);
     apply_through(&mut db, 40).unwrap();
@@ -32,17 +32,17 @@ fn schema_40(path: &std::path::Path) -> Connection {
     db
 }
 
-fn version(db: &Connection) -> i64 {
+pub(super) fn version(db: &Connection) -> i64 {
     db.query_row("SELECT max(version) FROM _migrations", [], |row| row.get(0))
         .unwrap()
 }
 
-fn foreign_keys(db: &Connection) -> bool {
+pub(super) fn foreign_keys(db: &Connection) -> bool {
     db.query_row("PRAGMA foreign_keys", [], |row| row.get(0))
         .unwrap()
 }
 
-fn table_sql(db: &Connection, table: &str) -> String {
+pub(super) fn table_sql(db: &Connection, table: &str) -> String {
     db.query_row(
         "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?1",
         [table],
@@ -76,7 +76,7 @@ fn dependents(db: &Connection) -> Vec<(String, String)> {
         .unwrap()
 }
 
-fn rows(db: &Connection, table: &str) -> Vec<Vec<Value>> {
+pub(super) fn rows(db: &Connection, table: &str) -> Vec<Vec<Value>> {
     let mut statement = db
         .prepare(&format!("SELECT * FROM {table} ORDER BY 1"))
         .unwrap();
@@ -100,7 +100,7 @@ fn state(db: &Connection) -> Vec<String> {
     state
 }
 
-fn cursor(db: &Connection) -> i64 {
+pub(super) fn cursor(db: &Connection) -> i64 {
     db.query_row("SELECT value FROM change_cursor", [], |row| row.get(0))
         .unwrap()
 }

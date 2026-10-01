@@ -92,7 +92,7 @@ current catalog revision, install with authorization, and confirm the immutable
 digest:
 
 ```sh
-tmt office prop list --local --limit 20 --json
+tmt office prop ls --local --limit 20 --json
 tmt office prop install --local --file <pack.tmtprop.json> --if-revision <catalogRevision> --json
 tmt office prop show --local <sha256:digest> --json
 ```
@@ -140,7 +140,7 @@ On a revision conflict, reread and reconcile; never advance a revision
 automatically. Removing a pack is another authorized catalog mutation:
 
 ```sh
-tmt office prop remove --local <sha256:digest> --if-revision <catalogRevision> --json
+tmt office prop rm --local <sha256:digest> --if-revision <catalogRevision> --json
 ```
 
 Removal never rewrites saved layouts. Existing references render bounded

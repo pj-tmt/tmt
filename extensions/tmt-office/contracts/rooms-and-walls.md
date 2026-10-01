@@ -60,7 +60,7 @@ tmt room ls
 tmt room show <room>
 tmt room join <room> --identity Alice
 tmt room leave <room> --identity Alice
-tmt room retire <room>
+tmt room rm <room>
 tmt ls --room <room>
 tmt talk Alice "Review this change" --room <room>
 tmt room send <room> "Review this change"

@@ -31,6 +31,7 @@ pub(super) fn pane(id: &str, pid: u64) -> PaneObservation {
         cwd: None,
         command: "agent".into(),
         pane_pid: pid,
+        pane_incarnation: None,
         suggested_name: None,
         marker: None,
     }
