@@ -2612,7 +2612,7 @@ component with `release: false`, a draft without the bundle and one with a hold 
 marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
 prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
 the policy's flags, the tag on the release commit and GitHub's attestation for the release and
-every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. A read-only `native-release-smoke.yml` then installs the published release as a user does, on the four hosts in an isolated environment: the public installer and `tmt upgrade` for the CLI, the newest published CLI's extension install for an extension; its failures are reported on the same issue by a separate job. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill

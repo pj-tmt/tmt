@@ -123,8 +123,23 @@ the release commit, it carries `release-publication.json`, and GitHub's attestat
 published release). GitHub finishes the attestation after publishing, so these checks are
 retried for about two minutes. A failed check opens an issue and fails the run; nothing is
 rolled back, because a published release is immutable and a repair needs a new reviewed
-version. Both jobs run `main`'s code and never the release commit's: `publish` holds the write
-token, `published` only read access and `issues: write`. A run that stopped before it published is completed by the
+version. A `smoke` job then installs the published release as a user does
+(`.github/workflows/native-release-smoke.yml`, also run by hand for any published tag with
+`product` and `tag`). On the four hosts of the upgrade proof, in an isolated home, state directory
+and prefix and with no token, a CLI alpha goes through the public
+`releases/latest/download/install.sh`: the installer names the tag's version, the installed `tmt`
+is the one PATH selects and reports that version, the installed shared skills are the tag's
+`skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --json` reads the live
+metadata and reports the installation current (a newer alpha that appeared since passes with a
+note). An extension alpha is installed by the newest published CLI's `tmt <extension> install`
+into a separate prefix; its version must be the tag's and no CLI link may appear. The tag is
+checked out only so its skills can be read; none of its code runs. The network steps get three
+attempts, and a GitHub API rate limit that persists is reported as one (the installed CLI reads
+the release list unauthenticated). A failed leg keeps its failed checks as data, and a final job
+with `issues: write` comments on, or opens, the issue of the checks above; nothing is rolled
+back. Both `publish` and `published` run `main`'s code and never the release commit's: `publish`
+holds the write token, `published` only read access and `issues: write`; the install legs have
+neither. A run that stopped before it published is completed by the
 next run of the product: it plans every complete draft without a hold again and evaluates its
 gates again. A bundle prepared without a draft (`prepare`) never publishes.
 
@@ -184,11 +199,13 @@ unchanged. Receipts written by older releases stay readable: v5.0.0-alpha.2 thro
 alpha.6 and Office 0.1.0-alpha.1 through alpha.3 record the pre-rename repository
 `wkh237/tmux-team`, which receipt reading accepts as the official one (#492).
 
-Before promoting README installation instructions, run the actual public script
-with an isolated HOME, application root and prefix, verify version, exact skill bundle,
-PATH selection and `tmt upgrade --json` against live immutable metadata. Do not
-mutate a host installation. Record this separately from controlled-curl fixture
-evidence. npm publication is not part of native GitHub release publication.
+The pipeline's `smoke` job (see Publication above) runs the actual public script with an
+isolated HOME, state directory and prefix and checks the version, the managed skills, PATH
+selection and `tmt upgrade --json` against live immutable metadata after every automatic
+publication; run it by hand for a tag published another way. Promoting README installation
+instructions stays the owner's decision, and a host installation is never mutated. Record the
+smoke separately from controlled-curl fixture evidence. npm publication is not part of native
+GitHub release publication.
 
 The PR smoke matrix verifies raw native runtimes, not release archives.
 #135 introduced archive generation; later slices delivered installation.
