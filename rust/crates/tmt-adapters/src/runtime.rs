@@ -12,6 +12,7 @@ use tmt_core::{
     driver::{ActionResult, DeliveryAcceptance, Driver, HarnessResume, HarnessStart, SendFailure},
 };
 
+pub mod channel;
 pub mod driver_state;
 pub(crate) mod evidence;
 pub mod hook_protocol;
@@ -42,6 +43,7 @@ impl RuntimeCommand {
 pub enum RuntimeError {
     InvalidSession,
     InvalidRegistration,
+    Channel(channel::ChannelFault),
 }
 
 impl fmt::Display for RuntimeError {
@@ -51,6 +53,7 @@ impl fmt::Display for RuntimeError {
             Self::InvalidRegistration => {
                 "Runtime registration requires a unique harness ID and a bare command name."
             }
+            Self::Channel(fault) => return fault.fmt(formatter),
         })
     }
 }
@@ -65,6 +68,7 @@ struct Registration {
     priority: i32,
     driver: Box<RegisteredDriver>,
     lifecycle: Option<Box<dyn lifecycle::RuntimeLifecycle>>,
+    channel: Option<Box<dyn channel::RuntimeChannel>>,
 }
 
 /// First-party and community drivers use the same registration boundary.
@@ -98,6 +102,11 @@ impl RuntimeRegistry {
             registry
                 .register_lifecycle(&harness, (runtime.lifecycle)())
                 .expect("registered driver lifecycle");
+            if let Some(channel) = runtime.channel {
+                registry
+                    .register_channel(&harness, channel())
+                    .expect("registered driver channel");
+            }
         }
         registry
     }
@@ -136,6 +145,7 @@ impl RuntimeRegistry {
             priority,
             driver,
             lifecycle: None,
+            channel: None,
         });
         self.registrations.sort_by(|a, b| {
             b.priority
@@ -158,6 +168,30 @@ impl RuntimeRegistry {
             .ok_or(RuntimeError::InvalidRegistration)?;
         entry.lifecycle = Some(lifecycle);
         Ok(())
+    }
+
+    pub fn register_channel(
+        &mut self,
+        harness: &HarnessId,
+        channel: Box<dyn channel::RuntimeChannel>,
+    ) -> Result<(), RuntimeError> {
+        let entry = self
+            .registrations
+            .iter_mut()
+            .find(|entry| &entry.harness == harness)
+            .filter(|entry| entry.channel.is_none())
+            .ok_or(RuntimeError::InvalidRegistration)?;
+        entry.channel = Some(channel);
+        Ok(())
+    }
+
+    /// The harness's channel, if its driver offers one.
+    pub fn channel(&self, harness: &HarnessId) -> Option<&dyn channel::RuntimeChannel> {
+        self.registrations
+            .iter()
+            .find(|entry| &entry.harness == harness)?
+            .channel
+            .as_deref()
     }
 
     pub fn lifecycle(&self, harness: &HarnessId) -> Option<&dyn lifecycle::RuntimeLifecycle> {
@@ -428,6 +462,59 @@ mod tests {
             )
             .unwrap();
         assert_eq!(ended.state, RuntimeState::Ended);
+    }
+
+    struct CommunityChannel;
+    impl channel::RuntimeChannel for CommunityChannel {
+        fn preflight(
+            &self,
+            _: &OsStr,
+            _: &std::path::Path,
+            _: std::time::Instant,
+        ) -> Result<(), channel::ChannelError> {
+            Ok(())
+        }
+
+        fn enroll(
+            &self,
+            _: &channel::ChannelPlan<'_>,
+        ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
+            Err(channel::ChannelError::Unsupported)
+        }
+    }
+
+    #[test]
+    fn channel_registration_is_harness_owned_and_first_party_drivers_have_none_yet() {
+        let mut registry = RuntimeRegistry::first_party();
+        for harness in ["claude", "codex"] {
+            assert!(registry.channel(&id(harness)).is_none());
+        }
+        assert!(
+            registry
+                .register_channel(&id("missing"), Box::new(CommunityChannel))
+                .is_err()
+        );
+        registry
+            .register(
+                id("community"),
+                "community",
+                0,
+                Community {
+                    id: id("community"),
+                },
+            )
+            .unwrap();
+        assert!(registry.channel(&id("community")).is_none());
+        registry
+            .register_channel(&id("community"), Box::new(CommunityChannel))
+            .unwrap();
+        assert!(registry.channel(&id("community")).is_some());
+        assert!(registry.channel(&id("claude")).is_none());
+        assert!(
+            registry
+                .register_channel(&id("community"), Box::new(CommunityChannel))
+                .is_err()
+        );
     }
 
     impl Driver for Community {

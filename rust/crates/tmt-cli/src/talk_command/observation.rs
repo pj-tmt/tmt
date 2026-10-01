@@ -34,8 +34,13 @@ pub(super) fn observe(
             .error(
                 "TIMEOUT",
                 format!(
-                    "Timed out waiting for {} after {timeout}s",
-                    correlation.target
+                    "Timed out waiting for {} after {timeout}s{}",
+                    correlation.target,
+                    if correlation.delivery_uncertain {
+                        "; delivery was uncertain (the channel gave no receipt), so do not resend"
+                    } else {
+                        ""
+                    }
                 ),
                 4,
             )
