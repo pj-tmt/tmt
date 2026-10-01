@@ -33,6 +33,7 @@ struct ListedRow {
     remembered: Option<RememberedSession>,
     /// The existing `resume` JSON projection, kept byte for byte.
     resume: Option<serde_json::Value>,
+    activity: serde_json::Value,
 }
 
 struct ResolvedPane {
@@ -500,10 +501,30 @@ fn operation(
                                 .caused_by(error)
                             })?;
                     let resume = crate::output::resume_document(&preferences, &registry);
+                    let runtime = row
+                        .binding
+                        .as_ref()
+                        .filter(|_| row.presence == tmt_core::binding::Presence::Active)
+                        .and_then(|binding| {
+                            // Activity ended requires a process fact, not a stored SessionEnd hook.
+                            let mut observed = binding.clone();
+                            if observed.session.state == RuntimeState::Ended {
+                                observed.session.state = RuntimeState::Unknown;
+                            }
+                            endpoint.observed_runtime(&observed).ok()
+                        })
+                        .unwrap_or(RuntimeState::Unknown);
+                    let activity = crate::output::activity_document(
+                        row.binding.as_ref(),
+                        preferences.remembered.as_ref(),
+                        runtime,
+                        &registry,
+                    );
                     Ok(ListedRow {
                         presence: row,
                         remembered: preferences.remembered,
                         resume,
+                        activity,
                     })
                 })
                 .collect::<Result<Vec<_>, Failure>>()?;

@@ -496,6 +496,26 @@ mod tests {
     }
 
     #[test]
+    fn async_activity_hooks_are_edited_owned_entries() {
+        for event in ["UserPromptSubmit", "Stop"] {
+            let mut entry = hook_entry("/tmt");
+            entry["hooks"][0]["async"] = true.into();
+            let input = serde_json::json!({"hooks":{event:[entry]}}).to_string();
+            assert!(!has_owned_hook(&claude::DRIVER, &input, event));
+            assert_eq!(
+                settings(
+                    &claude::DRIVER,
+                    &input,
+                    "/tmt",
+                    false,
+                    super::super::UsageHook::Install
+                ),
+                Err(PlanError::EditedHook)
+            );
+        }
+    }
+
+    #[test]
     fn installed_start_hooks_are_recognized_only_in_their_owned_shape() {
         let installed = claude_settings("{}", "/stable/tmt", false).unwrap();
         assert!(has_owned_hook(&claude::DRIVER, &installed, "SessionStart"));

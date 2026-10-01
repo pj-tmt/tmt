@@ -245,6 +245,20 @@ fn interruption_before_or_after_read_wins_without_waiting() {
     );
     assert_eq!(after_reads.get(), 1);
     assert!(runtime.waited_ms().is_empty());
+    for failure in [&before, &after] {
+        assert_eq!(
+            failure.document().to_string(),
+            r#"{"error":{"code":"INTERRUPTED","message":"Interrupted while waiting for a durable reply.","suggestion":"Inspect with 'tmt result request-observe' and 'tmt check worker' before deciding whether to retry."},"requestId":"request-observe","target":"worker","pane":"%1"}"#,
+        );
+        let mut human = Vec::new();
+        failure
+            .write_human(&mut human, tmt_cli_style::Terminal::PLAIN)
+            .unwrap();
+        assert_eq!(
+            human,
+            b"error: Interrupted while waiting for a durable reply\nhint: Inspect with 'tmt result request-observe' and 'tmt check worker' before deciding whether to retry\n",
+        );
+    }
 }
 
 #[test]

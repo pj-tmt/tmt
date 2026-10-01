@@ -16,7 +16,7 @@ use crate::{
 use serde_json::{Value, json};
 use std::{
     cell::Cell,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs,
     os::unix::fs::PermissionsExt,
     path::PathBuf,
@@ -29,13 +29,30 @@ use tmt_driver_protocol::{
 
 const SOCKET: &str = "/tmp/fake-host.sock";
 
-/// Success fixtures exercise real processes without charging CI scheduling to
-/// the protocol budget. Only the runner deadline changes, not wire/output bounds.
+/// Keep the production env/guard request while reading the fixture through its shell.
+struct ScriptRunner;
+
+impl CommandRunner for ScriptRunner {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        assert_eq!(request.program, OsStr::new("/usr/bin/env"));
+        assert_eq!(request.args[0], OsStr::new("TMT_DRIVER_CALL=1"));
+        // A concurrent fork can inherit the written script's fd; only read that inode.
+        let mut args = request.args.to_vec();
+        args.insert(1, "/bin/sh".into());
+        UnixCommandRunner.execute(CommandRequest {
+            args: &args,
+            ..request
+        })
+    }
+}
+
+/// Allow success fixtures their existing CI scheduling budget, while ScriptRunner
+/// retains real process cleanup and unchanged wire/output bounds.
 struct FixtureRunner;
 
 impl CommandRunner for FixtureRunner {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
-        UnixCommandRunner.execute(CommandRequest {
+        ScriptRunner.execute(CommandRequest {
             deadline: Instant::now() + Duration::from_secs(30),
             ..request
         })
@@ -166,11 +183,13 @@ fn a_spawned_driver_is_checked_for_conformance() {
     let late = Cell::new(None::<Op>);
     let mut invoke = |args: &[&str], request: &[u8]| {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-        let result = FixtureRunner.execute(CommandRequest {
-            program: installed.executable.as_os_str(),
-            args: &args,
+        let mut shell_args = vec![installed.executable.clone().into_os_string()];
+        shell_args.extend_from_slice(&args);
+        let result = UnixCommandRunner.execute(CommandRequest {
+            program: OsStr::new("/bin/sh"),
+            args: &shell_args,
             input: request,
-            deadline: soon(),
+            deadline: Instant::now() + Duration::from_secs(30),
             max_output_bytes: 2 * 1024 * 1024,
         });
         DriverOutput {
@@ -293,7 +312,7 @@ fn late_oversized_or_malformed_answers_fail() {
     let record = installed.approve().unwrap();
     let driver = DriverProcess::open(record.clone(), FixtureRunner).unwrap();
     // This call retains the actual 300 ms protocol deadline and cleanup owner.
-    let timed_driver = DriverProcess::open(record, UnixCommandRunner).unwrap();
+    let timed_driver = DriverProcess::open(record, ScriptRunner).unwrap();
     assert_eq!(
         driver.call::<ClearResponse>(clear(), soon()).unwrap(),
         Ok(ClearResponse { cleared: false })

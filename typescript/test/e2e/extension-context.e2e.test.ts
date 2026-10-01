@@ -158,10 +158,7 @@ it.each([
             { args: ['extension', 'hooks', 'disable', 'ctxfix', '--json'] },
             hook('UserPromptSubmit'),
             { args: ['extension', 'hooks', 'enable', 'ctxfix', '--json'] },
-            ...Array.from({ length: 20 }, () => ({ ...hook('UserPromptSubmit'), measure: true })),
-            { args: ['extension', 'hooks', 'disable', 'ctxfix', '--json'] },
-            ...Array.from({ length: 20 }, () => ({ ...hook('UserPromptSubmit'), measure: true })),
-            { args: ['extension', 'hooks', 'enable', 'ctxfix', '--json'] },
+            hook('UserPromptSubmit'), // enabling again restores prompt context
             hook('SessionEnd'),
             hook('UserPromptSubmit'), // ended sessions cannot be revived
           ].slice(0, retire ? 5 : undefined)
@@ -187,12 +184,13 @@ it.each([
         code: number;
         stdout: string;
         stderr: string;
-        elapsedMs: number;
       }>;
-      expect(results).toHaveLength(retire ? 5 : 55);
+      expect(results).toHaveLength(retire ? 5 : 14);
       expect(results.every((item) => item.code === 0)).toBe(true);
+      // Only SessionStart and the admitted, enabled prompts invoke the callback. Keep
+      // repeated latency sampling out of this required correctness scenario.
       expect(fs.readFileSync(path.join(fixture.wrapperDir, 'ctxfix-calls'), 'utf8')).toBe(
-        'context\n'.repeat(retire ? 2 : 22)
+        'context\n'.repeat(retire ? 2 : 3)
       );
       if (retire) {
         expect(results[4].stdout).toBe('');
@@ -205,20 +203,6 @@ it.each([
       }
       expect(results.every((item) => item.stderr === '')).toBe(true);
       expect(results[4]).not.toHaveProperty('elapsedMs');
-      const fast = results.slice(11, 31);
-      const absent = results.slice(32, 52);
-      expect(fast.every((result) => result.stdout.includes('Extension ctxfix'))).toBe(true);
-      expect(absent.every((result) => result.stdout === '')).toBe(true);
-      for (const [label, samples] of [
-        ['fast callback', fast],
-        ['no consents', absent],
-      ] as const) {
-        expect(samples.every((result) => Number.isFinite(result.elapsedMs))).toBe(true);
-        const times = samples.map((result) => result.elapsedMs).sort((a, b) => a - b);
-        console.log(
-          `${provider} ${label}: n=20 medianMs=${(times[9] + times[10]) / 2} worstMs=${times[19]}`
-        );
-      }
       const id = JSON.parse(results[1].stdout).id;
       const startup = JSON.parse(results[3].stdout).hookSpecificOutput;
       expect(startup.hookEventName).toBe('SessionStart');
@@ -230,7 +214,8 @@ it.each([
             'Extension ctxfix (informational): "Next turn: \\"quoted\\"\\nsecond line"\n',
         },
       });
-      for (const index of [0, 2, 5, 6, 9, 53, 54]) expect(results[index].stdout).toBe('');
+      expect(results[11].stdout).toBe(results[4].stdout);
+      for (const index of [0, 2, 5, 6, 9, 12, 13]) expect(results[index].stdout).toBe('');
       expect(JSON.parse(results[7].stdout)).toMatchObject({ id, sessionState: 'running' });
       expect(
         JSON.parse(fs.readFileSync(path.join(fixture.wrapperDir, 'ctxfix-input'), 'utf8'))

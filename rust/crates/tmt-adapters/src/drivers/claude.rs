@@ -284,13 +284,30 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         crate::runtime::driver_state::state_usage(state)
     }
 
+    fn decode_activity(&self, bytes: &[u8]) -> Option<tmt_core::binding::session::activity::Event> {
+        crate::runtime::hook_protocol::decode_activity(bytes, false)
+    }
+
+    fn activity_state(
+        &self,
+        event: &tmt_core::binding::session::activity::Event,
+        session: &ProviderSessionId,
+        process: &ProcessIncarnation,
+        previous: Option<&tmt_core::binding::session::DriverState>,
+        now_ms: u64,
+    ) -> Option<tmt_core::binding::session::DriverState> {
+        crate::runtime::driver_state::after_activity(previous, session, process, event, now_ms)
+    }
+
+    fn state_activity(
+        &self,
+        state: &tmt_core::binding::session::DriverState,
+    ) -> Option<tmt_core::binding::session::activity::Activity> {
+        crate::runtime::driver_state::state_activity(state)
+    }
+
     fn decode_prompt(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
-        if bytes.len() > crate::runtime::hook_protocol::HOOK_INPUT_LIMIT {
-            return None;
-        }
-        let payload: Payload = serde_json::from_slice(bytes).ok()?;
-        (payload.hook_event_name == "UserPromptSubmit").then_some(())?;
-        ProviderSessionId::new(&payload.session_id).ok()
+        crate::runtime::hook_protocol::decode_prompt(bytes)
     }
 
     fn decode_turn(&self, payload: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
