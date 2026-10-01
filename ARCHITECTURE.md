@@ -822,9 +822,23 @@ template with source locations, not a renderable scene. It refuses declarations
 and excessive depth before tree allocation and bounds parser nodes. Static
 classes, wrap and literal tokens compile into `style::CellStyle` during admission,
 including every repeat template. Tokens use `tmt-cli-style::theme::Role`; no
-palette is resolved or copied. Binding, geometry and paint stages are not
-implemented yet. No product consumes it. The guard permits only XML parsing
-and the shared style leaf, never core, adapters or extension behavior; reverse product edges require adoption review.
+palette is resolved or copied. `binding::compile` eagerly checks an explicit
+application schema, lexical dotted paths (root `$` and repeat aliases), stable
+IDs and application-owned source/format handles, including empty repeat bodies.
+`materialize` borrows `serde_json::Value` data and checks referenced value kinds;
+it acquires no data. Missing required paths are errors; null scalar text is
+absent. Direct binds retain display text; only the application's source adapter
+applies formats. IDs use scoped components, never collection positions; semantic
+row IDs remain separate. Expansion admits at most 20,000 nodes, 20,000 repeat
+iterations and 8 MiB of aggregate text/ID bytes (including the duplicate-ID
+registry). Stable IDs are nonempty, nonnumeric strings of at most 256 bytes.
+Borrowed text is charged before copying; source callbacks own their allocations.
+Geometry and painting remain unimplemented; row-track attributes remain for the
+existing grid compiler to admit. The guard permits XML parsing, borrowed JSON
+and the shared style leaf, never core, adapters, CLI or extension behavior.
+Squad is the sole reviewed product edge, with a test-scoped adapter until the
+row-track compiler adopts it. Existing board and list production paths remain
+unchanged; `tmt-cli-style::grid` remains the sole row sizing policy.
 The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 
@@ -2792,9 +2806,11 @@ second target catalog, archive parser, package manager, or production manifest.
 reached through the external command contract as `tmt squad` and, through a
 `tmt-sq` link to the same file, `tmt sq`. Its command name is fixed, never taken
 from argv[0], so both spellings share one help text, error set and completion.
-It is a workspace member for the shared lockfile and toolchain only. It depends
-on the neutral leaves `tmt-cli-style` and `tmt-invoke`, which carry no core behavior,
-and no TMT crate depends on it; the architecture guard enforces both directions
+It is a workspace member for the shared lockfile and toolchain only. Its reviewed
+TMT dependencies are neutral leaves: `tmt-cli-style`, `tmt-invoke` and `tmt-tui`.
+The latter's test-scoped binding adapter borrows already-acquired `Member` values and
+reuses `ColumnSource`/`Format`; it performs no core/provider acquisition or sorting.
+No TMT crate depends on Squad; the architecture guard enforces both directions
 for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 `tmt api`, with `runner` mapping results/errors to `tmt-invoke` for bounded capture.

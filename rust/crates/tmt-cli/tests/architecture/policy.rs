@@ -190,11 +190,12 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
         ],
         // Squad is a public-interface consumer: it reaches TMT only through
-        // commands and `tmt api`. Neutral invoke/style leaves carry no core behavior.
+        // commands and `tmt api`. Reviewed neutral leaves carry no core behavior.
         "tmt-squad" => &[
             "tmt-cli-style",
             // Same neutral bounded process owner used by Remote and Colab.
             "tmt-invoke",
+            "tmt-tui",
             "clap",
             "serde_json",
             "toml_edit",
@@ -209,7 +210,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "nix",
         ],
         "tmt-invoke" => &["subprocess", "nix"],
-        "tmt-tui" => &["roxmltree", "tmt-cli-style"],
+        "tmt-tui" => &["roxmltree", "serde_json", "tmt-cli-style"],
         "tmt-colab" => &[
             "ed25519-dalek",
             "getrandom",
@@ -602,6 +603,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
                 && root != "tmt_invoke"
+                && !(source.package == "tmt-squad" && root == "tmt_tui")
                 && root != source.package.replace('-', "_")
             {
                 violations.push(format!(
@@ -625,7 +627,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            if root == "tmt_tui" && source.package != "tmt-tui" {
+            if root == "tmt_tui" && !["tmt-tui", "tmt-squad"].contains(&source.package.as_str()) {
                 violations.push(format!(
                     "{location}: unreviewed TUI consumer {}",
                     source.package

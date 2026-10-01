@@ -2888,6 +2888,7 @@ dependencies = [
  "subprocess",
  "tmt-cli-style",
  "tmt-invoke",
+ "tmt-tui",
  "toml_edit",
  "unicode-width",
 ]
@@ -2897,6 +2898,7 @@ name = "tmt-tui"
 version = "5.0.0-alpha.37"
 dependencies = [
  "roxmltree",
+ "serde_json",
  "tmt-cli-style",
 ]
 

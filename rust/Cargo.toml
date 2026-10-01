@@ -42,6 +42,7 @@ tmt-adapters = { path = "crates/tmt-adapters" }
 tmt-command-output = { path = "crates/tmt-command-output" }
 tmt-driver-protocol = { path = "crates/tmt-driver-protocol" }
 tmt-cli-style = { path = "crates/tmt-cli-style" }
+tmt-tui = { path = "crates/tmt-tui" }
 tmt-invoke = { path = "crates/tmt-invoke" }
 tmt-office-command = { path = "../extensions/tmt-office/rust/tmt-office-command" }
 tmt-office-storage = { path = "../extensions/tmt-office/rust/tmt-office-storage" }

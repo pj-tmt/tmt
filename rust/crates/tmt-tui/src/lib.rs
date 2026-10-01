@@ -1,8 +1,9 @@
 //! Internal TMT markup admission. Templates have checked structure and static
-//! styles; binding, geometry and painting remain separate, later stages.
+//! styles and binding are checked separately; geometry and painting remain later stages.
 
 use std::{collections::BTreeMap, fmt};
 
+pub mod binding;
 pub mod style;
 
 pub const MAX_BYTES: usize = 256 * 1024;

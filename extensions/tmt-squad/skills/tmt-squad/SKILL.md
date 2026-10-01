@@ -53,8 +53,9 @@ cell).
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
   `pending`, `note`, `fields` (the `squad.<name>.*` values except the internal
   leadership marker, by field name,
-  with the user's column sources and field providers applied), `failed` (fields
-  whose provider failed; they show `?`), `annotation` (the user's open note
+  with the user's column sources, formats and field providers applied;
+  these strings are already display text and must not be formatted again),
+  `failed` (fields whose provider failed; they show `?`), `annotation` (the user's open note
   about this row, or null) and `waitingOnYou` (open requests from this member to
   the user), and `staleness` (observed task/state age).
 - Every row has a separate `staleness` object, and `squad.notesStaleness`

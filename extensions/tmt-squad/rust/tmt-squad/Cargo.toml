@@ -31,6 +31,7 @@ pulldown-cmark.workspace = true
 unicode-width.workspace = true
 tmt-invoke.workspace = true
 tmt-cli-style = { workspace = true, features = ["ratatui"] }
+tmt-tui.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 subprocess.workspace = true
