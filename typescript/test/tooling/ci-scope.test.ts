@@ -412,8 +412,9 @@ describe('component map', () => {
 
   it('says which components are released: all but the ones that declare release: false', () => {
     expect(isReleased(map, 'cli')).toBe(true);
-    expect(isReleased(map, 'office')).toBe(true);
     expect(isReleased(map, 'squad')).toBe(true);
+    // Office is parked, as the private browser add-on is.
+    expect(isReleased(map, 'office')).toBe(false);
     expect(isReleased(map, 'browser-addon')).toBe(false);
     const parked = parseComponentMap(
       JSON.stringify({ components: { office: { owns: ['office'], release: false } } })
@@ -527,7 +528,11 @@ describe('component map', () => {
 
   it('names the checks a scoped component runs and none for the other scopes', () => {
     expect(scopedChecks('squad', map)).toEqual({
-      nativeTests: ['squad.test.ts', 'extension-install.test.ts'],
+      nativeTests: [
+        'squad.test.ts',
+        'extension-install.test.ts',
+        'extension-upgrade-proof.test.ts',
+      ],
       e2eFiles: ['squad.e2e.test.ts'],
     });
     expect(scopedChecks('full', map)).toEqual({ nativeTests: [], e2eFiles: [] });
@@ -993,7 +998,8 @@ describe('CI diff and command integration', () => {
         office: 'false',
         native_office: 'false',
         native_scope: 'squad',
-        scoped_native_tests: 'squad.test.ts extension-install.test.ts',
+        scoped_native_tests:
+          'squad.test.ts extension-install.test.ts extension-upgrade-proof.test.ts',
         e2e_shard_1: 'squad.e2e.test.ts',
         e2e_shard_2: '',
       });

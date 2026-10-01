@@ -155,13 +155,13 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
 describe('release workflow (release.yml)', () => {
   const release = read('.github/workflows/release.yml');
 
-  it('starts on a push to main that changes more than prose, and on a manual dry run by default', () => {
+  it('starts on every push to main, prose included, and on a manual dry run by default', () => {
+    // A documentation merge moves main under the open release pull requests too, so no path is
+    // ignored: the run refreshes them.
     expect(release).toMatch(
-      /^on:\n {2}push:\n {4}branches:\n {6}- main\n(?: {4}#[^\n]*\n)* {4}paths-ignore:/m
+      /^on:\n {2}push:\n {4}branches:\n {6}- main\n(?: {4}#[^\n]*\n)* {2}workflow_dispatch:\n/m
     );
-    for (const ignored of ["'**/*.md'", 'docs/**', '.agents/**']) {
-      expect(release).toContain(`      - ${ignored}`);
-    }
+    expect(release).not.toMatch(/paths-ignore|paths:/);
     expect(release).toMatch(
       /workflow_dispatch:\n {4}inputs:\n {6}dry_run:\n(?: {8}[^\n]*\n)*? {8}default: true\n {8}type: boolean/
     );
@@ -263,7 +263,7 @@ describe('release workflow (release.yml)', () => {
   it('starts a release run per product, only in a live run, and never publishes', () => {
     const dispatch = job(release, 'dispatch');
     expect(dispatch).toContain('needs: release-please');
-    expect(dispatch).toMatch(/product:\n {10}- cli\n {10}- office\n {10}- squad/);
+    expect(dispatch).toMatch(/product:\n {10}- cli\n {10}- squad/);
     expect(dispatch).toContain('typescript/scripts/plan-release-builds.mjs --product "$PRODUCT"');
     // `prepare` defaults to true in native-release.yml, so a run that attaches to drafts must
     // turn it off explicitly, and this is the only place that starts one.
@@ -286,15 +286,19 @@ describe('release workflow (release.yml)', () => {
       .filter(([, component]) => component.release !== false)
       .map(([name]) => name)
       .sort();
-    expect(components['browser-addon'].release).toBe(false);
-    expect(products).not.toContain('browser-addon');
+    // Parked components own files and CI scope but start no release run.
+    for (const parked of ['browser-addon', 'office']) {
+      expect(components[parked].release).toBe(false);
+      expect(products).not.toContain(parked);
+    }
     const matrix = /product:\n((?: {10}- [a-z]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
     expect(matrix.match(/[a-z]+(?=\n)/g)?.sort()).toEqual(products);
     const config = JSON.parse(read('release-please-config.json')) as {
       packages: Record<string, unknown>;
     };
     expect(Object.keys(config.packages)).toHaveLength(products.length);
-    expect(config.packages[components['browser-addon'].owns[0]]).toBeUndefined();
+    for (const parked of ['browser-addon', 'office'])
+      expect(config.packages[components[parked].owns[0]]).toBeUndefined();
   });
 });
 

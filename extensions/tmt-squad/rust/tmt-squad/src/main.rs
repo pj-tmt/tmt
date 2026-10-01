@@ -14,9 +14,11 @@ mod effects;
 mod filter;
 mod hook_protocol;
 mod hotkeys;
+mod look;
 mod me;
 mod member_actions;
 mod membership;
+mod observe;
 mod playbook;
 mod provider;
 mod requests;
@@ -193,7 +195,18 @@ fn grammar() -> Command {
         )
         .subcommand(
             build(specs::JUMP)
-                .arg(operand("member", "Member or lead to show"))
+                .arg(
+                    operand("member", "Member or lead to show")
+                        .required(false)
+                        .required_unless_present("lead")
+                        .conflicts_with("lead"),
+                )
+                .arg(
+                    Arg::new("lead")
+                        .long("lead")
+                        .action(ArgAction::SetTrue)
+                        .help("Show the squad's lead: your own squad's, without --squad"),
+                )
                 .arg(squad_option()),
         )
         .subcommand(
@@ -775,6 +788,10 @@ fn run(
         let refresh_fields = command == "ls" && matches.get_flag("refresh-fields");
         return ls_document(&core, &mut config, text("squad"), refresh_fields);
     }
+    if command == "jump" && matches.get_flag("lead") {
+        let squad = member_actions::caller_squad(&core, text("squad"))?;
+        return member_actions::jump_lead(&core, &squad, &config);
+    }
     let squad = Squad::resolve(&core, text("squad"))?;
     match command {
         "lead" => membership::lead(&core, &squad, text("name").unwrap_or_default()),
@@ -841,46 +858,40 @@ fn ls_document(
         let rows = config.rows(&squad.name)?;
         let providers = config.providers(&squad.name)?;
         let reminders = config.reminders(&squad.name)?;
-        // Lock before reading raw member values: older snapshots cannot
-        // overwrite a newer observation from another invocation.
-        let observer = staleness::Observer::begin(config.path(), squad, reminders);
-        let mut members = squad.members(core, rows.reads_metadata())?;
-        let mut cached = provider::Cache::load(&squad.name);
-        let notes = if observer.active() {
-            members
-                .iter()
-                .find(|member| member.is_lead())
-                .and_then(|lead| core.api("notes.read", json!({"identityId": lead.id})).ok())
-        } else {
-            None
-        };
-        let room = if observer.active() {
-            requests::room_window(core, squad).ok()
-        } else {
-            None
-        };
-        let observed = observer.record(
-            &members,
-            &providers,
-            &cached,
-            notes.as_ref(),
-            room.as_ref(),
-            status::now_ms(),
-        );
-        if refresh_fields {
-            provider::refresh(&squad.name, &providers, &members, status::now_ms());
-            cached = provider::Cache::load(&squad.name);
-        }
-        provider::apply(&providers, &mut members, &cached);
-        let mut document = status::document(squad, layout, &states, &sections, &rows, members);
-        observed.apply(&mut document);
-        requests::overlay_with_room(
+        let mut observation = observe::observe(
             core,
+            config.path(),
             squad,
-            you.as_ref().map(|(me, _)| me),
-            &mut document,
-            room,
+            reminders,
+            &providers,
+            observe::Reads {
+                metadata: rows.reads_metadata(),
+                notes: false,
+            },
         )?;
+        if refresh_fields {
+            provider::refresh(
+                &squad.name,
+                &providers,
+                &observation.members,
+                status::now_ms(),
+            );
+            observation.cached = provider::Cache::load(&squad.name);
+        }
+        let mut document = observation
+            .document(
+                core,
+                squad,
+                you.as_ref().map(|(me, _)| me),
+                &providers,
+                observe::Shape {
+                    layout,
+                    states: &states,
+                    sections: &sections,
+                    rows: &rows,
+                },
+            )?
+            .document;
         document["squad"]["attention"] = attention::Attention::of(&document).document();
         let rows = rows.value();
         document["columns"] = rows["columns"].clone();

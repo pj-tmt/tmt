@@ -42,6 +42,10 @@ pub struct View {
     pub me: Option<String>,
     /// Finals to the user's squad requests, newest first (replies pane).
     pub replies: Vec<Value>,
+    /// The squad's theme at the terminal's depth: every color the board draws.
+    pub look: crate::look::Look,
+    /// Why the board uses the default theme, when the global one is wrong.
+    pub theme_notice: Option<String>,
 }
 
 /// The lead's notebook, already sanitized for display.
@@ -356,7 +360,7 @@ impl App {
     }
 
     /// The view on screen belongs to another squad while a switch loads.
-    pub fn stale(&self) -> bool {
+    pub fn loading(&self) -> bool {
         self.view.is_some() && self.shown != self.current
     }
 
@@ -378,7 +382,7 @@ impl App {
         match snapshot.view {
             Ok(view) => {
                 self.focus = self.focus.min(view.board.panes.len().saturating_sub(1));
-                let changed = self.stale() || self.view.is_none();
+                let changed = self.loading() || self.view.is_none();
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
@@ -393,9 +397,9 @@ impl App {
                 self.error = None;
             }
             Err(error) => {
-                // The switch failed: the error is the state, not a stale frame
+                // The switch failed: the error is the state, not the previous frame
                 // that keeps saying it is loading. The old view stays cached.
-                if self.stale()
+                if self.loading()
                     && let (Some(previous), Some(name)) = (self.view.take(), self.shown.take())
                 {
                     self.cache.entry(name).or_insert(previous);
@@ -526,7 +530,7 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
-        if self.stale() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
+        if self.loading() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
         }
@@ -1043,6 +1047,15 @@ impl App {
         }
     }
 
+    /// How the board draws now: the shown squad's theme, or the default
+    /// one before the first load.
+    pub fn look(&self) -> crate::look::Look {
+        self.view.as_ref().map_or_else(
+            || crate::look::Look::new(tmt_cli_style::Theme::default()),
+            |view| view.look,
+        )
+    }
+
     pub fn selected_row(&self) -> Option<&Value> {
         self.rows().get(self.selected).map(|(_, row)| *row)
     }
@@ -1076,6 +1089,8 @@ pub(crate) mod tests {
             opener: None,
             clipboard: None,
             tab_colors: Default::default(),
+            look: Default::default(),
+            theme_notice: None,
             me: None,
             replies: Vec::new(),
         }
@@ -1156,7 +1171,7 @@ pub(crate) mod tests {
         // Nothing is blanked: product's frame stays until infra arrives, and
         // its rows take no actions meanwhile.
         assert_eq!(names(&app), ["a"]);
-        assert!(app.stale() && app.loading_since.is_some());
+        assert!(app.loading() && app.loading_since.is_some());
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(app.notice.as_deref(), Some("Loading infra…"));
         // A late product result is kept for switching back, never shown.
@@ -1170,14 +1185,14 @@ pub(crate) mod tests {
             json!([{"title": null, "rows": [row("i", "")]}]),
         ));
         assert_eq!(names(&app), ["i"]);
-        assert!(!app.stale() && app.loading_since.is_none());
+        assert!(!app.loading() && app.loading_since.is_none());
         // Back to product: at once, from the cache (the late result).
         assert_eq!(
             press(&mut app, KeyCode::Left),
             Effect::Load("product".into())
         );
         assert_eq!(names(&app), ["late"]);
-        assert!(!app.stale(), "a cached squad is the current one at once");
+        assert!(!app.loading(), "a cached squad is the current one at once");
     }
 
     #[test]
@@ -1196,7 +1211,7 @@ pub(crate) mod tests {
             squad: Some("infra".into()),
             view: Err("infra: room not found".into()),
         });
-        assert!(!app.stale() && app.loading_since.is_none());
+        assert!(!app.loading() && app.loading_since.is_none());
         assert!(app.view.is_none());
         assert_eq!(app.error.as_deref(), Some("infra: room not found"));
         press(&mut app, KeyCode::Enter);

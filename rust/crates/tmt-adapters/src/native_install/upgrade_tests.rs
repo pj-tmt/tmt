@@ -453,3 +453,65 @@ fn missing_release_preserves_active_files_without_staging() {
     );
     assert_eq!(fs::read(&executable).unwrap(), before);
 }
+
+#[test]
+fn consent_selected_versions_upgrade_cli_and_squad_without_creating_pins() {
+    use crate::native_install::{Product, publication::Layout};
+    let directory = crate::test_support::TestDirectory::new();
+    let prefix = directory.path.join("prefix");
+    let target = "aarch64-apple-darwin";
+    for product in [Product::Cli, Product::Squad] {
+        let (_, manifest, archive, name) = release::product_fixture(product, "1.2.3", target, 41);
+        let old =
+            super::artifact::acquire_bytes(product, &manifest, &name, &archive, target).unwrap();
+        let layout = Layout::open_product(&prefix, product).unwrap();
+        publish(&layout, &old, &Receipt::new(&old, state("1.2.3", None)));
+        let executable = prefix.join("bin").join(product.executable());
+        let selected = "1.2.4".parse().unwrap();
+        let (release, manifest, archive, _) =
+            release::product_fixture(product, "1.2.4", target, 42);
+        let expected = format!("/tags/{}1.2.4", product.tag_prefix());
+        let report = super::upgrade_product_with(
+            product,
+            UpgradeRequest {
+                executable: &executable,
+                channel: None,
+                exact: None,
+                unpin: false,
+            },
+            None,
+            Some(&selected),
+            || Ok(()),
+            |url, _, _, _| {
+                Ok(if url.ends_with("/assets/421") {
+                    manifest.clone()
+                } else if url.ends_with("/assets/422") {
+                    archive.clone()
+                } else {
+                    assert!(url.ends_with(&expected));
+                    serde_json::to_vec(&release).unwrap()
+                })
+            },
+        )
+        .unwrap();
+        assert!(report.installation.changed);
+        assert_eq!(report.state.version, selected);
+        assert!(report.state.pinned_version.is_none());
+        let installed = super::super::inspect_product(product, &executable).unwrap();
+        assert_eq!(installed.state.version, selected);
+        assert_eq!(installed.state.channel, Channel::Stable);
+        assert!(installed.state.pinned_version.is_none());
+        assert_eq!(layout.current().unwrap().unwrap().state.version, selected);
+    }
+    // Both independently owned active pointers remain valid after the second upgrade.
+    for product in [Product::Cli, Product::Squad] {
+        assert_eq!(
+            super::super::inspect_product(product, &prefix.join("bin").join(product.executable()))
+                .unwrap()
+                .state
+                .version
+                .to_string(),
+            "1.2.4"
+        );
+    }
+}

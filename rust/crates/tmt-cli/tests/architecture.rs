@@ -1,5 +1,7 @@
 #[path = "architecture/cases.rs"]
 mod cases;
+#[path = "architecture/colors.rs"]
+mod colors;
 #[path = "architecture/driver_names.rs"]
 mod driver_names;
 #[path = "architecture/extension_host.rs"]
@@ -159,6 +161,25 @@ fn workspace_obeys_native_architecture() {
         output_allowlist::MIGRATING,
     ));
     violations.extend(interaction::violations(&sources, interaction::MIGRATING));
+    // The extensions outside the workspace draw too; they obey the same rule.
+    let mut drawn = sources;
+    for (package, root) in [
+        ("tmt-squad", "tmt-squad/rust/tmt-squad/src/main.rs"),
+        ("tmt-remote", "tmt-remote/rust/tmt-remote/src/lib.rs"),
+        ("tmt-remote", "tmt-remote/rust/tmt-remote/src/main.rs"),
+    ] {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../extensions")
+            .join(root);
+        drawn.extend(source::collect(package, &root).expect("collect extension source"));
+    }
+    assert!(
+        drawn
+            .iter()
+            .any(|s| s.package == "tmt-squad" && s.file.ends_with("view.rs")),
+        "the color guard reads the Squad board"
+    );
+    violations.extend(colors::violations(&drawn));
     assert!(
         violations.is_empty(),
         "Native architecture violations:\n{}",

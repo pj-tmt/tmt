@@ -8,8 +8,9 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 
+# Office is parked: release:false in .github/components.json. Restore dist = true together with it.
 [package.metadata.dist]
-dist = true
+dist = false
 features = ["local-service"]
 
 [features]
