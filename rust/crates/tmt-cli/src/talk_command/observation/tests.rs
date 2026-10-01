@@ -74,6 +74,7 @@ fn correlation() -> Correlation {
         pane: "%1".into(),
         identity: None,
         inbox: false,
+        delivery_uncertain: false,
     }
 }
 
@@ -355,4 +356,41 @@ fn retains_wait_failure_and_correlation() {
     assert_failure(&failure, "ERROR", 1, "Could not wait for a durable reply.");
     assert_correlated(&failure);
     assert_eq!(failure.source().unwrap().to_string(), "wait failed");
+}
+
+#[test]
+fn a_timeout_after_an_unacknowledged_write_reports_uncertain_delivery_and_no_resend() {
+    let runtime = FakeRuntime::new();
+    runtime.set_elapsed(1_000);
+    let mut unconfirmed = correlation();
+    unconfirmed.delivery_uncertain = true;
+    let failure = observe(
+        || Ok(None),
+        &unconfirmed,
+        runtime.at(1_000),
+        1.0,
+        0.25,
+        &runtime,
+    )
+    .unwrap_err();
+    assert_eq!(failure.code, "TIMEOUT");
+    assert_eq!(failure.status, 4);
+    assert!(failure.message.contains("delivery was uncertain"));
+    assert!(failure.message.contains("do not resend"));
+    let document = failure.document();
+    assert_eq!(document["deliveryState"], "uncertain");
+    assert_eq!(document["status"], "timeout");
+    assert_eq!(document["requestId"], "request-observe");
+    // A confirmed delivery states nothing about uncertainty.
+    let confirmed = observe(
+        || Ok(None),
+        &correlation(),
+        runtime.at(1_000),
+        1.0,
+        0.25,
+        &runtime,
+    )
+    .unwrap_err();
+    assert!(confirmed.document().get("deliveryState").is_none());
+    assert!(!confirmed.message.contains("uncertain"));
 }

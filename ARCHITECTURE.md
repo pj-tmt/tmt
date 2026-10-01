@@ -623,6 +623,9 @@ extension release only together with a change under that extension's own path.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
 `.github/release-please/`, outside the `typescript` workspace so no other job installs it.
+The config sets `always-update`: release-please otherwise leaves an open release pull request
+untouched while its notes are unchanged, so a conflict with `main` (every release pull request
+edits the shared manifest, and adjacent lines conflict) would never clear.
 A tooling test fails when the committed config is not what the generator writes, when a
 workspace crate's lock entry or declared version is managed zero or several times, or when
 a tag disagrees with the policy or a package could leave the alpha line (release-please's
@@ -2034,6 +2037,51 @@ and status commands never call it.
 Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
+
+### Provider channels
+
+An optional driver port lets a launch hand talk payloads to a running agent
+without terminal paste. [`contracts/claude-channel-v1.md`](contracts/claude-channel-v1.md)
+owns the behavior and the shipped-versus-planned status (#329); this is the
+ownership map.
+
+- `tmt_adapters::runtime::channel` defines the port. `RuntimeChannel` verifies the
+  provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
+  `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
+  provider child's environment (never ambient or persisted), optionally the
+  provider session the driver created before the child starts, and a consuming
+  `withdraw`. The driver
+  plans the command from the user's command and owns everything that proves a
+  cleanup is for exactly that launch; the CLI neither parses provider arguments
+  nor inspects the lease. A driver registers it in `Runtime.channel`, which
+  `RuntimeRegistry` exposes as `channel(harness)`. The directory for endpoint
+  records is `ConfigPaths::channel_directory()`. The port and core stay free of
+  provider and transport dependencies.
+- Delivery stays in the existing routing. The driver's `send` is the preferred
+  action of `delivery::send`, whose `send_preferred` falls back only after
+  `Unsupported` or `NotSent`. An enrollment applies only to the exact launch that
+  created it: with none, or with one that a different launch, positively proven
+  current, has outlived, a driver's `send` returns `Unsupported` and the baseline
+  transport runs; a session that opted in never gets `NotSent`, and when the
+  launch cannot be verified its outcome is `Denied`. Other outcomes are
+  `Uncertain` or `Completed`, and a completed write without a provider receipt
+  is `DeliveryAcceptance::Unacknowledged`, a terminal acceptance that routing
+  never retries or falls back from. The record layout and the launch comparison
+  stay inside each driver.
+- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(ChannelFault)`.
+  `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting for the
+  durable reply; `ChannelUnavailable` stops the request with
+  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`.
+  `Failure` carries an optional additive `deliveryState`.
+- `drivers::claude::channel` owns the Claude record and the send classification
+  behind `ClaudeRuntime::send`. It reads the stored binding and the per-binding
+  record under the channel directory, applies the launch-applicability rule, waits
+  a bounded time for a channel that is not ready, and exchanges one frame over the
+  owner-only socket; the record grants nothing unless it matches the binding's
+  launch owner and runtime observation. Without the discovered configuration the
+  outcome is `Denied`, never `NotSent`.
+- No first-party driver registers a channel and nothing writes a record yet, so
+  every session still uses its existing transport.
 
 ### Host driver protocol
 

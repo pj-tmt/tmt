@@ -60,6 +60,9 @@ pub struct Locations {
 pub struct Runtime {
     pub driver: fn() -> Box<RuntimeDriver>,
     pub lifecycle: fn() -> Box<dyn RuntimeLifecycle>,
+    /// A channel to hand messages to a running agent without terminal paste,
+    /// when the provider has a supported one.
+    pub channel: Option<fn() -> Box<dyn crate::runtime::channel::RuntimeChannel>>,
     pub identify_caller: Option<fn() -> ActionResult<RuntimeCaller, ()>>,
 }
 
