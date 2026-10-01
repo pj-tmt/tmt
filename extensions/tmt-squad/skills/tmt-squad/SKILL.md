@@ -85,6 +85,8 @@ including `NO_COLOR`. Colors decorate the words and marks; never infer state
 from color alone. The global theme belongs in `config.json`; per-squad theme
 bases and overrides belong in `[squad.<name>.theme]` in `squad.toml`.
 
+The detail pane shows full projected board-column values not already shown by its header, task, note, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
+
 ## Keep it current
 
 A stale board is worse than none. Update the board as part of every dispatch

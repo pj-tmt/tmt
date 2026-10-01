@@ -2638,7 +2638,7 @@ validated before raw mode. `split` owns how panes sit: a tree of row and column
 splits whose children have a percentage or a grow share (ratatui `Percentage`
 and `Fill`), nested up to three levels; `layout` is its full form and the
 `direction`/`panes`/`sizes` keys its one-level form, and the board draws either
-by one recursive walk. The tree's reading order is the focus order. The notes pane reads the lead's notebook only through
+by one recursive walk. The tree's reading order is the focus order. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane reads the lead's notebook only through
 `tmt api notes.read` (bounded, never creating a file); `board::notes` removes
 every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
