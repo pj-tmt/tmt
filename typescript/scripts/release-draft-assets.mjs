@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // The draft release carries the state of its own build, so a release run can be replaced,
 // cancelled or repeated without losing or duplicating work:
-//   check         does the draft still need a build?          (todo=true|false)
+//   check         does the draft still need a build?          (todo=true|false, awaiting=true|false)
 //   attach        upload the verified bundle, marker last
 //   record-failure  upload verification-failed.json with the run URL
 // Publication is not done here: a draft that carries the bundle marker is complete, and
-// publishing it is a separate authorized step.
+// `release-publish.mjs` publishes it once the gates passed.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -67,20 +67,32 @@ const assetsOf = (release) => release.assets ?? [];
 const hasAsset = (release, name) => assetsOf(release).some((asset) => asset.name === name);
 
 /**
- * Whether the draft still needs a build. A bundle means it is complete; a failure marker parks
- * it, and a retry removes the marker so that this run owns the draft again.
+ * Whether the draft still needs a build. A bundle means it is complete, and `awaiting` says that
+ * a complete draft carries no hold and waits for its gates and its publication; a failure marker
+ * parks it, and a retry removes the marker so that this run owns the draft again.
  */
 export function checkDraft({ api, tag, retry = false }) {
   const release = findDraft(api.listReleases(), tag);
-  if (hasAsset(release, BUNDLE_ASSET))
-    return { todo: false, reason: 'it already carries a bundle' };
+  if (hasAsset(release, BUNDLE_ASSET)) {
+    return {
+      todo: false,
+      awaiting: !hasAsset(release, HOLD_ASSET),
+      reason: 'it already carries a bundle',
+    };
+  }
   if (hasAsset(release, FAILURE_ASSET)) {
-    if (!retry) return { todo: false, reason: 'its failure is recorded; retry it by dispatch' };
+    if (!retry) {
+      return {
+        todo: false,
+        awaiting: false,
+        reason: 'its failure is recorded; retry it by dispatch',
+      };
+    }
     for (const asset of assetsOf(release).filter(({ name }) => name === FAILURE_ASSET)) {
       api.deleteAsset(asset.id);
     }
   }
-  return { todo: true, reason: '' };
+  return { todo: true, awaiting: false, reason: '' };
 }
 
 /**
@@ -262,10 +274,17 @@ function main(argv) {
   if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
   const api = ghApi({ repository });
   if (command === 'check') {
-    const { todo, reason } = checkDraft({ api, tag: values.tag, retry: values.retry });
-    process.stderr.write(`${values.tag}: ${todo ? 'needs a build' : `skipped, ${reason}`}.\n`);
-    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `todo=${todo}\n`);
-    else process.stdout.write(`todo=${todo}\n`);
+    const { todo, awaiting, reason } = checkDraft({
+      api,
+      tag: values.tag,
+      retry: values.retry,
+    });
+    process.stderr.write(
+      `${values.tag}: ${todo ? 'needs a build' : awaiting ? 'complete, waits for its publication' : `skipped, ${reason}`}.\n`
+    );
+    const lines = `todo=${todo}\nawaiting=${awaiting}\n`;
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, lines);
+    else process.stdout.write(lines);
   } else if (command === 'attach') {
     if (!values.product || !values.directory)
       throw new Error('attach needs --product and --directory.');
