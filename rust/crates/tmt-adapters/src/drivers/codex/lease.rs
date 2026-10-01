@@ -59,7 +59,13 @@ impl Lease {
             session: None,
         };
         let generation = lease.store.generation_directory(&lease.record)?;
-        lease.accept_start(OwnedServer::start(command, &options, &generation, deadline))?;
+        lease.accept_start(OwnedServer::start_with_environment(
+            command,
+            &options,
+            &generation,
+            deadline,
+            &super::channel_hooks::environment(&lease.record),
+        ))?;
         let server = lease.server.as_ref().expect("owned server just assigned");
         let mut client = Client::connect(&server.endpoint, deadline).map_err(|_| invalid())?;
         let id = uuid::Uuid::new_v4().to_string();
@@ -75,6 +81,7 @@ impl Lease {
         lease.command = options
             .foreground(command, &server.endpoint.url(), &session)
             .map_err(|_| invalid())?;
+        lease.environment = super::channel_hooks::environment(&lease.record);
         lease
             .environment
             .push((TOKEN_ENV.into(), server.capability().into()));

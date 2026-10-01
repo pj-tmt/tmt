@@ -75,6 +75,16 @@ impl OwnedServer {
         directory: &Path,
         deadline: Instant,
     ) -> Result<Self, StartError> {
+        Self::start_with_environment(command, options, directory, deadline, &[])
+    }
+
+    pub(super) fn start_with_environment(
+        command: &RuntimeCommand,
+        options: &LaunchOptions,
+        directory: &Path,
+        deadline: Instant,
+        environment: &[(std::ffi::OsString, std::ffi::OsString)],
+    ) -> Result<Self, StartError> {
         let mut files = Files::create(directory)?;
         let token = format!(
             "{}{}",
@@ -95,7 +105,7 @@ impl OwnedServer {
             "--ws-token-file".into(),
             directory.join("capability").into_os_string(),
         ]);
-        let job = Exec::cmd(&command.executable)
+        let mut launch = Exec::cmd(&command.executable)
             .args(&args)
             .cwd(options.working_directory())
             .env("NO_COLOR", "1")
@@ -103,8 +113,11 @@ impl OwnedServer {
             .setpgid()
             .stdin(Redirection::Null)
             .stdout(Redirection::Null)
-            .stderr(log.try_clone()?)
-            .start()?;
+            .stderr(log.try_clone()?);
+        for (name, value) in environment {
+            launch = launch.env(name, value);
+        }
+        let job = launch.start()?;
         let mut resources = Resources {
             process: Process(Some(job)),
             files,
