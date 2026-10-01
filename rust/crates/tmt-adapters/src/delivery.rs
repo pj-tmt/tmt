@@ -553,6 +553,33 @@ mod tests {
         }
     }
 
+    /// A runtime that claims nothing: the slot a fake channel is attached to on an
+    /// otherwise empty registry, so these tests hold whichever first-party drivers
+    /// register a channel.
+    struct Slot;
+
+    impl Driver for Slot {
+        type Target = BindingEntry;
+        type Error = RuntimeError;
+        type Launch = crate::runtime::RuntimeCommand;
+        fn claims(&self, _: &str) -> Option<HarnessId> {
+            None
+        }
+    }
+
+    fn fake_harness() -> HarnessId {
+        HarnessId::new("fake-channel").unwrap()
+    }
+
+    fn registry_with(channel: Box<dyn crate::runtime::channel::RuntimeChannel>) -> RuntimeRegistry {
+        let mut registry = RuntimeRegistry::default();
+        registry
+            .register(fake_harness(), "fake-channel", 0, Slot)
+            .unwrap();
+        registry.register_channel(&fake_harness(), channel).unwrap();
+        registry
+    }
+
     /// Answers every pane lookup the same way and records the binding it was asked
     /// about.
     struct InPane(
@@ -599,7 +626,6 @@ mod tests {
     #[test]
     fn a_pane_is_pasted_to_only_when_no_driver_has_enrollment_evidence_for_it() {
         use crate::runtime::channel::PaneEvidence;
-        let codex = HarnessId::new("codex").unwrap();
         let server = tmt_core::endpoint::ServerEvidence {
             host: tmt_core::host::HostKind::Tmux,
             server_id: "server".into(),
@@ -648,10 +674,7 @@ mod tests {
             ),
             (Err(unreadable.clone()), Err(unreadable.clone())),
         ] {
-            let mut registry = RuntimeRegistry::first_party();
-            registry
-                .register_channel(&codex, Box::new(InPane(answer.clone(), Default::default())))
-                .unwrap();
+            let registry = registry_with(Box::new(InPane(answer.clone(), Default::default())));
             assert_eq!(evidence(&registry), expected, "{answer:?}");
         }
     }
@@ -663,7 +686,6 @@ mod tests {
     fn a_named_identity_is_refused_with_the_drivers_diagnostic_and_a_paste_reports_skipped_records()
     {
         use crate::runtime::channel::PaneEvidence;
-        let codex = HarnessId::new("codex").unwrap();
         let server = tmt_core::endpoint::ServerEvidence {
             host: tmt_core::host::HostKind::Tmux,
             server_id: "server".into(),
@@ -677,13 +699,7 @@ mod tests {
             pane_pid: 4242,
         };
         let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let registry = |answer| {
-            let mut registry = RuntimeRegistry::first_party();
-            registry
-                .register_channel(&codex, Box::new(InPane(answer, asked.clone())))
-                .unwrap();
-            registry
-        };
+        let registry = |answer| registry_with(Box::new(InPane(answer, asked.clone())));
         let deadline = Instant::now() + Duration::from_secs(1);
         let directory = Some(Path::new("/channels"));
         let pasted = std::cell::Cell::new(false);
@@ -778,27 +794,21 @@ mod tests {
     #[test]
     fn an_enrollment_decides_the_route_before_any_harness_preference_exists() {
         let claude = HarnessId::new("claude").unwrap();
-        let codex = HarnessId::new("codex").unwrap();
+        let fake = fake_harness();
         let route = |registry: &RuntimeRegistry,
                      directory: Option<&Path>,
                      preferred: Option<&HarnessId>| {
             route_harness(registry, directory, "binding", preferred.cloned())
         };
         let directory = Some(Path::new("/channels"));
-        let enrolled = |answer| {
-            let mut registry = RuntimeRegistry::first_party();
-            registry
-                .register_channel(&codex, Box::new(Evidence(answer)))
-                .unwrap();
-            registry
-        };
+        let enrolled = |answer| registry_with(Box::new(Evidence(answer)));
         // Paused after enroll and before admission: a record exists, no harness is
         // preferred yet (or an older one is), and the record's driver still owns it.
         let registry = enrolled(Ok(true));
-        assert_eq!(route(&registry, directory, None), Ok(Some(codex.clone())));
+        assert_eq!(route(&registry, directory, None), Ok(Some(fake.clone())));
         assert_eq!(
             route(&registry, directory, Some(&claude)),
-            Ok(Some(codex.clone()))
+            Ok(Some(fake.clone()))
         );
         // No enrollment: the preference alone chooses, and none means no driver.
         let registry = enrolled(Ok(false));
@@ -809,7 +819,7 @@ mod tests {
         );
         // Unreadable evidence is terminal whatever is preferred.
         let registry = enrolled(Err(ChannelFault::InvalidRecord));
-        for preferred in [None, Some(&claude), Some(&codex)] {
+        for preferred in [None, Some(&claude), Some(&fake)] {
             assert_eq!(
                 route(&registry, directory, preferred),
                 Err(ChannelFault::InvalidRecord)
@@ -817,7 +827,7 @@ mod tests {
         }
         // An undiscoverable channel directory is unknown, not "never enrolled",
         // so it never recreates the baseline route, with or without a preference.
-        for preferred in [None, Some(&claude), Some(&codex)] {
+        for preferred in [None, Some(&claude), Some(&fake)] {
             assert_eq!(
                 route(&enrolled(Ok(false)), None, preferred),
                 Err(ChannelFault::Unverifiable)
