@@ -698,8 +698,9 @@ switch and the companion. No core crate declares an `office_*` module except the
 facade, which PR B of #355 removes.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
-dependency guard. It follows the actual Rust module tree, checks reviewed
-layer edges and shared declaration ownership, and fails closed for unsupported
+dependency guard. One reviewed manifest table owns both the fixed workspace
+package names and their documented manifest locations. It follows the actual
+Rust module tree, checks reviewed layer edges and shared declaration ownership, and fails closed for unsupported
 module remapping or incomplete discovery. It also checks that the CLI crates
 reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
 each CLI checks every command's help against the style
