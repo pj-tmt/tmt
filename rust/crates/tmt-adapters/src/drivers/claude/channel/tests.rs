@@ -495,10 +495,11 @@ fn an_enrollment_whose_identity_changes_under_the_same_generation_is_denied_with
         let directory = scratch.0.clone();
         let rewrite = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(100));
-            // Stored under this binding's name on purpose, like a hostile writer.
-            fs::write(
-                record_path(&directory, BINDING),
-                serde_json::to_vec(&changed).unwrap(),
+            // Published atomically at this binding's path on purpose (also for the
+            // other-binding case), so the polling send never sees a partial file.
+            crate::private_file::replace(
+                &record_path(&directory, BINDING),
+                &serde_json::to_vec(&changed).unwrap(),
             )
             .unwrap();
         });
@@ -554,7 +555,8 @@ fn an_oversized_payload_denies_before_connecting() {
     let scratch = Scratch::new();
     let (owner, claude) = (live_owner(), provider(4242));
     publish(&scratch.0, &ready(&owner, &claude));
-    // No endpoint exists: a connect attempt would be `NotSent`, not `Denied`.
+    // No endpoint exists: connecting would be `Denied(Unreachable)`, so `TooLarge`
+    // proves the size check came before any connection.
     let message = "x".repeat(CONTENT_LIMIT + 1);
     assert_eq!(
         fault(deliver(
