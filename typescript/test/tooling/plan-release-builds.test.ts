@@ -413,16 +413,19 @@ describe('plan-release-builds.mjs', () => {
       const map = JSON.parse(readFileSync(componentMap, 'utf8')) as {
         components: Record<string, { release?: boolean }>;
       };
-      map.components.office.release = false;
-      const parked = path.join(directory, 'components.json');
-      writeFileSync(parked, JSON.stringify(map));
       const drafts = [[draft('tmt-office-v0.1.0-alpha.5', '1', [BUNDLE_ASSET])]];
-      const result = run(['--product', 'office', '--components', parked], drafts);
+      // The committed map parks Office, so its draft is left alone.
+      const result = run(['--product', 'office'], drafts);
       expect(result.status).toBe(0);
       expect(result.output).toBe('matrix={"include":[]}\nany=false\n');
       expect(result.summary).toContain('**Left alone** (office is not released');
-      // The committed map releases it.
-      expect(run(['--product', 'office'], drafts).output).toContain('any=true');
+      // A map that releases it plans the run.
+      delete map.components.office.release;
+      const released = path.join(directory, 'components.json');
+      writeFileSync(released, JSON.stringify(map));
+      expect(run(['--product', 'office', '--components', released], drafts).output).toContain(
+        'any=true'
+      );
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
