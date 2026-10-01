@@ -203,8 +203,10 @@ pub(super) fn run_bound(
         None => false,
     };
     let owner = incarnation(std::process::id());
-    // Held for the child's whole lifetime and withdrawn on every path out of
-    // here. Declared before the child, so an abandoned child is cleaned up first.
+    // Held for the child's whole lifetime. It is retired only for a failed spawn
+    // (`never_spawned`) or a wait that returned (`settle_wait`); on every other path
+    // out of here it is dropped and the driver's record stays. Declared before the
+    // child, so an abandoned child is cleaned up first.
     let mut lease = HeldLease::default();
     if let Some((channel, directory)) = &channel {
         let unavailable = |message: &str| {
