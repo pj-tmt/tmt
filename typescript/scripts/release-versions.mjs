@@ -34,6 +34,16 @@ export function compareVersions(left, right) {
   return Math.sign(a.pre.length - b.pre.length);
 }
 
+const ALPHA = /^\d+\.\d+\.\d+-alpha\.\d+$/;
+
+/**
+ * Whether a version is an alpha release, `X.Y.Z-alpha.N`: the one channel the pipeline publishes
+ * by itself. A stable version or any other pre-release label is the owner's to publish.
+ */
+export function isAlphaVersion(version) {
+  return ALPHA.test(version);
+}
+
 /** The version a product's tag names: `v5.0.0-alpha.9` and `tmt-office-v0.1.0-alpha.4`. */
 export function versionOfTag(tag, product) {
   if (productOfTag(tag) !== product) throw new Error(`${tag} is not a ${product} tag.`);
