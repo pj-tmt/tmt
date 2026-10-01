@@ -600,18 +600,30 @@ selected shard fails it, and a guard proves every scenario file is in exactly on
 remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
-`Native Rust contracts` aggregates independent fmt/Clippy, workspace test/build,
-Office local-service and native process workers, plus an MSRV worker that reads
-`rust/Cargo.toml` and checks every workspace target. Full scope requires all five;
-Squad requires all except Office, and none skips the aggregate. Missing, failed,
+`Native Rust contracts` aggregates independent fmt/Clippy, native process and MSRV
+workers, plus the workers selected for the scope. Full scope requires an archive
+producer, two nextest hash partitions and Office local-service verification; Squad
+requires its narrow Cargo test worker instead. None skips the aggregate. The MSRV
+worker reads `rust/Cargo.toml` and checks every workspace target. Missing, failed,
 cancelled or unexpectedly skipped workers fail closed. The native process worker
 consumes the Office fixture producer's local-service executable through a SHA-256
 checked artifact, preserving the fixture bytes without repeating its feature
 verification. The Office check worker consumes the same embedded SPA; other
 fixtures remain independently built in the native worker.
 
+The full workspace archive is built once with pinned nextest and the same default
+features as Cargo tests. Before upload, a fail-closed inventory proof compares
+Cargo harness names and ignored flags with the archive's nextest JSON and proves
+the two partitions form a disjoint union of runnable tests. Empty harnesses are
+included. Doctests remain outside nextest: the producer lists them and executes
+`cargo test --doc` exactly once. Evidence travels with the archive. Shards restore
+no Rust cache and extract at the producer's absolute workspace path, checking the
+compiled-in CLI executable fixtures before execution. This preserves integration
+tests that use `CARGO_BIN_EXE_*`; pinned Rust remains installed for the offline
+architecture metadata guard. Squad retains its existing Cargo commands.
+
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) have one
-main-only writer per key: workspace tests write the shared dev dependency cache,
+main-only writer per key: the archive producer writes the shared dev dependency cache,
 MSRV writes its toolchain-specific cache, and each native runtime target writes
 its own cache. Other workers restore the shared cache without saving. Dev debug
 information and incremental compilation are disabled across CI; release profiles

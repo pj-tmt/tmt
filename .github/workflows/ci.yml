@@ -151,9 +151,35 @@ jobs:
           cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
 
   native-workspace-tests:
-    name: Native Rust workspace tests
+    name: Native Rust Squad tests
     needs: changes
-    if: needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.native_scope == 'squad'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Test Squad and architecture
+        working-directory: rust
+        run: |
+          cargo test --locked -p tmt-squad
+          cargo test --locked -p tmt-cli --test architecture
+
+  native-test-archive:
+    name: Native Rust test archive
+    needs: changes
+    if: needs.changes.outputs.native_scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -170,21 +196,134 @@ jobs:
           workspaces: rust
           shared-key: native-rust
           save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
-      - name: Test and build workspace
+      - name: Install pinned nextest
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-nextest@0.9.146
+          checksum: true
+          fallback: none
+      - name: Set up Node.js for inventory verification
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Discover remote tests and archive workspace
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
           remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
-          cargo test --locked --workspace
-          cargo build --locked --workspace
-      - name: Test Squad and architecture
-        if: needs.changes.outputs.native_scope == 'squad'
+          cargo nextest archive --locked --workspace --archive-file ../workspace-tests.tar.zst
+      - name: Verify exact archive selection and build workspace
         working-directory: rust
         run: |
-          cargo test --locked -p tmt-squad
-          cargo test --locked -p tmt-cli --test architecture
+          mkdir -p ../nextest-evidence "$RUNNER_TEMP/nextest-inventory"
+          cargo test --locked --workspace --no-run --message-format=json > ../nextest-evidence/cargo.jsonl
+          for selection in full 1 2; do
+            partition=()
+            if [[ "$selection" != full ]]; then partition=(--partition "hash:$selection/2"); fi
+            cargo nextest list --archive-file ../workspace-tests.tar.zst \
+              --extract-to "$RUNNER_TEMP/nextest-inventory" --extract-overwrite \
+              --message-format json "${partition[@]}" > "../nextest-evidence/nextest-$selection.json"
+          done
+          node ../typescript/scripts/verify-nextest-inventory.mjs \
+            ../nextest-evidence/cargo.jsonl ../nextest-evidence/nextest-full.json \
+            ../nextest-evidence/nextest-1.json ../nextest-evidence/nextest-2.json \
+            ../nextest-evidence/parity.json
+          pwd -P > ../nextest-evidence/build-root.txt
+          cargo build --locked --workspace
+      - name: List and run workspace doctests once
+        working-directory: rust
+        run: |
+          cargo test --locked --workspace --doc -- --list 2>&1 | tee ../nextest-evidence/doctest-list.txt
+          cargo test --locked --workspace --doc 2>&1 | tee ../nextest-evidence/doctest-results.txt
+      - name: Upload test archive and parity evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-workspace-tests
+          path: |
+            workspace-tests.tar.zst
+            nextest-evidence
+          if-no-files-found: error
+          retention-days: 3
+
+  native-test-shard-1:
+    name: Native Rust test shard 1/2
+    needs: [changes, native-test-archive]
+    if: needs.changes.outputs.native_scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust for the architecture guard
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Install pinned nextest
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-nextest@0.9.146
+          checksum: true
+          fallback: none
+      - name: Download workspace test archive
+        uses: actions/download-artifact@v4
+        with:
+          name: native-workspace-tests
+          path: .
+      - name: Extract at the build path and verify executable fixtures
+        working-directory: rust
+        run: |
+          test "$(pwd -P)" = "$(cat ../nextest-evidence/build-root.txt)"
+          cargo nextest list --archive-file ../workspace-tests.tar.zst \
+            --extract-to "$PWD" --message-format json --partition hash:1/2 > "$RUNNER_TEMP/nextest-shard.json"
+          test -x target/debug/tmt
+          test -x target/debug/tmt-remote
+      - name: Run workspace partition
+        working-directory: rust
+        run: |
+          CARGO="$(rustup which cargo)"
+          export CARGO
+          cargo nextest run --archive-file ../workspace-tests.tar.zst \
+            --extract-to "$PWD" --extract-overwrite --partition hash:1/2
+
+  native-test-shard-2:
+    name: Native Rust test shard 2/2
+    needs: [changes, native-test-archive]
+    if: needs.changes.outputs.native_scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust for the architecture guard
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Install pinned nextest
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-nextest@0.9.146
+          checksum: true
+          fallback: none
+      - name: Download workspace test archive
+        uses: actions/download-artifact@v4
+        with:
+          name: native-workspace-tests
+          path: .
+      - name: Extract at the build path and verify executable fixtures
+        working-directory: rust
+        run: |
+          test "$(pwd -P)" = "$(cat ../nextest-evidence/build-root.txt)"
+          cargo nextest list --archive-file ../workspace-tests.tar.zst \
+            --extract-to "$PWD" --message-format json --partition hash:2/2 > "$RUNNER_TEMP/nextest-shard.json"
+          test -x target/debug/tmt
+          test -x target/debug/tmt-remote
+      - name: Run workspace partition
+        working-directory: rust
+        run: |
+          CARGO="$(rustup which cargo)"
+          export CARGO
+          cargo nextest run --archive-file ../workspace-tests.tar.zst \
+            --extract-to "$PWD" --extract-overwrite --partition hash:2/2
 
   native-office-build:
     name: Build Office native fixture
@@ -371,6 +510,9 @@ jobs:
         changes,
         native-clippy,
         native-workspace-tests,
+        native-test-archive,
+        native-test-shard-1,
+        native-test-shard-2,
         native-office,
         native-process-tests,
         native-msrv,
@@ -392,10 +534,13 @@ jobs:
           NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
           CLIPPY_RESULT: ${{ needs.native-clippy.result }}
           TESTS_RESULT: ${{ needs.native-workspace-tests.result }}
+          ARCHIVE_RESULT: ${{ needs.native-test-archive.result }}
+          SHARD_1_RESULT: ${{ needs.native-test-shard-1.result }}
+          SHARD_2_RESULT: ${{ needs.native-test-shard-2.result }}
           OFFICE_RESULT: ${{ needs.native-office.result }}
           NATIVE_RESULT: ${{ needs.native-process-tests.result }}
           MSRV_RESULT: ${{ needs.native-msrv.result }}
-        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CLIPPY_RESULT" "$TESTS_RESULT" "$OFFICE_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"
+        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CLIPPY_RESULT" "$TESTS_RESULT" "$ARCHIVE_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$OFFICE_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"
 
   unit-tests:
     name: Unit tests

@@ -788,7 +788,7 @@ describe('remote Rust retains full CI coverage', () => {
       'utf8'
     );
     const step = workflow
-      .split('      - name: Test and build workspace\n')[1]
+      .split('      - name: Discover remote tests and archive workspace\n')[1]
       ?.split('\n      - name:')[0];
     expect(step).toContain("if: needs.changes.outputs.native_scope == 'full'");
     expect(step).toContain('working-directory: rust');
@@ -803,7 +803,7 @@ describe('remote Rust retains full CI coverage', () => {
 printf '%s\\n' "$*" >> "$CALLS"
 case "$*" in
   'test --locked -p tmt-remote -- --list') printf '%s\\n' "$DISCOVERY"; exit "$LIST_STATUS" ;;
-  'test --locked --workspace') exit "$TEST_STATUS" ;;
+  'nextest archive --locked --workspace --archive-file ../workspace-tests.tar.zst') exit "$TEST_STATUS" ;;
 esac
 `
       );
@@ -823,8 +823,9 @@ esac
       const calls = readFileSync(path.join(root, 'calls'), 'utf8').trim().split('\n');
       const expected = ['test --locked -p tmt-remote -- --list'];
       if (fixture.status === 0 || fixture.testStatus !== 0)
-        expected.push('test --locked --workspace');
-      if (fixture.status === 0) expected.push('build --locked --workspace');
+        expected.push(
+          'nextest archive --locked --workspace --archive-file ../workspace-tests.tar.zst'
+        );
       expect(calls).toEqual(expected);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1222,8 +1223,19 @@ describe('required CI gate', () => {
   describe('Native Rust contracts gate', () => {
     const expectedFor = (scope: string) =>
       scope === 'none'
-        ? Array<string>(5).fill('skipped')
-        : ['success', 'success', scope === 'squad' ? 'skipped' : 'success', 'success', 'success'];
+        ? Array<string>(8).fill('skipped')
+        : scope === 'full'
+          ? ['success', 'skipped', 'success', 'success', 'success', 'success', 'success', 'success']
+          : [
+              'success',
+              'success',
+              'skipped',
+              'skipped',
+              'skipped',
+              'skipped',
+              'success',
+              'success',
+            ];
 
     it.each(['full', 'squad', 'none'])('requires exactly the selected workers for %s', (scope) => {
       const expected = expectedFor(scope);
@@ -1450,12 +1462,12 @@ describe('required CI gate', () => {
       );
     }
     // The Rust job runs for every native scope, the E2E job for every native scope of a pull request.
-    for (const name of ['native-clippy', 'native-workspace-tests', 'native-msrv']) {
+    for (const name of ['native-clippy', 'native-msrv']) {
       expect(job(name)).toContain("if: needs.changes.outputs.native == 'true'");
     }
     const rustGate = job('native-rust');
     expect(rustGate.replace(/\s+/g, ' ')).toContain(
-      'needs: [ changes, native-clippy, native-workspace-tests, native-office, native-process-tests, native-msrv, ]'
+      'needs: [ changes, native-clippy, native-workspace-tests, native-test-archive, native-test-shard-1, native-test-shard-2, native-office, native-process-tests, native-msrv, ]'
     );
     expect(rustGate).toContain(
       "if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}"
@@ -1463,6 +1475,9 @@ describe('required CI gate', () => {
     for (const [variable, worker] of [
       ['CLIPPY_RESULT', 'native-clippy'],
       ['TESTS_RESULT', 'native-workspace-tests'],
+      ['ARCHIVE_RESULT', 'native-test-archive'],
+      ['SHARD_1_RESULT', 'native-test-shard-1'],
+      ['SHARD_2_RESULT', 'native-test-shard-2'],
       ['OFFICE_RESULT', 'native-office'],
       ['NATIVE_RESULT', 'native-process-tests'],
     ])
@@ -1471,6 +1486,9 @@ describe('required CI gate', () => {
     const rustVariables = {
       clippy: 'CLIPPY_RESULT',
       tests: 'TESTS_RESULT',
+      archive: 'ARCHIVE_RESULT',
+      shard1: 'SHARD_1_RESULT',
+      shard2: 'SHARD_2_RESULT',
       office: 'OFFICE_RESULT',
       process: 'NATIVE_RESULT',
       msrv: 'MSRV_RESULT',
@@ -1544,8 +1562,35 @@ describe('required CI gate', () => {
         .map((step) => step.name);
     expect(scoped('native-clippy', 'full')).toEqual(['Lint workspace']);
     expect(scoped('native-clippy', 'squad')).toEqual(['Lint Squad']);
-    expect(scoped('native-workspace-tests', 'full')).toEqual(['Test and build workspace']);
-    expect(scoped('native-workspace-tests', 'squad')).toEqual(['Test Squad and architecture']);
+    expect(job('native-workspace-tests')).toContain(
+      "if: needs.changes.outputs.native_scope == 'squad'"
+    );
+    expect(job('native-workspace-tests')).toContain('cargo test --locked -p tmt-squad');
+    expect(job('native-workspace-tests')).toContain(
+      'cargo test --locked -p tmt-cli --test architecture'
+    );
+    for (const name of ['native-test-archive', 'native-test-shard-1', 'native-test-shard-2']) {
+      expect(job(name)).toContain("if: needs.changes.outputs.native_scope == 'full'");
+      expect(job(name)).toContain(
+        'taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0'
+      );
+      expect(job(name)).toContain('tool: cargo-nextest@0.9.146');
+      expect(job(name)).toContain('checksum: true');
+      expect(job(name)).toContain('fallback: none');
+    }
+    expect(workflow.match(/cargo nextest archive /g)).toHaveLength(1);
+    expect(workflow.match(/cargo test --locked --workspace --doc 2>&1/g)).toHaveLength(1);
+    expect(job('native-test-archive')).toContain('verify-nextest-inventory.mjs');
+    for (const shard of [1, 2]) {
+      const body = job(`native-test-shard-${shard}`);
+      expect(body).toContain('needs: [changes, native-test-archive]');
+      expect(body).toContain(`--partition hash:${shard}/2`);
+      expect(body).toContain('--extract-to "$PWD"');
+      expect(body).toContain('test -x target/debug/tmt');
+      expect(body).toContain('test -x target/debug/tmt-remote');
+      expect(body).toContain('test "$(pwd -P)" = "$(cat ../nextest-evidence/build-root.txt)"');
+      expect(body).not.toContain('rust-cache');
+    }
     expect(scoped('native-process-tests', 'full')).toEqual([
       'Build independent native process fixtures',
       'Download the verified Office companion',
@@ -1566,6 +1611,7 @@ describe('required CI gate', () => {
     // One main-only writer serves the shared dev cache; parallel readers never save.
     for (const worker of [
       'native-clippy',
+      'native-workspace-tests',
       'native-office-build',
       'native-office',
       'native-process-tests',
@@ -1573,7 +1619,7 @@ describe('required CI gate', () => {
       expect(job(worker)).toContain('shared-key: native-rust');
       expect(job(worker)).toContain('save-if: false');
     }
-    for (const worker of ['native-workspace-tests', 'native-runtime-build', 'native-msrv']) {
+    for (const worker of ['native-test-archive', 'native-runtime-build', 'native-msrv']) {
       expect(job(worker)).toContain(
         "save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}"
       );

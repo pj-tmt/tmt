@@ -250,6 +250,12 @@ its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, 
 `Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
 The [CI selection and worker model](ARCHITECTURE.md#ci-selection-and-worker-model)
 owns worker responsibilities, scope expectations, fixture handoff and cache policy.
+For the full-workspace runner, install `cargo-nextest` 0.9.146 and run
+`cargo nextest run --locked --workspace` from `rust/`, followed by
+`cargo test --locked --workspace --doc`. CI uploads the Cargo and nextest
+inventories, partition proof and doctest list/results with `native-workspace-tests`.
+When changing selection or the runner, compare exact test identities and ignored
+flags, not only counts; run the tooling `nextest-inventory` and `ci-scope` tests.
 To reproduce the MSRV check, read `workspace.package.rust-version` from
 `rust/Cargo.toml` into `MSRV`, then run
 `cargo +"$MSRV" check --locked --workspace --all-targets` from `rust/`.

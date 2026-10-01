@@ -107,4 +107,13 @@ export const NATIVE_OFFICE_UNREACHABLE: Readonly<
   Record<'tmt-adapters' | 'tmt-core', readonly string[]>
 >;
 
-export const RUST_WORKERS: readonly ['clippy', 'tests', 'office', 'process', 'msrv'];
+export const RUST_WORKERS: readonly [
+  'clippy',
+  'tests',
+  'archive',
+  'shard1',
+  'shard2',
+  'office',
+  'process',
+  'msrv',
+];
