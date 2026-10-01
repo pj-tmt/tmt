@@ -821,26 +821,27 @@ impl Config {
                     .collect::<Result<_, _>>()?
             }
         };
-        let fallback = |notice: String| {
-            crate::look::theme(&[], &own, &place)
-                .map(|theme| {
-                    (
-                        theme,
-                        Some(format!("{notice}; the board uses the default theme")),
-                    )
-                })
-                .map_err(invalid)
+        use crate::look::Problem;
+        // A broken global theme is TMT's config, not this file's: the board
+        // keeps the squad's own theme over the default and says why.
+        let (global, notice) = match &self.theme_error {
+            Some(problem) => (&[][..], Some(problem.clone())),
+            None => (&self.global_theme[..], None),
         };
-        if let Some(problem) = &self.theme_error {
-            return fallback(problem.clone());
-        }
-        match crate::look::theme(&self.global_theme, &own, &place) {
-            Ok(theme) => Ok((theme, None)),
-            // A core that reports no themeError: the global theme is still
-            // not this file's mistake.
-            Err(error) if error.starts_with("`theme.") => fallback(error),
-            Err(error) => Err(invalid(error)),
-        }
+        let (theme, notice) = match crate::look::theme(global, &own, &place) {
+            Ok(theme) => (theme, notice),
+            Err(Problem::Global(problem)) => (
+                crate::look::theme(&[], &own, &place).map_err(|problem| match problem {
+                    Problem::Global(message) | Problem::Squad(message) => invalid(message),
+                })?,
+                Some(problem),
+            ),
+            Err(Problem::Squad(message)) => return Err(invalid(message)),
+        };
+        Ok((
+            theme,
+            notice.map(|notice| format!("{notice}; the board uses the default theme")),
+        ))
     }
 
     /// `[squad.<name>.fields]`: the squad's field providers.
@@ -1669,13 +1670,13 @@ sort = ["state", "-name"]
             other.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
             "the squad's override applies to its own board only"
         );
-        let error = |squad| config.theme(squad).unwrap_err().to_string();
+        let error = |config: &Config, squad| config.theme(squad).unwrap_err().to_string();
         assert!(
-            error("bad").contains("`squad.bad.theme.waiting`"),
+            error(&config, "bad").contains("`squad.bad.theme.waiting`"),
             "{}",
-            error("bad")
+            error(&config, "bad")
         );
-        assert!(error("odd").contains("`squad.odd.theme` must be a table"));
+        assert!(error(&config, "odd").contains("`squad.odd.theme` must be a table"));
 
         // A broken global theme is TMT's config, not this file's: the board
         // draws with the default theme and says why.
@@ -1689,6 +1690,28 @@ sort = ["state", "-name"]
             notice.as_deref(),
             Some("theme.base unknown base dark; the board uses the default theme")
         );
+        // The same when only the theme's meaning is wrong and core reported
+        // no themeError: the global layer fails, the squad's still applies.
+        config.global_theme(&serde_json::json!({
+            "resolved": {"theme": {"base": "dark"}},
+            "themeError": null
+        }));
+        let (fallback, notice) = config.theme("product").unwrap();
+        assert_eq!(fallback.base, Base::Tmt);
+        assert_eq!(
+            fallback.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            theme.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            "the squad's override survives a bad global theme"
+        );
+        assert!(
+            notice
+                .as_deref()
+                .is_some_and(|notice| notice.starts_with("`theme.base`")
+                    && notice.ends_with("; the board uses the default theme")),
+            "{notice:?}"
+        );
+        // A bad squad theme stays this file's error under either global one.
+        assert!(error(&config, "bad").contains("`squad.bad.theme.waiting`"));
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 

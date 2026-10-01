@@ -33,15 +33,24 @@ pub fn names() -> String {
     )
 }
 
+/// Which layer of the board's theme is wrong, with its message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Problem {
+    /// TMT's global `theme`: not the squad file's mistake.
+    Global(String),
+    /// The squad's own `[squad.<name>.theme]`.
+    Squad(String),
+}
+
 /// The board's theme: the squad's base, else the global one, else `tmt`;
 /// then the global overrides, then the squad's, the later winning. Each
-/// layer is checked on its own, so a mistake names its place (`theme.<key>`
-/// or `squad.<name>.theme.<key>`).
+/// layer is checked on its own, so a mistake names its layer and its place
+/// (`theme.<key>` or `squad.<name>.theme.<key>`).
 pub fn theme(
     global: &[(String, String)],
     squad: &[(String, String)],
     place: &str,
-) -> Result<Theme, String> {
+) -> Result<Theme, Problem> {
     let check = |place: &str, settings: &[(String, String)]| {
         Theme::parse(
             place,
@@ -51,8 +60,8 @@ pub fn theme(
         )
         .map_err(|error| error.to_string())
     };
-    check("theme", global)?;
-    check(place, squad)?;
+    check("theme", global).map_err(Problem::Global)?;
+    check(place, squad).map_err(Problem::Squad)?;
     let base = |settings: &[(String, String)]| {
         settings
             .iter()
@@ -70,7 +79,9 @@ pub fn theme(
             .filter(|(key, _)| key != "base")
             .cloned(),
     );
-    check(place, &merged)
+    // Both layers are valid on their own, so the merge is too; were it not,
+    // the squad's layer is the one that changed it.
+    check(place, &merged).map_err(Problem::Squad)
 }
 
 /// A theme at the terminal's depth, for the board.
@@ -159,16 +170,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(own.base, tmt_cli_style::Base::TmtLight);
-        assert!(
-            theme(&[], &settings(&[("waiting", "orange")]), "squad.p.theme")
-                .unwrap_err()
-                .starts_with("`squad.p.theme.waiting`")
-        );
-        assert!(
-            theme(&settings(&[("base", "dark")]), &[], "squad.p.theme")
-                .unwrap_err()
-                .starts_with("`theme.base`")
-        );
+        assert!(matches!(
+            theme(&[], &settings(&[("waiting", "orange")]), "squad.p.theme"),
+            Err(Problem::Squad(message)) if message.starts_with("`squad.p.theme.waiting`")
+        ));
+        assert!(matches!(
+            theme(&settings(&[("base", "dark")]), &[], "squad.p.theme"),
+            Err(Problem::Global(message)) if message.starts_with("`theme.base`")
+        ));
     }
 
     #[test]
