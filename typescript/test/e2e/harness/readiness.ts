@@ -78,19 +78,14 @@ export function readMockEvents(logPath: string): MockEvent[] {
 export async function waitForMetadataBarrier(
   directory: string,
   signal: 'entered' | 'applied',
-  options: { child?: CliProcess<unknown>; timeoutMs?: number },
-  waitForCondition: (
-    predicate: () => boolean,
-    timeoutMs: number,
-    description: string
-  ) => Promise<void>
+  options: { child?: CliProcess<unknown>; timeoutMs?: number }
 ): Promise<void> {
   const barrier = path.join(directory, signal);
   let exited = undefined as CliResult<unknown> | undefined;
   void options.child?.result.then((result) => {
     exited = result;
   });
-  await waitForCondition(
+  await waitFor(
     () => fs.existsSync(barrier) || exited !== undefined,
     options.timeoutMs ?? METADATA_BARRIER_TIMEOUT_MS,
     `metadata barrier '${signal}'`

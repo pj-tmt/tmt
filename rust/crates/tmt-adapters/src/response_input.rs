@@ -3,7 +3,6 @@
 
 use nix::{
     errno::Errno,
-    fcntl::{FcntlArg, OFlag, fcntl},
     poll::{PollFd, PollFlags, PollTimeout, poll},
     sys::stat::{SFlag, fstat},
     unistd::{isatty, read},
@@ -25,13 +24,12 @@ pub enum ResponseInputFailure {
     TooLarge,
     Timeout,
     File,
-    Restore,
 }
 
 impl ResponseInputFailure {
     pub fn code(self) -> &'static str {
         match self {
-            Self::Invalid | Self::Restore => "RESPONSE_INPUT_INVALID",
+            Self::Invalid => "RESPONSE_INPUT_INVALID",
             Self::TooLarge => "RESPONSE_INPUT_TOO_LARGE",
             Self::Timeout => "RESPONSE_INPUT_TIMEOUT",
             Self::File => "RESPONSE_FILE_ERROR",
@@ -46,14 +44,12 @@ impl fmt::Display for ResponseInputFailure {
             Self::TooLarge => "Response body must not exceed 1048576 UTF-8 bytes.",
             Self::Timeout => "Timed out while reading response input.",
             Self::File => "Could not read response input file.",
-            Self::Restore => "Could not restore response input descriptor flags.",
         })
     }
 }
 #[derive(Debug)]
 pub struct ResponseInputError {
     pub kind: ResponseInputFailure,
-    pub cleanup_error: Option<io::Error>,
     cause: Option<io::Error>,
 }
 
@@ -62,7 +58,6 @@ impl ResponseInputError {
         Self {
             kind,
             cause: Some(cause.into()),
-            cleanup_error: None,
         }
     }
 
@@ -73,21 +68,13 @@ impl ResponseInputError {
 
 impl From<ResponseInputFailure> for ResponseInputError {
     fn from(kind: ResponseInputFailure) -> Self {
-        Self {
-            kind,
-            cause: None,
-            cleanup_error: None,
-        }
+        Self { kind, cause: None }
     }
 }
 
 impl fmt::Display for ResponseInputError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.kind.fmt(f)?;
-        if self.cleanup_error.is_some() {
-            f.write_str(" Input cleanup also failed.")?;
-        }
-        Ok(())
+        self.kind.fmt(f)
     }
 }
 
@@ -126,50 +113,10 @@ pub fn read_stdin() -> Result<String, ResponseInputError> {
     read_stream(&io::stdin(), STDIN_TIMEOUT)
 }
 
-/// Reuse descriptor restoration and bounded EOF acquisition for wire envelopes.
+/// Reuse bounded EOF acquisition for wire envelopes.
 /// The caller owns wire validation and maps errors without exposing payloads.
 pub fn read_stdin_bounded(timeout: Duration, maximum: usize) -> Result<String, ResponseInputError> {
     read_stream_bounded(&io::stdin(), timeout, maximum)
-}
-
-// fcntl operates on the inherited open-file description. Restore its exact
-// previous flags before reporting success or failure; never leave a shell pipe
-// nonblocking. The caller must not concurrently read this invocation's stdin.
-struct StreamFlags<'a, F: AsFd> {
-    stream: &'a F,
-    previous: OFlag,
-    restored: bool,
-}
-
-impl<'a, F: AsFd> StreamFlags<'a, F> {
-    fn acquire(stream: &'a F) -> Result<Self, ResponseInputError> {
-        let previous = OFlag::from_bits_retain(
-            fcntl(stream, FcntlArg::F_GETFL)
-                .map_err(|cause| ResponseInputError::io(ResponseInputFailure::Invalid, cause))?,
-        );
-        fcntl(stream, FcntlArg::F_SETFL(previous | OFlag::O_NONBLOCK))
-            .map_err(|cause| ResponseInputError::io(ResponseInputFailure::Invalid, cause))?;
-        Ok(Self {
-            stream,
-            previous,
-            restored: false,
-        })
-    }
-
-    fn restore(&mut self) -> Result<(), ResponseInputError> {
-        fcntl(self.stream, FcntlArg::F_SETFL(self.previous))
-            .map_err(|cause| ResponseInputError::io(ResponseInputFailure::Restore, cause))?;
-        self.restored = true;
-        Ok(())
-    }
-}
-
-impl<F: AsFd> Drop for StreamFlags<'_, F> {
-    fn drop(&mut self) {
-        if !self.restored {
-            let _ = self.restore();
-        }
-    }
 }
 
 fn read_stream(stream: &impl AsFd, timeout: Duration) -> Result<String, ResponseInputError> {
@@ -202,16 +149,9 @@ fn read_stream_bounded(
     if timeout.is_zero() || terminal || maximum == 0 || maximum.checked_add(1).is_none() {
         return Err(ResponseInputFailure::Invalid.into());
     }
-    let mut flags = StreamFlags::acquire(stream)?;
-    let pending = read_until_eof(stream, deadline, maximum);
-    let restored = flags.restore();
-    match pending {
-        Err(mut primary) => {
-            primary.cleanup_error = restored.err().and_then(|error| error.cause);
-            Err(primary)
-        }
-        Ok(body) => restored.map(|()| body),
-    }
+    // This invocation exclusively owns stdin. Poll before each read; never
+    // change the inherited open-file description, even during cancellation.
+    read_until_eof(stream, deadline, maximum)
 }
 
 fn read_until_eof(
