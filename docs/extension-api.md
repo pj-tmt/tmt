@@ -26,6 +26,7 @@ Clients must tolerate additive response fields.
 | Operation                | Input                                                                     | Result                                                                                                                                                            |
 | ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`           | `{}`                                                                      | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
+| `storage.root`           | `{}`                                                                      | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
 | `changes.cursor`         | `{}`                                                                      | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
 | `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`              | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                               | Request detail including retained prompt/final state                                                                                                              |
@@ -43,6 +44,14 @@ Clients must tolerate additive response fields.
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                       | `owner`, `removed` and `kept` targets                                                                                                                             |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                              | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
+
+`storage.root` reports the data directory selected by the invoking core, including
+its normal explicit-home/XDG/legacy selection. Extensions MUST use this operation
+rather than infer configuration paths, and keep their files under
+`<dataRoot>/<extension>/`. The extension owns creation and lifecycle of its
+subtree, with 0700 directories and 0600 secret/state files; it MUST NOT open or
+modify core's database/configuration or provider settings. Discovery does not
+create the root or read its files. `capabilities` remains a constant document.
 
 IDs are canonical UUIDs, except request IDs, which use TMT's `req_...` format.
 `dispatch.create.kind` defaults to `request`; `announcement` does not expect a
