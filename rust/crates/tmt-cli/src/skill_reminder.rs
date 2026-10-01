@@ -58,6 +58,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::Upgrade { .. }
                 | Invocation::NativeInstall { .. }
                 | Invocation::NativeRefreshSkills
+                | Invocation::NativeUpgradeExtensions { .. }
                 | Invocation::Office { .. }
                 | Invocation::Identity(_)
                 | Invocation::Bind { .. }
@@ -166,8 +167,10 @@ mod tests {
                 channel: None,
                 exact: None,
                 unpin: false,
+                yes: false,
             },
             Invocation::NativeRefreshSkills,
+            Invocation::NativeUpgradeExtensions { plan: true },
             Invocation::NativeInstall {
                 product: tmt_core::native_install::Product::Cli,
                 archive: "archive.tar.gz".into(),

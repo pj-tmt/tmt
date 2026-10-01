@@ -215,8 +215,7 @@ describe('CLI executable descriptors', () => {
       expect(parseWholeStdout(shown)).toMatchObject({
         identity: { name: 'Selected', canonicalName: 'selected' },
       });
-    },
-    10_000
+    }
   );
 
   it('runs an explicit non-Node probe and preserves its argv prefix and arguments', async () => {
@@ -249,7 +248,7 @@ describe('CLI executable descriptors', () => {
       ...defaults.cli.args,
       ...args,
     ]);
-  }, 10_000);
+  });
 
   it('propagates a selected executable nonzero exit without falling back', async () => {
     const root = temporaryRoot();
@@ -278,5 +277,5 @@ describe('CLI executable descriptors', () => {
     expect(Number.isInteger(childPid)).toBe(true);
     await waitForProcessExit(childPid, 2_000);
     expect(processIsAlive(childPid)).toBe(false);
-  }, 10_000);
+  });
 });

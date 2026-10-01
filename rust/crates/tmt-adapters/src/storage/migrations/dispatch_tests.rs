@@ -50,7 +50,7 @@ fn dispatch_migration_rolls_back_receipt_table_and_history_together() {
         .unwrap();
     oracle.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 41);
+    assert_eq!(storage.health().unwrap().schema_version, 42);
     assert_eq!(
         storage
             .connection()
