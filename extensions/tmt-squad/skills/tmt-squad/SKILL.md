@@ -103,8 +103,29 @@ borders. Attention tabs keep their waiting/blocked color and counts. Selection
 uses the theme's `selection` background for rows and selected squad/pane tabs,
 retaining each cell's state/provider color and each tab's foreground; a terminal without a background color uses reverse video,
 including `NO_COLOR`. Colors decorate the words and marks; never infer state
-from color alone. The global theme belongs in `config.json`; per-squad theme
-bases and overrides belong in `[squad.<name>.theme]` in `squad.toml`.
+from color alone. The CLI theme is `theme.base` in the global `config.json`;
+`tmt config show` shows its value and file. Board themes layer that resolved
+theme, then `[board.theme]`, then `[squad.<name>.theme]` in `squad.toml`.
+
+`tmt sq theme ls` (or bare `tmt sq theme`) lists built-in bases, marking the
+current base and its source: `default`, `cli`, `board` or `squad`. Add
+`--squad <name>` to inspect that squad. These choices affect the board only;
+CLI colours stay unchanged.
+
+```sh
+tmt sq theme set tmt-light                 # all boards
+tmt sq theme set mono --squad product      # this squad
+tmt sq theme rm --squad product            # remove only its base override
+```
+
+Set and remove keep token overrides and the rest of the user's TOML. They
+refuse if the file changed since it was read. On the board, `T` opens the
+theme picker (`theme` is a bindable action). Arrow keys or j/k preview in
+memory; Tab switches all-boards/this-squad scope, Enter saves, and Esc cancels.
+The leads/all tabs offer all-boards scope only. A squad's own base still wins
+over an all-boards preview; the picker names that masking setting. A failed
+save stays open with a notice; cancel and reopen to read a changed file.
+Agents change the user's appearance only when the user requests it.
 
 The detail pane shows full projected board-column values not already shown by its header, task, note, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
 

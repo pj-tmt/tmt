@@ -1,5 +1,5 @@
-//! How Squad draws: the user's theme, from TMT's global config, with a
-//! squad's own `[squad.<name>.theme]` over it. Squad names no colors of its
+//! How Squad draws: core's resolved theme, then `[board.theme]`, then
+//! `[squad.<name>.theme]` in Squad's own configuration. Squad names no colors of its
 //! own; every color is a design token that tmt-cli-style renders.
 
 use ratatui::style::{Modifier, Style};
@@ -38,6 +38,8 @@ pub fn names() -> String {
 pub enum Problem {
     /// TMT's global `theme`: not the squad file's mistake.
     Global(String),
+    /// The board-wide `[board.theme]`.
+    Board(String),
     /// The squad's own `[squad.<name>.theme]`.
     Squad(String),
 }
@@ -46,8 +48,19 @@ pub enum Problem {
 /// then the global overrides, then the squad's, the later winning. Each
 /// layer is checked on its own, so a mistake names its layer and its place
 /// (`theme.<key>` or `squad.<name>.theme.<key>`).
+#[cfg(test)]
 pub fn theme(
     global: &[(String, String)],
+    squad: &[(String, String)],
+    place: &str,
+) -> Result<Theme, Problem> {
+    board_theme(global, &[], squad, place)
+}
+
+/// Resolve each token and base through core, board and squad layers.
+pub fn board_theme(
+    global: &[(String, String)],
+    board: &[(String, String)],
     squad: &[(String, String)],
     place: &str,
 ) -> Result<Theme, Problem> {
@@ -61,6 +74,7 @@ pub fn theme(
         .map_err(|error| error.to_string())
     };
     check("theme", global).map_err(Problem::Global)?;
+    check("board.theme", board).map_err(Problem::Board)?;
     check(place, squad).map_err(Problem::Squad)?;
     let base = |settings: &[(String, String)]| {
         settings
@@ -69,12 +83,14 @@ pub fn theme(
             .map(|(_, value)| value.clone())
     };
     let base = base(squad)
+        .or_else(|| base(board))
         .or_else(|| base(global))
         .unwrap_or_else(|| "tmt".into());
     let mut merged = vec![("base".to_owned(), base)];
     merged.extend(
         global
             .iter()
+            .chain(board)
             .chain(squad)
             .filter(|(key, _)| key != "base")
             .cloned(),

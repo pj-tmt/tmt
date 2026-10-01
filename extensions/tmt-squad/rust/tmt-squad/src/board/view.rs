@@ -51,6 +51,7 @@ fn hints(app: &App) -> String {
         ("d", "d"),
         ("tab", "tab"),
         ("ctrl-r", "ctrl-r"),
+        ("T", "T"),
     ]
     .into_iter()
     .filter_map(|(event, label)| {
@@ -625,6 +626,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     if let Some(switcher) = &app.switcher {
         render_switcher(frame, app, switcher, body);
     }
+    if let Some(picker) = &app.theme_picker {
+        super::theme_picker::render(frame, picker, look, body);
+    }
 }
 
 /// The quick switcher: the query, then the matching tabs with their counts
@@ -826,7 +830,7 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
     if derived
         .notes
         .as_ref()
-        .is_none_or(|(cached_width, _)| *cached_width != width)
+        .is_none_or(|(cached_width, cached_look, _)| *cached_width != width || *cached_look != look)
     {
         let lines: Vec<Line> = match (&view.notes, view.render) {
             (Notes::Text(text), NotesRender::Markdown) => markdown::render(text, width, look),
@@ -838,9 +842,9 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
                 .map(|line| Line::styled(line, look.role(Role::Dim)))
                 .collect(),
         };
-        derived.notes = Some((width, lines));
+        derived.notes = Some((width, look, lines));
     }
-    let lines = &derived.notes.as_ref().expect("prepared notes").1;
+    let lines = &derived.notes.as_ref().expect("prepared notes").2;
     app.scrolls
         .show(frame, Pane::Notes, area, lines, look.role(Role::Dim));
 }
@@ -3079,7 +3083,7 @@ columns = [{ name = "member", width = "30%" },
             .notes
             .as_ref()
             .unwrap()
-            .1
+            .2
             .clone();
         draw(&app, 25, 12);
         assert_ne!(
@@ -3091,7 +3095,7 @@ columns = [{ name = "member", width = "30%" },
                 .notes
                 .as_ref()
                 .unwrap()
-                .1,
+                .2,
             lines
         );
         app.apply(crate::board::app::tests::snapshot("product", json!([])));

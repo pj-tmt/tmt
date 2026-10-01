@@ -625,10 +625,29 @@ fn tmux_key(key: &str) -> bool {
     }
 }
 
+fn theme_settings(item: Option<&Item>, place: &str) -> Result<Vec<(String, String)>, SquadError> {
+    let Some(item) = item else {
+        return Ok(Vec::new());
+    };
+    let table = item
+        .as_table_like()
+        .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+    table
+        .iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|text| (key.to_owned(), text.to_owned()))
+                .ok_or_else(|| invalid(format!("`{place}.{key}` must be a string.")))
+        })
+        .collect()
+}
+
 fn invalid(message: impl Into<String>) -> SquadError {
     SquadError::new("SQUAD_CONFIG_INVALID", message)
 }
 
+#[derive(Clone)]
 pub struct Config {
     path: PathBuf,
     original: Option<Vec<u8>>,
@@ -955,32 +974,18 @@ impl Config {
 
     /// How rows are laid out: `[squad.<name>.rows]`, the older `columns`
     /// table, or the preset.
-    /// The board's theme for `squad`: TMT's global theme with the squad's
-    /// `[squad.<name>.theme]` over it (`look::theme`). A bad global theme is
-    /// not this file's mistake: the board uses the default and says why,
-    /// returned as the notice. A bad squad theme is a configuration error.
+    /// The board's theme: core, then `[board.theme]`, then the squad's
+    /// `[squad.<name>.theme]`. Invalid core appearance falls back to the
+    /// built-in base before Squad overrides, with a notice. Invalid Squad
+    /// layers remain configuration errors.
     pub fn theme(&self, squad: &str) -> Result<(tmt_cli_style::Theme, Option<String>), SquadError> {
         let place = format!("squad.{squad}.theme");
-        let own: Vec<(String, String)> = match self
-            .squad_table(squad)?
-            .and_then(|table| table.get("theme"))
-        {
-            None => Vec::new(),
-            Some(item) => {
-                let table = item
-                    .as_table_like()
-                    .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
-                table
-                    .iter()
-                    .map(|(key, value)| {
-                        value
-                            .as_str()
-                            .map(|text| (key.to_owned(), text.to_owned()))
-                            .ok_or_else(|| invalid(format!("`{place}.{key}` must be a string.")))
-                    })
-                    .collect::<Result<_, _>>()?
-            }
-        };
+        let own = theme_settings(
+            self.squad_table(squad)?
+                .and_then(|table| table.get("theme")),
+            &place,
+        )?;
+        let board = self.board_theme()?;
         use crate::look::Problem;
         // A broken global theme is TMT's config, not this file's: the board
         // keeps the squad's own theme over the default and says why.
@@ -988,20 +993,161 @@ impl Config {
             Some(problem) => (&[][..], Some(problem.clone())),
             None => (&self.global_theme[..], None),
         };
-        let (theme, notice) = match crate::look::theme(global, &own, &place) {
+        let (theme, notice) = match crate::look::board_theme(global, &board, &own, &place) {
             Ok(theme) => (theme, notice),
             Err(Problem::Global(problem)) => (
-                crate::look::theme(&[], &own, &place).map_err(|problem| match problem {
-                    Problem::Global(message) | Problem::Squad(message) => invalid(message),
-                })?,
+                crate::look::board_theme(&[], &board, &own, &place).map_err(
+                    |problem| match problem {
+                        Problem::Global(message)
+                        | Problem::Board(message)
+                        | Problem::Squad(message) => invalid(message),
+                    },
+                )?,
                 Some(problem),
             ),
-            Err(Problem::Squad(message)) => return Err(invalid(message)),
+            Err(Problem::Board(message) | Problem::Squad(message)) => return Err(invalid(message)),
         };
         Ok((
             theme,
-            notice.map(|notice| format!("{notice}; the board uses the default theme")),
+            notice.map(|notice| format!("{notice}; the board ignores the invalid CLI theme")),
         ))
+    }
+
+    fn board_theme(&self) -> Result<Vec<(String, String)>, SquadError> {
+        let board = self
+            .document
+            .get("board")
+            .map(|item| {
+                item.as_table_like()
+                    .ok_or_else(|| invalid("`board` must be a table."))
+            })
+            .transpose()?;
+        theme_settings(board.and_then(|table| table.get("theme")), "board.theme")
+    }
+
+    /// The layer supplying the effective base, separately from token overrides.
+    pub fn theme_source(&self, squad: &str) -> Result<&'static str, SquadError> {
+        self.theme(squad)?;
+        let own = theme_settings(
+            self.squad_table(squad)?
+                .and_then(|table| table.get("theme")),
+            &format!("squad.{squad}.theme"),
+        )?;
+        let has_base =
+            |settings: &[(String, String)]| settings.iter().any(|(key, _)| key == "base");
+        Ok(if has_base(&own) {
+            "squad"
+        } else if has_base(&self.board_theme()?) {
+            "board"
+        } else if self.theme_error.is_none()
+            && tmt_cli_style::Theme::parse(
+                "theme",
+                self.global_theme
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str())),
+            )
+            .is_ok()
+            && has_base(&self.global_theme)
+        {
+            "cli"
+        } else {
+            "default"
+        })
+    }
+
+    /// Edit only a base; all token overrides and unrelated TOML stay intact.
+    pub fn set_theme_base(
+        &mut self,
+        scope: &crate::theme::ThemeScope,
+        base: tmt_cli_style::Base,
+    ) -> Result<bool, SquadError> {
+        self.edit_theme_base(scope, Some(base))
+    }
+
+    /// Remove only the selected layer's base, retaining token overrides.
+    pub fn remove_theme_base(
+        &mut self,
+        scope: &crate::theme::ThemeScope,
+    ) -> Result<bool, SquadError> {
+        self.edit_theme_base(scope, None)
+    }
+
+    fn edit_theme_base(
+        &mut self,
+        scope: &crate::theme::ThemeScope,
+        base: Option<tmt_cli_style::Base>,
+    ) -> Result<bool, SquadError> {
+        let draft = self.theme_draft(scope, base)?;
+        draft.theme(scope.squad().unwrap_or(""))?;
+        draft.refresh(scope.squad().unwrap_or(""))?;
+        let changed = draft.document.to_string() != self.document.to_string();
+        self.write(|document| *document = draft.document)?;
+        Ok(changed)
+    }
+
+    /// Preview a base through exactly the same layer edits without writing.
+    pub fn preview_theme_base(
+        &self,
+        scope: &crate::theme::ThemeScope,
+        base: tmt_cli_style::Base,
+        squad: &str,
+    ) -> Result<tmt_cli_style::Theme, SquadError> {
+        self.theme_draft(scope, Some(base))?
+            .theme(squad)
+            .map(|(theme, _)| theme)
+    }
+
+    fn theme_draft(
+        &self,
+        scope: &crate::theme::ThemeScope,
+        base: Option<tmt_cli_style::Base>,
+    ) -> Result<Self, SquadError> {
+        let mut draft = self.clone();
+        let path: Vec<&str> = match scope {
+            crate::theme::ThemeScope::Board => vec!["board", "theme"],
+            crate::theme::ThemeScope::Squad(name) => vec!["squad", name, "theme"],
+        };
+        let mut table: &mut dyn toml_edit::TableLike = draft.document.as_table_mut();
+        for (index, key) in path.iter().enumerate() {
+            if !table.contains_key(key) {
+                if base.is_none() {
+                    return Ok(draft);
+                }
+                let mut child = Table::new();
+                child.set_implicit(index + 1 < path.len());
+                table.insert(key, Item::Table(child));
+            }
+            table = table
+                .get_mut(key)
+                .and_then(Item::as_table_like_mut)
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "`{}` must be a table to edit its base.",
+                        path[..=index].join(".")
+                    ))
+                })?;
+        }
+        match base {
+            Some(base) => {
+                if table.get("base").and_then(Item::as_str) == Some(base.name()) {
+                    return Ok(draft);
+                }
+                // Retain an existing base's decoration as well as token overrides.
+                let decor = table
+                    .get("base")
+                    .and_then(Item::as_value)
+                    .map(|value| value.decor().clone());
+                let mut item = value(base.name());
+                if let (Some(decor), Some(value)) = (decor, item.as_value_mut()) {
+                    *value.decor_mut() = decor;
+                }
+                table.insert("base", item);
+            }
+            None => {
+                table.remove("base");
+            }
+        }
+        Ok(draft)
     }
 
     /// `[squad.<name>.fields]`: the squad's field providers.
@@ -1219,7 +1365,10 @@ impl Config {
                 let table = item
                     .as_table_like()
                     .ok_or_else(|| invalid("`board` must be a table."))?;
-                if let Some((key, _)) = table.iter().find(|(key, _)| *key != "refresh") {
+                if let Some((key, _)) = table
+                    .iter()
+                    .find(|(key, _)| !matches!(*key, "refresh" | "theme"))
+                {
                     return Err(invalid(format!("`board.{key}` is not a board setting.")));
                 }
                 table
@@ -1368,9 +1517,14 @@ impl Config {
                 ),
             ));
         }
-        edit(&mut self.document);
-        let bytes = self.document.to_string().into_bytes();
+        let mut document = self.document.clone();
+        edit(&mut document);
+        let bytes = document.to_string().into_bytes();
+        if self.original.as_deref().unwrap_or_default() == bytes {
+            return Ok(());
+        }
         publish(&self.path, &bytes).map_err(|error| write_failed(&self.path, error))?;
+        self.document = document;
         self.original = Some(bytes);
         Ok(())
     }
@@ -1520,6 +1674,229 @@ mod tests {
                 .is_err()
         );
         let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn theme_base_edits_keep_the_exact_surrounding_document_and_tokens() {
+        use crate::theme::ThemeScope;
+        use tmt_cli_style::{Base, Depth, Role};
+        let path = temp("theme-base-preservation");
+        let original = "# personal board\nopaque = { future = 42 }\n\n[board]\nrefresh = \"off\" # manual\n\n[board.theme] # colours\nbase = \"tmt\" # dark\naccent = \"blue\"\n\n[squad.product.theme]\nwaiting = \"red\" # attention\n";
+        fs::write(&path, original).unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        assert!(
+            config
+                .set_theme_base(&ThemeScope::Board, Base::TmtLight)
+                .unwrap()
+        );
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            original.replacen("base = \"tmt\"", "base = \"tmt-light\"", 1)
+        );
+        let (theme, _) = config.theme("product").unwrap();
+        assert_eq!(theme.base, Base::TmtLight);
+        assert_eq!(
+            theme.style(Role::Waiting, Depth::TrueColor),
+            tmt_cli_style::Theme::parse("expected", [("waiting", "red")])
+                .unwrap()
+                .style(Role::Waiting, Depth::TrueColor)
+        );
+        assert!(config.remove_theme_base(&ThemeScope::Board).unwrap());
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            original.replace("base = \"tmt\" # dark\n", "")
+        );
+        assert_eq!(config.theme_source("product").unwrap(), "default");
+        assert!(!config.remove_theme_base(&ThemeScope::Board).unwrap());
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn theme_layers_resolve_each_token_and_report_the_base_source() {
+        use crate::theme::ThemeScope;
+        use tmt_cli_style::{Base, Depth, Role, Theme};
+        let path = temp("theme-three-layers");
+        fs::write(&path, "[board.theme]\nbase = \"terminal\"\naccent = \"green\"\n[squad.product.theme]\nbase = \"mono\"\nwaiting = \"blue\"\n").unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        config.global_theme(&serde_json::json!({"resolved":{"theme":{"base":"tmt-light", "accent":"red", "blocked":"yellow"}}}));
+        let (actual, _) = config.theme("product").unwrap();
+        let expected = Theme::parse(
+            "expected",
+            [
+                ("base", "mono"),
+                ("accent", "green"),
+                ("waiting", "blue"),
+                ("blocked", "yellow"),
+            ],
+        )
+        .unwrap();
+        for role in Role::ALL {
+            assert_eq!(
+                actual.style(role, Depth::TrueColor),
+                expected.style(role, Depth::TrueColor)
+            );
+        }
+        assert_eq!(config.theme_source("product").unwrap(), "squad");
+        config
+            .remove_theme_base(&ThemeScope::Squad("product".into()))
+            .unwrap();
+        assert_eq!(config.theme("product").unwrap().0.base, Base::Terminal);
+        assert_eq!(config.theme_source("product").unwrap(), "board");
+        config.remove_theme_base(&ThemeScope::Board).unwrap();
+        assert_eq!(config.theme("product").unwrap().0.base, Base::TmtLight);
+        assert_eq!(config.theme_source("product").unwrap(), "cli");
+        config.global_theme(&serde_json::json!({"resolved":{"theme":{"base":"invalid"}}}));
+        assert_eq!(config.theme_source("product").unwrap(), "default");
+        assert!(config.theme("product").unwrap().1.is_some());
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn theme_writes_refuse_changed_files_even_for_an_identical_base() {
+        use crate::theme::ThemeScope;
+        use tmt_cli_style::Base;
+        let path = temp("theme-stale-write");
+        fs::write(&path, "[board.theme]\nbase = \"mono\"\n").unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        let original_document = config.document.to_string();
+        fs::write(
+            &path,
+            "# edited elsewhere\n[board.theme]\nbase = \"mono\"\n",
+        )
+        .unwrap();
+        let changed_bytes = fs::read(&path).unwrap();
+        assert_eq!(
+            config
+                .set_theme_base(&ThemeScope::Board, Base::Mono)
+                .unwrap_err()
+                .code,
+            "SQUAD_CONFIG_CHANGED"
+        );
+        assert_eq!(
+            config
+                .remove_theme_base(&ThemeScope::Board)
+                .unwrap_err()
+                .code,
+            "SQUAD_CONFIG_CHANGED"
+        );
+        assert_eq!(fs::read(&path).unwrap(), changed_bytes);
+        assert_eq!(config.document.to_string(), original_document);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn failed_publication_keeps_config_and_does_not_leak_the_draft_into_me_write() {
+        use crate::theme::ThemeScope;
+        use tmt_cli_style::Base;
+        let path = temp("theme-failed-publish");
+        let original = "[board.theme]\nbase = \"tmt\"\n";
+        fs::write(&path, original).unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        let staged = path
+            .parent()
+            .unwrap()
+            .join(format!(".squad.toml.{}", std::process::id()));
+        fs::write(&staged, "occupied stage").unwrap();
+        assert_eq!(
+            config
+                .set_theme_base(&ThemeScope::Board, Base::Mono)
+                .unwrap_err()
+                .code,
+            "SQUAD_CONFIG_WRITE_FAILED"
+        );
+        assert_eq!(config.document.to_string(), original);
+        assert_eq!(config.original.as_deref(), Some(original.as_bytes()));
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        fs::remove_file(staged).unwrap();
+        config
+            .set_me("ada", "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f")
+            .unwrap();
+        assert!(fs::read_to_string(&path).unwrap().contains(original));
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn theme_noop_preserves_quoted_bytes_and_does_not_publish() {
+        use crate::theme::ThemeScope;
+        use tmt_cli_style::Base;
+        let path = temp("theme-noop");
+        let original = "[board.theme]\nbase = 'mono' # untouched\n";
+        fs::write(&path, original).unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        let staged = path
+            .parent()
+            .unwrap()
+            .join(format!(".squad.toml.{}", std::process::id()));
+        fs::write(&staged, "publish would fail").unwrap();
+        assert!(
+            !config
+                .set_theme_base(&ThemeScope::Board, Base::Mono)
+                .unwrap()
+        );
+        assert!(
+            !config
+                .remove_theme_base(&ThemeScope::Squad("other".into()))
+                .unwrap()
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn theme_edits_create_valid_tables_and_preserve_inline_overrides() {
+        use crate::theme::ThemeScope;
+        use tmt_cli_style::Base;
+        let path = temp("theme-create-inline");
+        let mut config = Config::read(path.clone()).unwrap();
+        assert!(!config.remove_theme_base(&ThemeScope::Board).unwrap());
+        assert!(!path.exists());
+        config
+            .set_theme_base(&ThemeScope::Squad("product".into()), Base::Mono)
+            .unwrap();
+        let reread = Config::read(path.clone()).unwrap();
+        assert_eq!(reread.theme("product").unwrap().0.base, Base::Mono);
+        fs::write(&path, "board = { theme = { base = \"tmt\", accent = \"blue\" }, refresh = \"off\" } # inline\n").unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        config
+            .set_theme_base(&ThemeScope::Board, Base::Terminal)
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "board = { theme = { base = \"terminal\", accent = \"blue\" }, refresh = \"off\" } # inline\n"
+        );
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn invalid_board_theme_is_not_hidden_by_a_squad_override_or_written() {
+        use crate::theme::ThemeScope;
+        use tmt_cli_style::Base;
+        let path = temp("theme-invalid-board");
+        for bad in [
+            "waiting = \"orange\"",
+            "waiting = 42",
+            "unexpected = \"red\"",
+        ] {
+            let original = format!(
+                "[board.theme]\n{bad}\n[squad.product.theme]\nbase = \"mono\"\nwaiting = \"blue\"\n"
+            );
+            fs::write(&path, &original).unwrap();
+            let mut config = Config::read(path.clone()).unwrap();
+            assert!(
+                config
+                    .theme("product")
+                    .unwrap_err()
+                    .message
+                    .contains("board.theme")
+            );
+            assert!(
+                config
+                    .set_theme_base(&ThemeScope::Squad("product".into()), Base::Tmt)
+                    .is_err()
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        }
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     fn temp(name: &str) -> PathBuf {
@@ -1852,7 +2229,7 @@ sort = ["state", "-name"]
         assert_eq!(theme.base, Base::Tmt);
         assert_eq!(
             notice.as_deref(),
-            Some("theme.base unknown base dark; the board uses the default theme")
+            Some("theme.base unknown base dark; the board ignores the invalid CLI theme")
         );
         // The same when only the theme's meaning is wrong and core reported
         // no themeError: the global layer fails, the squad's still applies.
@@ -1871,7 +2248,7 @@ sort = ["state", "-name"]
             notice
                 .as_deref()
                 .is_some_and(|notice| notice.starts_with("`theme.base`")
-                    && notice.ends_with("; the board uses the default theme")),
+                    && notice.ends_with("; the board ignores the invalid CLI theme")),
             "{notice:?}"
         );
         // A bad squad theme stays this file's error under either global one.
