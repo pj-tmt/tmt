@@ -1374,10 +1374,11 @@ stops it; there is no autostart/LAN/daemon option. Tests use disposable HOME/XDG
 count startup separately, assert zero request-triggered core calls and run
 socket/process lifecycle acceptance twice. No real model/account/DB is used.
 
-## Colab persistence development
+## Colab pilot development
 
-The private local-build Colab slice currently exposes the owner keyring and
-opaque SQLite store as a library. It has no executable or installer yet.
+The private local-build Colab executable runs a foreground loopback placeholder
+and lists local-space metadata. APIs and WebSocket upgrades are denied until
+the authentication/sync slice. No installer exists.
 Build and verify it from the repository root:
 
 ```bash
@@ -1391,8 +1392,8 @@ node typescript/scripts/release-please-config.mjs --check
 
 Tests inject temporary data roots; never point them at the real TMT directory.
 The extension owns `<dataRoot>/colab/` (0700) and regular secret/state files
-(0600). Production startup will obtain the absolute root through `tmt api
-storage.root` via `tmt-invoke`; no path guess or Colab root environment variable
+(0600). Production startup obtains the absolute root through `tmt api storage.root`
+via `tmt-invoke`; no path guess or Colab root environment variable
 is supported. Store bounds are named in `src/limits.rs`: 16 MiB plus 2 KiB per
 opaque envelope, 64 MiB retained ciphertext and 100,000 durable update receipts
 per page across epochs. Capacity rejects writes without eviction. Checkpoint
@@ -1401,3 +1402,30 @@ it also reclaims superseded unpinned checkpoint payloads. `pin_checkpoint` is
 the future verified authority-cut caller's preservation seam.
 Signatures and role admission are required at the future request boundary;
 these storage tests prove transaction rollback and reopening, not crash recovery.
+
+```bash
+(cd rust && cargo build --offline --locked -p tmt-cli -p tmt-colab)
+PATH="$PWD/rust/target/debug:$PATH" tmt colab spaces --json
+PATH="$PWD/rust/target/debug:$PATH" tmt colab serve --json
+```
+
+After building a core supporting `storage.root` (#860) and the extension, put
+`rust/target/debug` on PATH and run `tmt colab serve` (default port 7341).
+A busy port fails with a `--port` hint; `--port 0` selects a free port.
+Direct invocation requires an absolute
+`TMT_EXECUTABLE`. `tmt colab serve --json` prints one plain JSON descriptor with
+space ID and working URL; Ctrl-C/SIGTERM closes sockets, joins workers and
+releases the service lock. `tmt colab spaces --json` lists the local space and
+running state without creating directories or keys; before first serve it
+returns `{"spaces":[]}`. Use an isolated normal TMT data root for manual tests.
+
+The printed `127.0.0.1:<port>` is the only accepted Host and Origin; no localhost,
+forwarded-host or DNS-rebinding alias is admitted. The door bounds are named in
+`src/limits.rs`: 16 active sockets, 8 KiB/32 header fields, 64 KiB HTTP bodies,
+2-second total acquisition and 1-second total response. HTTP body capacity is
+for later sign-in/management; page objects use the future sync path. Reserved
+sync limits are 64 KiB frames and 8 queued frames with `RESYNC_REQUIRED` close
+for slow subscribers; no WebSocket is accepted yet. Real socket and foreground
+process cleanup tests run lifecycle scenarios twice, with no core calls from
+denied traffic. Owner-key temporary cleanup is publication-locked; it preserves
+foreign file names and refuses unsafe matching files.

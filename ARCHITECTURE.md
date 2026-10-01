@@ -2997,19 +2997,18 @@ and authority definition owner.
 
 ## Colab extension proposal
 
-**Status: persistence library implemented; executable, model, browser and backend
-work remains proposed.** The local-build-only pilot lives under
+**Status: persistence and foreground deny-all executable implemented; model,
+authentication, sync, decoder, browser and backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
-#829/#830 are bounded spike evidence. The persistence slice adds one private workspace library, with no executable,
-listener, deployment or release.
+#829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
 
-Proposed Rust dependencies are `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
-and `tmt-cli-style`, plus reviewed workspace pins. The model owns pure values,
+Current executable dependencies are `tmt-invoke`, `tmt-cli-style` and reviewed
+workspace pins. The proposed `tmt-colab-model` integration will own pure values,
 canonical bytes/codecs/crypto and policy, without I/O or core access. The
-executable owns CLI composition, foreground door, embedded app, SQLite/files,
-keyring and bridge. Core access is only through the absolute invoking
+executable owns CLI composition, foreground door, SQLite/files and keyring;
+the embedded app and bridge remain proposed. Core access is only through the absolute invoking
 `$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
@@ -3037,8 +3036,7 @@ budgeted browser Worker terminated on overrun, as defined by the contract.
 That boundary contains decoder failure, without claiming an OS/key sandbox.
 Local acceptance precedes Firestore then Cloudflare; protocol, renderer and
 containment details/gates live only in the linked contract. DEVELOPMENT
-run commands land in L2/L3, when the executable exists; library verification
-commands are available now.
+documents the current local build and foreground run commands.
 
 ### Persistence implementation
 
@@ -3061,8 +3059,28 @@ owner-log caller.
 Per-page capacity returns an error instead of evicting history. Envelope
 signatures, identity grammar, roles and owner-transition authorization belong
 to the future model/admission caller; this library creates no network authority.
-Tests own isolated directories and SQLite oracles. CLI composition, the
-loopback door, authentication, decoder and model integration remain later slices.
-The crate depends only on reviewed pinned storage/crypto primitives, never
-core, adapter, Remote or Office crates. Its component is excluded from release;
+Tests own isolated directories and SQLite oracles. Sync, authentication, decoder and model integration remain later slices.
+The executable depends on the reviewed invoke/style leaves and pinned
+storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.
+
+### Foreground composition and loopback door
+
+`main` owns `serve` and read-only `spaces`, style/JSON output, signals and one
+foreground service lock. `core` makes one fixed `storage.root` public API call
+through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
+stream caps and cancellation; missing/invalid roots fail before state creation.
+`spaces` creates nothing. `serve` opens the private keyring/store before printing
+a working IPv4-loopback placeholder URL. Keyring publication and stale temporary
+cleanup share a short-lived private lock; matching files require bounded owned
+regular-file admission without following symlinks. Typed state/schema faults
+reach machine-readable CLI errors.
+
+`http::Door` has no keyring, store or core reference. It owns finite loopback
+sockets and joined workers, exact Host/Origin admission, strict HTTP/1.1 framing,
+body/header/connection bounds and absolute read/write deadlines. It serves only
+the static placeholder and denies every API/WebSocket upgrade, including forged
+cookies. Shutdown closes retained sockets before joining all workers. Accepted
+WebSocket framing, subscriber queues and slow-subscriber close remain L2b, along
+with sign-in, owner management and the decoder. Tests use real sockets and
+isolated CLI processes, with readiness channels and explicit kill/wait guards.

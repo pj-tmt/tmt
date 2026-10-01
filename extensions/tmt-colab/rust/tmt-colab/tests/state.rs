@@ -423,3 +423,58 @@ fn repeated_compaction_reclaims_unpinned_checkpoints_and_rejects_sequence_rollba
         3
     );
 }
+
+#[test]
+fn owner_temporary_cleanup_is_locked_bounded_and_no_follow() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let original = Keyring::open(&layout).unwrap();
+    let temporary = layout.directory.join(format!(".owner-{}", "a".repeat(32)));
+    fs::write(&temporary, b"partial").unwrap();
+    fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600)).unwrap();
+    let foreign = layout.directory.join(".owner-note");
+    fs::write(&foreign, b"keep").unwrap();
+    let guard = nix::fcntl::Flock::lock(
+        layout.file("keyring.lock").unwrap(),
+        nix::fcntl::FlockArg::LockExclusiveNonblock,
+    )
+    .unwrap();
+    assert_eq!(
+        Keyring::open(&layout)
+            .err()
+            .unwrap()
+            .downcast_ref::<tmt_colab::keyring::StateFault>(),
+        Some(&tmt_colab::keyring::StateFault::KeyringBusy)
+    );
+    assert!(temporary.exists());
+    drop(guard);
+    assert_eq!(
+        Keyring::open(&layout).unwrap().owner_public(),
+        original.owner_public()
+    );
+    assert!(!temporary.exists());
+    assert_eq!(fs::read(foreign).unwrap(), b"keep");
+    let outside = fixture.0.join("outside");
+    fs::write(&outside, b"keep outside").unwrap();
+    symlink(&outside, &temporary).unwrap();
+    assert!(Keyring::open(&layout).is_err());
+    assert_eq!(fs::read(outside).unwrap(), b"keep outside");
+    assert!(fs::symlink_metadata(temporary).unwrap().is_symlink());
+}
+
+#[test]
+fn too_new_schema_has_a_typed_fault_and_preserves_the_database() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    layout.file("space.db").unwrap();
+    let path = layout.directory.join("space.db");
+    let oracle = rusqlite::Connection::open(&path).unwrap();
+    oracle.execute_batch("PRAGMA user_version=99;").unwrap();
+    drop(oracle);
+    let before = fs::read(&path).unwrap();
+    assert!(matches!(
+        Store::open(&layout).err().unwrap().downcast_ref::<Fault>(),
+        Some(Fault::UnsupportedSchema(99))
+    ));
+    assert_eq!(fs::read(path).unwrap(), before);
+}
