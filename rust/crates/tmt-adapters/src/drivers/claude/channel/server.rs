@@ -166,22 +166,11 @@ fn start(request: &ServeRequest<'_>) -> io::Result<(UnixListener, Process)> {
             }
         };
         let path: PathBuf = socket_path(request.directory, request.binding_id);
-        match UnixStream::connect(&path) {
-            Ok(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::AddrInUse,
-                    "another channel server owns this binding",
-                ));
-            }
-            // Nothing there, or nothing answering: a leftover socket file is stale.
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-                ) => {}
-            // Anything else (a socket we may not open, say) proves nothing about
-            // its owner, so it is neither replaced nor removed.
-            Err(error) => return Err(error),
+        if probe_is_live(UnixStream::connect(&path))? {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                "another channel server owns this binding",
+            ));
         }
         match fs::remove_file(&path) {
             Ok(()) => {}
@@ -192,6 +181,25 @@ fn start(request: &ServeRequest<'_>) -> io::Result<(UnixListener, Process)> {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
         Ok((listener, owner))
     })?
+}
+
+/// What a connection attempt to an existing socket says. `Ok(true)`: a server
+/// answers. `Ok(false)`: nothing is there, or nothing answers, so a leftover
+/// socket file is stale. Any other error (a socket we may not open, say) proves
+/// nothing about its owner, so it is neither replaced nor removed.
+fn probe_is_live(connected: io::Result<UnixStream>) -> io::Result<bool> {
+    match connected {
+        Ok(_) => Ok(true),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn accept_loop(listener: &UnixListener, ingress: &Ingress) {
@@ -388,6 +396,22 @@ pub(super) fn publish(request: &ServeRequest<'_>, owner: &Process, ready: &Atomi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_conclusively_absent_or_refusing_socket_is_stale_and_any_other_error_is_terminal() {
+        assert!(probe_is_live(Ok(UnixStream::pair().unwrap().0)).unwrap());
+        for kind in [io::ErrorKind::NotFound, io::ErrorKind::ConnectionRefused] {
+            assert!(!probe_is_live(Err(kind.into())).unwrap(), "{kind:?}");
+        }
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::TimedOut,
+            io::ErrorKind::InvalidInput,
+            io::ErrorKind::Other,
+        ] {
+            assert_eq!(probe_is_live(Err(kind.into())).unwrap_err().kind(), kind);
+        }
+    }
 
     #[test]
     fn a_trickling_sender_cannot_hold_the_acceptor_past_the_connection_deadline() {

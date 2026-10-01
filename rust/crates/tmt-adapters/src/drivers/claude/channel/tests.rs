@@ -1490,7 +1490,11 @@ fn a_server_removes_its_socket_only_while_generation_and_launch_owner_both_match
 }
 
 #[test]
-fn only_a_conclusively_absent_or_refusing_socket_is_replaced_and_any_other_error_is_terminal() {
+fn a_socket_this_user_cannot_open_fails_the_start_and_is_left_alone() {
+    // Permission modes do not bind root, which can still open the socket.
+    if nix::unistd::geteuid().is_root() {
+        return;
+    }
     let scratch = Scratch::new();
     publish(&scratch.0, &intent(&live_owner()));
     // A socket this user cannot open says nothing about its owner.
