@@ -93,10 +93,14 @@ by hand), `commit` (the release's commit is on `main` and the pull request that 
 `Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
 repository's newest published release is immutable, which shows that the setting was on; the
 workflow token cannot read the setting itself), `monotonic` (the release is newer than every
-published release of its product), `migration` (the component's migration list, named in
-`.github/components.json`, has no more entries than at the product's last published release,
-and no commit of the release carries `!` or a `BREAKING CHANGE:` footer) and `upgrade` (the
-proof above; the first release of a product has nothing to upgrade from). A failed gate does
+published release of its product), `migration` (no commit of the release carries `!` or a
+`BREAKING CHANGE:` footer; outside the alpha channel the component's migration list, named in
+`.github/components.json`, also has no more entries than at the product's last published
+release, while an alpha publishes new entries and the gate's summary only reports them) and
+`upgrade` (the proof above; the first release of a product has nothing to upgrade from; the
+CLI proof writes one identity with the previous release and reads it with the candidate, which
+applies the candidate's pending migrations to that record only, so no publication gate exercises
+a migration of any other existing data). A failed gate does
 not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
 `gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
 The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read
@@ -171,9 +175,11 @@ goes through
 is refused while pinned and installed with `--unpin`, the exact skills are served, SQLite is
 unchanged, the old executable is preserved, a repeat is a no-op and a downgrade is refused.
 An Office or Squad release is installed over the previous one by the newest published CLI
-with `tmt <extension> install` (`verify-native-extension-upgrade.mjs`): the version
-changes, the previous release stays on disk, a repeat is a no-op, a downgrade is refused and
-no CLI link is created. The first release of a product has nothing to upgrade from and says
+with `tmt extension install <extension>` and read back with `tmt extension list`
+(`verify-native-extension-upgrade.mjs`): the version changes, the previous release stays on
+disk, a repeat is a no-op, a downgrade is refused and no CLI link is created. Extensions
+have no install command of their own under `tmt <extension>`; the proof must use the surface
+a user's install runs. The first release of a product has nothing to upgrade from and says
 so. A commit that predates these scripts fails the proof with that message; prove it by
 hand as below.
 

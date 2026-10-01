@@ -2028,6 +2028,18 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
+### Codex queue transport groundwork
+
+`drivers/codex/queue` owns exact native request/receipt validation, while
+`drivers/codex/transport` owns synchronous WebSocket framing and the absolute
+I/O deadline. The only new transport dependency is adapter-local tungstenite,
+exactly pinned with default features disabled and `handshake` enabled; no TLS
+or async runtime enters core or shared ports. The architecture dependency guard
+permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
+owns limits, version qualification and receipt semantics. These modules are
+unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
+integration must be proven before user-facing activation in the later #719 slices.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent
@@ -2038,7 +2050,9 @@ ownership map.
 - `tmt_adapters::runtime::channel` defines the port. `RuntimeChannel` verifies the
   provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
   `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
-  provider child's environment (never ambient or persisted), and a consuming `withdraw`. The driver
+  provider child's environment (never ambient or persisted), optionally the
+  provider session the driver created before the child starts, and a consuming
+  `withdraw`. The driver
   plans the command from the user's command and owns everything that proves a
   cleanup is for exactly that launch; the CLI neither parses provider arguments
   nor inspects the lease. A driver registers it in `Runtime.channel`, which
@@ -2061,8 +2075,25 @@ ownership map.
   durable reply; `ChannelUnavailable` stops the request with
   `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`.
   `Failure` carries an optional additive `deliveryState`.
-- No first-party driver registers a channel yet, so every session still uses its
-  existing transport.
+- `drivers::claude::channel` owns the Claude record and the send classification
+  behind `ClaudeRuntime::send`. It reads the stored binding and the per-binding
+  record under the channel directory, applies the launch-applicability rule, waits
+  a bounded time for a channel that is not ready, and exchanges one frame over the
+  owner-only socket; the record grants nothing unless it matches the binding's
+  launch owner and runtime observation. Without the discovered configuration the
+  outcome is `Denied`, never `NotSent`.
+- The same module owns enrollment and the stdio MCP server (`channel/server.rs`).
+  `ClaudeChannel::enroll` writes the per-launch record and returns a lease that
+  withdraws only what it wrote. Every mutation of a record or socket (the enroll
+  write, the server's readiness publish, bind and socket removal, and the lease's
+  withdraw) runs under one lock file in the channel directory, taken through
+  `file_lock::exclusive`, and proceeds only while the record still carries the
+  caller's generation and launch owner, so a stale launcher or server can never
+  replace or remove a newer enrollment. The server's calling thread is its only
+  output writer, and it can only complete an enrollment that `enroll` created.
+- Claude registers its channel in `Runtime.channel`, but no CLI entry point calls
+  `enroll` or `serve` yet, so no record is ever written and every session still
+  uses its existing transport.
 
 ### Host driver protocol
 
@@ -2409,13 +2440,21 @@ Optional `[squad.<name>.reminders]` config is parsed by
 `Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
 from 1 minute through 24 hours. `staleness` owns observed raw task/state and
 exact lead-notebook content age, separate from providers and column bindings.
-`ls` acquires its nonblocking cache lock before the roster read, reads notes
-through public `notes.read` only when enabled, and shares the existing bounded
-room history with the request overlay. `Snapshot::apply` adds the same
-`staleness` object to every occurrence of a member UUID and
-`squad.notesStaleness`; text labels derive from those objects. The board's
-observer integration and marks are a later slice, not implemented by this
-status projection.
+`observe` is the one read sequence for a squad's status, used by `ls` and the
+board's squad tabs alike: it acquires the nonblocking cache lock before the
+roster read, reads the lead's notes through public `notes.read` only when the
+observation can publish (or the board shows the notes pane, which then reuses
+that one read), records, and hands the bounded room history to the request
+overlay. Providers never run there: `ls --refresh-fields` refreshes between
+observing and building the document, the board only hands members to its
+fetcher thread. `Snapshot::apply` adds the same `staleness` object to every
+occurrence of a member UUID and `squad.notesStaleness`; text labels derive from
+those objects. The board draws a stale row in the `dim` token with its label at
+the row's right edge, reserving that room only when no column would be hidden,
+and adds the notes' label to the notes pane title in `waiting`; the label text
+carries the meaning without color. The leads and all tabs read rosters without
+an observer and show no marks. Content age is unrelated to `App::loading`, the
+previous squad's frame while a switch loads.
 
 The private observation cache under `$XDG_CACHE_HOME/tmt-squad/staleness`
 is bounded to 512 KiB and 128 members per room, namespaced by the absolute
