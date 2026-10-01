@@ -4,18 +4,30 @@
 //! - version 2, `{"model"?: <slug>, "usage": {...}}`: also the context usage the
 //!   driver last read from its own provider's transcript (#519).
 //!
-//! A document without usage is written as version 1, exactly as before usage
-//! existed. A model is never inferred from transcripts, arguments or files.
+//! Version 3 adds main-turn activity scoped to the provider session and process.
+//! Without activity, legacy model/usage documents retain versions 1 and 2.
+//! A model is never inferred from transcripts, arguments or files.
 
 use serde_json::{Map, Value, json};
-use tmt_core::{binding::session::DriverState, limits::is_valid_js_safe_integer};
+use tmt_core::{
+    binding::session::{
+        DriverState, ProviderSessionId,
+        activity::{Activity, ActivityPhase, Event},
+    },
+    endpoint::ProcessIncarnation,
+    limits::is_valid_js_safe_integer,
+};
 
 pub const MODEL_STATE_VERSION: u16 = 1;
 pub const USAGE_STATE_VERSION: u16 = 2;
+pub const ACTIVITY_STATE_VERSION: u16 = 3;
 
 /// Whether this document version is one the first-party drivers read.
 pub fn reads(version: u16) -> bool {
-    matches!(version, MODEL_STATE_VERSION | USAGE_STATE_VERSION)
+    matches!(
+        version,
+        MODEL_STATE_VERSION | USAGE_STATE_VERSION | ACTIVITY_STATE_VERSION
+    )
 }
 
 /// Context-window usage as a driver read it: the tokens the provider's next
@@ -85,6 +97,7 @@ fn valid_model(model: &str) -> bool {
 struct Document {
     model: Option<String>,
     usage: Option<Usage>,
+    activity: Option<Activity>,
 }
 
 impl Document {
@@ -101,13 +114,24 @@ impl Document {
             None => None,
             Some(usage) => Some(Usage::read(usage)?),
         };
-        let known = usize::from(model.is_some()) + usize::from(usage.is_some());
+        let activity = match fields.get("activity") {
+            None => None,
+            Some(value) => Some(read_activity(value)?),
+        };
+        let known = usize::from(model.is_some())
+            + usize::from(usage.is_some())
+            + usize::from(activity.is_some());
         let valid = match state.version() {
-            MODEL_STATE_VERSION => model.is_some() && usage.is_none(),
-            USAGE_STATE_VERSION => usage.is_some(),
+            MODEL_STATE_VERSION => model.is_some() && usage.is_none() && activity.is_none(),
+            USAGE_STATE_VERSION => usage.is_some() && activity.is_none(),
+            ACTIVITY_STATE_VERSION => activity.is_some(),
             _ => false,
         };
-        (valid && fields.len() == known).then_some(Self { model, usage })
+        (valid && fields.len() == known).then_some(Self {
+            model,
+            usage,
+            activity,
+        })
     }
 
     fn write(self) -> Option<DriverState> {
@@ -115,14 +139,26 @@ impl Document {
         if let Some(model) = self.model {
             fields.insert("model".into(), json!(model));
         }
-        let version = match self.usage {
+        let mut version = match self.usage {
             Some(usage) => {
                 fields.insert("usage".into(), usage.document());
                 USAGE_STATE_VERSION
             }
-            None if fields.is_empty() => return None,
+            None if fields.is_empty() && self.activity.is_none() => return None,
             None => MODEL_STATE_VERSION,
         };
+        if let Some(activity) = self.activity {
+            version = ACTIVITY_STATE_VERSION;
+            fields.insert(
+                "activity".into(),
+                json!({
+                    "session": activity.session.as_str(), "pid": activity.process.pid(),
+                    "start": activity.process.start_identity(), "state": activity.phase.as_str(),
+                    "turn": activity.turn.as_ref().map(ProviderSessionId::as_str),
+                    "sinceMs": activity.since_ms, "lastActivityMs": activity.last_activity_ms,
+                }),
+            );
+        }
         DriverState::new(version, &Value::Object(fields).to_string()).ok()
     }
 }
@@ -150,7 +186,12 @@ pub fn after_start(
         .filter(|model| valid_model(model))
         .map(str::to_owned)
         .or_else(|| previous.and_then(state_model));
-    Document { model, usage }.write()
+    Document {
+        model,
+        usage,
+        activity: None,
+    }
+    .write()
 }
 
 /// The state after a turn ended with `usage` read: the model is kept.
@@ -158,8 +199,59 @@ pub fn after_turn(usage: Usage, previous: Option<&DriverState>) -> Option<Driver
     Document {
         model: previous.and_then(state_model),
         usage: Some(usage),
+        activity: previous.and_then(state_activity),
     }
     .write()
+}
+
+fn read_activity(value: &Value) -> Option<Activity> {
+    let fields = value.as_object()?;
+    if fields.len() != 7 {
+        return None;
+    }
+    let phase = match value["state"].as_str()? {
+        "working" => ActivityPhase::Working,
+        "idle" => ActivityPhase::Idle,
+        _ => return None,
+    };
+    let since = value["sinceMs"].as_u64()?;
+    let last = value["lastActivityMs"].as_u64()?;
+    if since == 0 || since > last || !is_valid_js_safe_integer(last) {
+        return None;
+    }
+    Some(Activity {
+        session: ProviderSessionId::new(value["session"].as_str()?).ok()?,
+        process: ProcessIncarnation::new(value["pid"].as_u64()?, value["start"].as_str()?).ok()?,
+        phase,
+        turn: match fields.get("turn")? {
+            Value::Null => None,
+            value => Some(ProviderSessionId::new(value.as_str()?).ok()?),
+        },
+        since_ms: since,
+        last_activity_ms: last,
+    })
+}
+
+pub fn state_activity(state: &DriverState) -> Option<Activity> {
+    Document::read(state)?.activity
+}
+
+pub fn after_activity(
+    previous: Option<&DriverState>,
+    session: &ProviderSessionId,
+    process: &ProcessIncarnation,
+    event: &Event,
+    now: u64,
+) -> Option<DriverState> {
+    let mut document = previous.and_then(Document::read).unwrap_or_default();
+    document.activity = Some(Activity::observe(
+        document.activity.as_ref(),
+        session,
+        process,
+        event,
+        now,
+    )?);
+    document.write()
 }
 
 #[cfg(test)]
@@ -169,6 +261,31 @@ mod tests {
 
     fn usage(tokens: u64) -> Usage {
         Usage::new(tokens, Some(258_400), 1_780_000_000_000).unwrap()
+    }
+
+    #[test]
+    fn activity_round_trips_without_transferring_through_session_start() {
+        let session = ProviderSessionId::new("s").unwrap();
+        let process = ProcessIncarnation::new(42, "birth").unwrap();
+        let previous = after_start(Some("opus"), Some(usage(10)), None).unwrap();
+        let event = Event {
+            phase: ActivityPhase::Working,
+            turn: Some(ProviderSessionId::new("turn").unwrap()),
+        };
+        let active = after_activity(Some(&previous), &session, &process, &event, 100).unwrap();
+        assert_eq!(active.version(), 3);
+        assert_eq!(state_model(&active).as_deref(), Some("opus"));
+        assert_eq!(state_usage(&active), Some(usage(10)));
+        assert!(state_activity(&active).unwrap().matches(&session, &process));
+        assert!(after_activity(Some(&active), &session, &process, &event, 101).is_none());
+        let updated = after_turn(usage(12), Some(&active)).unwrap();
+        assert_eq!(state_activity(&updated), state_activity(&active));
+        let resumed = after_start(None, None, Some(&active)).unwrap();
+        assert_eq!(resumed.version(), 1);
+        assert!(state_activity(&resumed).is_none());
+        let mut bad: Value = serde_json::from_str(active.document()).unwrap();
+        bad["activity"]["sinceMs"] = 101.into();
+        assert!(state_activity(&DriverState::new(3, &bad.to_string()).unwrap()).is_none());
     }
 
     #[test]
@@ -267,6 +384,6 @@ mod tests {
             assert_eq!(state_usage(&state), None, "{document}");
             assert_eq!(after_start(None, None, Some(&state)), None, "{document}");
         }
-        assert!(reads(1) && reads(2) && !reads(3));
+        assert!(reads(1) && reads(2) && reads(3) && !reads(4));
     }
 }

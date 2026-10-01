@@ -23,3 +23,52 @@ pub fn command_entry(provider: &str, launcher: &str) -> Value {
     let quoted = format!("'{}'", launcher.replace('\'', "'\\''"));
     json!({"hooks":[{"type":"command", "command":format!("{quoted} __hook {provider}"), "timeout":HOOK_TIMEOUT_SECONDS}]})
 }
+
+/// Decode only the common prompt envelope; provider lifecycle decoding stays separate.
+pub fn decode_prompt(bytes: &[u8]) -> Option<tmt_core::binding::session::ProviderSessionId> {
+    #[derive(serde::Deserialize)]
+    struct Prompt {
+        hook_event_name: String,
+        session_id: String,
+    }
+    if bytes.len() > HOOK_INPUT_LIMIT {
+        return None;
+    }
+    let payload: Prompt = serde_json::from_slice(bytes).ok()?;
+    (payload.hook_event_name == "UserPromptSubmit").then_some(())?;
+    tmt_core::binding::session::ProviderSessionId::new(&payload.session_id).ok()
+}
+
+/// First-party turn envelope. Claude ordering comes from setup's synchronous
+/// command hooks; Codex additionally correlates its documented active turn ID.
+pub fn decode_activity(
+    bytes: &[u8],
+    correlated: bool,
+) -> Option<tmt_core::binding::session::activity::Event> {
+    use tmt_core::binding::session::{
+        ProviderSessionId,
+        activity::{ActivityPhase, Event},
+    };
+    #[derive(serde::Deserialize)]
+    struct Turn {
+        hook_event_name: String,
+        session_id: String,
+        turn_id: Option<String>,
+    }
+    if bytes.len() > HOOK_INPUT_LIMIT {
+        return None;
+    }
+    let payload: Turn = serde_json::from_slice(bytes).ok()?;
+    ProviderSessionId::new(&payload.session_id).ok()?;
+    let phase = match payload.hook_event_name.as_str() {
+        "UserPromptSubmit" => ActivityPhase::Working,
+        "Stop" => ActivityPhase::Idle,
+        _ => return None,
+    };
+    let turn = if correlated {
+        Some(ProviderSessionId::new(payload.turn_id.as_deref()?).ok()?)
+    } else {
+        None
+    };
+    Some(Event { phase, turn })
+}
