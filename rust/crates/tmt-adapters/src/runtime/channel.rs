@@ -8,6 +8,7 @@ use super::RuntimeCommand;
 use std::{
     ffi::{OsStr, OsString},
     fmt,
+    io::{self, BufRead, Write},
     path::Path,
     time::Instant,
 };
@@ -95,6 +96,9 @@ pub enum ChannelError {
     /// The driver cannot plan a channel launch around this command line, and
     /// says why. The user's command is never silently rewritten or dropped.
     UnsupportedArguments(&'static str),
+    /// An earlier enrollment of this binding belongs to a launch that may still
+    /// be running, or whose ownership cannot be verified. It is left untouched.
+    Occupied,
 }
 
 impl fmt::Display for ChannelError {
@@ -114,6 +118,9 @@ impl fmt::Display for ChannelError {
             Self::Enrollment => {
                 formatter.write_str("The channel enrollment could not be recorded.")
             }
+            Self::Occupied => formatter.write_str(
+                "An earlier channel enrollment of this binding may still be in use or cannot be verified.",
+            ),
             Self::UnsupportedArguments(reason) => {
                 write!(
                     formatter,
@@ -140,6 +147,13 @@ pub struct ChannelPlan<'a> {
     pub tmt: &'a Path,
     /// Absolute directory of endpoint records; the provider's environment is
     /// never trusted to reproduce TMT's configuration lookup.
+    pub directory: &'a Path,
+}
+
+/// Arguments of one channel-server process, as parsed from its argv.
+pub struct ServeRequest<'a> {
+    pub binding_id: &'a str,
+    pub generation: &'a str,
     pub directory: &'a Path,
 }
 
@@ -186,6 +200,20 @@ pub trait RuntimeChannel {
     /// is what lets a later send tell "opted in, channel not ready" from "never
     /// opted in".
     fn enroll(&self, plan: &ChannelPlan<'_>) -> Result<Box<dyn ChannelEnrollment>, ChannelError>;
+
+    /// Run the stdio server the provider starts as its own child, until its
+    /// input closes. Only a driver whose provider starts one implements it.
+    fn serve(
+        &self,
+        _request: &ServeRequest<'_>,
+        _input: Box<dyn BufRead + Send>,
+        _output: &mut dyn Write,
+    ) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "This channel has no stdio server.",
+        ))
+    }
 }
 
 #[cfg(test)]

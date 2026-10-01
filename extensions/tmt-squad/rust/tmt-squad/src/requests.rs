@@ -156,18 +156,9 @@ pub struct Sent {
 }
 
 /// Reads both windows and applies them; without `me` rows get empty values
-/// and there is nothing sent.
+/// and there is nothing sent. A room window already read for the observation
+/// is reused rather than read again.
 pub fn overlay(
-    core: &Core,
-    squad: &Squad,
-    me: Option<&crate::me::Me>,
-    document: &mut Value,
-) -> Result<Option<Sent>, SquadError> {
-    overlay_with_room(core, squad, me, document, None)
-}
-
-/// A caller that also observes activity can share this same room window.
-pub fn overlay_with_room(
     core: &Core,
     squad: &Squad,
     me: Option<&crate::me::Me>,

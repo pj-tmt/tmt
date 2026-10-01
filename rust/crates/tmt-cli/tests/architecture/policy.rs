@@ -37,6 +37,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Adapters run host drivers through the protocol crate (#570).
         "tmt-adapters" => &[
+            // Provider-local synchronous WebSocket framing; no core/TLS/async use.
+            "tungstenite",
             "tmt-driver-protocol",
             "serde",
             "ureq",
