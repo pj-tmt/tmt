@@ -41,6 +41,7 @@ pub enum Accepted {
 pub enum Fault {
     Invalid,
     StaleEpoch,
+    StaleCheckpoint,
     Gap,
     Conflict,
     Capacity,
@@ -84,7 +85,7 @@ impl Store {
                 hash BLOB NOT NULL, digest BLOB NOT NULL, payload BLOB,
                 PRIMARY KEY(page,epoch,stream,seq), FOREIGN KEY(page,epoch,stream) REFERENCES streams(page,epoch,stream));
             CREATE TABLE IF NOT EXISTS checkpoints(page TEXT, epoch TEXT, stream TEXT, namespace TEXT, seq TEXT,
-                hash BLOB NOT NULL, digest BLOB NOT NULL, head BLOB NOT NULL, payload BLOB NOT NULL,
+                hash BLOB NOT NULL, digest BLOB NOT NULL, head BLOB NOT NULL, payload BLOB, pinned INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(page,epoch,stream,namespace,seq), FOREIGN KEY(page,epoch,stream) REFERENCES streams(page,epoch,stream));
             PRAGMA user_version=1; COMMIT;")?;
         Ok(Self { connection })
@@ -213,10 +214,18 @@ impl Store {
                 Err(Fault::Conflict)
             };
         }
+        let latest: Option<String> = tx.query_row(
+            "SELECT max(seq) FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=?",
+            params![s.page,epoch,s.stream,envelope.namespace.name()], |r| r.get(0))?;
+        if latest.is_some_and(|latest| seq <= latest) {
+            return Err(Fault::StaleCheckpoint);
+        }
         tx.execute("UPDATE receipts SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq<=?", params![s.page,epoch,s.stream,envelope.namespace.name(),seq])?;
+        tx.execute("UPDATE checkpoints SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq<? AND pinned=0",
+            params![s.page,epoch,s.stream,envelope.namespace.name(),seq])?;
         capacity(&tx, s.page, envelope.bytes.len(), false)?;
         tx.execute(
-            "INSERT INTO checkpoints VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload) VALUES (?,?,?,?,?,?,?,?,?)",
             params![
                 s.page,
                 epoch,
@@ -231,6 +240,24 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(Accepted::New)
+    }
+    /// L2b's verified authority-cut caller pins before committing the cut; no HTTP authority.
+    pub fn pin_checkpoint(
+        &mut self,
+        scope: StreamScope<'_>,
+        namespace: Namespace,
+        seq: u64,
+    ) -> StoreResult<()> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        current(&tx, scope)?;
+        if tx.execute("UPDATE checkpoints SET pinned=1 WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq=? AND payload IS NOT NULL",
+            params![scope.page,scope.epoch.to_string(),scope.stream,namespace.name(),sequence(seq)])? != 1 {
+            return Err(Fault::Gap);
+        }
+        tx.commit()?;
+        Ok(())
     }
     pub fn payload(&self, scope: StreamScope<'_>, seq: u64) -> StoreResult<Option<Vec<u8>>> {
         current(&self.connection, scope)?;

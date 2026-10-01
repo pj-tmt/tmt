@@ -3001,7 +3001,11 @@ move to the separately owned L1 model when that API lands.
 
 `store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
 conflict freezing and epoch fencing. Namespace checkpoints prune only their
-covered prefix in the same transaction; receipts and concurrent tails survive.
+covered prefix and superseded unpinned checkpoint payloads in the same
+transaction; receipts and concurrent tails survive. New checkpoint prefixes
+advance monotonically; exact retries never republish pruned bytes. The
+`pin_checkpoint` seam preserves authority-cut ciphertext for the later verified
+owner-log caller.
 Per-page capacity returns an error instead of evicting history. Envelope
 signatures, identity grammar, roles and owner-transition authorization belong
 to the future model/admission caller; this library creates no network authority.

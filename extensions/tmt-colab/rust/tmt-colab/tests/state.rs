@@ -216,6 +216,24 @@ fn owner_identity_matches_independent_rfc8032_and_python_vector() {
         Keyring::read(&layout).unwrap().space_id,
         "uqvpga22vglwpngpg7jd7zpk5vzjtoud"
     );
+    // #829 encoding-vectors.json ownerSeed/ownerPublic/spaceId, also the
+    // application-vectors.json header space. These are public fixture keys.
+    fs::remove_file(layout.directory.join("owner.key")).unwrap();
+    layout
+        .file("owner.key")
+        .unwrap()
+        .write_all(&(0..32).collect::<Vec<u8>>())
+        .unwrap();
+    let owner = Keyring::read(&layout).unwrap();
+    assert_eq!(
+        owner
+            .owner_public()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+    );
+    assert_eq!(owner.space_id, "4kph3kmtxo7dinlvoixpw642ozfibd2w");
 }
 
 #[test]
@@ -303,4 +321,105 @@ fn symlinked_extension_directory_is_refused_without_outside_writes() {
     assert!(Layout::existing(&fixture.0).is_err());
     assert!(Layout::open(&fixture.0).is_err());
     assert_eq!(fs::read_dir(outside).unwrap().count(), 0);
+}
+
+#[test]
+fn repeated_compaction_reclaims_unpinned_checkpoints_and_rejects_sequence_rollback() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page("page").unwrap();
+    let checkpoint_bytes = vec![7; tmt_colab::limits::OBJECT_BYTES];
+    for seq in 1..=8 {
+        store.append(&envelope(seq, Namespace::Content)).unwrap();
+        let checkpoint = Envelope {
+            hash: [42 + seq as u8; 32],
+            previous: [seq as u8; 32],
+            bytes: &checkpoint_bytes,
+            ..envelope(seq, Namespace::Content)
+        };
+        store.checkpoint(&checkpoint).unwrap();
+        if seq == 1 {
+            store
+                .pin_checkpoint(scope(), Namespace::Content, 1)
+                .unwrap();
+        }
+    }
+    let oracle = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    assert_eq!(
+        oracle
+            .query_row("SELECT count(*) FROM checkpoints", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        8
+    );
+    assert_eq!(
+        oracle
+            .query_row("SELECT sum(length(payload)) FROM checkpoints", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        (2 * tmt_colab::limits::OBJECT_BYTES) as i64
+    );
+    assert_eq!(
+        oracle
+            .query_row(
+                "SELECT count(*) FROM checkpoints WHERE payload IS NOT NULL AND pinned=1",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    // A genuinely new namespace checkpoint may not roll back its highest prefix.
+    let own = Envelope {
+        hash: [77; 32],
+        previous: [8; 32],
+        bytes: b"own checkpoint",
+        ..envelope(8, Namespace::Own)
+    };
+    store.checkpoint(&own).unwrap();
+    let stale = Envelope {
+        seq: 7,
+        previous: [7; 32],
+        ..own
+    };
+    assert!(matches!(
+        store.checkpoint(&stale),
+        Err(Fault::StaleCheckpoint)
+    ));
+    let old = Envelope {
+        hash: [44; 32],
+        previous: [2; 32],
+        bytes: &checkpoint_bytes,
+        ..envelope(2, Namespace::Content)
+    };
+    assert_eq!(store.checkpoint(&old).unwrap(), Accepted::Replay);
+    assert!(matches!(
+        store.pin_checkpoint(scope(), Namespace::Content, 2),
+        Err(Fault::Gap)
+    ));
+    // Failed publication restores the prior checkpoint payload as well as update payloads.
+    store.append(&envelope(9, Namespace::Content)).unwrap();
+    oracle.execute_batch("CREATE TRIGGER fail_new_checkpoint BEFORE INSERT ON checkpoints BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
+    let next = Envelope {
+        hash: [99; 32],
+        previous: [9; 32],
+        bytes: b"next",
+        ..envelope(9, Namespace::Content)
+    };
+    assert!(matches!(store.checkpoint(&next), Err(Fault::Sql(_))));
+    assert_eq!(
+        store.payload(scope(), 9).unwrap(),
+        Some(b"opaque-ciphertext".to_vec())
+    );
+    assert_eq!(
+        oracle
+            .query_row(
+                "SELECT count(*) FROM checkpoints WHERE payload IS NOT NULL",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        3
+    );
 }

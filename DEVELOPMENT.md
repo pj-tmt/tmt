@@ -1372,6 +1372,8 @@ storage.root` via `tmt-invoke`; no path guess or Colab root environment variable
 is supported. Store bounds are named in `src/limits.rs`: 16 MiB plus 2 KiB per
 opaque envelope, 64 MiB retained ciphertext and 100,000 durable update receipts
 per page across epochs. Capacity rejects writes without eviction. Checkpoint
-pruning keeps receipts and preserves the other namespace and concurrent tails.
+pruning keeps receipts and preserves the other namespace and concurrent tails;
+it also reclaims superseded unpinned checkpoint payloads. `pin_checkpoint` is
+the future verified authority-cut caller's preservation seam.
 Signatures and role admission are required at the future request boundary;
 these storage tests prove transaction rollback and reopening, not crash recovery.
