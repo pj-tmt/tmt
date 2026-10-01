@@ -8,12 +8,16 @@ lifecycle is owned by the request service and
 
 ## Status
 
-Tracking: #329, delivered as four stacked changes (#712 to #715). With the last
-one every section below describes shipped behavior: the outcome vocabulary and
-reporting, the `RuntimeChannel` lease port, the Claude send classification, the
-Claude enrollment and stdio server, `tmt run --channel` with the hidden
-`__channel-server` command, every delivery route, the baseline-paste evidence
-check and the E2E scenarios.
+Tracking: #329, delivered as four stacked changes (#712 to #715), the last in three
+parts. Shipped: the outcome vocabulary and reporting (#712), the `RuntimeChannel`
+lease port with pane attribution and the foreground callback, the Claude send
+classification (#713), the Claude enrollment and stdio server (#714), and, from
+#715 part 1, the Claude driver's pane-attributed record and lifecycle, the version
+range, and the baseline-paste evidence check at both paste sites. Not shipped yet,
+and described below as the target: `tmt run --channel` with the hidden
+`__channel-server` command and the delivery behavior it makes reachable (#715
+part 2), and the remaining E2E scenarios (part 3). Until part 2 lands no command
+enrolls a session, so every session keeps its existing transport.
 
 ## Evidence base
 
