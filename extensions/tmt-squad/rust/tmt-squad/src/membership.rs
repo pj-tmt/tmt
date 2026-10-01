@@ -7,6 +7,10 @@ use crate::{
     squad::{self, Squad, name_invalid, valid_name},
 };
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
+
+/// Mirrors core's public metadata entry limit; Squad reaches core only through commands.
+const METADATA_ENTRY_LIMIT: usize = 64;
 
 /// A command result plus whether every requested change was applied.
 pub struct Outcome {
@@ -60,13 +64,18 @@ fn saved(core: &Core, name: &str) -> Result<Resolved, SquadError> {
     Ok(found)
 }
 
-fn fields(core: &Core, squad: &Squad, id: &str) -> Result<Vec<String>, SquadError> {
+fn fields(core: &Core, squad: &Squad, id: &str) -> Result<BTreeMap<String, String>, SquadError> {
     let listed = core.json(&["identity", "meta", "list", "--identity", id])?;
     Ok(listed["metadata"]
         .as_object()
         .into_iter()
         .flatten()
-        .filter_map(|(key, _)| key.strip_prefix(&squad.prefix()).map(str::to_owned))
+        .filter_map(|(key, value)| {
+            Some((
+                key.strip_prefix(&squad.prefix())?.to_owned(),
+                value.as_str()?.to_owned(),
+            ))
+        })
         .collect())
 }
 
@@ -107,24 +116,49 @@ pub fn init(
     .into())
 }
 
-pub fn lead(core: &Core, squad: &Squad, name: &str) -> Result<Outcome, SquadError> {
-    let leader = saved(core, name)?;
-    core.json(&["room", "join", &squad.room_id, "--identity", &leader.id])?;
-    let role = squad.key("role")?;
+fn record_lead(core: &Core, squad: &Squad, id: &str, lead: bool) -> Result<(), SquadError> {
     core.json(&[
         "identity",
         "meta",
         "set",
-        &role,
-        "lead",
+        &squad.lead_key(),
+        if lead { "true" } else { "false" },
         "--identity",
-        &leader.id,
+        id,
     ])?;
+    Ok(())
+}
+
+pub fn lead(core: &Core, squad: &Squad, name: &str) -> Result<Outcome, SquadError> {
+    let leader = saved(core, name)?;
+    let members = squad.roster(core)?;
+    let targets = std::iter::once(leader.id.as_str()).chain(
+        members
+            .iter()
+            .filter(|member| member.is_lead() && member.id != leader.id)
+            .map(|member| member.id.as_str()),
+    );
+    // Check all required markers before any write. A concurrent metadata write
+    // can still invalidate this preflight; core commands are not a transaction.
+    for id in targets {
+        let listed = core.json(&["identity", "meta", "list", "--identity", id])?;
+        if let Some(metadata) = listed["metadata"].as_object()
+            && !metadata.contains_key(&squad.lead_key())
+            && metadata.len() >= METADATA_ENTRY_LIMIT
+        {
+            return Err(SquadError::new(
+                "IDENTITY_METADATA_INVALID",
+                format!("An identity may have at most {METADATA_ENTRY_LIMIT} metadata entries."),
+            ));
+        }
+    }
+    record_lead(core, squad, &leader.id, true)?;
+    core.json(&["room", "join", &squad.room_id, "--identity", &leader.id])?;
     // Set the new lead before clearing others, so a failure never leaves none.
     let mut replaced = Vec::new();
-    for member in squad.members(core, false)? {
+    for member in members {
         if member.is_lead() && member.id != leader.id {
-            core.json(&["identity", "meta", "rm", &role, "--identity", &member.id])?;
+            record_lead(core, squad, &member.id, false)?;
             replaced.push(member.name);
         }
     }
@@ -138,23 +172,30 @@ pub fn add(
     names: &[String],
 ) -> Result<Outcome, SquadError> {
     let state = squad.key("state")?;
+    let members = squad.roster(core)?;
     let mut complete = true;
     let results: Vec<Value> = names
         .iter()
         .map(|name| {
             let added = (|| {
                 let (member, _) = identity(core, name)?;
+                let current = fields(core, squad, &member.id)?;
+                let already_joined = members.iter().any(|existing| existing.id == member.id);
+                let marker = current
+                    .get(squad::LEAD_MARKER)
+                    .map(|marker| marker == "true");
+                let derives_lead = squad::lead_from_fields(&current, marker);
+                // Mask a new member's pre-existing lead data before joining;
+                // at the metadata cap, failure leaves membership untouched.
+                if !already_joined && derives_lead {
+                    record_lead(core, squad, &member.id, false)?;
+                }
                 core.json(&["room", "join", &squad.room_id, "--identity", &member.id])?;
-                let initial = match layout.states().first() {
-                    Some(first)
-                        if !fields(core, squad, &member.id)?
-                            .iter()
-                            .any(|f| f == "state") =>
-                    {
-                        Some(*first)
-                    }
-                    _ => None,
-                };
+                let initial = layout
+                    .states()
+                    .first()
+                    .copied()
+                    .filter(|_| !current.contains_key("state"));
                 if let Some(initial) = initial {
                     core.json(&[
                         "identity",
@@ -186,7 +227,7 @@ pub fn remove(core: &Core, squad: &Squad, name: &str) -> Result<Outcome, SquadEr
     let (member, _) = identity(core, name)?;
     // Membership is the authority; leave first, then clear this squad's fields.
     core.json(&["room", "leave", &squad.room_id, "--identity", &member.id])?;
-    let cleared = fields(core, squad, &member.id)?;
+    let cleared: Vec<_> = fields(core, squad, &member.id)?.into_keys().collect();
     for field in &cleared {
         core.json(&[
             "identity",
@@ -238,11 +279,8 @@ pub fn set(
         .map(|pair| parse_change(squad, pair))
         .collect::<Result<Vec<_>, _>>()?;
     let (member, _) = identity(core, name)?;
-    if !squad
-        .members(core, false)?
-        .iter()
-        .any(|candidate| candidate.id == member.id)
-    {
+    let members = squad.members(core, false)?;
+    let Some(existing) = members.iter().find(|candidate| candidate.id == member.id) else {
         return Err(SquadError::new(
             "SQUAD_NOT_MEMBER",
             format!(
@@ -250,6 +288,16 @@ pub fn set(
                 member.name, squad.name
             ),
         ));
+    };
+    let role = squad.key("role")?;
+    let changes_lead = changes.iter().any(|change| match change {
+        Change::Set(key, value) => key == &role && (value == "lead") != existing.is_lead(),
+        Change::Clear(key) => key == &role && existing.is_lead(),
+    });
+    // Persist only when a role write would change legacy-derived leadership,
+    // before applying any user pair, so a full identity changes nothing.
+    if existing.lead_marker.is_none() && changes_lead {
+        record_lead(core, squad, &member.id, existing.is_lead())?;
     }
     let mut applied = Vec::new();
     for (index, change) in changes.iter().enumerate() {
@@ -284,3 +332,6 @@ pub fn set(
     }
     Ok(json!({"squad": squad.name, "member": member.name, "applied": applied}).into())
 }
+
+#[cfg(test)]
+mod tests;
