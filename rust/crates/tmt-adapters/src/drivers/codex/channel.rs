@@ -40,18 +40,9 @@ impl RuntimeChannel for CodexChannel {
                 max_output_bytes: 4096,
             })
             .map_err(|_| ChannelError::ProviderUnavailable)?;
-        let version = std::str::from_utf8(&output.stdout)
-            .map_err(|_| ChannelError::ProviderUnavailable)?
-            .trim();
-        if !matches!(version, "codex-cli 0.159.2" | "codex-cli 0.159.3") {
-            return Ok(Some(format!(
-                "Codex build {version:?} has not been qualified; the owned endpoint handshake must pass before launch."
-            )));
-        }
-        // The actual owned initialize handshake qualifies again; this binary
-        // preflight never qualifies an arbitrary endpoint from its self-report.
-        Ok(None)
+        version_advisory(&output.stdout)
     }
+
     fn serve(
         &self,
         request: &crate::runtime::channel::ServeRequest<'_>,
@@ -88,3 +79,27 @@ impl RuntimeChannel for CodexChannel {
             })
     }
 }
+
+fn version_advisory(output: &[u8]) -> Result<Option<String>, ChannelError> {
+    let found = String::from_utf8_lossy(output).trim().to_owned();
+    let parts = found.strip_prefix("codex-cli ").and_then(|version| {
+        version
+            .split('.')
+            .map(|part| {
+                (!part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+                    .then(|| part.parse::<u64>().ok())
+                    .flatten()
+            })
+            .collect::<Option<Vec<_>>>()
+    });
+    match parts.as_deref() {
+        Some([0, 159, 2 | 3]) => Ok(None),
+        Some([0, 159, patch]) if *patch > 3 => Ok(Some(format!(
+            "Codex build {found:?} has not been qualified; the owned endpoint handshake must pass before launch."
+        ))),
+        _ => Err(ChannelError::ProviderVersion { found }),
+    }
+}
+
+#[cfg(test)]
+mod tests;
