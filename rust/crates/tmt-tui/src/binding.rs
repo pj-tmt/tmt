@@ -175,6 +175,7 @@ fn check<A: Sources>(
     scopes: &Schemas<'_>,
     sources: &A,
 ) -> Result<Template<A::Source>, Error> {
+    // parse guarantees repeat keys; binding paths below index only present attributes.
     let attrs = &element.attributes;
     let error = |message| fail(file, element, message);
     let path = |key: &str| -> Result<Path, Error> {
