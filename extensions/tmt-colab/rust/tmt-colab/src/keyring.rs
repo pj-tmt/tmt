@@ -5,7 +5,6 @@ use nix::{
     fcntl::{Flock, FlockArg, OFlag},
     unistd::Uid,
 };
-use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -167,33 +166,7 @@ impl Keyring {
             }
         })?;
         cleanup_owner_temporaries(layout)?;
-        let destination = layout.directory.join("owner.key");
-        if !destination.try_exists()? {
-            let mut seed = [0; 32];
-            getrandom::fill(&mut seed)?;
-            let mut name = [0; 16];
-            getrandom::fill(&mut name)?;
-            let temporary = layout.directory.join(format!(".owner-{}", hex(&name)));
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temporary)?;
-            let result = (|| -> Result<()> {
-                file.write_all(&seed)?;
-                file.sync_all()?;
-                match fs::hard_link(&temporary, &destination) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                    Err(e) => return Err(e.into()),
-                }
-                Ok(())
-            })();
-            seed.fill(0);
-            fs::remove_file(&temporary)?;
-            File::open(&layout.directory)?.sync_all()?;
-            result?;
-        }
+        publish_secret::<32>(layout, "owner.key", ".owner-")?;
         Self::read(layout)
     }
     pub fn read(layout: &Layout) -> Result<Self> {
@@ -212,21 +185,130 @@ impl Keyring {
         let owner = SigningKey::from_bytes(&seed_array);
         seed_array.fill(0);
         seed.fill(0);
-        let space_id = space_id(&owner.verifying_key().to_bytes());
+        let space_id = tmt_colab_model::crypto::space_id(&owner.verifying_key().to_bytes())?;
         Ok(Self { owner, space_id })
+    }
+    /// Root signatures are confined to the verified membership-log mutation owner.
+    pub(crate) fn genesis(&self, payload: &[u8]) -> Result<tmt_colab_model::statement::Envelope> {
+        Ok(tmt_colab_model::statement::sign(
+            &self.space_id,
+            None,
+            "member.add",
+            payload,
+            &self.owner,
+        )?)
     }
     pub fn owner_public(&self) -> [u8; 32] {
         self.owner.verifying_key().to_bytes()
     }
 }
+/// Distinct owner-member keys. Root ownership is never assigned as a member role.
+pub(crate) struct MemberKeys {
+    pub id: String,
+    pub signing: SigningKey,
+    pub encryption_public: [u8; 32],
+    encryption_seed: [u8; 32],
+}
+impl MemberKeys {
+    pub(crate) fn open(layout: &Layout) -> Result<Self> {
+        let _publication = Flock::lock(
+            layout.file("keyring.lock")?,
+            FlockArg::LockExclusiveNonblock,
+        )
+        .map_err(|(_, e)| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+        cleanup_temporaries(layout, ".member-", 80)?;
+        publish_secret::<80>(layout, "member.key", ".member-")?;
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
+            .open(layout.directory.join("member.key"))?;
+        validate_file(&file)?;
+        let mut bytes = Vec::new();
+        file.take(81).read_to_end(&mut bytes)?;
+        if bytes.len() != 80 {
+            bytes.fill(0);
+            return Err(StateFault::InvalidOwnerKey.into());
+        }
+        let mut signing_seed = [0; 32];
+        signing_seed.copy_from_slice(&bytes[..32]);
+        let mut encryption_seed = [0; 32];
+        encryption_seed.copy_from_slice(&bytes[32..64]);
+        let mut id = [0; 16];
+        id.copy_from_slice(&bytes[64..]);
+        id[6] = (id[6] & 0x0f) | 0x40;
+        id[8] = (id[8] & 0x3f) | 0x80;
+        let id = format!(
+            "{}-{}-{}-{}-{}",
+            hex(&id[..4]),
+            hex(&id[4..6]),
+            hex(&id[6..8]),
+            hex(&id[8..10]),
+            hex(&id[10..])
+        );
+        let signing = SigningKey::from_bytes(&signing_seed);
+        signing_seed.fill(0);
+        bytes.fill(0);
+        let encryption_public = tmt_colab_model::keys::x25519_public(&encryption_seed);
+        Ok(Self {
+            id,
+            signing,
+            encryption_public,
+            encryption_seed,
+        })
+    }
+}
+impl Drop for MemberKeys {
+    fn drop(&mut self) {
+        self.encryption_seed.fill(0);
+    }
+}
+
+/// Caller holds the publication lock. Frozen key bytes are never replaced.
+fn publish_secret<const N: usize>(layout: &Layout, name: &str, prefix: &str) -> Result<()> {
+    let destination = layout.directory.join(name);
+    if destination.try_exists()? {
+        return Ok(());
+    }
+    let mut temporary_id = [0; 16];
+    getrandom::fill(&mut temporary_id)?;
+    let temporary = layout
+        .directory
+        .join(format!("{prefix}{}", hex(&temporary_id)));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temporary)?;
+    let mut secret = [0; N];
+    let result = (|| -> Result<()> {
+        getrandom::fill(&mut secret)?;
+        file.write_all(&secret)?;
+        file.sync_all()?;
+        match fs::hard_link(&temporary, &destination) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e.into()),
+        }
+        Ok(())
+    })();
+    secret.fill(0);
+    // Creation succeeded before entering the fallible publication block.
+    fs::remove_file(&temporary)?;
+    File::open(&layout.directory)?.sync_all()?;
+    result
+}
+
 fn cleanup_owner_temporaries(layout: &Layout) -> Result<()> {
+    cleanup_temporaries(layout, ".owner-", 32)
+}
+fn cleanup_temporaries(layout: &Layout, prefix: &str, bound: u64) -> Result<()> {
     let mut removed = false;
     for entry in fs::read_dir(&layout.directory)? {
         let entry = entry?;
         let name = entry.file_name();
         if !name
             .to_str()
-            .and_then(|s| s.strip_prefix(".owner-"))
+            .and_then(|s| s.strip_prefix(prefix))
             .is_some_and(|s| {
                 s.len() == 32
                     && s.bytes()
@@ -240,7 +322,7 @@ fn cleanup_owner_temporaries(layout: &Layout) -> Result<()> {
             .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
             .open(entry.path())?;
         validate_file(&file)?;
-        if file.metadata()?.len() > 32 {
+        if file.metadata()?.len() > bound {
             return Err(StateFault::InvalidOwnerKey.into());
         }
         fs::remove_file(entry.path())?;
@@ -253,26 +335,4 @@ fn cleanup_owner_temporaries(layout: &Layout) -> Result<()> {
 }
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-// L2a needs only trust-root naming. L2b replaces this with the merged L1 model API.
-fn space_id(public: &[u8; 32]) -> String {
-    let mut hash = Sha256::new();
-    for bytes in [b"tmt-colab-space-id-v1".as_slice(), public.as_slice()] {
-        hash.update((bytes.len() as u32).to_be_bytes());
-        hash.update(bytes);
-    }
-    let digest = hash.finalize();
-    let alphabet = b"abcdefghijklmnopqrstuvwxyz234567";
-    let mut result = String::new();
-    let mut bits = 0u32;
-    let mut count = 0;
-    for byte in &digest[..20] {
-        bits = (bits << 8) | u32::from(*byte);
-        count += 8;
-        while count >= 5 {
-            count -= 5;
-            result.push(alphabet[((bits >> count) & 31) as usize] as char);
-        }
-    }
-    result
 }

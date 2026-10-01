@@ -3079,8 +3079,10 @@ slice for #847. `keyring::Layout` owns the injected absolute data root's
 0600 files. It preserves existing root permissions and touches no core database,
 configuration or provider settings. `Keyring` publishes one software owner seed
 with create-only, synced file publication; existing invalid keys fail closed.
-The temporary space-ID builder follows the contract's domain-framed derivation and will
-move to the separately owned L1 model when that API lands.
+Space identity and signed membership inputs use the separately owned L1 model.
+The root seed signs membership only; a distinct persisted member seed pair and
+member ID form revision 1's editor management principal. Both key records use
+create-only publication under the private keyring lock.
 
 `store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
 conflict freezing and epoch fencing. Namespace checkpoints prune only their
@@ -3092,7 +3094,8 @@ owner-log caller.
 Per-page capacity returns an error instead of evicting history. Envelope
 signatures, identity grammar, roles and owner-transition authorization belong
 to the future model/admission caller; this library creates no network authority.
-Tests own isolated directories and SQLite oracles. Sync, authentication, decoder and model integration remain later slices.
+Tests own isolated directories and SQLite oracles. Sync and decoder integration
+remain later slices.
 The executable depends on the reviewed invoke/style leaves and pinned
 storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.
@@ -3111,9 +3114,29 @@ reach machine-readable CLI errors.
 
 `http::Door` has no keyring, store or core reference. It owns finite loopback
 sockets and joined workers, exact Host/Origin admission, strict HTTP/1.1 framing,
-body/header/connection bounds and absolute read/write deadlines. It serves only
-the static placeholder and denies every API/WebSocket upgrade, including forged
-cookies. Shutdown closes retained sockets before joining all workers. Accepted
+body/header/connection bounds and absolute read/write deadlines. It delegates
+admitted requests to the native session authority; management and WebSocket
+upgrades remain denied, including forged cookies. Shutdown closes retained
+sockets before joining all workers. Accepted
 WebSocket framing, subscriber queues and slow-subscriber close remain L2b, along
-with sign-in, owner management and the decoder. Tests use real sockets and
+with owner management and the decoder. Tests use real sockets and
 isolated CLI processes, with readiness channels and explicit kill/wait guards.
+
+### Native enrollment authority
+
+`service::SessionService` owns route dispatch and the serialized space authority;
+`http::Door` admits exact Host/Origin and bounded framing before dispatch. The
+native sign-in endpoint verifies the model's code HMAC and device possession.
+`auth` creates revision 1 with `statement::sign`, verifies its pinned root and
+owner-member binding, and persists the entire trusted Head with the exact signed
+envelope. Existing genesis bytes must agree before issuing a fresh code.
+`store::auth` upgrades the extension database to schema 2 and atomically consumes
+a code, records the model-verified member certificate chain and stores only the
+session token hash. Restart invalidates outstanding codes, retaining live sessions;
+expiry, space, certified device and revocation gate session lookup. Root keys
+never certify devices. Shutdown interrupts sockets, joins workers and closes
+SQLite; queued enrollment checks cancellation before mutation.
+
+The trusted placeholder strips the fragment without importing browser code.
+Browser key generation/enrollment belongs to the separate Colab client. Only
+native sign-in is admitted here; management and WebSocket sync remain denied.

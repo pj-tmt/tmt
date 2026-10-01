@@ -1393,8 +1393,8 @@ socket/process lifecycle acceptance twice. No real model/account/DB is used.
 ## Colab pilot development
 
 The private local-build Colab executable runs a foreground loopback placeholder
-and lists local-space metadata. APIs and WebSocket upgrades are denied until
-the authentication/sync slice. No installer exists.
+and lists local-space metadata. Native sign-in is available; management APIs and
+WebSocket upgrades remain denied. No installer exists.
 Build and verify it from the repository root:
 
 ```bash
@@ -1430,7 +1430,15 @@ After building a core supporting `storage.root` (#860) and the extension, put
 A busy port fails with a `--port` hint; `--port 0` selects a free port.
 Direct invocation requires an absolute
 `TMT_EXECUTABLE`. `tmt colab serve --json` prints one plain JSON descriptor with
-space ID and working URL; Ctrl-C/SIGTERM closes sockets, joins workers and
+space ID, working URL and a single-use `signInUrl`; its fragment contains the
+ten-minute in-memory code. The placeholder removes the fragment and imports no
+browser client. Browser enrollment requires the separately built Colab client.
+Native clients POST exact `{input,proof,signature}` JSON with canonical base64url
+values to `/s/<space>/signin`, presenting the exact Origin. Success returns the
+member certificate chain and a space-scoped HttpOnly, SameSite=Strict cookie.
+Only the token hash is persisted; replay, expiry or invalid possession issues
+no certificate/session. Sessions expire within 24 hours.
+Ctrl-C/SIGTERM closes sockets, joins workers and
 releases the service lock. `tmt colab spaces --json` lists the local space and
 running state without creating directories or keys; before first serve it
 returns `{"spaces":[]}`. Use an isolated normal TMT data root for manual tests.
@@ -1439,7 +1447,7 @@ The printed `127.0.0.1:<port>` is the only accepted Host and Origin; no localhos
 forwarded-host or DNS-rebinding alias is admitted. The door bounds are named in
 `src/limits.rs`: 16 active sockets, 8 KiB/32 header fields, 64 KiB HTTP bodies,
 2-second total acquisition and 1-second total response. HTTP body capacity is
-for later sign-in/management; page objects use the future sync path. Reserved
+for native sign-in and later management; page objects use the future sync path. Reserved
 sync limits are 64 KiB frames and 8 queued frames with `RESYNC_REQUIRED` close
 for slow subscribers; no WebSocket is accepted yet. Real socket and foreground
 process cleanup tests run lifecycle scenarios twice, with no core calls from

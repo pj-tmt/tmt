@@ -8,7 +8,23 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
-use tmt_colab::http::Door;
+use tmt_colab::http::{Door, Handler, Reply, Request};
+struct Denied;
+impl Handler for Denied {
+    fn navigation(&self, path: &str) -> bool {
+        path == "/"
+    }
+    fn handle(&self, request: Request) -> Reply {
+        if request.method == "GET" && request.path == "/" && !request.upgrade {
+            let mut reply = Reply::text(200, b"<!doctype html><title>TMT Colab</title>");
+            reply.content_type = "text/html; charset=utf-8";
+            reply
+        } else {
+            Reply::text(403, b"DENIED")
+        }
+    }
+}
+
 struct Running {
     address: SocketAddr,
     stop: Arc<AtomicBool>,
@@ -25,7 +41,7 @@ impl Running {
             .unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
-        let worker = std::thread::spawn(move || door.run(&flag).unwrap());
+        let worker = std::thread::spawn(move || door.run(&flag, Arc::new(Denied)).unwrap());
         Self {
             address,
             stop,

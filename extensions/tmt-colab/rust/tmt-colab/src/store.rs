@@ -1,5 +1,7 @@
 //! Durable opaque envelopes. Callers own signature/session/role admission.
 //! Receipt/hash rows survive payload pruning, including interleaved namespaces.
+pub(crate) mod auth;
+
 use crate::{Result, keyring::Layout, limits};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -81,11 +83,14 @@ impl Store {
         )?;
         connection.busy_timeout(Duration::from_secs(2))?;
         let version: u32 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
-        if version > 1 {
+        if version > 2 {
             return Err(Fault::UnsupportedSchema(version).into());
         }
-        connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;
-            BEGIN IMMEDIATE;
+        connection.execute_batch(
+            "PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;",
+        )?;
+        if version == 0 {
+            connection.execute_batch("BEGIN IMMEDIATE;
             CREATE TABLE IF NOT EXISTS pages(page TEXT PRIMARY KEY, epoch TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS streams(page TEXT, epoch TEXT, stream TEXT, frozen INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(page,epoch,stream), FOREIGN KEY(page) REFERENCES pages(page));
@@ -96,6 +101,7 @@ impl Store {
                 hash BLOB NOT NULL, digest BLOB NOT NULL, head BLOB NOT NULL, payload BLOB, pinned INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(page,epoch,stream,namespace,seq), FOREIGN KEY(page,epoch,stream) REFERENCES streams(page,epoch,stream));
             PRAGMA user_version=1; COMMIT;")?;
+        }
         Ok(Self { connection })
     }
     pub fn create_page(&self, page: &str) -> StoreResult<()> {

@@ -22,7 +22,7 @@ fn grammar() -> Command {
             note: "Run the local foreground space",
         }],
         outputs: OutputModes::Human,
-        details: "Sign-in and sync are not available in this slice.",
+        details: "Native sign-in is available; browser client and sync remain separate slices.",
     };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
@@ -32,7 +32,7 @@ fn grammar() -> Command {
             note: "Choose a free loopback port",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Ctrl-C or SIGTERM closes the listener and all workers. APIs and upgrades are denied.",
+        details: "Ctrl-C or SIGTERM closes the listener and all workers. Sign-in requires exact Host and Origin; sync upgrades remain denied.",
     };
     const SPACES: CommandSpec = CommandSpec {
         name: "spaces",
@@ -73,15 +73,21 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         }
         let layout = Layout::open(&root)?;
         let _lock = layout.serve_lock()?;
-        let keyring = Keyring::open(&layout)?;
+
         let mut output = tmt_cli_style::stream::stdout(json_output);
         let store = Store::open(&layout)?;
         let door = Door::bind(*args.get_one::<u16>("port").unwrap())?;
+        let service = Arc::new(tmt_colab::service::SessionService::open(
+            &layout,
+            store,
+            Arc::clone(&stop),
+        )?);
+        let signin_url = service.signin_url(&door.address)?;
         if json_output {
             writeln!(
                 output,
                 "{}",
-                json!({"spaceId":keyring.space_id,"url":door.address,"profile":"colab-sync-v1","state":"unauthenticated"})
+                json!({"spaceId":service.space(),"signInUrl":signin_url,"url":door.address,"profile":"colab-sync-v1","state":"unauthenticated"})
             )?;
         } else {
             let terminal = output.terminal();
@@ -90,16 +96,25 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
                 terminal,
                 "LOCAL SPACE",
                 &[
-                    ("space", keyring.space_id),
+                    ("space", service.space().into()),
+                    ("sign-in", signin_url),
                     ("url", door.address.clone()),
-                    ("state", "placeholder; sign-in and sync unavailable".into()),
+                    (
+                        "state",
+                        "native sign-in available; browser client and sync pending".into(),
+                    ),
                 ],
             )?;
         }
         output.flush()?;
         drop(output);
-        let result = door.run(&stop);
-        let closed = store.close();
+        let result = door.run(
+            &stop,
+            Arc::clone(&service) as Arc<dyn tmt_colab::http::Handler>,
+        );
+        let closed = Arc::try_unwrap(service)
+            .map_err(|_| "HTTP service cleanup incomplete.")?
+            .close();
         result?;
         closed
     })();

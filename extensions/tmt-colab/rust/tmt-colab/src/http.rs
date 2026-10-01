@@ -1,4 +1,4 @@
-//! Bounded loopback HTTP workers. L2a denies every API and WebSocket upgrade.
+//! Bounded loopback HTTP workers. Application authority owns admitted routes.
 use crate::{Result, limits};
 use nix::poll::{PollFd, PollFlags, poll};
 use std::{
@@ -6,11 +6,44 @@ use std::{
     io::{Read, Write},
     net::{Ipv4Addr, Shutdown, TcpListener, TcpStream},
     os::fd::AsFd,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     thread::{self, JoinHandle},
     time::Instant,
 };
 
+pub struct Request {
+    pub method: String,
+    pub path: String,
+    pub cookie: Option<String>,
+    pub body: Vec<u8>,
+    pub upgrade: bool,
+}
+pub struct Reply {
+    pub status: u16,
+    pub body: Vec<u8>,
+    pub content_type: &'static str,
+    pub cookie: Option<String>,
+    pub script_hash: Option<String>,
+}
+impl Reply {
+    pub fn text(status: u16, body: &[u8]) -> Self {
+        Self {
+            status,
+            body: body.to_vec(),
+            content_type: "text/plain; charset=utf-8",
+            cookie: None,
+            script_hash: None,
+        }
+    }
+}
+/// Application owns routes/authority. The door admits framing, Host and Origin first.
+pub trait Handler: Send + Sync {
+    fn navigation(&self, path: &str) -> bool;
+    fn handle(&self, request: Request) -> Reply;
+}
 pub struct Door {
     listener: TcpListener,
     pub address: String,
@@ -43,7 +76,7 @@ impl Door {
             origin,
         })
     }
-    pub fn run(self, stop: &AtomicBool) -> Result<()> {
+    pub fn run(self, stop: &AtomicBool, handler: Arc<dyn Handler>) -> Result<()> {
         let mut workers: Vec<Worker> = Vec::new();
         let result = (|| -> Result<()> {
             while !stop.load(Ordering::Acquire) {
@@ -75,21 +108,24 @@ impl Door {
                     socket.set_nonblocking(false)?;
                     if workers.len() == limits::SOCKETS {
                         socket.set_nonblocking(true)?;
-                        let _ = response(&mut socket, 429, b"CAPACITY", false);
+                        let _ = response(&mut socket, &Reply::text(429, b"CAPACITY"));
                         continue;
                     }
                     let retained = socket.try_clone()?;
                     let host = self.host.clone();
                     let origin = self.origin.clone();
-                    let handle = thread::Builder::new().name("colab-http".into()).spawn(move || {
-                        let result = acquire(&mut socket,&host,&origin);
-                        let (status,body,html) = match result {
-                            Ok(true) => (200,b"<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>TMT Colab</title><h1>TMT Colab</h1><p>Local space is running. Sign-in and sync are not available in this pilot slice.</p></html>".as_slice(),true),
-                            Ok(false) => (403,b"DENIED".as_slice(),false),
-                            Err(status) => (status,b"INVALID".as_slice(),false),
-                        };
-                        let _ = response(&mut socket,status,body,html);
-                    })?;
+                    let handler = Arc::clone(&handler);
+                    let handle =
+                        thread::Builder::new()
+                            .name("colab-http".into())
+                            .spawn(move || {
+                                let reply =
+                                    match acquire(&mut socket, &host, &origin, handler.as_ref()) {
+                                        Ok(request) => handler.handle(request),
+                                        Err(status) => Reply::text(status, b"INVALID"),
+                                    };
+                                let _ = response(&mut socket, &reply);
+                            })?;
                     workers.push(Worker {
                         socket: retained,
                         handle,
@@ -113,15 +149,23 @@ impl Door {
         result
     }
 }
-fn response(socket: &mut TcpStream, status: u16, body: &[u8], html: bool) -> std::io::Result<()> {
+fn response(socket: &mut TcpStream, reply: &Reply) -> std::io::Result<()> {
     let deadline = Instant::now() + limits::RESPONSE;
-    let kind = if html {
-        "text/html; charset=utf-8"
-    } else {
-        "text/plain; charset=utf-8"
-    };
+    let status = reply.status;
+    let body = reply.body.as_slice();
+    let kind = reply.content_type;
+    let cookie = reply
+        .cookie
+        .as_ref()
+        .map(|cookie| format!("Set-Cookie: {cookie}\r\n"))
+        .unwrap_or_default();
+    let script = reply
+        .script_hash
+        .as_ref()
+        .map(|hash| format!("; script-src 'sha256-{hash}'"))
+        .unwrap_or_default();
     let bytes = format!(
-        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'none'; base-uri 'none'; frame-ancestors 'none'\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
+        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n{cookie}Content-Security-Policy: default-src 'none'; base-uri 'none'; frame-ancestors 'none'{script}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
         body.len()
     );
     for mut bytes in [bytes.as_bytes(), body] {
@@ -153,7 +197,12 @@ fn response(socket: &mut TcpStream, status: u16, body: &[u8], html: bool) -> std
     Ok(())
 }
 /// One request only; no pipelining, forwarded authority or HTTP transfer encoding.
-fn acquire(socket: &mut TcpStream, host: &str, origin: &str) -> std::result::Result<bool, u16> {
+fn acquire(
+    socket: &mut TcpStream,
+    host: &str,
+    origin: &str,
+    handler: &dyn Handler,
+) -> std::result::Result<Request, u16> {
     let deadline = Instant::now() + limits::ACQUISITION;
     let mut bytes = Vec::new();
     let mut chunk = [0; 1024];
@@ -185,6 +234,7 @@ fn acquire(socket: &mut TcpStream, host: &str, origin: &str) -> std::result::Res
     let mut seen = BTreeSet::new();
     let mut actual_host = None;
     let mut actual_origin = None;
+    let mut cookie = None;
     let mut size = 0;
     let mut upgrade = false;
     for header in request.headers.iter() {
@@ -204,6 +254,7 @@ fn acquire(socket: &mut TcpStream, host: &str, origin: &str) -> std::result::Res
         match name.as_str() {
             "host" => actual_host = Some(value),
             "origin" => actual_origin = Some(value),
+            "cookie" => cookie = Some(value.to_owned()),
             "upgrade" => upgrade = true,
             "connection" => {
                 upgrade |= value
@@ -232,21 +283,29 @@ fn acquire(socket: &mut TcpStream, host: &str, origin: &str) -> std::result::Res
     if !path.starts_with('/') || path.contains(['?', '#', '%']) {
         return Err(400);
     }
-    let placeholder = request.method == Some("GET") && path == "/" && !upgrade;
+    let placeholder = request.method == Some("GET") && handler.navigation(path) && !upgrade;
     if (!placeholder || actual_origin.is_some()) && actual_origin != Some(origin) {
         return Err(403);
     }
     if placeholder && size != 0 {
         return Err(400);
     }
-    // Drop header borrows before acquiring the bounded body; no body is interpreted.
+    let method = request.method.ok_or(400u16)?.to_owned();
+    let path = path.to_owned();
+    // Header ownership is fixed before acquiring the bounded body.
     while bytes.len() < end + size {
         read(socket, &mut bytes, &mut chunk, deadline)?;
     }
     if bytes.len() != end + size {
         return Err(400);
     }
-    Ok(placeholder)
+    Ok(Request {
+        method,
+        path,
+        cookie,
+        body: bytes[end..].to_vec(),
+        upgrade,
+    })
 }
 fn read(
     socket: &mut TcpStream,

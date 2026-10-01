@@ -19,10 +19,14 @@ httparse.workspace = true
 nix.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 sha2.workspace = true
 signal-hook.workspace = true
 tmt-cli-style.workspace = true
 tmt-invoke.workspace = true
+# Local preparation only; replace with the published L1 workspace path before pushing.
+tmt-colab-model = { path = "/tmp/847-l1-03a6892c/extensions/tmt-colab/rust/tmt-colab-model" }
+base64.workspace = true
 
 [lints]
 workspace = true

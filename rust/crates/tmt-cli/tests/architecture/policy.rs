@@ -206,6 +206,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-tui" => &["roxmltree", "tmt-cli-style"],
         "tmt-colab" => &[
+            "base64",
+            "serde",
+            "tmt-colab-model",
             "ed25519-dalek",
             "getrandom",
             "nix",
@@ -569,6 +572,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 && root != "tmt_cli_style"
                 && !(["tmt-remote", "tmt-colab"].contains(&source.package.as_str())
                     && root == "tmt_invoke")
+                && !(source.package == "tmt-colab" && root == "tmt_colab_model")
                 && root != source.package.replace('-', "_")
             {
                 violations.push(format!(

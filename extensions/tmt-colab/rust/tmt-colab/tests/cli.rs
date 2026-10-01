@@ -305,3 +305,121 @@ fn occupied_port_fails_with_a_port_hint() {
     pilot.start();
     pilot.stop();
 }
+
+#[test]
+fn signin_requires_origin_proof_possession_and_one_live_code() {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use ed25519_dalek::{Signer, SigningKey};
+    use tmt_colab_model::{auth, crypto};
+    let mut pilot = Pilot::new(None);
+    let descriptor = pilot.start();
+    let space = descriptor["spaceId"].as_str().unwrap();
+    let signup = descriptor["signInUrl"].as_str().unwrap();
+    let (path, secret) = signup.split_once('#').unwrap();
+    let code_id = path.rsplit('/').next().unwrap();
+    let secret: [u8; 16] = URL_SAFE_NO_PAD.decode(secret).unwrap().try_into().unwrap();
+    let device = SigningKey::from_bytes(&[13; 32]);
+    let public = device.verifying_key().to_bytes();
+    let input = auth::SignIn {
+        code_id,
+        space,
+        device: "abd7fb81-aac1-48d3-8311-50e012825e8b",
+        signing_key: &public,
+        encryption_key: &[14; 32],
+        nonce: &[15; 16],
+    };
+    let proof = auth::signin_proof(&secret, &input).unwrap();
+    let signature = device
+        .sign(&auth::signin_possession_input(&input).unwrap())
+        .to_bytes();
+    let body = |proof: &[u8], signature: &[u8]| {
+        serde_json::to_string(&json!({"input":URL_SAFE_NO_PAD.encode(auth::signin_input(&input).unwrap()),"proof":URL_SAFE_NO_PAD.encode(proof),"signature":URL_SAFE_NO_PAD.encode(signature)})).unwrap()
+    };
+    let url = descriptor["url"].as_str().unwrap();
+    let origin = url.trim_end_matches('/');
+    let host = origin.strip_prefix("http://").unwrap();
+    let post = |body: &str, origin: &str| {
+        let mut socket = TcpStream::connect(host).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        write!(socket,"POST /s/{space}/signin HTTP/1.1\r\nHost: {host}\r\nOrigin: {origin}\r\nContent-Length: {}\r\n\r\n{body}",body.len()).unwrap();
+        let mut reply = String::new();
+        socket.read_to_string(&mut reply).unwrap();
+        reply
+    };
+    let db = rusqlite::Connection::open(pilot.root.join("selected/colab/space.db")).unwrap();
+    let sessions = || {
+        db.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get::<_, i64>(0))
+            .unwrap()
+    };
+    let good = body(&proof, &signature);
+    assert!(post(&good, "http://attacker.invalid").starts_with("HTTP/1.1 403"));
+    assert_eq!(sessions(), 0);
+    assert!(post(&body(&[0; 32], &signature), origin).starts_with("HTTP/1.1 403"));
+    assert_eq!(sessions(), 0);
+    assert!(post(&body(&proof, &[0; 64]), origin).starts_with("HTTP/1.1 403"));
+    assert_eq!(sessions(), 0);
+    assert!(post(&"x".repeat(65537), origin).starts_with("HTTP/1.1 413"));
+    assert_eq!(sessions(), 0);
+    let mut unknown: Value = serde_json::from_str(&good).unwrap();
+    unknown["extra"] = json!(true);
+    assert!(post(&unknown.to_string(), origin).starts_with("HTTP/1.1 403"));
+    assert_eq!(sessions(), 0);
+    let input_binary = URL_SAFE_NO_PAD.encode(auth::signin_input(&input).unwrap());
+    let duplicate = format!(
+        "{{\"input\":\"{input_binary}\",\"input\":\"{input_binary}\",\"proof\":\"{}\",\"signature\":\"{}\"}}",
+        URL_SAFE_NO_PAD.encode(proof),
+        URL_SAFE_NO_PAD.encode(signature)
+    );
+    assert!(post(&duplicate, origin).starts_with("HTTP/1.1 403"));
+    assert_eq!(sessions(), 0);
+    let expires: i64 = db
+        .query_row(
+            "SELECT expires FROM signin_codes WHERE code=?",
+            [code_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.execute("UPDATE signin_codes SET expires=0 WHERE code=?", [code_id])
+        .unwrap();
+    assert!(post(&good, origin).starts_with("HTTP/1.1 403"));
+    assert_eq!(sessions(), 0);
+    db.execute(
+        "UPDATE signin_codes SET expires=? WHERE code=?",
+        rusqlite::params![expires, code_id],
+    )
+    .unwrap();
+    let padded = format!("{good}{}", " ".repeat(65536 - good.len()));
+    let issued = post(&padded, origin);
+    assert!(issued.starts_with("HTTP/1.1 200"));
+    assert_eq!(sessions(), 1);
+    let cookie = issued
+        .lines()
+        .find(|l| l.starts_with("Set-Cookie: "))
+        .unwrap()
+        .trim_end();
+    assert!(
+        cookie.contains(&format!("Path=/s/{space}/"))
+            && cookie.contains("HttpOnly; SameSite=Strict")
+    );
+    assert!(!cookie.contains("Secure"));
+    let token = cookie
+        .strip_prefix("Set-Cookie: tmt_colab_session=")
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    let token = URL_SAFE_NO_PAD.decode(token).unwrap();
+    assert_eq!(token.len(), 32);
+    let persisted: Vec<u8> = db
+        .query_row("SELECT token_hash FROM sessions", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(persisted, crypto::digest(&token));
+    let reply: Value = serde_json::from_str(issued.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert!(reply.get("token").is_none());
+    assert!(post(&good, origin).starts_with("HTTP/1.1 403"));
+    assert_eq!(sessions(), 1);
+    drop(db);
+    pilot.stop();
+}
