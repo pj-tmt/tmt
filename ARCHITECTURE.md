@@ -2034,7 +2034,7 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
-### Codex queue transport groundwork
+### Codex native channel
 
 `drivers/codex/queue` owns exact native request/receipt validation, while
 `drivers/codex/transport` owns synchronous WebSocket framing and the absolute
@@ -2042,48 +2042,39 @@ I/O deadline. The only new transport dependency is adapter-local tungstenite,
 exactly pinned with default features disabled and `handshake` enabled; no TLS
 or async runtime enters core or shared ports. The architecture dependency guard
 permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
-owns limits, version qualification and receipt semantics. These modules are
-unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
-integration must be proven before user-facing activation in the later #719 slices.
+owns limits, version qualification and receipt semantics. Provider-private enrollment and the shared launcher establish authority before
+this transport is used; no arbitrary endpoint becomes a delivery target.
 
 `drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),
 using the existing nonblocking file lock for compare/write/remove. It stores
 exact launch/process/thread coordinates but no capability material and owns no
 binding transaction. The launcher must validate new-launch authority before
 calling it; record-level takeover and withdrawal remain generation/incarnation
-scoped. The same contract owns this persistence definition and its still-pending
-launcher/crash-cleanup integration. This adds no user-facing registration.
+scoped. The same contract owns this persistence definition and its launcher/crash-cleanup rules. The registered consumer composes these records through the shared channel port.
 
-`drivers/codex/server` and `attachment` add unregistered endpoint/foreground
-planning (#738). A launch-owned process group and private capability share one
+`drivers/codex/server` and `attachment` own endpoint/foreground
+planning. A launch-owned process group and private capability share one
 cleanup owner; process cleanup precedes inode-checked file removal. Attachment
 planning resolves cwd once and names an exact thread. The channel contract owns
-the startup, credential and failure limits; real continuity and launcher crash
-recovery remain final consumer acceptance gates.
+the startup, credential and failure limits; live-provider continuity and model-free product routing have separate evidence.
+Codex owns folder-trust onboarding: its user answers the TUI prompt; the channel
+never approves it or writes trust configuration (see the channel contract).
 
-The unregistered #785 foundations extend that record with persisted pane
-attribution and Unknown/Known foreground state. The record owns exact takeover,
-pruning and withdrawal; a server alone never proves an Unknown foreground ended.
-Startup errors carry cleanup certainty to their eventual lease caller. Permission
-planning routes supported typed settings to the server/thread and refuses generic
-permission overrides before spawn. No shared routing or registration changes in
-this slice; the [contract](contracts/codex-channel-v1.md) owns these definitions.
-
-The #786 lease/supervisor composition remains unregistered. `lease` combines
-record, endpoint, typed thread creation and foreground planning; `supervisor`
-owns the original endpoint child and a launcher-only close-on-exec control
-socket. EOF cleans the endpoint but preserves enrollment. Explicit withdrawal
-requires no spawned child or the same child confirmed reaped. `channel_context`
-is the single record-derived child environment locator owner; later hooks use
-it without granting ambient environment authority. No CLI or routing entry
-point invokes these modules in this slice.
-
-The #787 `delivery`, `pane`, `channel` and `channel_hooks` modules implement
-provider-specific one-shot classification, attributed pane evidence and foreground
-hook preservation against the frozen shared port. They introduce no shared
-routing policy or state. Module tests exercise them directly; descriptor
-registration, runtime send and hook decoder call sites remain unchanged until
-the activation slice, so these consumers are not reachable from product delivery.
+`drivers/codex/lease`, `supervisor`, `delivery` and `channel_hooks` compose the
+native consumer (#739). The supervisor owns the original
+endpoint process handle; launcher EOF requests endpoint cleanup but preserves
+the provider enrollment. Explicit withdrawal is reserved for no-child or
+confirmed foreground reap. Provider records retain the pre-spawn pane address
+and Unknown/Known foreground state; app-server readiness is never foreground
+lifetime proof. The channel contract owns takeover, pruning and manual recovery
+limits. Codex registers through the shared `Runtime.channel` port; native enrollment
+selects the one terminal route before provider preference. Both the identity and
+raw-pane paste boundaries query provider evidence, including reply notifications.
+The shared launcher owns admission and confirmed-only withdrawal; the provider
+owns its endpoint, record, foreground planning and one-shot queue transport.
+The contract distinguishes accepted provider attachment evidence from the real
+CLI/router tests. Permission options configure the owned thread and server,
+not remote resume; unsupported forms fail in enroll before any spawn.
 
 ### Provider channels
 

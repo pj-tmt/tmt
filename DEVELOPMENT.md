@@ -1101,22 +1101,14 @@ Manual provider acceptance must use a disposable identity/window and isolated
 provider settings; installing hooks into the user's real global settings needs explicit
 consent. No test invokes setup against the user's actual provider directory.
 
-Codex channel foundation tests are provider-local (`drivers::codex` in the
-adapter library): record foreground/takeover/withdraw, startup cleanup certainty
-and permission/cwd planning. They use disposable state and owned stand-ins; they
-do not establish live-provider or shared product-routing acceptance. See the
-[contract](contracts/codex-channel-v1.md).
-
-Codex lease/supervisor unit tests use owned processes and loopback peers to
-separate endpoint cleanup from foreground retirement. Preserve the launcher
-SIGKILL, Unknown-publication and unconfirmed-startup cases when changing these
-owners. The existing nix dev-only `net` feature supports a bound non-listening
-refusal peer; production transport never retries to make a test pass.
-
-Codex consumer tests are grouped by send classification, pane evidence and
-channel hook transitions. Keep unknown ownership and ordinary non-channel resume
-controls alongside them. Direct module tests do not replace the final CLI/router
-and native receipt/notification scenarios at activation.
+Codex channel product scenarios live in `test/e2e/codex-channel.e2e.test.ts`.
+They use the existing private E2E fixture and a model-free Rust
+`codex-channel-fixture` example, built into the E2E image only. For a local
+focused run, build both `tmt-cli` and that example; no installed provider or
+credentials are used. The tests independently check native queue receipts,
+durable replies, the shared enrollment/pane gates, and per-pane terminal writes
+with a plain-session positive control. Provider live continuity evidence is
+separate; see [the contract](contracts/codex-channel-v1.md#verification-boundaries).
 
 ## Docker E2E
 

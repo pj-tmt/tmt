@@ -6,16 +6,16 @@
 
 pub mod attachment;
 pub mod caller;
-pub mod channel_hooks;
 pub mod channel;
-pub mod pane;
-pub mod delivery;
 pub mod channel_context;
+pub mod channel_hooks;
+pub mod delivery;
 pub mod lease;
-pub mod supervisor;
+pub mod pane;
 pub mod queue;
 pub mod record;
 pub mod server;
+pub mod supervisor;
 pub mod transport;
 
 pub use crate::runtime::hook_protocol::encode_context;
@@ -209,7 +209,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     runtime: Some(super::Runtime {
         driver: || Box::new(CodexRuntime),
         lifecycle: || Box::new(CodexLifecycle),
-        channel: None,
+        channel: Some(|| Box::new(channel::CodexChannel)),
         identify_caller: Some(identify_caller),
     }),
 };
@@ -275,6 +275,20 @@ impl tmt_core::driver::Driver for CodexRuntime {
 
     fn claims(&self, command: &str) -> Option<tmt_core::binding::session::HarnessId> {
         crate::runtime::claim_named(command, NAME)
+    }
+
+    fn send(
+        &mut self,
+        target: &Self::Target,
+        message: &str,
+    ) -> tmt_core::driver::ActionResult<
+        tmt_core::driver::DeliveryAcceptance,
+        tmt_core::driver::SendFailure<Self::Error>,
+    > {
+        let directory = crate::config::ConfigPaths::discover()
+            .ok()
+            .map(|paths| paths.channel_directory());
+        delivery::send(directory.as_deref(), target, message)
     }
 
     fn resume(
@@ -443,7 +457,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         &self,
         payload: &[u8],
     ) -> Option<Box<dyn crate::runtime::lifecycle::LifecycleObservation>> {
-        decode_hook(payload).map(|value| Box::new(value) as _)
+        channel_hooks::decode(payload)
     }
 
     fn host_evidence(
