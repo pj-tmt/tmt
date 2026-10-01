@@ -1,6 +1,7 @@
-//! A driver's display color, from its descriptor's hue.
+//! A driver's display token, from its descriptor's hue: magenta is review,
+//! cyan is link.
 
-use tmt_cli_style::{AnsiColor, Token};
+use tmt_cli_style::{Role, Token};
 use tmt_core::driver::descriptor::{DriverDescriptor, Hue};
 
 /// The token for a driver's address; unknown drivers render dimmed.
@@ -14,8 +15,8 @@ pub fn token_in(drivers: &[&DriverDescriptor], driver: &str) -> Token {
             .iter()
             .find(|candidate| candidate.name.eq_ignore_ascii_case(driver))
             .and_then(|driver| match driver.hue {
-                Hue::Magenta => Some(AnsiColor::Magenta),
-                Hue::Cyan => Some(AnsiColor::Cyan),
+                Hue::Magenta => Some(Role::Review),
+                Hue::Cyan => Some(Role::Link),
                 Hue::Neutral => None,
             }),
     )
