@@ -823,6 +823,11 @@ zero delta from unused/dead-stripped groundwork honestly and repeat the size
 measurement after the final consumer links it. See the
 [owning contract](contracts/codex-channel-v1.md) for remaining integration gates.
 
+Private Codex enrollment state (#737) is checked with
+`cargo test --locked -p tmt-adapters drivers::codex::record`. These tests own
+isolated temporary records and inject liveness evidence; they verify lock-scoped
+state changes and replacement preservation, not real crashed-server recovery.
+
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
 
