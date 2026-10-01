@@ -39,6 +39,10 @@ pub enum DeliveryAcceptance {
     Submitted,
     /// Accepted by a provider queue, not yet necessarily submitted to its runtime.
     Queued,
+    /// Handed to a one-way channel that has no provider receipt: the message may
+    /// or may not have been seen. It is terminal for routing (no fallback, no
+    /// resend), and callers must not report it as delivered.
+    Unacknowledged,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,6 +226,7 @@ mod tests {
         let terminal = [
             ActionResult::Completed(DeliveryAcceptance::Submitted),
             ActionResult::Completed(DeliveryAcceptance::Queued),
+            ActionResult::Completed(DeliveryAcceptance::Unacknowledged),
             ActionResult::Failed(SendFailure::NotSent("unsent")),
             ActionResult::Failed(SendFailure::Uncertain("unknown")),
             ActionResult::Failed(SendFailure::Denied("denied")),
