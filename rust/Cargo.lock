@@ -2590,7 +2590,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.4.3",
@@ -2611,7 +2611,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-command"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "clap",
  "flate2",
