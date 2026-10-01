@@ -24,6 +24,7 @@ export function bundleFiles(
 ): string[];
 export function checkDraft(input: { api: ReleaseApi; tag: string; retry?: boolean }): {
   todo: boolean;
+  awaiting: boolean;
   reason: string;
 };
 export function attachBundle(input: {

@@ -346,7 +346,7 @@ fn read_cache(path: &Path) -> Option<Value> {
     (value["version"] == VERSION && value["members"].is_object()).then_some(value)
 }
 
-/// Compact age label used by the text list and the board's later marks.
+/// Compact age label used by the text list and the board's marks.
 pub fn label(value: &Value) -> Option<String> {
     if value["state"] != "stale" {
         return None;

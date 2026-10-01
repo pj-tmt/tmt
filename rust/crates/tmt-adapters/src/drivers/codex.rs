@@ -5,6 +5,8 @@
 //! reasons leave state unchanged rather than guessing that a client ended a thread.
 
 pub mod caller;
+pub mod queue;
+pub mod transport;
 
 pub use crate::runtime::hook_protocol::encode_context;
 use serde::Deserialize;
@@ -197,6 +199,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     runtime: Some(super::Runtime {
         driver: || Box::new(CodexRuntime),
         lifecycle: || Box::new(CodexLifecycle),
+        channel: None,
         identify_caller: Some(identify_caller),
     }),
 };
