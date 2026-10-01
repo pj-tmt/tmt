@@ -156,6 +156,7 @@ fn entry(record: &Record, current: BindingSessionState) -> BindingEntry {
             },
             pane_id: "%1".into(),
             pane_pid: 1,
+            pane_incarnation: None,
             session: current,
         }),
     }
