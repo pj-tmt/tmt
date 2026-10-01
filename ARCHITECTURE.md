@@ -704,7 +704,9 @@ facade, which PR B of #355 removes.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. It follows the actual Rust module tree, checks reviewed
-layer edges and shared declaration ownership, and fails closed for unsupported
+layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
+ledger (crate, canonical name and target, with a reason per row); aliases are rejected,
+and the invoke leaf remains guarded for every dependency kind. The guard fails closed for unsupported
 module remapping or incomplete discovery. It also checks that the CLI crates
 reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
 each CLI checks every command's help against the style
@@ -1322,6 +1324,27 @@ schema 9, the rebuild runs with foreign keys off, so dropping
 them, all in one immediate transaction that rolls back to schema 40 on any
 failure; foreign keys are restored on every exit.
 
+Schema 42 adds `bindings.pane_incarnation`, beside `pane_pid`. It holds the
+start token of the `ProcessIncarnation` that core observes for the pane shell
+when a binding is created (`BindingEndpoint::pane_incarnation`). It never comes
+from a host's or driver's text.
+
+- **Existing rows:** bindings made before schema 42 keep NULL until they rebind;
+  there is no backfill.
+- **Verification:** `evaluate_binding` treats a known recorded value and a known
+  observed value that differ as a reused pid, which is `EndpointLost`. NULL, or a
+  failed observation, is unknown and proves neither loss nor sameness; the pid
+  and marker rules decide as before.
+- **Read paths don't observe:** on macOS one `ps` costs about 110 ms, so tmux and
+  Herdr reads (`ls`, status, send) leave the observed value unknown and never
+  compare; their pane IDs are already unique within a server incarnation.
+- **Cost:** recording costs one `ps` per new binding.
+- **External hosts:** pane IDs are declared by the driver, so external hosts will
+  observe on verification, scoped to the binding's pane.
+- **Format:** the column admits 1 to 256 printable ASCII bytes, not all blank,
+  matching what `ProcessIncarnation` accepts.
+- **Cursor:** the bindings cursor update trigger compares the column.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
@@ -1751,7 +1774,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 41, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 42, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -2347,6 +2370,21 @@ stays at 16 KiB.
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
 
+`native_upgrade_command` upgrades the CLI and refreshes its managed skills before
+asking the newly installed executable to upgrade installed official products.
+The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
+pending versions; the parent owns one terminal consent question and sends that
+exact plan on stdin to the new executable with `--yes`. It validates the bounded
+plan/result reports and exit status. Unsupported older targets fail with a rerun
+hint; old-process extension logic is never used as a fallback.
+`extension_install_command::upgrade_all` in the new executable discovers products
+in its managed CLI prefix and retains each channel/pin. A selected
+version uses the same native acquisition/activation path without creating an exact
+version pin; extension verification and skill settlement retain their existing owners.
+JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
+Product failures remain independent in the aggregate report; CLI failure stops the
+extension phase, while a pinned CLI permits it. No rollback or second installer exists.
+
 Explicit extension `install --repair` is a separate recovery composition in
 `native_install::repair`, for GitHub and local-archive receipts. `receipt`
 separates bounded metadata/recorded-path validation from payload verification;
@@ -2490,13 +2528,21 @@ Optional `[squad.<name>.reminders]` config is parsed by
 `Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
 from 1 minute through 24 hours. `staleness` owns observed raw task/state and
 exact lead-notebook content age, separate from providers and column bindings.
-`ls` acquires its nonblocking cache lock before the roster read, reads notes
-through public `notes.read` only when enabled, and shares the existing bounded
-room history with the request overlay. `Snapshot::apply` adds the same
-`staleness` object to every occurrence of a member UUID and
-`squad.notesStaleness`; text labels derive from those objects. The board's
-observer integration and marks are a later slice, not implemented by this
-status projection.
+`observe` is the one read sequence for a squad's status, used by `ls` and the
+board's squad tabs alike: it acquires the nonblocking cache lock before the
+roster read, reads the lead's notes through public `notes.read` only when the
+observation can publish (or the board shows the notes pane, which then reuses
+that one read), records, and hands the bounded room history to the request
+overlay. Providers never run there: `ls --refresh-fields` refreshes between
+observing and building the document, the board only hands members to its
+fetcher thread. `Snapshot::apply` adds the same `staleness` object to every
+occurrence of a member UUID and `squad.notesStaleness`; text labels derive from
+those objects. The board draws a stale row in the `dim` token with its label at
+the row's right edge, reserving that room only when no column would be hidden,
+and adds the notes' label to the notes pane title in `waiting`; the label text
+carries the meaning without color. The leads and all tabs read rosters without
+an observer and show no marks. Content age is unrelated to `App::loading`, the
+previous squad's frame while a switch loads.
 
 The private observation cache under `$XDG_CACHE_HOME/tmt-squad/staleness`
 is bounded to 512 KiB and 128 members per room, namespaced by the absolute
@@ -2760,7 +2806,7 @@ bundle or is complete and waits for its publication; the state lives on the draf
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
-`release-please-config.json`) on every push to `main` that changes more than prose: it
+`release-please-config.json`) on every push to `main`, documentation included: it
 opens one release pull request per component, enables auto-merge on them (they merge only
 through the required checks) and keeps them current, creates the draft release for a merged
 one, and starts the per-product run for each product that has a draft without a bundle. A
@@ -2781,7 +2827,7 @@ component with `release: false`, a draft without the bundle and one with a hold 
 marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
 prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
 the policy's flags, the tag on the release commit and GitHub's attestation for the release and
-every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. A read-only `native-release-smoke.yml` then installs the published release as a user does, on the four hosts in an isolated environment: the public installer and `tmt upgrade` for the CLI, the newest published CLI's extension install for an extension; its failures are reported on the same issue by a separate job. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
