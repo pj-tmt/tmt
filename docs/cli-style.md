@@ -59,7 +59,18 @@ as (`ok` is `working`, `warn` is `waiting`, `error` is `blocked`; a driver token
 carries its design token, which the CLI picks from the descriptor's hue). Full-screen views get the same
 styles for ratatui from `theme::screen::style`, behind the crate's `ratatui`
 feature, so core links no ratatui. A test keeps the built-in values equal to the
-design tokens.
+design tokens. A contrast test reads the same file and enforces 4.5:1 for
+body text and semantic foregrounds, and 3:1 for `muted`/`dim`, on the designed
+background, the selection background and representative terminal backgrounds.
+
+The Squad board uses `muted` for inactive tabs, summaries, column headers,
+pane titles and footer hints; `dim` remains for borders, empty values, times,
+staleness and scroll marks. Focus uses `accent` and bold, while attention tabs
+keep their attention token. The selected row uses the `selection` background
+and keeps its text/state/provider foregrounds. Without a background color
+(`terminal`, `mono`, 16 colors or `NO_COLOR`), selection uses reverse video.
+Tabs keep their width when selected; in `mono` and `NO_COLOR` the selected tab
+also uses reverse video.
 
 A `Terminal` carries the stream's theme and depth; `paint` and table cells use
 `Token::themed`, and a stream without a theme renders exactly the 16-color
