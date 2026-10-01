@@ -64,7 +64,7 @@ impl ChannelFault {
             Self::NotReady => "The session opted into a message channel that is not ready.",
             Self::Unreachable => "The session opted into a message channel that is not reachable.",
             Self::Stale => {
-                "The session's message-channel enrollment belongs to a launch that has ended."
+                "The session's message-channel enrollment belongs to a launch that has ended. Relaunch the agent with `tmt run` (add `--channel` to use the channel again)."
             }
             Self::Refused => "The channel endpoint refused the message.",
             Self::TooLarge => "The message exceeds the channel frame limit.",
