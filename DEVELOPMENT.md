@@ -197,6 +197,12 @@ extension packages; their separate configurations retain their own test discover
 Each test configuration sets `clearMocks: false` to preserve mock history, and
 ordered suites use `{ concurrent: false }`. Site and release-please also pin the
 same version as development tooling but have no Vitest suites.
+Vitest 5 changes generated `it.each` case labels: `$field` strings lose
+quotes, and percent placeholders use the new value renderer (including signed
+zero and object clipping). Migration parity records each changed label with its
+source template and case index alongside both actual titles and equal statuses;
+unchanged labels remain exact multiset matches. Preserve the raw reports rather
+than silently normalizing these differences.
 Office wire-schema conformance is a nested tooling test. From `typescript`, run
 `corepack pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
 [`extensions/tmt-office/contracts`](extensions/tmt-office/contracts/README.md) for its single source of truth,
