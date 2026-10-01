@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { expectJsonResult, withoutAddress } from './cli-assertions.js';
+import { expectJsonResult, unknownActivity, withoutAddress } from './cli-assertions.js';
 import { withE2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';
@@ -202,6 +202,7 @@ describe.sequential('binding publication, reconciliation and presentation', () =
           presence: 'unknown',
           pane: null,
           command: '',
+          session: { activity: unknownActivity },
         },
       ]);
       const removed = await fixture.runJsonCli<{ error: { code: string } }>([
@@ -310,6 +311,7 @@ describe.sequential('binding publication, reconciliation and presentation', () =
           presence: 'active',
           pane: fixture.pane,
           command: expect.any(String),
+          session: { activity: unknownActivity },
           target: fixture.paneTarget(fixture.pane),
           cwd: fixture.workspace,
         },
@@ -337,6 +339,7 @@ describe.sequential('binding publication, reconciliation and presentation', () =
           presence: 'offline',
           pane: null,
           command: '',
+          session: { activity: unknownActivity },
         },
       ]);
       const denied = await fixture.runJsonCli<{ error: { code: string } }>(['rm', 'Alice'], {

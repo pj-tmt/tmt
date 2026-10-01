@@ -137,6 +137,39 @@ test('normal controls and integer endpoints encode without numeric rounding', as
     }),
   );
 });
+// Independently computed with reference.py enrollment(candidate with only agentIds replaced).
+// These hashes cover framing unchanged by the broader core-reference syntax.
+for (const [id, sha256] of [
+  [
+    '00000000-0000-1000-8000-000000000008',
+    '3b04e045f03e8eb236b8f8518105449c3f04b586dbbbffc0b7563627e0849382',
+  ],
+  [
+    '00000000-0000-5000-8000-000000000008',
+    '79bb1944f9db766ae1880ed97b064f477a8430290c2df60d82b41e6d1618db40',
+  ],
+  [
+    '00000000-0000-0000-0000-000000000001',
+    '150a2d2f244ad3225c33905567329e9ed5500c227e31d337747243c48f36cbfe',
+  ],
+] as const) {
+  test(`canonical core reference preserves enrollment bytes: ${id}`, () => {
+    const actual = enrollmentSigningBytes({ ...candidate(), agentIds: [id] });
+    assert.equal(createHash('sha256').update(actual).digest('hex'), sha256);
+  });
+}
+for (const field of ['machineId', 'windowId', 'offerId'] as const) {
+  test(`generated enrollment ${field} still requires v4`, () => {
+    assert.throws(
+      () =>
+        enrollmentSigningBytes({
+          ...candidate(),
+          [field]: '00000000-0000-5000-8000-000000000008',
+        }),
+      /UUIDv4/,
+    );
+  });
+}
 const badEnrollment: [string, Partial<Enrollment>][] = [
   ['surrogate', { name: '\ud800' }],
   ['empty name', { name: '' }],
@@ -148,6 +181,10 @@ const badEnrollment: [string, Partial<Enrollment>][] = [
   ['agent order', { agentIds: [...candidate().agentIds].reverse() }],
   ['duplicate agent', { agentIds: [candidate().agentIds[0]!, candidate().agentIds[0]!] }],
   ['invalid core ID', { agentIds: ['req_example'] }],
+  ['nil core ID', { agentIds: ['00000000-0000-0000-0000-000000000000'] }],
+  ['uppercase core ID', { agentIds: ['00000000-0000-5000-8000-00000000000A'] }],
+  ['nonhyphenated core ID', { agentIds: ['00000000000050008000000000000008'] }],
+  ['core ID trailing newline', { agentIds: ['00000000-0000-5000-8000-000000000008\n'] }],
   ['scope order', { scopes: ['talk.hold', 'agents.read'] }],
   ['duplicate scope', { scopes: ['status.read', 'status.read'] }],
   ['unknown scope', { scopes: ['unknown' as Enrollment['scopes'][number]] }],

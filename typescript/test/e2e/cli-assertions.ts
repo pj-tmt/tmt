@@ -36,3 +36,11 @@ export function withoutAddress<T>(result: CliResult<T>): CliResult<T> {
     : strip(document);
   return { ...result, json: json as T };
 }
+
+/** No admitted provider event or authoritative process-end observation. */
+export const unknownActivity = {
+  state: 'unknown',
+  sinceMs: null,
+  lastActivityMs: null,
+  providers: {},
+};

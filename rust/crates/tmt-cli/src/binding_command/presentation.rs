@@ -96,6 +96,7 @@ pub(super) fn document(report: &Report) -> Value {
         }),
         Report::Listed { rows, .. } => json!({"identities": rows.iter().map(|row| {
             let mut value = presence_document(&row.presence);
+            value["session"] = json!({"activity":row.activity});
             if let Some(resume) = &row.resume {
                 value["resume"] = resume.clone();
             }

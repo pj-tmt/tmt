@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { expectJsonResult, withoutAddress } from './cli-assertions.js';
+import { expectJsonResult, unknownActivity, withoutAddress } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import {
   durableIdentity,
@@ -122,6 +122,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
             presence: 'active',
             pane: b.pane,
             command: 'node',
+            session: { activity: unknownActivity },
             target: remoteTarget,
             cwd: b.workspace,
           },
@@ -169,6 +170,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
             presence: 'active',
             pane: a.pane,
             command: 'node',
+            session: { activity: unknownActivity },
             target: a.paneTarget(a.pane),
             cwd: a.workspace,
           },
@@ -180,6 +182,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
             presence: 'active',
             pane: b.pane,
             command: 'node',
+            session: { activity: unknownActivity },
             target: remoteTarget,
             cwd: b.workspace,
           },
@@ -233,6 +236,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
                 presence: 'unknown',
                 pane: null,
                 command: '',
+                session: { activity: unknownActivity },
               },
             ],
           });
@@ -318,6 +322,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
             presence: 'offline',
             pane: null,
             command: '',
+            session: { activity: unknownActivity },
           },
           {
             id: remoteIdentity.id,
@@ -327,6 +332,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
             presence: 'active',
             pane: b.pane,
             command: 'node',
+            session: { activity: unknownActivity },
             target: b.paneTarget(b.pane),
             cwd: b.workspace,
           },
@@ -387,6 +393,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
             presence: 'offline',
             pane: null,
             command: '',
+            session: { activity: unknownActivity },
           },
           {
             id: survivorIdentity.id,
@@ -396,6 +403,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
             presence: 'active',
             pane: peer.pane,
             command: 'node',
+            session: { activity: unknownActivity },
             target: b.paneTarget(peer.pane),
             cwd: peer.workspace,
           },
