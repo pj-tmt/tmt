@@ -702,7 +702,9 @@ facade, which PR B of #355 removes.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. It follows the actual Rust module tree, checks reviewed
-layer edges and shared declaration ownership, and fails closed for unsupported
+layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
+ledger (crate, canonical name and target, with a reason per row); aliases are rejected,
+and the invoke leaf remains guarded for every dependency kind. The guard fails closed for unsupported
 module remapping or incomplete discovery. It also checks that the CLI crates
 reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
 each CLI checks every command's help against the style
@@ -2028,6 +2030,18 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
+### Codex queue transport groundwork
+
+`drivers/codex/queue` owns exact native request/receipt validation, while
+`drivers/codex/transport` owns synchronous WebSocket framing and the absolute
+I/O deadline. The only new transport dependency is adapter-local tungstenite,
+exactly pinned with default features disabled and `handshake` enabled; no TLS
+or async runtime enters core or shared ports. The architecture dependency guard
+permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
+owns limits, version qualification and receipt semantics. These modules are
+unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
+integration must be proven before user-facing activation in the later #719 slices.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent
@@ -2070,8 +2084,18 @@ ownership map.
   owner-only socket; the record grants nothing unless it matches the binding's
   launch owner and runtime observation. Without the discovered configuration the
   outcome is `Denied`, never `NotSent`.
-- No first-party driver registers a channel and nothing writes a record yet, so
-  every session still uses its existing transport.
+- The same module owns enrollment and the stdio MCP server (`channel/server.rs`).
+  `ClaudeChannel::enroll` writes the per-launch record and returns a lease that
+  withdraws only what it wrote. Every mutation of a record or socket (the enroll
+  write, the server's readiness publish, bind and socket removal, and the lease's
+  withdraw) runs under one lock file in the channel directory, taken through
+  `file_lock::exclusive`, and proceeds only while the record still carries the
+  caller's generation and launch owner, so a stale launcher or server can never
+  replace or remove a newer enrollment. The server's calling thread is its only
+  output writer, and it can only complete an enrollment that `enroll` created.
+- Claude registers its channel in `Runtime.channel`, but no CLI entry point calls
+  `enroll` or `serve` yet, so no record is ever written and every session still
+  uses its existing transport.
 
 ### Host driver protocol
 
@@ -2259,6 +2283,21 @@ stays at 16 KiB.
   receipts from earlier releases); new receipts always record `wkh237/tmt`;
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
+
+`native_upgrade_command` upgrades the CLI and refreshes its managed skills before
+asking the newly installed executable to upgrade installed official products.
+The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
+pending versions; the parent owns one terminal consent question and sends that
+exact plan on stdin to the new executable with `--yes`. It validates the bounded
+plan/result reports and exit status. Unsupported older targets fail with a rerun
+hint; old-process extension logic is never used as a fallback.
+`extension_install_command::upgrade_all` in the new executable discovers products
+in its managed CLI prefix and retains each channel/pin. A selected
+version uses the same native acquisition/activation path without creating an exact
+version pin; extension verification and skill settlement retain their existing owners.
+JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
+Product failures remain independent in the aggregate report; CLI failure stops the
+extension phase, while a pinned CLI permits it. No rollback or second installer exists.
 
 Explicit extension `install --repair` is a separate recovery composition in
 `native_install::repair`, for GitHub and local-archive receipts. `receipt`
@@ -2687,7 +2726,7 @@ bundle or is complete and waits for its publication; the state lives on the draf
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
-`release-please-config.json`) on every push to `main` that changes more than prose: it
+`release-please-config.json`) on every push to `main`, documentation included: it
 opens one release pull request per component, enables auto-merge on them (they merge only
 through the required checks) and keeps them current, creates the draft release for a merged
 one, and starts the per-product run for each product that has a draft without a bundle. A
@@ -2708,7 +2747,7 @@ component with `release: false`, a draft without the bundle and one with a hold 
 marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
 prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
 the policy's flags, the tag on the release commit and GitHub's attestation for the release and
-every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. A read-only `native-release-smoke.yml` then installs the published release as a user does, on the four hosts in an isolated environment: the public installer and `tmt upgrade` for the CLI, the newest published CLI's extension install for an extension; its failures are reported on the same issue by a separate job. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill

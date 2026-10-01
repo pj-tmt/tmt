@@ -16,9 +16,12 @@ The extensions below are installed the same way. Each one has its own version an
 <Cmd>{`
 $ tmt extension install squad     # asks before changing anything
 $ tmt extension list              # what's installed, versions, updates
-$ tmt extension upgrade squad
+$ tmt upgrade                     # CLI, skills and installed official extensions
+$ tmt extension upgrade squad     # just Squad
 $ tmt extension uninstall squad   # your data stays
 `}</Cmd>
+
+`tmt upgrade` also updates the official extensions you installed, each on its own channel and pin, and asks once for all of them; `--yes` skips the question. It never installs a missing extension, and one that fails doesn't undo the others. `tmt extension upgrade <name> --unpin` clears a pin.
 
 If an extension comes with skills for your agents, install asks whether to add them too. To write your own extension, see [Build an extension](/develop/extensions). Any `tmt-<name>` on your PATH works without `tmt extension`.
 

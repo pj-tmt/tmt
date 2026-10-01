@@ -484,11 +484,10 @@ mod tests {
     }
 
     #[test]
-    fn channel_registration_is_harness_owned_and_first_party_drivers_have_none_yet() {
+    fn channel_registration_is_harness_owned_and_only_claude_has_one_so_far() {
         let mut registry = RuntimeRegistry::first_party();
-        for harness in ["claude", "codex"] {
-            assert!(registry.channel(&id(harness)).is_none());
-        }
+        assert!(registry.channel(&id("claude")).is_some());
+        assert!(registry.channel(&id("codex")).is_none());
         assert!(
             registry
                 .register_channel(&id("missing"), Box::new(CommunityChannel))
@@ -509,7 +508,12 @@ mod tests {
             .register_channel(&id("community"), Box::new(CommunityChannel))
             .unwrap();
         assert!(registry.channel(&id("community")).is_some());
-        assert!(registry.channel(&id("claude")).is_none());
+        // A harness that already has a channel cannot be given a second one.
+        assert!(
+            registry
+                .register_channel(&id("claude"), Box::new(CommunityChannel))
+                .is_err()
+        );
         assert!(
             registry
                 .register_channel(&id("community"), Box::new(CommunityChannel))

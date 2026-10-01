@@ -15,7 +15,8 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe('native artifact stdout', () => {
+// Vitest 4 enforces elapsed time for synchronous subprocess fixtures; allow their setup and runs.
+describe('native artifact stdout', { timeout: 10_000 }, () => {
   it.each(['cli', 'office'])('reserves stdout and selects the %s notice manifest', (product) => {
     const root = mkdtempSync(path.join(os.tmpdir(), 'tmt-native-stdout-'));
     roots.push(root);

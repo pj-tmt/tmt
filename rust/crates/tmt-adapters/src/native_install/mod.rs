@@ -24,7 +24,10 @@ pub use repair::{RepairReport, RepairRequired, repair_product, repair_product_fr
 mod release;
 mod skills_tree;
 mod upgrade;
-pub use upgrade::{UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade, upgrade_product};
+pub use upgrade::{
+    UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade, upgrade_product,
+    upgrade_product_selected,
+};
 #[cfg(test)]
 mod test_support;
 
