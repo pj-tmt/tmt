@@ -40,9 +40,7 @@ cell).
   with the user's column sources and field providers applied), `failed` (fields
   whose provider failed; they show `?`), `annotation` (the user's open note
   about this row, or null) and `waitingOnYou` (open requests from this member to
-  the user), `staleness` (observed task/state age), and `colors` when any
-  cell has a color: `{field: theme token}` from the user's column thresholds
-  or a field provider's suggestion. Colors only decorate; read the values.
+  the user), and `staleness` (observed task/state age).
 - Every row has a separate `staleness` object, and `squad.notesStaleness`
   describes the lead's notebook: `state` (`disabled`, `unknown`, `fresh`,
   `stale`), `unchangedSinceMs`, `ageMs`, `activityAfterUpdate` and `reasons`.
@@ -53,6 +51,9 @@ cell).
   below for reset and evidence limits.
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
   layout lists it first.
+- A row has `colors` only when a cell has a color: `{field: theme token}`,
+  from the user's column thresholds or a field provider's suggestion. Colors
+  only decorate; read the values.
 - States come from the layout: crew uses `working idle blocked review testing
 hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
 
