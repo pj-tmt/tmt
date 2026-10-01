@@ -2435,7 +2435,7 @@ drawn there. `board::scroll` is the one scroll owner: every pane hands its
 lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
-under the pointer. Panes keep no scroll state of their own; the rows pane only
+under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
 asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
@@ -2602,13 +2602,13 @@ third-party notices (including Vite's bundled frontend inventory for Office), an
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
-The release workflow remains a product-selected preparation and verification
+The release workflow is a product-selected preparation, verification and publication
 workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
 in the release skill covers the pipeline publishing an alpha draft that passes every gate, and
 nothing else. `native-release.yml` is the per-product
 run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
-the build, assemble and verify pipeline, once per draft release that lacks a verified
-bundle; the state lives on the draft itself (`release-publication.json` marks a complete
+the build, assemble, verify and publish pipeline, once per draft release that lacks a verified
+bundle or is complete and waits for its publication; the state lives on the draft itself (`release-publication.json` marks a complete
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
@@ -2624,10 +2624,16 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
 assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
-attached the pipeline evaluates the publication gates (commit, immutability, monotonic,
-migration, upgrade) in write-token jobs that run `main`'s code and only read the release
-commit's data; a failed gate leaves `publication-held.json` on the draft, and nothing
-publishes a draft yet. CLI, Office and Squad runs share the four-target cargo-dist build and
+attached the pipeline evaluates the publication gates (channel, commit, immutability,
+monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release
+commit's data; a failed gate leaves `publication-held.json` on the draft. A draft that
+passes them is published by `typescript/scripts/release-publish.mjs` in a write-token job on
+`main`'s code (it reads the draft again and refuses a version that is not an alpha, a
+component with `release: false`, a draft without the bundle and one with a hold or failure
+marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
+prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
+the policy's flags, the tag on the release commit and GitHub's attestation for the release and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill

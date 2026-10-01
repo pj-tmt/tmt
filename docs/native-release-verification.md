@@ -84,7 +84,9 @@ one, is refused by the Environment. Do not add repository secrets of the same na
 are readable from every ref.
 
 Once a draft's bundle is attached, the run evaluates the publication gates in order:
-`commit` (the release's commit is on `main` and the pull request that produced it passed
+`channel` (the version is an alpha, `X.Y.Z-alpha.N`; a stable version or any other pre-release
+label such as `beta` or `rc` is held, and releasing that hold is refused: the owner publishes it
+by hand), `commit` (the release's commit is on `main` and the pull request that produced it passed
 `Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
 repository's newest published release is immutable, which shows that the setting was on; the
 workflow token cannot read the setting itself), `monotonic` (the release is newer than every
@@ -98,16 +100,36 @@ The jobs that evaluate the gates hold the write token, so they run `main`'s code
 the release commit's data through git and the API. To release a hold once its cause is dealt
 with, publish the draft by hand as below, or dispatch `native-release.yml` on `main` with the
 product, `prepare` off and `hold` set to the tag: the run evaluates the gates again without
-the one gate the marker names (never another) and removes the marker when they pass.
+the one gate the marker names (never another, and never `channel`), removes the marker when
+they pass and then publishes the draft as below.
 
 Publication is authorized by the owner. The owner chose a trunk-based alpha channel, and that
 choice is the standing authorization, recorded in the release skill, for the release pipeline
 to publish an alpha draft that passes every gate above; everything a gate holds, every stable
-release and every publication by hand needs the owner's explicit authorization. The pipeline
-does not publish yet (#562): a draft that passes every gate is reported, and today every
-publication is manual. For a manual publication, verify the selected product run's exact
-commit and all required PR checks, and enable GitHub release immutability before creating a
-draft release.
+release and every publication by hand needs the owner's explicit authorization.
+
+When every gate passes, the `publish` job publishes the draft. `release-publish.mjs publish`
+reads the draft again and refuses unless its version is an alpha, its component is released
+(`release: false` in `.github/components.json` parks a component: release-please opens nothing
+for it, the planner leaves its drafts alone and this command refuses them, so a draft that
+predates the flag cannot publish), and it carries the bundle and neither
+`publication-held.json` nor `verification-failed.json`; then one `gh release edit <tag>
+--draft=false --prerelease=<bool> --latest=<bool>` applies the product's policy below. Both
+flags are explicit because release-please makes every draft a prerelease. The `published` job
+then reads the release back: it is public and `immutable: true`, its flags are the policy's (a
+CLI release is the repository's latest release, an extension release never is), its tag is on
+the release commit, it carries `release-publication.json`, and GitHub's attestation verifies
+(`gh release verify`, and `gh release verify-asset` for every asset downloaded from the
+published release). GitHub finishes the attestation after publishing, so these checks are
+retried for about two minutes. A failed check opens an issue and fails the run; nothing is
+rolled back, because a published release is immutable and a repair needs a new reviewed
+version. Both jobs run `main`'s code and never the release commit's: `publish` holds the write
+token, `published` only read access and `issues: write`. A run that stopped before it published is completed by the
+next run of the product: it plans every complete draft without a hold again and evaluates its
+gates again. A bundle prepared without a draft (`prepare`) never publishes.
+
+For a manual publication, verify the selected product run's exact commit and all required PR
+checks, and enable GitHub release immutability before creating a draft release.
 
 Each bundle carries `release-publication.json` from
 `typescript/scripts/native-release-policy.mjs`; create the draft with its
@@ -119,7 +141,7 @@ in the version and title. Office and Squad releases keep `--prerelease` and
 pre-release published either way (earlier alphas were flagged prereleases) but
 never a stable CLI flagged prerelease, and accepts an extension release only when
 its flag matches whether its version is a pre-release
-(`Product::accepts_prerelease_flag`). After publishing, check
+(`Product::accepts_prerelease_flag`). After a manual publication, check
 `node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/wkh237/tmt/releases/latest --jq .tag_name)"`. A CLI
 release attaches its four tar.gz archives, final `dist-manifest.json`,
 `tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line
@@ -130,7 +152,7 @@ a Squad release does the same under `tmt-squad-v<version>`. Every release also c
 release (about 100 bytes, and `tmt upgrade` selects assets by exact name and ignores it).
 Verify uploaded SHA-256 digests before publishing each draft. Verify
 `immutable: true`, tag commit and GitHub release attestation (`gh release verify`
-and `gh release verify-asset`). Never combine product manifests, replace an
+and `gh release verify-asset`); the pipeline does this for its own publications. Never combine product manifests, replace an
 immutable release's assets or move its tag. A repair needs a new reviewed version.
 
 Also verify **upgrading from the last published release**, not only fresh installs.
