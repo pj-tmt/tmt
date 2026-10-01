@@ -195,8 +195,7 @@ on empty discovery. Office uses Oxfmt; tooling and repository docs use the
 Root tooling, native, stress and Docker suites use exact Vitest 5.0.1 alongside the
 extension packages; their separate configurations retain their own test discovery.
 Each test configuration sets `clearMocks: false` to preserve mock history, and
-ordered suites use `{ concurrent: false }`. Site and release-please also pin the
-same version as development tooling but have no Vitest suites.
+ordered suites use `{ concurrent: false }`.
 Vitest 5 changes generated `it.each` case labels: `$field` strings lose
 quotes, and percent placeholders use the new value renderer (including signed
 zero and object clipping). Migration parity records each changed label with its
