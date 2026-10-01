@@ -37,13 +37,32 @@ pub enum Delivery {
     /// never resent or pasted (see `contracts/claude-channel-v1.md`).
     Unacknowledged,
     /// The session opted into a channel that could not carry this request
-    /// (not ready, unreachable, or its enrollment ended). Nothing was sent and
-    /// nothing was pasted: paste is only for sessions that never opted in.
-    ChannelUnavailable(ChannelFault),
+    /// (not ready, unreachable, its enrollment ended, or evidence about it that
+    /// cannot be told). Nothing was sent and nothing was pasted: paste is only for
+    /// sessions that never opted in. The evidence keeps the record at fault and the
+    /// driver's recovery text for the output boundary to show.
+    ChannelUnavailable(EvidenceError),
     Offline,
     Uncertain,
     Unavailable,
     Transport(crate::host::DeliveryError),
+}
+
+/// One delivery attempt: its outcome and what the attempt noticed on the way.
+pub struct Attempt {
+    pub delivery: Delivery,
+    /// Channel records no driver could attribute to any pane, found while checking
+    /// the pane before a baseline paste. They blocked nothing; the caller names them.
+    pub unattributed: Vec<PathBuf>,
+}
+
+impl From<Delivery> for Attempt {
+    fn from(delivery: Delivery) -> Self {
+        Self {
+            delivery,
+            unattributed: Vec::new(),
+        }
+    }
 }
 
 impl Delivery {
@@ -85,7 +104,7 @@ pub fn wake_request(
         .unwrap_or(false);
     let state = if eligible {
         send(storage, recipient_id, notification, delay)
-            .map(|outcome| outcome.wake_state())
+            .map(|attempt| attempt.delivery.wake_state())
             .unwrap_or(WakeState::Unavailable)
     } else {
         WakeState::Unavailable
@@ -214,17 +233,17 @@ pub fn send(
     identity: &str,
     message: &str,
     delay: Duration,
-) -> Result<Delivery, StorageError> {
+) -> Result<Attempt, StorageError> {
     match status(storage, identity)? {
         Availability::Ready => {}
-        Availability::Offline => return Ok(Delivery::Offline),
-        Availability::Unavailable => return Ok(Delivery::Unavailable),
+        Availability::Offline => return Ok(Delivery::Offline.into()),
+        Availability::Unavailable => return Ok(Delivery::Unavailable.into()),
     }
     let Some(entry) = current(storage, identity)? else {
-        return Ok(Delivery::Offline);
+        return Ok(Delivery::Offline.into());
     };
     let Some(binding) = entry.binding.as_ref() else {
-        return Ok(Delivery::Offline);
+        return Ok(Delivery::Offline.into());
     };
     let host = Host::for_server(&binding.server);
     let binding_id = binding.id.clone();
@@ -241,8 +260,9 @@ pub fn send(
         preferences.preferred_harness,
     ) {
         Ok(harness) => harness,
-        Err(fault) => return Ok(Delivery::ChannelUnavailable(fault)),
+        Err(fault) => return Ok(Delivery::ChannelUnavailable(fault.into()).into()),
     };
+    let mut unattributed = Vec::new();
     let mut session = host.session().with_enter_delay(delay);
     // Both closures retain distinct driver outcome classes. The host performs
     // fresh endpoint and runtime verification, including after a NotSent result.
@@ -260,42 +280,43 @@ pub fn send(
             // in. A binding made after the pane's marker was lost has no record
             // under its own ID, so the drivers are asked whether an enrolled launch
             // still lives in this pane before anything is typed into it.
-            if let (Some(binding), Some(directory)) = (&entry.binding, directory.as_deref()) {
-                let pane = PaneAddress {
-                    server: &binding.server,
-                    pane_id: &binding.pane_id,
-                    pane_pid: binding.pane_pid,
-                };
-                if let Err(evidence) = pane_channel_evidence(&pane, Some(&binding.id), directory) {
-                    return ActionResult::Failed(SendFailure::Denied(
-                        Delivery::ChannelUnavailable(evidence.fault),
-                    ));
-                }
-            }
-            match session.send(&entry, message) {
-                ActionResult::Unsupported => ActionResult::Unsupported,
-                ActionResult::Completed(value) => ActionResult::Completed(value),
-                ActionResult::Failed(error) => ActionResult::Failed(match error {
-                    SendFailure::NotSent(ActionError::Offline) => {
-                        SendFailure::NotSent(Delivery::Offline)
-                    }
-                    SendFailure::NotSent(ActionError::Delivery(error)) => {
-                        SendFailure::NotSent(Delivery::Transport(error))
-                    }
-                    SendFailure::Uncertain(ActionError::Delivery(error)) => {
-                        SendFailure::Uncertain(Delivery::Transport(error))
-                    }
-                    SendFailure::NotSent(_) => SendFailure::NotSent(Delivery::Unavailable),
-                    SendFailure::Uncertain(_) => SendFailure::Uncertain(Delivery::Uncertain),
-                    SendFailure::Denied(_) => SendFailure::Denied(Delivery::Unavailable),
-                    SendFailure::AwaitingApproval(_) => {
-                        SendFailure::AwaitingApproval(Delivery::Unavailable)
-                    }
-                }),
-            }
+            let pane = PaneAddress {
+                server: &binding.server,
+                pane_id: &binding.pane_id,
+                pane_pid: binding.pane_pid,
+            };
+            guarded_paste(
+                &RuntimeRegistry::first_party(),
+                &pane,
+                &binding_id,
+                directory.as_deref(),
+                Instant::now() + PANE_EVIDENCE_BUDGET,
+                &mut unattributed,
+                || match session.send(&entry, message) {
+                    ActionResult::Unsupported => ActionResult::Unsupported,
+                    ActionResult::Completed(value) => ActionResult::Completed(value),
+                    ActionResult::Failed(error) => ActionResult::Failed(match error {
+                        SendFailure::NotSent(ActionError::Offline) => {
+                            SendFailure::NotSent(Delivery::Offline)
+                        }
+                        SendFailure::NotSent(ActionError::Delivery(error)) => {
+                            SendFailure::NotSent(Delivery::Transport(error))
+                        }
+                        SendFailure::Uncertain(ActionError::Delivery(error)) => {
+                            SendFailure::Uncertain(Delivery::Transport(error))
+                        }
+                        SendFailure::NotSent(_) => SendFailure::NotSent(Delivery::Unavailable),
+                        SendFailure::Uncertain(_) => SendFailure::Uncertain(Delivery::Uncertain),
+                        SendFailure::Denied(_) => SendFailure::Denied(Delivery::Unavailable),
+                        SendFailure::AwaitingApproval(_) => {
+                            SendFailure::AwaitingApproval(Delivery::Unavailable)
+                        }
+                    }),
+                },
+            )
         },
     );
-    Ok(match result {
+    let delivery = match result {
         ActionResult::Completed(DeliveryAcceptance::Unacknowledged) => Delivery::Unacknowledged,
         ActionResult::Completed(_) => Delivery::Sent,
         ActionResult::Unsupported => Delivery::Unavailable,
@@ -305,7 +326,45 @@ pub fn send(
             | SendFailure::Denied(value)
             | SendFailure::AwaitingApproval(value),
         ) => value,
+    };
+    Ok(Attempt {
+        delivery,
+        unattributed,
     })
+}
+
+type Outcome = ActionResult<DeliveryAcceptance, SendFailure<Delivery>>;
+
+/// The one gate in front of a baseline paste (`send`); the raw-pane `talk` path
+/// asks `pane_channel_evidence` directly. Runs `paste` only when no driver has
+/// enrollment evidence for the pane; otherwise nothing is typed and the evidence,
+/// with the record at fault and the driver's recovery text, becomes the outcome.
+/// Records no driver could attribute are added to `unattributed` for the caller to
+/// name. A channel directory that cannot be discovered is unknown, never "no
+/// enrollment".
+fn guarded_paste(
+    registry: &RuntimeRegistry,
+    pane: &PaneAddress<'_>,
+    binding_id: &str,
+    directory: Option<&Path>,
+    deadline: Instant,
+    unattributed: &mut Vec<PathBuf>,
+    paste: impl FnOnce() -> Outcome,
+) -> Outcome {
+    let Some(directory) = directory else {
+        return refused(ChannelFault::Unverifiable.into());
+    };
+    match pane_evidence(registry, pane, Some(binding_id), directory, deadline) {
+        Ok(skipped) => {
+            unattributed.extend(skipped);
+            paste()
+        }
+        Err(evidence) => refused(evidence),
+    }
+}
+
+fn refused(evidence: EvidenceError) -> Outcome {
+    ActionResult::Failed(SendFailure::Denied(Delivery::ChannelUnavailable(evidence)))
 }
 
 /// A runtime driver's failure as a delivery outcome. Its class is kept, so
@@ -316,7 +375,7 @@ fn runtime_failure(error: SendFailure<RuntimeError>) -> SendFailure<Delivery> {
     let unavailable = |error: RuntimeError| match error {
         RuntimeError::Channel(
             fault @ (ChannelFault::NotReady | ChannelFault::Unreachable | ChannelFault::Stale),
-        ) => Delivery::ChannelUnavailable(fault),
+        ) => Delivery::ChannelUnavailable(fault.into()),
         _ => Delivery::Unavailable,
     };
     match error {
@@ -414,7 +473,7 @@ pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
         &text,
         Duration::from_millis(500),
     ) {
-        Ok(value) => value.wake_state(),
+        Ok(attempt) => attempt.delivery.wake_state(),
         Err(_) => WakeState::Unavailable,
     };
     // Failure to settle is an unknown outcome, never a reason to paste again.
@@ -494,7 +553,12 @@ mod tests {
         }
     }
 
-    struct InPane(Result<crate::runtime::channel::PaneEvidence, EvidenceError>);
+    /// Answers every pane lookup the same way and records the binding it was asked
+    /// about.
+    struct InPane(
+        Result<crate::runtime::channel::PaneEvidence, EvidenceError>,
+        std::rc::Rc<std::cell::RefCell<Vec<Option<String>>>>,
+    );
 
     impl crate::runtime::channel::RuntimeChannel for InPane {
         fn preflight(
@@ -524,9 +588,10 @@ mod tests {
             &self,
             _: &Path,
             _: &PaneAddress<'_>,
-            _: Option<&str>,
+            binding_id: Option<&str>,
             _: Instant,
         ) -> Result<crate::runtime::channel::PaneEvidence, EvidenceError> {
+            self.1.borrow_mut().push(binding_id.map(str::to_owned));
             self.0.clone()
         }
     }
@@ -585,10 +650,129 @@ mod tests {
         ] {
             let mut registry = RuntimeRegistry::first_party();
             registry
-                .register_channel(&codex, Box::new(InPane(answer.clone())))
+                .register_channel(&codex, Box::new(InPane(answer.clone(), Default::default())))
                 .unwrap();
             assert_eq!(evidence(&registry), expected, "{answer:?}");
         }
+    }
+
+    /// The identity path (a name, or a rebound pane) pastes only through
+    /// `guarded_paste`: it must keep what the raw-pane path shows the user, the record
+    /// and recovery of unknown evidence and the records it skipped.
+    #[test]
+    fn a_named_identity_is_refused_with_the_drivers_diagnostic_and_a_paste_reports_skipped_records()
+    {
+        use crate::runtime::channel::PaneEvidence;
+        let codex = HarnessId::new("codex").unwrap();
+        let server = tmt_core::endpoint::ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: "server".into(),
+            socket_path: "/tmp/tmux-test".into(),
+            server_pid: 1,
+            server_start_time: "start".into(),
+        };
+        let pane = PaneAddress {
+            server: &server,
+            pane_id: "%1",
+            pane_pid: 4242,
+        };
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let registry = |answer| {
+            let mut registry = RuntimeRegistry::first_party();
+            registry
+                .register_channel(&codex, Box::new(InPane(answer, asked.clone())))
+                .unwrap();
+            registry
+        };
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let directory = Some(Path::new("/channels"));
+        let pasted = std::cell::Cell::new(false);
+        let paste = || {
+            pasted.set(true);
+            ActionResult::Completed(DeliveryAcceptance::Submitted)
+        };
+
+        // Unknown evidence: nothing is pasted, and the outcome keeps the record at
+        // fault and the driver's recovery text exactly as the driver gave them.
+        let unknown = EvidenceError::at(
+            ChannelFault::Unverifiable,
+            Path::new("/channels/launch.json"),
+        )
+        .with_detail(
+            "Remove it with: rm -- '/channels/launch.json' '/channels/launch.sock'.".into(),
+        );
+        let mut unattributed = Vec::new();
+        let result = send_preferred(
+            || ActionResult::Unsupported,
+            || {
+                guarded_paste(
+                    &registry(Err(unknown.clone())),
+                    &pane,
+                    "binding",
+                    directory,
+                    deadline,
+                    &mut unattributed,
+                    || panic!("unknown evidence must not paste"),
+                )
+            },
+        );
+        match result {
+            ActionResult::Failed(SendFailure::Denied(Delivery::ChannelUnavailable(evidence))) => {
+                assert_eq!(evidence, unknown);
+                assert!(evidence.message().contains("rm -- '/channels/launch.json'"));
+            }
+            _ => panic!("unknown evidence must end in a denied channel outcome"),
+        }
+        assert!(unattributed.is_empty());
+        // The lookup was made for this binding's own record as well as its pane.
+        assert_eq!(asked.borrow().as_slice(), [Some("binding".to_owned())]);
+
+        // Records no driver could attribute block nothing: the paste happens and
+        // they are handed back for the output boundary to name.
+        let skipped = vec![PathBuf::from("/channels/old.json")];
+        let result = guarded_paste(
+            &registry(Ok(PaneEvidence {
+                enrolled: false,
+                skipped: skipped.clone(),
+            })),
+            &pane,
+            "binding",
+            directory,
+            deadline,
+            &mut unattributed,
+            paste,
+        );
+        assert!(pasted.get() && matches!(result, ActionResult::Completed(_)));
+        assert_eq!(unattributed, skipped);
+
+        // An enrollment in the pane, and a channel directory that cannot be found,
+        // are terminal too; neither pastes.
+        pasted.set(false);
+        for (answer, directory) in [
+            (
+                Ok(PaneEvidence {
+                    enrolled: true,
+                    skipped: vec![],
+                }),
+                directory,
+            ),
+            (Ok(PaneEvidence::default()), None),
+        ] {
+            let result = guarded_paste(
+                &registry(answer),
+                &pane,
+                "binding",
+                directory,
+                deadline,
+                &mut unattributed,
+                paste,
+            );
+            assert!(matches!(
+                result,
+                ActionResult::Failed(SendFailure::Denied(Delivery::ChannelUnavailable(_)))
+            ));
+        }
+        assert!(!pasted.get());
     }
 
     #[test]
@@ -647,7 +831,7 @@ mod tests {
         assert_eq!(Delivery::Sent.wake_state(), WakeState::Sent);
         assert_eq!(Delivery::Unavailable.wake_state(), WakeState::Unavailable);
         assert_eq!(
-            Delivery::ChannelUnavailable(ChannelFault::NotReady).wake_state(),
+            Delivery::ChannelUnavailable(ChannelFault::NotReady.into()).wake_state(),
             WakeState::Unavailable
         );
     }
@@ -684,7 +868,7 @@ mod tests {
             runtime_failure(SendFailure::Denied(RuntimeError::Channel(
                 ChannelFault::NotReady
             ))),
-            SendFailure::Denied(Delivery::ChannelUnavailable(ChannelFault::NotReady))
+            SendFailure::Denied(Delivery::ChannelUnavailable(evidence)) if evidence.fault == ChannelFault::NotReady
         ));
         assert!(matches!(
             runtime_failure(SendFailure::Denied(RuntimeError::Channel(

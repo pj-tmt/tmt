@@ -687,8 +687,10 @@ fn recovery(directory: &Path, binding_id: &str) -> String {
 /// the pane through the address it persisted at enroll (never through a stored
 /// binding, which observation may have deleted) and observes only that record's
 /// own exact incarnations: the launch owner, the foreground, the provider. A
-/// record that recorded a foreground or the provider and whose processes are all
-/// gone has ended and is not evidence; one that recorded neither stays unknown
+/// record that recorded a foreground, or the provider (the Claude Code process
+/// itself, which is the foreground; the channel server is its child and never counts),
+/// and whose processes are all gone has ended and is not evidence; one that recorded
+/// neither stays unknown
 /// (terminal for this pane) even when its launcher is gone, because nothing proves
 /// where the agent it may have started went. A record
 /// that cannot be attributed (unreadable, older, naming no pane) never blocks an

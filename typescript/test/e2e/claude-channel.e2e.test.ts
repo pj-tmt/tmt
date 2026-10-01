@@ -38,7 +38,7 @@ function quote(value: string): string {
 /**
  * A short-lived `sh` writes the executable, so this process never holds a write
  * descriptor that a concurrent fork could carry into the exec of the file (the
- * ETXTBSY race; see DEVELOPMENT.md, "ETXTBSY").
+ * ETXTBSY race; see the "ETXTBSY" rule in the developer guide).
  */
 function writeExecutable(file: string, script: string): void {
   execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 755 "$1"', 'sh', file], { input: script });
@@ -118,8 +118,11 @@ function channelFiles(fixture: E2EFixture): string[] {
 }
 
 interface Enrollment {
+  bindingId: string;
   generation: string;
   launchOwner: { pid: number; start: string };
+  pane?: { paneId: string; panePid: number };
+  foreground?: { pid: number; start: string };
   claude: { pid: number; start: string } | null;
 }
 
@@ -194,6 +197,17 @@ function leakedServers(fixture: E2EFixture): string[] {
   return execFileSync('ps', ['-axo', 'command='], { encoding: 'utf8' })
     .split('\n')
     .filter((line) => line.includes('__channel-server') && line.includes(fixture.root));
+}
+
+/**
+ * The channel servers of one binding. The provider's MCP config names the server
+ * too, so only the server's own command word counts.
+ */
+function serversOf(bindingId: string): number[] {
+  return execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' })
+    .split('\n')
+    .filter((line) => /\s__channel-server\s/.test(line) && line.includes(bindingId))
+    .map((line) => Number(line.trim().split(/\s+/)[0]));
 }
 
 const WRITES = /^(send-keys|paste-buffer|load-buffer|set-buffer)\t/;
@@ -601,6 +615,229 @@ describe.sequential('Claude channel delivery', () => {
       expect(await quit(next)).toBe('0');
     });
   }, 120_000);
+
+  it('an orphaned foreground keeps its pane protected after its launcher is killed, and the pane is ordinary once the foreground is gone too', async () => {
+    await withE2EFixture(async (fixture) => {
+      const orphan = start(fixture, 'Orphan', { channel: true, env: { MOCK_AUTOREPLY: '0' } });
+      await ready(fixture, orphan, 'Orphan');
+      await waitForReady(fixture, 1);
+      const { file, record } = enrollment(fixture);
+      const claude = Number(named(orphan, 'started')[0].pid);
+      expect(record.foreground?.pid, 'the launcher published the exact child it spawned').toBe(
+        claude
+      );
+      const trace = installTmuxTrace(fixture);
+      // The pane lost its marker and observation deleted its binding, so nothing but
+      // the enrollment record and the live foreground can protect it.
+      fixture.tmux(['set-option', '-p', '-u', '-t', orphan.pane, '@tmux-team.agent']);
+      await fixture.runJsonCli(['ls'], { pane: orphan.pane });
+      // Only the launcher dies: the foreground it spawned keeps running, reparented
+      // (or stopped, once the shell takes the terminal back), with its server.
+      process.kill(record.launchOwner.pid, 'SIGKILL');
+      await fixture.waitFor(() => fs.existsSync(orphan.status), 10_000, 'the launcher is gone');
+      expect(fs.existsSync(file), 'a launcher that cannot withdraw leaves its record').toBe(true);
+      expect(() => process.kill(claude, 0), 'the foreground outlived its launcher').not.toThrow();
+
+      for (const attempt of [1, 2]) {
+        const result = await talk(fixture, orphan.pane, `to the orphan ${attempt}`, ['--detach']);
+        expect(result.code, `attempt ${attempt}: ${result.stdout}${result.stderr}`).toBe(1);
+        expect(failureCode(result)).toMatch(/^(DELIVERY_PREPARATION_FAILED|CHANNEL_)/);
+        expect(result.stdout).toContain('nothing was pasted');
+      }
+      expect(named(orphan, 'paste'), 'no paste while the foreground lives').toEqual([]);
+      expect(terminalWrites(trace, orphan.pane)).toEqual([]);
+
+      // Once the foreground is gone as well, every recorded process is gone: the
+      // launch has ended and the pane is ordinary again.
+      for (const pid of [claude, ...serversOf(record.bindingId)]) process.kill(pid, 'SIGKILL');
+      await fixture.waitFor(
+        () => serversOf(record.bindingId).length === 0,
+        10_000,
+        'the orphan server is gone'
+      );
+      const after = await talk(fixture, orphan.pane, '# after the orphan ended', [
+        '--detach',
+        '--no-preamble',
+      ]);
+      expect(after.code, after.stderr || after.stdout).toBe(0);
+      await fixture.waitForCapture(
+        (output) => output.includes('# after the orphan ended'),
+        orphan.pane
+      );
+    });
+  }, 90_000);
+
+  it('a launch that never published its foreground is unknown and blocks only its own pane, at both paste sites, until its named recovery is run', async () => {
+    await withE2EFixture(async (fixture) => {
+      const window = start(fixture, 'Window', { channel: true, env: { MOCK_AUTOREPLY: '0' } });
+      await ready(fixture, window, 'Window');
+      await waitForReady(fixture, 1);
+      const { file, record } = enrollment(fixture);
+      const claude = Number(named(window, 'started')[0].pid);
+      const socket = path.join(channelDirectory(fixture), `${record.bindingId}.sock`);
+      fixture.tmux(['set-option', '-p', '-u', '-t', window.pane, '@tmux-team.agent']);
+      await fixture.runJsonCli(['ls'], { pane: window.pane });
+      for (const pid of [record.launchOwner.pid, claude, ...serversOf(record.bindingId)]) {
+        process.kill(pid, 'SIGKILL');
+      }
+      await fixture.waitFor(
+        () => serversOf(record.bindingId).length === 0 && fs.existsSync(window.status),
+        10_000,
+        'the launch is gone'
+      );
+      // A launcher interrupted before it published its foreground leaves a record that
+      // names neither child. That state is reconstructed here from a real launch by
+      // removing the two fields the interrupted launcher never wrote; every process
+      // is genuinely gone.
+      const { foreground: _foreground, ...unconfirmed } = record;
+      fs.writeFileSync(file, JSON.stringify({ ...unconfirmed, claude: null }), { mode: 0o600 });
+
+      // A plain session in the same pane, and an unrelated pane that never enrolled.
+      fs.rmSync(window.status);
+      const plain = start(fixture, 'Plain', {
+        channel: false,
+        env: { MOCK_AUTOREPLY: '0' },
+        pane: window.pane,
+      });
+      await ready(fixture, plain, 'Plain');
+      const bystander = start(fixture, 'Bystander', {
+        channel: false,
+        env: { MOCK_AUTOREPLY: '0' },
+      });
+      await ready(fixture, bystander, 'Bystander');
+      const trace = installTmuxTrace(fixture);
+      const recovery = `rm -- '${file}' '${socket}'`;
+      const refused = async (target: string, text: string) => {
+        const result = await talk(fixture, target, text, ['--detach']);
+        expect(result.code, `${target}: ${result.stdout}${result.stderr}`).toBe(1);
+        expect(failureCode(result), target).toBe('DELIVERY_PREPARATION_FAILED');
+        // Whichever paste site refuses shows the record and the recovery the driver names.
+        expect(result.stdout, target).toContain(recovery);
+        expect(result.stdout, target).toContain(`pane ${window.pane}`);
+        expect(result.stdout, target).toContain('nothing was pasted');
+      };
+      // A name resolves to the plain session and reaches the pane through `send`.
+      await refused('Plain', 'into the unknown by name');
+      // Once that session has ended and the pane lost its marker, observation deletes
+      // the binding and the pane is a raw target, which `talk` checks itself.
+      expect(await quit(plain)).toBe('0');
+      fixture.tmux(['set-option', '-p', '-u', '-t', window.pane, '@tmux-team.agent']);
+      await fixture.runJsonCli(['ls'], { pane: window.pane });
+      await refused(window.pane, 'into the unknown by pane');
+      expect(named(plain, 'paste')).toEqual([]);
+      expect(terminalWrites(trace, window.pane)).toEqual([]);
+      // Another pane is not held up by it.
+      const other = await talk(fixture, 'Bystander', 'unrelated', ['--detach']);
+      expect(other.code, other.stderr || other.stdout).toBe(0);
+      await fixture.waitFor(
+        () => named(bystander, 'paste').some((line) => String(line.line).includes('unrelated')),
+        10_000,
+        'the unrelated pane was pasted'
+      );
+
+      // Running the named recovery makes the pane ordinary again.
+      execFileSync('/bin/sh', ['-c', recovery]);
+      expect(fs.existsSync(file) || fs.existsSync(socket)).toBe(false);
+      const after = await talk(fixture, window.pane, '# after recovery', [
+        '--detach',
+        '--no-preamble',
+      ]);
+      expect(after.code, after.stderr || after.stdout).toBe(0);
+      await fixture.waitForCapture((output) => output.includes('# after recovery'), window.pane);
+      expect(await quit(bystander)).toBe('0');
+    });
+  }, 120_000);
+
+  it('relaunching in the pane an unknown enrollment names replaces it and delivers through the new channel', async () => {
+    await withE2EFixture(async (fixture) => {
+      const first = start(fixture, 'Again', { channel: true, env: { MOCK_AUTOREPLY: '0' } });
+      await ready(fixture, first, 'Again');
+      await waitForReady(fixture, 1);
+      const { file, record } = enrollment(fixture);
+      const claude = Number(named(first, 'started')[0].pid);
+      for (const pid of [record.launchOwner.pid, claude, ...serversOf(record.bindingId)]) {
+        process.kill(pid, 'SIGKILL');
+      }
+      await fixture.waitFor(
+        () => serversOf(record.bindingId).length === 0 && fs.existsSync(first.status),
+        10_000,
+        'the launch is gone'
+      );
+      // Reconstructed as in the unknown-window scenario: no foreground was published.
+      const { foreground: _foreground, ...unconfirmed } = record;
+      fs.writeFileSync(file, JSON.stringify({ ...unconfirmed, claude: null }), { mode: 0o600 });
+
+      fs.rmSync(first.status);
+      const second = start(fixture, 'Again', {
+        channel: true,
+        env: { MOCK_AUTOREPLY: '0' },
+        pane: first.pane,
+      });
+      await ready(fixture, second, 'Again');
+      await waitForReady(fixture, 1);
+      const renewed = enrollment(fixture);
+      expect(renewed.record.bindingId, 'the same binding, in the same pane').toBe(record.bindingId);
+      expect(renewed.record.generation).not.toBe(record.generation);
+      expect(renewed.record.foreground?.pid, 'and this launch published its foreground').toBe(
+        Number(named(second, 'started').at(-1)?.pid)
+      );
+      const sent = await talk(fixture, 'Again', 'through the new channel', ['--detach']);
+      expect(sent.code, sent.stderr || sent.stdout).toBe(0);
+      await fixture.waitFor(() => named(second, 'channel').length === 1, 10_000, 'channel event');
+      expect(named(second, 'paste')).toEqual([]);
+      expect(await quit(second)).toBe('0');
+      expect(channelFiles(fixture), 'the launch withdrew its enrollment').toEqual([]);
+    });
+  }, 120_000);
+
+  it('a record that names no pane is reported by name and blocks nothing, at both paste sites', async () => {
+    await withE2EFixture(async (fixture) => {
+      const plain = start(fixture, 'Plain', { channel: false, env: { MOCK_AUTOREPLY: '0' } });
+      await ready(fixture, plain, 'Plain');
+      // Records an older `tmt` wrote (valid, but no pane) and a damaged one.
+      const directory = channelDirectory(fixture);
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const older = path.join(directory, `${randomUUID()}.json`);
+      const damaged = path.join(directory, `${randomUUID()}.json`);
+      fs.writeFileSync(
+        older,
+        JSON.stringify({
+          version: 1,
+          bindingId: path.basename(older, '.json'),
+          generation: randomUUID(),
+          launchOwner: { pid: 1, start: 'Thu Oct  1 10:00:00 2026' },
+          claude: null,
+        }),
+        { mode: 0o600 }
+      );
+      fs.writeFileSync(damaged, '{ not json', { mode: 0o600 });
+      const trace = installTmuxTrace(fixture);
+      for (const [target, text] of [
+        ['Plain', 'by name'],
+        [plain.pane, '# by pane'],
+      ] as const) {
+        const result = await talk(fixture, target, text, ['--detach', '--no-preamble']);
+        expect(result.code, `${target}: ${result.stdout}${result.stderr}`).toBe(0);
+        for (const record of [older, damaged]) {
+          expect(result.stderr, `${target} names ${record}`).toContain(
+            `Skipped channel record ${record}`
+          );
+        }
+        expect(result.stderr).toContain('delete it if its session is gone');
+      }
+      await fixture.waitFor(
+        () => named(plain, 'paste').some((line) => String(line.line).includes('by name')),
+        10_000,
+        'the named send was pasted'
+      );
+      await fixture.waitForCapture((output) => output.includes('# by pane'), plain.pane);
+      expect(terminalWrites(trace, plain.pane).length).toBeGreaterThan(0);
+      // The records are only reported, never removed or rewritten.
+      expect(fs.readFileSync(damaged, 'utf8')).toBe('{ not json');
+      expect(fs.existsSync(older)).toBe(true);
+      expect(await quit(plain)).toBe('0');
+    });
+  }, 90_000);
 
   it('a reply notification reaches an opted-in originator through its channel and never by paste', async () => {
     await withE2EFixture(async (fixture) => {

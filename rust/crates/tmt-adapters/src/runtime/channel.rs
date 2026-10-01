@@ -326,18 +326,20 @@ pub trait RuntimeChannel {
     /// (the address its `enroll` persisted) is live, or unconfirmed because the
     /// foreground was never recorded. Read-only and bounded by `deadline`.
     /// `enrolled: false` is the only answer that lets the baseline paste through. An
-    /// attributed enrollment has ended, and does not block, only when its launcher
-    /// confirmed the foreground through `foreground_started` (or the provider was
-    /// recorded) and every recorded process is conclusively gone. An enrollment whose
-    /// foreground was never confirmed is unknown, not ended: it stays an `Err` for
-    /// this pane even after its launcher and every server it started have
-    /// disappeared, and only the user's named recovery or an explicit relaunch in the
-    /// very pane it names (`enroll`'s takeover rule) clears it. Evidence about this
-    /// pane that cannot be told is an `Err`. A record
-    /// that cannot be attributed to any pane never blocks an unrelated one: it is
-    /// listed in `skipped` instead, unless its file is named for `binding_id`, the
-    /// binding the caller is delivering to, which makes it that binding's own
-    /// invalid evidence and terminal.
+    /// attributed enrollment has ended, and does not block, only when its foreground
+    /// was confirmed and every recorded process is conclusively gone. The foreground
+    /// is confirmed by the launcher's `foreground_started`, or by a recorded process
+    /// that is itself the foreground (the agent the launcher spawned); a helper, a
+    /// server or an app-server process the agent started is never a substitute. An
+    /// enrollment whose foreground was never confirmed is unknown, not ended: it
+    /// stays an `Err` for this pane even after its launcher and every server it
+    /// started have disappeared, and only the user's named recovery or an explicit
+    /// relaunch in the very pane it names (`enroll`'s takeover rule) clears it.
+    /// Evidence about this pane that cannot be told is an `Err`. A record that
+    /// cannot be attributed to any pane never blocks an unrelated one: it is listed
+    /// in `skipped` instead, unless its file is named for `binding_id`, the binding
+    /// the caller is delivering to, which makes it that binding's own invalid
+    /// evidence and terminal.
     fn enrolled_in_pane(
         &self,
         directory: &Path,
