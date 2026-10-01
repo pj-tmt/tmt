@@ -59,7 +59,14 @@ pub fn room_name(name: &str) -> String {
     format!("squad-{name}")
 }
 
+/// Reserved metadata suffix; neither user fields nor column/provider names allow dots.
+pub const LEAD_MARKER: &str = "lead.marker";
+
 impl Squad {
+    pub fn lead_key(&self) -> String {
+        format!("{}{LEAD_MARKER}", self.prefix())
+    }
+
     pub fn prefix(&self) -> String {
         format!("squad.{}.", self.name)
     }
@@ -175,17 +182,20 @@ impl Squad {
                 let (fields, meta): (Vec<_>, Vec<_>) = metadata
                     .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
                     .partition(|(key, _)| key.starts_with(&prefix));
+                let mut fields: BTreeMap<_, _> = fields
+                    .into_iter()
+                    .map(|(key, value)| (key[prefix.len()..].to_owned(), value))
+                    .collect();
+                let lead_marker = fields.remove(LEAD_MARKER).map(|marker| marker == "true");
                 Ok(Member {
+                    lead_marker,
                     id: text(member, "id")?,
                     name: text(member, "name")?,
                     lifetime: text(member, "lifetime")?,
                     presence: "unknown".into(),
                     pane: Value::Null,
                     activity: member["status"].clone(),
-                    fields: fields
-                        .into_iter()
-                        .map(|(key, value)| (key[prefix.len()..].to_owned(), value))
-                        .collect(),
+                    fields,
                     meta: meta.into_iter().collect(),
                     seen: Value::Null,
                     numbers: BTreeMap::new(),
@@ -221,6 +231,8 @@ pub fn join_presence(members: &mut [Member], listed: &Value) {
 
 #[derive(Debug, Clone)]
 pub struct Member {
+    /// Reserved ownership metadata, outside public fields; None is legacy state.
+    pub lead_marker: Option<bool>,
     pub id: String,
     pub name: String,
     pub lifetime: String,
@@ -253,9 +265,14 @@ impl Row for Member {
     }
 }
 
+/// Reserved raw metadata decides leadership; ordinary fields cannot override it.
+pub fn lead_from_fields(fields: &BTreeMap<String, String>, marker: Option<bool>) -> bool {
+    marker.unwrap_or_else(|| fields.get("role").is_some_and(|role| role == "lead"))
+}
+
 impl Member {
     pub fn is_lead(&self) -> bool {
-        self.fields.get("role").is_some_and(|role| role == "lead")
+        lead_from_fields(&self.fields, self.lead_marker)
     }
 }
 
