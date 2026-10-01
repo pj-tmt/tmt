@@ -267,8 +267,7 @@ fn tab(
     };
     let style = if selected {
         let style = style.add_modifier(Modifier::BOLD);
-        if look.depth == tmt_cli_style::Depth::None || look.theme.base == tmt_cli_style::Base::Mono
-        {
+        if look.role(Role::Accent).fg.is_none() {
             style.add_modifier(Modifier::REVERSED)
         } else {
             style
@@ -506,7 +505,6 @@ fn summary_line(app: &App) -> Line<'_> {
 
 pub fn render(frame: &mut Frame, app: &App) {
     let look = app.look();
-    frame.render_widget(Block::new().style(look.role(Role::Text)), frame.area());
     app.hits.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
@@ -538,8 +536,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         let area = Rect { height, ..body };
         frame.render_widget(Clear, area);
         frame.render_widget(
-            Paragraph::new(lines.into_iter().map(Line::from).collect::<Vec<_>>())
-                .style(look.role(Role::Text)),
+            Paragraph::new(lines.into_iter().map(Line::from).collect::<Vec<_>>()),
             area,
         );
     }
@@ -570,7 +567,7 @@ pub fn render(frame: &mut Frame, app: &App) {
             .collect();
         frame.render_widget(Clear, area);
         frame.render_widget(
-            Paragraph::new(lines).style(look.role(Role::Text)).block(
+            Paragraph::new(lines).block(
                 Block::new()
                     .borders(Borders::ALL)
                     .title(format!(" {} · Enter runs, Esc closes ", menu.title)),
@@ -637,7 +634,7 @@ fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher, body: Rect
     }
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(lines).style(look.role(Role::Text)).block(
+        Paragraph::new(lines).block(
             Block::new()
                 .borders(Borders::ALL)
                 .title(" switch · Enter opens, Esc closes "),
@@ -1561,6 +1558,23 @@ lines = [
     }
 
     #[test]
+    fn default_look_keeps_unselected_body_at_terminal_foreground() {
+        let mut app = board(json!([{ "title": null, "rows": [
+            row("docs", "working", "write", json!({})),
+            row("ci", "working", "fix", json!({})),
+        ] }]));
+        app.view.as_mut().unwrap().look = crate::look::Look::default();
+        let mut terminal = Terminal::new(TestBackend::new(60, 7)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        for x in [2, 22] {
+            assert_eq!(buffer[(x, 4)].fg, ratatui::style::Color::Reset);
+        }
+        assert_eq!(buffer[(2, 3)].fg, app.look().selection().fg.unwrap());
+        assert_eq!(buffer[(2, 3)].bg, app.look().selection().bg.unwrap());
+    }
+
+    #[test]
     fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
         let mut app = board(json!([{ "title": null, "rows": [
             row("docs", "working", "write", json!({})),
@@ -1580,11 +1594,11 @@ lines = [
             terminal.draw(|frame| render(frame, &app)).unwrap();
             let buffer = terminal.backend().buffer();
             let fg = |role| app.look().role(role).fg.unwrap_or_default();
-            // Readable chrome and explicit body text follow the light theme.
+            // Chrome uses the theme; unselected body keeps the terminal foreground.
             for (x, y) in [(1, 1), (2, 2), (1, 6), (12, 0)] {
                 assert_eq!(buffer[(x, y)].fg, fg(Role::Muted), "chrome {x},{y}");
             }
-            assert_eq!(buffer[(2, 4)].fg, fg(Role::Text));
+            assert_eq!(buffer[(2, 4)].fg, ratatui::style::Color::Reset);
             assert_eq!(buffer[(13, 5)].fg, fg(Role::Dim));
             assert_eq!(buffer[(22, 5)].fg, fg(Role::Dim));
             assert_eq!(buffer[(1, 0)].fg, fg(Role::Accent));

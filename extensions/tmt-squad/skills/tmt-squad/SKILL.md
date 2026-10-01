@@ -72,7 +72,8 @@ borders. Attention tabs keep their waiting/blocked color and counts. Selection
 uses the theme's `selection` background while retaining each cell's state or
 provider color; a terminal without a background color uses reverse video,
 including `NO_COLOR`. Colors decorate the words and marks; never infer state
-from color alone. Theme bases and overrides belong in the user's `squad.toml`.
+from color alone. The global theme belongs in `config.json`; per-squad theme
+bases and overrides belong in `[squad.<name>.theme]` in `squad.toml`.
 
 ## Keep it current
 

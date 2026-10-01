@@ -69,8 +69,9 @@ staleness and scroll marks. Focus uses `accent` and bold, while attention tabs
 keep their attention token. The selected row uses the `selection` background
 and keeps its text/state/provider foregrounds. Without a background color
 (`terminal`, `mono`, 16 colors or `NO_COLOR`), selection uses reverse video.
-Tabs keep their width when selected; in `mono` and `NO_COLOR` the selected tab
-also uses reverse video.
+Unselected body text keeps the terminal's default foreground. Tabs keep their
+width when selected; without an accent foreground the selected tab also uses
+reverse video.
 
 A `Terminal` carries the stream's theme and depth; `paint` and table cells use
 `Token::themed`, and a stream without a theme renders exactly the 16-color
