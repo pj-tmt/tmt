@@ -92,33 +92,6 @@
         }
       ]
     },
-    "extensions/tmt-office": {
-      "release-type": "simple",
-      "component": "tmt-office",
-      "include-component-in-tag": true,
-      "extra-files": [
-        {
-          "type": "toml",
-          "path": "rust/tmt-office/Cargo.toml",
-          "jsonpath": "$.package.version"
-        },
-        {
-          "type": "toml",
-          "path": "rust/tmt-office-command/Cargo.toml",
-          "jsonpath": "$.package.version"
-        },
-        {
-          "type": "toml",
-          "path": "/rust/Cargo.lock",
-          "jsonpath": "$.package[?(@.name.value=='tmt-office')].version"
-        },
-        {
-          "type": "toml",
-          "path": "/rust/Cargo.lock",
-          "jsonpath": "$.package[?(@.name.value=='tmt-office-command')].version"
-        }
-      ]
-    },
     "extensions/tmt-squad": {
       "release-type": "simple",
       "component": "tmt-squad",

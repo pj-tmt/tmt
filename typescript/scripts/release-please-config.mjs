@@ -132,8 +132,11 @@ export function generateReleasePleaseConfig({ components, workspace }) {
   const map = { components };
   const ownerOfCrate = (crate) => ownerOf(crate.manifest, map);
   const workspaceOwner = ownerOf(WORKSPACE_MANIFEST, map);
+  // A crate that inherits the workspace version changes with the workspace owner's release, so its
+  // lock entry stays in that release even when a private component owns the crate.
+  const versionOwnerOf = (crate) => (crate.inheritsVersion ? workspaceOwner : ownerOfCrate(crate));
   const releasedCrates = crates.filter(
-    (crate) => components.find(({ name }) => name === ownerOfCrate(crate))?.release !== false
+    (crate) => components.find(({ name }) => name === versionOwnerOf(crate))?.release !== false
   );
   const packages = {};
 
@@ -166,8 +169,7 @@ export function generateReleasePleaseConfig({ components, workspace }) {
       if (!crate.inheritsVersion) toml(crate.manifest, '$.package.version');
     }
     for (const crate of [...releasedCrates].sort(byName)) {
-      const declaredBy = crate.inheritsVersion ? workspaceOwner : ownerOfCrate(crate);
-      if (declaredBy !== component.name) continue;
+      if (versionOwnerOf(crate) !== component.name) continue;
       if (!/^[a-z0-9-]+$/.test(crate.name)) {
         throw new Error(`Crate name ${crate.name} cannot be written into a JSONPath filter.`);
       }
