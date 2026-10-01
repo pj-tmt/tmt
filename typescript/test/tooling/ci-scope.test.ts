@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import {
   NATIVE_OFFICE_UNREACHABLE,
+  RUST_WORKERS,
   ciGatePasses,
   e2eGatePasses,
   explainCiSelection,
@@ -1777,9 +1778,15 @@ describe('required CI gate', () => {
     ])
       expect(rustGate).toContain(`${variable}: \${{ needs.${worker}.result }}`);
     expect(rustGate).toContain('MSRV_RESULT: ${{ needs.native-msrv.result }}');
-    expect(rustGate).toContain(
-      'ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CLIPPY_RESULT" "$TESTS_RESULT" "$OFFICE_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"'
-    );
+    const rustVariables = {
+      clippy: 'CLIPPY_RESULT',
+      tests: 'TESTS_RESULT',
+      office: 'OFFICE_RESULT',
+      process: 'NATIVE_RESULT',
+      msrv: 'MSRV_RESULT',
+    };
+    const rustArguments = RUST_WORKERS.map((worker) => `"$${rustVariables[worker]}"`).join(' ');
+    expect(rustGate).toContain(`ci-scope.mjs gate-rust "$NATIVE_SCOPE" ${rustArguments}`);
     expect(job('native-msrv')).toContain('shared-key: native-rust-msrv');
     expect(job('native-msrv')).toContain(
       "save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}"

@@ -570,6 +570,8 @@ or consume retained-pack quotas; custom catalog revisions remain storage-owned.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
+### CI selection and worker model
+
 `.github/components.json` is the one component map: who owns the CLI, Office and Squad
 paths, and the ordered rules that say which CI consumers a path selects and why.
 `typescript/scripts/ci-scope.mjs` reads it and owns conservative affected-area
@@ -605,7 +607,8 @@ Squad requires all except Office, and none skips the aggregate. Missing, failed,
 cancelled or unexpectedly skipped workers fail closed. The native process worker
 consumes the Office fixture producer's local-service executable through a SHA-256
 checked artifact, preserving the fixture bytes without repeating its feature
-verification. The Office check worker consumes the same embedded SPA; other fixtures remain independently built in the native worker.
+verification. The Office check worker consumes the same embedded SPA; other
+fixtures remain independently built in the native worker.
 
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) have one
 main-only writer per key: workspace tests write the shared dev dependency cache,
