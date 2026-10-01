@@ -1,4 +1,4 @@
-//! Column widths for rows that never wrap, and cells fitted to them. One
+//! Shared column widths and bounded cell fitting for aligned views. One
 //! pure solver serves every aligned view: `tmt ls` style lists through
 //! [`crate::table`], and extension boards and their text output directly.
 //!
@@ -25,11 +25,28 @@ pub enum Truncate {
     Middle,
 }
 
+/// A column's preferred width, in cells or a share of the data width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Basis {
+    Cells(usize),
+    Percent(u8),
+}
+
+/// Ellipsis is the default; wrapping is bounded by the caller's line limit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Overflow {
+    #[default]
+    Ellipsis,
+    Wrap {
+        max_lines: u8,
+    },
+}
+
 /// One column's sizing, in display cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Track {
     /// The width it wants: a configured width, or its widest content.
-    pub basis: usize,
+    pub basis: Basis,
     /// It never shrinks below this. A basis below `min` is raised to it.
     pub min: usize,
     pub max: Option<usize>,
@@ -48,7 +65,7 @@ impl Track {
     /// Exactly `width` cells: never shrinks or grows.
     pub fn fixed(width: usize) -> Self {
         Self {
-            basis: width,
+            basis: Basis::Cells(width),
             min: width,
             max: Some(width),
             grow: 0,
@@ -57,14 +74,15 @@ impl Track {
         }
     }
 
-    fn start(&self) -> usize {
-        let width = self.basis.max(self.min);
+    fn start(&self, basis: usize) -> usize {
+        let width = basis.max(self.min);
         self.max.map_or(width, |max| width.min(max.max(self.min)))
     }
 }
 
 /// Each column's width, or None where it stepped aside. With no known width
-/// every column keeps its basis and nothing is cut, dropped or grown.
+/// cell-basis columns keep their basis and nothing is cut, dropped or grown.
+/// A percent caller supplies a known or content-derived width budget.
 ///
 /// Columns first shrink toward their minimums, tier by tier. If they still do
 /// not fit, the column with the highest `priority` steps aside and the rest
@@ -72,11 +90,24 @@ impl Track {
 /// columns in proportion to `grow`, up to their `max`.
 pub fn solve(tracks: &[Track], available: Option<usize>, gap: usize) -> Vec<Option<usize>> {
     let Some(available) = available else {
-        return tracks.iter().map(|track| Some(track.start())).collect();
+        return tracks
+            .iter()
+            .map(|track| {
+                Some(track.start(match track.basis {
+                    Basis::Cells(width) => width,
+                    Basis::Percent(_) => 0,
+                }))
+            })
+            .collect();
     };
     let mut shown = vec![true; tracks.len()];
     loop {
-        let mut widths: Vec<usize> = tracks.iter().map(Track::start).collect();
+        let bases = bases(tracks, &shown, available, gap);
+        let mut widths: Vec<usize> = tracks
+            .iter()
+            .zip(bases)
+            .map(|(track, basis)| track.start(basis))
+            .collect();
         shrink(tracks, &shown, &mut widths, available, gap);
         let over = total(&widths, &shown, gap) > available;
         let drop = tracks
@@ -97,6 +128,35 @@ pub fn solve(tracks: &[Track], available: Option<usize>, gap: usize) -> Vec<Opti
             }
         }
     }
+}
+
+/// Resolve shares after separators, before bounds/grow. Largest remainders
+/// receive the remaining cells; ties go left. Hiding reruns this on the shown set.
+fn bases(tracks: &[Track], shown: &[bool], available: usize, gap: usize) -> Vec<usize> {
+    let count = shown.iter().filter(|shown| **shown).count();
+    let data = available.saturating_sub(gap.saturating_mul(count.saturating_sub(1)));
+    let mut result = vec![0; tracks.len()];
+    let mut fractions = Vec::new();
+    let mut percentages = 0u128;
+    let mut assigned = 0usize;
+    for (index, track) in tracks.iter().enumerate().filter(|(index, _)| shown[*index]) {
+        match track.basis {
+            Basis::Cells(width) => result[index] = width,
+            Basis::Percent(percent) => {
+                let product = data as u128 * u128::from(percent);
+                result[index] = usize::try_from(product / 100).unwrap_or(usize::MAX);
+                fractions.push((std::cmp::Reverse(product % 100), index));
+                percentages += u128::from(percent);
+                assigned = assigned.saturating_add(result[index]);
+            }
+        }
+    }
+    fractions.sort_unstable();
+    let target = usize::try_from(data as u128 * percentages / 100).unwrap_or(usize::MAX);
+    for (_, index) in fractions.into_iter().take(target.saturating_sub(assigned)) {
+        result[index] = result[index].saturating_add(1);
+    }
+    result
 }
 
 fn total(widths: &[usize], shown: &[bool], gap: usize) -> usize {
@@ -219,6 +279,53 @@ pub fn fit(text: &str, width: usize, align: Align, truncate: Truncate) -> String
             format!("{front}{}…{back}", " ".repeat(pad))
         }
     }
+}
+
+/// Fit each visual line through the same escaping/alignment/cut owner. Wrap
+/// prefers whitespace boundaries, hard-splits long words, and uses an end
+/// ellipsis on the last bounded line. Continuations start at the cell's edge.
+pub fn fit_lines(
+    text: &str,
+    width: usize,
+    align: Align,
+    truncate: Truncate,
+    overflow: Overflow,
+) -> Vec<String> {
+    let Overflow::Wrap { max_lines } = overflow else {
+        return vec![fit(text, width, align, truncate)];
+    };
+    if width == 0 {
+        return vec![String::new()];
+    }
+    let escaped = crate::table::escape(text);
+    let mut remaining = escaped.as_str();
+    let mut fitted = Vec::new();
+    for index in 0..usize::from(max_lines.max(1)) {
+        if remaining.width() <= width || index + 1 == usize::from(max_lines.max(1)) {
+            fitted.push(fit(remaining, width, align, Truncate::End));
+            break;
+        }
+        let prefix = head(remaining, width);
+        if prefix.is_empty() {
+            // A wide scalar cannot fit even by itself. A bounded cut keeps
+            // the exact cell width without retrying the same scalar forever.
+            fitted.push(fit(remaining, width, align, Truncate::End));
+            break;
+        }
+        let split = prefix
+            .char_indices()
+            .rev()
+            .find(|(index, character)| *index > 0 && character.is_whitespace())
+            .map_or(prefix.len(), |(index, _)| index);
+        fitted.push(fit(
+            remaining[..split].trim_end(),
+            width,
+            align,
+            Truncate::End,
+        ));
+        remaining = remaining[split..].trim_start();
+    }
+    fitted
 }
 
 /// The longest prefix at most `cells` wide.

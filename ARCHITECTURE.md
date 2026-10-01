@@ -595,15 +595,31 @@ weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs t
 tests): it requires both shards when native work is selected, the first alone for a scoped
 component and neither when nothing native is selected, so a skipped, cancelled or missing
 selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
-remain; `Code quality` gates selected Office verification and `Native package
+remain; `Native Rust contracts` aggregates the runtime checks and the parallel
+workspace/all-targets MSRV check. Both workers must succeed for full and Squad
+scopes; scope `none` skips the aggregate, while missing scope fails closed.
+`Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
-Rust contracts` and the native runtime builds. Pull requests only restore them; they
-are written by non-pull-request runs of those two jobs alone, which run on a `main`
+Rust checks` and the native runtime builds. The parallel MSRV check reads the
+minimum version from the workspace manifest and owns a separate
+`native-rust-msrv` cache, saved only on main. Pull requests only restore caches.
+The other caches are written by non-pull-request runs of those two jobs alone, which run on a `main`
 push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
-(GitHub evicts unused caches after seven days) and on manual dispatch. No gate runs
-for them. A seeding run has no diff to select from, so it takes the full native scope.
+(GitHub evicts unused caches after seven days) and on manual dispatch. The Rust
+aggregate validates these workers on seeding runs too; the outer merge gates do
+not run. A seeding run has no diff to select from, so it takes the full native scope.
+
+The advisory Office browser workflow has a separate ownership-based PR flag,
+`office_browser`: Office-owned component paths, `docs/office/**` and the browser
+verification machinery select its emulator/image work. The selector owns the
+browser-specific workflow/emulator/context-policy exception so that machinery
+exercises itself. Shared dependency/selector/generic fixture changes, ordinary
+core product dependencies and unknown paths do not select
+browser PR work while Office is parked. Scheduled/manual runs cover all twelve
+partitions, including the emulator; the existing native/local PR pauses remain.
+Required CI keeps its conservative consumer selection and unchanged gates.
 
 The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
 generates `release-please-config.json` from the map (one release-please package per
@@ -1985,7 +2001,14 @@ runtime in a pane, input and focus, at the driver protocol's granularity
 policy over it: `host::driver::{status, send, focus}` decide which evidence
 makes a binding present, when a runtime blocks input, and what a failure
 means. A host without input (`has_input`) is `Unsupported` before any evidence
-is read, and `focus_preflight` refuses before any evidence is read too. The
+is read, and `focus_preflight` refuses before any evidence is read too. A send
+that passes the evidence and runtime checks first offers the message to the
+agent the host recognizes in the pane (`prompt`); only `Unsupported` (no
+agent-aware input, or no agent seen) falls back to raw pane input (`input`),
+and any other answer, such as an agent that is blocked or not ready, is final.
+tmux recognizes no agents, so every tmux send is raw input. `DeliveryError`
+(`host::delivery`) is the host-neutral input failure: the stage that failed,
+whether text may have reached the pane, and the host's own cause. The
 out-of-process client of #570 slice 3 implements the same trait. `HostError` and
 the host `ActionError` wrap each host's error and read exactly as it. The
 architecture guard rejects production references to the host modules outside
@@ -2098,6 +2121,13 @@ binding transaction. The launcher must validate new-launch authority before
 calling it; record-level takeover and withdrawal remain generation/incarnation
 scoped. The same contract owns this persistence definition and its still-pending
 launcher/crash-cleanup integration. This adds no user-facing registration.
+
+`drivers/codex/server` and `attachment` add unregistered endpoint/foreground
+planning (#738). A launch-owned process group and private capability share one
+cleanup owner; process cleanup precedes inode-checked file removal. Attachment
+planning resolves cwd once and names an exact thread. The channel contract owns
+the startup, credential and failure limits; real continuity and launcher crash
+recovery remain final consumer acceptance gates.
 
 ### Provider channels
 
@@ -2516,8 +2546,20 @@ the cache (`--refresh-fields` runs what is due first), and the board hands each
 load's members to one fetcher thread that runs due work off the paint path and
 again at the shortest `every`; a save moves the cache directory's stamp, which
 `board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
-(`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
-field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
+(`grid::solve`, `grid::span`, `grid::fit`, `grid::fit_lines`). `rows::Column`
+uses `grid::Basis` for cell or percent widths; bounds stay in cells. The solver
+resolves percentages against data width after marks/borders/gaps, rounds by
+largest remainder, clamps cell bounds (percent columns default to a four-cell minimum, capped by an explicit max), then grows. Hiding recomputes the shown set.
+`grid::fit_lines` owns escaped, exact-cell-width bounded wrapping, with a final
+end ellipsis. Column metadata preserves percent strings and adds `overflow`
+and wrap `max_lines` only when opted in; full row values never change.
+`rows::ListSizing` chooses the text sizing policy once from shown column
+settings: without percent/overflow it keeps legacy list sizing and complete
+piped values. Opt-in text lists decode only projected display settings through
+`rows::Column::display` and use the same grid solver/fitter. A pipe's budget is
+summed natural data widths plus gaps before priority hiding; such lists may
+truncate, wrap or hide columns. The existing list/table owner still renders
+sections and styles; no parallel layout engine is introduced. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
 none), so a script's shape never depends on how many squads exist. Commands that
 change state still require `--squad` when several exist; `filter` owns a bounded boolean language over a row's text
@@ -2551,8 +2593,10 @@ visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole. An uncached switch that lasts at least 100 ms shows a spinner in
 the fixed summary header, ticking every 80 ms; cached switches show no loading
-indicator. F5 defaults to refresh in squad, leads and all views; squad/leads
+indicator. `ctrl-r` defaults to refresh in squad, leads and all views; squad/leads
 bindings can rebind it through `[bind]`, while all keeps its own `[tabs.all.bind]`.
+The effective `ctrl-r` refresh binding is dispatched before text inputs, preserving
+search and composed messages. F5 has no default binding but remains configurable.
 Tabs are the same width selected or not: selection is a style, never extra
 characters. `attention::Attention` is the one definition of a squad's tab
 state, derived from its status document: members waiting on the user (`pending`
@@ -2597,7 +2641,13 @@ fingerprints (`sha2`) retain no notebook body. Nonblocking Unix advisory locking
 before the read through atomic cache publication; competing readers report
 unknown and never regress the cache. First observation starts the clock,
 never backdated; unreadable notes, unavailable cache and clock rollback mean
-unknown. Cache loss/corruption restarts grace. Config edits do not
+unknown. Fingerprint/ownership/evidence changes publish immediately; otherwise
+unchanged observations replace the cache only when its persisted `observedAtMs`
+rollback watermark is at least 60 seconds old. Ages are computed on every
+observation without writing. A rollback crossing that watermark still reports
+unknown and restarts grace; a reversal entirely within an unwritten interval
+can shorten reported ages by at most 60 seconds, while first-observed times
+remain at or before the watermark. Cache loss/corruption restarts grace. Config edits do not
 reset content age. Disabling stops observation; after re-enabling, surviving
 fingerprint matches keep their first-observed time. These are observed content timestamps,
 not core modification times or a history feed. Age determines staleness;
@@ -2673,7 +2723,9 @@ lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
 under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
-asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
+asks it to reveal the selected record's visual-line range while followed (or
+its first line when taller than the viewport). The draw records record starts
+and hit targets for every continuation; paging moves by viewport lines for all rows, including existing notes/configured row lines, with record paging when no positions were drawn. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).
@@ -2945,12 +2997,13 @@ and authority definition owner.
 
 ## Colab extension proposal
 
-**Status: proposed, not implemented.** The local-build-only pilot lives under
+**Status: persistence library implemented; executable, model, browser and backend
+work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
-#829/#830 are bounded spike evidence. This documentation adds no registered
-executable, workspace package, listener, deployment or release.
+#829/#830 are bounded spike evidence. The persistence slice adds one private workspace library, with no executable,
+listener, deployment or release.
 
 Proposed Rust dependencies are `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
 and `tmt-cli-style`, plus reviewed workspace pins. The model owns pure values,
@@ -2965,8 +3018,8 @@ Proposed extension-relative browser packages are `typescript/colab-client`
 (client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
 (trusted React/Vite chrome and renderer); backend packages are separate. They
 join the existing pnpm workspace/lockfile and pins when implemented. Shared
-workspace/component edits follow the two-lead rule; architecture guard and
-runtime CI-scope registration land with first code. The component map gives the
+workspace/component edits follow the two-lead rule; architecture guards and
+full runtime CI-scope coverage include the persistence library. The component map gives the
 contract directory private file ownership (`release: false`) and excludes it from
 CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
 
@@ -2983,5 +3036,33 @@ Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
 budgeted browser Worker terminated on overrun, as defined by the contract.
 That boundary contains decoder failure, without claiming an OS/key sandbox.
 Local acceptance precedes Firestore then Cloudflare; protocol, renderer and
-containment details/gates live only in the linked contract. DEVELOPMENT usage
-commands land in L2/L3, when the executable exists.
+containment details/gates live only in the linked contract. DEVELOPMENT
+run commands land in L2/L3, when the executable exists; library verification
+commands are available now.
+
+### Persistence implementation
+
+`extensions/tmt-colab/rust/tmt-colab` is a private, local-build-only library
+slice for #847. `keyring::Layout` owns the injected absolute data root's
+`colab/` subtree, with owned 0700 directories and no-follow, bounded regular
+0600 files. It preserves existing root permissions and touches no core database,
+configuration or provider settings. `Keyring` publishes one software owner seed
+with create-only, synced file publication; existing invalid keys fail closed.
+The temporary space-ID builder follows the contract's domain-framed derivation and will
+move to the separately owned L1 model when that API lands.
+
+`store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
+conflict freezing and epoch fencing. Namespace checkpoints prune only their
+covered prefix and superseded unpinned checkpoint payloads in the same
+transaction; receipts and concurrent tails survive. New checkpoint prefixes
+advance monotonically; exact retries never republish pruned bytes. The
+`pin_checkpoint` seam preserves authority-cut ciphertext for the later verified
+owner-log caller.
+Per-page capacity returns an error instead of evicting history. Envelope
+signatures, identity grammar, roles and owner-transition authorization belong
+to the future model/admission caller; this library creates no network authority.
+Tests own isolated directories and SQLite oracles. CLI composition, the
+loopback door, authentication, decoder and model integration remain later slices.
+The crate depends only on reviewed pinned storage/crypto primitives, never
+core, adapter, Remote or Office crates. Its component is excluded from release;
+workspace checks and Docker build contexts include its manifest.

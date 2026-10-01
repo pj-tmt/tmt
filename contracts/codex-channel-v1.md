@@ -2,7 +2,8 @@
 
 Status: receipt/transport groundwork in #736, under #719 and #329. The Codex
 runtime does not register or invoke this channel yet. Private record groundwork
-is added in #737; endpoint, lease and consumer integration remain later slices; no user-facing native delivery
+is added in #737 and endpoint/attachment groundwork in #738. Lease and consumer
+integration remain later slices; no user-facing native delivery
 or live foreground continuity is claimed here.
 
 ## Delivery receipt
@@ -101,3 +102,40 @@ Tests cover opt-in/ready transitions, serialized takeover, unchanged records
 on denied authority and stale withdrawal preserving changed generation, owner
 start and owner PID independently. Endpoint/client lifetime and final routing
 remain separate concerns; no channel is registered by this module.
+
+## Owned endpoint and foreground attachment
+
+`drivers/codex/server` launches the selected executable's app-server in its own
+process group, using an ephemeral IPv4 loopback listener. Startup reads the
+provider's announced bound address from a private log, with a 64 KiB scan bound
+and the caller's deadline. It does not reserve/release a port or discover a shared
+daemon. A fresh per-launch capability is written only to the owned generation
+directory (0700) and file (0600), supplied through `--ws-token-file`. The caller
+passes the capability to the foreground through the named child-only environment
+variable, not an argv token. This module does not copy login credentials or edit
+provider configuration.
+
+The resource owner signals only its directly owned, unreaped process group,
+then waits up to two seconds before deleting created files. Startup failure,
+explicit stop and drop use the same ordering. Unverified process cleanup reports
+failure and retains capability/diagnostic files; it is not successful cleanup.
+File cleanup compares created regular-file and directory device/inode identities,
+never recursively removes a directory, and preserves replacements. This is
+in-process cleanup; launcher crash/orphan recovery remains a final integration
+gate, not a guarantee provided by destructors.
+
+`drivers/codex/attachment` accepts a bounded option surface before launch. It
+resolves relative `-C` against the original working directory once, emits the
+absolute directory for foreground resume, and exposes that same directory to
+server spawn and later thread creation. It rejects initial prompts, resume/fork
+subcommands and implicit/default remote selection. The foreground command uses
+`resume --remote ... --remote-auth-token-env TMT_CODEX_ENDPOINT_TOKEN` with the
+exact supplied provider thread. Planning checks endpoint shape; ownership comes
+from the enrollment resource, not from a user-supplied endpoint string.
+
+Tests use owned shell stand-ins and temporary files to observe cwd, process exit,
+startup timeout, private capability and replacement-preserving cleanup. They do
+not invoke a model or prove that a real foreground client preserves an active
+provider turn. The final lease/consumer slice must establish that continuity,
+thread admission, channel foreground identity, and terminal routing for talk and
+reply notifications before user-facing opt-in is enabled.

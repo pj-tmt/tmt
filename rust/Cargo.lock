@@ -2531,7 +2531,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-adapters"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2577,7 +2577,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli-style"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2592,8 +2592,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-colab"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ed25519-dalek",
+ "getrandom 0.4.3",
+ "nix",
+ "rusqlite",
+ "sha2",
+]
+
+[[package]]
 name = "tmt-command-output"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "serde_json",
  "tmt-adapters",
@@ -2603,7 +2614,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-core"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "icu_casemap",
  "icu_locale_core",
@@ -2616,7 +2627,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-driver-protocol"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "serde",
  "serde_json",
@@ -2625,11 +2636,11 @@ dependencies = [
 
 [[package]]
 name = "tmt-host-grammar"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 
 [[package]]
 name = "tmt-invoke"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "nix",
  "subprocess",
@@ -2677,7 +2688,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-model"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "base64 0.22.1",
  "png",
@@ -2692,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-pairing"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",
@@ -2711,7 +2722,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-service"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "nix",
  "serde",
@@ -2723,7 +2734,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-storage"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "base64 0.22.1",
  "nix",
@@ -2775,7 +2786,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-tui"
-version = "5.0.0-alpha.25"
+version = "5.0.0-alpha.29"
 dependencies = [
  "roxmltree",
 ]
