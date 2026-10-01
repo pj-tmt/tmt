@@ -10,7 +10,7 @@
 use super::{
     CAPABILITY, CONTENT_LIMIT, Frame, NOTIFICATION_METHOD, PROTOCOL_VERSION, Process,
     RECORD_VERSION, Reply, SERVER_NAME, ensure_private_directory, locked, parent_incarnation,
-    read_record, socket_fits, socket_path, write_record,
+    read_line_until, read_record, remaining, socket_fits, socket_path, write_record, write_until,
 };
 use crate::runtime::channel::ServeRequest;
 use serde_json::{Value, json};
@@ -43,14 +43,15 @@ const INSTRUCTIONS: &str = "Events from this channel are tmt requests from other
 Each event carries its own instructions for replying with the tmt command; follow them.";
 
 /// Removes the socket this server bound, on every exit path, but only while the
-/// enrollment still carries this server's generation (under the directory
-/// lock): a replacement enrollment's socket is not ours to remove, and neither
-/// is anything when the lock cannot be taken. The enrollment itself stays: it
-/// belongs to the launch, which withdraws it when it ends.
+/// enrollment still carries this server's generation and launch owner (under the
+/// directory lock): a replacement enrollment's socket is not ours to remove, and
+/// neither is anything when the lock cannot be taken. The enrollment itself
+/// stays: it belongs to the launch, which withdraws it when it ends.
 struct Bound<'a> {
     directory: &'a Path,
     binding_id: &'a str,
     generation: &'a str,
+    owner: &'a Process,
 }
 
 impl Drop for Bound<'_> {
@@ -59,6 +60,7 @@ impl Drop for Bound<'_> {
             if matches!(
                 read_record(self.directory, self.binding_id),
                 Ok(Some(record)) if record.generation == self.generation
+                    && record.launch_owner == *self.owner
             ) {
                 let _ = fs::remove_file(socket_path(self.directory, self.binding_id));
             }
@@ -104,6 +106,7 @@ pub(super) fn serve(
         directory: request.directory,
         binding_id: request.binding_id,
         generation: request.generation,
+        owner: &owner,
     };
     listener.set_nonblocking(true)?;
     let (events, inbox) = mpsc::channel();
@@ -163,13 +166,23 @@ fn start(request: &ServeRequest<'_>) -> io::Result<(UnixListener, Process)> {
             }
         };
         let path: PathBuf = socket_path(request.directory, request.binding_id);
-        if UnixStream::connect(&path).is_ok() {
-            return Err(io::Error::new(
-                io::ErrorKind::AddrInUse,
-                "another channel server owns this binding",
-            ));
+        match UnixStream::connect(&path) {
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrInUse,
+                    "another channel server owns this binding",
+                ));
+            }
+            // Nothing there, or nothing answering: a leftover socket file is stale.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                ) => {}
+            // Anything else (a socket we may not open, say) proves nothing about
+            // its owner, so it is neither replaced nor removed.
+            Err(error) => return Err(error),
         }
-        // Nothing answered, so a leftover socket file is stale.
         match fs::remove_file(&path) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -184,24 +197,26 @@ fn start(request: &ServeRequest<'_>) -> io::Result<(UnixListener, Process)> {
 fn accept_loop(listener: &UnixListener, ingress: &Ingress) {
     while !ingress.stop.load(Ordering::SeqCst) {
         match listener.accept() {
-            Ok((stream, _)) => handle_connection(stream, ingress),
+            Ok((stream, _)) => handle_connection(stream, ingress, CONNECTION_TIMEOUT),
             Err(_) => std::thread::sleep(ACCEPT_POLL),
         }
     }
 }
 
-fn handle_connection(mut stream: UnixStream, ingress: &Ingress) {
+/// One absolute deadline bounds the whole connection (reading the frame, waiting
+/// for the write, answering), enforced at each underlying read and write, so a
+/// trickling sender cannot hold the sole acceptor beyond it.
+fn handle_connection(mut stream: UnixStream, ingress: &Ingress, limit: Duration) {
+    let deadline = Instant::now() + limit;
     // The listener is nonblocking; accepted streams must block within bounds.
-    if stream.set_nonblocking(false).is_err()
-        || stream.set_read_timeout(Some(CONNECTION_TIMEOUT)).is_err()
-        || stream.set_write_timeout(Some(CONNECTION_TIMEOUT)).is_err()
-    {
+    if stream.set_nonblocking(false).is_err() {
         return;
     }
-    let mut line = Vec::new();
-    let read = io::BufReader::new((&stream).take(FRAME_LIMIT + 1)).read_until(b'\n', &mut line);
+    let Ok(line) = read_line_until(&mut stream, deadline, FRAME_LIMIT + 1) else {
+        return;
+    };
     // No frame means nothing to answer; the sender classifies the silence.
-    if read.is_err() || line.is_empty() {
+    if line.is_empty() {
         return;
     }
     let reply = match decide(&line, ingress) {
@@ -216,7 +231,10 @@ fn handle_connection(mut stream: UnixStream, ingress: &Ingress) {
             }
             // A failed or unfinished write may already have reached Claude:
             // answer nothing, and the sender reports it as uncertain.
-            match written.recv_timeout(CONNECTION_TIMEOUT) {
+            let Ok(left) = remaining(deadline) else {
+                return;
+            };
+            match written.recv_timeout(left) {
                 Ok(true) => Reply {
                     written: true,
                     refused: None,
@@ -231,7 +249,7 @@ fn handle_connection(mut stream: UnixStream, ingress: &Ingress) {
     };
     if let Ok(mut bytes) = serde_json::to_vec(&reply) {
         bytes.push(b'\n');
-        let _ = stream.write_all(&bytes);
+        let _ = write_until(&mut stream, &bytes, deadline);
     }
 }
 
@@ -364,5 +382,43 @@ pub(super) fn publish(request: &ServeRequest<'_>, owner: &Process, ready: &Atomi
     });
     if published.unwrap_or(false) {
         ready.store(true, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_trickling_sender_cannot_hold_the_acceptor_past_the_connection_deadline() {
+        let (events, inbox) = mpsc::channel();
+        let ingress = Ingress {
+            generation: "g".into(),
+            ready: Arc::new(AtomicBool::new(true)),
+            events,
+            stop: Arc::new(AtomicBool::new(false)),
+        };
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let limit = Duration::from_millis(300);
+        let started = Instant::now();
+        let acceptor = std::thread::spawn(move || {
+            handle_connection(receiver, &ingress, limit);
+            Instant::now()
+        });
+        // Whitespace forever: each byte renews a per-read timeout, and no newline
+        // ever ends the frame.
+        while sender.write_all(b" ").is_ok() && started.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(20));
+            if acceptor.is_finished() {
+                break;
+            }
+        }
+        drop(sender);
+        let ended = acceptor.join().unwrap().duration_since(started);
+        assert!(
+            ended >= limit && ended < limit * 6,
+            "the connection ended after {ended:?}"
+        );
+        assert!(inbox.try_recv().is_err(), "no frame reached Claude");
     }
 }

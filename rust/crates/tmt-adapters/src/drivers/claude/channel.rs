@@ -174,26 +174,7 @@ impl RuntimeChannel for ClaudeChannel {
         directory: &Path,
         deadline: Instant,
     ) -> Result<(), ChannelError> {
-        // A binding ID is a 36-character UUID; check the longest path up front.
-        if !directory.is_absolute() || !socket_fits(directory, &"0".repeat(36)) {
-            return Err(ChannelError::PathTooLong);
-        }
-        let deadline = deadline.min(Instant::now() + VERSION_DEADLINE);
-        let output = UnixCommandRunner
-            .execute(CommandRequest {
-                program: executable,
-                args: &["--version".into()],
-                input: &[],
-                deadline,
-                max_output_bytes: VERSION_OUTPUT,
-            })
-            .map_err(|_| ChannelError::ProviderUnavailable)?;
-        let found = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        if SUPPORTED_VERSIONS.contains(&found.as_str()) {
-            Ok(())
-        } else {
-            Err(ChannelError::ProviderVersion { found })
-        }
+        check_provider(&UnixCommandRunner, executable, directory, deadline)
     }
 
     fn enroll(&self, plan: &ChannelPlan<'_>) -> Result<Box<dyn ChannelEnrollment>, ChannelError> {
@@ -280,6 +261,36 @@ impl RuntimeChannel for ClaudeChannel {
         output: &mut dyn Write,
     ) -> io::Result<()> {
         server::serve(request, input, output)
+    }
+}
+
+/// The pre-launch check, single-shot: the directory must fit a socket path, and
+/// the provider's bounded `--version` must be exactly the recorded build.
+fn check_provider(
+    runner: &dyn CommandRunner,
+    executable: &OsStr,
+    directory: &Path,
+    deadline: Instant,
+) -> Result<(), ChannelError> {
+    // A binding ID is a 36-character UUID; check the longest path up front.
+    if !directory.is_absolute() || !socket_fits(directory, &"0".repeat(36)) {
+        return Err(ChannelError::PathTooLong);
+    }
+    let deadline = deadline.min(Instant::now() + VERSION_DEADLINE);
+    let output = runner
+        .execute(CommandRequest {
+            program: executable,
+            args: &["--version".into()],
+            input: &[],
+            deadline,
+            max_output_bytes: VERSION_OUTPUT,
+        })
+        .map_err(|_| ChannelError::ProviderUnavailable)?;
+    let found = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if SUPPORTED_VERSIONS.contains(&found.as_str()) {
+        Ok(())
+    } else {
+        Err(ChannelError::ProviderVersion { found })
     }
 }
 
@@ -554,7 +565,7 @@ fn exchange_within(
     if write_until(stream, &bytes, deadline).is_err() {
         return uncertain();
     }
-    let Ok(line) = read_line_until(stream, deadline) else {
+    let Ok(line) = read_line_until(stream, deadline, REPLY_LIMIT) else {
         return uncertain();
     };
     match serde_json::from_slice::<Reply>(&line) {
@@ -575,7 +586,7 @@ fn exchange_within(
 
 /// The time left, or `TimedOut` once the deadline has passed. A zero timeout is
 /// not a valid socket timeout, so an expired deadline never reaches the socket.
-fn remaining(deadline: Instant) -> io::Result<Duration> {
+pub(super) fn remaining(deadline: Instant) -> io::Result<Duration> {
     let left = deadline.saturating_duration_since(Instant::now());
     if left.is_zero() {
         Err(io::ErrorKind::TimedOut.into())
@@ -584,7 +595,11 @@ fn remaining(deadline: Instant) -> io::Result<Duration> {
     }
 }
 
-fn write_until(stream: &mut UnixStream, mut bytes: &[u8], deadline: Instant) -> io::Result<()> {
+pub(super) fn write_until(
+    stream: &mut UnixStream,
+    mut bytes: &[u8],
+    deadline: Instant,
+) -> io::Result<()> {
     while !bytes.is_empty() {
         stream.set_write_timeout(Some(remaining(deadline)?))?;
         match stream.write(bytes) {
@@ -597,20 +612,24 @@ fn write_until(stream: &mut UnixStream, mut bytes: &[u8], deadline: Instant) -> 
     Ok(())
 }
 
-/// One reply line, at most `REPLY_LIMIT` bytes, read before the deadline. The end
-/// of the stream also ends the line, so a reply cut short is judged as it is.
-fn read_line_until(stream: &mut UnixStream, deadline: Instant) -> io::Result<Vec<u8>> {
+/// One line (newline included), at most `limit` bytes, read before the deadline.
+/// The end of the stream also ends the line, so one cut short is judged as it is.
+pub(super) fn read_line_until(
+    stream: &mut UnixStream,
+    deadline: Instant,
+    limit: u64,
+) -> io::Result<Vec<u8>> {
     let mut line = Vec::new();
-    let mut chunk = [0u8; 256];
-    while (line.len() as u64) < REPLY_LIMIT {
+    let mut chunk = [0u8; 8192];
+    while (line.len() as u64) < limit {
         stream.set_read_timeout(Some(remaining(deadline)?))?;
-        let room = chunk.len().min((REPLY_LIMIT as usize) - line.len());
+        let room = chunk.len().min((limit as usize) - line.len());
         match stream.read(&mut chunk[..room]) {
             Ok(0) => break,
             Ok(count) => {
                 line.extend_from_slice(&chunk[..count]);
                 if let Some(end) = line.iter().position(|byte| *byte == b'\n') {
-                    line.truncate(end);
+                    line.truncate(end + 1);
                     break;
                 }
             }

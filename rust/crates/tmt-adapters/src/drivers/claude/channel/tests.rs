@@ -1,5 +1,5 @@
 use super::*;
-use crate::process::runtime::ProcessObservation;
+use crate::process::{CommandError, CommandOutput, runtime::ProcessObservation};
 use std::{
     io::BufRead,
     os::unix::{
@@ -1108,26 +1108,31 @@ fn the_provider_contract_constants_are_pinned() {
     assert_eq!(CHANNEL_FLAG, "--dangerously-load-development-channels");
 }
 
+/// Reads the fixture through its shell instead of exec'ing an inode that another
+/// fork may still hold writable (ETXTBSY), so the product check stays single-shot.
+struct ScriptRunner;
+
+impl CommandRunner for ScriptRunner {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        let mut args = vec![request.program.to_owned()];
+        args.extend_from_slice(request.args);
+        UnixCommandRunner.execute(CommandRequest {
+            program: OsStr::new("/bin/sh"),
+            args: &args,
+            ..request
+        })
+    }
+}
+
 fn probe(scratch: &Scratch, version: &str) -> Result<(), ChannelError> {
     let script = scratch.0.join("claude");
-    let _ = fs::remove_file(&script);
-    fs::write(&script, format!("#!/bin/sh\necho '{version}'\n")).unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-    // Another test's fork can briefly hold the just-written file open (ETXTBSY);
-    // only that launch failure is retried, and only in this fixture.
-    let mut result = Err(ChannelError::ProviderUnavailable);
-    for _ in 0..40 {
-        result = ClaudeChannel.preflight(
-            script.as_os_str(),
-            &scratch.0,
-            Instant::now() + Duration::from_secs(5),
-        );
-        if result != Err(ChannelError::ProviderUnavailable) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    result
+    fs::write(&script, format!("echo '{version}'\n")).unwrap();
+    check_provider(
+        &ScriptRunner,
+        script.as_os_str(),
+        &scratch.0,
+        Instant::now() + Duration::from_secs(5),
+    )
 }
 
 #[test]
@@ -1467,6 +1472,50 @@ fn a_second_server_for_a_live_binding_is_refused_and_a_stale_socket_is_replaced(
     });
     drop(stdin);
     thread.join().unwrap().unwrap();
+}
+
+#[test]
+fn a_server_removes_its_socket_only_while_generation_and_launch_owner_both_match() {
+    let running = start();
+    // Same generation, but the record now names another launch owner.
+    let changed = Record {
+        launch_owner: Process::of(&provider(1)),
+        ..intent(&live_owner())
+    };
+    publish(&running.scratch.0, &changed);
+    let (scratch, result) = running.stop();
+    result.unwrap();
+    assert!(socket_path(&scratch.0, BINDING).exists());
+    assert_eq!(read_record(&scratch.0, BINDING).unwrap().unwrap(), changed);
+}
+
+#[test]
+fn only_a_conclusively_absent_or_refusing_socket_is_replaced_and_any_other_error_is_terminal() {
+    let scratch = Scratch::new();
+    publish(&scratch.0, &intent(&live_owner()));
+    // A socket this user cannot open says nothing about its owner.
+    drop(UnixListener::bind(socket_path(&scratch.0, BINDING)).unwrap());
+    fs::set_permissions(
+        socket_path(&scratch.0, BINDING),
+        fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+    let error = ClaudeChannel
+        .serve(
+            &ServeRequest {
+                binding_id: BINDING,
+                generation: GENERATION,
+                directory: &scratch.0,
+            },
+            Box::new(io::BufReader::new(io::empty())),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    assert!(
+        fs::symlink_metadata(socket_path(&scratch.0, BINDING)).is_ok(),
+        "the socket file was neither replaced nor removed"
+    );
 }
 
 #[test]

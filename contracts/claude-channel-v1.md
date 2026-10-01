@@ -111,7 +111,9 @@ time after the connection exists is `Uncertain`. Only `{"written":true}` alone i
 write and only `{"refused":…}` without `written` is a refusal: a reply claiming
 both, or neither, is `Uncertain`. The server keeps
 no request-ID set: a request has at most one wake claim in the request service,
-and the driver never retries.
+and the driver never retries. Each ingress connection has one absolute 2 s deadline
+covering the frame read, the wait for the write and the answer, enforced at each
+underlying read and write, so a trickling sender cannot hold the single acceptor.
 
 ## Enrollment ownership and serialization
 
@@ -123,9 +125,9 @@ every mutation of the record or the socket, so no check-then-change race exists:
 | Mutation | Under the lock, it proceeds only if |
 | --- | --- |
 | `enroll` writes the record | the old record is absent, this same launch's, or its launch owner is conclusively gone; an owner that is alive and different, or an unreadable record, refuses the enrollment (`Occupied`) and leaves it untouched |
-| Server publishes readiness (`claude`) | the record still carries the server's generation and launch owner |
-| Server binds the socket (and replaces an unreachable one) | the record carries the server's generation; a live second server is refused |
-| Server removes its socket on exit | the record still carries the server's generation |
+| Server binds the socket | the record is this server's pending enrollment (its generation, no Claude yet); it adopts the launch owner the record names, which every later step must find unchanged. A live second server is refused, a socket that cannot be opened is left alone and fails the start, and only a conclusively absent or refusing socket is replaced |
+| Server publishes readiness (`claude`) | the record still carries the server's generation and the launch owner it adopted |
+| Server removes its socket on exit | the record still carries the server's generation and the launch owner it adopted |
 | Lease `withdraw` removes the record and socket | the record carries exactly the lease's generation and launch owner; otherwise it removes nothing |
 
 A launcher never removes a record because its owner is gone; a stale launcher has
