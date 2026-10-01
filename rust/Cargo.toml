@@ -11,6 +11,7 @@ publish = false
 repository = "https://github.com/wkh237/tmt"
 
 [workspace.dependencies]
+tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
 getrandom = "=0.4.3"
 keyring-core = "=1.0.0"
 zbus-secret-service-keyring-store = { version = "=1.0.1", default-features = false, features = ["rt-async-io-crypto-rust"] }
