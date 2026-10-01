@@ -1008,6 +1008,17 @@ manual lifecycle evidence in issue #321 owns that distinction, including the
 Codex cross-mode limitation. Normal `tmt run` does not execute this developer
 check or enforce these version pins on user commands.
 
+The Claude channel provider has its own opt-in check, for the one build with
+recorded channel evidence (see the [channel contract](contracts/claude-channel-v1.md)):
+
+```bash
+cargo run --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
+  --example channel-contract -- /absolute/claude
+```
+
+It runs only `--version` and `--help`. The channel launch preflight applies the same
+version pin to user commands once `tmt run --channel` ships (#715).
+
 `tmt whoami --context [--json]` is the read-only rehydration entry point. It reports
 the verified caller identity and lifetime, up to 500 characters of role text,
 an existing saved notebook path (not its contents), and unacknowledged originated

@@ -185,6 +185,29 @@ impl RuntimeRegistry {
         Ok(())
     }
 
+    /// The driver that has an enrollment on record for this binding, whichever
+    /// harness the identity currently prefers: the enrollment is written before the
+    /// preference is, so it, not the preference, decides who owns the route.
+    /// `Err` when any driver cannot tell, or when two claim the same binding.
+    pub fn enrolled_harness(
+        &self,
+        directory: &Path,
+        binding_id: &str,
+    ) -> Result<Option<HarnessId>, channel::ChannelFault> {
+        let mut found = None;
+        for entry in &self.registrations {
+            let Some(channel) = &entry.channel else {
+                continue;
+            };
+            if channel.enrolled(directory, binding_id)?
+                && found.replace(entry.harness.clone()).is_some()
+            {
+                return Err(channel::ChannelFault::Mismatch);
+            }
+        }
+        Ok(found)
+    }
+
     /// The harness's channel, if its driver offers one.
     pub fn channel(&self, harness: &HarnessId) -> Option<&dyn channel::RuntimeChannel> {
         self.registrations
@@ -471,8 +494,12 @@ mod tests {
             _: &OsStr,
             _: &std::path::Path,
             _: std::time::Instant,
-        ) -> Result<(), channel::ChannelError> {
-            Ok(())
+        ) -> Result<Option<String>, channel::ChannelError> {
+            Ok(None)
+        }
+
+        fn enrolled(&self, _: &std::path::Path, _: &str) -> Result<bool, channel::ChannelFault> {
+            Ok(false)
         }
 
         fn enroll(
@@ -483,12 +510,96 @@ mod tests {
         }
     }
 
-    #[test]
-    fn channel_registration_is_harness_owned_and_first_party_drivers_have_none_yet() {
-        let mut registry = RuntimeRegistry::first_party();
-        for harness in ["claude", "codex"] {
-            assert!(registry.channel(&id(harness)).is_none());
+    struct Answering(Result<bool, channel::ChannelFault>);
+    impl channel::RuntimeChannel for Answering {
+        fn preflight(
+            &self,
+            _: &OsStr,
+            _: &std::path::Path,
+            _: std::time::Instant,
+        ) -> Result<Option<String>, channel::ChannelError> {
+            Ok(None)
         }
+
+        fn enrolled(&self, _: &std::path::Path, _: &str) -> Result<bool, channel::ChannelFault> {
+            self.0
+        }
+
+        fn enroll(
+            &self,
+            _: &channel::ChannelPlan<'_>,
+        ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
+            Err(channel::ChannelError::Unsupported)
+        }
+    }
+
+    fn registry_answering(
+        answers: &[(&str, Result<bool, channel::ChannelFault>)],
+    ) -> RuntimeRegistry {
+        let mut registry = RuntimeRegistry::default();
+        for (name, answer) in answers {
+            registry
+                .register(id(name), name, 0, Community { id: id(name) })
+                .unwrap();
+            registry
+                .register_channel(&id(name), Box::new(Answering(*answer)))
+                .unwrap();
+        }
+        registry
+    }
+
+    #[test]
+    fn the_enrolled_driver_is_found_by_evidence_alone_and_never_guessed() {
+        let directory = std::path::Path::new("/channels");
+        let owner = |answers: &[(&str, Result<bool, channel::ChannelFault>)]| {
+            registry_answering(answers).enrolled_harness(directory, "binding")
+        };
+        // Nothing enrolled, whatever drivers exist: the baseline applies.
+        assert_eq!(
+            RuntimeRegistry::default().enrolled_harness(directory, "b"),
+            Ok(None)
+        );
+        assert_eq!(owner(&[("a", Ok(false)), ("b", Ok(false))]), Ok(None));
+        // Exactly one driver holds the record: it owns the route, in any order.
+        assert_eq!(
+            owner(&[("a", Ok(false)), ("b", Ok(true))]),
+            Ok(Some(id("b")))
+        );
+        assert_eq!(
+            owner(&[("b", Ok(true)), ("a", Ok(false))]),
+            Ok(Some(id("b")))
+        );
+        // Two drivers claiming one binding is ambiguous, never resolved by order.
+        assert_eq!(
+            owner(&[("a", Ok(true)), ("b", Ok(true))]),
+            Err(channel::ChannelFault::Mismatch)
+        );
+        // A driver that cannot tell is terminal even when another says "no" or "yes".
+        for others in [Ok(false), Ok(true)] {
+            assert_eq!(
+                owner(&[
+                    ("a", Err(channel::ChannelFault::InvalidRecord)),
+                    ("b", others)
+                ]),
+                Err(channel::ChannelFault::InvalidRecord),
+                "{others:?}"
+            );
+            assert_eq!(
+                owner(&[
+                    ("b", others),
+                    ("a", Err(channel::ChannelFault::Unverifiable))
+                ]),
+                Err(channel::ChannelFault::Unverifiable),
+                "{others:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn channel_registration_is_harness_owned_and_only_claude_has_one_so_far() {
+        let mut registry = RuntimeRegistry::first_party();
+        assert!(registry.channel(&id("claude")).is_some());
+        assert!(registry.channel(&id("codex")).is_none());
         assert!(
             registry
                 .register_channel(&id("missing"), Box::new(CommunityChannel))
@@ -509,7 +620,12 @@ mod tests {
             .register_channel(&id("community"), Box::new(CommunityChannel))
             .unwrap();
         assert!(registry.channel(&id("community")).is_some());
-        assert!(registry.channel(&id("claude")).is_none());
+        // A harness that already has a channel cannot be given a second one.
+        assert!(
+            registry
+                .register_channel(&id("claude"), Box::new(CommunityChannel))
+                .is_err()
+        );
         assert!(
             registry
                 .register_channel(&id("community"), Box::new(CommunityChannel))

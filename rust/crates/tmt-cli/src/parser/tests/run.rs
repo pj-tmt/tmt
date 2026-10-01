@@ -23,6 +23,7 @@ fn run_identity_starts_an_opaque_command_tail() {
                 command,
                 resume: false,
                 save: false,
+                channel: false,
             },
             mode: OutputMode::default(),
         }
@@ -41,6 +42,7 @@ fn run_identity_starts_an_opaque_command_tail() {
                 .to_vec(),
             resume: false,
             save: false,
+            channel: false,
         }
     );
     assert_eq!(
@@ -50,6 +52,7 @@ fn run_identity_starts_an_opaque_command_tail() {
             command: vec![],
             resume: true,
             save: false,
+            channel: false,
         }
     );
     assert_eq!(
@@ -69,7 +72,8 @@ fn run_save_belongs_only_before_the_identity() {
                 name: "Alice".into(),
                 command: vec!["claude".into(), "-s".into()],
                 resume: false,
-                save: true
+                save: true,
+                channel: false,
             }
         );
         assert_eq!(
@@ -78,8 +82,41 @@ fn run_save_belongs_only_before_the_identity() {
                 name: "Alice".into(),
                 command: vec![],
                 resume: true,
-                save: true
+                save: true,
+                channel: false,
             }
         );
     }
+}
+
+#[test]
+fn run_channel_is_an_option_before_the_identity_and_never_combines_with_resume() {
+    assert_eq!(
+        parsed(&["run", "--channel", "Alice", "claude", "--channel"]).invocation,
+        Invocation::Run {
+            name: "Alice".into(),
+            command: vec!["claude".into(), "--channel".into()],
+            resume: false,
+            save: false,
+            channel: true,
+        },
+        "an option after the identity belongs to the command"
+    );
+    assert!(parse(&args(&["run", "--channel", "--resume", "Alice"])).is_err());
+    let error = parse(&args(&["run", "Alice", "--channel"])).unwrap_err();
+    assert!(error.message.contains("TMT options go before the name"));
+}
+
+#[test]
+fn the_hidden_channel_server_takes_four_operands_and_is_not_public() {
+    assert_eq!(
+        parsed(&["__channel-server", "claude", "b", "g", "/abs/channels"]).invocation,
+        Invocation::ChannelServer {
+            harness: "claude".into(),
+            binding_id: "b".into(),
+            generation: "g".into(),
+            directory: "/abs/channels".into(),
+        }
+    );
+    assert!(parse(&args(&["__channel-server", "claude"])).is_err());
 }

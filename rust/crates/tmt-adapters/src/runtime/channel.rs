@@ -8,6 +8,7 @@ use super::RuntimeCommand;
 use std::{
     ffi::{OsStr, OsString},
     fmt,
+    io::{self, BufRead, Write},
     path::Path,
     time::Instant,
 };
@@ -31,6 +32,9 @@ pub enum ChannelFault {
     /// The opted-in session's ready channel is absent or refused the connection.
     /// No byte moved, but the session is still opted in, so it is not pasted to.
     Unreachable,
+    /// The pane's session has channel evidence but is not an active identity, so
+    /// nothing can verify whose enrollment it is and nothing may be pasted.
+    Inactive,
     /// The enrollment belongs to a launch that has ended. That alone is not
     /// evidence that the session never opted in: only a different launch that is
     /// positively proven current makes it non-applicable.
@@ -64,7 +68,10 @@ impl ChannelFault {
             Self::NotReady => "The session opted into a message channel that is not ready.",
             Self::Unreachable => "The session opted into a message channel that is not reachable.",
             Self::Stale => {
-                "The session's message-channel enrollment belongs to a launch that has ended."
+                "The session's message-channel enrollment belongs to a launch that has ended. Relaunch the agent with `tmt run` (add `--channel` to use the channel again)."
+            }
+            Self::Inactive => {
+                "The pane's session opted into a message channel but is not an active identity, so it cannot be verified."
             }
             Self::Refused => "The channel endpoint refused the message.",
             Self::TooLarge => "The message exceeds the channel frame limit.",
@@ -95,6 +102,9 @@ pub enum ChannelError {
     /// The driver cannot plan a channel launch around this command line, and
     /// says why. The user's command is never silently rewritten or dropped.
     UnsupportedArguments(&'static str),
+    /// An earlier enrollment of this binding belongs to a launch that may still
+    /// be running, or whose ownership cannot be verified. It is left untouched.
+    Occupied,
 }
 
 impl fmt::Display for ChannelError {
@@ -114,6 +124,9 @@ impl fmt::Display for ChannelError {
             Self::Enrollment => {
                 formatter.write_str("The channel enrollment could not be recorded.")
             }
+            Self::Occupied => formatter.write_str(
+                "An earlier channel enrollment of this binding may still be in use or cannot be verified.",
+            ),
             Self::UnsupportedArguments(reason) => {
                 write!(
                     formatter,
@@ -140,6 +153,13 @@ pub struct ChannelPlan<'a> {
     pub tmt: &'a Path,
     /// Absolute directory of endpoint records; the provider's environment is
     /// never trusted to reproduce TMT's configuration lookup.
+    pub directory: &'a Path,
+}
+
+/// Arguments of one channel-server process, as parsed from its argv.
+pub struct ServeRequest<'a> {
+    pub binding_id: &'a str,
+    pub generation: &'a str,
     pub directory: &'a Path,
 }
 
@@ -174,18 +194,41 @@ pub trait ChannelEnrollment {
 }
 
 pub trait RuntimeChannel {
-    /// Verify the provider before anything is bound or spawned.
+    /// Verify the provider before anything is bound or spawned. `Ok(Some(text))`
+    /// accepts the launch with an advisory the launcher shows the user before the
+    /// session starts (for example a provider build newer than any tested one);
+    /// `Ok(None)` has nothing to say.
     fn preflight(
         &self,
         executable: &OsStr,
         directory: &Path,
         deadline: Instant,
-    ) -> Result<(), ChannelError>;
+    ) -> Result<Option<String>, ChannelError>;
 
     /// Record this launch's opt-in before the provider starts. The enrollment
     /// is what lets a later send tell "opted in, channel not ready" from "never
     /// opted in".
     fn enroll(&self, plan: &ChannelPlan<'_>) -> Result<Box<dyn ChannelEnrollment>, ChannelError>;
+
+    /// Whether this binding has any enrollment on record, active or not. Read-only
+    /// evidence for a send that cannot resolve the binding to an identity: `Ok(false)`
+    /// is the only answer that lets such a send fall back to the baseline transport,
+    /// and an `Err` means it cannot be told.
+    fn enrolled(&self, directory: &Path, binding_id: &str) -> Result<bool, ChannelFault>;
+
+    /// Run the stdio server the provider starts as its own child, until its
+    /// input closes. Only a driver whose provider starts one implements it.
+    fn serve(
+        &self,
+        _request: &ServeRequest<'_>,
+        _input: Box<dyn BufRead + Send>,
+        _output: &mut dyn Write,
+    ) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "This channel has no stdio server.",
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -203,6 +246,7 @@ mod tests {
         assert_eq!(ChannelFault::Stale.error_code(), "CHANNEL_ENROLLMENT_ENDED");
         for other in [
             ChannelFault::Mismatch,
+            ChannelFault::Inactive,
             ChannelFault::InvalidRecord,
             ChannelFault::Unverifiable,
             ChannelFault::Refused,
@@ -265,8 +309,17 @@ mod tests {
     struct Planner(Rc<Cell<u32>>);
 
     impl RuntimeChannel for Planner {
-        fn preflight(&self, _: &OsStr, _: &Path, _: Instant) -> Result<(), ChannelError> {
-            Ok(())
+        fn preflight(
+            &self,
+            _: &OsStr,
+            _: &Path,
+            _: Instant,
+        ) -> Result<Option<String>, ChannelError> {
+            Ok(None)
+        }
+
+        fn enrolled(&self, _: &Path, _: &str) -> Result<bool, ChannelFault> {
+            Ok(false)
         }
 
         fn enroll(
