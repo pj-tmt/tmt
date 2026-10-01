@@ -249,14 +249,7 @@ fn deliver(
                         .settle(&prepared.attempt_id, Settlement::DefinitelyFailed)
                         .map_err(|error| correlation.state_error(error, false))?;
                     return Err(correlation
-                        .error(
-                            evidence.fault.error_code(),
-                            format!(
-                                "{} Nothing was sent and nothing was pasted.",
-                                evidence.message()
-                            ),
-                            1,
-                        )
+                        .error(evidence.fault.error_code(), nothing_pasted(&evidence), 1)
                         .suggestion(correlation.inspection()));
                 }
             }
@@ -300,7 +293,7 @@ fn deliver(
             let outcome = if correlation.offline {
                 crate::delivery::Delivery::Offline
             } else if eligible {
-                crate::delivery::send(
+                let attempt = crate::delivery::send(
                     storage,
                     &identity.id,
                     &prepared.payload,
@@ -314,7 +307,11 @@ fn deliver(
                         "DELIVERY_PREPARATION_FAILED",
                         "Could not verify delivery state.",
                     )
-                })?
+                })?;
+                for record in &attempt.unattributed {
+                    warn_unattributed_record(record);
+                }
+                attempt.delivery
             } else {
                 crate::delivery::Delivery::Unavailable
             };
@@ -331,18 +328,11 @@ fn deliver(
             if matches!(outcome, crate::delivery::Delivery::Unacknowledged) {
                 // Settled as an uncertain wake above; keep waiting for the
                 // durable reply without resending or pasting.
-            } else if let crate::delivery::Delivery::ChannelUnavailable(fault) = &outcome {
+            } else if let crate::delivery::Delivery::ChannelUnavailable(evidence) = &outcome {
                 // The session opted into a channel that cannot carry this
                 // request. Only a session that never opted in is pasted to.
                 return Err(correlation
-                    .error(
-                        fault.error_code(),
-                        format!(
-                            "{} Nothing was sent and nothing was pasted.",
-                            fault.reason()
-                        ),
-                        1,
-                    )
+                    .error(evidence.fault.error_code(), nothing_pasted(evidence), 1)
                     .suggestion(format!(
                         "Check the session, then retry later; the request stays queued. {}",
                         correlation.inspection()
@@ -581,6 +571,15 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => presentation::publish(report, mode),
         Err(error) => error.publish(mode),
     }
+}
+
+/// What both paste sites tell the user when channel evidence stops a paste: the
+/// driver's reason with the record at fault and its recovery.
+fn nothing_pasted(evidence: &tmt_adapters::runtime::channel::EvidenceError) -> String {
+    format!(
+        "{} Nothing was sent and nothing was pasted.",
+        evidence.message()
+    )
 }
 
 /// A channel record that names no pane (unreadable, or written by an older `tmt`)

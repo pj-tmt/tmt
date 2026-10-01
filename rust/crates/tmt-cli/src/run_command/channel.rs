@@ -104,7 +104,7 @@ pub(super) fn verify_claim(storage: &mut Storage, claimed: &Binding) -> Result<(
 }
 
 /// The lease of one launch, held for the child's whole lifetime. It is retired
-/// only by `never_spawned` (the spawn failed without a child) or `child_reaped`
+/// only by `never_spawned` (the spawn failed without a child) or `settle_wait`
 /// (the same child's wait returned). Every other path out of the launch (a wait
 /// error, an early return or a panic after the spawn, launcher death) drops it
 /// without retiring anything, so the driver's enrollment stays exactly as it is
@@ -157,10 +157,16 @@ impl HeldLease {
         self.retire();
     }
 
-    /// The same child was positively reaped (its wait returned): the foreground is
-    /// over, so the enrollment ends.
-    pub(super) fn child_reaped(&mut self) {
-        self.retire();
+    /// The result of waiting for the owned child, passed through unchanged. A wait
+    /// that returned reaped the same child, so the foreground is over and the
+    /// enrollment ends; one that failed proves nothing, and the enrollment stays as
+    /// it is. The launcher routes the wait result here before it looks at it, so this
+    /// is the only place that ties the end of the enrollment to the wait.
+    pub(super) fn settle_wait<T, E>(&mut self, waited: Result<T, E>) -> Result<T, E> {
+        if waited.is_ok() {
+            self.retire();
+        }
+        waited
     }
 
     fn retire(&mut self) {

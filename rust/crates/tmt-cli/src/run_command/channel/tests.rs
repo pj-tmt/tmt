@@ -100,7 +100,8 @@ fn a_held_lease_plans_the_spawn_and_without_one_the_users_command_runs_untouched
 
 /// Each path out of a launch that holds a lease, with the calls `run_bound` makes
 /// at the same points: `foreground_started` right after the child is observed,
-/// and a retiring call only for a failed spawn or a reaped child.
+/// and a retiring call only for a failed spawn or a wait result passed through
+/// `settle_wait`. The wait result's own settlement is tested on its own below.
 fn launch(watch: &Watch, path: &str, refuse_foreground: bool) -> Result<u8, &'static str> {
     let mut lease = HeldLease::default();
     lease.hold(counting(watch, refuse_foreground));
@@ -121,13 +122,25 @@ fn launch(watch: &Watch, path: &str, refuse_foreground: bool) -> Result<u8, &'st
     if path == "early return after spawn" {
         return Err("returned early");
     }
-    if path == "wait error" {
-        // The wait failed: the child may still run, so nothing is retired.
-        return Err("wait failed");
+    let waited = if path == "wait error" {
+        Err("wait failed")
+    } else {
+        Ok(0)
+    };
+    lease.settle_wait(waited)
+}
+
+#[test]
+fn only_a_wait_that_returned_retires_the_lease_and_the_result_passes_through() {
+    for (waited, withdrawn) in [(Ok(7), 1), (Err("wait failed"), 0)] {
+        let watch = watch();
+        let mut lease = HeldLease::default();
+        lease.hold(counting(&watch, false));
+        assert_eq!(lease.settle_wait(waited), waited);
+        assert_eq!(watch.withdrawn.get(), withdrawn, "{waited:?}");
     }
-    // The wait returned: the same child was reaped.
-    lease.child_reaped();
-    Ok(0)
+    // Without a lease there is nothing to retire and the result is still returned.
+    assert_eq!(HeldLease::default().settle_wait::<_, ()>(Ok(3)), Ok(3));
 }
 
 #[test]

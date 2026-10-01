@@ -374,7 +374,7 @@ pub(super) fn run_bound(
     });
     // The enrollment ends with the foreground, and only when its end is confirmed:
     // a wait that failed proves nothing, so that path leaves the enrollment as it is.
-    let status = waited.map_err(|error| {
+    let status = lease.settle_wait(waited).map_err(|error| {
         Failure::new(
             "PROCESS_ERROR",
             "Could not finish observing the requested command.",
@@ -382,7 +382,6 @@ pub(super) fn run_bound(
         )
         .caused_by(error)
     })?;
-    lease.child_reaped();
     if let Some(session) = &launch.resumed {
         settle_resume(
             paths,

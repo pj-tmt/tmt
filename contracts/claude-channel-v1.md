@@ -35,17 +35,25 @@ processing.
   silently launches without the channel.
 - The driver owns the launch plan through `runtime::channel::RuntimeChannel`.
   `enroll` receives the user's command (selected executable and argv, resume
-  substitution included), the launch directory, the binding, the `tmt run`
+  substitution included), the launch directory, the identity and the pane address
+  of the binding (server incarnation, pane ID and pane process), the `tmt run`
   process as launch owner and the channel directory, and returns a lease
   (`ChannelEnrollment`): the foreground command to spawn verbatim, environment
   for the provider child, optionally the provider session the driver created
-  before the child starts (Claude creates none), and a consuming `withdraw`. The CLI never parses or
-  rewrites provider arguments. The environment reaches the provider child, and
-  therefore the subprocesses the provider itself starts (such as its MCP server);
-  it is never written to the ambient or global environment, to persisted state or
-  to logs. The launcher holds the lease for the child's whole lifetime and
-  withdraws it on every path: spawn failure, normal exit, interrupted wait and
-  early return.
+  before the child starts (Claude creates none), `foreground_started` and a
+  consuming `withdraw`. The CLI never parses or rewrites provider arguments. The
+  environment reaches the provider child, and therefore the subprocesses the
+  provider itself starts (such as its MCP server); it is never written to the
+  ambient or global environment, to persisted state or to logs.
+- The launcher holds the lease for the child's whole lifetime and tells it, once,
+  the exact child incarnation it spawned and observed (`foreground_started`, before
+  the launch is admitted; a driver that cannot record it makes the launcher warn and
+  leaves the enrollment unconfirmed). It retires the lease (`withdraw`) only when no
+  child was ever spawned or the same child was confirmed reaped (its wait returned).
+  On every path where the foreground may still run (a failed wait, a panic, an early
+  return after the spawn, the launcher being killed) it drops the lease and the
+  driver's record stays exactly as it is: nothing retires a record from the
+  launcher's own state, an EOF or a server exiting.
 - Claude's plan is the user's command with `--mcp-config <inline JSON>` and
   `--dangerously-load-development-channels server:tmt` appended. It adds no
   `--strict-mcp-config` and writes no Claude settings or MCP configuration. The
@@ -55,8 +63,12 @@ processing.
 - **Enrollment is durable and written first.** After binding and before the
   provider starts, the driver writes `<global>/channels/<binding-id>.json` (owner-only
   directory, atomic 0600 replacement) with a fresh per-launch generation, the
-  launch owner (PID and start identity) and no Claude process yet. That is the
-  state "opted in, channel not ready". A session with no record never opted in.
+  launch owner (PID and start identity), the identity ID, the pane the launch runs
+  in (the full tmux server incarnation, the pane ID and the pane process), and no
+  foreground and no Claude process yet. That is the state "opted in, channel not
+  ready". `enroll` refuses a pane that cannot be identified (an empty identifier or
+  a zero PID): a record that could not be matched to its pane later would be
+  invisible to every guard. A session with no record never opted in.
 - A launch without `--channel` touches no channel state, and no launcher removes
   another launch's enrollment, except that `enroll` prunes ended launches (see
   "Enrollment ownership and serialization").
@@ -108,8 +120,13 @@ a channel tool. It cannot create an enrollment: it refuses to start unless the
 launch's record exists with its own generation and no Claude process yet.
 
 The record is
-`{"version":1,"bindingId","generation","launchOwner":{"pid","start"},"claude":null|{"pid","start"}}`
-in `<global>/channels/<binding-id>.json`. That file name, `<binding-id>.sock` and
+`{"version":1,"bindingId","identityId","generation","launchOwner":{"pid","start"},"pane":{"host","serverId","socketPath","serverPid","serverStartTime","paneId","panePid"},"foreground":{"pid","start"},"claude":null|{"pid","start"}}`
+in `<global>/channels/<binding-id>.json`. `identityId`, `pane` and `foreground` are
+optional on read: a record written before pane attribution has none of them and
+cannot be attributed to any pane. The launcher publishes `foreground` through
+`foreground_started` once it has spawned and observed the child; the server
+publishes `claude` after the handshake. The two are independent, so every check
+that compares a record with an earlier read ignores both. That file name, `<binding-id>.sock` and
 `.lock` are this driver's namespace in the shared channel directory; another
 driver keeps its own files under different names or its own subdirectory, and
 neither driver opens the other's files (a record that is not this driver's is never
@@ -143,20 +160,25 @@ every mutation of the record or the socket, so no check-then-change race exists:
 
 | Mutation | Under the lock, it proceeds only if |
 | --- | --- |
-| `enroll` writes the record | the old record is absent, this same launch's, or its launch owner is conclusively gone; an owner that is alive and different, or an unreadable record, refuses the enrollment (`Occupied`) and leaves it untouched |
+| `enroll` writes the record | the old record is absent, this same launch's, or positively over: its launch owner and every process it recorded (foreground, Claude) are conclusively gone. When nothing but the owner was ever recorded (the launcher died before it published the foreground) nothing proves where the agent went, and only a relaunch in the very pane the record names replaces it. Anything alive, unverifiable or unreadable, or such a record naming another pane or none, refuses the enrollment (`Occupied`) and leaves it untouched |
+| Lease `foreground_started` records the child | the record still carries exactly the lease's generation and launch owner; otherwise it writes nothing and the enrollment stays unconfirmed |
 | Server binds the socket | the record is this server's pending enrollment (its generation, no Claude yet); it adopts the launch owner the record names, which every later step must find unchanged. A live second server is refused, a socket that cannot be opened is left alone and fails the start, and only a conclusively absent or refusing socket is replaced |
 | Server publishes readiness (`claude`) | the record still carries the server's generation and the launch owner it adopted |
 | Server removes its socket on exit | the record still carries the server's generation and the launch owner it adopted |
-| Lease `withdraw` removes the record and socket | the record carries exactly the lease's generation and launch owner; otherwise it removes nothing |
-| `enroll` prunes other launches | the other record names a valid Claude, and both its launch owner and that Claude are absent from one process snapshot, so the launch is over in every recorded respect; a record that never named Claude, has a live or unobservable process, is unreadable or is not this driver's is left alone, at most 64 records are examined, and a snapshot that cannot be taken prunes nothing |
+| Lease `withdraw` removes the record and socket | the record carries exactly the lease's generation and launch owner, and names no Claude process that is not conclusively gone; otherwise it removes nothing |
+| `enroll` prunes other launches | the other record recorded a foreground or Claude, and its launch owner and every recorded process are absent from one `ps -A -o pid=,ppid=` snapshot, so the launch is over in every recorded respect; a record that recorded neither (the unconfirmed case), has a live or unobservable process, is unreadable or is not this driver's is left alone, at most 64 records are examined, and a snapshot that cannot be taken prunes nothing |
 
 A launcher never removes a record because its owner is gone; a stale launcher has
 no authority over a replacement enrollment. Stale takeover happens only in `enroll`
 (replacing the same binding's record, and the prune above) and in the server's
-bind. Records are therefore removed on every normal path (`withdraw` on exit, spawn
-failure, interruption and early return) and replaced by the next enrollment of the
-same binding; only a launch that crashed leaves one behind, and the next
-enrollment of any binding removes it once both its processes are gone. The lock file is never removed (replacing its inode would
+bind. Records are therefore removed where the launcher knows the launch is over
+(`withdraw`: no child was spawned, or the child was confirmed reaped) and replaced
+by the next enrollment of the same binding. A launch that crashed, or whose
+launcher was killed, leaves one behind. Once the foreground it recorded is gone
+too it has ended, no longer protects its pane, and the next enrollment of any
+binding removes it; one that never recorded a foreground stays unknown until the
+user runs the named recovery or the same pane relaunches (see "The baseline-paste
+check"). The lock file is never removed (replacing its inode would
 split lock domains), and a lock that cannot be taken within 2 s fails the
 operation closed. A socket path therefore belongs to the generation in the
 record or is a leftover that only the next validated bind replaces. `send` is
@@ -172,11 +194,11 @@ never resent or pasted either.
 
 | Observation | Driver result | Paste |
 | --- | --- | --- |
-| No record for the binding (or no binding) | `Unsupported`: never opted in | yes, the normal path |
+| No record for the binding (or no binding) | `Unsupported`: never opted in | yes, after the baseline-paste check |
 | Provider configuration cannot be discovered | `Denied` (unverifiable) | no |
-| Record names a different launch than the binding's current one, and that current launch is positively proven (its stored launch owner is observed live with a matching start identity) | `Unsupported`: the enrollment is stale for this launch, and the record is left untouched | yes, the normal path |
+| Record names a different launch than the binding's current one, and that current launch is positively proven (its stored launch owner is observed live with a matching start identity) | `Unsupported`: the enrollment is stale for this launch, and the record is left untouched | yes, after the baseline-paste check |
 | Record unreadable or not a regular file, directory not owner-only, unknown version or other binding, the binding's current launch not verifiable or ambiguous, Claude process differs from the stored runtime observation | `Denied` | no |
-| Record names the binding's current launch, that launch owner is conclusively gone, and the record names a valid Claude and the runtime now observed for the binding is positively alive and is a different process (a plain relaunch outside `tmt run`) | `Unsupported`: the enrollment is stale for that runtime, and the record is left untouched | yes, the normal path |
+| Record names the binding's current launch, that launch owner is conclusively gone, and the record names a valid Claude and the runtime now observed for the binding is positively alive and is a different process (a plain relaunch outside `tmt run`) | `Unsupported`: the enrollment is stale for that runtime, and the record is left untouched | yes, after the baseline-paste check |
 | Record names the binding's current launch and that launch owner is conclusively gone, otherwise (the record names no valid Claude, or the observed runtime is the one it names, is not alive, or none is observed) | `Denied(stale)`: the enrollment belongs to an ended launch; the message says to relaunch with `tmt run` | no |
 | Opted in, not ready: waits up to 3 s polling the record, and it becomes ready | continues below | n/a |
 | Opted in, still not ready after the wait (failed handshake, never started, or Claude at its own prompt) | `Denied(not_ready)` | no |
@@ -187,7 +209,9 @@ never resent or pasted either.
 | Endpoint answers `written` | `Completed(Unacknowledged)` | no |
 | Payload above the frame bound | `Denied` (before connecting) | no |
 
-An enrollment applies only to the exact launch that created it. A different
+"Paste: yes" always means "through the baseline-paste check", which can still
+refuse when another enrollment is live in the pane. An enrollment applies only to
+the exact launch that created it. A different
 launch that is positively proven current, a plain relaunch included (through
 `tmt run`, or directly while the binding still names the old launch owner),
 treats an old record as non-applicable and gets the baseline delivery; nothing
@@ -209,7 +233,11 @@ not observed in the spike, which is why an unready session is never pasted to.
 
 An opted-in session is never pasted to, whichever command delivers. All routes
 share `delivery::send`, which prefers the driver and falls back only after
-`Unsupported` or `NotSent`:
+`Unsupported` or `NotSent`. A record under the binding names its driver before any
+preferred harness does (the preference is written only after the launch is
+admitted), so the enrollment decides the route; the preference chooses only among
+sessions that never opted in. A channel directory that cannot be discovered is
+unverifiable, never "no enrollment":
 
 - `talk` to an identity name.
 - Originator notifications (reply and timeout hints, from `talk`, `answer`,
@@ -228,31 +256,61 @@ share `delivery::send`, which prefers the driver and falls back only after
 binding of a pane that lost its marker (`tmt ls`, `whoami`, a name talk and every
 other reconciling command do), and naming the pane again creates a new binding with
 no record under its own ID. So evidence that survives those is read at the paste
-itself, from the drivers' own records and the pane's live processes, never from the
-stored binding. The same check runs at both places that can paste, immediately
-before the paste: the fallback of `delivery::send` (every identity-based route,
-including notifications and dispatch, however the identity was resolved) and the
-direct paste of a raw pane with no identity.
+itself, from the drivers' own records matched to the pane by the address each
+persisted at enroll, never from the stored binding. The same check
+(`delivery::pane_channel_evidence`) runs immediately before both places that can
+paste: the fallback of `delivery::send` (every identity-based route, including
+notifications and dispatch, however the identity was resolved), which also names the
+binding it is delivering to, and the direct paste of a raw pane with no identity.
 
-`RuntimeChannel::enrolled_in_pane(directory, pane_pid, deadline)` answers whether
-an enrollment on record belongs to a launch that is live under the pane process,
-asked of every registered channel. For Claude a record matches when its launch
-owner (the `tmt run` process recorded before spawn) or its Claude process is in the
-pane's process tree and is exactly the recorded incarnation (pid and start
-identity). A match, or evidence that cannot be told (an unreadable record, one that
-names another binding, a process that cannot be observed, a process chain that
-loops or is deeper than 64, running out of the one 3 s deadline), is terminal: the
-paste does not happen and `talk` fails with `DELIVERY_PREPARATION_FAILED` and a
-message that names the record or directory and says that records of sessions that
-are gone can be deleted or the session relaunched. A record whose launch has ended
-or is not under the pane is not evidence about it, so a pane whose opted-in launch
-ended (even by a crash that left its record) is an ordinary pane again, and a new
-plain launch there keeps the baseline paste.
+`RuntimeChannel::enrolled_in_pane(directory, pane, binding_id, deadline)` returns
+`PaneEvidence` or an `EvidenceError`, asked of every registered channel. For Claude,
+each `<uuid>.json` of the channel directory (never a socket, the lock or another
+driver's file) is classified:
+
+| Record | Result for this pane |
+| --- | --- |
+| Attributed to the pane (server incarnation, pane ID and pane process all equal), and its launch owner, foreground or Claude process is observed as exactly the recorded incarnation (PID and start identity; a stopped process counts) | enrolled: terminal, nothing is pasted |
+| Attributed to the pane, a foreground or Claude was recorded, and every recorded process is conclusively gone (a reused PID is another incarnation) | ended: not evidence, the pane is ordinary again |
+| Attributed to the pane, neither was recorded and the owner is gone (the launcher died before it published the foreground) | unknown: terminal for this pane only, with a named recovery |
+| Attributed to the pane, and a process of it cannot be observed | unknown: terminal for this pane, with the same recovery |
+| Attributed to another pane, server incarnation or socket | not evidence, never observed |
+| Unreadable, naming no pane (written before attribution) or naming another binding | skipped: blocks nothing and is named in a warning; the one exception is a record whose file is named for the binding being delivered to, which is that binding's own invalid evidence and terminal |
+
+Only a recorded process that is itself the foreground can stand in for a published
+foreground (for Claude, the Claude process, whose child the channel server is); a
+helper or server process never does.
+
+Terminal means the paste does not happen and `talk` fails with
+`DELIVERY_PREPARATION_FAILED`. The message names the record, the pane and the
+recovery `rm -- '<record>' '<socket>'`, to be run only after confirming that no agent
+of that launch still runs in the pane. Both paste sites report it identically:
+`Delivery::ChannelUnavailable` carries the driver's `EvidenceError` (fault, file,
+recovery) to `talk`, and `delivery::send` also returns the skipped records
+(`Attempt::unattributed`) so that `talk` names them at either site with a stderr
+warning (`Skipped channel record <path>: it names no pane, so it cannot protect or
+block this one.`). Evidence about this pane that cannot be told (an unreadable
+directory, an observation that fails, running out of the one 3 s deadline) is
+terminal too, and records unrelated to the pane never block it.
+
+The unknown state clears through the named recovery or an explicit relaunch of the
+same binding in the very pane the record names (`enroll` replaces it); nothing
+infers an end from the launcher, a server or an EOF. A pane whose opted-in launch
+ended with its foreground confirmed (even by a crash that left its record) is an
+ordinary pane again, and a new plain launch there keeps the baseline paste.
 
 Cost: with no record in the channel directory (a user who never opted in) the check
-is one directory read. With records it adds one `ps -A -o pid=,ppid=` snapshot per
-check plus one `ps -p <pid> -o lstart=` observation for each candidate process under
-the pane; there is no record-count cap, the single deadline bounds the whole check.
+is one directory read. With records it adds one small read per record and one
+`ps -p <pid> -o lstart=` observation per process of each record attributed to the
+pane; no process table is listed. There is no record-count cap; the single deadline
+bounds the whole check. `enroll`'s prune takes one `ps -A -o pid=,ppid=` snapshot.
+
+Limits: the pane's process tree and tty are not used as evidence (the tree is
+rewritten when a launcher dies, and a tty is not portably observable), so the
+launcher's published foreground and the persisted pane address replace them. A launch
+killed between its spawn and `foreground_started` leaves an unknown record that
+protects its pane until the recovery or a same-pane relaunch; records written before
+attribution can never be matched and are only named.
 
 ## Talk behavior
 
@@ -264,7 +322,8 @@ mid-transport keeps its existing `DELIVERY_UNCERTAIN` failure and stops.
 When the opted-in channel cannot carry the request, `talk` fails with
 `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED` (any
 other terminal channel outcome uses `DELIVERY_PREPARATION_FAILED`). The message
-says nothing was sent and nothing was pasted, and the hint tells the caller to
+(with the record and recovery when the evidence has them) says nothing was sent and
+nothing was pasted, and the hint tells the caller to
 check the session and retry later; the request stays queued in the recipient's
 inbox and is inspectable with `tmt result`. Exit status is 1.
 
@@ -286,6 +345,8 @@ All additions are additive; no existing field, code, exit status or default outp
 - Human `TIMEOUT` text gains a clause that delivery was uncertain, only then.
 - New error codes `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` and `CHANNEL_ENROLLMENT_ENDED`,
   reachable only for a session whose driver registered a channel and that opted in.
+- A stderr warning `Skipped channel record <path>: …` for each channel record that
+  names no pane, at both paste sites, when the paste otherwise proceeds.
 
 ## Isolation
 

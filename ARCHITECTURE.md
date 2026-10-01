@@ -15,7 +15,9 @@ run explicit developer fixtures and verifiers, never serve as a product fallback
 Published releases are immutable. Source changes do not publish replacements
 or migrate application data.
 TMT remains an invocation-owned local CLI, without a remote MCP server, identity
-memory or a separate inbox service. The independently installed Office companion may
+memory or a separate inbox service. The one MCP server it ships is the hidden
+`__channel-server`, a stdio server that an opted-in Claude launch starts as its own
+child; it listens on no network port. The independently installed Office companion may
 run one explicit loopback-only browser service; it does not execute CLI work or change
 the CLI's invocation-owned storage policy.
 
@@ -1387,7 +1389,9 @@ own process verification and event mapping; core does not interpret hook ancestr
 First-party and community registrations share the same API; descending priority
 and then harness ID resolve competing claims deterministically. Registration is
 in-process, not dynamic plugin discovery. Explicit launches preserve every argv
-byte; the registry neither executes recognition nor remembers arguments or paths.
+byte (`tmt run --channel` lets the driver append its own provider flags after the
+user's and never rewrites theirs); the registry neither executes recognition nor
+remembers arguments or paths.
 Bare relaunch resolves the registered executable through PATH with no arguments.
 Exact resume is runtime-owned, including the mode: the shared constants are
 Claude `default` and Codex `shared`/`embedded`. Provider hooks must record those
@@ -1549,7 +1553,9 @@ process owner. These contracts do not discover or execute plugins, install provi
 hooks or replace the durable retirement receipts in `identity_hooks`. Container
 interfaces remain the existing tmux binding records; the session interface kind
 is reserved, not a shipped session-only binding store. Current
-public messaging still uses its existing tmux transport and request lifecycle.
+public messaging still uses its existing tmux transport and request lifecycle,
+except that a session that opted into a provider channel (`tmt run --channel`) is
+reached through it and never pasted to (see "Provider channels").
 Implicit caller selection first consults the runtime driver's `identify_caller`
 action. `drivers::codex::caller` owns Codex thread markers and bounded process
 ancestry inspection. It takes one PID/parent/command snapshot and walks it in
@@ -2062,8 +2068,13 @@ ownership map.
   provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
   `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
   provider child's environment (never ambient or persisted), optionally the
-  provider session the driver created before the child starts, and a consuming
-  `withdraw`. The driver
+  provider session the driver created before the child starts, `foreground_started`
+  and a consuming `withdraw`. `ChannelPlan` carries the identity and a `PaneAddress`
+  (tmux server incarnation, pane ID, pane process), which the driver persists in its
+  enrollment before the child starts. The launcher calls `foreground_started` once
+  with the exact child incarnation it spawned and observed, before admission, and
+  retires the lease only when no child was spawned or its wait returned; on any other
+  path it drops the lease and the record stays. The driver
   plans the command from the user's command and owns everything that proves a
   cleanup is for exactly that launch; the CLI neither parses provider arguments
   nor inspects the lease. A driver registers it in `Runtime.channel`, which
@@ -2081,11 +2092,26 @@ ownership map.
   is `DeliveryAcceptance::Unacknowledged`, a terminal acceptance that routing
   never retries or falls back from. The record layout and the launch comparison
   stay inside each driver.
-- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(ChannelFault)`.
-  `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting for the
-  durable reply; `ChannelUnavailable` stops the request with
-  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`.
-  `Failure` carries an optional additive `deliveryState`.
+- A paste never runs on "no record under this binding" alone. `RuntimeChannel::enrolled_in_pane`
+  asks each registered driver, by the pane address its enrollments persisted and
+  never through a stored binding (observation deletes the binding of a pane that
+  lost its marker), whether a live or unconfirmed enrollment belongs to this pane. It
+  returns `PaneEvidence` (`enrolled`, plus `skipped` records no driver could
+  attribute) or an `EvidenceError` (fault, record at fault, the driver's recovery
+  text). `RuntimeRegistry::enrolled_in_pane` merges the drivers (first error wins),
+  and `delivery::guarded_paste` and `delivery::pane_channel_evidence` are the only
+  gates in front of the two places that paste: the baseline fallback of
+  `delivery::send` and the raw-pane path of `talk`. Which driver carries an
+  identity's delivery is decided by `RuntimeRegistry::enrolled_harness` (an
+  enrollment names its driver before any preferred harness exists) and only
+  otherwise by the preference.
+- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(EvidenceError)`,
+  and `delivery::send` returns an `Attempt` (the `Delivery` plus the skipped records
+  to report). `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting
+  for the durable reply; `ChannelUnavailable` stops the request with
+  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`
+  (`DELIVERY_PREPARATION_FAILED` for other evidence), and `talk` shows the driver's
+  record and recovery text. `Failure` carries an optional additive `deliveryState`.
 - `drivers::claude::channel` owns the Claude record and the send classification
   behind `ClaudeRuntime::send`. It reads the stored binding and the per-binding
   record under the channel directory, applies the launch-applicability rule, waits
@@ -2093,18 +2119,34 @@ ownership map.
   owner-only socket; the record grants nothing unless it matches the binding's
   launch owner and runtime observation. Without the discovered configuration the
   outcome is `Denied`, never `NotSent`.
-- The same module owns enrollment and the stdio MCP server (`channel/server.rs`).
-  `ClaudeChannel::enroll` writes the per-launch record and returns a lease that
-  withdraws only what it wrote. Every mutation of a record or socket (the enroll
-  write, the server's readiness publish, bind and socket removal, and the lease's
-  withdraw) runs under one lock file in the channel directory, taken through
-  `file_lock::exclusive`, and proceeds only while the record still carries the
-  caller's generation and launch owner, so a stale launcher or server can never
-  replace or remove a newer enrollment. The server's calling thread is its only
-  output writer, and it can only complete an enrollment that `enroll` created.
-- Claude registers its channel in `Runtime.channel`, but no CLI entry point calls
-  `enroll` or `serve` yet, so no record is ever written and every session still
-  uses its existing transport.
+- The same module owns enrollment, the pane lookup and the stdio MCP server
+  (`channel/server.rs`). `ClaudeChannel::enroll` writes the per-launch record (with
+  identity, pane address and, later, the published foreground) and returns a lease
+  that withdraws only what it wrote and keeps the record while a recorded provider
+  process may still run. `enrolled_in_pane` reads only `<uuid>.json` records and
+  observes only the exact process incarnations an attributed record names (launch
+  owner, foreground, provider): a record whose recorded processes are gone has
+  ended, one that never recorded a foreground is unknown and terminal for its own
+  pane with a named `rm` recovery, and a record that names no pane is skipped and
+  reported. `enroll` takes over a record of the same binding only when it is
+  positively over, or when only its owner was recorded and the launch is in the very
+  pane it names, and prunes other ended launches from one process snapshot.
+  Every mutation of a record or socket (the enroll write, the lease's foreground
+  publication and withdraw, the server's readiness publish, bind and socket
+  removal) runs under one lock file in the channel directory, taken through
+  `file_lock::exclusive`. Apart from `enroll`'s own takeover rule, each proceeds
+  only while the record still carries the caller's generation and launch owner, so a
+  stale launcher or server can never replace or remove a newer enrollment. The
+  server's calling thread is its only output writer, and it can only complete an
+  enrollment that `enroll` created.
+- `tmt run --channel` (`run_command/channel.rs`, `run_command/run.rs`) is the only
+  entry point that enrolls. It probes the provider version and shows the driver's
+  advisory before binding, enrolls after binding and before the spawn, publishes
+  the child through `foreground_started`, and retires the lease only on a failed
+  spawn or a reaped child. The hidden `__channel-server` command
+  (`channel_server_command.rs`) parses its argv into a `ServeRequest` and calls the
+  driver's `serve`. A session that never opted in has no record and keeps its
+  existing transport.
 
 ### Host driver protocol
 
