@@ -69,10 +69,13 @@ impl RuntimeChannel for CodexChannel {
             plan.pane.pane_pid,
         )
         .map_err(|_| ChannelError::Unattributed)?;
-        LaunchOptions::parse(plan.command, plan.working_directory).map_err(|_| {
-            ChannelError::UnsupportedArguments(
-                "channel launch requires supported options and no prompt/resume/fork",
-            )
+        LaunchOptions::parse(plan.command, plan.working_directory).map_err(|error| {
+            use super::attachment::AttachmentError;
+            ChannelError::UnsupportedArguments(match error {
+                AttachmentError::UnsupportedPermission(option) => option,
+                AttachmentError::UnsupportedConfig => "--config/-c key is not supported for channel attachment; use --sandbox or --ask-for-approval for permissions",
+                _ => "channel launch requires supported options and no prompt/resume/fork",
+            })
         })?;
         Supervisor::start(plan)
             .map(|lease| Box::new(lease) as Box<dyn ChannelEnrollment>)

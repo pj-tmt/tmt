@@ -61,9 +61,7 @@ impl Lease {
         let id = uuid::Uuid::new_v4().to_string();
         let response = client
             .call(
-                &json!({"id":id,"method":"thread/start","params":{
-                    "cwd":options.working_directory(), "allowProviderModelFallback":false
-                }}),
+                &json!({"id":id,"method":"thread/start","params":options.thread_start_params()}),
                 &id,
             )
             .map_err(|_| invalid())?;

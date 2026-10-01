@@ -140,6 +140,29 @@ If Codex asks to trust the launch folder, the user must answer in its TUI before
 attachment can proceed; the channel never answers that prompt or changes trust
 configuration, and accepted queue input may wait for attachment.
 
+Channel permission options are owned by the new thread, not its attached TUI.
+`-s`/`--sandbox` accepts `read-only`, `workspace-write` or `danger-full-access`;
+`-a`/`--ask-for-approval` accepts `untrusted`, `on-request` or `never`. They set
+`thread/start.sandbox` and `thread/start.approvalPolicy`, respectively, and the
+same app-server defaults; they are never passed to `resume --remote`. With no
+explicit flags, thread creation leaves these fields absent and preserves the
+provider defaults. Unsupported values are refused before any process starts.
+
+Generic `-c`/`--config` permission roots (`approval_policy`, `approvals_reviewer`,
+`sandbox_mode`, `default_permissions`, `permissions`, `network`, and
+`sandbox_workspace_write`) are refused; use the supported typed flags where
+applicable. Other bare dotted config keys retain their server and foreground
+routing. Quoted or ambiguous config keys are refused rather than allowing a
+permission override to evade classification. Refusal is `UnsupportedArguments`
+in enrollment, before provider/supervisor spawn or enrollment record creation;
+the launcher's binding may already exist. No argument is silently discarded.
+
+This mapping follows Codex 0.159.3 commit
+[01fc69f4026735edfdf6789820549727a4867b11](https://github.com/openai/codex/blob/01fc69f4026735edfdf6789820549727a4867b11/codex-rs/app-server/src/request_processors/thread_processor.rs#L1670):
+the thread-start processor maps typed sandbox and approval fields into its
+configuration. The TUI's `app/config_persistence.rs` permission detector and
+`app/startup.rs` remote-resume check reject foreground permission overrides.
+
 Tests use owned shell stand-ins and temporary files to observe cwd, process exit,
 startup timeout, private capability and replacement-preserving cleanup. They do
 not invoke a model or prove that a real foreground client preserves an active

@@ -249,6 +249,55 @@ fn enrollment_refuses_missing_attribution_before_starting_anything() {
 }
 
 #[test]
+fn unsupported_permissions_refuse_before_spawn_or_record_creation() {
+    use crate::runtime::{
+        RuntimeCommand,
+        channel::{ChannelError, ChannelPlan, RuntimeChannel},
+    };
+    let fixture = TestDirectory::new();
+    let server = server();
+    let owner = ProcessIncarnation::new(42, "owner").unwrap();
+    for args in [
+        vec!["-s", "unknown"],
+        vec!["-a", "on-failure"],
+        vec!["-c", "permissions.profile=true"],
+        vec!["-c", "approval_policy=\"never\""],
+    ] {
+        let command = RuntimeCommand {
+            // Any attempted spawn would fail with a different error. The typed
+            // argument refusal and absent store establish the earlier boundary.
+            executable: fixture.path.join("must-not-be-spawned").into_os_string(),
+            args: args.iter().map(std::ffi::OsString::from).collect(),
+        };
+        let plan = ChannelPlan {
+            binding_id: "11111111-1111-4111-8111-111111111111",
+            identity_id: "33333333-3333-4333-8333-333333333333",
+            pane: PaneAddress {
+                server: &server,
+                pane_id: "%2",
+                pane_pid: 8,
+            },
+            owner: &owner,
+            command: &command,
+            working_directory: &fixture.path,
+            tmt: Path::new("/must-not-spawn-supervisor"),
+            directory: &fixture.path,
+        };
+        assert!(
+            matches!(
+                super::super::channel::CodexChannel.enroll(&plan),
+                Err(ChannelError::UnsupportedArguments(_))
+            ),
+            "{args:?}"
+        );
+        assert!(
+            !fixture.path.join("codex").exists(),
+            "refusal must not create enrollment state"
+        );
+    }
+}
+
+#[test]
 fn measured_native_lookup_caches_repeated_recorded_pid() {
     use crate::process::{CommandError, CommandOutput, CommandRequest, CommandRunner};
     struct Measured(Cell<usize>);

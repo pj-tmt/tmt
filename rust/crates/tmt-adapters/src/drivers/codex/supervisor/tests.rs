@@ -45,7 +45,12 @@ fn fixture_command(root: &std::path::Path) -> RuntimeCommand {
     assert!(writer.wait().unwrap().success());
     RuntimeCommand {
         executable: path.into_os_string(),
-        args: vec![],
+        args: vec![
+            "-s".into(),
+            "read-only".into(),
+            "-a".into(),
+            "on-request".into(),
+        ],
     }
 }
 
@@ -73,6 +78,8 @@ fn fake_server() {
     assert_eq!(initialized["method"], "initialized");
     let start: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
     assert_eq!(start["method"], "thread/start");
+    assert_eq!(start["params"]["sandbox"], "read-only");
+    assert_eq!(start["params"]["approvalPolicy"], "on-request");
     socket.send(tungstenite::Message::text(json!({"id":start["id"],"result":{"cwd":start["params"]["cwd"],"thread":{"id":"22222222-2222-4222-8222-222222222222"}}}).to_string())).unwrap();
     // Stay alive until the original process owner terminates this endpoint.
     let _ = listener.accept();
@@ -142,7 +149,11 @@ fn run_lifetime(explicit: bool, published: bool) {
     });
     let start = Start {
         executable: command.executable.as_bytes().to_vec(),
-        args: vec![],
+        args: command
+            .args
+            .iter()
+            .map(|arg| arg.as_bytes().to_vec())
+            .collect(),
         cwd: root.as_os_str().as_bytes().to_vec(),
     };
     write_frame(
