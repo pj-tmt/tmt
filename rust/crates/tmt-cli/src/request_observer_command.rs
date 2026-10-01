@@ -78,8 +78,10 @@ pub fn execute(request_id: &str) -> io::Result<u8> {
             {
                 break;
             }
-            let response = RequestService::new(&mut storage, wall_time_ms).get_response(request_id);
-            if !matches!(response, Ok(ResponseLookup::Unavailable)) {
+            let response = RequestService::new(&mut storage, wall_time_ms)
+                .get_response(request_id)
+                .map_err(io::Error::other)?;
+            if !matches!(response, ResponseLookup::Unavailable) {
                 break;
             }
             if Instant::now() >= deadline {
