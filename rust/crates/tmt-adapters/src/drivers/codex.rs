@@ -5,6 +5,8 @@
 //! reasons leave state unchanged rather than guessing that a client ended a thread.
 
 pub mod caller;
+pub mod queue;
+pub mod transport;
 
 pub use crate::runtime::hook_protocol::encode_context;
 use serde::Deserialize;

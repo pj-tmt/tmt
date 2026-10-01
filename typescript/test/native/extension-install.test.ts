@@ -12,7 +12,7 @@ import {
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
-import { createArtifact } from '../support/native-artifact.js';
+import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
 
@@ -453,4 +453,76 @@ describe('tmt extension install surface', () => {
       );
     });
   }, 60_000);
+});
+
+describe('aggregate official upgrades', () => {
+  it(
+    'keeps independent CLI/Squad pins and reports an invalid Office without undoing them',
+    { timeout: 60000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const prefix = path.join(sandbox.root, 'native install prefix with spaces');
+        const install = async (artifact: ArtifactFixture, product: 'cli' | 'squad') => {
+          const result = await runCli(
+            sandbox,
+            [
+              '__native-install',
+              '--archive',
+              artifact.archive,
+              '--manifest',
+              artifact.manifest,
+              '--prefix',
+              prefix,
+              '--channel',
+              'alpha',
+              '--product',
+              product,
+              '--pin',
+              '--json',
+            ],
+            { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+          );
+          expect(result.status, result.stdout + result.stderr).toBe(0);
+          expect(result.stderr).toBe('');
+          return parseWholeStdout(result) as { executable: string };
+        };
+        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+        const cliArtifact = await createArtifact(sandbox, version);
+        const cli = await install(cliArtifact, 'cli');
+        const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'squad');
+        await install(squad, 'squad');
+        const squadReceipt = path.join(prefix, 'lib/tmt-squad/current/receipt.json');
+        const before = readFileSync(squadReceipt);
+        const managed = { ...sandbox, cli: { executable: cli.executable, args: [] } };
+        const first = await runCli(managed, ['upgrade', '--yes', '--json'], {
+          deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+        });
+        expect(first.status, first.stderr + first.stdout).toBe(0);
+        expect(parseWholeStdout(first).products).toMatchObject([
+          { product: 'cli', status: 'skippedPinned' },
+          {
+            product: 'squad',
+            status: 'skippedPinned',
+            hint: 'tmt extension upgrade squad --unpin',
+          },
+        ]);
+        writeFileSync(path.join(prefix, 'bin/tmt-office'), 'not a managed installation');
+        const failed = await runCli(managed, ['upgrade', '--yes', '--json'], {
+          deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+        });
+        expect(failed.status).toBe(1);
+        expect(parseWholeStdout(failed).products).toMatchObject([
+          { product: 'cli', status: 'skippedPinned' },
+          {
+            product: 'office',
+            status: 'failed',
+            error: { code: 'EXTENSION_INSTALLATION_INVALID' },
+          },
+          { product: 'squad', status: 'skippedPinned' },
+        ]);
+        expect(readFileSync(squadReceipt).equals(before)).toBe(true);
+        expect(existsSync(sandbox.database)).toBe(false);
+      });
+    }
+  );
 });

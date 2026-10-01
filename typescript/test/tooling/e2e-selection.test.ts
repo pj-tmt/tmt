@@ -69,8 +69,8 @@ function selectedByVitest(filterLists: string[][]): string[][] {
     });
     const out = [];
     for (const filters of lists) {
-      const specs = await vitest.globTestFiles(filters);
-      out.push(specs.map((spec) => (Array.isArray(spec) ? spec[1] : spec.moduleId))
+      const specs = await vitest.globTestSpecifications(filters);
+      out.push(specs.map((spec) => spec.moduleId)
         .map((file) => file.slice(process.cwd().length + 1)).sort());
     }
     await vitest.close();

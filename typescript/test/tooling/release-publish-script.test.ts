@@ -369,3 +369,119 @@ describe('release-publish.mjs verify', () => {
     expect(fake.run(arguments_).stderr).toContain('--attempts must be a positive whole number');
   });
 });
+
+describe('release-publish.mjs report', () => {
+  const report = (directory: string) => [
+    'report',
+    '--product',
+    'cli',
+    '--tag',
+    TAG,
+    '--directory',
+    path.join(directory, 'smoke-failures'),
+    '--run-url',
+    'https://github.com/wkh237/tmt/actions/runs/42',
+  ];
+  const leave = (directory: string, target: string, content: string) => {
+    const folder = path.join(directory, 'smoke-failures', `smoke-failures-${target}`);
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(path.join(folder, 'smoke-result.json'), content);
+  };
+  const issueBody = (calls: string[][]) => {
+    const created = calls.find(([command, sub]) => command === 'issue' && sub === 'create');
+    return created?.[created.indexOf('--body') + 1] ?? '';
+  };
+
+  it('opens the issue of the post-publication checks with each host’s failed checks', () => {
+    const fake = scenario();
+    leave(
+      fake.directory,
+      'aarch64-apple-darwin',
+      JSON.stringify({
+        target: 'aarch64-apple-darwin',
+        failed: [{ check: 'tmt upgrade', reason: 'it reports 5.0.0-alpha.8, not 5.0.0-alpha.9' }],
+      })
+    );
+    leave(
+      fake.directory,
+      'x86_64-unknown-linux-musl',
+      JSON.stringify({
+        target: 'x',
+        failed: [{ check: 'install', reason: 'the installer exited 7' }],
+      })
+    );
+    const result = fake.run(report(fake.directory));
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain('Opened issue #77.');
+    expect(result.summary).toContain('- FAILED `install (x86_64-unknown-linux-musl)`');
+    const calls = fake.calls();
+    const created = calls.find(([command, sub]) => command === 'issue' && sub === 'create');
+    expect(created).toContain('Release v5.0.0-alpha.9 failed its post-publication checks');
+    const body = issueBody(calls);
+    expect(body).toContain(
+      '- `tmt upgrade (aarch64-apple-darwin)`: it reports 5.0.0-alpha.8, not 5.0.0-alpha.9'
+    );
+    expect(body).toContain('- `install (x86_64-unknown-linux-musl)`: the installer exited 7');
+    expect(body).toContain('Run: https://github.com/wkh237/tmt/actions/runs/42');
+    expect(body).toContain('Nothing was rolled back');
+    // It reports only: no release is read, edited or verified.
+    expect(calls.filter(([command]) => command === 'release')).toEqual([]);
+  });
+
+  it('comments on the issue that is already open', () => {
+    const title = 'Release v5.0.0-alpha.9 failed its post-publication checks';
+    const fake = scenario({ openIssues: [{ number: 12, title }] });
+    leave(
+      fake.directory,
+      'aarch64-apple-darwin',
+      JSON.stringify({ failed: [{ check: 'a', reason: 'b' }] })
+    );
+    const result = fake.run(report(fake.directory));
+    expect(result.stderr).toContain('Commented on issue #12.');
+    expect(fake.calls().some(([command, sub]) => command === 'issue' && sub === 'create')).toBe(
+      false
+    );
+  });
+
+  it('still reports a failure when no result file can be read, and keeps text to one line', () => {
+    const none = scenario();
+    expect(none.run(report(none.directory)).status).toBe(0);
+    expect(issueBody(none.calls())).toContain(
+      '- `public install`: a host failed and no details were kept; see the run'
+    );
+    const broken = scenario();
+    leave(broken.directory, 'aarch64-apple-darwin', '{not json');
+    broken.run(report(broken.directory));
+    expect(issueBody(broken.calls())).toContain(
+      '- `public install (aarch64-apple-darwin)`: its result file could not be read; see the run'
+    );
+    const unruly = scenario();
+    leave(
+      unruly.directory,
+      'aarch64-apple-darwin',
+      JSON.stringify({
+        failed: [{ check: 'install', reason: `first\nsecond\u0007 ${'x'.repeat(900)}` }],
+      })
+    );
+    unruly.run(report(unruly.directory));
+    const reason =
+      /`install \(aarch64-apple-darwin\)`: (.*)/.exec(issueBody(unruly.calls()))?.[1] ?? '';
+    expect(reason.startsWith('first second')).toBe(true);
+    expect(reason.length).toBeLessThanOrEqual(500);
+  });
+
+  it('fails the run when the issue cannot be opened, and needs a directory', () => {
+    const fake = scenario({ issueFails: true });
+    leave(
+      fake.directory,
+      'aarch64-apple-darwin',
+      JSON.stringify({ failed: [{ check: 'a', reason: 'b' }] })
+    );
+    const result = fake.run(report(fake.directory));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('The failure could not be reported as an issue');
+    expect(fake.run(['report', '--product', 'cli', '--tag', TAG]).stderr).toContain(
+      'report needs --directory'
+    );
+  });
+});

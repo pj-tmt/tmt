@@ -51,6 +51,9 @@ cell).
   below for reset and evidence limits.
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
   layout lists it first.
+- A row has `colors` only when a cell has a color: `{field: theme token}`,
+  from the user's column thresholds or a field provider's suggestion. Colors
+  only decorate; read the values.
 - States come from the layout: crew uses `working idle blocked review testing
 hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
 

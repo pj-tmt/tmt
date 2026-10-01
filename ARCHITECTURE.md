@@ -702,7 +702,9 @@ facade, which PR B of #355 removes.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. It follows the actual Rust module tree, checks reviewed
-layer edges and shared declaration ownership, and fails closed for unsupported
+layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
+ledger (crate, canonical name and target, with a reason per row); aliases are rejected,
+and the invoke leaf remains guarded for every dependency kind. The guard fails closed for unsupported
 module remapping or incomplete discovery. It also checks that the CLI crates
 reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
 each CLI checks every command's help against the style
@@ -1329,6 +1331,27 @@ schema 9, the rebuild runs with foreign keys off, so dropping
 them, all in one immediate transaction that rolls back to schema 40 on any
 failure; foreign keys are restored on every exit.
 
+Schema 42 adds `bindings.pane_incarnation`, beside `pane_pid`. It holds the
+start token of the `ProcessIncarnation` that core observes for the pane shell
+when a binding is created (`BindingEndpoint::pane_incarnation`). It never comes
+from a host's or driver's text.
+
+- **Existing rows:** bindings made before schema 42 keep NULL until they rebind;
+  there is no backfill.
+- **Verification:** `evaluate_binding` treats a known recorded value and a known
+  observed value that differ as a reused pid, which is `EndpointLost`. NULL, or a
+  failed observation, is unknown and proves neither loss nor sameness; the pid
+  and marker rules decide as before.
+- **Read paths don't observe:** on macOS one `ps` costs about 110 ms, so tmux and
+  Herdr reads (`ls`, status, send) leave the observed value unknown and never
+  compare; their pane IDs are already unique within a server incarnation.
+- **Cost:** recording costs one `ps` per new binding.
+- **External hosts:** pane IDs are declared by the driver, so external hosts will
+  observe on verification, scoped to the binding's pane.
+- **Format:** the column admits 1 to 256 printable ASCII bytes, not all blank,
+  matching what `ProcessIncarnation` accepts.
+- **Cursor:** the bindings cursor update trigger compares the column.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
@@ -1754,7 +1777,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 41, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 42, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -2037,6 +2060,18 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
+### Codex queue transport groundwork
+
+`drivers/codex/queue` owns exact native request/receipt validation, while
+`drivers/codex/transport` owns synchronous WebSocket framing and the absolute
+I/O deadline. The only new transport dependency is adapter-local tungstenite,
+exactly pinned with default features disabled and `handshake` enabled; no TLS
+or async runtime enters core or shared ports. The architecture dependency guard
+permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
+owns limits, version qualification and receipt semantics. These modules are
+unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
+integration must be proven before user-facing activation in the later #719 slices.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent
@@ -2048,8 +2083,13 @@ ownership map.
   provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
   `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
   provider child's environment (never ambient or persisted), optionally the
-  provider session the driver created before the child starts, and a consuming
-  `withdraw`. The driver
+  provider session the driver created before the child starts, `foreground_started`
+  and a consuming `withdraw`. `ChannelPlan` carries the identity and a `PaneAddress`
+  (tmux server incarnation, pane ID, pane process), which the driver persists in its
+  enrollment before the child starts. A launcher calls `foreground_started` once
+  with the exact child incarnation it spawned and observed, before admission, and
+  retires the lease only when no child was spawned or its wait returned; on any other
+  path it drops the lease and the record stays. The driver
   plans the command from the user's command and owns everything that proves a
   cleanup is for exactly that launch; the CLI neither parses provider arguments
   nor inspects the lease. A driver registers it in `Runtime.channel`, which
@@ -2067,11 +2107,26 @@ ownership map.
   is `DeliveryAcceptance::Unacknowledged`, a terminal acceptance that routing
   never retries or falls back from. The record layout and the launch comparison
   stay inside each driver.
-- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(ChannelFault)`.
-  `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting for the
-  durable reply; `ChannelUnavailable` stops the request with
-  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`.
-  `Failure` carries an optional additive `deliveryState`.
+- A paste never runs on "no record under this binding" alone. `RuntimeChannel::enrolled_in_pane`
+  asks each registered driver, by the pane address its enrollments persisted and
+  never through a stored binding (observation deletes the binding of a pane that
+  lost its marker), whether a live or unconfirmed enrollment belongs to this pane. It
+  returns `PaneEvidence` (`enrolled`, plus `skipped` records no driver could
+  attribute) or an `EvidenceError` (fault, record at fault, the driver's recovery
+  text). `RuntimeRegistry::enrolled_in_pane` merges the drivers (first error wins),
+  and `delivery::guarded_paste` and `delivery::pane_channel_evidence` are the only
+  gates in front of the two places that paste: the baseline fallback of
+  `delivery::send` and the raw-pane path of `talk`. Which driver carries an
+  identity's delivery is decided by `RuntimeRegistry::enrolled_harness` (an
+  enrollment names its driver before any preferred harness exists) and only
+  otherwise by the preference.
+- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(EvidenceError)`,
+  and `delivery::send` returns an `Attempt` (the `Delivery` plus the skipped records
+  to report). `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting
+  for the durable reply; `ChannelUnavailable` stops the request with
+  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`
+  (`DELIVERY_PREPARATION_FAILED` for other evidence), and `talk` shows the driver's
+  record and recovery text. `Failure` carries an optional additive `deliveryState`.
 - `drivers::claude::channel` owns the Claude record and the send classification
   behind `ClaudeRuntime::send`. It reads the stored binding and the per-binding
   record under the channel directory, applies the launch-applicability rule, waits
@@ -2079,8 +2134,29 @@ ownership map.
   owner-only socket; the record grants nothing unless it matches the binding's
   launch owner and runtime observation. Without the discovered configuration the
   outcome is `Denied`, never `NotSent`.
-- No first-party driver registers a channel and nothing writes a record yet, so
-  every session still uses its existing transport.
+- The same module owns enrollment, the pane lookup and the stdio MCP server
+  (`channel/server.rs`). `ClaudeChannel::enroll` writes the per-launch record (with
+  identity, pane address and, later, the published foreground) and returns a lease
+  that withdraws only what it wrote and keeps the record while a recorded provider
+  process may still run. `enrolled_in_pane` reads only `<uuid>.json` records and
+  observes only the exact process incarnations an attributed record names (launch
+  owner, foreground, provider): a record whose recorded processes are gone has
+  ended, one that never recorded a foreground is unknown and terminal for its own
+  pane with a named `rm` recovery, and a record that names no pane is skipped and
+  reported. `enroll` takes over a record of the same binding only when it is
+  positively over, or when only its owner was recorded and the launch is in the very
+  pane it names, and prunes other ended launches from one process snapshot.
+  Every mutation of a record or socket (the enroll write, the lease's foreground
+  publication and withdraw, the server's readiness publish, bind and socket
+  removal) runs under one lock file in the channel directory, taken through
+  `file_lock::exclusive`. Apart from `enroll`'s own takeover rule, each proceeds
+  only while the record still carries the caller's generation and launch owner, so a
+  stale launcher or server can never replace or remove a newer enrollment. The
+  server's calling thread is its only output writer, and it can only complete an
+  enrollment that `enroll` created.
+- Claude registers its channel in `Runtime.channel`, but no CLI entry point calls
+  `enroll` or `serve` yet, so no record is ever written and every session still
+  uses its existing transport.
 
 ### Host driver protocol
 
@@ -2269,6 +2345,21 @@ stays at 16 KiB.
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
 
+`native_upgrade_command` upgrades the CLI and refreshes its managed skills before
+asking the newly installed executable to upgrade installed official products.
+The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
+pending versions; the parent owns one terminal consent question and sends that
+exact plan on stdin to the new executable with `--yes`. It validates the bounded
+plan/result reports and exit status. Unsupported older targets fail with a rerun
+hint; old-process extension logic is never used as a fallback.
+`extension_install_command::upgrade_all` in the new executable discovers products
+in its managed CLI prefix and retains each channel/pin. A selected
+version uses the same native acquisition/activation path without creating an exact
+version pin; extension verification and skill settlement retain their existing owners.
+JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
+Product failures remain independent in the aggregate report; CLI failure stops the
+extension phase, while a pinned CLI permits it. No rollback or second installer exists.
+
 Explicit extension `install --repair` is a separate recovery composition in
 `native_install::repair`, for GitHub and local-archive receipts. `receipt`
 separates bounded metadata/recorded-path validation from payload verification;
@@ -2355,7 +2446,13 @@ member's public projection: the `ls --room` row it already joins (`cwd`,
 returns unprefixed only when a column reads `meta.<key>`. `status::document`
 writes each bound value into the row's field of the column's name, with its
 number for sorting, before sections, filters and sorts read it, so the board and
-`ls` show one value and a binding adds no core call. Field providers
+`ls` show one value and a binding adds no core call. It also owns cell color
+resolution: a column's numeric `color` thresholds (`rows::Threshold`, validated
+theme tokens, strictly increasing) over the bound number or the field read as a
+number, else a field provider's token, which `provider::apply` keeps only when
+it names a theme token. The row carries the result as `colors` (`{field: token}`,
+omitted when empty); the board styles those cells through the theme, `state`
+keeps its state colors, and `ls` text stays uncolored. Field providers
 (`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
 member through `runner` with the run-binding argument rule
 (`Template::fill_argument`: one argument per template, no shell, a value that
@@ -2690,7 +2787,7 @@ bundle or is complete and waits for its publication; the state lives on the draf
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
-`release-please-config.json`) on every push to `main` that changes more than prose: it
+`release-please-config.json`) on every push to `main`, documentation included: it
 opens one release pull request per component, enables auto-merge on them (they merge only
 through the required checks) and keeps them current, creates the draft release for a merged
 one, and starts the per-product run for each product that has a draft without a bundle. A
@@ -2711,7 +2808,7 @@ component with `release: false`, a draft without the bundle and one with a hold 
 marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
 prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
 the policy's flags, the tag on the release commit and GitHub's attestation for the release and
-every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. A read-only `native-release-smoke.yml` then installs the published release as a user does, on the four hosts in an isolated environment: the public installer and `tmt upgrade` for the CLI, the newest published CLI's extension install for an extension; its failures are reported on the same issue by a separate job. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill

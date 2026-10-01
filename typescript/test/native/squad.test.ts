@@ -15,7 +15,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
+import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 
 // Scenario-local selector: the built squad extension, never an installed copy.
 const squadExecutable =
@@ -799,22 +799,39 @@ describe('squad extension', () => {
           ])
         ).status
       ).toBe(0);
-      const db = new Database(sandbox.database);
-      try {
-        const insert = db.prepare(
-          'INSERT INTO identity_metadata (identity_id, key, value) VALUES (?, ?, ?)'
-        );
-        for (let i = 0; i < 63; i++) insert.run(sol, `fixture${i}`, 'value');
-      } finally {
-        db.close();
+      // Reach core's real boundary through its public validation path.
+      for (let i = 0; i < 63; i++) {
+        const filled = await runCli(sandbox, [
+          'identity',
+          'meta',
+          'set',
+          `fixture${i}`,
+          'value',
+          '--identity',
+          sol,
+          '--json',
+        ]);
+        expect(filled.status).toBe(0);
       }
       const before = observe(sandbox);
+      expect(before.metadata.filter((row) => row.identity === 'Sol')).toHaveLength(64);
+      const overflow = await runCli(sandbox, [
+        'identity',
+        'meta',
+        'set',
+        'overflow',
+        'value',
+        '--identity',
+        sol,
+        '--json',
+      ]);
+      expect(overflow.status).toBe(1);
+      const coreError = parseWholeStdout(overflow).error;
+      expect(coreError).toMatchObject({ code: 'IDENTITY_METADATA_INVALID' });
+      expect(observe(sandbox)).toEqual(before);
       const failed = await squad(sandbox, ['lead', 'Rin']);
       expect(failed.status).toBe(1);
-      expect(failed.body.error).toEqual({
-        code: 'IDENTITY_METADATA_INVALID',
-        message: 'An identity may have at most 64 metadata entries.',
-      });
+      expect(failed.body.error).toEqual(coreError);
       expect(observe(sandbox)).toEqual(before);
       const listing = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(listing.body.squad.lead.id).toBe(sol);

@@ -58,7 +58,14 @@ pub fn evaluate_binding(entry: &BindingEntry, probe: &EndpointProbe) -> BindingE
     else {
         return BindingEvidence::EndpointLost;
     };
-    if pane.pane_pid != binding.pane_pid {
+    // A reused pid is another process: only two known, different starts
+    // prove it, and an unknown one leaves the pid and marker to decide.
+    if pane.pane_pid != binding.pane_pid
+        || incarnations_differ(
+            binding.pane_incarnation.as_deref(),
+            pane.pane_incarnation.as_deref(),
+        )
+    {
         return BindingEvidence::EndpointLost;
     }
     let Some(marker) = &pane.marker else {

@@ -158,6 +158,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(installation::upgrade())
     .subcommand(installation::uninstall())
     .subcommand(installation::refresh_skills())
+    .subcommand(installation::upgrade_extensions())
     .subcommand(installation::native_install())
     .subcommand(installation::learn())
 }

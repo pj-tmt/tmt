@@ -21,7 +21,14 @@ impl ConfigPaths {
 
     /// Endpoint records and sockets of provider channel servers, keyed by binding.
     pub fn channel_directory(&self) -> PathBuf {
-        self.global_dir.join("channels")
+        Self::channel_directory_in(&self.global_dir)
+    }
+
+    /// The same directory, absolute, for a caller that holds only the global
+    /// directory. Every enrollment and every evidence lookup uses this one path.
+    pub fn channel_directory_in(global_dir: &Path) -> PathBuf {
+        let directory = global_dir.join("channels");
+        std::path::absolute(&directory).unwrap_or(directory)
     }
 
     pub(crate) fn notes_layout(

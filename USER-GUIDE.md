@@ -19,7 +19,19 @@ unless `--no-skill` is supplied. Reload the agent after installation.
 The native runtime requires macOS or Linux and tmux for pane operations, but no
 Node.js, Rust toolchain or source checkout. Native `tmt upgrade` (also
 available as `tmt update`) follows its retained stable/alpha channel; use
-`--to <version>` to pin or `--unpin` to resume channel updates. Package-manager
+`--to <version>` to pin the CLI or `--unpin` to resume its channel updates.
+After the CLI and managed skills succeed, installed official extensions are checked
+on their own recorded channels. Pins are independent: a pinned CLI does not prevent
+extension updates, and pinned extensions stay unchanged. Interactive use asks once,
+listing extension version changes. Use `tmt upgrade --yes` to consent without a prompt;
+in JSON or non-terminal use without it, pending extensions report `consentRequired`
+and the same rerun command, without changing extensions or failing the command.
+Missing extensions are never installed. Results list each product; an extension
+failure makes the command fail but does not undo other successful updates.
+If an older target CLI cannot run the extension-upgrade phase, the report fails
+with a hint to run `tmt upgrade` again; it never uses the previous CLI's installer.
+`--channel` and `--to` select only the CLI; clear an extension pin with
+`tmt extension upgrade <name> --unpin`. Package-manager
 installations from older releases are a separate legacy TypeScript runtime.
 Use their original manager to remove them before switching; current repository
 source is not an npm product installation. See the replacement guidance below.
@@ -607,9 +619,21 @@ shows `–`, the board's one mark for a missing value (an empty cell in `ls`):
 columns = [
   { name = "member" },
   { name = "model", from = "session.model" },
-  { name = "ctx",   from = "session.usage.tokens", format = "tokens", align = "right" },
+  { name = "ctx",   from = "session.usage.tokens", format = "tokens", align = "right",
+    color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }] },
 ]
 ```
+
+`color` gives a column numeric thresholds: from each `at` upward the cell takes
+that theme token (or one of the older names `red`, `amber`, `green`, `blue`,
+`cyan`, `magenta`), the highest reached winning, with `at` strictly increasing.
+The number compared is the bound value before `format`, or the field's text
+read as a number; text that is not a number, a missing value and a value below
+the first `at` get no color. `state` keeps its state colors. A threshold the
+value reaches wins over a field provider's suggested color. These colors only
+decorate: `ls` text, `mono` and `NO_COLOR` show the same values without them,
+and `ls --json` lists each colored cell's token under the row's `colors`
+(omitted when a row has none).
 
 For data TMT does not have, such as a pull request's review state, a field
 provider runs a program of yours for each member and shows its output as a
@@ -627,8 +651,9 @@ or an absolute path, never a shell, each `{field}` filling exactly one argument,
 and a value that would begin an argument with `-` refused. A member whose
 placeholder is missing or refused is not run and shows `–`. The program's first
 output line is the value (at most 200 characters, control characters removed);
-it may instead print `{"value": "487k", "color": "review"}`, whose color token
-the board uses once themes arrive. A failed start, a non-zero exit, a timeout or
+it may instead print `{"value": "487k", "color": "review"}` to suggest that
+theme token for the cell. Output is untrusted, so only a theme token's name
+counts; any other color is ignored and the value still shows. A failed start, a non-zero exit, a timeout or
 more than 4 KiB of output shows a dim `?`, never an error. A squad defines at
 most 8 providers, and at most 4 programs run at once.
 
