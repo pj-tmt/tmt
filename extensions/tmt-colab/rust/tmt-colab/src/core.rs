@@ -19,6 +19,7 @@ pub fn data_root(stop: &AtomicBool) -> Result<PathBuf> {
             input: &input,
             deadline: Instant::now() + Duration::from_secs(5),
             max_stream_bytes: 64 * 1024,
+            launch: Default::default(),
         },
         Some(stop),
     )?;
