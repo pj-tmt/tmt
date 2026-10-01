@@ -481,14 +481,14 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 `tmt squad board` opens the terminal board: squad tabs (←/→), one searchable
 list (`/`), the ◆ rows that wait on you first in the crew layout, and each
 member's note under its row. It reloads in the background every 5 seconds
-and re-reads `squad.toml`, so edits apply on the next reload; F5 (the `refresh`
+and re-reads `squad.toml`, so edits apply on the next reload; `ctrl-r` (the `refresh`
 binding) and the board's own actions reload at once. Between those reloads it
 checks every second whether TMT's records (members, requests, rooms, status)
 or `squad.toml` changed, and reloads as soon as they did; a pane opening or
 closing, and an edited notebook, still wait for the interval. `q` or Esc
 closes it. Set the interval with `refresh`, per squad or for every board, as
 whole seconds or minutes from `"1s"` to `"60m"`, or `"off"` to reload only on
-F5 and actions, with no early reloads either; the help overlay (`?`) shows the
+`ctrl-r` and actions, with no early reloads either; the help overlay (`?`) shows the
 one in effect:
 
 ```toml
@@ -540,7 +540,7 @@ case); Enter opens the chosen tab and Esc closes the list. While a hidden squad
 is shown, it leads the tab line, selected and marked `(hidden)`. If you bind `s`
 yourself, your binding runs instead. The
 leads tab takes its own bindings over `[bind]`. The all tab's rows are squads,
-not members, so it has only its own bindings (Enter and double-click `tab`, F5
+not members, so it has only its own bindings (Enter and double-click `tab`, `ctrl-r`
 `refresh`):
 
 ```toml
@@ -758,12 +758,14 @@ it. In a plain terminal, where the board cannot show another pane, Enter opens
 a menu of the row's actions instead. `o` opens the row's link,
 `y` copies it, `t` talks to the member, `r` replies to it, `a` annotates the
 row for the lead, `n` focuses the notes pane and Tab moves to the next pane;
-`?` lists every key. Rebind keys in `squad.toml`, for all squads or for one section's rows:
+`ctrl-r` refreshes without changing text in search or a message composer.
+`?` lists every key. F5 has no default action; you may bind `f5 = "refresh"`
+yourself. Rebind keys in `squad.toml`, for all squads or for one section's rows:
 
 ```toml
 [bind]                               # over the host preset, for every squad
 enter = "open {pr_link}"
-f5    = "refresh"
+ctrl-r = "refresh"
 y     = "copy - [{name}]({pr_link})"
 
 [[squad.product.section]]
