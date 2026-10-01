@@ -1314,8 +1314,9 @@ failure; foreign keys are restored on every exit.
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
-optional). A document without usage is still written as version 1, byte for
-byte, and both versions are read. The model's only source is the `model` field
+optional). Version 3 additionally stores session-scoped main-turn activity,
+including the exact provider session and process incarnation. Documents without
+activity retain versions 1/2, byte for byte; all three versions are read. The model's only source is the `model` field
 of a starting hook event, which both providers document (see
 `runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
 then the previous model stays. When a provider sends no model, nothing is stored.
@@ -1323,6 +1324,32 @@ A model is never inferred from transcripts or arguments. Resume replays a stored
 model (`claude --resume <id> --model <m>`, `codex resume -m <m> <id>`, following
 each CLI's recorded usage) only when the document is readable and the slug is a
 safe single argv value. Otherwise it resumes with the provider's default.
+
+Main-turn activity (#656) comes from TMT's own UserPromptSubmit/Stop command
+hooks as installed by `tmt setup`. Claude runs these synchronously: admitted
+transitions commit inside the hook call, before it returns. Ordering relies on
+that provider contract, not a TMT sequence or receipt-time guess. Changing an
+owned entry to `async` is a user-modification edge detected by setup inspection;
+the event path does not re-read effective user/project/plugin settings. Codex
+also requires its first-party turn ID; a Stop for another turn changes no
+activity. Provider-only extras are deferred (`providers: {}`). The driver fixture
+README owns source/version provenance and the documented-contract limitation.
+
+`binding::session::activity` owns normalized transitions and clock validation;
+`runtime::driver_state` owns their opaque persistence. Model/usage retention never
+transfers activity across sessions or process incarnations. SessionStart resets
+activity; start/end events do not establish a binding. Duplicate events do not
+renew timestamps. The existing binding/preferences transaction checks the full
+snapshot, and expired handlers do not begin a write. No detached writer exists.
+
+Public `ls --json` rows expose `session.activity` with `state`, `sinceMs`,
+`lastActivityMs`, and `providers`. Working/idle describe the last admitted
+main-turn event, not all background tasks. Runtime uncertainty is unknown;
+ended requires a conclusive core process observation. Timestamps are accepted
+observation times, never inferred from silence, usage, terminal text or probes.
+The state clock has no stalled threshold. Storage-only identity output does not
+assert activity liveness. The Stop entry remains opt-in through `setup --usage`;
+without it, no end event can be recorded.
 
 Context usage (#519) is opt-in: `tmt setup --usage` adds a TMT `Stop` hook next
 to the lifecycle hooks, and `--no-usage` removes only that entry. A turn end is not
@@ -1846,6 +1873,8 @@ request.
 schema, connection or alternate final-submission path. Input is bounded and
 validated before storage effects. A malformed receipt, a stale revision, an
 unknown identity and an uncertain transport outcome remain distinct failures.
+The [request contract](REQUEST-RESPONSE.md#talk-completion) owns talk interruption
+and retry guidance on either side of preparation.
 
 Talk preparation renders `<tmt-reply from="…">` using the same resolved
 originator's display name (explicit identity before verified caller), or
@@ -1949,10 +1978,10 @@ Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode
 shortcuts; this is transport policy, not arbitrary output rewriting. `check`
 remains bounded terminal diagnostics, not a fallback response channel.
 
-`response_input` owns bounded file/stdin acquisition, regular-file checks,
-nonblocking behavior and restoration of inherited descriptor flags. The public
-CLI owns stdin during acquisition. These adapters do not invent background
-threads or a second process runner.
+`response_input` owns bounded file/stdin acquisition and regular-file checks. It
+polls against the deadline before each read and never mutates stdin descriptor
+flags. The public CLI exclusively owns stdin during acquisition. These adapters
+do not invent background threads or a second process runner.
 
 ### Agent drivers
 
@@ -2385,7 +2414,7 @@ drawn there. `board::scroll` is the one scroll owner: every pane hands its
 lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
-under the pointer. Panes keep no scroll state of their own; the rows pane only
+under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
 asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
@@ -2505,7 +2534,8 @@ contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
 
-Docker E2E `harness.ts` owns fixture resources and process registries.
+Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
+fixture resources and process registries.
 `harness/readiness.ts` observes caller-supplied events, panes and process state;
 `harness/cleanup.ts` stops and checks owned process groups and clients. The
 fixture retains cleanup ordering and error precedence. `harness/types.ts` owns
@@ -2551,13 +2581,13 @@ third-party notices (including Vite's bundled frontend inventory for Office), an
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
-The release workflow remains a product-selected preparation and verification
+The release workflow is a product-selected preparation, verification and publication
 workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
 in the release skill covers the pipeline publishing an alpha draft that passes every gate, and
 nothing else. `native-release.yml` is the per-product
 run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
-the build, assemble and verify pipeline, once per draft release that lacks a verified
-bundle; the state lives on the draft itself (`release-publication.json` marks a complete
+the build, assemble, verify and publish pipeline, once per draft release that lacks a verified
+bundle or is complete and waits for its publication; the state lives on the draft itself (`release-publication.json` marks a complete
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
@@ -2573,10 +2603,16 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
 assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
-attached the pipeline evaluates the publication gates (commit, immutability, monotonic,
-migration, upgrade) in write-token jobs that run `main`'s code and only read the release
-commit's data; a failed gate leaves `publication-held.json` on the draft, and nothing
-publishes a draft yet. CLI, Office and Squad runs share the four-target cargo-dist build and
+attached the pipeline evaluates the publication gates (channel, commit, immutability,
+monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release
+commit's data; a failed gate leaves `publication-held.json` on the draft. A draft that
+passes them is published by `typescript/scripts/release-publish.mjs` in a write-token job on
+`main`'s code (it reads the draft again and refuses a version that is not an alpha, a
+component with `release: false`, a draft without the bundle and one with a hold or failure
+marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
+prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
+the policy's flags, the tag on the release commit and GitHub's attestation for the release and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
@@ -2638,8 +2674,10 @@ For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
 
 The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
 TypeScript module owns decoded-value envelope, enrollment and possession signing-byte
-builders and independent exact-byte/SHA-256 fixtures. It uses standard UTF-8 and
-WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
+builders and independent exact-byte/SHA-256 fixtures. Enrollment agent references follow
+core canonical non-nil UUID syntax; remote-generated IDs remain UUIDv4, as defined
+by the client contract. Syntax validation establishes neither identity existence nor authority.
+It uses standard UTF-8 and WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
 quality job: the independent Python oracle must pass before the workspace-pinned
 Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
 runtime authority or browser-shell wiring; the proposed contract remains the wire

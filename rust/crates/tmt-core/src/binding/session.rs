@@ -5,6 +5,8 @@
 //! neither a provider session ID nor inherited hook text authorizes a binding.
 //! Foreground launch callers use `admit_launched`, not direct owner assignment.
 
+pub mod activity;
+
 use crate::endpoint::ProcessIncarnation;
 use std::{error::Error, fmt};
 

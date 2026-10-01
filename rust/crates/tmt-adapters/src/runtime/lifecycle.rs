@@ -71,6 +71,32 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    fn decode_activity(
+        &self,
+        _payload: &[u8],
+    ) -> Option<tmt_core::binding::session::activity::Event> {
+        None
+    }
+
+    /// Driver-owned persistence for a normalized admitted activity event.
+    fn activity_state(
+        &self,
+        _event: &tmt_core::binding::session::activity::Event,
+        _session: &ProviderSessionId,
+        _process: &ProcessIncarnation,
+        _previous: Option<&DriverState>,
+        _now_ms: u64,
+    ) -> Option<DriverState> {
+        None
+    }
+
+    fn state_activity(
+        &self,
+        _state: &DriverState,
+    ) -> Option<tmt_core::binding::session::activity::Activity> {
+        None
+    }
+
     fn encode_prompt_context(&self, text: &str) -> Option<String> {
         super::hook_protocol::encode_event_context("UserPromptSubmit", text)
     }

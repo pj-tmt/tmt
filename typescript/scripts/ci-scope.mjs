@@ -114,6 +114,16 @@ function componentMap() {
 
 const within = (root, path) => root === '.' || path === root || path.startsWith(`${root}/`);
 
+/**
+ * Whether a component is released: `release: false` parks it (release-please skips it, and the
+ * release pipeline plans and publishes nothing for it). An unknown component is an error.
+ */
+export function isReleased(map, name) {
+  const component = map.components.find((candidate) => candidate.name === name);
+  if (!component) throw new Error(`Unknown component ${name}.`);
+  return component.release !== false;
+}
+
 /** A `selectedBy` glob wins; otherwise the longest `owns` root the path is not excluded from. */
 export function ownerOf(path, map = componentMap()) {
   const selected = map.components.find((component) =>
