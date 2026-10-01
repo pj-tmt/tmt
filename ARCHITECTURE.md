@@ -36,7 +36,9 @@ their declared dependencies, never root-hoisted tooling packages; Office browser
 specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
-and the Office skill sources live under `extensions/tmt-office/`. The Nx task graph orders only the Office SPA producer, embedded
+and the Office skill sources live under `extensions/tmt-office/`; the proposed
+colab contract lives under `extensions/tmt-colab/contracts/` (see the
+[colab boundary](#colab-extension-proposal)). The Nx task graph orders only the Office SPA producer, embedded
 native companion and installed-browser acceptance chain; ordinary CLI targets
 remain independent. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
@@ -2947,3 +2949,46 @@ quality job: the independent Python oracle must pass before the workspace-pinned
 Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
 runtime authority or browser-shell wiring; the proposed contract remains the wire
 and authority definition owner.
+
+## Colab extension proposal
+
+**Status: proposed, not implemented.** The local-build-only pilot lives under
+`extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
+owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
+bridge policy and acceptance gates. The #828 design owns product/UI choices;
+#829/#830 are bounded spike evidence. This documentation adds no registered
+executable, workspace package, listener, deployment or release.
+
+Proposed Rust dependencies are `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
+and `tmt-cli-style`, plus reviewed workspace pins. The model owns pure values,
+canonical bytes/codecs/crypto and policy, without I/O or core access. The
+executable owns CLI composition, foreground door, embedded app, SQLite/files,
+keyring and bridge. Core access is only through the absolute invoking
+`$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
+`tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
+or pane scraping. Shared crypto extraction requires actual consumers and review.
+
+Proposed extension-relative browser packages are `typescript/colab-client`
+(client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
+(trusted React/Vite chrome and renderer); backend packages are separate. They
+join the existing pnpm workspace/lockfile and pins when implemented. Shared
+workspace/component edits follow the two-lead rule; architecture guard and
+runtime CI-scope registration land with first code. The component map gives the
+contract directory private file ownership (`release: false`) and excludes it from
+CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
+
+All extension state stays in `<core-reported data root>/colab/`, with 0700
+directories and 0600 files, separate from core SQLite and provider configuration.
+The extension owns its ciphertext database/blobs, keyring, machine grants and
+bridge ledger. The colab-v1 edge model deliberately replaces #478 signed-edge
+admission with ciphertext Auth/Rules or server-session admission; it does not
+inherit Remote transport authority. The contract owns client authority and
+before-effect verification; the public core API retains dispatch/final ownership.
+
+Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
+`tmt-colab` child through `tmt-invoke` (deadline/caps/confirmed cleanup), or a
+budgeted browser Worker terminated on overrun, as defined by the contract.
+That boundary contains decoder failure, without claiming an OS/key sandbox.
+Local acceptance precedes Firestore then Cloudflare; protocol, renderer and
+containment details/gates live only in the linked contract. DEVELOPMENT usage
+commands land in L2/L3, when the executable exists.
