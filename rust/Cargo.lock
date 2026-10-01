@@ -2517,6 +2517,7 @@ dependencies = [
  "insta",
  "nix",
  "proc-macro2",
+ "rusqlite",
  "serde_json",
  "syn 2.0.119",
  "tmt-adapters",
