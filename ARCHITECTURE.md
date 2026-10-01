@@ -623,6 +623,9 @@ extension release only together with a change under that extension's own path.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
 `.github/release-please/`, outside the `typescript` workspace so no other job installs it.
+The config sets `always-update`: release-please otherwise leaves an open release pull request
+untouched while its notes are unchanged, so a conflict with `main` (every release pull request
+edits the shared manifest, and adjacent lines conflict) would never clear.
 A tooling test fails when the committed config is not what the generator writes, when a
 workspace crate's lock entry or declared version is managed zero or several times, or when
 a tag disagrees with the policy or a package could leave the alpha line (release-please's
@@ -2035,7 +2038,9 @@ ownership map.
 - `tmt_adapters::runtime::channel` defines the port. `RuntimeChannel` verifies the
   provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
   `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
-  provider child's environment (never ambient or persisted), and a consuming `withdraw`. The driver
+  provider child's environment (never ambient or persisted), optionally the
+  provider session the driver created before the child starts, and a consuming
+  `withdraw`. The driver
   plans the command from the user's command and owns everything that proves a
   cleanup is for exactly that launch; the CLI neither parses provider arguments
   nor inspects the lease. A driver registers it in `Runtime.channel`, which

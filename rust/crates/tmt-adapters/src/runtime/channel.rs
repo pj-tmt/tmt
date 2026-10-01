@@ -11,7 +11,7 @@ use std::{
     path::Path,
     time::Instant,
 };
-use tmt_core::endpoint::ProcessIncarnation;
+use tmt_core::{binding::session::ProviderSessionId, endpoint::ProcessIncarnation};
 
 /// Why a channel could not be established or used. Copy-sized so it can ride in
 /// `RuntimeError` through the runtime driver port.
@@ -158,6 +158,15 @@ pub trait ChannelEnrollment {
     /// environment, persisted or logged.
     fn environment(&self) -> &[(OsString, OsString)];
 
+    /// The provider session the driver created for this launch before the child
+    /// starts (for example a thread its own server created), if any. The launcher
+    /// records it only from here, never from argv, for the claimed harness and
+    /// with the child's own incarnation, so hooks can find it. It is the mapping
+    /// published at launch, not proof that the same thread stays active.
+    fn provider_session(&self) -> Option<&ProviderSessionId> {
+        None
+    }
+
     /// End this launch's enrollment on every path (child exit, spawn failure).
     /// It must remove only what this launch created and never a replacement
     /// enrollment, even if the launch's own state is already gone.
@@ -216,6 +225,7 @@ mod tests {
     struct Lease {
         command: RuntimeCommand,
         environment: Vec<(OsString, OsString)>,
+        session: Option<ProviderSessionId>,
         withdrawn: Rc<Cell<u32>>,
     }
 
@@ -228,9 +238,28 @@ mod tests {
             &self.environment
         }
 
+        fn provider_session(&self) -> Option<&ProviderSessionId> {
+            self.session.as_ref()
+        }
+
         fn withdraw(self: Box<Self>) {
             self.withdrawn.set(self.withdrawn.get() + 1);
         }
+    }
+
+    /// A lease that overrides nothing optional.
+    struct Plain;
+
+    impl ChannelEnrollment for Plain {
+        fn command(&self) -> &RuntimeCommand {
+            unreachable!("not used")
+        }
+
+        fn environment(&self) -> &[(OsString, OsString)] {
+            &[]
+        }
+
+        fn withdraw(self: Box<Self>) {}
     }
 
     struct Planner(Rc<Cell<u32>>);
@@ -257,9 +286,15 @@ mod tests {
             Ok(Box::new(Lease {
                 command,
                 environment: vec![("TOKEN".into(), "private".into())],
+                session: Some(ProviderSessionId::new("thread-1").unwrap()),
                 withdrawn: Rc::clone(&self.0),
             }))
         }
+    }
+
+    #[test]
+    fn a_lease_carries_no_provider_session_unless_its_driver_created_one() {
+        assert!(Plain.provider_session().is_none());
     }
 
     #[test]
@@ -288,6 +323,10 @@ mod tests {
         assert_eq!(
             lease.environment(),
             [(OsString::from("TOKEN"), OsString::from("private"))]
+        );
+        assert_eq!(
+            lease.provider_session().map(ProviderSessionId::as_str),
+            Some("thread-1")
         );
         assert_eq!(withdrawn.get(), 0);
         lease.withdraw();
