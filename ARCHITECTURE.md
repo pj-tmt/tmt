@@ -2041,6 +2041,44 @@ planning resolves cwd once and names an exact thread. The channel contract owns
 the startup, credential and failure limits; real continuity and launcher crash
 recovery remain final consumer acceptance gates.
 
+### Provider channels
+
+An optional driver port lets a launch hand talk payloads to a running agent
+without terminal paste. [`contracts/claude-channel-v1.md`](contracts/claude-channel-v1.md)
+owns the behavior and the shipped-versus-planned status (#329); this is the
+ownership map.
+
+- `tmt_adapters::runtime::channel` defines the port. `RuntimeChannel` verifies the
+  provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
+  `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
+  provider child's environment (never ambient or persisted), optionally the
+  provider session the driver created before the child starts, and a consuming
+  `withdraw`. The driver
+  plans the command from the user's command and owns everything that proves a
+  cleanup is for exactly that launch; the CLI neither parses provider arguments
+  nor inspects the lease. A driver registers it in `Runtime.channel`, which
+  `RuntimeRegistry` exposes as `channel(harness)`. The directory for endpoint
+  records is `ConfigPaths::channel_directory()`. The port and core stay free of
+  provider and transport dependencies.
+- Delivery stays in the existing routing. The driver's `send` is the preferred
+  action of `delivery::send`, whose `send_preferred` falls back only after
+  `Unsupported` or `NotSent`. An enrollment applies only to the exact launch that
+  created it: with none, or with one that a different launch, positively proven
+  current, has outlived, a driver's `send` returns `Unsupported` and the baseline
+  transport runs; a session that opted in never gets `NotSent`, and when the
+  launch cannot be verified its outcome is `Denied`. Other outcomes are
+  `Uncertain` or `Completed`, and a completed write without a provider receipt
+  is `DeliveryAcceptance::Unacknowledged`, a terminal acceptance that routing
+  never retries or falls back from. The record layout and the launch comparison
+  stay inside each driver.
+- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(ChannelFault)`.
+  `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting for the
+  durable reply; `ChannelUnavailable` stops the request with
+  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`.
+  `Failure` carries an optional additive `deliveryState`.
+- No first-party driver registers a channel yet, so every session still uses its
+  existing transport.
+
 ### Host driver protocol
 
 Terminal hosts that TMT doesn't build in will run out of process as host
