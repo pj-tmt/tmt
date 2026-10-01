@@ -2355,13 +2355,21 @@ Optional `[squad.<name>.reminders]` config is parsed by
 `Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
 from 1 minute through 24 hours. `staleness` owns observed raw task/state and
 exact lead-notebook content age, separate from providers and column bindings.
-`ls` acquires its nonblocking cache lock before the roster read, reads notes
-through public `notes.read` only when enabled, and shares the existing bounded
-room history with the request overlay. `Snapshot::apply` adds the same
-`staleness` object to every occurrence of a member UUID and
-`squad.notesStaleness`; text labels derive from those objects. The board's
-observer integration and marks are a later slice, not implemented by this
-status projection.
+`observe` is the one read sequence for a squad's status, used by `ls` and the
+board's squad tabs alike: it acquires the nonblocking cache lock before the
+roster read, reads the lead's notes through public `notes.read` only when the
+observation can publish (or the board shows the notes pane, which then reuses
+that one read), records, and hands the bounded room history to the request
+overlay. Providers never run there: `ls --refresh-fields` refreshes between
+observing and building the document, the board only hands members to its
+fetcher thread. `Snapshot::apply` adds the same `staleness` object to every
+occurrence of a member UUID and `squad.notesStaleness`; text labels derive from
+those objects. The board draws a stale row in the `dim` token with its label at
+the row's right edge, reserving that room only when no column would be hidden,
+and adds the notes' label to the notes pane title in `waiting`; the label text
+carries the meaning without color. The leads and all tabs read rosters without
+an observer and show no marks. Content age is unrelated to `App::loading`, the
+previous squad's frame while a switch loads.
 
 The private observation cache under `$XDG_CACHE_HOME/tmt-squad/staleness`
 is bounded to 512 KiB and 128 members per room, namespaced by the absolute
