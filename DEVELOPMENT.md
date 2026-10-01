@@ -875,6 +875,13 @@ The adapter `process::cleanup_policy_tests` must pass under both `cargo test` an
 nextest: isolated re-exec cases prove timeout cleanup regardless of whether the
 test runner makes its harness a process-group leader.
 
+For cumulative completed-request counters (#872), run
+`cargo test --locked -p tmt-adapters runtime::consumption` and
+`cargo test --locked -p tmt-cli --bin tmt output::tests`. Redacted real provider
+fixtures and source provenance live beside the runtime owner; failure and reset
+variants are assembled. `usage-hooks.e2e.test.ts` verifies admitted hooks,
+unchanged context usage, public consumption, silent failures and compaction.
+
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
 

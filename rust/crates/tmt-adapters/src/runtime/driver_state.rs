@@ -6,6 +6,9 @@
 //!
 //! Version 3 adds main-turn activity scoped to the provider session and process.
 //! Without activity, legacy model/usage documents retain versions 1 and 2.
+//! Version 4 adds optional cumulative consumption and its bounded source cursor.
+//! Older documents retain their original versions/bytes; optional counters never
+//! expand the core's 1 KiB opaque-state bound.
 //! A model is never inferred from transcripts, arguments or files.
 
 use serde_json::{Map, Value, json};
@@ -21,12 +24,16 @@ use tmt_core::{
 pub const MODEL_STATE_VERSION: u16 = 1;
 pub const USAGE_STATE_VERSION: u16 = 2;
 pub const ACTIVITY_STATE_VERSION: u16 = 3;
+pub const CONSUMPTION_STATE_VERSION: u16 = 4;
 
 /// Whether this document version is one the first-party drivers read.
 pub fn reads(version: u16) -> bool {
     matches!(
         version,
-        MODEL_STATE_VERSION | USAGE_STATE_VERSION | ACTIVITY_STATE_VERSION
+        MODEL_STATE_VERSION
+            | USAGE_STATE_VERSION
+            | ACTIVITY_STATE_VERSION
+            | CONSUMPTION_STATE_VERSION
     )
 }
 
@@ -98,6 +105,7 @@ struct Document {
     model: Option<String>,
     usage: Option<Usage>,
     activity: Option<Activity>,
+    consumption: Option<super::consumption::State>,
 }
 
 impl Document {
@@ -118,19 +126,28 @@ impl Document {
             None => None,
             Some(value) => Some(read_activity(value)?),
         };
-        let known = usize::from(model.is_some())
+        let consumption = match fields.get("consumption") {
+            None => None,
+            Some(value) => Some(super::consumption::State::read(value)?),
+        };
+        let known = usize::from(consumption.is_some())
+            + usize::from(model.is_some())
             + usize::from(usage.is_some())
             + usize::from(activity.is_some());
         let valid = match state.version() {
-            MODEL_STATE_VERSION => model.is_some() && usage.is_none() && activity.is_none(),
-            USAGE_STATE_VERSION => usage.is_some() && activity.is_none(),
-            ACTIVITY_STATE_VERSION => activity.is_some(),
+            MODEL_STATE_VERSION => {
+                model.is_some() && usage.is_none() && activity.is_none() && consumption.is_none()
+            }
+            USAGE_STATE_VERSION => usage.is_some() && activity.is_none() && consumption.is_none(),
+            ACTIVITY_STATE_VERSION => activity.is_some() && consumption.is_none(),
+            CONSUMPTION_STATE_VERSION => consumption.is_some(),
             _ => false,
         };
         (valid && fields.len() == known).then_some(Self {
             model,
             usage,
             activity,
+            consumption,
         })
     }
 
@@ -144,7 +161,9 @@ impl Document {
                 fields.insert("usage".into(), usage.document());
                 USAGE_STATE_VERSION
             }
-            None if fields.is_empty() && self.activity.is_none() => return None,
+            None if fields.is_empty() && self.activity.is_none() && self.consumption.is_none() => {
+                return None;
+            }
             None => MODEL_STATE_VERSION,
         };
         if let Some(activity) = self.activity {
@@ -158,6 +177,19 @@ impl Document {
                     "sinceMs": activity.since_ms, "lastActivityMs": activity.last_activity_ms,
                 }),
             );
+        }
+        if let Some(consumption) = self.consumption {
+            fields.insert("consumption".into(), consumption.document());
+            let document = Value::Object(fields.clone()).to_string();
+            if document.len() <= DriverState::MAXIMUM_BYTES {
+                return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
+            }
+            // Optional counters must not crowd out existing context/activity
+            // evidence. Missing consumption is explicit to public readers.
+            fields.remove("consumption");
+            if fields.is_empty() {
+                return None;
+            }
         }
         DriverState::new(version, &Value::Object(fields).to_string()).ok()
     }
@@ -190,18 +222,41 @@ pub fn after_start(
         model,
         usage,
         activity: None,
+        consumption: None,
     }
     .write()
 }
 
-/// The state after a turn ended with `usage` read: the model is kept.
-pub fn after_turn(usage: Usage, previous: Option<&DriverState>) -> Option<DriverState> {
-    Document {
-        model: previous.and_then(state_model),
-        usage: Some(usage),
-        activity: previous.and_then(state_activity),
+/// Internal cursor evidence is kept opaque to core and public projections.
+pub fn state_consumption(state: &DriverState) -> Option<super::consumption::State> {
+    Document::read(state)?.consumption
+}
+
+/// Context and consumption observations share the existing hook transaction.
+pub fn after_observation(
+    usage: Option<Usage>,
+    mut consumption: Option<super::consumption::State>,
+    previous: Option<&DriverState>,
+) -> Option<DriverState> {
+    if usage.is_none() && consumption.is_none() {
+        return None;
     }
-    .write()
+    let mut document = previous.and_then(Document::read).unwrap_or_default();
+    if previous.is_some() && document.consumption.is_none() {
+        // Legacy/counterless state supplies no measurement continuity. Keep
+        // its model/context/activity, and make the new counter's gap explicit.
+        if let Some(consumption) = consumption.as_mut() {
+            consumption.value.gap = true;
+            consumption.value.complete = false;
+        }
+    }
+    if let Some(usage) = usage {
+        document.usage = Some(usage);
+    }
+    // A failed consumption read removes the optional counter rather than
+    // claiming continuity with stale evidence on the next successful read.
+    document.consumption = consumption;
+    document.write()
 }
 
 fn read_activity(value: &Value) -> Option<Activity> {
@@ -278,7 +333,7 @@ mod tests {
         assert_eq!(state_usage(&active), Some(usage(10)));
         assert!(state_activity(&active).unwrap().matches(&session, &process));
         assert!(after_activity(Some(&active), &session, &process, &event, 101).is_none());
-        let updated = after_turn(usage(12), Some(&active)).unwrap();
+        let updated = after_observation(Some(usage(12)), None, Some(&active)).unwrap();
         assert_eq!(state_activity(&updated), state_activity(&active));
         let resumed = after_start(None, None, Some(&active)).unwrap();
         assert_eq!(resumed.version(), 1);
@@ -306,7 +361,7 @@ mod tests {
     #[test]
     fn a_turn_records_usage_and_keeps_the_model_until_the_context_changes() {
         let model = after_start(Some("gpt-5.2-codex"), None, None).unwrap();
-        let turned = after_turn(usage(146_577), Some(&model)).unwrap();
+        let turned = after_observation(Some(usage(146_577)), None, Some(&model)).unwrap();
         assert_eq!(turned.version(), USAGE_STATE_VERSION);
         assert_eq!(
             turned.document(),
@@ -314,7 +369,7 @@ mod tests {
         );
         assert_eq!(state_model(&turned).as_deref(), Some("gpt-5.2-codex"));
         assert_eq!(state_usage(&turned), Some(usage(146_577)));
-        let later = after_turn(usage(150_000), Some(&turned)).unwrap();
+        let later = after_observation(Some(usage(150_000)), None, Some(&turned)).unwrap();
         assert_eq!(state_usage(&later), Some(usage(150_000)));
 
         // A new, cleared or compacted context drops usage; the model stays
@@ -326,7 +381,7 @@ mod tests {
         assert_eq!(state_model(&resumed).as_deref(), Some("gpt-5.2-codex"));
 
         // Usage alone, with no model ever reported, is kept too.
-        let bare = after_turn(usage(10), None).unwrap();
+        let bare = after_observation(Some(usage(10)), None, None).unwrap();
         assert_eq!(bare.version(), USAGE_STATE_VERSION);
         assert_eq!(state_model(&bare), None);
         assert_eq!(after_start(None, None, Some(&bare)), None);
@@ -384,6 +439,6 @@ mod tests {
             assert_eq!(state_usage(&state), None, "{document}");
             assert_eq!(after_start(None, None, Some(&state)), None, "{document}");
         }
-        assert!(reads(1) && reads(2) && reads(3) && !reads(4));
+        assert!(reads(1) && reads(2) && reads(3) && reads(4) && !reads(5));
     }
 }

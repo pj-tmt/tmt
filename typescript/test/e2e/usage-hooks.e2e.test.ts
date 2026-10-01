@@ -4,12 +4,19 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 
-// #519: a turn end (`Stop`) records the context usage the driver reads from
+// #519/#872: Stop records context usage and completed-request counters from
 // its own provider's transcript. The transcript lines are the real,
 // minimized fixtures the Rust tests use.
 const fixtures = path.resolve('../rust/crates/tmt-adapters/src/runtime/fixtures');
-const claudeLine = fs.readFileSync(path.join(fixtures, 'claude-assistant-usage.jsonl'), 'utf8');
+const claudeRecords = fs
+  .readFileSync(path.join(fixtures, 'claude-usage-sequence.jsonl'), 'utf8')
+  .trimEnd()
+  .split('\n');
+const claudeLine = claudeRecords[0] + '\n';
 const codexLine = fs.readFileSync(path.join(fixtures, 'codex-token-count.jsonl'), 'utf8');
+const codexUpdated = JSON.parse(codexLine);
+codexUpdated.payload.info.total_token_usage.output_tokens += 10;
+codexUpdated.payload.info.total_token_usage.total_tokens += 10;
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 interface Provider {
@@ -19,6 +26,9 @@ interface Provider {
   tree: string;
   line: string;
   usage: Record<string, number>;
+  consumption: Record<string, number>;
+  appended: string;
+  updated: Record<string, number>;
 }
 
 const providers: Provider[] = [
@@ -27,7 +37,10 @@ const providers: Provider[] = [
     runtime: '/opt/tmt-tests/claude',
     tree: '.claude/projects/-workspace',
     line: claudeLine,
-    usage: { tokens: 195664 },
+    usage: { tokens: 355113 },
+    consumption: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
+    appended: claudeRecords.slice(1).join('\n') + '\n',
+    updated: { inputTokens: 5415987, outputTokens: 5609, cachedInputTokens: 5405674 },
   },
   {
     name: 'codex',
@@ -35,6 +48,9 @@ const providers: Provider[] = [
     tree: '.codex/sessions/2026/09/29',
     line: codexLine,
     usage: { tokens: 146577, windowTokens: 258400 },
+    consumption: { inputTokens: 2674657871, outputTokens: 6910968, cachedInputTokens: 2624251008 },
+    appended: JSON.stringify(codexUpdated) + '\n',
+    updated: { inputTokens: 2674657871, outputTokens: 6910978, cachedInputTokens: 2624251008 },
   },
 ];
 
@@ -58,6 +74,7 @@ async function runScenario(fixture: E2EFixture, provider: Provider) {
   const list = { args: ['ls', '--json'] };
   const scenario = path.join(fixture.root, `${provider.name}-usage.json`);
   const report = path.join(fixture.root, `${provider.name}-usage-report.json`);
+  const checkpoint = path.join(fixture.root, `${provider.name}-append-ready`);
   fs.writeFileSync(
     scenario,
     JSON.stringify([
@@ -72,7 +89,12 @@ async function runScenario(fixture: E2EFixture, provider: Provider) {
       stop(path.join(tree, 'missing.jsonl')),
       stop(null),
       list,
-      // A compacted context drops usage; the model stays.
+      // Append after the admitted baseline, then replay the unchanged Stop.
+      { ...stop(transcript), checkpoint },
+      list,
+      stop(transcript),
+      list,
+      // A compacted context drops usage and consumption; the model stays.
       hook({ hook_event_name: 'SessionStart', source: 'compact', model: 'model-a' }),
       list,
     ])
@@ -91,6 +113,13 @@ async function runScenario(fixture: E2EFixture, provider: Provider) {
   const pane = fixture.createShellPane(`${provider.name}-usage`).pane;
   fixture.tmux(['send-keys', '-t', pane, '-l', command]);
   fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+  await fixture.waitFor(
+    () => fs.existsSync(checkpoint),
+    15000,
+    `${provider.name} append checkpoint`
+  );
+  fs.appendFileSync(transcript, provider.appended);
+  fs.writeFileSync(checkpoint, 'continue');
   await fixture.waitFor(() => fs.existsSync(report), 15000, `${provider.name} usage report`);
   return JSON.parse(fs.readFileSync(report, 'utf8')) as Array<{
     code: number;
@@ -111,23 +140,51 @@ describe.sequential('turn-end usage hooks with a real pane and verified runtime'
         async (fixture) => {
           expect((await fixture.runJsonCli(['name', 'Owner', '-s'])).code).toBe(0);
           const results = await runScenario(fixture, provider);
-          expect(results).toHaveLength(11);
+          expect(results).toHaveLength(15);
           for (const result of results) {
             expect(result.code).toBe(0);
             expect(result.stderr).toBe('');
           }
           // Turn ends print nothing: Stop output could carry a decision.
-          for (const index of [2, 4, 5, 6, 7]) expect(results[index].stdout).toBe('');
+          for (const index of [2, 4, 5, 6, 7, 9, 11]) expect(results[index].stdout).toBe('');
           const recorded = resumeOf(results[3].stdout);
           expect(recorded).toMatchObject({ driver: provider.name, model: 'model-a' });
           expect(recorded?.usage).toMatchObject(provider.usage);
           expect(Object.keys(recorded?.usage as object).sort()).toEqual(
             [...Object.keys(provider.usage), 'observedAtMs'].sort()
           );
+          expect(recorded?.consumption).toMatchObject({
+            ...provider.consumption,
+            sequence: 1,
+            observedAtMs: expect.any(Number),
+            epoch: expect.stringMatching(/^[0-9a-f-]{36}$/),
+            complete: false,
+            gap: true,
+          });
+          expect(Object.keys(recorded?.consumption as object).sort()).toEqual([
+            'cachedInputTokens',
+            'complete',
+            'epoch',
+            'gap',
+            'inputTokens',
+            'observedAtMs',
+            'outputTokens',
+            'sequence',
+          ]);
           expect(resumeOf(results[8].stdout)).toEqual(recorded);
-          const compacted = resumeOf(results[10].stdout);
+          const updated = resumeOf(results[10].stdout)?.consumption;
+          expect(updated).toMatchObject({
+            ...provider.updated,
+            epoch: (recorded?.consumption as Record<string, unknown>).epoch,
+            sequence: 2,
+            complete: true,
+            gap: false,
+          });
+          expect(resumeOf(results[12].stdout)?.consumption).toEqual(updated);
+          const compacted = resumeOf(results[14].stdout);
           expect(compacted).toMatchObject({ model: 'model-a' });
           expect(compacted).not.toHaveProperty('usage');
+          expect(compacted).not.toHaveProperty('consumption');
 
           const identity = JSON.parse(results[0].stdout);
           const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
