@@ -1544,33 +1544,50 @@ fn a_server_cannot_create_an_enrollment_and_validates_its_arguments_first() {
 
 #[test]
 fn a_second_server_for_a_live_binding_is_refused_and_a_stale_socket_is_replaced() {
-    let running = start();
-    let error = ClaudeChannel
-        .serve(
+    let serve = |directory: &Path| {
+        ClaudeChannel.serve(
             &ServeRequest {
                 binding_id: BINDING,
                 generation: GENERATION,
-                directory: &running.scratch.0,
+                directory,
             },
             Box::new(io::BufReader::new(io::empty())),
             &mut Vec::new(),
         )
-        .unwrap_err();
+    };
+    let running = start();
+    let enrollment = read_record(&running.scratch.0, BINDING).unwrap().unwrap();
+    let error = serve(&running.scratch.0).unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
     let (scratch, result) = running.stop();
     result.unwrap();
-    // A crashed predecessor leaves a socket file; a new server of the same
-    // enrolled launch takes it over.
-    drop(UnixListener::bind(socket_path(&scratch.0, BINDING)).unwrap());
-    let (stdin, server_in) = UnixStream::pair().unwrap();
-    let (server_out, _stdout) = UnixStream::pair().unwrap();
-    let directory = scratch.0.clone();
-    let thread = std::thread::spawn(move || serve_on(&directory, server_in, server_out));
-    wait_until("the replacement server accepting", || {
-        UnixStream::connect(socket_path(&scratch.0, BINDING)).is_ok()
-    });
-    drop(stdin);
-    thread.join().unwrap().unwrap();
+    let socket = socket_path(&scratch.0, BINDING);
+    assert!(!socket.exists(), "the first server removed its socket");
+    assert_eq!(
+        read_record(&scratch.0, BINDING).unwrap(),
+        Some(enrollment.clone())
+    );
+
+    // A crashed predecessor leaves a socket file for the same enrolled launch.
+    drop(UnixListener::bind(&socket).unwrap());
+
+    // Drop is not proof of staleness in a multithreaded process that forks.
+    // Observe conclusive refusal before the one replacement attempt; never
+    // retry serve or reinterpret an inconclusive production probe.
+    wait_until(
+        "the fixture socket becoming conclusively stale",
+        || match UnixStream::connect(&socket) {
+            Ok(_) => false,
+            Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => true,
+            Err(error) => panic!("unexpected fixture socket probe: {error}"),
+        },
+    );
+    assert!(socket.exists(), "a crashed predecessor left a socket file");
+    // EOF ends the replacement after it binds. Connection polling would also
+    // succeed on an inherited predecessor listener and cannot prove readiness.
+    serve(&scratch.0).unwrap();
+    assert!(!socket.exists(), "the replacement removed its own socket");
+    assert_eq!(read_record(&scratch.0, BINDING).unwrap(), Some(enrollment));
 }
 
 #[test]
