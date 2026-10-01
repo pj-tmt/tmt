@@ -94,9 +94,10 @@ published release of its product), `migration` (no commit of the release carries
 `BREAKING CHANGE:` footer; outside the alpha channel the component's migration list, named in
 `.github/components.json`, also has no more entries than at the product's last published
 release, while an alpha publishes new entries and the gate's summary only reports them) and
-`upgrade` (the proof above; the first release of a product has nothing to upgrade from; it
-checks the installation over the previous release, so no publication gate exercises a migration
-of state the previous release wrote). A failed gate does
+`upgrade` (the proof above; the first release of a product has nothing to upgrade from; the
+CLI proof writes one identity with the previous release and reads it with the candidate, which
+applies the candidate's pending migrations to that record only, so no publication gate exercises
+a migration of any other existing data). A failed gate does
 not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
 `gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
 The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read
