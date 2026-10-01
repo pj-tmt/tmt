@@ -1,4 +1,4 @@
-import { withoutAddress } from './cli-assertions.js';
+import { unknownActivity, withoutAddress } from './cli-assertions.js';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
@@ -310,6 +310,7 @@ describe.sequential('crash-safe identity publication', () => {
           presence: 'offline',
           pane: null,
           command: '',
+          session: { activity: unknownActivity },
         },
       ]);
       expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 0, profiles: 1 });

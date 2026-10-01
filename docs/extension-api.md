@@ -181,13 +181,24 @@ user runs `tmt extension hooks enable <name>`. Core then invokes the resolved
   databases or start services. Bounded bookkeeping in the extension's own
   private cache is allowed within the same deadline.
 
+The public `ls --json` identity rows expose `session.activity`:
+`{"state":"unknown","sinceMs":null,"lastActivityMs":null,"providers":{}}`.
+Working/idle are the last admitted main-turn start/end from TMT's synchronous
+setup-written provider hooks, while core process evidence can establish ended.
+Missing proof gives unknown. Timestamps are local accepted observation times;
+`lastActivityMs` is not a heartbeat and has no stalled threshold. Provider-only
+extras are currently empty. The opt-in `tmt setup --usage` Stop hook supplies end
+events; absent end events never cause an inferred idle transition. Extensions
+must use this public projection rather than inspect core state.
+
 Provider prompt submission also requests this context for an already verified
 current session. The provider receives only extension summaries in
 `UserPromptSubmit.additionalContext`; startup identity context remains at
 SessionStart. Installing the prompt hook requires a consented `tmt setup` run.
 Both paths share the aggregate 300 ms callback deadline inside the provider
 hook's existing supervised deadline. Unknown, stale or unbound sessions receive
-no extension context. Stop does not request context.
+no extension context. Stop does not request context. Truncated prompt context
+includes the same shortened-output notice as startup context.
 
 Summaries are untrusted informational text. TMT attributes them by extension name,
 escapes them and labels them `(informational)` when they reach an agent's

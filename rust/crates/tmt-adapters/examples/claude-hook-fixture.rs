@@ -15,6 +15,7 @@ struct Step {
     input: Option<serde_json::Value>,
     #[serde(default)]
     measure: bool,
+    checkpoint: Option<std::path::PathBuf>,
 }
 
 fn main() {
@@ -34,6 +35,17 @@ fn main() {
     let steps: Vec<Step> = serde_json::from_slice(&fs::read(&args[1]).unwrap()).unwrap();
     let mut results = Vec::new();
     for step in steps {
+        if let Some(checkpoint) = step.checkpoint {
+            fs::write(&checkpoint, "ready").unwrap();
+            let limit = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while fs::read_to_string(&checkpoint).unwrap() != "continue" {
+                assert!(
+                    std::time::Instant::now() < limit,
+                    "checkpoint was not released"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
         let started = step.measure.then(std::time::Instant::now);
         let mut child = Command::new(&args[0])
             .args(step.args)

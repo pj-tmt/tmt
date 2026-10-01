@@ -5,6 +5,7 @@ use std::io;
 use tmt_adapters::{extension_hooks::Contribution, storage::IdentityContextSnapshot};
 
 pub(super) const OUTPUT_LIMIT: usize = 4096;
+const SHORTENED: &str = "Context shortened to the output limit.\n";
 const UNBOUND_HINT: &str = "TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).";
 
 pub(super) fn unbound() -> Value {
@@ -79,13 +80,29 @@ fn render(document: &Value, json_mode: bool) -> io::Result<String> {
         ));
     }
     if document["truncated"] == true {
-        text.push_str("Context shortened to the output limit.\n");
+        text.push_str(SHORTENED);
     }
     Ok(text)
 }
 
 pub(super) fn extension_line(name: &str, summary: &Value) -> String {
     format!("Extension {name} (informational): {summary}\n")
+}
+
+pub(super) fn bounded_extensions(extensions: &[Contribution]) -> String {
+    let mut lines: Vec<String> = extensions
+        .iter()
+        .map(|item| extension_line(&item.extension, &json!(item.summary)))
+        .collect();
+    let mut length: usize = lines.iter().map(String::len).sum();
+    if length <= OUTPUT_LIMIT {
+        return lines.concat();
+    }
+    while length + SHORTENED.len() > OUTPUT_LIMIT {
+        let Some(line) = lines.pop() else { break };
+        length -= line.len();
+    }
+    lines.concat() + SHORTENED
 }
 
 pub(super) fn bounded(mut document: Value, json_mode: bool) -> io::Result<String> {
@@ -120,6 +137,25 @@ pub(super) fn bounded(mut document: Value, json_mode: bool) -> io::Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prompt_truncation_preserves_whole_escaped_lines_and_reports_omission() {
+        let contributions: Vec<_> = (0..20)
+            .map(|index| Contribution {
+                extension: format!("ext{index}"),
+                summary: "☃".repeat(240),
+            })
+            .collect();
+        let text = bounded_extensions(&contributions);
+        assert!(text.len() <= OUTPUT_LIMIT);
+        assert!(text.ends_with(SHORTENED));
+        assert!(text.starts_with(&extension_line("ext0", &json!(contributions[0].summary))));
+        assert_eq!(
+            bounded_extensions(&contributions[..1]),
+            extension_line("ext0", &json!(contributions[0].summary))
+        );
+        assert_eq!(bounded_extensions(&[]), "");
+    }
 
     #[test]
     fn extension_summaries_are_labelled_escaped_data_and_dropped_first() {

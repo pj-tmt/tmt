@@ -106,15 +106,11 @@ pub(crate) fn render_verified(
 /// Prompt hooks carry only consented extension lines, with the same escaping
 /// and aggregate callback budget as the SessionStart context.
 pub(crate) fn render_extensions(identity: &str, paths: &ConfigPaths, deadline: Instant) -> String {
-    let mut text = String::new();
-    for item in extension_hooks::context_contributions(&paths.global_dir, identity, deadline) {
-        let line = presentation::extension_line(&item.extension, &serde_json::json!(item.summary));
-        if text.len() + line.len() > tmt_adapters::runtime::hook_protocol::CONTEXT_LIMIT {
-            break;
-        }
-        text.push_str(&line);
-    }
-    text
+    presentation::bounded_extensions(&extension_hooks::context_contributions(
+        &paths.global_dir,
+        identity,
+        deadline,
+    ))
 }
 
 pub(crate) fn unbound_text() -> io::Result<String> {
