@@ -824,7 +824,7 @@ subscriber is explicitly closed with RESYNC_REQUIRED and must catch up; accepted
 durable payloads/receipts survive. Firestore listeners implement the same scoped
 immutable-object/cursor semantics without pretending to be a WebSocket server.
 
-Local storage uses extension SQLite/files and `colab-sync-v1` WebSocket; the
+Local storage uses extension SQLite/files under `<dataRoot>/colab/`, where `dataRoot` comes from `tmt api storage.root`, and `colab-sync-v1` WebSocket; the
 HTTP door uses bounded std-thread sockets, workspace tungstenite and strict
 framing. Every HTTP request/upgrade requires exact configured Host, never a
 wildcard/forwarded-host fallback. Loopback admits `127.0.0.1:<port>` or
