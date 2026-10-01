@@ -2943,8 +2943,9 @@ Proposed extension-relative browser packages are `typescript/colab-client`
 (trusted React/Vite chrome and renderer); backend packages are separate. They
 join the existing pnpm workspace/lockfile and pins when implemented. Shared
 workspace/component edits follow the two-lead rule; architecture guard and
-CI-scope registration land with first code. #841 gates yrs adoption. Official
-registration/packaging is separate, and CLI releases exclude the pilot.
+runtime CI-scope registration land with first code. The component map gives the
+contract directory private file ownership (`release: false`) and excludes it from
+CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
 
 All extension state stays in `<core-reported data root>/colab/`, with 0700
 directories and 0600 files, separate from core SQLite and provider configuration.

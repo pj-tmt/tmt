@@ -956,6 +956,7 @@ alarms/R2; injected clocks cover TTL that emulators do not implement.
 
 Each slice has its own issue and reviewable PR below 1,500 changed lines;
 dependents wait for merge. Workspace/lockfile/component changes require the two
-lead rule. Architecture guard and CI-scope registration land with first code.
+lead rule. Architecture guard and runtime CI-scope registration land with first
+code; private documentation ownership in the component map creates no release.
 Local implementation/developer command guidance lands in L2/L3. Official
 packaging and cloud deployment remain separate decisions; no gate authorizes them.
