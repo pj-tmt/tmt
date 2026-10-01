@@ -199,10 +199,7 @@ Office wire-schema conformance is a nested tooling test. From `typescript`, run
 [`extensions/tmt-office/contracts`](extensions/tmt-office/contracts/README.md) for its single source of truth,
 versioning and limits. Design vectors are not executable authorization or crash
 recovery evidence; downstream suites must prove those behaviors separately.
-Root tooling uses the threads pool with at most two suite workers and a one-second
-default test budget. The disk-check, worktree-removal, native-artifact-stdout and
-publication-gates-script suites allow ten seconds for synchronous subprocess
-fixtures, whose elapsed time Vitest 4 enforces. Native process, stress and tmux
+Root tooling uses the threads pool with at most two suite workers. Native process, stress and tmux
 configurations also select the threads pool and retain their own execution rules.
 
 For an Office-only clean checkout, use `pnpm office:install`. It installs from
