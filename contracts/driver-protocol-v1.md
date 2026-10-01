@@ -50,6 +50,12 @@ Error codes:
 | `unavailable` | The host server cannot be reached. |
 | `not_found` | The pane or server is gone, or is no longer the one asked about. |
 | `failed` | Anything else. |
+| `no_agent` | `prompt` only: the host recognizes no agent in the pane. Nothing was written. |
+| `blocked` | `prompt` only: the agent waits on its user, for an approval or an answer. Nothing was written. |
+| `not_ready` | `prompt` only: the agent can't take a prompt now, for example because it isn't in the foreground or is still starting. Nothing was written. |
+
+`no_agent`, `blocked` and `not_ready` are answers of `prompt` alone. From any
+other operation they are a failure.
 
 - `message` is at most 512 bytes and contains no control characters. Core shows
   it as untrusted text.
@@ -64,7 +70,7 @@ driver that runs past its operation's deadline.
 | `capabilities` | 1 s | 4 KiB |
 | `caller`, `server`, `resolve-target`, `publish`, `clear`, `focus` | 300 ms | 4 KiB |
 | `snapshot`, `probe`, `capture` | 2 s | 1 MiB |
-| `input` | 2 s | 4 KiB |
+| `input`, `prompt` | 2 s | 4 KiB |
 
 Requests are at most 1 MiB.
 
@@ -220,12 +226,50 @@ pane:
   `DELIVERY_UNCERTAIN` and never retries.
 
 A driver never retries an `input` itself: a second paste could duplicate the
-message.
+message. A driver that also lists `prompt` gets an `input` only after a
+`prompt` answered `no_agent` or `unsupported`.
 
 **Paste, then Enter.** Core may paste and press Enter in one call
 (`enter: true`). Core may also stage them: `input(text, enter: false)`, then
 after its paste-to-Enter delay `input("", enter: true)`. The delay stays core
 policy, and a driver adds no delay of its own.
+
+### `prompt`
+
+| Operation | Request | Answer |
+|---|---|---|
+| `prompt` | `{"socket", "paneId", "text"}` | `{}` |
+
+`prompt` is optional. Core calls it only when `capabilities.ops` lists it.
+
+- **What it does:** the driver hands `text` to the agent the host recognizes in
+  the pane, and the host submits it, pasting and pressing Enter in one step.
+  Core has already applied its delivery policy (`!` protection, size), so the
+  driver adds and interprets nothing, as for `input`. There is no `enter`
+  member and no staging.
+- **Size:** `text` is bound by the same limits as `input`'s `text`: core's
+  message size policy and the 1 MiB request bound.
+- **Order:** core sends a `prompt` only after the evidence and runtime checks it
+  makes before an `input`. It falls back to `input` only when the answer is
+  `no_agent` or `unsupported`.
+
+**Delivery outcome.** A `prompt` answer tells core whether the agent got the
+text:
+
+- **Sent:** the answer is `{}`.
+- **Not sent, core falls back to `input`:** the answer is `no_agent` or
+  `unsupported`.
+- **Not sent, final:** the answer is `blocked` (core reports the agent as
+  awaiting approval), `not_ready`, `not_found` or `bad_request`. Core never
+  types around an agent that refused.
+- **Uncertain:** anything else. That covers `failed`, `unavailable`, a timeout,
+  a killed driver, and an answer that doesn't decode. Core reports
+  `DELIVERY_UNCERTAIN` and never retries.
+
+A driver never retries a `prompt` itself and never falls back to raw input on
+its own. Falling back is core's decision, because only core holds the runtime
+evidence. Each request makes one attempt; a `blocked` agent is not prompted
+again until a new request.
 
 ## Trust boundary
 

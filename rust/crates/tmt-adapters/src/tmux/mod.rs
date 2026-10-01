@@ -9,7 +9,6 @@ mod metadata;
 mod transport;
 pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};
 pub use focus::{ClientView, FocusError, Invoker};
-pub use transport::{DeliveryError, DeliveryStage};
 
 #[cfg(test)]
 mod evidence_tests;
@@ -164,6 +163,16 @@ impl fmt::Display for TmuxError {
             }
         }
         write!(output, ".")
+    }
+}
+
+impl crate::host::DeliveryCause for TmuxError {
+    fn socket_permission_denied(&self) -> bool {
+        TmuxError::socket_permission_denied(self)
+    }
+
+    fn cleanup_failed(&self) -> bool {
+        TmuxError::cleanup_failed(self)
     }
 }
 
