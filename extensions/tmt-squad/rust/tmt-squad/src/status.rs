@@ -115,9 +115,12 @@ fn apply_sources(rows: &Rows, members: &mut [Member], now_ms: u64) {
 /// a provider's suggested token; otherwise the cell has none. The value is
 /// the bound number when there is one, else the field's text read as a
 /// number. `state` keeps its state colors.
-fn apply_colors(rows: &Rows, members: &mut [Member]) {
+fn apply_colors(rows: &Rows, states: &States, members: &mut [Member]) {
     for member in members.iter_mut() {
         member.colors.remove("state");
+        if let Some(token) = states.color(member.fields.get("state").map(String::as_str)) {
+            member.colors.insert("state".into(), token.to_owned());
+        }
         for column in rows
             .columns
             .iter()
@@ -158,7 +161,7 @@ pub fn document(
     mut members: Vec<Member>,
 ) -> Value {
     apply_sources(row_layout, &mut members, now_ms());
-    apply_colors(row_layout, &mut members);
+    apply_colors(row_layout, states, &mut members);
     let (leads, mut members): (Vec<_>, Vec<_>) = members.into_iter().partition(Member::is_lead);
     sort(&mut members, layout, states);
     let all: Vec<&Member> = members.iter().collect();
@@ -499,15 +502,72 @@ mod tests {
         }
     }
 
-    fn states(layout: Layout) -> States {
-        States {
-            order: layout
-                .states()
-                .iter()
-                .map(|state| (*state).to_owned())
-                .collect(),
-            colors: Default::default(),
+    #[test]
+    fn patterns_color_and_order_the_projected_rows_and_sections() {
+        let directory =
+            std::env::temp_dir().join(format!("squad-state-patterns-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(
+            &path,
+            r#"
+[squad.product.states]
+custom = { sort = 9 }
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "blocked"
+sort = 0
+[[squad.product.state_patterns]]
+match = "review*"
+color = "review"
+sort = 3
+[[squad.product.section]]
+title = "All"
+sort = ["state"]
+"#,
+        )
+        .unwrap();
+        let config = crate::config::Config::read(path).unwrap();
+        let states = config.states("product", Layout::Crew).unwrap();
+        let squad = Squad {
+            name: "product".into(),
+            room_id: "room".into(),
+        };
+        let members = || {
+            vec![
+                member("unknown", &[("state", "unknown")]),
+                member("working", &[("state", "working")]),
+                member("review", &[("state", "review-on-ci")]),
+                member("blocked", &[("state", "blocked-on-ci")]),
+                member("custom", &[("state", "custom")]),
+                member("missing", &[]),
+            ]
+        };
+        let layout = Rows::preset();
+        for sections in [Vec::new(), config.sections("product").unwrap()] {
+            let mut members = members();
+            members[0].colors.insert("state".into(), "red".into());
+            let result = document(&squad, Layout::Crew, &states, &sections, &layout, members);
+            let rows = result["sections"][0]["rows"].as_array().unwrap();
+            assert_eq!(
+                rows.iter()
+                    .map(|row| row["name"].as_str().unwrap())
+                    .take(4)
+                    .collect::<Vec<_>>(),
+                ["blocked", "working", "review", "custom"]
+            );
+            assert_eq!(rows[0]["colors"]["state"], "blocked");
+            assert_eq!(rows[1]["colors"]["state"], "working");
+            assert_eq!(rows[2]["colors"]["state"], "review");
+            for row in &rows[3..] {
+                assert!(row.get("colors").is_none(), "{row}");
+            }
         }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn states(layout: Layout) -> States {
+        States::preset(layout)
     }
 
     fn names(document: &Value) -> Vec<&str> {
