@@ -2517,6 +2517,7 @@ dependencies = [
  "insta",
  "nix",
  "proc-macro2",
+ "rusqlite",
  "serde_json",
  "syn 2.0.119",
  "tmt-adapters",
@@ -2711,7 +2712,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-squad"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "clap",
  "nix",

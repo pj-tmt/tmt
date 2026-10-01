@@ -1,10 +1,12 @@
 name: Native release artifacts
 
 # The per-product release run. It builds and verifies the draft releases of one product
-# that lack a verified bundle, attaches the bundle to each draft and evaluates its publication
-# gates; it never publishes. A dispatch with `hold` runs the gates again for a held draft.
-# Publishing a reviewed bundle is a separate, authorized operation, and ordinary pull
-# requests do not run this costly matrix.
+# that lack a verified bundle, attaches the bundle to each draft, evaluates its publication
+# gates and publishes a draft that passes them, then checks the published release. A run that
+# stopped before publishing resumes with the complete drafts that carry no hold. A dispatch with
+# `hold` runs the gates again for a held draft without the gate its marker names, and publishes
+# it when the rest pass. A dispatch that prepares one bundle from a main commit (`prepare`)
+# has no draft and publishes nothing. Ordinary pull requests do not run this costly matrix.
 #
 # The group holds the whole run and queues rather than cancels. GitHub keeps one pending run
 # per group and replaces it when another arrives, which loses nothing: a run plans from the
@@ -65,7 +67,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
-      - name: Plan the draft releases to build
+      - name: Plan the draft releases to build or publish
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,11 +101,13 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     permissions:
-      # Granted to the jobs of the called workflow that upload to the draft and read its commit.
+      # Granted to the jobs of the called workflow that upload to the draft, publish it, read its
+      # commit and open an issue for a failed check of the published release.
       contents: write
       actions: read
       pull-requests: read
       checks: read
+      issues: write
     uses: ./.github/workflows/native-release-bundle.yml
     with:
       product: ${{ inputs.product }}
