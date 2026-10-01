@@ -702,7 +702,9 @@ facade, which PR B of #355 removes.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. It follows the actual Rust module tree, checks reviewed
-layer edges and shared declaration ownership, and fails closed for unsupported
+layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
+ledger (crate, canonical name and target, with a reason per row); aliases are rejected,
+and the invoke leaf remains guarded for every dependency kind. The guard fails closed for unsupported
 module remapping or incomplete discovery. It also checks that the CLI crates
 reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
 each CLI checks every command's help against the style
@@ -2303,6 +2305,21 @@ stays at 16 KiB.
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
 
+`native_upgrade_command` upgrades the CLI and refreshes its managed skills before
+asking the newly installed executable to upgrade installed official products.
+The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
+pending versions; the parent owns one terminal consent question and sends that
+exact plan on stdin to the new executable with `--yes`. It validates the bounded
+plan/result reports and exit status. Unsupported older targets fail with a rerun
+hint; old-process extension logic is never used as a fallback.
+`extension_install_command::upgrade_all` in the new executable discovers products
+in its managed CLI prefix and retains each channel/pin. A selected
+version uses the same native acquisition/activation path without creating an exact
+version pin; extension verification and skill settlement retain their existing owners.
+JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
+Product failures remain independent in the aggregate report; CLI failure stops the
+extension phase, while a pinned CLI permits it. No rollback or second installer exists.
+
 Explicit extension `install --repair` is a separate recovery composition in
 `native_install::repair`, for GitHub and local-archive receipts. `receipt`
 separates bounded metadata/recorded-path validation from payload verification;
@@ -2724,7 +2741,7 @@ bundle or is complete and waits for its publication; the state lives on the draf
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
-`release-please-config.json`) on every push to `main` that changes more than prose: it
+`release-please-config.json`) on every push to `main`, documentation included: it
 opens one release pull request per component, enables auto-merge on them (they merge only
 through the required checks) and keeps them current, creates the draft release for a merged
 one, and starts the per-product run for each product that has a draft without a bundle. A
@@ -2745,7 +2762,7 @@ component with `release: false`, a draft without the bundle and one with a hold 
 marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
 prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
 the policy's flags, the tag on the release commit and GitHub's attestation for the release and
-every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. A read-only `native-release-smoke.yml` then installs the published release as a user does, on the four hosts in an isolated environment: the public installer and `tmt upgrade` for the CLI, the newest published CLI's extension install for an extension; its failures are reported on the same issue by a separate job. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
