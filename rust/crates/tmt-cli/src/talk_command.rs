@@ -3,6 +3,8 @@
 mod observation;
 mod preparation;
 mod presentation;
+#[cfg(test)]
+mod tests;
 
 use crate::{
     invocation::{Invocation, OutputMode, TalkOptions},
@@ -42,6 +44,9 @@ struct Correlation {
     identity: Option<Identity>,
     inbox: bool,
     offline: bool,
+    /// The message reached a one-way channel that gives no receipt: it is
+    /// neither confirmed nor safe to resend, and every later failure says so.
+    delivery_uncertain: bool,
 }
 struct Prepared {
     correlation: Correlation,
@@ -57,10 +62,29 @@ struct Report {
     response: Option<FinalResponse>,
 }
 
+/// Records what a send attempt left behind. A channel write without a receipt is
+/// noted on the correlation first, so even a failure to settle it reports that
+/// delivery is uncertain and must not be resent.
+fn settle_delivery(
+    correlation: &mut Correlation,
+    outcome: &crate::delivery::Delivery,
+    settle: impl FnOnce(tmt_core::request::WakeState) -> Result<(), RequestError<StorageError>>,
+) -> Result<(), Failure> {
+    if matches!(outcome, crate::delivery::Delivery::Unacknowledged) {
+        correlation.delivery_uncertain = true;
+    }
+    let settlement = outcome.wake_state();
+    settle(settlement).map_err(|error| {
+        correlation.state_error(
+            error,
+            settlement != tmt_core::request::WakeState::Unavailable,
+        )
+    })
+}
+
 impl Correlation {
     fn error(&self, code: &'static str, message: impl Into<String>, status: u8) -> Failure {
-        let failure =
-            Failure::new(code, message, status).with_request(self.request_id.clone(), None);
+        let failure = self.correlated(Failure::new(code, message, status));
         if self.inbox {
             failure.with_inbox_target(&self.target, self.identity.as_ref())
         } else {
@@ -80,26 +104,38 @@ impl Correlation {
             )
         }
     }
+    /// Ties a failure to this request and keeps the channel's uncertainty on it.
+    fn correlated(&self, failure: Failure) -> Failure {
+        let failure = failure.with_request(self.request_id.clone(), None);
+        if self.delivery_uncertain {
+            failure.with_delivery_state("uncertain")
+        } else {
+            failure
+        }
+    }
+
     fn state_error(&self, error: RequestError<StorageError>, possible_delivery: bool) -> Failure {
         let error = match error {
             RequestError::Repository(storage) => {
-                return Failure::storage_access(
-                storage,
-                &self.data_dir,
-                if possible_delivery {
-                    "Pane input may have happened; inspect the retained request before retrying."
-                } else {
-                    "No message was sent; inspect the retained request before retrying."
-                },
-                "REQUEST_STATE_ERROR",
-                if possible_delivery {
-                    "Request state failed after transport; delivery may have occurred."
-                } else {
-                    "Request state failed before transport; no message was sent."
-                },
-            )
-            .with_request(self.request_id.clone(), None)
-                .suggestion(self.inspection());
+                return self
+                    .correlated(Failure::storage_access(
+                        storage,
+                        &self.data_dir,
+                        if self.delivery_uncertain {
+                            "The channel write may have been delivered; do not resend. Inspect the retained request."
+                        } else if possible_delivery {
+                            "Pane input may have happened; inspect the retained request before retrying."
+                        } else {
+                            "No message was sent; inspect the retained request before retrying."
+                        },
+                        "REQUEST_STATE_ERROR",
+                        if possible_delivery {
+                            "Request state failed after transport; delivery may have occurred."
+                        } else {
+                            "Request state failed before transport; no message was sent."
+                        },
+                    ))
+                    .suggestion(self.inspection());
             }
             other => other,
         };
@@ -242,21 +278,36 @@ fn deliver(
             } else {
                 crate::delivery::Delivery::Unavailable
             };
-            let settlement = outcome.wake_state();
-            RequestService::new(&mut *storage, wall_time_ms)
-                .settle_request_delivery(&correlation.request_id, settlement)
-                .map_err(|error| {
-                    correlation.state_error(
-                        error,
-                        settlement != tmt_core::request::WakeState::Unavailable,
-                    )
-                })?;
+            let request_id = correlation.request_id.clone();
+            settle_delivery(correlation, &outcome, |settlement| {
+                RequestService::new(&mut *storage, wall_time_ms)
+                    .settle_request_delivery(&request_id, settlement)
+            })?;
             if matches!(outcome, crate::delivery::Delivery::Offline) {
                 correlation.offline = true;
                 correlation.inbox = true;
                 return Ok(None);
             }
-            if !matches!(outcome, crate::delivery::Delivery::Sent) {
+            if matches!(outcome, crate::delivery::Delivery::Unacknowledged) {
+                // Settled as an uncertain wake above; keep waiting for the
+                // durable reply without resending or pasting.
+            } else if let crate::delivery::Delivery::ChannelUnavailable(fault) = &outcome {
+                // The session opted into a channel that cannot carry this
+                // request. Only a session that never opted in is pasted to.
+                return Err(correlation
+                    .error(
+                        fault.error_code(),
+                        format!(
+                            "{} Nothing was sent and nothing was pasted.",
+                            fault.reason()
+                        ),
+                        1,
+                    )
+                    .suggestion(format!(
+                        "Check the session, then retry later; the request stays queued. {}",
+                        correlation.inspection()
+                    )));
+            } else if !matches!(outcome, crate::delivery::Delivery::Sent) {
                 if let crate::delivery::Delivery::Transport(error) = outcome {
                     if error.socket_permission_denied() {
                         return Err(correlation.socket_error(error));

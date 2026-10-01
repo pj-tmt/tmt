@@ -147,7 +147,9 @@ Missing or unreadable notes, unavailable cache and rollback clocks are unknown.
 Cache loss/corruption starts a new period; config edits do not reset age.
 Disabling stops observation; after re-enabling, surviving fingerprint matches
 keep their first-observed time. Disabled observation does no cache work and
-never creates a notebook.
+never creates a notebook. The board dims a stale row and shows its age at the
+row's end, and puts the notes' age on the notes pane title; the leads and all
+tabs show no ages.
 
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant

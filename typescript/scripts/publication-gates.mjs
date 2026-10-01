@@ -4,7 +4,8 @@
 //   commit        the release's commit is on main and its pull request passed the required checks
 //   immutability  the repository's newest published release is immutable, so the setting is on
 //   monotonic     the release is newer than every published release of its product
-//   migration     no new SQLite migration and no breaking change since the last published release
+//   migration     no breaking change since the last published release, and outside the alpha channel
+//                 no new SQLite migration (an alpha publishes its migrations, which are forward-only)
 //   upgrade       the upgrade from the last published release was proven (native-release-upgrade.yml)
 // A failed gate holds the draft: `publication-held.json` on the draft says which gate, why and
 // which run, and the draft is neither built again nor published until the owner publishes it by
@@ -151,23 +152,27 @@ export function isBreaking({ subject, body = '' }) {
 }
 
 /**
- * Holds a release that carries a new migration or a breaking change: `counts` are the entries of
- * each of the component's migration files at the candidate's commit and at the last published
- * release's (`previous.counts`), `commits` the release's own commits.
+ * Holds a release that carries a breaking change, and outside the alpha channel one that carries
+ * a new migration: `counts` are the entries of each of the component's migration files at the
+ * candidate's commit and at the last published release's (`previous.counts`), `commits` the
+ * release's own commits. An alpha publishes its migrations, which are forward-only, so it only
+ * reports them.
  */
-export function checkMigration({ files, counts, previous, commits }) {
+export function checkMigration({ files, counts, previous, commits, alpha = false }) {
   if (!previous) return pass('the first release of the product: nothing to compare with');
-  for (const file of files) {
-    if (counts[file] > (previous.counts[file] ?? 0)) {
-      return fail(
-        `${file} has ${counts[file]} migrations, ${previous.counts[file] ?? 0} in ${previous.tag}`
-      );
-    }
-  }
+  const added = files.find((file) => counts[file] > (previous.counts[file] ?? 0));
+  const growth = added
+    ? `${added} has ${counts[added]} migrations, ${previous.counts[added] ?? 0} in ${previous.tag}`
+    : '';
+  if (added && !alpha) return fail(growth);
   const breaking = commits.find(isBreaking);
   if (breaking)
     return fail(`commit ${short(breaking.sha)} is a breaking change: ${breaking.subject}`);
-  return pass(`no new migration and no breaking change since ${previous.tag}`);
+  return pass(
+    added
+      ? `${growth}; an alpha publishes its migrations, and no commit is a breaking change`
+      : `no new migration and no breaking change since ${previous.tag}`
+  );
 }
 
 /**
@@ -288,6 +293,7 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
     immutability: () => checkImmutability({ releases }),
     monotonic: () => checkMonotonic({ releases, product, tag }),
     migration: () => {
+      const alpha = isAlphaVersion(versionOfTag(tag, product));
       const previousRelease = selectPrevious({ releases, product, candidateTag: tag });
       const count = (at) =>
         Object.fromEntries(component.migrations.map((file) => [file, fileCount(at, file)]));
@@ -297,6 +303,7 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
           counts: {},
           previous: null,
           commits: [],
+          alpha,
         });
       }
       const previousSha = git([
@@ -309,6 +316,7 @@ function earlyChecks({ product, tag, release, releases, repository, map }) {
         counts: count(sha),
         previous: { tag: previousRelease.tag_name, counts: count(previousSha) },
         commits: releaseCommits({ from: previousSha, to: sha, product, map }),
+        alpha,
       });
     },
   };

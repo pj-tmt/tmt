@@ -12,12 +12,9 @@ on:
   push:
     branches:
       - main
-    # Prose is never releasable. Everything else, including the release commits that
-    # release-please itself merges (they change versions and lock files), starts a run.
-    paths-ignore:
-      - '**/*.md'
-      - docs/**
-      - .agents/**
+    # Every push starts a run, prose and the release commits that release-please itself merges
+    # included: a merge of any kind moves `main` under the open release pull requests, which
+    # `strict` requires to be up to date, and a run with nothing to do is cheap.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -124,9 +121,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # One entry per component that releases (.github/components.json); Office is release:false.
         product:
           - cli
-          - office
           - squad
     permissions:
       # Draft releases are only listed for a token that can push; starting a run needs actions.

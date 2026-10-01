@@ -10,12 +10,15 @@
 //            its tag is on the release commit, and GitHub's release attestation covers the
 //            release and every downloaded asset. A failure opens an issue and fails the run;
 //            nothing is rolled back.
+//   report   opens that same issue, or comments on it, for the failed checks the public install
+//            smoke (`native-release-smoke.yml`) left as data in a directory.
 //   node release-publish.mjs publish --product P --tag TAG [--components FILE]
 //   node release-publish.mjs verify  --product P --tag TAG --directory DIR [--run-url URL] [--attempts N]
+//   node release-publish.mjs report  --product P --tag TAG --directory DIR [--run-url URL]
 // Both run with a token that can write, so they run this repository's main and never the
 // release commit's code.
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -218,7 +221,7 @@ export function renderFailureIssue({ tag, results, runUrl }) {
       ...(runUrl ? [`Run: ${runUrl}`, ''] : []),
       'Nothing was rolled back: a published release cannot be undone and, with immutability on, its assets and tag cannot be changed. The owner decides whether it stays as it is or a new reviewed version repairs it. Later drafts of the product publish only while their own gates pass, and the immutability gate stops them if the repository setting is off.',
       '',
-      'Opened by `typescript/scripts/release-publish.mjs verify`.',
+      'Opened by `typescript/scripts/release-publish.mjs` (the post-publication checks and the public install smoke).',
     ].join('\n'),
   };
 }
@@ -232,6 +235,52 @@ export function reportFailure({ api, tag, results, runUrl }) {
     return { issue: open, created: false };
   }
   return { issue: api.createIssue(title, body), created: true };
+}
+
+/**
+ * The failed checks the smoke legs left in `directory`, one result each, named with its host. The
+ * legs wrote them, from what the installed release printed, so they are data: bounded strings
+ * on one line, never trusted beyond the issue text. No file at all (the download of the
+ * artifacts failed) still reports a failure, since the run says a leg failed.
+ */
+export function readSmokeFailures(directory) {
+  const line = (text) =>
+    String(text)
+      .replace(/\p{Cc}+/gu, ' ')
+      .trim()
+      .slice(0, 500);
+  const results = [];
+  for (const name of existsSync(directory) ? readdirSync(directory).sort() : []) {
+    if (!name.startsWith('smoke-failures-')) continue;
+    const target = name.slice('smoke-failures-'.length);
+    try {
+      const { failed } = JSON.parse(
+        readFileSync(path.join(directory, name, 'smoke-result.json'), 'utf8')
+      );
+      for (const { check, reason } of failed.slice(0, 10)) {
+        results.push({
+          check: `${line(check)} (${line(target)})`,
+          ok: false,
+          reason: line(reason),
+        });
+      }
+    } catch {
+      results.push({
+        check: `public install (${line(target)})`,
+        ok: false,
+        reason: 'its result file could not be read; see the run',
+      });
+    }
+  }
+  return results.length > 0
+    ? results
+    : [
+        {
+          check: 'public install',
+          ok: false,
+          reason: 'a host failed and no details were kept; see the run',
+        },
+      ];
 }
 
 /** Markdown for the run summary. */
@@ -406,8 +455,24 @@ function main(argv, environment) {
       }
       process.exitCode = 1;
     }
+  } else if (command === 'report') {
+    if (!values.directory) throw new Error('report needs --directory.');
+    const results = readSmokeFailures(values.directory);
+    report(environment, renderVerifySummary({ tag: values.tag, results }));
+    try {
+      const { issue, created } = reportFailure({
+        api,
+        tag: values.tag,
+        results,
+        runUrl: values['run-url'],
+      });
+      process.stderr.write(`${created ? 'Opened' : 'Commented on'} issue #${issue}.\n`);
+    } catch (error) {
+      process.stderr.write(`The failure could not be reported as an issue: ${error.message}\n`);
+      process.exitCode = 1;
+    }
   } else {
-    throw new Error('Usage: release-publish.mjs publish|verify --product P --tag TAG ...');
+    throw new Error('Usage: release-publish.mjs publish|verify|report --product P --tag TAG ...');
   }
 }
 

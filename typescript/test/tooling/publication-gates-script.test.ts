@@ -216,7 +216,8 @@ const finish = (result: string, outcome: string, more: string[] = []) => [
   ...more,
 ];
 
-describe('publication-gates.mjs early', () => {
+// Vitest 4 enforces elapsed time for synchronous subprocess fixtures; allow their setup and runs.
+describe('publication-gates.mjs early', { timeout: 10_000 }, () => {
   it('passes a draft whose commit, immutability, order and migrations are all in order', () => {
     const { run, uploaded, calls } = scenario({ hold: null });
     const result = run(early);
@@ -279,12 +280,18 @@ describe('publication-gates.mjs early', () => {
     expect(Date.parse(marker.recordedAt)).not.toBeNaN();
   });
 
-  it('holds a draft that adds a migration, and one that carries a breaking commit', () => {
+  it('publishes an alpha draft that adds migrations and reports the count in the summary', () => {
     const migration = scenario({ migrations: 3, hold: null });
-    expect(migration.run(early).output).toBe('held=migration\nskip=\n');
-    expect(migration.uploaded('publication-held.json')?.reason).toBe(
-      `${MIGRATIONS} has 3 migrations, 2 in v5.0.0-alpha.8`
-    );
+    const result = migration.run(early);
+    expect(result.output).toBe('held=\nskip=\n');
+    expect(result.summary).toContain(`${MIGRATIONS} has 3 migrations, 2 in v5.0.0-alpha.8`);
+    expect(migration.uploaded('publication-held.json')).toBeNull();
+  });
+
+  it('holds a draft that carries a breaking commit, with or without a new migration', () => {
+    const both = scenario({ migrations: 3, subject: 'feat!: drop a table', hold: null });
+    expect(both.run(early).output).toBe('held=migration\nskip=\n');
+    expect(both.uploaded('publication-held.json')?.reason).toContain('is a breaking change');
     const breaking = scenario({ subject: 'feat(api)!: drop a flag', hold: null });
     expect(breaking.run(early).output).toBe('held=migration\nskip=\n');
     expect(breaking.uploaded('publication-held.json')?.reason).toContain('is a breaking change');
@@ -319,10 +326,10 @@ describe('publication-gates.mjs early', () => {
   });
 });
 
-describe('publication-gates.mjs early --release-hold', () => {
+describe('publication-gates.mjs early --release-hold', { timeout: 10_000 }, () => {
   it('skips exactly the gate the marker names and runs the others', () => {
     const { run, uploaded } = scenario({
-      migrations: 3,
+      subject: 'feat!: drop a flag',
       hold: { gate: 'migration', reason: 'held earlier' },
     });
     const result = run([...early, '--release-hold']);
@@ -334,7 +341,7 @@ describe('publication-gates.mjs early --release-hold', () => {
 
   it('never skips a different gate: another failure replaces the marker', () => {
     const { run, uploaded } = scenario({
-      migrations: 3,
+      subject: 'feat!: drop a flag',
       immutable: false,
       hold: { gate: 'migration', reason: 'held earlier' },
     });
@@ -356,7 +363,7 @@ describe('publication-gates.mjs early --release-hold', () => {
   });
 });
 
-describe('publication-gates.mjs finish', () => {
+describe('publication-gates.mjs finish', { timeout: 10_000 }, () => {
   it('reports that every gate passed when the upgrade was proved, and removes no marker that is not there', () => {
     const { run, uploaded, calls } = scenario({ hold: null });
     const result = run(finish('success', 'proved'));

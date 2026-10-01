@@ -29,9 +29,17 @@ pub struct Failure {
     pub status: u8,
     diagnostics: Option<Box<Diagnostics>>,
     suggestion: Option<String>,
-    request: Option<Box<(String, Option<&'static str>)>>,
+    request: Option<Box<RequestDetails>>,
     target: Option<Box<TargetDetails>>,
     stage: Option<&'static str>,
+}
+
+#[derive(Debug)]
+struct RequestDetails {
+    id: String,
+    status: Option<&'static str>,
+    /// What is known about delivery once a command failed after sending.
+    delivery_state: Option<&'static str>,
 }
 
 #[derive(Debug, Default)]
@@ -103,7 +111,26 @@ impl Failure {
     /// Only explicit public correlation is carried into an error document;
     /// bodies, receipt proofs and endpoint evidence are never included.
     pub fn with_request(mut self, request_id: String, status: Option<&'static str>) -> Self {
-        self.request = Some(Box::new((request_id, status)));
+        // Re-correlating (for example to add a status) keeps what is known.
+        let delivery_state = self
+            .request
+            .as_ref()
+            .and_then(|request| request.delivery_state);
+        self.request = Some(Box::new(RequestDetails {
+            id: request_id,
+            status,
+            delivery_state,
+        }));
+        self
+    }
+
+    /// Marks the request's delivery as `"uncertain"` (a one-way channel gave no
+    /// receipt, so the message must not be resent). It belongs to the request
+    /// correlation, so it has no effect before `with_request`.
+    pub fn with_delivery_state(mut self, state: &'static str) -> Self {
+        if let Some(request) = &mut self.request {
+            request.delivery_state = Some(state);
+        }
         self
     }
 
@@ -150,10 +177,12 @@ impl Failure {
             document["error"]["suggestion"] = suggestion.clone().into();
         }
         if let Some(request) = &self.request {
-            let (request_id, status) = request.as_ref();
-            document["requestId"] = request_id.clone().into();
-            if let Some(status) = status {
-                document["status"] = (*status).into();
+            document["requestId"] = request.id.clone().into();
+            if let Some(status) = request.status {
+                document["status"] = status.into();
+            }
+            if let Some(state) = request.delivery_state {
+                document["deliveryState"] = state.into();
             }
         }
         if let Some(target) = &self.target {
@@ -296,6 +325,30 @@ mod tests {
             human(&usage),
             "error: the following required arguments were not provided:\n  <message>\n\nUsage: tmt talk <target> <message>\n"
         );
+    }
+
+    #[test]
+    fn delivery_state_survives_recorrelation_and_needs_a_request() {
+        let failure = Failure::new("TIMEOUT", "late", 4)
+            .with_request("request-1".into(), None)
+            .with_delivery_state("uncertain")
+            .with_request("request-1".into(), Some("timeout"));
+        let document = failure.document();
+        assert_eq!(document["deliveryState"], "uncertain");
+        assert_eq!(document["status"], "timeout");
+        // Without a delivery state the document is exactly what it always was.
+        assert_eq!(
+            Failure::new("TIMEOUT", "late", 4)
+                .with_request("request-1".into(), Some("timeout"))
+                .document(),
+            serde_json::json!({
+                "error": {"code": "TIMEOUT", "message": "late"},
+                "requestId": "request-1",
+                "status": "timeout"
+            })
+        );
+        let uncorrelated = Failure::new("ERROR", "x", 1).with_delivery_state("uncertain");
+        assert!(uncorrelated.document().get("deliveryState").is_none());
     }
 
     #[test]
