@@ -64,6 +64,17 @@ A request tagged `[<squad> · <member>]` from the user is an annotation: a note
 about that row for you to act on. Answer it with `tmt reply` as usual; the
 user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
+## Board appearance
+
+The board uses the shared TMT design tokens: `muted` for readable tabs, labels
+and key hints, `accent` plus bold for focus, and `dim` for secondary values and
+borders. Attention tabs keep their waiting/blocked color and counts. Selection
+uses the theme's `selection` background while retaining each cell's state or
+provider color; a terminal without a background color uses reverse video,
+including `NO_COLOR`. Colors decorate the words and marks; never infer state
+from color alone. The global theme belongs in `config.json`; per-squad theme
+bases and overrides belong in `[squad.<name>.theme]` in `squad.toml`.
+
 ## Keep it current
 
 A stale board is worse than none. Update the board as part of every dispatch
