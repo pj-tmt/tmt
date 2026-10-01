@@ -15,7 +15,9 @@ run explicit developer fixtures and verifiers, never serve as a product fallback
 Published releases are immutable. Source changes do not publish replacements
 or migrate application data.
 TMT remains an invocation-owned local CLI, without a remote MCP server, identity
-memory or a separate inbox service. The independently installed Office companion may
+memory or a separate inbox service. The one MCP server it ships is the hidden
+`__channel-server`, a stdio server that an opted-in Claude launch starts as its own
+child; it listens on no network port. The independently installed Office companion may
 run one explicit loopback-only browser service; it does not execute CLI work or change
 the CLI's invocation-owned storage policy.
 
@@ -1439,7 +1441,9 @@ own process verification and event mapping; core does not interpret hook ancestr
 First-party and community registrations share the same API; descending priority
 and then harness ID resolve competing claims deterministically. Registration is
 in-process, not dynamic plugin discovery. Explicit launches preserve every argv
-byte; the registry neither executes recognition nor remembers arguments or paths.
+byte (`tmt run --channel` lets the driver append its own provider flags after the
+user's and never rewrites theirs); the registry neither executes recognition nor
+remembers arguments or paths.
 Bare relaunch resolves the registered executable through PATH with no arguments.
 Exact resume is runtime-owned, including the mode: the shared constants are
 Claude `default` and Codex `shared`/`embedded`. Provider hooks must record those
@@ -1601,7 +1605,9 @@ process owner. These contracts do not discover or execute plugins, install provi
 hooks or replace the durable retirement receipts in `identity_hooks`. Container
 interfaces remain the existing tmux binding records; the session interface kind
 is reserved, not a shipped session-only binding store. Current
-public messaging still uses its existing tmux transport and request lifecycle.
+public messaging still uses its existing tmux transport and request lifecycle,
+except that a session that opted into a provider channel (`tmt run --channel`) is
+reached through it and never pasted to (see "Provider channels").
 Implicit caller selection first consults the runtime driver's `identify_caller`
 action. `drivers::codex::caller` owns Codex thread markers and bounded process
 ancestry inspection. It takes one PID/parent/command snapshot and walks it in
@@ -2097,7 +2103,7 @@ ownership map.
   provider session the driver created before the child starts, `foreground_started`
   and a consuming `withdraw`. `ChannelPlan` carries the identity and a `PaneAddress`
   (tmux server incarnation, pane ID, pane process), which the driver persists in its
-  enrollment before the child starts. A launcher calls `foreground_started` once
+  enrollment before the child starts. The launcher calls `foreground_started` once
   with the exact child incarnation it spawned and observed, before admission, and
   retires the lease only when no child was spawned or its wait returned; on any other
   path it drops the lease and the record stays. The driver
@@ -2165,9 +2171,14 @@ ownership map.
   stale launcher or server can never replace or remove a newer enrollment. The
   server's calling thread is its only output writer, and it can only complete an
   enrollment that `enroll` created.
-- Claude registers its channel in `Runtime.channel`, but no CLI entry point calls
-  `enroll` or `serve` yet, so no record is ever written and every session still
-  uses its existing transport.
+- `tmt run --channel` (`run_command/channel.rs`, `run_command/run.rs`) is the only
+  entry point that enrolls. It probes the provider version and shows the driver's
+  advisory before binding, enrolls after binding and before the spawn, publishes
+  the child through `foreground_started`, and retires the lease only on a failed
+  spawn or a reaped child. The hidden `__channel-server` command
+  (`channel_server_command.rs`) parses its argv into a `ServeRequest` and calls the
+  driver's `serve`. A session that never opted in has no record and keeps its
+  existing transport.
 
 ### Host driver protocol
 
