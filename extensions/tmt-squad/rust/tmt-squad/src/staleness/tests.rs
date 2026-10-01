@@ -83,6 +83,7 @@ impl Drop for Fixture {
 
 fn member(id: &str, fields: &[(&str, &str)]) -> Member {
     Member {
+        lead_marker: None,
         id: id.into(),
         name: id.into(),
         lifetime: "saved".into(),
