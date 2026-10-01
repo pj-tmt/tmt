@@ -7,7 +7,7 @@ use tmt_adapters::{
     setup,
     skill_installation::ProviderEnvironment,
 };
-use tmt_cli_style::{AnsiColor, Token};
+use tmt_cli_style::{Role, Token};
 use tmt_core::driver::descriptor::{DriverDescriptor, HookFormat, Hue};
 
 static DESCRIPTOR: DriverDescriptor = DriverDescriptor {
@@ -89,7 +89,7 @@ fn setup_and_detection_come_from_the_registry() {
 fn ls_colors_come_from_the_descriptors() {
     assert_eq!(
         crate::driver_style::token_in(&descriptors(), "fixture-agent"),
-        Token::Driver(Some(AnsiColor::Magenta))
+        Token::Driver(Some(Role::Review))
     );
     assert_eq!(
         crate::driver_style::token("fixture-agent"),

@@ -3,7 +3,7 @@
 use crate::{
     host::{ActionError, Host},
     process::{SupervisedProbeRunner, runtime::observe_runtime_process},
-    runtime::RuntimeRegistry,
+    runtime::{RuntimeError, RuntimeRegistry, channel::ChannelFault},
     storage::{Storage, StorageError},
 };
 use std::time::{Duration, Instant};
@@ -13,7 +13,7 @@ use tmt_core::{
         session::{ObservedSessionKey, RuntimeLiveness, RuntimeState, SessionTransition},
     },
     driver::{
-        ActionResult, Driver, InterfacePresence, InterfaceStatus, SendFailure,
+        ActionResult, DeliveryAcceptance, Driver, InterfacePresence, InterfaceStatus, SendFailure,
         routing::send_preferred,
     },
     request::{
@@ -24,6 +24,14 @@ use tmt_core::{
 
 pub enum Delivery {
     Sent,
+    /// Written to a one-way channel with no provider receipt. The request is
+    /// recorded as uncertain and its durable reply is still awaited, but it is
+    /// never resent or pasted (see `contracts/claude-channel-v1.md`).
+    Unacknowledged,
+    /// The session opted into a channel that could not carry this request
+    /// (not ready, unreachable, or its enrollment ended). Nothing was sent and
+    /// nothing was pasted: paste is only for sessions that never opted in.
+    ChannelUnavailable(ChannelFault),
     Offline,
     Uncertain,
     Unavailable,
@@ -34,7 +42,7 @@ impl Delivery {
     pub fn wake_state(&self) -> WakeState {
         match self {
             Self::Sent => WakeState::Sent,
-            Self::Uncertain => WakeState::Uncertain,
+            Self::Uncertain | Self::Unacknowledged => WakeState::Uncertain,
             Self::Transport(error) if error.uncertain() => WakeState::Uncertain,
             _ => WakeState::Unavailable,
         }
@@ -226,14 +234,7 @@ pub fn send(
             Some(id) => match registry.send(id, &entry, message) {
                 ActionResult::Unsupported => ActionResult::Unsupported,
                 ActionResult::Completed(value) => ActionResult::Completed(value),
-                ActionResult::Failed(error) => ActionResult::Failed(match error {
-                    SendFailure::NotSent(_) => SendFailure::NotSent(Delivery::Unavailable),
-                    SendFailure::Uncertain(_) => SendFailure::Uncertain(Delivery::Uncertain),
-                    SendFailure::Denied(_) => SendFailure::Denied(Delivery::Unavailable),
-                    SendFailure::AwaitingApproval(_) => {
-                        SendFailure::AwaitingApproval(Delivery::Unavailable)
-                    }
-                }),
+                ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
             },
         },
         || match session.send(&entry, message) {
@@ -259,6 +260,7 @@ pub fn send(
         },
     );
     Ok(match result {
+        ActionResult::Completed(DeliveryAcceptance::Unacknowledged) => Delivery::Unacknowledged,
         ActionResult::Completed(_) => Delivery::Sent,
         ActionResult::Unsupported => Delivery::Unavailable,
         ActionResult::Failed(
@@ -268,6 +270,25 @@ pub fn send(
             | SendFailure::AwaitingApproval(value),
         ) => value,
     })
+}
+
+/// A runtime driver's failure as a delivery outcome. Its class is kept, so
+/// `send_preferred` never falls back after anything but `NotSent`, and a channel
+/// that could not carry the request is reported as such rather than as a
+/// generic unavailability.
+fn runtime_failure(error: SendFailure<RuntimeError>) -> SendFailure<Delivery> {
+    let unavailable = |error: RuntimeError| match error {
+        RuntimeError::Channel(
+            fault @ (ChannelFault::NotReady | ChannelFault::Unreachable | ChannelFault::Stale),
+        ) => Delivery::ChannelUnavailable(fault),
+        _ => Delivery::Unavailable,
+    };
+    match error {
+        SendFailure::NotSent(error) => SendFailure::NotSent(unavailable(error)),
+        SendFailure::Uncertain(_) => SendFailure::Uncertain(Delivery::Uncertain),
+        SendFailure::Denied(error) => SendFailure::Denied(unavailable(error)),
+        SendFailure::AwaitingApproval(_) => SendFailure::AwaitingApproval(Delivery::Unavailable),
+    }
 }
 
 pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
@@ -336,4 +357,68 @@ pub fn gone_waiter(
         return Some(value.policy);
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unacknowledged_channel_write_is_an_uncertain_wake_that_is_never_offline_or_unavailable() {
+        assert_eq!(Delivery::Unacknowledged.wake_state(), WakeState::Uncertain);
+        assert_eq!(Delivery::Sent.wake_state(), WakeState::Sent);
+        assert_eq!(Delivery::Unavailable.wake_state(), WakeState::Unavailable);
+        assert_eq!(
+            Delivery::ChannelUnavailable(ChannelFault::NotReady).wake_state(),
+            WakeState::Unavailable
+        );
+    }
+
+    /// An opted-in session's channel outcomes must never reach the paste
+    /// fallback, whichever way the routing policy is composed.
+    #[test]
+    fn an_opted_in_channel_that_cannot_carry_the_request_never_falls_back_to_paste() {
+        for fault in [
+            ChannelFault::NotReady,
+            ChannelFault::Unreachable,
+            ChannelFault::Stale,
+            ChannelFault::Mismatch,
+            ChannelFault::InvalidRecord,
+            ChannelFault::Unverifiable,
+            ChannelFault::Refused,
+            ChannelFault::TooLarge,
+            ChannelFault::Uncertain,
+        ] {
+            let result = send_preferred(
+                || {
+                    ActionResult::Failed(runtime_failure(SendFailure::Denied(
+                        RuntimeError::Channel(fault),
+                    )))
+                },
+                || panic!("{fault:?} must not paste"),
+            );
+            assert!(matches!(
+                result,
+                ActionResult::Failed(SendFailure::Denied(_))
+            ));
+        }
+        assert!(matches!(
+            runtime_failure(SendFailure::Denied(RuntimeError::Channel(
+                ChannelFault::NotReady
+            ))),
+            SendFailure::Denied(Delivery::ChannelUnavailable(ChannelFault::NotReady))
+        ));
+        assert!(matches!(
+            runtime_failure(SendFailure::Denied(RuntimeError::Channel(
+                ChannelFault::Refused
+            ))),
+            SendFailure::Denied(Delivery::Unavailable)
+        ));
+        assert!(matches!(
+            runtime_failure(SendFailure::Uncertain(RuntimeError::Channel(
+                ChannelFault::Uncertain
+            ))),
+            SendFailure::Uncertain(Delivery::Uncertain)
+        ));
+    }
 }

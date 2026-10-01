@@ -31,7 +31,9 @@ $ tmt sq                         # the board on a terminal, the member list anyw
 
 <Waiting /> marks what's waiting on _you_. Squad knows who you are from the pane you run it in, or
 from `tmt sq me ben` if you'd rather record it once. It follows that identity through `tmt rename`.
-When your lead runs a squad command in its own pane, it speaks as itself.
+When your lead runs a squad command in its own pane, it speaks as itself. Selecting a lead with `tmt
+sq lead` is independent of the `role` and `lead` fields: changing either field keeps leadership
+unchanged, and choosing a new lead preserves every member's role text.
 
 <Callout title="Squad doesn't start agents.">
   It doesn't create worktrees or windows either. How members come to life is up to you and your
@@ -57,14 +59,14 @@ By default the board is one searchable list of the squad's members. Press `/` an
 
 <Caption>Sketch of the default board. Every key below can be changed.</Caption>
 
-| Key                      | On the selected row                                                                                                                                                                                                    |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enter · double-click · ⌫ | `jump` to the member's own screen, and `back` to where you were. A single click only selects a row. This needs a host that can switch panes; see [Jumping between members](/extensions/squad#jumping-between-members). |
-| L                        | `jump lead`: to the lead of this tab's squad; on **leads** and **all**, to the lead of the selected row's squad. In tmux only.                                                                                         |
-| t · r                    | `talk` to the member, or `reply` to what it's waiting on, through tmt's own `tmt talk` and `tmt answer`. The answer shows up on the board.                                                                             |
-| a                        | `annotate`: send the lead a note about this row (below).                                                                                                                                                               |
-| o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                       |
-| / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                 |
+| Key                      | On the selected row                                                                                                                                                                                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enter · double-click · ⌫ | `jump` to the member's own screen, and `back` to where you were. A single click only selects a row; clicking a pane, such as the notes, focuses it. This needs a host that can switch panes; see [Jumping between members](/extensions/squad#jumping-between-members). |
+| L                        | `jump lead`: to the lead of this tab's squad; on **leads** and **all**, to the lead of the selected row's squad. In tmux only.                                                                                                                                         |
+| t · r                    | `talk` to the member, or `reply` to what it's waiting on, through tmt's own `tmt talk` and `tmt answer`. The answer shows up on the board.                                                                                                                             |
+| a                        | `annotate`: send the lead a note about this row (below).                                                                                                                                                                                                               |
+| o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                                                                       |
+| / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                                                                 |
 
 ### Tabs: one per squad
 
@@ -138,7 +140,7 @@ enter = "reply" # in this section, Enter answers
 show = ["member", "state", "task", "pr", "updated"]
 
 [squad.product.states]
-blocked = { color = "amber", sort = 0 }
+blocked = { color = "waiting", sort = 0 }
 parked = { color = "dim" }
 
 [squad.product.notes]
@@ -217,11 +219,13 @@ Four themes come built in. **tmt** is soft truecolor for dark terminals. **tmt-l
 }
 `}</Code>
 
-The theme lives in `~/.config/tmux-team/config.json`. `base` is `tmt`, `tmt-light`, `terminal` or `mono`, and any token can be overridden with a hex value or a color name; `tmt config show` names a key it can't use. Today the theme colors the command line; the board follows.
+The theme lives in `~/.config/tmux-team/config.json`. `base` is `tmt`, `tmt-light`, `terminal` or `mono`, and any token can be overridden with a hex value or a color name; `tmt config show` names a key it can't use. It colors the command line once you set a `base`, and always colors the board.
 
-### Theming the board <Tag kind="planned" />
+### Theming the board
 
-The board will read the same theme, with **tmt** as its default. Pick a theme and preview it live from the board's settings view; your choice is written back to your config. A squad can override tokens under `[squad.<name>.theme]`. State colors on rows and tabs use these tokens too: `blocked = { color = "blocked" }`.
+The board reads the same theme, with **tmt** as its default. A squad can change its own board under `[squad.<name>.theme]` in `squad.toml`, with the same keys; its `base` wins. State colors on rows and tabs are these tokens too: `blocked = { color = "blocked" }`. The older names `red`, `amber`, `green`, `blue`, `cyan` and `magenta` still work. If the global theme has a mistake, the board uses **tmt** and says so on its summary line.
+
+Picking and previewing a theme from the board's settings view is <Tag kind="planned" />.
 
 ### Skills for your lead
 

@@ -124,9 +124,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # One entry per component that releases (.github/components.json); Office is release:false.
         product:
           - cli
-          - office
           - squad
     permissions:
       # Draft releases are only listed for a token that can push; starting a run needs actions.

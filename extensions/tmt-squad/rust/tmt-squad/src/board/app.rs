@@ -42,6 +42,10 @@ pub struct View {
     pub me: Option<String>,
     /// Finals to the user's squad requests, newest first (replies pane).
     pub replies: Vec<Value>,
+    /// The squad's theme at the terminal's depth: every color the board draws.
+    pub look: crate::look::Look,
+    /// Why the board uses the default theme, when the global one is wrong.
+    pub theme_notice: Option<String>,
 }
 
 /// The lead's notebook, already sanitized for display.
@@ -478,6 +482,20 @@ impl App {
             .as_ref()
             .and_then(|view| view.board.panes.get(self.focus).copied())
             .unwrap_or(Pane::Rows)
+    }
+
+    /// Focuses the pane drawn under the pointer, if any.
+    fn focus_at(&mut self, column: u16, row: u16) {
+        let Some(pane) = self.scrolls.pane_at(column, row) else {
+            return;
+        };
+        if let Some(position) = self
+            .view
+            .as_ref()
+            .and_then(|view| view.board.panes.iter().position(|p| *p == pane))
+        {
+            self.focus = position;
+        }
     }
 
     fn next_pane(&mut self) {
@@ -965,7 +983,7 @@ impl App {
     }
 
     /// The wheel scrolls the pane under the pointer, whichever is focused.
-    /// A left click selects the row under it, then runs its `click` binding;
+    /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
         if self.menu.is_some() || self.input.is_some() || self.help || self.switcher.is_some() {
@@ -1009,6 +1027,7 @@ impl App {
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;
         }
+        self.focus_at(event.column, event.row);
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
@@ -1026,6 +1045,15 @@ impl App {
             Some(action) => self.perform(&action),
             None => Effect::None,
         }
+    }
+
+    /// How the board draws now: the shown squad's theme, or the default
+    /// one before the first load.
+    pub fn look(&self) -> crate::look::Look {
+        self.view.as_ref().map_or_else(
+            || crate::look::Look::new(tmt_cli_style::Theme::default()),
+            |view| view.look,
+        )
     }
 
     pub fn selected_row(&self) -> Option<&Value> {
@@ -1061,6 +1089,8 @@ pub(crate) mod tests {
             opener: None,
             clipboard: None,
             tab_colors: Default::default(),
+            look: Default::default(),
+            theme_notice: None,
             me: None,
             replies: Vec::new(),
         }
