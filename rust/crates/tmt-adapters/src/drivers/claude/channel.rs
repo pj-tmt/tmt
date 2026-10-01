@@ -687,7 +687,10 @@ fn recovery(directory: &Path, binding_id: &str) -> String {
 /// the pane through the address it persisted at enroll (never through a stored
 /// binding, which observation may have deleted) and observes only that record's
 /// own exact incarnations: the launch owner, the foreground, the provider. A
-/// record whose processes are all gone has ended and is not evidence. A record
+/// record that recorded a foreground or the provider and whose processes are all
+/// gone has ended and is not evidence; one that recorded neither stays unknown
+/// (terminal for this pane) even when its launcher is gone, because nothing proves
+/// where the agent it may have started went. A record
 /// that cannot be attributed (unreadable, older, naming no pane) never blocks an
 /// unrelated pane and is reported in `skipped`, unless its file is named for
 /// `binding_id`, the binding being delivered to, which makes it that binding's
