@@ -10,7 +10,7 @@ use crate::{
 use std::time::{Duration, Instant};
 use tmt_core::{
     binding::{Binding, session::RuntimeState},
-    driver::Focused,
+    driver::{ActionResult, DeliveryAcceptance, Focused, SendFailure},
     endpoint::{EndpointProbe, EndpointSnapshot, ServerEvidence},
     host::HostKind,
     identity::Identity,
@@ -279,6 +279,14 @@ impl<R: CommandRunner> HostDriver for Session<'_, R> {
 
     fn has_input(&self) -> bool {
         false
+    }
+
+    fn prompt(
+        &mut self,
+        _: &Binding,
+        _: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>> {
+        ActionResult::Unsupported
     }
 
     fn input(&mut self, _: &Binding, _: &str) -> Result<(), DeliveryError> {

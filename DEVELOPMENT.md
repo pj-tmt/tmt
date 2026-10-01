@@ -846,6 +846,12 @@ Private Codex enrollment state (#737) is checked with
 isolated temporary records and inject liveness evidence; they verify lock-scoped
 state changes and replacement preservation, not real crashed-server recovery.
 
+Owned Codex startup and attachment planning (#738) are covered by
+`cargo test --locked -p tmt-adapters drivers::codex`. The server cases launch
+isolated shell stand-ins and check observable process/file cleanup; cwd probes
+compare relative and absolute `-C`. They do not start Codex or a model and do not
+replace the final live foreground continuity gate.
+
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
 

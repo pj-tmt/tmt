@@ -1991,7 +1991,14 @@ runtime in a pane, input and focus, at the driver protocol's granularity
 policy over it: `host::driver::{status, send, focus}` decide which evidence
 makes a binding present, when a runtime blocks input, and what a failure
 means. A host without input (`has_input`) is `Unsupported` before any evidence
-is read, and `focus_preflight` refuses before any evidence is read too. The
+is read, and `focus_preflight` refuses before any evidence is read too. A send
+that passes the evidence and runtime checks first offers the message to the
+agent the host recognizes in the pane (`prompt`); only `Unsupported` (no
+agent-aware input, or no agent seen) falls back to raw pane input (`input`),
+and any other answer, such as an agent that is blocked or not ready, is final.
+tmux recognizes no agents, so every tmux send is raw input. `DeliveryError`
+(`host::delivery`) is the host-neutral input failure: the stage that failed,
+whether text may have reached the pane, and the host's own cause. The
 out-of-process client of #570 slice 3 implements the same trait. `HostError` and
 the host `ActionError` wrap each host's error and read exactly as it. The
 architecture guard rejects production references to the host modules outside
@@ -2104,6 +2111,13 @@ binding transaction. The launcher must validate new-launch authority before
 calling it; record-level takeover and withdrawal remain generation/incarnation
 scoped. The same contract owns this persistence definition and its still-pending
 launcher/crash-cleanup integration. This adds no user-facing registration.
+
+`drivers/codex/server` and `attachment` add unregistered endpoint/foreground
+planning (#738). A launch-owned process group and private capability share one
+cleanup owner; process cleanup precedes inode-checked file removal. Attachment
+planning resolves cwd once and names an exact thread. The channel contract owns
+the startup, credential and failure limits; real continuity and launcher crash
+recovery remain final consumer acceptance gates.
 
 ### Provider channels
 
