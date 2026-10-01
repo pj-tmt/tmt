@@ -250,8 +250,13 @@ strictly, and checks every ID, pid and string against the declared grammar
 before use. Core also decides from its own evidence:
 
 - a pane is bound only when core's check of the process identity matches;
+- the server's and each pane shell's incarnation are core-observed: core takes
+  its own start token for the pid a driver names and never stores or compares
+  a driver's `startTime`;
 - runtime and liveness come from core's own process inspection of the pane's
   shell (status is not a driver operation);
+- loss is proved only by core's evidence. A driver that is missing, changed,
+  failing or out of time leaves a binding Unknown, never retired;
 - deliveries are accepted only through core's receipt logic.
 
 **What a driver receives:** it never receives tokens, receipts, requests or
