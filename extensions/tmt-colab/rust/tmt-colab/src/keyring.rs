@@ -16,10 +16,48 @@ use std::{
 pub struct Layout {
     pub directory: PathBuf,
 }
+#[derive(Debug, PartialEq, Eq)]
+pub enum StateFault {
+    RootNotAbsolute,
+    UnsafeDirectory,
+    UnsafeFile,
+    InvalidFileName,
+    InvalidOwnerKey,
+    AlreadyServing,
+    KeyringBusy,
+}
+impl StateFault {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::RootNotAbsolute => "COLAB_ROOT_INVALID",
+            Self::UnsafeDirectory | Self::UnsafeFile => "COLAB_STATE_UNSAFE",
+            Self::InvalidFileName => "COLAB_STATE_NAME_INVALID",
+            Self::InvalidOwnerKey => "COLAB_KEY_INVALID",
+            Self::AlreadyServing => "COLAB_ALREADY_SERVING",
+            Self::KeyringBusy => "COLAB_KEYRING_BUSY",
+        }
+    }
+}
+impl std::fmt::Display for StateFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::RootNotAbsolute => "Data root must be absolute.",
+            Self::UnsafeDirectory => {
+                "Colab directory must be an owned 0700 directory, not a symlink."
+            }
+            Self::UnsafeFile => "Colab files must be owned regular 0600 files.",
+            Self::InvalidFileName => "Invalid private file name.",
+            Self::InvalidOwnerKey => "Invalid owner key length; key was not replaced.",
+            Self::AlreadyServing => "Local space is already serving.",
+            Self::KeyringBusy => "Owner keyring publication is already in progress.",
+        })
+    }
+}
+impl std::error::Error for StateFault {}
 impl Layout {
     pub fn open(data_root: &Path) -> Result<Self> {
         if !data_root.is_absolute() {
-            return Err("Data root must be absolute.".into());
+            return Err(StateFault::RootNotAbsolute.into());
         }
         fs::DirBuilder::new()
             .recursive(true)
@@ -36,7 +74,7 @@ impl Layout {
     }
     pub fn existing(data_root: &Path) -> Result<Option<Self>> {
         if !data_root.is_absolute() {
-            return Err("Data root must be absolute.".into());
+            return Err(StateFault::RootNotAbsolute.into());
         }
         // Only the trusted core-selected root may contain aliases such as macOS /var.
         let data_root = match fs::canonicalize(data_root) {
@@ -57,13 +95,13 @@ impl Layout {
             || metadata.uid() != Uid::effective().as_raw()
             || metadata.mode() & 0o777 != 0o700
         {
-            return Err("Colab directory must be an owned 0700 directory, not a symlink.".into());
+            return Err(StateFault::UnsafeDirectory.into());
         }
         Ok(Some(Self { directory }))
     }
     pub fn file(&self, name: &str) -> Result<File> {
-        if !["owner.key", "serve.lock", "space.db"].contains(&name) {
-            return Err("Invalid private file name.".into());
+        if !["owner.key", "serve.lock", "keyring.lock", "space.db"].contains(&name) {
+            return Err(StateFault::InvalidFileName.into());
         }
         let file = OpenOptions::new()
             .read(true)
@@ -77,7 +115,11 @@ impl Layout {
     }
     pub fn serve_lock(&self) -> Result<Flock<File>> {
         Flock::lock(self.file("serve.lock")?, FlockArg::LockExclusiveNonblock).map_err(|(_, e)| {
-            format!("Local space is already serving or lock is unavailable: {e}").into()
+            if e == nix::errno::Errno::EWOULDBLOCK {
+                StateFault::AlreadyServing.into()
+            } else {
+                e.into()
+            }
         })
     }
     pub fn running(&self) -> Result<bool> {
@@ -101,7 +143,7 @@ impl Layout {
 fn validate_file(file: &File) -> Result<()> {
     let m = file.metadata()?;
     if !m.is_file() || m.uid() != Uid::effective().as_raw() || m.mode() & 0o777 != 0o600 {
-        return Err("Colab files must be owned regular 0600 files.".into());
+        return Err(StateFault::UnsafeFile.into());
     }
     Ok(())
 }
@@ -112,6 +154,19 @@ pub struct Keyring {
 }
 impl Keyring {
     pub fn open(layout: &Layout) -> Result<Self> {
+        // Publication/cleanup share this short-lived lock; never remove an active writer's file.
+        let _publication = Flock::lock(
+            layout.file("keyring.lock")?,
+            FlockArg::LockExclusiveNonblock,
+        )
+        .map_err(|(_, e)| -> Box<dyn std::error::Error + Send + Sync> {
+            if e == nix::errno::Errno::EWOULDBLOCK {
+                StateFault::KeyringBusy.into()
+            } else {
+                e.into()
+            }
+        })?;
+        cleanup_owner_temporaries(layout)?;
         let destination = layout.directory.join("owner.key");
         if !destination.try_exists()? {
             let mut seed = [0; 32];
@@ -153,7 +208,7 @@ impl Keyring {
         let mut seed_array: [u8; 32] = seed
             .as_slice()
             .try_into()
-            .map_err(|_| "Invalid owner key length; key was not replaced.")?;
+            .map_err(|_| StateFault::InvalidOwnerKey)?;
         let owner = SigningKey::from_bytes(&seed_array);
         seed_array.fill(0);
         seed.fill(0);
@@ -163,6 +218,38 @@ impl Keyring {
     pub fn owner_public(&self) -> [u8; 32] {
         self.owner.verifying_key().to_bytes()
     }
+}
+fn cleanup_owner_temporaries(layout: &Layout) -> Result<()> {
+    let mut removed = false;
+    for entry in fs::read_dir(&layout.directory)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if !name
+            .to_str()
+            .and_then(|s| s.strip_prefix(".owner-"))
+            .is_some_and(|s| {
+                s.len() == 32
+                    && s.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+        {
+            continue;
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
+            .open(entry.path())?;
+        validate_file(&file)?;
+        if file.metadata()?.len() > 32 {
+            return Err(StateFault::InvalidOwnerKey.into());
+        }
+        fs::remove_file(entry.path())?;
+        removed = true;
+    }
+    if removed {
+        File::open(&layout.directory)?.sync_all()?;
+    }
+    Ok(())
 }
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()

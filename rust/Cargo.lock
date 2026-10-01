@@ -2595,11 +2595,17 @@ dependencies = [
 name = "tmt-colab"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "clap",
  "ed25519-dalek",
  "getrandom 0.4.3",
+ "httparse",
  "nix",
  "rusqlite",
+ "serde_json",
  "sha2",
+ "signal-hook 0.4.4",
+ "tmt-cli-style",
+ "tmt-invoke",
 ]
 
 [[package]]

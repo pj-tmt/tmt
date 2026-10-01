@@ -1,4 +1,6 @@
-//! Local-build colab persistence slice: opaque ciphertext, never decoded Yjs.
+//! Local-build colab pilot. The server stores ciphertext and never decodes Yjs.
+pub mod core;
+pub mod http;
 pub mod keyring;
 pub mod limits;
 pub mod store;

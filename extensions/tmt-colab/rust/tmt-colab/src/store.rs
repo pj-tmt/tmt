@@ -42,6 +42,7 @@ pub enum Fault {
     Invalid,
     StaleEpoch,
     StaleCheckpoint,
+    UnsupportedSchema(u32),
     Gap,
     Conflict,
     Capacity,
@@ -49,7 +50,14 @@ pub enum Fault {
 }
 impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+        if let Self::UnsupportedSchema(version) = self {
+            write!(
+                f,
+                "Unsupported colab store schema {version}; database was not changed."
+            )
+        } else {
+            write!(f, "{self:?}")
+        }
     }
 }
 impl std::error::Error for Fault {}
@@ -74,7 +82,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(2))?;
         let version: u32 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version > 1 {
-            return Err("Unsupported colab store schema; database was not changed.".into());
+            return Err(Fault::UnsupportedSchema(version).into());
         }
         connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;
             BEGIN IMMEDIATE;
