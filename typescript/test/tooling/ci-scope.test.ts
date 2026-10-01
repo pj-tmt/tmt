@@ -827,7 +827,7 @@ esac
         expected.push('test --locked --workspace');
       if (fixture.status === 0)
         expected.push(
-          '+1.88.0 build --locked --workspace',
+          '+1.95.0 build --locked --workspace',
           'build --locked --workspace',
           'build --locked --example storage-probe'
         );
@@ -1236,7 +1236,7 @@ describe('required CI gate', () => {
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
     expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');
-    expect(native).toContain('cargo +1.88.0 build --locked');
+    expect(native).toContain('cargo +1.95.0 build --locked');
     expect(native).toContain('cargo build --locked -p tmt-office');
     expect(native).toContain('rust/target/debug/examples/storage-probe');
     expect(native).toContain('pnpm test:native --reporter=verbose');
