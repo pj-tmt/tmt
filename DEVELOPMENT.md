@@ -1655,6 +1655,11 @@ independent namespace/sign-in oracle, use Python with `cryptography` installed:
 repository root; add `--write` only after reviewing changed bytes. Fixture keys
 are public test data. This foundation does not satisfy the complete L1 gates.
 
+The private browser primitives and three-engine differential commands are owned
+by the [colab-client guide](extensions/tmt-colab/typescript/colab-client/README.md).
+Browser binaries are explicit local test dependencies; all three engines are
+required and unavailable engines fail. This harness is not a product server.
+
 ## Project release tracking
 
 `project-release.yml` records published core `v5.*`, Squad and Office releases in

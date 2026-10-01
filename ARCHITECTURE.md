@@ -81,7 +81,8 @@ source; Rust CLI theme tests check its built-in palette against the same file.
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
 the `@tmt/office` SPA, the `@tmt/office-service` trusted pairing service,
-and the private `@tmt/browser-addon` demo shell.
+the private `@tmt/browser-addon` demo shell and `@tmt/remote-client` byte codecs,
+and the private `@tmt/colab-client` WebCrypto primitive library.
 The two Office packages live under `extensions/tmt-office/typescript` as
 parent-relative members of that same workspace and lockfile. They resolve only
 their declared dependencies, never root-hoisted tooling packages; Office browser
@@ -3464,14 +3465,16 @@ the embedded app and bridge remain proposed. Core access is only through the abs
 `tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
 or pane scraping. Shared crypto extraction requires actual consumers and review.
 
-Proposed extension-relative browser packages are `typescript/colab-client`
-(client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
-(trusted React/Vite chrome and renderer); backend packages are separate. They
-join the existing pnpm workspace/lockfile and pins when implemented. Shared
+The extension-relative `typescript/colab-client` is a private pnpm member for
+client primitives; log verification, Yjs state and SyncBinding are planned additions.
+`typescript/app` (trusted React/Vite chrome and renderer) and backend packages
+remain separate proposals joining the workspace/lockfile when implemented. Shared
 workspace/component edits follow the two-lead rule; architecture guards and
-full runtime CI-scope coverage include the persistence library. The component map gives the
-contract directory private file ownership (`release: false`) and excludes it from
-CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
+full runtime CI-scope coverage include the persistence library. Runtime
+consumers require their own adoption review. The private component
+(`release: false`) excludes all colab files from CLI releases; the Rust rule
+retains full native and Office coverage. #841 gates yrs adoption. Official
+registration/packaging is separate.
 
 `rust/tmt-colab-model` under the extension is the pure Rust foundation: value
 syntax, deterministic Ed25519/X25519 public derivation, bounded LP framing,
@@ -3491,8 +3494,12 @@ revision-1 editor management member and reject successor reuse of its ID/keys;
 signing derives revision and previous hash from that head. Verification does not
 apply a transition. Shared baseline descriptor admission and exact management
 frame decoding stay here; sync/control transport DTOs belong to the server.
-Browser client, pairing/send/baseline builders and the
-three-engine harness remain later L1 work. Frozen vectors are contract-owned;
+The private browser client owns canonical values/LP/JSON, strict Ed25519,
+immutable object envelopes and sign-in/management bytes, using WebCrypto only.
+Its test-only three-engine harness fails closed on incomplete engines/corpora and
+checks ciphertext both ways through a developer-only Rust example. No app or
+transport is implemented. Browser statement/certificate/wrap ports and
+pairing/send/baseline builders remain later L1 work. Frozen vectors are contract-owned;
 Rust tests read them without Python. Regeneration uses an independent Python
 cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 
