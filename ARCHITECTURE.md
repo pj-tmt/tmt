@@ -2091,6 +2091,14 @@ owns limits, version qualification and receipt semantics. These modules are
 unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
 integration must be proven before user-facing activation in the later #719 slices.
 
+`drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),
+using the existing nonblocking file lock for compare/write/remove. It stores
+exact launch/process/thread coordinates but no capability material and owns no
+binding transaction. The launcher must validate new-launch authority before
+calling it; record-level takeover and withdrawal remain generation/incarnation
+scoped. The same contract owns this persistence definition and its still-pending
+launcher/crash-cleanup integration. This adds no user-facing registration.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent
@@ -2475,8 +2483,23 @@ resolution: a column's numeric `color` thresholds (`rows::Threshold`, validated
 theme tokens, strictly increasing) over the bound number or the field read as a
 number, else a field provider's token, which `provider::apply` keeps only when
 it names a theme token. The row carries the result as `colors` (`{field: token}`,
-omitted when empty); the board styles those cells through the theme, `state`
-keeps its state colors, and `ls` text stays uncolored. Field providers
+omitted when empty). `config::States` owns state color and rank resolution:
+exact entries (including layout presets) win entirely, else the first ordered
+`[[squad.<name>.state_patterns]]` glob, else no color and the default rank.
+Explicit sorts precede preset sorts at the same number; unspecified pattern
+sort ranks after ranked states. The compiler validates theme tokens, sort
+0-999, booleans, unknown settings, and caps of 64 patterns and 256 UTF-8 bytes
+per nonempty match with indexed config errors. Its bitset NFA consumes Unicode
+scalars with fixed-size transitions, no backtracking or dependency: `*` any
+run, `?` one scalar, other characters literal; optional case-insensitive
+matching compares each scalar's lowercase form. `status::document` alone
+publishes the resolved state token as `colors.state`, ignoring state thresholds
+and provider colors. Other color keys still come from thresholds or providers.
+The board consumes these tokens rather than keeping a second state-color map;
+aggregate lead rows retain their original squad's resolved token. `ls` text
+stays uncolored and shares state sorting (including section sort keys) with the
+board. State text and attention classification are independent of decoration.
+Field providers
 (`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
 member through `runner` with the run-binding argument rule
 (`Template::fill_argument`: one argument per template, no shell, a value that
