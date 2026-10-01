@@ -22,7 +22,7 @@ from `typescript/`; Cargo, Nx and Docker commands run from the repository root.
 
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
-Rust 1.88; CI also runs the current pinned release toolchain.
+Rust 1.95; CI also runs the current pinned release toolchain.
 Remote-client tests require `python3` for the independent byte-fixture oracle.
 Shell completion tests require Bash and Zsh. Runtime proof uses the selected
 macOS developer tools or Linux `readelf` (binutils); these are verifier tools,
@@ -259,6 +259,14 @@ partitions run in their own workflow (below), so a red `CI` run means one of its
 jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
+
+Linux CI package installation uses `.github/actions/apt-install`: each apt update
+or install attempt has a 120-second timeout with a 10-second forced-kill grace.
+The existing retry helper makes at most three attempts, with 5- and 10-second
+backoffs. Apt also uses 30-second HTTP/HTTPS network timeouts and two acquisition
+retries. The action removes the unused Chrome source before updating; package
+selection stays with each caller. Revisit the attempt bound before adding large
+packages to the current small dependency sets.
 
 `release-please-config.json` is generated, not hand-edited. After changing the component
 map, a crate's version declaration, the workspace's crates or its dependencies between
@@ -809,7 +817,7 @@ cargo test --locked
 cargo build --locked
 cargo build --locked --example storage-probe
 cargo build --locked --example tmux-probe
-cargo +1.88.0 build --locked
+cargo +1.95.0 build --locked
 ```
 
 For the unregistered Codex queue transport (#736), focused deterministic checks
@@ -817,7 +825,7 @@ are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
 `cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
 tests own local loopback peers and exercise receipt loss and absolute deadlines;
 they do not start a model or inspect provider credentials. Dependency review
-also records exact features/graph, Rust 1.88, licenses, current advisories and an
+also records exact features/graph, Rust 1.95, licenses, current advisories and an
 actual CLI release baseline/candidate under one toolchain/profile. Label a
 zero delta from unused/dead-stripped groundwork honestly and repeat the size
 measurement after the final consumer links it. See the
@@ -899,13 +907,22 @@ The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash
 cargo test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
-cargo +1.88.0 test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
+cargo +1.95.0 test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
 ```
 
 When changing a guard, exercise a real positive and negative source/dependency
 fixture and restore the checkout exactly. A stale lockfile or an unexecuted
 test is not evidence that the guard worked. Core must remain free of concrete
 I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
+
+### Internal TUI markup admission
+
+From `rust/`, run `cargo test --locked -p tmt-tui` and
+`cargo +1.95.0 test --locked -p tmt-tui` for structural XML admission and its
+byte/depth/node limits. Run the architecture test for dependency changes.
+The crate has no executable or board consumer; these tests use in-memory XML,
+not application configuration, SQLite or a terminal. Later admission/rendering
+stages must not treat a structural template as a fully validated scene.
 
 ## Native process and shared tests
 
@@ -1013,18 +1030,16 @@ manual lifecycle evidence in issue #321 owns that distinction, including the
 Codex cross-mode limitation. Normal `tmt run` does not execute this developer
 check or enforce these version pins on user commands.
 
-The Claude channel provider has its own opt-in check against the supported range
-and the builds with recorded channel evidence (see the
-[channel contract](contracts/claude-channel-v1.md)):
+The Claude channel provider has its own opt-in check, for the one build with
+recorded channel evidence (see the [channel contract](contracts/claude-channel-v1.md)):
 
 ```bash
 cargo run --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
   --example channel-contract -- /absolute/claude
 ```
 
-It runs only `--version` and `--help`, fails outside the range and says when the build
-is accepted but untested. `tmt run --channel` applies the same range rule to the user's
-command before it binds or spawns anything.
+It runs only `--version` and `--help`. The channel launch preflight applies the same
+version pin to user commands once `tmt run --channel` ships (#715).
 
 `tmt whoami --context [--json]` is the read-only rehydration entry point. It reports
 the verified caller identity and lifetime, up to 500 characters of role text,
@@ -1153,7 +1168,6 @@ Keep these boundaries when choosing where a regression belongs:
 | `tmux-adapter`, `transport-adapter`                            | Explicit adapter-probe evidence: caller/inventory/markers and delivery/capture stages; not public CLI success                         |
 | `pane-badge`                                                   | Default-off behavior, opt-in updates, theme preservation, rendering, conflicts and cleanup                                            |
 | `executable-selection`, `smoke`                                | Harness selection, causal nested replies, startup and cleanup controls                                                                |
-| `claude-channel`                                               | Claude channel delivery against a mock `claude`: no paste to an opted-in pane, crash cleanup, plain paste kept                        |
 
 Similar commands do not imply duplicate evidence: native-process tests inspect
 the executable's public contracts and independent stored state, while Docker

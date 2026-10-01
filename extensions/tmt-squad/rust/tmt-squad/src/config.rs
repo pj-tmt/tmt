@@ -7,7 +7,6 @@ use crate::{
     filter::{Filter, Row},
 };
 use std::{
-    collections::BTreeMap,
     fs,
     io::{self, Read, Write},
     os::unix::fs::OpenOptionsExt,
@@ -15,6 +14,9 @@ use std::{
     time::Duration,
 };
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
+
+mod states;
+pub use states::States;
 
 const FILE_LIMIT: u64 = 1024 * 1024;
 const MAX_SECTIONS: usize = 16;
@@ -390,22 +392,6 @@ impl Board {
 pub enum NotesRender {
     Markdown,
     Plain,
-}
-
-/// A squad's state vocabulary after overrides: display order and colors.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct States {
-    /// Known states in sort order; unknown states sort after all of them.
-    pub order: Vec<String>,
-    pub colors: BTreeMap<String, String>,
-}
-
-impl States {
-    pub fn rank(&self, state: Option<&str>) -> usize {
-        state
-            .and_then(|state| self.order.iter().position(|known| known == state))
-            .unwrap_or(self.order.len())
-    }
 }
 
 fn field_name(value: &str) -> bool {
@@ -1093,75 +1079,9 @@ impl Config {
         Ok(tabs)
     }
 
-    /// The state vocabulary: the layout's order and colors, overridden by
-    /// `[squad.<name>.states] <state> = { color = "...", sort = N }`. An explicit
-    /// `sort` ranks before a layout default with the same number.
+    /// Resolve the layout's exact states and per-squad ordered glob patterns.
     pub fn states(&self, squad: &str, layout: Layout) -> Result<States, SquadError> {
-        // (explicit sort, implicit tie-break, layout position, name)
-        let mut ranks: BTreeMap<String, (u16, bool, usize)> = layout
-            .states()
-            .iter()
-            .enumerate()
-            .map(|(index, state)| ((*state).into(), (index as u16, true, index)))
-            .collect();
-        let mut colors: BTreeMap<String, String> = layout
-            .state_colors()
-            .iter()
-            .map(|(state, color)| ((*state).into(), (*color).into()))
-            .collect();
-        let place = format!("squad.{squad}.states");
-        if let Some(item) = self
-            .squad_table(squad)?
-            .and_then(|table| table.get("states"))
-        {
-            let table = item
-                .as_table_like()
-                .ok_or_else(|| invalid(format!("`{place}` must be a table of states.")))?;
-            for (state, settings) in table.iter() {
-                let settings = settings
-                    .as_table_like()
-                    .filter(|_| field_name(state))
-                    .ok_or_else(|| invalid(format!("`{place}.{state}` must be a table.")))?;
-                for (key, value) in settings.iter() {
-                    match key {
-                        "color" => {
-                            let color = value
-                                .as_str()
-                                .filter(|color| crate::look::known(color))
-                                .ok_or_else(|| {
-                                    invalid(format!(
-                                        "`{place}.{state}.color` must be {}.",
-                                        crate::look::names()
-                                    ))
-                                })?;
-                            colors.insert(state.into(), color.into());
-                        }
-                        "sort" => {
-                            let sort = value
-                                .as_integer()
-                                .and_then(|sort| u16::try_from(sort).ok())
-                                .filter(|sort| *sort <= 999)
-                                .ok_or_else(|| {
-                                    invalid(format!("`{place}.{state}.sort` must be 0-999."))
-                                })?;
-                            let position = ranks.get(state).map_or(usize::MAX, |rank| rank.2);
-                            ranks.insert(state.into(), (sort, false, position));
-                        }
-                        other => {
-                            return Err(invalid(format!(
-                                "`{place}.{state}.{other}` is not a state setting; use color or sort."
-                            )));
-                        }
-                    }
-                }
-            }
-        }
-        let mut order: Vec<(String, (u16, bool, usize))> = ranks.into_iter().collect();
-        order.sort_by(|(a, left), (b, right)| left.cmp(right).then_with(|| a.cmp(b)));
-        Ok(States {
-            order: order.into_iter().map(|(state, _)| state).collect(),
-            colors,
-        })
+        States::read(self.squad_table(squad)?, squad, layout)
     }
 
     /// Writes `me` and its UUID `me_id` together by replacing the file
@@ -1634,6 +1554,20 @@ sort = ["state", "-name"]
         }
         fs::write(&path, "").unwrap();
         let config = Config::read(path.clone()).unwrap();
+        for tmux in [true, false] {
+            assert_eq!(
+                config.bindings(tmux).unwrap()["f5"].verb,
+                crate::action::Verb::Refresh
+            );
+        }
+        fs::write(&path, "[bind]\nf5 = \"copy\"\n").unwrap();
+        let rebound = Config::read(path.clone()).unwrap();
+        for tmux in [true, false] {
+            assert_eq!(
+                rebound.bindings(tmux).unwrap()["f5"].verb,
+                crate::action::Verb::Copy
+            );
+        }
         assert_eq!(
             config.bindings(false).unwrap()["double-click"].verb,
             crate::action::Verb::Menu
@@ -1749,16 +1683,20 @@ sort = ["state", "-name"]
         );
         assert_eq!((columns[2].width, columns[2].grow), (Some(30), 0));
         assert_eq!(columns[0].title, "MEMBER");
-        let colors = config.states("product", Layout::Crew).unwrap().colors;
-        assert_eq!(colors["blocked"], "red");
-        assert_eq!(colors["parked"], "dim");
-        assert_eq!(colors["working"], "working", "layout defaults remain");
+        let states = config.states("product", Layout::Crew).unwrap();
+        assert_eq!(states.color(Some("blocked")).unwrap(), "red");
+        assert_eq!(states.color(Some("parked")).unwrap(), "dim");
+        assert_eq!(
+            states.color(Some("working")).unwrap(),
+            "working",
+            "layout defaults remain"
+        );
         assert!(
             config
                 .states("other", Layout::Minimal)
                 .unwrap()
-                .colors
-                .is_empty()
+                .color(Some("working"))
+                .is_none()
         );
         for body in [
             "[squad.x.columns]\nshow = []\n",
@@ -1961,14 +1899,18 @@ sort = ["state", "-name"]
             .unwrap()
             .states("x", Layout::Crew)
             .unwrap();
+        let mut names = [
+            "working", "idle", "blocked", "review", "testing", "hold", "parked",
+        ];
+        names.sort_by_key(|state| (states.rank(Some(state)), *state));
         assert_eq!(
-            states.order,
+            names,
             [
                 "blocked", "working", "idle", "parked", "review", "testing", "hold"
             ]
         );
-        assert_eq!(states.rank(Some("blocked")), 0);
-        assert_eq!(states.rank(Some("unknown")), states.order.len());
+        assert!(states.rank(Some("blocked")) < states.rank(Some("working")));
+        assert!(states.rank(Some("unknown")) > states.rank(Some("hold")));
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 

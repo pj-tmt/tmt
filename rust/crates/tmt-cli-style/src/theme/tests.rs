@@ -69,7 +69,7 @@ fn each_theme_renders_a_role_for_the_stream_s_depth() {
     let light = Theme::new(Base::TmtLight);
     assert_eq!(
         rgb(light.style(Role::Waiting, Depth::TrueColor)),
-        Some((0xB1, 0x5C, 0x00))
+        Some((0x96, 0x50, 0x27))
     );
     // terminal keeps the user's 16 colors even where 24-bit color works.
     let terminal = Theme::new(Base::Terminal);
@@ -250,4 +250,58 @@ fn command_line_tokens_have_their_design_token() {
     assert_eq!(Token::Driver(Some(Role::Link)).role(), Some(Role::Link));
     assert_eq!(Token::Title.role(), None);
     assert_eq!(Token::Literal.role(), None);
+}
+
+/// Foregrounds must stay readable on the designed paper, selection and
+/// representative terminal backgrounds. Selection itself is a background.
+#[test]
+fn design_tokens_keep_text_readable_on_board_backgrounds() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../site/src/design/tokens.json");
+    let tokens: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let luminance = |hex: &str| {
+        let Paint::Rgb(r, g, b) = Paint::parse(hex).unwrap() else {
+            panic!("expected an RGB token: {hex}");
+        };
+        let linear = |channel: u8| {
+            let value = f64::from(channel) / 255.0;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+    };
+    for (mode, terminals) in [
+        ("dark", &["#24283B", "#2A2C38"][..]),
+        ("light", &["#FFFFFF"][..]),
+    ] {
+        let backgrounds = [
+            tokens["surface"]["paper"][mode].as_str().unwrap(),
+            tokens["color"]["selection"][mode].as_str().unwrap(),
+        ];
+        for role in Role::ALL
+            .into_iter()
+            .filter(|role| *role != Role::Selection)
+        {
+            let foreground = tokens["color"][role.name()][mode].as_str().unwrap();
+            let floor = if matches!(role, Role::Muted | Role::Dim) {
+                3.0
+            } else {
+                4.5
+            };
+            for background in backgrounds.iter().chain(terminals) {
+                let fg = luminance(foreground);
+                let bg = luminance(background);
+                let contrast = (fg.max(bg) + 0.05) / (fg.min(bg) + 0.05);
+                assert!(
+                    contrast >= floor,
+                    "{mode} {} {foreground} on {background}: {contrast:.2}:1 < {floor}:1",
+                    role.name(),
+                );
+            }
+        }
+    }
 }

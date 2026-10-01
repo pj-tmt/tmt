@@ -5,12 +5,13 @@ use clap::Command;
 
 pub(in crate::grammar) fn rename() -> Command {
     storage(spec!(
-        "rename",
+        "mv",
         "Rename an identity; its UUID, session, profile, notes and history stay",
         [
-            "Give an identity a new name" => "tmt rename worker reviewer",
+            "Give an identity a new name" => "tmt mv worker reviewer",
         ]
     ))
+    .alias("rename")
     .arg(operand("old", true))
     .arg(operand("new", true))
 }
@@ -48,12 +49,13 @@ pub(in crate::grammar) fn preamble() -> Command {
     )
     .subcommand(
         general(spec!(
-            "clear",
-            "Clear a preamble",
+            "rm",
+            "Remove only the preamble; identity, role, notes and history stay",
             [
-                "Clear an agent's preamble" => "tmt preamble clear worker",
+                "Clear an agent's preamble" => "tmt preamble rm worker",
             ]
         ))
+        .alias("clear")
         .arg(operand("agent", true)),
     )
 }
@@ -77,12 +79,12 @@ pub(in crate::grammar) fn identity() -> Command {
         )).arg(operand("name", true)))
         .subcommand(
             storage(spec!(
-                "rename",
+                "mv",
                 "Rename an identity; its UUID, session, profile, notes and history stay",
                 [
-                    "Give an identity a new name" => "tmt identity rename worker reviewer",
+                    "Give an identity a new name" => "tmt identity mv worker reviewer",
                 ]
-            ))
+            )).alias("rename")
             .arg(operand("old", true))
             .arg(operand("new", true)),
         )
@@ -96,13 +98,13 @@ pub(in crate::grammar) fn identity() -> Command {
         )).arg(operand("name", false)))
         .subcommand(with_options(
             storage(spec!(
-                "list",
+                "ls",
                 "List non-retired identities",
                 [
-                    "List identities" => "tmt identity list",
-                    "Only those with matching metadata" => "tmt identity list --where team=infra",
+                    "List identities" => "tmt identity ls",
+                    "Only those with matching metadata" => "tmt identity ls --where team=infra",
                 ]
-            )),
+            )).alias("list"),
             &["where", "has"],
         ))
         .subcommand(
@@ -142,12 +144,12 @@ pub(in crate::grammar) fn identity() -> Command {
             )
             .subcommand(with_options(
                 storage(spec!(
-                    "clear",
-                    "Clear this identity's self-reported status",
+                    "rm",
+                    "Remove activity, mood and status timestamps; identity and endpoint presence stay",
                     [
-                        "Clear your status" => "tmt identity status clear",
+                        "Clear your status" => "tmt identity status rm",
                     ]
-                )),
+                )).alias("clear"),
                 &["identity"],
             )),
         )
@@ -157,7 +159,7 @@ pub(in crate::grammar) fn identity() -> Command {
                 "Manage descriptive identity metadata",
                 [
                     "Set a metadata value" => "tmt identity meta set team infra",
-                    "List metadata" => "tmt identity meta list",
+                    "List metadata" => "tmt identity meta ls",
                 ]
             ))
                 .subcommand_required(true)
@@ -174,23 +176,23 @@ pub(in crate::grammar) fn identity() -> Command {
                 )
                 .subcommand(
                     with_options(storage(spec!(
-                        "get",
-                        "Get a metadata value",
+                        "show",
+                        "Show a metadata value",
                         [
-                            "Read one value" => "tmt identity meta get team",
+                            "Read one value" => "tmt identity meta show team",
                         ]
-                    )), &["identity"])
+                    )).alias("get"), &["identity"])
                         .arg(operand("key", true)),
                 )
                 .subcommand(with_options(
                     storage(spec!(
-                        "list",
+                        "ls",
                         "List metadata values",
                         [
-                            "List metadata" => "tmt identity meta list",
-                            "For another identity" => "tmt identity meta list --identity reviewer",
+                            "List metadata" => "tmt identity meta ls",
+                            "For another identity" => "tmt identity meta ls --identity reviewer",
                         ]
-                    )),
+                    )).alias("list"),
                     &["identity"],
                 ))
                 .subcommand(
@@ -269,12 +271,13 @@ pub(in crate::grammar) fn role() -> Command {
     )
     .subcommand(with_options(
         general(spec!(
-            "clear",
-            "Clear a role",
+            "rm",
+            "Remove only the role; identity, preamble, notes and history stay",
             [
-                "Clear your role" => "tmt role clear",
+                "Clear your role" => "tmt role rm",
             ]
-        )),
+        ))
+        .alias("clear"),
         &["identity"],
     ))
 }

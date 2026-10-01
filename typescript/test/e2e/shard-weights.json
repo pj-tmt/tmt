@@ -11,7 +11,6 @@
     "caller-context.e2e.test.ts": 5,
     "capture-limits.e2e.test.ts": 1,
     "check-routing.e2e.test.ts": 3,
-    "claude-channel.e2e.test.ts": 62,
     "claude-hooks.e2e.test.ts": 1,
     "cli-errors.e2e.test.ts": 8,
     "codex-hooks.e2e.test.ts": 1,
