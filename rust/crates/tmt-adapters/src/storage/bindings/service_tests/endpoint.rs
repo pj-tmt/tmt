@@ -105,6 +105,10 @@ impl FakeEndpoint {
 impl BindingEndpoint for FakeEndpoint {
     type Error = EndpointFailure;
 
+    fn current_host(&self) -> tmt_core::host::HostKind {
+        self.server.host
+    }
+
     fn pane_incarnation(
         &mut self,
         _: &ServerEvidence,

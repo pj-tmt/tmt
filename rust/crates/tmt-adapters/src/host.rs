@@ -611,6 +611,10 @@ impl<R: CommandRunner> BindingSession<'_, R> {
 impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     type Error = HostError;
 
+    fn current_host(&self) -> HostKind {
+        self.primary
+    }
+
     fn begin_coordination(&mut self) {
         self.tmux.begin_coordination();
         self.herdr.begin_coordination();
