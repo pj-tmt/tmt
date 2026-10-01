@@ -47,6 +47,10 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
         crate::process::runtime::binding_runtime(&self.tmux.runner, binding, self.deadline)
     }
 
+    fn pane_incarnation(&mut self, pane_pid: u64) -> Result<Option<String>, HostError> {
+        Ok(self.observe_pane_start(pane_pid)?)
+    }
+
     fn has_input(&self) -> bool {
         true
     }
@@ -157,6 +161,7 @@ mod tests {
                 },
                 pane_id: "%9".into(),
                 pane_pid: 654,
+                pane_incarnation: None,
                 session: Default::default(),
             }),
         }
@@ -184,6 +189,32 @@ mod tests {
         ]
         .join(evidence::SEPARATOR)
         .into_bytes()
+    }
+
+    #[test]
+    fn a_pane_incarnation_is_one_ps_of_the_pane_shell_or_unknown() {
+        let runner = ScriptedRunner::default();
+        runner.push_output(b"Thu Oct  1 09:00:00 2026 S+\n".to_vec(), Vec::new());
+        runner.push_output(b"garbage\n".to_vec(), Vec::new());
+        let tmux = Tmux::new(runner);
+        let mut driver = BindingSession::new(&tmux);
+        BindingEndpoint::begin_coordination(&mut driver);
+        assert_eq!(
+            HostDriver::pane_incarnation(&mut driver, 654)
+                .unwrap()
+                .as_deref(),
+            Some("ps-v1:Thu Oct 1 09:00:00 2026")
+        );
+        assert_eq!(
+            HostDriver::pane_incarnation(&mut driver, 654).unwrap(),
+            None
+        );
+        let calls = tmux.runner.calls.borrow();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(
+            calls[0].args[3..],
+            ["-p", "654", "-o", "lstart=", "-o", "stat="].map(String::from)
+        );
     }
 
     #[test]

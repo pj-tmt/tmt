@@ -30,6 +30,13 @@ impl std::fmt::Display for InvalidIncarnation {
 
 impl std::error::Error for InvalidIncarnation {}
 
+/// Whether two recorded start tokens of the same pid prove different
+/// processes. Only two known, different tokens do: an unknown one (`None`)
+/// proves neither loss nor sameness, and other evidence decides.
+pub fn incarnations_differ(recorded: Option<&str>, observed: Option<&str>) -> bool {
+    matches!((recorded, observed), (Some(recorded), Some(observed)) if recorded != observed)
+}
+
 impl ProcessIncarnation {
     /// The start token is opaque: 1 to 256 bytes, not blank, with no control
     /// characters.
@@ -90,6 +97,9 @@ pub struct PaneObservation {
     pub cwd: Option<String>,
     pub command: String,
     pub pane_pid: u64,
+    /// The start token of `pane_pid`'s [`ProcessIncarnation`], as core
+    /// observed it; `None` when the observation failed.
+    pub pane_incarnation: Option<String>,
     pub suggested_name: Option<String>,
     pub marker: Option<BindingMarker>,
 }

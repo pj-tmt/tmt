@@ -15,6 +15,13 @@ pub struct BindingSession<'a, R> {
     invoker: Option<super::Invoker>,
 }
 
+impl<R: CommandRunner> BindingSession<'_, R> {
+    fn observe_pane_start(&self, pane_pid: u64) -> Result<Option<String>, TmuxError> {
+        crate::process::runtime::observe_start(&self.tmux.runner, pane_pid, self.deadline)
+            .map_err(|error| TmuxError::command(TmuxFailure::Command, error))
+    }
+}
+
 impl<'a, R: CommandRunner> BindingSession<'a, R> {
     pub fn new(tmux: &'a Tmux<R>) -> Self {
         Self {
@@ -90,6 +97,14 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
             &binding.marker(identity),
             self.options(None),
         )
+    }
+
+    fn pane_incarnation(
+        &mut self,
+        _: &ServerEvidence,
+        pane_pid: u64,
+    ) -> Result<Option<String>, Self::Error> {
+        self.observe_pane_start(pane_pid)
     }
 
     fn clear(&mut self, binding: &Binding) -> Result<bool, Self::Error> {

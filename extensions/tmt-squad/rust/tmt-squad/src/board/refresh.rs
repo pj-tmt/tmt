@@ -271,21 +271,43 @@ fn squad_view(
     let sections = config.sections(&squad.name)?;
     let rows = config.rows(&squad.name)?;
     let providers = config.providers(&squad.name)?;
-    let mut members = squad.members(core, rows.reads_metadata())?;
+    let reminders = config.reminders(&squad.name)?;
+    let shows_notes = board.panes.contains(&Pane::Notes);
+    let observation = crate::observe::observe(
+        core,
+        config.path(),
+        squad,
+        reminders,
+        &providers,
+        crate::observe::Reads {
+            metadata: rows.reads_metadata(),
+            notes: shows_notes,
+        },
+    )?;
+    // Providers run on the fetcher thread, never while the board draws.
     if !providers.is_empty() {
         let _ = kept.fetch.send(Fetch {
             squad: squad.name.clone(),
             providers: providers.clone(),
-            members: members.clone(),
+            members: observation.members.clone(),
         });
     }
-    provider::apply(
+    let crate::observe::Projected {
+        document,
+        sent,
+        notes,
+    } = observation.document(
+        core,
+        squad,
+        me.as_ref(),
         &providers,
-        &mut members,
-        &provider::Cache::load(&squad.name),
-    );
-    let mut document = status::document(squad, layout, &states, &sections, &rows, members);
-    let sent = requests::overlay(core, squad, me.as_ref(), &mut document)?;
+        crate::observe::Shape {
+            layout,
+            states: &states,
+            sections: &sections,
+            rows: &rows,
+        },
+    )?;
     let others: Vec<&Squad> = squads
         .iter()
         .filter(|other| other.name != squad.name)
@@ -302,8 +324,8 @@ fn squad_view(
         &mut replies,
         &mut kept.bodies,
     )?;
-    let notes = if board.panes.contains(&Pane::Notes) {
-        lead_notes(core, &document["squad"]["lead"])
+    let notes = if shows_notes {
+        lead_notes(notes)
     } else {
         Notes::NotShown
     };
@@ -577,16 +599,14 @@ fn tab_attention(documents: &BTreeMap<String, Value>) -> BTreeMap<String, Attent
     attention
 }
 
-/// The lead's notebook through `tmt api notes.read`: bounded, read-only, and
-/// never creates a missing notebook.
-fn lead_notes(core: &Core, lead: &Value) -> Notes {
-    let Some(id) = lead["id"].as_str() else {
-        return Notes::NoLead;
-    };
-    match core.api("notes.read", json!({"identityId": id})) {
-        Ok(note) => Notes::Text(sanitize(note["content"].as_str().unwrap_or_default())),
-        Err(error) if error.code == "NOTEBOOK_NOT_FOUND" => Notes::Missing,
-        Err(error) => Notes::Failed(error.to_string()),
+/// The lead's notebook, from the `notes.read` the observation made: bounded,
+/// read-only, and never creating a missing notebook.
+fn lead_notes(read: Option<Result<Value, crate::core::SquadError>>) -> Notes {
+    match read {
+        None => Notes::NoLead,
+        Some(Ok(note)) => Notes::Text(sanitize(note["content"].as_str().unwrap_or_default())),
+        Some(Err(error)) if error.code == "NOTEBOOK_NOT_FOUND" => Notes::Missing,
+        Some(Err(error)) => Notes::Failed(error.to_string()),
     }
 }
 

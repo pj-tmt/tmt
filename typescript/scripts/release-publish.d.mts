@@ -81,6 +81,7 @@ export function reportFailure(input: {
   results: readonly CheckResult[];
   runUrl?: string;
 }): { issue: number; created: boolean };
+export function readSmokeFailures(directory: string): CheckResult[];
 export function renderVerifySummary(input: {
   tag: string;
   results: readonly CheckResult[];
