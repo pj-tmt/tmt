@@ -2047,7 +2047,9 @@ one keeps it for lookup and marker checks, and explicit resolution prefers it.
 owned buffers and no ambient host fallback. A failed paste or Enter is an
 uncertain delivery and is never retried as if unsent.
 Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode
-shortcuts; this is transport policy, not arbitrary output rewriting. `check`
+shortcuts (`tmt_core::driver::pane_input_text`). It is core's delivery policy
+for any text typed into a pane, raw input or a prompt, on every host; hosts
+and drivers add nothing. It is not arbitrary output rewriting. `check`
 remains bounded terminal diagnostics, not a fallback response channel.
 
 `response_input` owns bounded file/stdin acquisition and regular-file checks. It

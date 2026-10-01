@@ -429,7 +429,7 @@ impl<R: CommandRunner> Host<R> {
             HostKind::Tmux => self.tmux.send_on(
                 &endpoint.server.socket_path,
                 &endpoint.pane_id,
-                message,
+                &tmt_core::driver::pane_input_text(message),
                 enter_delay,
             ),
             HostKind::Herdr | HostKind::External(_) => Err(DeliveryError::unsupported()),

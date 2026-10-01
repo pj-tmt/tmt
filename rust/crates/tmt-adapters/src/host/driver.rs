@@ -146,6 +146,7 @@ pub fn send(
     let Some(binding) = &entry.binding else {
         return ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified));
     };
+    let message = &tmt_core::driver::pane_input_text(message);
     driver
         .prompt(binding, message)
         .or_unsupported(|| match driver.input(binding, message) {
