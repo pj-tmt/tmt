@@ -1506,3 +1506,44 @@ fn tui_admission_is_an_internal_presentation_leaf() {
         1
     );
 }
+
+#[test]
+fn colab_persistence_keeps_core_remote_and_office_isolated() {
+    for name in ["ed25519-dalek", "getrandom", "nix", "rusqlite", "sha2"] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-colab",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+    }
+    for name in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-remote",
+        "tmt-office-storage",
+    ] {
+        assert!(
+            !policy::dependency_violations(&package(
+                "tmt-colab",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+    }
+    assert_exact(
+        &[syntax(
+            "tmt-colab",
+            "lib.rs",
+            "use tmt_colab::store::Store;",
+        )],
+        &[],
+    );
+    for code in [
+        "use tmt_adapters::storage::Storage;",
+        "use tmt_remote::core::CoreClient;",
+    ] {
+        assert!(!policy::source_violations(&[syntax("tmt-colab", "lib.rs", code)]).is_empty());
+    }
+}

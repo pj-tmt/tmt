@@ -1373,3 +1373,31 @@ deadline, so this interim door closes after at most 15 minutes. Ctrl-C/SIGTERM
 stops it; there is no autostart/LAN/daemon option. Tests use disposable HOME/XDG,
 count startup separately, assert zero request-triggered core calls and run
 socket/process lifecycle acceptance twice. No real model/account/DB is used.
+
+## Colab persistence development
+
+The private local-build Colab slice currently exposes the owner keyring and
+opaque SQLite store as a library. It has no executable or installer yet.
+Build and verify it from the repository root:
+
+```bash
+(cd rust && cargo build --offline --locked -p tmt-colab)
+(cd rust && cargo test --offline --locked -p tmt-colab)
+(cd rust && cargo clippy --offline --locked -p tmt-colab --all-targets -- -D warnings)
+(cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
+node typescript/scripts/release-please-config.mjs --check
+(cd typescript && corepack pnpm exec vitest run test/tooling/ci-scope.test.ts)
+```
+
+Tests inject temporary data roots; never point them at the real TMT directory.
+The extension owns `<dataRoot>/colab/` (0700) and regular secret/state files
+(0600). Production startup will obtain the absolute root through `tmt api
+storage.root` via `tmt-invoke`; no path guess or Colab root environment variable
+is supported. Store bounds are named in `src/limits.rs`: 16 MiB plus 2 KiB per
+opaque envelope, 64 MiB retained ciphertext and 100,000 durable update receipts
+per page across epochs. Capacity rejects writes without eviction. Checkpoint
+pruning keeps receipts and preserves the other namespace and concurrent tails;
+it also reclaims superseded unpinned checkpoint payloads. `pin_checkpoint` is
+the future verified authority-cut caller's preservation seam.
+Signatures and role admission are required at the future request boundary;
+these storage tests prove transaction rollback and reopening, not crash recovery.

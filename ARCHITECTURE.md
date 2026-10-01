@@ -2997,12 +2997,13 @@ and authority definition owner.
 
 ## Colab extension proposal
 
-**Status: proposed, not implemented.** The local-build-only pilot lives under
+**Status: persistence library implemented; executable, model, browser and backend
+work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
-#829/#830 are bounded spike evidence. This documentation adds no registered
-executable, workspace package, listener, deployment or release.
+#829/#830 are bounded spike evidence. The persistence slice adds one private workspace library, with no executable,
+listener, deployment or release.
 
 Proposed Rust dependencies are `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
 and `tmt-cli-style`, plus reviewed workspace pins. The model owns pure values,
@@ -3017,8 +3018,8 @@ Proposed extension-relative browser packages are `typescript/colab-client`
 (client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
 (trusted React/Vite chrome and renderer); backend packages are separate. They
 join the existing pnpm workspace/lockfile and pins when implemented. Shared
-workspace/component edits follow the two-lead rule; architecture guard and
-runtime CI-scope registration land with first code. The component map gives the
+workspace/component edits follow the two-lead rule; architecture guards and
+full runtime CI-scope coverage include the persistence library. The component map gives the
 contract directory private file ownership (`release: false`) and excludes it from
 CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
 
@@ -3035,5 +3036,33 @@ Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
 budgeted browser Worker terminated on overrun, as defined by the contract.
 That boundary contains decoder failure, without claiming an OS/key sandbox.
 Local acceptance precedes Firestore then Cloudflare; protocol, renderer and
-containment details/gates live only in the linked contract. DEVELOPMENT usage
-commands land in L2/L3, when the executable exists.
+containment details/gates live only in the linked contract. DEVELOPMENT
+run commands land in L2/L3, when the executable exists; library verification
+commands are available now.
+
+### Persistence implementation
+
+`extensions/tmt-colab/rust/tmt-colab` is a private, local-build-only library
+slice for #847. `keyring::Layout` owns the injected absolute data root's
+`colab/` subtree, with owned 0700 directories and no-follow, bounded regular
+0600 files. It preserves existing root permissions and touches no core database,
+configuration or provider settings. `Keyring` publishes one software owner seed
+with create-only, synced file publication; existing invalid keys fail closed.
+The temporary space-ID builder follows the contract's domain-framed derivation and will
+move to the separately owned L1 model when that API lands.
+
+`store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
+conflict freezing and epoch fencing. Namespace checkpoints prune only their
+covered prefix and superseded unpinned checkpoint payloads in the same
+transaction; receipts and concurrent tails survive. New checkpoint prefixes
+advance monotonically; exact retries never republish pruned bytes. The
+`pin_checkpoint` seam preserves authority-cut ciphertext for the later verified
+owner-log caller.
+Per-page capacity returns an error instead of evicting history. Envelope
+signatures, identity grammar, roles and owner-transition authorization belong
+to the future model/admission caller; this library creates no network authority.
+Tests own isolated directories and SQLite oracles. CLI composition, the
+loopback door, authentication, decoder and model integration remain later slices.
+The crate depends only on reviewed pinned storage/crypto primitives, never
+core, adapter, Remote or Office crates. Its component is excluded from release;
+workspace checks and Docker build contexts include its manifest.
