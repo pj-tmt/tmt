@@ -83,7 +83,8 @@ the `Terminal` they build rather than configuring the process.
 
 ## Marks
 
-Each mark has one meaning everywhere (`mark::Mark`). A row's leading state mark is
+Each mark has one meaning everywhere (`mark::Mark` for command-line marks; the
+fold mark below is board-only). A row's leading state mark is
 `●`, `○` or `◌`:
 
 | Mark | Meaning                                                            |
@@ -96,6 +97,7 @@ Each mark has one meaning everywhere (`mark::Mark`). A row's leading state mark 
 | `✗`  | failed                                                             |
 | `!`  | warning                                                            |
 | `◆`  | waits on your decision                                             |
+| `▸`  | folded Squad board pane (board only)                                |
 
 ## Lists
 

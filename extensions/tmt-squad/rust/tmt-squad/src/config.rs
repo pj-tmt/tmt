@@ -355,9 +355,39 @@ pub struct Board {
     pub panes: Vec<Pane>,
     /// Split mode: how the panes sit, possibly nested.
     pub split: crate::split::Split,
+    /// Initial presentation state; runtime toggles never write configuration.
+    pub collapsed: std::collections::BTreeSet<Pane>,
 }
 
 impl Board {
+    fn read_collapsed(&mut self, item: Option<&Item>, place: &str) -> Result<(), SquadError> {
+        let Some(item) = item else { return Ok(()) };
+        let place = format!("{place}.collapsed");
+        if self.mode != BoardMode::Split {
+            return Err(invalid(format!("`{place}` applies to split mode only.")));
+        }
+        let names = item
+            .as_array()
+            .ok_or_else(|| invalid(format!("`{place}` must list panes.")))?;
+        for (index, name) in names.iter().enumerate() {
+            let pane = name.as_str().and_then(Pane::parse).ok_or_else(|| {
+                invalid(format!(
+                    "`{place}[{index}]` must be rows, notes, detail or replies."
+                ))
+            })?;
+            if !self.panes.contains(&pane) {
+                return Err(invalid(format!(
+                    "`{place}[{index}]` names {} which is not on this board.",
+                    pane.title()
+                )));
+            }
+            if !self.collapsed.insert(pane) {
+                return Err(invalid(format!("`{place}` lists {} twice.", pane.title())));
+            }
+        }
+        Ok(())
+    }
+
     /// Crew keeps rows and the lead's notes side by side; pr-queue pairs rows
     /// with the selected row's detail; minimal shows rows only.
     fn preset(layout: Layout) -> Self {
@@ -383,6 +413,7 @@ impl Board {
             mode,
             split: crate::split::Split::simple(direction, &panes, sizes),
             panes,
+            collapsed: Default::default(),
         }
     }
 }
@@ -864,7 +895,17 @@ impl Config {
             .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
         let text = |key: &str| table.get(key).map(|value| value.as_str());
         for (key, _) in table.iter() {
-            if !["mode", "direction", "panes", "sizes", "layout", "refresh"].contains(&key) {
+            if ![
+                "mode",
+                "direction",
+                "panes",
+                "sizes",
+                "layout",
+                "refresh",
+                "collapsed",
+            ]
+            .contains(&key)
+            {
                 return Err(invalid(format!("`{place}.{key}` is not a board setting.")));
             }
         }
@@ -891,11 +932,14 @@ impl Config {
                 )));
             }
             let split = crate::split::read(layout, &format!("{place}.layout"))?;
-            return Ok(Board {
+            let mut board = Board {
                 mode,
                 panes: split.panes(),
                 split,
-            });
+                collapsed: Default::default(),
+            };
+            board.read_collapsed(table.get("collapsed"), &place)?;
+            return Ok(board);
         }
         let (mut direction, mut panes, mut sizes) = match &preset.split {
             crate::split::Split::Group {
@@ -992,7 +1036,9 @@ impl Config {
             panes.push(Pane::Notes);
             sizes.push(0);
         }
-        Ok(Board::simple(mode, direction, panes, &sizes))
+        let mut board = Board::simple(mode, direction, panes, &sizes);
+        board.read_collapsed(table.get("collapsed"), &place)?;
+        Ok(board)
     }
 
     /// How often the board reloads everything: `[squad.<name>.board] refresh`,
@@ -2042,5 +2088,68 @@ sort = ["state", "-name"]
             );
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+    #[test]
+    fn collapsed_is_strict_and_validates_the_resolved_board_before_use() {
+        let path = temp("collapsed");
+        for layout in [
+            "panes = [\"rows\", \"detail\"]\n",
+            "layout = { direction = \"left-right\", panes = [\"rows\", { direction = \"top-bottom\", panes = [\"detail\", \"notes\"] }] }\n",
+        ] {
+            fs::write(
+                &path,
+                format!("[squad.x.board]\n{layout}collapsed = [\"detail\"]\n"),
+            )
+            .unwrap();
+            let board = Config::read(path.clone())
+                .unwrap()
+                .board("x", Layout::Crew)
+                .unwrap();
+            assert_eq!(
+                board.collapsed,
+                std::collections::BTreeSet::from([Pane::Detail])
+            );
+        }
+        for value in [
+            "3",
+            "\"detail\"",
+            "[1]",
+            "[\"other\"]",
+            "[\"detail\",\"detail\"]",
+            "[\"notes\"]",
+        ] {
+            let bytes =
+                format!("[squad.x.board]\npanes = [\"rows\",\"detail\"]\ncollapsed = {value}\n");
+            fs::write(&path, &bytes).unwrap();
+            let error = Config::read(path.clone())
+                .unwrap()
+                .board("x", Layout::Crew)
+                .unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+            assert!(
+                error.message.contains("squad.x.board.collapsed"),
+                "{error:?}"
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), bytes);
+        }
+        fs::write(&path, "[squad.x.board]\nmode = \"tabs\"\ncollapsed = []\n").unwrap();
+        assert!(
+            Config::read(path.clone())
+                .unwrap()
+                .board("x", Layout::Crew)
+                .unwrap_err()
+                .message
+                .contains("squad.x.board.collapsed")
+        );
+        fs::write(&path, "[squad.x.board]\ncollapsed = []\n").unwrap();
+        assert!(
+            Config::read(path.clone())
+                .unwrap()
+                .board("x", Layout::Crew)
+                .unwrap()
+                .collapsed
+                .is_empty()
+        );
+        fs::remove_file(path).unwrap();
     }
 }
