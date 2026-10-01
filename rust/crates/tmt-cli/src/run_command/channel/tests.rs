@@ -256,6 +256,7 @@ fn binding(session: BindingSessionState) -> Binding {
         },
         pane_id: "%1".into(),
         pane_pid: 2,
+        pane_incarnation: None,
         session,
     }
 }
