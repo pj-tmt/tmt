@@ -1,10 +1,10 @@
 # Codex native channel contract
 
-Status: receipt/transport groundwork in #736, under #719 and #329. The Codex
-runtime does not register or invoke this channel yet. Private record groundwork
-is added in #737 and endpoint/attachment groundwork in #738. Lease and consumer
-integration remain later slices; no user-facing native delivery
-or live foreground continuity is claimed here.
+Status: unregistered Codex groundwork under #719/#329. The #785 foundations
+extend #736–#738 with pane/foreground record state, exact takeover/prune/withdraw,
+startup cleanup certainty and permission planning. Lease composition, consumer
+routing and user-facing registration remain later slices. This slice neither
+registers a channel nor invokes a native delivery path.
 
 ## Delivery receipt
 
