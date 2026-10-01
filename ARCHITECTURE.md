@@ -3064,7 +3064,6 @@ The executable depends on the reviewed invoke/style leaves and pinned
 storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.
 
-
 ### Foreground composition and loopback door
 
 `main` owns `serve` and read-only `spaces`, style/JSON output, signals and one

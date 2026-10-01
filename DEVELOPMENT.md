@@ -1403,7 +1403,6 @@ the future verified authority-cut caller's preservation seam.
 Signatures and role admission are required at the future request boundary;
 these storage tests prove transaction rollback and reopening, not crash recovery.
 
-
 ```bash
 (cd rust && cargo build --offline --locked -p tmt-cli -p tmt-colab)
 PATH="$PWD/rust/target/debug:$PATH" tmt colab spaces --json
