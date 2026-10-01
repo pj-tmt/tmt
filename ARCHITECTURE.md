@@ -2034,6 +2034,13 @@ calling it; record-level takeover and withdrawal remain generation/incarnation
 scoped. The same contract owns this persistence definition and its still-pending
 launcher/crash-cleanup integration. This adds no user-facing registration.
 
+`drivers/codex/server` and `attachment` add unregistered endpoint/foreground
+planning (#738). A launch-owned process group and private capability share one
+cleanup owner; process cleanup precedes inode-checked file removal. Attachment
+planning resolves cwd once and names an exact thread. The channel contract owns
+the startup, credential and failure limits; real continuity and launcher crash
+recovery remain final consumer acceptance gates.
+
 ### Host driver protocol
 
 Terminal hosts that TMT doesn't build in will run out of process as host

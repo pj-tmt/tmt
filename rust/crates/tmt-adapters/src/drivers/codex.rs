@@ -4,9 +4,11 @@
 //! The verified 0.157.1 contract reports SessionEnd reason `other`; unsupported
 //! reasons leave state unchanged rather than guessing that a client ended a thread.
 
+pub mod attachment;
 pub mod caller;
 pub mod queue;
 pub mod record;
+pub mod server;
 pub mod transport;
 
 pub use crate::runtime::hook_protocol::encode_context;
