@@ -138,11 +138,11 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
             for required in [
                 "\"formatVersion\": 1",
                 "tmt office prop validate --file",
-                "tmt office prop list --local",
+                "tmt office prop ls --local",
                 "tmt office prop install --local",
                 "tmt office layout show",
                 "tmt office layout apply",
-                "tmt office prop remove --local",
+                "tmt office prop rm --local",
                 "`.layout`",
             ] {
                 assert!(
@@ -157,11 +157,11 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
                 "`2` for 32×48 pixels",
                 "V2 rows contain exactly 64 characters",
                 "tmt office avatar validate --file",
-                "tmt office avatar list --local",
+                "tmt office avatar ls --local",
                 "tmt office avatar install --local",
                 "tmt office profile show --local",
                 "tmt office profile apply --local",
-                "tmt office avatar remove --local",
+                "tmt office avatar rm --local",
                 "maintained `Avatar` composition",
             ] {
                 assert!(
@@ -173,9 +173,9 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
             for required in [
                 "`tmt-prop-create`",
                 "`tmt-avatar-create`",
-                "tmt office prop list --local",
+                "tmt office prop ls --local",
                 "tmt office prop install --local",
-                "tmt office prop remove --local",
+                "tmt office prop rm --local",
                 "`.layout`",
                 "{\"version\":1,\"map\":{...},\"objects\":[...]}",
                 "tmt office layout show",

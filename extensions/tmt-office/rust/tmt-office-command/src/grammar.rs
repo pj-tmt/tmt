@@ -261,11 +261,9 @@ pub fn grammar() -> Command {
             )),
         )
         .subcommand(
-            office(
-                "uninstall",
-                "Deactivate Office without deleting retained data",
-            )
-            .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
+            office("rm", "Deactivate Office without deleting retained data")
+                .alias("uninstall")
+                .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
         )
 }
 
@@ -306,10 +304,12 @@ fn office_prop_commands() -> Command {
                 .arg(Arg::new("file").long("file").required(true)),
         )))
         .subcommand(revision(local(
-            office("remove", "Remove one installed prop pack").arg(operand("prop-digest", true)),
+            office("rm", "Remove one installed prop pack")
+                .alias("remove")
+                .arg(operand("prop-digest", true)),
         )))
         .subcommand(
-            local(office("list", "List the local prop catalog"))
+            local(office("ls", "List the local prop catalog").alias("list"))
                 .arg(
                     Arg::new("prop-limit")
                         .long("limit")
@@ -361,11 +361,12 @@ fn office_avatar_commands() -> Command {
                 .arg(Arg::new("file").long("file").required(true)),
         )))
         .subcommand(revision(local(
-            office("remove", "Remove one installed avatar pack")
+            office("rm", "Remove one installed avatar pack")
+                .alias("remove")
                 .arg(operand("avatar-digest", true)),
         )))
         .subcommand(
-            local(office("list", "List the local avatar catalog"))
+            local(office("ls", "List the local avatar catalog").alias("list"))
                 .arg(
                     Arg::new("avatar-limit")
                         .long("limit")
@@ -439,7 +440,8 @@ fn office_board_commands() -> Command {
             true,
         )))
         .subcommand(category(
-            office("list", "List board threads")
+            office("ls", "List board threads")
+                .alias("list")
                 .arg(
                     Arg::new("view")
                         .long("view")
@@ -493,7 +495,8 @@ fn office_board_commands() -> Command {
             ),
         )))
         .subcommand(operation(revision(actor(
-            office("delete", "Delete a board entry")
+            office("rm", "Delete a board entry")
+                .alias("delete")
                 .arg(operand("entry-id", true))
                 .arg(
                     Arg::new("moderate")

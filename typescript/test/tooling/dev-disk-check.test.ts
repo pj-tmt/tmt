@@ -62,8 +62,7 @@ function check(sandbox: Fixture) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-// Vitest 4 enforces elapsed time for synchronous subprocess fixtures; allow their setup and runs.
-describe('scripts/dev-disk-check.sh', { timeout: 10_000 }, () => {
+describe('scripts/dev-disk-check.sh', () => {
   it('warns below the threshold, names it, and reports Docker usage', async () => {
     await withFixture(async (sandbox) => {
       const calls = fakeTools(sandbox, { freeGb: 12, docker: 'answers' });
