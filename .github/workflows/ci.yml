@@ -121,7 +121,7 @@ jobs:
       - name: Install pinned Rust toolchains
         run: |
           rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
-          rustup toolchain install 1.88.0 --profile minimal
+          rustup toolchain install 1.95.0 --profile minimal
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -136,7 +136,7 @@ jobs:
           cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
           cargo test --locked -p tmt-squad
           cargo test --locked -p tmt-cli --test architecture
-          cargo +1.88.0 build --locked -p tmt-squad
+          cargo +1.95.0 build --locked -p tmt-squad
       - name: Build Squad process fixtures
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
@@ -160,7 +160,7 @@ jobs:
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
           cargo test --locked --workspace
-          cargo +1.88.0 build --locked --workspace
+          cargo +1.95.0 build --locked --workspace
           cargo build --locked --workspace
           cargo build --locked --example storage-probe
       - name: Build independent native process fixtures

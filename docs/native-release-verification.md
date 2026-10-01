@@ -302,7 +302,7 @@ prints it implicitly. Verify both byte preservation and task-owned cleanup.
 
 The synchronous HTTPS dependency is pinned ureq 3.4.0 (MIT/Apache-2.0, upstream
 MSRV 1.85), selected without an async runtime or curl fallback. The lockfile and
-workspace MSRV 1.88 remain authoritative for the complete graph. rustls and
+workspace MSRV 1.95 remain authoritative for the complete graph. rustls and
 platform-verifier use native trust and library proxy environment behavior.
 Runtime attribution includes ISC crypto and CDLA-Permissive-2.0 certificate data;
 generate target-filtered notices through cargo-about and retain complete texts.
