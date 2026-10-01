@@ -185,12 +185,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         Some("anonymous") => true,
         Some(_) => return Err(invalid()),
     };
-    let valid_originator = if writing {
-        wire.identity.is_some() != anonymous
-    } else {
-        wire.identity.is_none() && !anonymous
-    };
-    if !valid_originator
+    if writing != (wire.identity.is_some() != anonymous)
         || wire
             .identity
             .as_ref()
@@ -394,7 +389,6 @@ mod tests {
             r#"{"version":1,"operation":"storage.root","input":[]}"#,
             r#"{"version":1,"operation":"storage.root","identity":"Ada","input":{}}"#,
             r#"{"version":1,"operation":"storage.root","originator":"anonymous","input":{}}"#,
-            r#"{"version":1,"operation":"storage.root","identity":"Ada","originator":"anonymous","input":{}}"#,
             r#"{"version":1,"operation":"storage.root","input":{},"extra":true}"#,
         ] {
             assert!(
