@@ -84,6 +84,10 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
         "extensions/tmt-squad/rust/tmt-squad/Cargo.toml",
     ),
     (
+        "tmt-colab-model",
+        "extensions/tmt-colab/rust/tmt-colab-model/Cargo.toml",
+    ),
+    (
         "tmt-remote",
         "extensions/tmt-remote/rust/tmt-remote/Cargo.toml",
     ),

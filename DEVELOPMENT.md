@@ -1445,3 +1445,15 @@ for slow subscribers; no WebSocket is accepted yet. Real socket and foreground
 process cleanup tests run lifecycle scenarios twice, with no core calls from
 denied traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
+
+## Colab model foundation
+
+The private Rust model has no server or CLI. From `rust/`, run
+`cargo test --offline --locked -p tmt-colab-model` and
+`cargo clippy --offline --locked -p tmt-colab-model --all-targets -- -D warnings`;
+workspace boundary changes also require the architecture guard above.
+Tests consume frozen contract vectors without Python. To check/regenerate the
+independent namespace/sign-in oracle, use Python with `cryptography` installed:
+`python3 extensions/tmt-colab/contracts/vectors/model-reference.py` from the
+repository root; add `--write` only after reviewing changed bytes. Fixture keys
+are public test data. This foundation does not satisfy the complete L1 gates.

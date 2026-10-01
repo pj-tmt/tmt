@@ -3030,7 +3030,7 @@ and authority definition owner.
 
 ## Colab extension proposal
 
-**Status: persistence and foreground deny-all executable implemented; model,
+**Status: persistence and foreground deny-all executable and model foundation implemented;
 authentication, sync, decoder, browser and backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
@@ -3055,6 +3055,19 @@ workspace/component edits follow the two-lead rule; architecture guards and
 full runtime CI-scope coverage include the persistence library. The component map gives the
 contract directory private file ownership (`release: false`) and excludes it from
 CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
+
+`rust/tmt-colab-model` under the extension is the pure Rust foundation: value
+syntax, deterministic Ed25519/X25519 public derivation, bounded LP framing,
+strict Ed25519, sign-in HMAC/possession, management
+bytes, namespace-bound cuts and immutable object codecs/seal/open. Its only OS
+operation is CSPRNG entropy for internal object IDs. No core or extension behavior
+crate depends on it yet; the architecture guard rejects runtime/core dependencies
+and unreviewed consumers. Envelope syntax/signature success does not establish
+log, session, role, epoch or sequence authority; callers admit those before open.
+Typed membership/payload schemas, HPKE/link derivation, browser client and the
+three-engine harness remain later L1 work. Frozen vectors are contract-owned;
+Rust tests read them without Python. Regeneration uses an independent Python
+cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 
 All extension state stays in `<core-reported data root>/colab/`, with 0700
 directories and 0600 files, separate from core SQLite and provider configuration.
