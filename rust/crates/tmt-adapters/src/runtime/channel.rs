@@ -8,10 +8,11 @@ use super::RuntimeCommand;
 use std::{
     ffi::{OsStr, OsString},
     fmt,
+    io::{self, BufRead, Write},
     path::Path,
     time::Instant,
 };
-use tmt_core::endpoint::ProcessIncarnation;
+use tmt_core::{binding::session::ProviderSessionId, endpoint::ProcessIncarnation};
 
 /// Why a channel could not be established or used. Copy-sized so it can ride in
 /// `RuntimeError` through the runtime driver port.
@@ -64,7 +65,7 @@ impl ChannelFault {
             Self::NotReady => "The session opted into a message channel that is not ready.",
             Self::Unreachable => "The session opted into a message channel that is not reachable.",
             Self::Stale => {
-                "The session's message-channel enrollment belongs to a launch that has ended."
+                "The session's message-channel enrollment belongs to a launch that has ended. Relaunch the agent with `tmt run` (add `--channel` to use the channel again)."
             }
             Self::Refused => "The channel endpoint refused the message.",
             Self::TooLarge => "The message exceeds the channel frame limit.",
@@ -95,6 +96,9 @@ pub enum ChannelError {
     /// The driver cannot plan a channel launch around this command line, and
     /// says why. The user's command is never silently rewritten or dropped.
     UnsupportedArguments(&'static str),
+    /// An earlier enrollment of this binding belongs to a launch that may still
+    /// be running, or whose ownership cannot be verified. It is left untouched.
+    Occupied,
 }
 
 impl fmt::Display for ChannelError {
@@ -114,6 +118,9 @@ impl fmt::Display for ChannelError {
             Self::Enrollment => {
                 formatter.write_str("The channel enrollment could not be recorded.")
             }
+            Self::Occupied => formatter.write_str(
+                "An earlier channel enrollment of this binding may still be in use or cannot be verified.",
+            ),
             Self::UnsupportedArguments(reason) => {
                 write!(
                     formatter,
@@ -143,6 +150,13 @@ pub struct ChannelPlan<'a> {
     pub directory: &'a Path,
 }
 
+/// Arguments of one channel-server process, as parsed from its argv.
+pub struct ServeRequest<'a> {
+    pub binding_id: &'a str,
+    pub generation: &'a str,
+    pub directory: &'a Path,
+}
+
 /// One launch's enrollment, held by the launcher for the whole child lifetime.
 /// The provider's own state (an endpoint, a record, a generation) lives in the
 /// implementation, so the launcher never inspects it and each driver decides
@@ -157,6 +171,15 @@ pub trait ChannelEnrollment {
     /// itself starts may inherit. Never written to the ambient or global
     /// environment, persisted or logged.
     fn environment(&self) -> &[(OsString, OsString)];
+
+    /// The provider session the driver created for this launch before the child
+    /// starts (for example a thread its own server created), if any. The launcher
+    /// records it only from here, never from argv, for the claimed harness and
+    /// with the child's own incarnation, so hooks can find it. It is the mapping
+    /// published at launch, not proof that the same thread stays active.
+    fn provider_session(&self) -> Option<&ProviderSessionId> {
+        None
+    }
 
     /// End this launch's enrollment on every path (child exit, spawn failure).
     /// It must remove only what this launch created and never a replacement
@@ -177,6 +200,20 @@ pub trait RuntimeChannel {
     /// is what lets a later send tell "opted in, channel not ready" from "never
     /// opted in".
     fn enroll(&self, plan: &ChannelPlan<'_>) -> Result<Box<dyn ChannelEnrollment>, ChannelError>;
+
+    /// Run the stdio server the provider starts as its own child, until its
+    /// input closes. Only a driver whose provider starts one implements it.
+    fn serve(
+        &self,
+        _request: &ServeRequest<'_>,
+        _input: Box<dyn BufRead + Send>,
+        _output: &mut dyn Write,
+    ) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "This channel has no stdio server.",
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -216,6 +253,7 @@ mod tests {
     struct Lease {
         command: RuntimeCommand,
         environment: Vec<(OsString, OsString)>,
+        session: Option<ProviderSessionId>,
         withdrawn: Rc<Cell<u32>>,
     }
 
@@ -228,9 +266,28 @@ mod tests {
             &self.environment
         }
 
+        fn provider_session(&self) -> Option<&ProviderSessionId> {
+            self.session.as_ref()
+        }
+
         fn withdraw(self: Box<Self>) {
             self.withdrawn.set(self.withdrawn.get() + 1);
         }
+    }
+
+    /// A lease that overrides nothing optional.
+    struct Plain;
+
+    impl ChannelEnrollment for Plain {
+        fn command(&self) -> &RuntimeCommand {
+            unreachable!("not used")
+        }
+
+        fn environment(&self) -> &[(OsString, OsString)] {
+            &[]
+        }
+
+        fn withdraw(self: Box<Self>) {}
     }
 
     struct Planner(Rc<Cell<u32>>);
@@ -257,9 +314,15 @@ mod tests {
             Ok(Box::new(Lease {
                 command,
                 environment: vec![("TOKEN".into(), "private".into())],
+                session: Some(ProviderSessionId::new("thread-1").unwrap()),
                 withdrawn: Rc::clone(&self.0),
             }))
         }
+    }
+
+    #[test]
+    fn a_lease_carries_no_provider_session_unless_its_driver_created_one() {
+        assert!(Plain.provider_session().is_none());
     }
 
     #[test]
@@ -288,6 +351,10 @@ mod tests {
         assert_eq!(
             lease.environment(),
             [(OsString::from("TOKEN"), OsString::from("private"))]
+        );
+        assert_eq!(
+            lease.provider_session().map(ProviderSessionId::as_str),
+            Some("thread-1")
         );
         assert_eq!(withdrawn.get(), 0);
         lease.withdraw();

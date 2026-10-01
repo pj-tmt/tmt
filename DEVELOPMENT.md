@@ -813,6 +813,17 @@ cargo build --locked --example tmux-probe
 cargo +1.88.0 build --locked
 ```
 
+For the unregistered Codex queue transport (#736), focused deterministic checks
+are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
+`cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
+tests own local loopback peers and exercise receipt loss and absolute deadlines;
+they do not start a model or inspect provider credentials. Dependency review
+also records exact features/graph, Rust 1.88, licenses, current advisories and an
+actual CLI release baseline/candidate under one toolchain/profile. Label a
+zero delta from unused/dead-stripped groundwork honestly and repeat the size
+measurement after the final consumer links it. See the
+[owning contract](contracts/codex-channel-v1.md) for remaining integration gates.
+
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
 
@@ -991,6 +1002,17 @@ Help-parser acceptance does not prove that a session can actually resume: the
 manual lifecycle evidence in issue #321 owns that distinction, including the
 Codex cross-mode limitation. Normal `tmt run` does not execute this developer
 check or enforce these version pins on user commands.
+
+The Claude channel provider has its own opt-in check, for the one build with
+recorded channel evidence (see the [channel contract](contracts/claude-channel-v1.md)):
+
+```bash
+cargo run --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
+  --example channel-contract -- /absolute/claude
+```
+
+It runs only `--version` and `--help`. The channel launch preflight applies the same
+version pin to user commands once `tmt run --channel` ships (#715).
 
 `tmt whoami --context [--json]` is the read-only rehydration entry point. It reports
 the verified caller identity and lifetime, up to 500 characters of role text,
