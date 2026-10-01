@@ -109,7 +109,8 @@ function run(
     mkdirSync(path.join(source, 'skills', name), { recursive: true });
     writeFileSync(path.join(source, 'skills', name, 'SKILL.md'), text);
   }
-  writeFileSync(path.join(source, 'skills', 'README.md'), 'not a skill\n');
+  // A file that is not a skill directory, as the repository's own skills folder has.
+  writeFileSync(path.join(source, 'skills', 'index.txt'), 'not a skill\n');
   const fetched: string[] = options.fetches ?? [];
   const waits: number[] = [];
   return {
