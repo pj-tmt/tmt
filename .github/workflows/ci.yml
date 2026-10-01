@@ -16,6 +16,10 @@ on:
     - cron: '17 3 * * 1'
   workflow_dispatch:
 
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_INCREMENTAL: 0
+
 permissions:
   contents: read
 
@@ -121,13 +125,12 @@ jobs:
           pnpm --filter @tmt/remote-client --fail-if-no-match check
           pnpm --filter @tmt/remote-client --fail-if-no-match test
 
-  native-rust-checks:
-    name: Native Rust checks
+  native-clippy:
+    name: Native Rust clippy
     needs: changes
     if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
-    # Retain the measured serial budget until the remaining checks are split (#851).
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -141,70 +144,195 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-rust
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
-      - name: Verify Squad quality and locked builds
-        if: needs.changes.outputs.native_scope == 'squad'
-        working-directory: rust
-        run: |
-          cargo fmt --all --check
-          cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
-          cargo test --locked -p tmt-squad
-          cargo test --locked -p tmt-cli --test architecture
-      - name: Build Squad process fixtures
-        if: needs.changes.outputs.native_scope == 'squad'
-        working-directory: rust
-        env:
-          CARGO_PROFILE_DEV_DEBUG: 0
-        run: |
-          cargo build --locked -p tmt-squad
-          cargo build --locked --release -p tmt-cli
+          save-if: false
       - name: Reject an unknown native scope
         if: needs.changes.outputs.native_scope != 'full' && needs.changes.outputs.native_scope != 'squad'
         run: |
           echo "No native checks are defined for scope '${{ needs.changes.outputs.native_scope }}'." >&2
           exit 1
-      - name: Verify native quality and locked builds
+      - name: Check Rust formatting
+        working-directory: rust
+        run: cargo fmt --all --check
+      - name: Lint workspace
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
-          cargo fmt --all --check
           cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Lint Squad
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: rust
+        run: |
+          cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
+
+  native-workspace-tests:
+    name: Native Rust workspace tests
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+      - name: Test and build workspace
+        if: needs.changes.outputs.native_scope == 'full'
+        working-directory: rust
+        run: |
           remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
           cargo test --locked --workspace
           cargo build --locked --workspace
-          cargo build --locked --example storage-probe
-      - name: Build independent native process fixtures
-        if: needs.changes.outputs.native_scope == 'full'
+      - name: Test Squad and architecture
+        if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
-        env:
-          CARGO_PROFILE_DEV_DEBUG: 0
         run: |
-          cargo build --locked -p tmt-office
-          cargo build --locked --release -p tmt-cli
+          cargo test --locked -p tmt-squad
+          cargo test --locked -p tmt-cli --test architecture
+
+  native-office-build:
+    name: Build Office native fixture
+    needs: changes
+    if: needs.changes.outputs.native_scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
       - name: Set up Node.js and pnpm test tooling
         uses: ./.github/actions/setup-tooling
+      - name: Install test dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build the independent Office companion
+        working-directory: rust
+        run: cargo build --locked -p tmt-office
+      - name: Build the embedded local Office companion
+        working-directory: typescript
+        run: |
+          pnpm office:build:local
+          cd ../rust
+          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
+      - name: Record the verified companion bytes
+        working-directory: rust/target/debug
+        run: sha256sum tmt-office > tmt-office.sha256
+      - name: Share the verified companion with native tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-office-companion
+          path: |
+            rust/target/debug/tmt-office
+            rust/target/debug/tmt-office.sha256
+            target/office-spa
+          if-no-files-found: error
+          retention-days: 1
+
+  native-office:
+    name: Native Rust Office local service
+    needs: [changes, native-office-build]
+    if: needs.changes.outputs.native_scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Download the Office fixture and embedded SPA
+        uses: actions/download-artifact@v4
+        with:
+          name: native-office-companion
+          path: .
+      - name: Verify embedded local Office companion
+        working-directory: rust
+        run: |
+          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo clippy --locked -p tmt-office --features local-service -- -D warnings
+          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
+
+  native-process-tests:
+    name: Native process contracts
+    needs: [changes, native-office-build]
+    if: ${{ always() && needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'squad' || needs.native-office-build.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Set up Node.js and pnpm test tooling
+        uses: ./.github/actions/setup-tooling
+      - name: Install test dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install shell test dependency
         uses: ./.github/actions/apt-install
         with:
           packages: zsh
-      - name: Install test dependencies
-        working-directory: typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Verify embedded local Office companion
+      - name: Build independent native process fixtures
         if: needs.changes.outputs.native_scope == 'full'
-        working-directory: typescript
-        env:
-          # This rebuild replaces the companion used by native process fixtures.
-          # Keep its debug-info policy consistent with their initial build.
-          CARGO_PROFILE_DEV_DEBUG: 0
+        working-directory: rust
         run: |
-          pnpm office:build:local
-          cd ../rust
-          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo clippy --locked -p tmt-office --features local-service -- -D warnings
-          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
-          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
+          cargo build --locked -p tmt-squad
+          cargo build --locked --example storage-probe
+          cargo build --locked --release -p tmt-cli
+      - name: Build Squad process fixtures
+        if: needs.changes.outputs.native_scope == 'squad'
+        working-directory: rust
+        run: |
+          cargo build --locked -p tmt-squad
+          cargo build --locked --release -p tmt-cli
+      - name: Download the verified Office companion
+        if: needs.changes.outputs.native_scope == 'full'
+        uses: actions/download-artifact@v4
+        with:
+          name: native-office-companion
+          path: .
+      - name: Verify Office companion identity and executable mode
+        if: needs.changes.outputs.native_scope == 'full'
+        working-directory: rust/target/debug
+        run: |
+          sha256sum --check tmt-office.sha256
+          chmod +x tmt-office
       - name: Verify native process and shared parser contracts
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: typescript
@@ -252,9 +380,17 @@ jobs:
 
   native-rust:
     name: Native Rust contracts
-    needs: [changes, native-rust-checks, native-msrv]
+    needs:
+      [
+        changes,
+        native-clippy,
+        native-workspace-tests,
+        native-office,
+        native-process-tests,
+        native-msrv,
+      ]
     # Preserve the outer gate's skipped result for scope none. Missing selection
-    # must still reach this gate and fail, even when both workers were skipped.
+    # must still reach this gate and fail, even when all workers were skipped.
     if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -268,9 +404,12 @@ jobs:
       - name: Require every selected Rust worker
         env:
           NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
-          CHECKS_RESULT: ${{ needs.native-rust-checks.result }}
+          CLIPPY_RESULT: ${{ needs.native-clippy.result }}
+          TESTS_RESULT: ${{ needs.native-workspace-tests.result }}
+          OFFICE_RESULT: ${{ needs.native-office.result }}
+          NATIVE_RESULT: ${{ needs.native-process-tests.result }}
           MSRV_RESULT: ${{ needs.native-msrv.result }}
-        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CHECKS_RESULT" "$MSRV_RESULT"
+        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CLIPPY_RESULT" "$TESTS_RESULT" "$OFFICE_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"
 
   unit-tests:
     name: Unit tests
