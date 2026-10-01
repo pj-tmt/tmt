@@ -260,6 +260,14 @@ jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
+Linux CI package installation uses `.github/actions/apt-install`: each apt update
+or install attempt has a 120-second timeout with a 10-second forced-kill grace.
+The existing retry helper makes at most three attempts, with 5- and 10-second
+backoffs. Apt also uses 30-second HTTP/HTTPS network timeouts and two acquisition
+retries. The action removes the unused Chrome source before updating; package
+selection stays with each caller. Revisit the attempt bound before adding large
+packages to the current small dependency sets.
+
 `release-please-config.json` is generated, not hand-edited. After changing the component
 map, a crate's version declaration, the workspace's crates or its dependencies between
 them (including a new file or directory under an extension root, because the CLI's exclude
@@ -822,6 +830,11 @@ actual CLI release baseline/candidate under one toolchain/profile. Label a
 zero delta from unused/dead-stripped groundwork honestly and repeat the size
 measurement after the final consumer links it. See the
 [owning contract](contracts/codex-channel-v1.md) for remaining integration gates.
+
+Private Codex enrollment state (#737) is checked with
+`cargo test --locked -p tmt-adapters drivers::codex::record`. These tests own
+isolated temporary records and inject liveness evidence; they verify lock-scoped
+state changes and replacement preservation, not real crashed-server recovery.
 
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
