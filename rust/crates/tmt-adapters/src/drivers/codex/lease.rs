@@ -7,57 +7,47 @@ use super::{
     server::{OwnedServer, StartError},
     transport::Client,
 };
-use crate::{
-    process::{UnixCommandRunner, runtime::observe_runtime_process},
-    runtime::RuntimeCommand,
-};
+use crate::runtime::RuntimeCommand;
 use serde_json::{Value, json};
 use std::{ffi::OsString, io, path::Path, time::Instant};
-use tmt_core::{
-    binding::session::{ProviderSessionId, RuntimeLiveness},
-    endpoint::ProcessIncarnation,
-};
+use tmt_core::binding::session::ProviderSessionId;
+
+enum EnrollmentCleanup {
+    Retire,
+    PreserveForeground,
+    UnconfirmedStartup,
+}
 
 pub struct Lease {
     store: Store,
     record: Record,
     server: Option<OwnedServer>,
-    retain_enrollment: bool,
+    cleanup: EnrollmentCleanup,
     command: RuntimeCommand,
     environment: Vec<(OsString, OsString)>,
     session: Option<ProviderSessionId>,
 }
 
 impl Lease {
-    /// Caller must validate the claimed binding/session and this live launch
-    /// incarnation through the existing atomic launcher authority before entry.
-    pub fn start(
-        binding: &str,
-        owner: &ProcessIncarnation,
+    pub(super) fn from_record(
+        store: Store,
+        record: Record,
         command: &RuntimeCommand,
         cwd: &Path,
-        directory: &Path,
         deadline: Instant,
     ) -> io::Result<Self> {
-        let options = LaunchOptions::parse(command, cwd).map_err(|_| invalid())?;
-        let store = Store::open(directory)?;
-        let record = Record::new(binding, owner)?;
-        store.create(&record, |process| {
-            observe_runtime_process(&UnixCommandRunner, process.pid(), deadline)
-                .map(|observation| observation.matches(process))
-                .unwrap_or(RuntimeLiveness::Unknown)
-        })?;
         // From the first durable opt-in write, every later failure is owned by
         // this guard. Nothing depends on preferences.launched or thread readiness.
         let mut lease = Self {
             store,
             record,
             server: None,
-            retain_enrollment: false,
+            cleanup: EnrollmentCleanup::Retire,
             command: command.clone(),
             environment: Vec::new(),
             session: None,
         };
+        let options = LaunchOptions::parse(command, cwd).map_err(|_| invalid())?;
         let generation = lease.store.generation_directory(&lease.record)?;
         lease.accept_start(OwnedServer::start_with_environment(
             command,
@@ -94,6 +84,9 @@ impl Lease {
             },
         )?;
         lease.session = Some(session);
+        // A planned foreground may exist as soon as the command is returned.
+        // EOF/withdraw is not evidence that it ended.
+        lease.cleanup = EnrollmentCleanup::PreserveForeground;
         Ok(lease)
     }
 
@@ -104,7 +97,9 @@ impl Lease {
                 Ok(())
             }
             Err(error) => {
-                self.retain_enrollment = !error.cleanup_confirmed();
+                if !error.cleanup_confirmed() {
+                    self.cleanup = EnrollmentCleanup::UnconfirmedStartup;
+                }
                 Err(io::Error::other(error))
             }
         }
@@ -121,9 +116,13 @@ impl Lease {
     }
 
     pub fn withdraw(&mut self) -> io::Result<()> {
+        self.stop(true)
+    }
+
+    fn stop(&mut self, retire: bool) -> io::Result<()> {
         // Retain enrollment if process cleanup cannot be proven. A missing
         // record must never disguise an orphaned opted-in endpoint as baseline.
-        if self.retain_enrollment {
+        if matches!(self.cleanup, EnrollmentCleanup::UnconfirmedStartup) {
             return Err(io::Error::other(
                 "Codex enrollment retained after unconfirmed startup cleanup",
             ));
@@ -132,13 +131,15 @@ impl Lease {
             server.stop()?;
         }
         self.server = None;
-        self.store.withdraw(&self.record)?;
+        if retire || matches!(self.cleanup, EnrollmentCleanup::Retire) {
+            self.store.withdraw(&self.record)?;
+        }
         Ok(())
     }
 }
 impl Drop for Lease {
     fn drop(&mut self) {
-        if let Err(error) = self.withdraw() {
+        if let Err(error) = self.stop(false) {
             eprintln!("Codex enrollment cleanup failed: {error}");
         }
     }

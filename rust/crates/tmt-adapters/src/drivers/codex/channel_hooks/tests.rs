@@ -13,6 +13,7 @@ fn channel_server_resume_and_end_preserve_foreground_but_require_exact_live_proo
         port: 49000,
         thread: thread.as_str().into(),
     });
+    record.foreground = Foreground::Known(Process::of(&foreground));
     let current = BindingSessionState {
         state: RuntimeState::Running,
         key: Some(ObservedSessionKey {
@@ -44,6 +45,22 @@ fn channel_server_resume_and_end_preserve_foreground_but_require_exact_live_proo
                 transition(&event, &record, &current, &server, &|p| if p.pid() == pid {
                     RuntimeLiveness::Unknown
                 } else {
+                    RuntimeLiveness::Alive
+                })
+                .is_none()
+            );
+        }
+        for foreground in [
+            Foreground::Unknown,
+            Foreground::Known(Process {
+                pid: 12,
+                start: "different-incarnation".into(),
+            }),
+        ] {
+            let mut unpublished = record.clone();
+            unpublished.foreground = foreground;
+            assert!(
+                transition(&event, &unpublished, &current, &server, &|_| {
                     RuntimeLiveness::Alive
                 })
                 .is_none()

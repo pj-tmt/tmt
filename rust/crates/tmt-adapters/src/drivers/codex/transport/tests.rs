@@ -134,11 +134,30 @@ fn explicit_archived_and_deleted_refusal_never_resends() {
 
 #[test]
 fn connect_refusal_is_before_any_delivery_write() {
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-    let SocketAddr::V4(address) = listener.local_addr().unwrap() else {
-        panic!("IPv4 fixture")
+    use nix::sys::socket::{
+        AddressFamily, SockFlag, SockType, SockaddrIn, bind, getsockname, socket,
     };
-    drop(listener);
+    use std::os::fd::{AsFd, AsRawFd};
+    // Hold the allocation without listen(): dropping a listener first would let
+    // another parallel test reuse the port before this connect attempt.
+    let reserved = socket(
+        AddressFamily::Inet,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    )
+    .unwrap();
+    nix::fcntl::fcntl(
+        reserved.as_fd(),
+        nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+    )
+    .unwrap();
+    bind(
+        reserved.as_raw_fd(),
+        &SockaddrIn::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+    )
+    .unwrap();
+    let address = SocketAddrV4::from(getsockname::<SockaddrIn>(reserved.as_raw_fd()).unwrap());
     let endpoint = Endpoint::new(address, "fixture".into()).unwrap();
     assert!(matches!(
         Client::connect(&endpoint, Instant::now() + Duration::from_secs(1)),

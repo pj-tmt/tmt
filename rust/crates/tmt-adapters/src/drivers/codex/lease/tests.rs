@@ -1,5 +1,6 @@
 use super::*;
 use crate::test_support::TestDirectory;
+use tmt_core::{binding::session::RuntimeLiveness, endpoint::ProcessIncarnation};
 
 #[test]
 fn thread_creation_requires_exact_returned_directory_and_valid_thread() {
@@ -30,7 +31,7 @@ fn failed_start_retains_enrollment_unless_cleanup_is_confirmed() {
             store,
             record: record.clone(),
             server: None,
-            retain_enrollment: false,
+            cleanup: EnrollmentCleanup::Retire,
             command: RuntimeCommand {
                 executable: "/unused".into(),
                 args: vec![],

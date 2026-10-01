@@ -3,7 +3,7 @@
 Status: receipt/transport groundwork in #736, under #719 and #329. The Codex
 runtime does not register or invoke this channel yet. Private record groundwork
 is added in #737 and endpoint/attachment groundwork in #738. Lease and consumer
-integration remain later slices; no user-facing native delivery
+integration is in progress in #739; no user-facing native delivery
 or live foreground continuity is claimed here.
 
 ## Delivery receipt
@@ -91,9 +91,12 @@ snapshot and its own live incarnation through the existing launcher admission
 authority. This caller guard is a prerequisite, not implemented by this record
 module and not permission to write a second binding registry. Under the record
 lock, creation rechecks that new owner is alive, and admits takeover only when
-the prior launch owner is conclusively gone or equals the new owner. A different
-live/unknown owner, unreadable record, or unverifiable new owner is terminal and
-leaves prior state untouched. Old-owner absence alone never grants new authority.
+every prior recorded process is conclusively gone. A known foreground is
+compared by PID and start identity. An Unknown foreground permits takeover only
+for an explicit relaunch of the same binding with the same persisted pane
+address; a historical ready server must also be conclusively gone. Any live or
+unverifiable recorded process, unreadable record, or unverifiable new owner is
+terminal and leaves prior state untouched. Old-owner absence alone never grants new authority.
 The final launcher/lease slice must exercise this guard, later admission failure
 and withdrawal together before activation; record unit tests alone do not prove
 full crash recovery or cleanup of a former endpoint process.
@@ -139,3 +142,45 @@ not invoke a model or prove that a real foreground client preserves an active
 provider turn. The final lease/consumer slice must establish that continuity,
 thread admission, channel foreground identity, and terminal routing for talk and
 reply notifications before user-facing opt-in is enabled.
+
+## Final consumer lifecycle (integration in progress)
+
+The provider record persists the claimed identity and pane address before spawn:
+host/server UUID, socket path, server PID/start, pane ID and pane PID. The launcher
+supplies this evidence from its existing binding, without another binding write.
+Missing or mismatched attribution refuses enrollment. Older/unreadable records
+without attributable pane evidence are named in diagnostics; they cannot block
+unrelated panes. Corruption of the current binding's own record remains terminal.
+
+Foreground state starts Unknown. The launcher's single `foreground_started`
+callback publishes only the original owned child's observed incarnation under
+the record lock. A publication failure stays unconfirmed. A ready app-server
+precedes foreground spawn, so cleaning that server never proves an Unknown
+foreground ended. Unknown stays terminal for its exact pane and is never pruned.
+Known foreground, owner and endpoint must all be conclusively gone before an
+ended record is pruned during enrollment. Read-only delivery never prunes.
+
+`drivers/codex/supervisor` owns the original app-server child and its process
+group. A private, close-on-exec launcher socket controls its lifetime; neither
+the provider nor the attached foreground inherits the launcher endpoint. Launcher
+EOF, including SIGKILL, reaps the server and removes only its owned capability
+files while retaining enrollment. Explicit withdrawal is separate: it may retire
+the exact record only after no child was spawned or the same foreground child
+was confirmed reaped. Wait errors, panic and early return do not supply that
+proof. The supervisor never signals a later observed PID.
+
+Supervisor failure itself is a limitation: killing the supervisor can prevent
+its owned-child cleanup. Timeout or unconfirmed cleanup retains evidence and
+reports failure, rather than claiming that the endpoint or foreground ended.
+Manual recovery requires first verifying that the named pane's original
+foreground and endpoint are gone, then removing only the exact named stale
+record. Recovery is separate from delivery and never pastes a payload. Shell
+commands in recovery diagnostics must quote paths, including embedded apostrophes.
+
+The native send path requires the exact record, launch owner, foreground,
+endpoint and thread, qualifies the owned endpoint once, and consumes one queue
+attempt. Channel-originated hooks preserve the admitted foreground incarnation;
+ordinary non-channel resume remains separate. Mock supervisor tests exercise
+startup failure, launcher SIGKILL with a surviving foreground, the publication
+window and explicit confirmed withdrawal. Full shared-router zero-paste and
+real same-live-turn attachment acceptance are still required before registration.

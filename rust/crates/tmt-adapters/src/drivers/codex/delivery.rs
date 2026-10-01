@@ -1,7 +1,7 @@
 //! Terminal one-shot native delivery after exact enrollment evidence.
 use super::{
     queue::{MESSAGE_LIMIT, QueueOutcome, QueueRequest},
-    record::{Record, Store},
+    record::{Foreground, Record, Store},
     transport::{Client, Endpoint, TransportError},
 };
 use crate::{
@@ -54,6 +54,12 @@ pub fn send(directory: Option<&Path>, entry: &BindingEntry, message: &str) -> Se
         Ok(None) => return ActionResult::Unsupported,
         Err(_) => return denied(ChannelFault::InvalidRecord),
     };
+    if record.attribution.as_ref().is_none_or(|attribution| {
+        attribution.identity_id != binding.identity_id
+            || !attribution.matches(&binding.server, &binding.pane_id, binding.pane_pid)
+    }) {
+        return denied(ChannelFault::Mismatch);
+    }
     let deadline = Instant::now() + Duration::from_secs(3);
     let observe = |process: &ProcessIncarnation| {
         observe_runtime_process(&UnixCommandRunner, process.pid(), deadline)
@@ -123,7 +129,7 @@ fn applicable(
     if current.launch_owner.as_ref() != Some(&owner) {
         // A live pending enrollment precedes admission/preferences.launched.
         // The earlier binding owner must not make that new opt-in disappear.
-        return if live_owner == RuntimeLiveness::Gone
+        return if record.ended(observe)
             && current
                 .launch_owner
                 .as_ref()
@@ -151,6 +157,12 @@ fn applicable(
         .server
         .incarnation()
         .ok_or(ChannelFault::InvalidRecord)?;
+    let Foreground::Known(foreground) = &record.foreground else {
+        return Err(ChannelFault::Unverifiable);
+    };
+    if foreground.incarnation().as_ref() != Some(&key.incarnation) {
+        return Err(ChannelFault::Mismatch);
+    }
     if key.incarnation == server {
         return Err(ChannelFault::Mismatch);
     }

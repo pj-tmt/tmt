@@ -20,6 +20,7 @@ fn fixture() -> (Record, BindingSessionState) {
         }),
         ..Default::default()
     };
+    record.foreground = Foreground::Known(Process::of(&session.key.as_ref().unwrap().incarnation));
     (record, session)
 }
 #[test]
@@ -136,7 +137,7 @@ fn entry(record: &Record, current: BindingSessionState) -> BindingEntry {
     };
     BindingEntry {
         identity: Identity {
-            id: "identity".into(),
+            id: "33333333-3333-4333-8333-333333333333".into(),
             name: "owned".into(),
             canonical_name: "owned".into(),
             lifetime: Lifetime::Temporary,
@@ -145,10 +146,10 @@ fn entry(record: &Record, current: BindingSessionState) -> BindingEntry {
         },
         binding: Some(Binding {
             id: record.binding_id.clone(),
-            identity_id: "identity".into(),
+            identity_id: "33333333-3333-4333-8333-333333333333".into(),
             server: ServerEvidence {
                 host: HostKind::Tmux,
-                server_id: "fixture".into(),
+                server_id: "44444444-4444-4444-8444-444444444444".into(),
                 socket_path: "/unused".into(),
                 server_pid: 1,
                 server_start_time: "fixture".into(),
@@ -178,6 +179,17 @@ fn real_socket_send_outcomes_are_one_shot_and_zero_fallback() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let mut record = Record::new("11111111-1111-4111-8111-111111111111", &owner).unwrap();
+        let attribution_entry = entry(&record, BindingSessionState::default());
+        let binding = attribution_entry.binding.as_ref().unwrap();
+        record.attribution = Some(
+            super::super::record::Attribution::new(
+                &binding.identity_id,
+                &binding.server,
+                &binding.pane_id,
+                binding.pane_pid,
+            )
+            .unwrap(),
+        );
         store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
         let thread = "22222222-2222-4222-8222-222222222222";
         record = store
@@ -190,6 +202,7 @@ fn real_socket_send_outcomes_are_one_shot_and_zero_fallback() {
                 },
             )
             .unwrap();
+        record = store.foreground(&record, &foreground).unwrap();
         let generation = store.generation_directory(&record).unwrap();
         std::fs::create_dir(&generation).unwrap();
         std::fs::set_permissions(&generation, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -268,5 +281,34 @@ fn real_socket_send_outcomes_are_one_shot_and_zero_fallback() {
             std::io::ErrorKind::WouldBlock
         );
         assert!(store.read(&record.binding_id).unwrap() == Some(record));
+    }
+}
+
+#[test]
+fn missing_or_mismatched_bound_attribution_refuses_before_process_or_endpoint_io() {
+    for missing in [true, false] {
+        let fixture_dir = TestDirectory::new();
+        let store = Store::open(&fixture_dir.path).unwrap();
+        let (mut record, state) = fixture();
+        let entry = entry(&record, state);
+        let binding = entry.binding.as_ref().unwrap();
+        if !missing {
+            let mut attribution = super::super::record::Attribution::new(
+                &binding.identity_id,
+                &binding.server,
+                &binding.pane_id,
+                binding.pane_pid,
+            )
+            .unwrap();
+            attribution.pane_pid += 1;
+            record.attribution = Some(attribution);
+        }
+        store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
+        assert!(matches!(
+            send(Some(&fixture_dir.path), &entry, "tiny"),
+            ActionResult::Failed(SendFailure::Denied(RuntimeError::Channel(
+                ChannelFault::Mismatch
+            )))
+        ));
     }
 }

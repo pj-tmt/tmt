@@ -10,9 +10,11 @@ pub mod channel;
 pub mod channel_hooks;
 pub mod delivery;
 pub mod lease;
+pub mod pane;
 pub mod queue;
 pub mod record;
 pub mod server;
+pub mod supervisor;
 pub mod transport;
 
 pub use crate::runtime::hook_protocol::encode_context;

@@ -2,7 +2,7 @@
 //! Environment is a locator, never authority; the private record supplies proof.
 use super::{
     CodexObservation, decode_hook,
-    record::{Record, Store},
+    record::{Foreground, Record, Store},
 };
 use crate::{
     process::{UnixCommandRunner, runtime::observe_runtime_process},
@@ -91,6 +91,12 @@ fn transition(
     let ready = record.ready.as_ref()?;
     let server = ready.server.incarnation()?;
     let foreground = current.key.as_ref()?;
+    let Foreground::Known(recorded) = &record.foreground else {
+        return None;
+    };
+    if recorded.incarnation().as_ref() != Some(&foreground.incarnation) {
+        return None;
+    }
     if current.launch_owner.as_ref() != Some(&owner)
         || server != *process
         || foreground.incarnation == server

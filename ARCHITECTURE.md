@@ -2041,6 +2041,16 @@ planning resolves cwd once and names an exact thread. The channel contract owns
 the startup, credential and failure limits; real continuity and launcher crash
 recovery remain final consumer acceptance gates.
 
+`drivers/codex/lease`, `supervisor`, `delivery` and `channel_hooks` compose the
+final consumer (#739, integration in progress). The supervisor owns the original
+endpoint process handle; launcher EOF requests endpoint cleanup but preserves
+the provider enrollment. Explicit withdrawal is reserved for no-child or
+confirmed foreground reap. Provider records retain the pre-spawn pane address
+and Unknown/Known foreground state; app-server readiness is never foreground
+lifetime proof. The channel contract owns takeover, pruning and manual recovery
+limits. Shared launcher/port changes remain with their channel owner; Codex
+registration stays disabled until integrated routing and live continuity pass.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent

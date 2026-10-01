@@ -85,7 +85,12 @@ impl OwnedServer {
         deadline: Instant,
         environment: &[(std::ffi::OsString, std::ffi::OsString)],
     ) -> Result<Self, StartError> {
-        let mut files = Files::create(directory)?;
+        let mut files = Files::create(directory).map_err(|error| {
+            StartError::after_cleanup(
+                error,
+                Err(io::Error::other("Generation ownership was not acquired")),
+            )
+        })?;
         let token = format!(
             "{}{}",
             uuid::Uuid::new_v4().simple(),
