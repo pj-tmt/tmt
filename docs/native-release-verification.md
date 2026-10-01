@@ -90,10 +90,13 @@ by hand), `commit` (the release's commit is on `main` and the pull request that 
 `Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
 repository's newest published release is immutable, which shows that the setting was on; the
 workflow token cannot read the setting itself), `monotonic` (the release is newer than every
-published release of its product), `migration` (the component's migration list, named in
-`.github/components.json`, has no more entries than at the product's last published release,
-and no commit of the release carries `!` or a `BREAKING CHANGE:` footer) and `upgrade` (the
-proof above; the first release of a product has nothing to upgrade from). A failed gate does
+published release of its product), `migration` (no commit of the release carries `!` or a
+`BREAKING CHANGE:` footer; outside the alpha channel the component's migration list, named in
+`.github/components.json`, also has no more entries than at the product's last published
+release, while an alpha publishes new entries and the gate's summary only reports them) and
+`upgrade` (the proof above; the first release of a product has nothing to upgrade from; it
+checks the installation over the previous release, so no publication gate exercises a migration
+of state the previous release wrote). A failed gate does
 not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
 `gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
 The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read
