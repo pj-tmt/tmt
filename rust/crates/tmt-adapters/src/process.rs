@@ -425,7 +425,7 @@ mod cleanup_policy_tests {
                     Instant::now() < deadline,
                     "fixture group {group} survived: {result:?}"
                 );
-                std::thread::yield_now();
+                std::thread::sleep(Duration::from_millis(10));
             }
             assert_eq!(kill(probe, None), Err(Errno::ESRCH), "probe was not reaped");
             if mode == "leader" {
@@ -484,9 +484,13 @@ mod cleanup_policy_tests {
             process::{Command, Stdio},
         };
 
-        let mode = std::env::var(TIMEOUT_MODE).expect("only the owning test invokes this helper");
+        let Ok(mode) = std::env::var(TIMEOUT_MODE) else {
+            return;
+        };
         let directory = PathBuf::from(std::env::var_os(TIMEOUT_DIRECTORY).unwrap());
         let socket = directory.join("probe.sock");
+        // Leave room for the terminator in macOS's 104-byte sockaddr_un.sun_path.
+        assert!(socket.as_os_str().as_encoded_bytes().len() < 104);
         if mode == "probe" {
             let mut stream = UnixStream::connect(socket).unwrap();
             stream
