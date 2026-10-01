@@ -36,7 +36,11 @@
         "typescript/test/native/squad.test.ts"
       ],
       "scopedChecks": {
-        "nativeTests": ["squad.test.ts", "extension-install.test.ts"],
+        "nativeTests": [
+          "squad.test.ts",
+          "extension-install.test.ts",
+          "extension-upgrade-proof.test.ts"
+        ],
         "e2eFiles": ["squad.e2e.test.ts"]
       }
     },
