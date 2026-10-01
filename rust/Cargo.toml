@@ -3,7 +3,7 @@ members = ["crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli-style", "cr
 resolver = "3"
 
 [workspace.package]
-version = "5.0.0-alpha.16"
+version = "5.0.0-alpha.17"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
