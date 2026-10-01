@@ -36,7 +36,9 @@ their declared dependencies, never root-hoisted tooling packages; Office browser
 specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
-and the Office skill sources live under `extensions/tmt-office/`. The Nx task graph orders only the Office SPA producer, embedded
+and the Office skill sources live under `extensions/tmt-office/`; the proposed
+colab contract lives under `extensions/tmt-colab/contracts/` (see the
+[colab boundary](#colab-extension-proposal)). The Nx task graph orders only the Office SPA producer, embedded
 native companion and installed-browser acceptance chain; ordinary CLI targets
 remain independent. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
@@ -593,15 +595,31 @@ weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs t
 tests): it requires both shards when native work is selected, the first alone for a scoped
 component and neither when nothing native is selected, so a skipped, cancelled or missing
 selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
-remain; `Code quality` gates selected Office verification and `Native package
+remain; `Native Rust contracts` aggregates the runtime checks and the parallel
+workspace/all-targets MSRV check. Both workers must succeed for full and Squad
+scopes; scope `none` skips the aggregate, while missing scope fails closed.
+`Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
-Rust contracts` and the native runtime builds. Pull requests only restore them; they
-are written by non-pull-request runs of those two jobs alone, which run on a `main`
+Rust checks` and the native runtime builds. The parallel MSRV check reads the
+minimum version from the workspace manifest and owns a separate
+`native-rust-msrv` cache, saved only on main. Pull requests only restore caches.
+The other caches are written by non-pull-request runs of those two jobs alone, which run on a `main`
 push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
-(GitHub evicts unused caches after seven days) and on manual dispatch. No gate runs
-for them. A seeding run has no diff to select from, so it takes the full native scope.
+(GitHub evicts unused caches after seven days) and on manual dispatch. The Rust
+aggregate validates these workers on seeding runs too; the outer merge gates do
+not run. A seeding run has no diff to select from, so it takes the full native scope.
+
+The advisory Office browser workflow has a separate ownership-based PR flag,
+`office_browser`: Office-owned component paths, `docs/office/**` and the browser
+verification machinery select its emulator/image work. The selector owns the
+browser-specific workflow/emulator/context-policy exception so that machinery
+exercises itself. Shared dependency/selector/generic fixture changes, ordinary
+core product dependencies and unknown paths do not select
+browser PR work while Office is parked. Scheduled/manual runs cover all twelve
+partitions, including the emulator; the existing native/local PR pauses remain.
+Required CI keeps its conservative consumer selection and unchanged gates.
 
 The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
 generates `release-please-config.json` from the map (one release-please package per
@@ -1983,7 +2001,14 @@ runtime in a pane, input and focus, at the driver protocol's granularity
 policy over it: `host::driver::{status, send, focus}` decide which evidence
 makes a binding present, when a runtime blocks input, and what a failure
 means. A host without input (`has_input`) is `Unsupported` before any evidence
-is read, and `focus_preflight` refuses before any evidence is read too. The
+is read, and `focus_preflight` refuses before any evidence is read too. A send
+that passes the evidence and runtime checks first offers the message to the
+agent the host recognizes in the pane (`prompt`); only `Unsupported` (no
+agent-aware input, or no agent seen) falls back to raw pane input (`input`),
+and any other answer, such as an agent that is blocked or not ready, is final.
+tmux recognizes no agents, so every tmux send is raw input. `DeliveryError`
+(`host::delivery`) is the host-neutral input failure: the stage that failed,
+whether text may have reached the pane, and the host's own cause. The
 out-of-process client of #570 slice 3 implements the same trait. `HostError` and
 the host `ActionError` wrap each host's error and read exactly as it. The
 architecture guard rejects production references to the host modules outside
@@ -2088,6 +2113,21 @@ permits it only in adapters. The [Codex channel contract](contracts/codex-channe
 owns limits, version qualification and receipt semantics. These modules are
 unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
 integration must be proven before user-facing activation in the later #719 slices.
+
+`drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),
+using the existing nonblocking file lock for compare/write/remove. It stores
+exact launch/process/thread coordinates but no capability material and owns no
+binding transaction. The launcher must validate new-launch authority before
+calling it; record-level takeover and withdrawal remain generation/incarnation
+scoped. The same contract owns this persistence definition and its still-pending
+launcher/crash-cleanup integration. This adds no user-facing registration.
+
+`drivers/codex/server` and `attachment` add unregistered endpoint/foreground
+planning (#738). A launch-owned process group and private capability share one
+cleanup owner; process cleanup precedes inode-checked file removal. Attachment
+planning resolves cwd once and names an exact thread. The channel contract owns
+the startup, credential and failure limits; real continuity and launcher crash
+recovery remain final consumer acceptance gates.
 
 ### Provider channels
 
@@ -2553,8 +2593,10 @@ visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
 swaps in whole. An uncached switch that lasts at least 100 ms shows a spinner in
 the fixed summary header, ticking every 80 ms; cached switches show no loading
-indicator. F5 defaults to refresh in squad, leads and all views; squad/leads
+indicator. `ctrl-r` defaults to refresh in squad, leads and all views; squad/leads
 bindings can rebind it through `[bind]`, while all keeps its own `[tabs.all.bind]`.
+The effective `ctrl-r` refresh binding is dispatched before text inputs, preserving
+search and composed messages. F5 has no default binding but remains configurable.
 Tabs are the same width selected or not: selection is a style, never extra
 characters. `attention::Attention` is the one definition of a squad's tab
 state, derived from its status document: members waiting on the user (`pending`
@@ -2599,7 +2641,13 @@ fingerprints (`sha2`) retain no notebook body. Nonblocking Unix advisory locking
 before the read through atomic cache publication; competing readers report
 unknown and never regress the cache. First observation starts the clock,
 never backdated; unreadable notes, unavailable cache and clock rollback mean
-unknown. Cache loss/corruption restarts grace. Config edits do not
+unknown. Fingerprint/ownership/evidence changes publish immediately; otherwise
+unchanged observations replace the cache only when its persisted `observedAtMs`
+rollback watermark is at least 60 seconds old. Ages are computed on every
+observation without writing. A rollback crossing that watermark still reports
+unknown and restarts grace; a reversal entirely within an unwritten interval
+can shorten reported ages by at most 60 seconds, while first-observed times
+remain at or before the watermark. Cache loss/corruption restarts grace. Config edits do not
 reset content age. Disabling stops observation; after re-enabling, surviving
 fingerprint matches keep their first-observed time. These are observed content timestamps,
 not core modification times or a history feed. Age determines staleness;
@@ -2946,3 +2994,46 @@ quality job: the independent Python oracle must pass before the workspace-pinned
 Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
 runtime authority or browser-shell wiring; the proposed contract remains the wire
 and authority definition owner.
+
+## Colab extension proposal
+
+**Status: proposed, not implemented.** The local-build-only pilot lives under
+`extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
+owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
+bridge policy and acceptance gates. The #828 design owns product/UI choices;
+#829/#830 are bounded spike evidence. This documentation adds no registered
+executable, workspace package, listener, deployment or release.
+
+Proposed Rust dependencies are `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
+and `tmt-cli-style`, plus reviewed workspace pins. The model owns pure values,
+canonical bytes/codecs/crypto and policy, without I/O or core access. The
+executable owns CLI composition, foreground door, embedded app, SQLite/files,
+keyring and bridge. Core access is only through the absolute invoking
+`$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
+`tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
+or pane scraping. Shared crypto extraction requires actual consumers and review.
+
+Proposed extension-relative browser packages are `typescript/colab-client`
+(client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
+(trusted React/Vite chrome and renderer); backend packages are separate. They
+join the existing pnpm workspace/lockfile and pins when implemented. Shared
+workspace/component edits follow the two-lead rule; architecture guard and
+runtime CI-scope registration land with first code. The component map gives the
+contract directory private file ownership (`release: false`) and excludes it from
+CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
+
+All extension state stays in `<core-reported data root>/colab/`, with 0700
+directories and 0600 files, separate from core SQLite and provider configuration.
+The extension owns its ciphertext database/blobs, keyring, machine grants and
+bridge ledger. The colab-v1 edge model deliberately replaces #478 signed-edge
+admission with ciphertext Auth/Rules or server-session admission; it does not
+inherit Remote transport authority. The contract owns client authority and
+before-effect verification; the public core API retains dispatch/final ownership.
+
+Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
+`tmt-colab` child through `tmt-invoke` (deadline/caps/confirmed cleanup), or a
+budgeted browser Worker terminated on overrun, as defined by the contract.
+That boundary contains decoder failure, without claiming an OS/key sandbox.
+Local acceptance precedes Firestore then Cloudflare; protocol, renderer and
+containment details/gates live only in the linked contract. DEVELOPMENT usage
+commands land in L2/L3, when the executable exists.

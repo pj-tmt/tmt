@@ -88,6 +88,12 @@ user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Board appearance
 
+`ctrl-r` refreshes the board in squad, leads and all views, including while
+searching or composing a message, without changing the entered text. The footer
+and `?` help list the effective bindings. Rebind it in `[bind]` (or a section),
+or `[tabs.all.bind]` for all. F5 has no default action; an explicit
+`f5 = "refresh"` binding remains supported.
+
 The board uses the shared TMT design tokens: `muted` for readable tabs, labels
 and key hints, `accent` plus bold for focus, and `dim` for secondary values and
 borders. Attention tabs keep their waiting/blocked color and counts. Selection

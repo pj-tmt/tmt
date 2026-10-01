@@ -48,7 +48,7 @@ fn hints(app: &App) -> String {
         ("o", "o"),
         ("y", "y"),
         ("tab", "tab"),
-        ("f5", "F5"),
+        ("ctrl-r", "ctrl-r"),
     ]
     .into_iter()
     .filter_map(|(event, label)| {
@@ -1539,6 +1539,25 @@ columns = [{ name = "member", width = "30%" },
         let screen = draw(&app, 40, 8);
         assert!(screen.iter().any(|line| line.contains("m15")), "{screen:?}");
         assert!(!screen.iter().any(|line| line.contains("m00")));
+    }
+
+    #[test]
+    fn refresh_hint_and_help_render_exact_lowercase_ctrl_r() {
+        let mut app = board(json!([{"title": null, "rows": [row("a", "idle", "", json!({}))]}]));
+        let screen = draw(&app, 160, 12);
+        assert!(screen[11].contains("ctrl-r refresh"), "{:?}", screen[11]);
+        assert!(!screen[11].contains("f5") && !screen[11].contains("F5"));
+        app.help = true;
+        let screen = draw(&app, 160, 40);
+        assert!(
+            screen.iter().any(|line| line == "ctrl-r      refresh"),
+            "{screen:?}"
+        );
+        assert!(
+            !screen
+                .iter()
+                .any(|line| line.contains("Ctrl-R") || line.contains("F5") || line.contains("f5"))
+        );
     }
 
     #[test]
