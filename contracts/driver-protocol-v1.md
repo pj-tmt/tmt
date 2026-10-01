@@ -6,13 +6,17 @@ not build in, for example Herdr. This document owns the wire format. The
 repeating it.
 
 **Status:** the format, the crate, the approval registry and the client that
-runs one driver call exist. `tmt` does not use a driver for any host yet:
+runs one driver call exist. Core uses an approved driver for bindings stored
+on its host: it lists them through `snapshot`, keeps markers with `publish`
+and `clear`, and records the server through `server`. Still to come:
 
-- slice 3b connects approved drivers to hosts;
+- choosing an external host for a new binding (the caller's environment,
+  `resolve-target`), and `input`, `focus` and `capture`, in slice 3b-2b (until
+  then a message to such a binding goes to the inbox);
 - Herdr moves out as the first driver in slice 4;
 - `tmt driver install|ls|rm` arrives in slice 6.
 
-Until then, the behavior described below for core is the contract those
+The behavior described below for those operations is the contract those
 slices implement, not current behavior.
 
 ## Invocation
@@ -31,6 +35,8 @@ tmt-driver-<name> __tmt-driver <protocol> <op>
   `TMT_DRIVER_CALL` runs no command except help and `--version`; anything
   else fails with `DRIVER_CALL_REFUSED` before any effect. A driver that runs
   `tmt` can therefore neither recurse into itself nor change TMT's state.
+  `TMT_DRIVER_CALL` belongs to the call only: a driver must not pass it to a
+  process that outlives the call, such as a host server it starts.
 
 ## Answers
 
@@ -134,8 +140,11 @@ checks itself.
 - **Answer:** `{"server": {"socket", "pid", "startTime"}}`, or `{"server": null}`
   when no server runs there.
 
-Core gives each incarnation (socket, pid, start time) its own server UUID. A
-restarted server is a new incarnation.
+Core gives each incarnation its own server UUID. The incarnation is the
+socket plus core's own observation of `pid`: the process's start, as core
+reads it. `startTime` is advisory; core never stores it or sends it back. A
+server whose process core cannot observe stays unresolved, and a restarted
+server is a new incarnation.
 
 ### `resolve-target`
 
@@ -172,6 +181,13 @@ A `Pane`:
 
 `dead` means the incarnation is gone. Core believes it only when its own check
 of the recorded server process agrees, and treats it as `unknown` otherwise.
+
+`probe` is optional. Core leads every probe itself and doesn't call this
+operation: it checks the recorded server process. If that process is gone, or
+another process now has its pid, the server is dead. If it is the same
+process, the driver's `snapshot` of the scoped panes on that socket decides
+which panes are live. If core can't tell, the probe is `unknown`. Unknown
+never proves loss.
 
 ### `publish` and `clear`
 

@@ -106,6 +106,14 @@ pub trait CommandRunner {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError>;
 }
 
+/// A borrowed runner, so a short-lived caller (one external host driver per
+/// binding session) runs through its handle's runner.
+impl<R: CommandRunner + ?Sized> CommandRunner for &R {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        (**self).execute(request)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UnixCommandRunner;
 
