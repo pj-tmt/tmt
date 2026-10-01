@@ -54,8 +54,9 @@ in seven days. Product-qualified artifact names prevent concurrent product runs
 from being mistaken for one bundle. Notices alongside each bundle are
 verification inputs; every archive also contains its own target-filtered notices.
 
-`Release` (`.github/workflows/release.yml`) runs on every push to `main` that changes more
-than prose, and on a manual dispatch with `dry_run` (default on). Its `release-please` job
+`Release` (`.github/workflows/release.yml`) runs on every push to `main`, documentation
+included (a merge of any kind moves `main` under the open release pull requests), and on a
+manual dispatch with `dry_run` (default on). Its `release-please` job
 runs the pinned release-please CLI (`.github/release-please`, exact version and lockfile
 integrity) against the generated `release-please-config.json` and
 `.release-please-manifest.json`: it opens one release pull request per component, and when
