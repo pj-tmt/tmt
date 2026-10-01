@@ -10,6 +10,7 @@ fn native_upgrade_alias_and_selection_share_one_typed_contract() {
             "--to",
             "5.0.0-alpha.3",
             "--json",
+            "--yes",
         ]);
         assert!(invocation.mode.json);
         assert_eq!(
@@ -18,6 +19,7 @@ fn native_upgrade_alias_and_selection_share_one_typed_contract() {
                 channel: Some(tmt_core::native_install::Channel::Alpha),
                 exact: Some("5.0.0-alpha.3".into()),
                 unpin: false,
+                yes: true,
             }
         );
         assert_eq!(
@@ -25,7 +27,8 @@ fn native_upgrade_alias_and_selection_share_one_typed_contract() {
             Invocation::Upgrade {
                 channel: None,
                 exact: None,
-                unpin: true
+                unpin: true,
+                yes: false
             }
         );
         assert_eq!(

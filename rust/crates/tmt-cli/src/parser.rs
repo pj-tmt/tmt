@@ -271,6 +271,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 .and_then(|value| tmt_core::native_install::Channel::parse(&value)),
             exact: text(m, "to"),
             unpin: flag(m, "unpin"),
+            yes: flag(m, "yes"),
         },
         ["office", ..] => Invocation::Office {
             prefix: text(m, "prefix"),

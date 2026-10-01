@@ -184,7 +184,7 @@ pub(in crate::grammar) fn hook(hooked: Vec<&'static str>) -> Command {
 pub(in crate::grammar) fn upgrade() -> Command {
     general(spec!(
         "upgrade",
-        "Upgrade the native CLI and refresh managed skills",
+        "Upgrade TMT, managed skills and installed official extensions",
         [
             "Update to the latest release on your channel" => "tmt upgrade",
             "Switch to the stable channel" => "tmt upgrade --channel stable",
@@ -192,6 +192,7 @@ pub(in crate::grammar) fn upgrade() -> Command {
         ]
     ))
     .visible_alias("update")
+    .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
     .arg(
         Arg::new("channel")
             .long("channel")

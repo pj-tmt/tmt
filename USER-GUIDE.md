@@ -19,7 +19,17 @@ unless `--no-skill` is supplied. Reload the agent after installation.
 The native runtime requires macOS or Linux and tmux for pane operations, but no
 Node.js, Rust toolchain or source checkout. Native `tmt upgrade` (also
 available as `tmt update`) follows its retained stable/alpha channel; use
-`--to <version>` to pin or `--unpin` to resume channel updates. Package-manager
+`--to <version>` to pin the CLI or `--unpin` to resume its channel updates.
+After the CLI and managed skills succeed, installed official extensions are checked
+on their own recorded channels. Pins are independent: a pinned CLI does not prevent
+extension updates, and pinned extensions stay unchanged. Interactive use asks once,
+listing extension version changes. Use `tmt upgrade --yes` to consent without a prompt;
+in JSON or non-terminal use without it, pending extensions report `consentRequired`
+and the same rerun command, without changing extensions or failing the command.
+Missing extensions are never installed. Results list each product; an extension
+failure makes the command fail but does not undo other successful updates.
+`--channel` and `--to` select only the CLI; clear an extension pin with
+`tmt extension upgrade <name> --unpin`. Package-manager
 installations from older releases are a separate legacy TypeScript runtime.
 Use their original manager to remove them before switching; current repository
 source is not an npm product installation. See the replacement guidance below.

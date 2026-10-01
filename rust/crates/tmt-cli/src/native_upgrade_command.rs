@@ -19,6 +19,7 @@ pub fn execute(
     channel: Option<Channel>,
     exact: Option<&str>,
     unpin: bool,
+    yes: bool,
     mode: OutputMode,
 ) -> io::Result<u8> {
     let interrupt = match tmt_adapters::interrupt::Interrupt::install() {
@@ -68,7 +69,8 @@ pub fn execute(
         }
     };
     if report.skipped_pinned {
-        return publish(Some(&report), None, None, mode);
+        drop(interrupt);
+        return finish(&report, None, None, yes, mode);
     }
     if interrupt.is_interrupted() {
         return publish(
@@ -107,7 +109,30 @@ pub fn execute(
             130,
         ));
     }
-    publish(Some(&report), skills, failure, mode)
+    drop(interrupt);
+    finish(&report, skills, failure, yes, mode)
+}
+
+fn finish(
+    report: &UpgradeReport,
+    skills: Option<Value>,
+    failure: Option<Failure>,
+    yes: bool,
+    mode: OutputMode,
+) -> io::Result<u8> {
+    let extensions = if failure.is_none() {
+        match native_install::inspect(&report.installation.active_executable) {
+            Ok(current) => {
+                crate::extension_install_command::upgrade_installed(current.prefix(), yes, mode)
+            }
+            Err(error) => vec![
+                json!({"product":"extensions","status":"failed","error":{"code":"EXTENSION_INSTALLATION_INVALID","message":error.to_string()}}),
+            ],
+        }
+    } else {
+        Vec::new()
+    };
+    publish_products(Some(report), skills, failure, extensions, mode)
 }
 
 fn refresh(
@@ -162,6 +187,16 @@ fn publish(
     failure: Option<Failure>,
     mode: OutputMode,
 ) -> io::Result<u8> {
+    publish_products(report, skills, failure, Vec::new(), mode)
+}
+
+fn publish_products(
+    report: Option<&UpgradeReport>,
+    skills: Option<Value>,
+    failure: Option<Failure>,
+    extensions: Vec<Value>,
+    mode: OutputMode,
+) -> io::Result<u8> {
     let mut document = report.map_or_else(|| json!({"changed": false}), |report| json!({
         "executable": report.installation.executable, "version": report.installation.version,
         "changed": report.installation.changed, "channel": report.state.channel.as_str(),
@@ -175,6 +210,9 @@ fn publish(
     if let Some(failure) = &failure {
         document["error"] = failure.document()["error"].clone();
     }
+    let products = product_rows(report, failure.as_ref(), extensions);
+    let extension_failed = products.iter().skip(1).any(|p| p["status"] == "failed");
+    document["products"] = json!(products);
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
     if mode.json {
@@ -225,6 +263,39 @@ fn publish(
                 }
             }
         }
+        for product in products.iter().skip(1) {
+            if let Some(message) = product["message"].as_str() {
+                writeln!(stdout, "{message}")?;
+            } else {
+                writeln!(
+                    stdout,
+                    "{}: {}{}",
+                    product["product"].as_str().unwrap_or("extension"),
+                    product["status"].as_str().unwrap_or("failed"),
+                    product["version"]
+                        .as_str()
+                        .map(|v| format!(" ({v})"))
+                        .unwrap_or_default()
+                )?;
+            }
+            if product["message"].is_null()
+                && let Some(hint) = product["hint"].as_str()
+            {
+                tmt_cli_style::message::hint(&mut stdout, terminal, hint)?;
+            }
+            if product["status"] == "failed" {
+                writeln!(
+                    stdout,
+                    "{}: {}",
+                    product["error"]["code"]
+                        .as_str()
+                        .unwrap_or("EXTENSION_UPGRADE_FAILED"),
+                    product["error"]["message"]
+                        .as_str()
+                        .unwrap_or("Extension update failed")
+                )?;
+            }
+        }
         if let Some(warning) = warning {
             drop(stdout);
             let mut stderr = tmt_cli_style::stream::stderr();
@@ -235,7 +306,24 @@ fn publish(
             failure.publish(mode)?;
         }
     }
-    Ok(failure.map_or(0, |failure| failure.status))
+    Ok(failure.map_or(u8::from(extension_failed), |failure| failure.status))
+}
+
+fn product_rows(
+    report: Option<&UpgradeReport>,
+    failure: Option<&Failure>,
+    extensions: Vec<Value>,
+) -> Vec<Value> {
+    let mut products = vec![json!({
+        "product":"cli",
+        "status": if failure.is_some() {"failed"}
+            else if report.is_some_and(|r|r.skipped_pinned) {"skippedPinned"}
+            else if report.is_some_and(|r|r.installation.changed) {"changed"} else {"unchanged"},
+        "version": report.map(|r| &r.installation.version),
+        "error": failure.map(|f| f.document()["error"].clone()),
+    })];
+    products.extend(extensions);
+    products
 }
 
 fn path_warning(executable: &Path) -> Option<String> {

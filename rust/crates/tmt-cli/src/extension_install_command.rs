@@ -4,6 +4,8 @@
 
 mod install;
 mod list_upgrade;
+mod upgrade_all;
+pub(crate) use upgrade_all::upgrade_installed;
 mod repair;
 mod skills;
 

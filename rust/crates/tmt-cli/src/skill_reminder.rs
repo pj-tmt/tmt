@@ -166,6 +166,7 @@ mod tests {
                 channel: None,
                 exact: None,
                 unpin: false,
+                yes: false,
             },
             Invocation::NativeRefreshSkills,
             Invocation::NativeInstall {
