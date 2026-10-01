@@ -106,4 +106,6 @@ gates, the markers and the procedures; this section owns who may publish what.
 - After it publishes, the pipeline reads the release back (public, immutable, the policy's
   flags, the tag on the release commit, GitHub's attestation for the release and every asset).
   A failed check opens an issue and fails the run; nothing is rolled back, and a repair is a new
-  reviewed version.
+  reviewed version. A read-only smoke then installs the published release through the public
+  installer (and `tmt upgrade` for the CLI) in an isolated environment on the four hosts, and a
+  failure there is reported on the same issue.

@@ -102,6 +102,7 @@ fn entry(
             },
             pane_id: "%1".into(),
             pane_pid: 2,
+            pane_incarnation: None,
             session: BindingSessionState {
                 last_transition: Some(SessionTransition::Started),
                 state: RuntimeState::Running,

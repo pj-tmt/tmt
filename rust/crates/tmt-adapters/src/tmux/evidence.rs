@@ -127,6 +127,8 @@ pub(super) fn parse_snapshot(
             cwd: text(fields[6]),
             command: fields[7].into(),
             pane_pid,
+            // Read paths don't observe it: a binding records it when made.
+            pane_incarnation: None,
             suggested_name: suggested_name(fields[7]),
             marker: metadata::marker(&metadata::decode(&raw_metadata)),
         };
