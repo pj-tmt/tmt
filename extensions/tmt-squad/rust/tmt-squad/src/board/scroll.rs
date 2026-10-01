@@ -4,13 +4,7 @@
 //! keeps a scroll position of its own.
 
 use crate::config::Pane;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Modifier, Style},
-    text::Line,
-    widgets::Paragraph,
-};
+use ratatui::{Frame, layout::Rect, style::Style, text::Line, widgets::Paragraph};
 use std::{cell::RefCell, collections::BTreeMap};
 
 /// Lines one wheel notch moves.
@@ -167,11 +161,7 @@ impl Scrolls {
                 ..area
             };
             frame.render_widget(
-                Paragraph::new(Line::styled(
-                    parts.join("  "),
-                    dim.add_modifier(Modifier::DIM),
-                ))
-                .right_aligned(),
+                Paragraph::new(Line::styled(parts.join("  "), dim)).right_aligned(),
                 indicator,
             );
         }
