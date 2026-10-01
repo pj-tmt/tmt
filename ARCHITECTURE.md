@@ -36,7 +36,9 @@ their declared dependencies, never root-hoisted tooling packages; Office browser
 specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
-and the Office skill sources live under `extensions/tmt-office/`. The Nx task graph orders only the Office SPA producer, embedded
+and the Office skill sources live under `extensions/tmt-office/`; the proposed
+colab contract lives under `extensions/tmt-colab/contracts/` (see the
+[colab boundary](#colab-extension-proposal)). The Nx task graph orders only the Office SPA producer, embedded
 native companion and installed-browser acceptance chain; ordinary CLI targets
 remain independent. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
@@ -2096,6 +2098,21 @@ owns limits, version qualification and receipt semantics. These modules are
 unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
 integration must be proven before user-facing activation in the later #719 slices.
 
+`drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),
+using the existing nonblocking file lock for compare/write/remove. It stores
+exact launch/process/thread coordinates but no capability material and owns no
+binding transaction. The launcher must validate new-launch authority before
+calling it; record-level takeover and withdrawal remain generation/incarnation
+scoped. The same contract owns this persistence definition and its still-pending
+launcher/crash-cleanup integration. This adds no user-facing registration.
+
+`drivers/codex/server` and `attachment` add unregistered endpoint/foreground
+planning (#738). A launch-owned process group and private capability share one
+cleanup owner; process cleanup precedes inode-checked file removal. Attachment
+planning resolves cwd once and names an exact thread. The channel contract owns
+the startup, credential and failure limits; real continuity and launcher crash
+recovery remain final consumer acceptance gates.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent
@@ -2480,8 +2497,23 @@ resolution: a column's numeric `color` thresholds (`rows::Threshold`, validated
 theme tokens, strictly increasing) over the bound number or the field read as a
 number, else a field provider's token, which `provider::apply` keeps only when
 it names a theme token. The row carries the result as `colors` (`{field: token}`,
-omitted when empty); the board styles those cells through the theme, `state`
-keeps its state colors, and `ls` text stays uncolored. Field providers
+omitted when empty). `config::States` owns state color and rank resolution:
+exact entries (including layout presets) win entirely, else the first ordered
+`[[squad.<name>.state_patterns]]` glob, else no color and the default rank.
+Explicit sorts precede preset sorts at the same number; unspecified pattern
+sort ranks after ranked states. The compiler validates theme tokens, sort
+0-999, booleans, unknown settings, and caps of 64 patterns and 256 UTF-8 bytes
+per nonempty match with indexed config errors. Its bitset NFA consumes Unicode
+scalars with fixed-size transitions, no backtracking or dependency: `*` any
+run, `?` one scalar, other characters literal; optional case-insensitive
+matching compares each scalar's lowercase form. `status::document` alone
+publishes the resolved state token as `colors.state`, ignoring state thresholds
+and provider colors. Other color keys still come from thresholds or providers.
+The board consumes these tokens rather than keeping a second state-color map;
+aggregate lead rows retain their original squad's resolved token. `ls` text
+stays uncolored and shares state sorting (including section sort keys) with the
+board. State text and attention classification are independent of decoration.
+Field providers
 (`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
 member through `runner` with the run-binding argument rule
 (`Template::fill_argument`: one argument per template, no shell, a value that
@@ -2924,3 +2956,46 @@ quality job: the independent Python oracle must pass before the workspace-pinned
 Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
 runtime authority or browser-shell wiring; the proposed contract remains the wire
 and authority definition owner.
+
+## Colab extension proposal
+
+**Status: proposed, not implemented.** The local-build-only pilot lives under
+`extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
+owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
+bridge policy and acceptance gates. The #828 design owns product/UI choices;
+#829/#830 are bounded spike evidence. This documentation adds no registered
+executable, workspace package, listener, deployment or release.
+
+Proposed Rust dependencies are `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
+and `tmt-cli-style`, plus reviewed workspace pins. The model owns pure values,
+canonical bytes/codecs/crypto and policy, without I/O or core access. The
+executable owns CLI composition, foreground door, embedded app, SQLite/files,
+keyring and bridge. Core access is only through the absolute invoking
+`$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
+`tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
+or pane scraping. Shared crypto extraction requires actual consumers and review.
+
+Proposed extension-relative browser packages are `typescript/colab-client`
+(client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
+(trusted React/Vite chrome and renderer); backend packages are separate. They
+join the existing pnpm workspace/lockfile and pins when implemented. Shared
+workspace/component edits follow the two-lead rule; architecture guard and
+runtime CI-scope registration land with first code. The component map gives the
+contract directory private file ownership (`release: false`) and excludes it from
+CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
+
+All extension state stays in `<core-reported data root>/colab/`, with 0700
+directories and 0600 files, separate from core SQLite and provider configuration.
+The extension owns its ciphertext database/blobs, keyring, machine grants and
+bridge ledger. The colab-v1 edge model deliberately replaces #478 signed-edge
+admission with ciphertext Auth/Rules or server-session admission; it does not
+inherit Remote transport authority. The contract owns client authority and
+before-effect verification; the public core API retains dispatch/final ownership.
+
+Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
+`tmt-colab` child through `tmt-invoke` (deadline/caps/confirmed cleanup), or a
+budgeted browser Worker terminated on overrun, as defined by the contract.
+That boundary contains decoder failure, without claiming an OS/key sandbox.
+Local acceptance precedes Firestore then Cloudflare; protocol, renderer and
+containment details/gates live only in the linked contract. DEVELOPMENT usage
+commands land in L2/L3, when the executable exists.

@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     attention::Attention,
-    config::{Board, BoardMode, Config, Direction, Layout, NotesRender, Pane},
+    config::{Board, BoardMode, Config, Direction, NotesRender, Pane},
     core::Core,
     provider::{self, Provider},
     requests,
@@ -479,7 +479,6 @@ fn squad_view(
     let view = View {
         derived: Default::default(),
         rows,
-        colors: states.colors,
         render: config.notes_render(&squad.name)?,
         bindings: config.bindings(tmux)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
@@ -521,7 +520,6 @@ fn leads_view(
     let view = View {
         derived: Default::default(),
         rows: crate::rows::Rows::leads(),
-        colors: config.states(LEADS, Layout::Crew)?.colors,
         render: NotesRender::Markdown,
         bindings,
         section_bindings: Vec::new(),
@@ -575,7 +573,6 @@ fn all_view(
     let view = View {
         derived: Default::default(),
         rows: crate::rows::Rows::overview(),
-        colors: BTreeMap::new(),
         render: NotesRender::Markdown,
         bindings,
         section_bindings: Vec::new(),
@@ -953,14 +950,14 @@ mod tests {
             (
                 "infra".to_owned(),
                 squad(Some(
-                    json!({"id": "R", "name": "rin", "state": "blocked", "fields": {}}),
+                    json!({"id": "R", "name": "rin", "state": "blocked", "fields": {}, "colors": {"state": "red"}}),
                 )),
             ),
             ("quiet".to_owned(), squad(None)),
             (
                 "product".to_owned(),
                 squad(Some(
-                    json!({"id": "S", "name": "sol", "pending": "approve", "fields": {}}),
+                    json!({"id": "S", "name": "sol", "pending": "approve", "fields": {}, "colors": {"state": "review"}}),
                 )),
             ),
             (
@@ -987,6 +984,9 @@ mod tests {
             [("product", "sol"), ("infra", "rin"), ("hidden", "sol")]
         );
         assert_eq!(rows[0]["fields"]["squad"], "product", "the squad column");
+        assert_eq!(rows[0]["colors"]["state"], "review");
+        assert_eq!(rows[1]["colors"]["state"], "red");
+        assert!(rows[2].get("colors").is_none());
 
         let attention = tab_attention(&documents);
         assert_eq!(
