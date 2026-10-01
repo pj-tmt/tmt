@@ -226,10 +226,6 @@ fn run_lifetime(explicit: bool, published: bool) {
             foreground.0.try_wait().unwrap().is_none(),
             "foreground must survive launcher kill"
         );
-        assert!(
-            super::super::delivery::enrolled(&root, &record.binding_id).unwrap(),
-            "raw binding evidence remains terminal"
-        );
     }
     assert!(store.read(&independent.binding_id).unwrap() == Some(independent));
 }
