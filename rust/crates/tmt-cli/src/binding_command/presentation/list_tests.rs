@@ -31,6 +31,7 @@ fn pane(id: &str, command: &str, cwd: &str) -> PaneObservation {
         cwd: Some(cwd.into()),
         command: command.into(),
         pane_pid: 10,
+        pane_incarnation: None,
         suggested_name: None,
         marker: None,
     }
@@ -50,6 +51,7 @@ fn binding(state: RuntimeState, session: Option<&str>) -> Binding {
         },
         pane_id: "%1".into(),
         pane_pid: 10,
+        pane_incarnation: None,
         session: BindingSessionState {
             last_transition: None,
             state,

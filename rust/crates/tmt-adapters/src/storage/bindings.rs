@@ -3,7 +3,7 @@
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use tmt_core::{
     binding::{Binding, BindingEntry, BindingRecords, BindingRepository},
-    endpoint::{PaneObservation, ServerEvidence, valid_process_id},
+    endpoint::{PaneObservation, ProcessIncarnation, ServerEvidence, valid_process_id},
     host::HostKind,
     identity::{Identity, IdentityReader},
     names::ValidatedName,
@@ -22,7 +22,7 @@ const IDENTITY_COLUMNS: &str =
 const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.socket_path, \
     b.server_pid, b.server_start_time, b.pane_pid, b.runtime_state, b.last_transition, \
     b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id, \
-    b.launch_owner_pid, b.launch_owner_start_identity, b.transport";
+    b.launch_owner_pid, b.launch_owner_start_identity, b.transport, b.pane_incarnation";
 
 pub(super) struct BindingRows<'a>(pub(super) &'a Connection);
 
@@ -55,8 +55,25 @@ fn binding_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Binding> {
         },
         pane_id: row.get(offset + 2)?,
         pane_pid: process_id_at(row, offset + 7)?,
+        pane_incarnation: pane_incarnation_at(row, offset + 16, offset + 7)?,
         session: session::decode_state(row, offset + 8)?,
     })
+}
+
+/// A stored pane incarnation must be one a process observation could have
+/// produced for the stored pid.
+fn pane_incarnation_at(
+    row: &Row<'_>,
+    offset: usize,
+    pid_offset: usize,
+) -> rusqlite::Result<Option<String>> {
+    row.get::<_, Option<String>>(offset)?
+        .map(|start| {
+            ProcessIncarnation::new(process_id_at(row, pid_offset)?, &start)
+                .map(|_| start)
+                .map_err(|_| rusqlite::Error::InvalidQuery)
+        })
+        .transpose()
 }
 
 fn entry_row(row: &Row<'_>) -> rusqlite::Result<BindingEntry> {
@@ -175,14 +192,15 @@ impl BindingRecords for BindingRows<'_> {
             .query_row(
                 "INSERT INTO bindings (
                     id, identity_id, transport, pane_id, server_id, socket_path,
-                    server_pid, server_start_time, pane_pid, bound_at, last_verified_at
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    server_pid, server_start_time, pane_pid, pane_incarnation, bound_at,
+                    last_verified_at
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                  RETURNING id, identity_id, pane_id, server_id, socket_path,
                     server_pid, server_start_time, pane_pid, runtime_state, last_transition,
                     runtime_pid, runtime_start_identity, observed_provider_session_id,
-                    launch_owner_pid, launch_owner_start_identity, transport",
+                    launch_owner_pid, launch_owner_start_identity, transport, pane_incarnation",
                 params![
                     id,
                     identity.id,
@@ -193,6 +211,7 @@ impl BindingRecords for BindingRows<'_> {
                     server_pid,
                     server.server_start_time,
                     pane_pid,
+                    pane.pane_incarnation,
                 ],
                 |row| binding_row(row, 0),
             )

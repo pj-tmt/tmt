@@ -9,6 +9,7 @@ const read = (relative: string) => readFileSync(path.join(repository, relative),
 
 const run = read('.github/workflows/native-release.yml');
 const bundle = read('.github/workflows/native-release-bundle.yml');
+const smokeWorkflow = read('.github/workflows/native-release-smoke.yml');
 
 /** Jobs as raw text, keyed by name; a workflow lists them at two spaces under `jobs:`. */
 function jobs(workflow: string): Map<string, string> {
@@ -154,13 +155,13 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
 describe('release workflow (release.yml)', () => {
   const release = read('.github/workflows/release.yml');
 
-  it('starts on a push to main that changes more than prose, and on a manual dry run by default', () => {
+  it('starts on every push to main, prose included, and on a manual dry run by default', () => {
+    // A documentation merge moves main under the open release pull requests too, so no path is
+    // ignored: the run refreshes them.
     expect(release).toMatch(
-      /^on:\n {2}push:\n {4}branches:\n {6}- main\n(?: {4}#[^\n]*\n)* {4}paths-ignore:/m
+      /^on:\n {2}push:\n {4}branches:\n {6}- main\n(?: {4}#[^\n]*\n)* {2}workflow_dispatch:\n/m
     );
-    for (const ignored of ["'**/*.md'", 'docs/**', '.agents/**']) {
-      expect(release).toContain(`      - ${ignored}`);
-    }
+    expect(release).not.toMatch(/paths-ignore|paths:/);
     expect(release).toMatch(
       /workflow_dispatch:\n {4}inputs:\n {6}dry_run:\n(?: {8}[^\n]*\n)*? {8}default: true\n {8}type: boolean/
     );
@@ -463,6 +464,7 @@ describe('publication gates (native-release-bundle.yml)', () => {
       ['finish', finish],
       ['publish', job(bundle, 'publish')],
       ['published', job(bundle, 'published')],
+      ['smoke', job(bundle, 'smoke')],
     ]) {
       expect(text, name).toContain('!cancelled()');
     }
@@ -511,6 +513,70 @@ describe('publication (native-release-bundle.yml)', () => {
     expect(published).toContain(
       '--run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"'
     );
+  });
+});
+
+describe('public install smoke (native-release-smoke.yml)', () => {
+  const smoke = job(smokeWorkflow, 'smoke');
+  const report = job(smokeWorkflow, 'report');
+  const upgrade = read('.github/workflows/native-release-upgrade.yml');
+  const targets = (workflow: string) =>
+    [...workflow.matchAll(/- target: (\S+)\n\s+runner: (\S+)/g)].map(([, target, runner]) => [
+      target,
+      runner,
+    ]);
+
+  it('is called after the published release was checked, and can be run by hand for a published tag', () => {
+    const caller = job(bundle, 'smoke');
+    expect(caller).toContain('needs: published');
+    expect(caller).toContain("if: ${{ !cancelled() && needs.published.result == 'success' }}");
+    expect(caller).toContain('uses: ./.github/workflows/native-release-smoke.yml');
+    expect(caller).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}issues: write\n/m);
+    expect(smokeWorkflow).toMatch(
+      /^on:\n {2}workflow_call:\n {4}inputs:\n(?: {4,}[^\n]*\n)+ {2}workflow_dispatch:\n {4}inputs:\n/m
+    );
+    for (const input of ['product', 'tag']) {
+      expect(smokeWorkflow.match(new RegExp(`^ {6}${input}:$`, 'gm')), input).toHaveLength(2);
+    }
+    expect(smokeWorkflow).toMatch(
+      /type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/
+    );
+  });
+
+  it('installs on the same four hosts as the upgrade proof', () => {
+    expect(targets(smokeWorkflow)).toHaveLength(4);
+    expect(targets(smokeWorkflow)).toEqual(targets(upgrade));
+  });
+
+  it('only reads: the install legs have no write access and no token in their step environment', () => {
+    expect(smokeWorkflow).toMatch(/^permissions:\n {2}contents: read$/m);
+    expect(smoke).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
+    expect(smoke).not.toMatch(/issues: write|contents: write|GH_TOKEN|GITHUB_TOKEN|secrets\./);
+    expect(smokeWorkflow).not.toMatch(
+      /gh release (create|edit|upload|delete)|draft=false|--method|gh workflow run|actions: write/
+    );
+    // The tag is checked out as data beside this repository's own code, and nothing of it runs.
+    expect(smoke.match(/uses: actions\/checkout@v4/g)).toHaveLength(2);
+    expect(smoke).toContain('ref: ${{ inputs.tag }}\n          path: release-source');
+    expect(smoke.match(/persist-credentials: false/g)).toHaveLength(2);
+    expect(smoke).toContain('node typescript/scripts/verify-public-install.mjs');
+    expect(smoke).toContain('--source release-source');
+    expect(smoke).not.toMatch(/release-source\/(typescript|scripts)/);
+  });
+
+  it('keeps what failed as data and reports it with the only write access, in a job of its own', () => {
+    expect(smoke).toMatch(
+      /if: failure\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: smoke-failures-\$\{\{ matrix\.target \}\}/
+    );
+    expect(report).toContain('needs: smoke');
+    expect(report).toContain("if: ${{ !cancelled() && needs.smoke.result == 'failure' }}");
+    expect(report).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}issues: write\n/m);
+    expect(report).toContain('pattern: smoke-failures-*');
+    expect(report).toContain(
+      'release-publish.mjs report --product "$PRODUCT" --tag "$RELEASE_TAG"'
+    );
+    expect(report).not.toMatch(/^ {10}ref:/m);
+    expect(smokeWorkflow.match(/^ {6}issues: write$/gm)).toHaveLength(1);
   });
 });
 

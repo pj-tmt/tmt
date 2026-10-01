@@ -45,6 +45,10 @@ pub trait HostDriver {
     /// Runtime liveness in a verified binding's pane.
     fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, CommandError>;
 
+    /// The start token of a pane shell, from core's own process inspection,
+    /// recorded when a binding is made.
+    fn pane_incarnation(&mut self, pane_pid: u64) -> Result<Option<String>, HostError>;
+
     /// Whether the host can paste into a pane. Without it a send is
     /// `Unsupported` before any evidence is read, and core uses the inbox.
     fn has_input(&self) -> bool;
@@ -212,6 +216,10 @@ impl HostDriver for Unavailable {
 
     fn observed_runtime(&self, _: &Binding) -> Result<RuntimeState, CommandError> {
         Ok(RuntimeState::Unknown)
+    }
+
+    fn pane_incarnation(&mut self, _: u64) -> Result<Option<String>, HostError> {
+        Ok(None)
     }
 
     fn has_input(&self) -> bool {
