@@ -1,6 +1,6 @@
 //! Foreground launch and exact-resume command grammar.
 
-use crate::grammar::{base, operand, option};
+use crate::grammar::{base, internal, operand, option};
 use clap::{Arg, ArgAction, Command};
 
 pub(in crate::grammar) fn run() -> Command {
@@ -21,6 +21,13 @@ pub(in crate::grammar) fn run() -> Command {
             .help("Resume the remembered session; put this option before the name"),
     )
     .arg(
+        Arg::new("channel")
+            .long("channel")
+            .action(ArgAction::SetTrue)
+            .conflicts_with("resume")
+            .help("Deliver talk through the agent's message channel instead of paste (supported agents only); put this option before the name"),
+    )
+    .arg(
         Arg::new("run-argv")
             .value_name("NAME [COMMAND...]")
             .required(true)
@@ -28,6 +35,19 @@ pub(in crate::grammar) fn run() -> Command {
             .trailing_var_arg(true)
             .value_parser(clap::builder::OsStringValueParser::new()),
     )
+}
+
+/// The stdio server a provider starts for a `--channel` launch.
+pub(in crate::grammar) fn channel_server() -> Command {
+    internal(
+        "__channel-server",
+        "Internal provider message-channel server",
+    )
+    .hide(true)
+    .arg(operand("harness", true))
+    .arg(operand("binding-id", true))
+    .arg(operand("generation", true))
+    .arg(operand("directory", true))
 }
 
 pub(in crate::grammar) fn resume() -> Command {
