@@ -8,21 +8,12 @@ lifecycle is owned by the request service and
 
 ## Status
 
-Tracking: #329, delivered as four stacked changes (#712 to #715).
-
-- **Shipped:** the outcome vocabulary and reporting (below), the `RuntimeChannel`
-  lease port with its registry slot, and the Claude send classification
-  (`ClaudeRuntime::send`, "Delivery mapping").
-- **Shipped (#714):** the Claude channel provider (`ClaudeChannel`: preflight, the
-  enrollment lease, the stdio server and the directory-lock serialization) and its
-  registration. No CLI entry point calls `enroll` or `serve` yet, so no enrollment
-  is reachable.
-- **Not shipped yet:** `tmt run --channel` and the hidden `__channel-server`
-  command, notification and raw-pane routing and the E2E scenarios (#715).
-
-Every section other than Status and the two shipped items describes the target
-contract of the unshipped changes, not current behavior. Each change updates this
-status in the same pull request.
+Tracking: #329, delivered as four stacked changes (#712 to #715). With the last
+one every section below describes shipped behavior: the outcome vocabulary and
+reporting, the `RuntimeChannel` lease port, the Claude send classification, the
+Claude enrollment and stdio server, `tmt run --channel` with the hidden
+`__channel-server` command, every delivery route, the baseline-paste evidence
+check and the E2E scenarios.
 
 ## Evidence base
 
@@ -66,23 +57,45 @@ processing.
   directory, atomic 0600 replacement) with a fresh per-launch generation, the
   launch owner (PID and start identity) and no Claude process yet. That is the
   state "opted in, channel not ready". A session with no record never opted in.
-- A launch without `--channel` touches no channel state, and no launcher ever
-  removes another launch's enrollment.
+- A launch without `--channel` touches no channel state, and no launcher removes
+  another launch's enrollment, except that `enroll` prunes ended launches (see
+  "Enrollment ownership and serialization").
 - Non-enrolled sessions, other drivers and every other launch keep their current
   behavior, including tmux paste.
 
 ## Supported provider range
 
-Claude Code **2.1.285** only. A launch probes the command's `--version` (bounded
-process owner, 5 s, 4 KiB) and refuses any other version. Widening the range
-needs recorded evidence for the new version and a reviewed change to
-`drivers::claude::channel::SUPPORTED_VERSIONS`. Drift is detected by contract
-tests over the frozen constants and by the opt-in developer check
+Claude Code **2.1.285 or newer within the 2.x line**. A launch probes the command's
+`--version` (bounded process owner, 5 s, 4 KiB). The whole line must be
+`<major>.<minor>.<patch> (Claude Code)` with canonical decimal numbers; it is
+accepted when the major is 2 and the build is at least 2.1.285, and refused before
+any spawn otherwise (older builds, another major line, a pre-release suffix or any
+text that is not a version line).
+
+Whether a newer build really speaks the channel is decided by the handshake, not by
+a list: a build the channel was never exercised on launches with an advisory on
+stderr that names it (`Claude Code <version> has not been tested with message
+channels (tested: <list>)…`), and if its handshake does not complete the session
+stays `not_ready`, which is terminal and never pasted to ("Delivery mapping").
+Builds on which the channel was exercised against the real provider are recorded in
+`drivers::claude::channel::TESTED_VERSIONS`:
+
+| Build | Evidence |
+| --- | --- |
+| 2.1.285 | the #329 spike (live session, `notifications/claude/channel` reaches an idle or mid-tool session) |
+
+Lowering the minimum or accepting another major line needs recorded evidence and a
+reviewed change to `drivers::claude::channel::MINIMUM_VERSION`. Drift is detected by
+contract tests over the frozen constants and the range rule and by the opt-in
+developer check
 `cargo run --locked -p tmt-adapters --example channel-contract -- /absolute/claude`,
-which runs only `--version` and `--help` and fails when the version leaves the
-range or `--help` no longer documents `--mcp-config`. Claude 2.1.285 does not
-list `--dangerously-load-development-channels` in `--help`, so that preview flag
-is covered only by the exact-version pin and the spike evidence. It is separate
+which runs only `--version` and `--help`, fails when the version is outside the
+range or `--help` no longer documents `--mcp-config`, and says when the build is
+accepted but untested. Claude 2.1.285 does not list
+`--dangerously-load-development-channels` in `--help`, so that preview flag is
+covered only by the spike evidence and the handshake. The check passes against the
+installed 2.1.286 (`--version` and `--help` only); no recorded session proof exists
+for it yet, so it is accepted but not in `TESTED_VERSIONS`. This range is separate
 from `runtime-contract`, whose resume pin is a different provider version.
 
 ## Channel endpoint and enrollment record
@@ -95,7 +108,12 @@ a channel tool. It cannot create an enrollment: it refuses to start unless the
 launch's record exists with its own generation and no Claude process yet.
 
 The record is
-`{"version":1,"bindingId","generation","launchOwner":{"pid","start"},"claude":null|{"pid","start"}}`.
+`{"version":1,"bindingId","generation","launchOwner":{"pid","start"},"claude":null|{"pid","start"}}`
+in `<global>/channels/<binding-id>.json`. That file name, `<binding-id>.sock` and
+`.lock` are this driver's namespace in the shared channel directory; another
+driver keeps its own files under different names or its own subdirectory, and
+neither driver opens the other's files (a record that is not this driver's is never
+parsed as one).
 After Claude completes the MCP handshake (`notifications/initialized`) the server
 observes its parent (Claude), rewrites the record with that process in `claude`
 and only then accepts frames; this is "ready". Frames before that are refused
@@ -130,10 +148,15 @@ every mutation of the record or the socket, so no check-then-change race exists:
 | Server publishes readiness (`claude`) | the record still carries the server's generation and the launch owner it adopted |
 | Server removes its socket on exit | the record still carries the server's generation and the launch owner it adopted |
 | Lease `withdraw` removes the record and socket | the record carries exactly the lease's generation and launch owner; otherwise it removes nothing |
+| `enroll` prunes other launches | the other record names a valid Claude, and both its launch owner and that Claude are absent from one process snapshot, so the launch is over in every recorded respect; a record that never named Claude, has a live or unobservable process, is unreadable or is not this driver's is left alone, at most 64 records are examined, and a snapshot that cannot be taken prunes nothing |
 
 A launcher never removes a record because its owner is gone; a stale launcher has
 no authority over a replacement enrollment. Stale takeover happens only in `enroll`
-and in the server's bind. The lock file is never removed (replacing its inode would
+(replacing the same binding's record, and the prune above) and in the server's
+bind. Records are therefore removed on every normal path (`withdraw` on exit, spawn
+failure, interruption and early return) and replaced by the next enrollment of the
+same binding; only a launch that crashed leaves one behind, and the next
+enrollment of any binding removes it once both its processes are gone. The lock file is never removed (replacing its inode would
 split lock domains), and a lock that cannot be taken within 2 s fails the
 operation closed. A socket path therefore belongs to the generation in the
 record or is a leftover that only the next validated bind replaces. `send` is
@@ -196,12 +219,40 @@ share `delivery::send`, which prefers the driver and falls back only after
   regardless.
 - `talk` to a raw pane address. The pane's current binding is resolved through
   the existing `target::resolve`; when it names an identity the send goes through
-  `delivery::send` for that identity, after re-verifying that the stored binding
-  still names that pane. No bound identity is not proof that the pane never opted
-  in (a non-active binding resolves to none as well): existing channel evidence for
-  the pane blocks the baseline paste, and ambiguous or unverifiable ownership or
-  enrollment fails terminally. Only a pane with no channel evidence keeps today's
-  paste.
+  `delivery::send` for that identity. When it names none, `talk` pastes directly,
+  behind the baseline-paste check below.
+
+### The baseline-paste check
+
+"No binding" is not proof that a pane never opted in: observation deletes the
+binding of a pane that lost its marker (`tmt ls`, `whoami`, a name talk and every
+other reconciling command do), and naming the pane again creates a new binding with
+no record under its own ID. So evidence that survives those is read at the paste
+itself, from the drivers' own records and the pane's live processes, never from the
+stored binding. The same check runs at both places that can paste, immediately
+before the paste: the fallback of `delivery::send` (every identity-based route,
+including notifications and dispatch, however the identity was resolved) and the
+direct paste of a raw pane with no identity.
+
+`RuntimeChannel::enrolled_in_pane(directory, pane_pid, deadline)` answers whether
+an enrollment on record belongs to a launch that is live under the pane process,
+asked of every registered channel. For Claude a record matches when its launch
+owner (the `tmt run` process recorded before spawn) or its Claude process is in the
+pane's process tree and is exactly the recorded incarnation (pid and start
+identity). A match, or evidence that cannot be told (an unreadable record, one that
+names another binding, a process that cannot be observed, a process chain that
+loops or is deeper than 64, running out of the one 3 s deadline), is terminal: the
+paste does not happen and `talk` fails with `DELIVERY_PREPARATION_FAILED` and a
+message that names the record or directory and says that records of sessions that
+are gone can be deleted or the session relaunched. A record whose launch has ended
+or is not under the pane is not evidence about it, so a pane whose opted-in launch
+ended (even by a crash that left its record) is an ordinary pane again, and a new
+plain launch there keeps the baseline paste.
+
+Cost: with no record in the channel directory (a user who never opted in) the check
+is one directory read. With records it adds one `ps -A -o pid=,ppid=` snapshot per
+check plus one `ps -p <pid> -o lstart=` observation for each candidate process under
+the pane; there is no record-count cap, the single deadline bounds the whole check.
 
 ## Talk behavior
 

@@ -7,12 +7,15 @@
 //
 // Environment (all set by the scenario):
 //   MOCK_CHANNEL_LOG       JSON-lines event log (required)
+//   MOCK_VERSION           the `--version` line (default `2.1.285 (Claude Code)`)
 //   MOCK_HANDSHAKE         complete (default) | delay | never
 //   MOCK_HANDSHAKE_DELAY_MS  for `delay`
 //   MOCK_AUTOREPLY=1       answer a channel request with `tmt reply`
 //   MOCK_RESULT_ON_HINT=1  on a reply hint, read the durable response row at that
 //                          moment (read-only SQL on MOCK_DB, no TMT command)
-//   MOCK_DB                the TMT database, for MOCK_RESULT_ON_HINT
+//   MOCK_REQUEST_ON_WAKE=1 on a request wake, read the durable request row at that
+//                          moment (read-only SQL on MOCK_DB, no TMT command)
+//   MOCK_DB                the TMT database, for MOCK_RESULT_ON_HINT and MOCK_REQUEST_ON_WAKE
 // Control files next to the log: `<log>.kill-server` kills the channel server
 // (a crash while the session lives), `<log>.quit` ends the mock cleanly.
 
@@ -23,8 +26,9 @@ import readline from 'node:readline';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 
 const args = process.argv.slice(2);
+const version = process.env.MOCK_VERSION ?? '2.1.285 (Claude Code)';
 if (args.includes('--version')) {
-  process.stdout.write('2.1.285 (Claude Code)\n');
+  process.stdout.write(`${version}\n`);
   process.exit(0);
 }
 
@@ -85,6 +89,23 @@ if (configIndex >= 0) {
           (error) => log({ event: 'reply', ok: error === null })
         );
       }
+      const wake = /\breq_[0-9a-f-]{36}\b/.exec(content);
+      if (process.env.MOCK_REQUEST_ON_WAKE === '1' && wake) {
+        // A request is committed to the recipient's inbox before it is announced.
+        const database = new Database(process.env.MOCK_DB, { readonly: true });
+        try {
+          const row = database
+            .prepare('SELECT message_text FROM request_attempts WHERE request_id = ?')
+            .get(wake[0]);
+          log({
+            event: 'wake-request',
+            requestId: wake[0],
+            messageText: row?.message_text ?? null,
+          });
+        } finally {
+          database.close();
+        }
+      }
       const hint = /\btmt result (\S+)/.exec(content);
       if (process.env.MOCK_RESULT_ON_HINT === '1' && hint) {
         // The response is committed before the hint is sent, so the row exists by
@@ -108,7 +129,7 @@ if (configIndex >= 0) {
     params: {
       protocolVersion: '2025-11-25',
       capabilities: {},
-      clientInfo: { name: 'claude-code', version: '2.1.285' },
+      clientInfo: { name: 'claude-code', version: version.split(' ')[0] },
     },
   });
 } else {

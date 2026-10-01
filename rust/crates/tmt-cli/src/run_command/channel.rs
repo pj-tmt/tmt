@@ -103,9 +103,12 @@ pub(super) fn verify_claim(storage: &mut Storage, claimed: &Binding) -> Result<(
     }
 }
 
-/// The lease of one launch, held for the child's whole lifetime. Dropping it
-/// withdraws it, so every path out of the launch (spawn failure, early return,
-/// panic) cleans up, and `withdraw` is idempotent.
+/// The lease of one launch, held for the child's whole lifetime. It is retired
+/// only by `never_spawned` (the spawn failed without a child) or `child_reaped`
+/// (the same child's wait returned). Every other path out of the launch (a wait
+/// error, an early return or a panic after the spawn, launcher death) drops it
+/// without retiring anything, so the driver's enrollment stays exactly as it is
+/// while the foreground may still run, and nothing here ever infers an end.
 #[derive(Default)]
 pub(super) struct HeldLease(Option<Box<dyn ChannelEnrollment>>);
 
@@ -129,16 +132,41 @@ impl HeldLease {
         self.0.as_ref().and_then(|lease| lease.provider_session())
     }
 
-    pub(super) fn withdraw(&mut self) {
+    /// The owned child exists. The driver records the exact incarnation observed
+    /// for admission; without one (it could not be observed) or when the driver
+    /// cannot record it, the enrollment stays unconfirmed and the reason is
+    /// returned for the launcher to report. The child is kept either way.
+    pub(super) fn foreground_started(
+        &mut self,
+        foreground: Option<&ProcessIncarnation>,
+    ) -> Option<String> {
+        let lease = self.0.as_mut()?;
+        let Some(foreground) = foreground else {
+            return Some(
+                "could not observe the command's process; its channel enrollment stays unconfirmed."
+                    .into(),
+            );
+        };
+        lease.foreground_started(foreground).err().map(|error| {
+            format!("could not record the command's process in its channel enrollment ({error}); the enrollment stays unconfirmed.")
+        })
+    }
+
+    /// The spawn failed without a child: nothing ever ran, so the enrollment ends.
+    pub(super) fn never_spawned(&mut self) {
+        self.retire();
+    }
+
+    /// The same child was positively reaped (its wait returned): the foreground is
+    /// over, so the enrollment ends.
+    pub(super) fn child_reaped(&mut self) {
+        self.retire();
+    }
+
+    fn retire(&mut self) {
         if let Some(lease) = self.0.take() {
             lease.withdraw();
         }
-    }
-}
-
-impl Drop for HeldLease {
-    fn drop(&mut self) {
-        self.withdraw();
     }
 }
 

@@ -9,10 +9,13 @@ use std::{
     ffi::{OsStr, OsString},
     fmt,
     io::{self, BufRead, Write},
-    path::Path,
+    path::{Path, PathBuf},
     time::Instant,
 };
-use tmt_core::{binding::session::ProviderSessionId, endpoint::ProcessIncarnation};
+use tmt_core::{
+    binding::session::ProviderSessionId,
+    endpoint::{ProcessIncarnation, ServerEvidence},
+};
 
 /// Why a channel could not be established or used. Copy-sized so it can ride in
 /// `RuntimeError` through the runtime driver port.
@@ -32,8 +35,8 @@ pub enum ChannelFault {
     /// The opted-in session's ready channel is absent or refused the connection.
     /// No byte moved, but the session is still opted in, so it is not pasted to.
     Unreachable,
-    /// The pane's session has channel evidence but is not an active identity, so
-    /// nothing can verify whose enrollment it is and nothing may be pasted.
+    /// A session in the pane has channel evidence that no active binding verifiably
+    /// names, so nothing can verify whose enrollment it is and nothing may be pasted.
     Inactive,
     /// The enrollment belongs to a launch that has ended. That alone is not
     /// evidence that the session never opted in: only a different launch that is
@@ -71,7 +74,7 @@ impl ChannelFault {
                 "The session's message-channel enrollment belongs to a launch that has ended. Relaunch the agent with `tmt run` (add `--channel` to use the channel again)."
             }
             Self::Inactive => {
-                "The pane's session opted into a message channel but is not an active identity, so it cannot be verified."
+                "A session in this pane opted into a message channel, but no active binding verifiably names it, so nothing is pasted to it. Relaunch it with `tmt run` (add `--channel` to use the channel again)."
             }
             Self::Refused => "The channel endpoint refused the message.",
             Self::TooLarge => "The message exceeds the channel frame limit.",
@@ -84,6 +87,82 @@ impl fmt::Display for ChannelFault {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.reason())
     }
+}
+
+/// Pane-level evidence that cannot be told, with what a message needs to say what
+/// to look at and how to recover (a fault alone is a static, copy-sized value and
+/// cannot carry a path or a command).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvidenceError {
+    pub fault: ChannelFault,
+    /// The record file or directory at fault.
+    pub path: Option<PathBuf>,
+    /// The driver's own recovery text: what to verify and the exact command.
+    pub detail: Option<String>,
+}
+
+impl EvidenceError {
+    pub fn at(fault: ChannelFault, path: &Path) -> Self {
+        Self {
+            fault,
+            path: Some(path.to_owned()),
+            detail: None,
+        }
+    }
+
+    pub fn with_detail(mut self, detail: String) -> Self {
+        self.detail = Some(detail);
+        self
+    }
+
+    /// The reason as a sentence, with the driver's recovery text or at least the
+    /// file or directory at fault.
+    pub fn message(&self) -> String {
+        let mut text = self.fault.reason().to_owned();
+        match (&self.detail, &self.path) {
+            (Some(detail), _) => {
+                text.push(' ');
+                text.push_str(detail);
+            }
+            (None, Some(path)) => {
+                text.push_str(&format!(" See {}.", path.display()));
+            }
+            (None, None) => {}
+        }
+        text
+    }
+}
+
+impl From<ChannelFault> for EvidenceError {
+    fn from(fault: ChannelFault) -> Self {
+        Self {
+            fault,
+            path: None,
+            detail: None,
+        }
+    }
+}
+
+/// The pane a launch runs in, as the launcher's own binding names it: the server
+/// incarnation, the pane ID on it and the pane's process. A driver persists it in
+/// its enrollment before the foreground starts, so the enrollment can be matched
+/// to this pane later even when the binding is gone.
+#[derive(Debug, Clone, Copy)]
+pub struct PaneAddress<'a> {
+    pub server: &'a ServerEvidence,
+    pub pane_id: &'a str,
+    pub pane_pid: u64,
+}
+
+/// What a driver knows about enrollments attributed to one pane.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PaneEvidence {
+    /// A live or unconfirmed enrollment belongs to this pane: nothing may be pasted.
+    pub enrolled: bool,
+    /// Records that could not be attributed to any pane (unreadable, or written
+    /// without an attribution), skipped rather than blocking unrelated panes; the
+    /// caller reports them by name.
+    pub skipped: Vec<PathBuf>,
 }
 
 /// Failures before a channel launch: reported before any binding or spawn.
@@ -105,6 +184,9 @@ pub enum ChannelError {
     /// An earlier enrollment of this binding belongs to a launch that may still
     /// be running, or whose ownership cannot be verified. It is left untouched.
     Occupied,
+    /// The pane address cannot identify a pane later (an empty ID or a zero pid),
+    /// so an enrollment could not be matched to it. Nothing is launched.
+    Unattributed,
 }
 
 impl fmt::Display for ChannelError {
@@ -127,6 +209,9 @@ impl fmt::Display for ChannelError {
             Self::Occupied => formatter.write_str(
                 "An earlier channel enrollment of this binding may still be in use or cannot be verified.",
             ),
+            Self::Unattributed => formatter.write_str(
+                "The pane this launch runs in cannot be identified, so its channel enrollment could not be recorded.",
+            ),
             Self::UnsupportedArguments(reason) => {
                 write!(
                     formatter,
@@ -141,6 +226,10 @@ impl std::error::Error for ChannelError {}
 /// What the launch needs to enroll one session.
 pub struct ChannelPlan<'a> {
     pub binding_id: &'a str,
+    /// The identity this launch runs as.
+    pub identity_id: &'a str,
+    /// The pane it runs in, persisted by the driver before the foreground starts.
+    pub pane: PaneAddress<'a>,
     /// The `tmt run` process that owns this launch; the enrollment is current
     /// only while it lives and the stored binding names it as launch owner.
     pub owner: &'a ProcessIncarnation,
@@ -187,9 +276,25 @@ pub trait ChannelEnrollment {
         None
     }
 
-    /// End this launch's enrollment on every path (child exit, spawn failure).
-    /// It must remove only what this launch created and never a replacement
-    /// enrollment, even if the launch's own state is already gone.
+    /// The owned foreground child was spawned and observed as this exact
+    /// incarnation. Called at most once by the launcher, from the observation it
+    /// already makes for admission, before admission. An `Err` means the driver
+    /// could not record it: the launcher keeps the child and warns, and the
+    /// enrollment stays unconfirmed. A driver whose enrollment never heard of a
+    /// foreground treats it as unknown, never as ended, and infers an end from
+    /// nothing else (EOF, a dead launcher, its own server exiting).
+    fn foreground_started(&mut self, _foreground: &ProcessIncarnation) -> Result<(), ChannelError> {
+        Ok(())
+    }
+
+    /// Retire this launch's enrollment. The launcher calls it only when no child
+    /// was ever spawned (the spawn failed without one) or the same child was
+    /// confirmed reaped (its wait returned). On any path where the foreground may
+    /// still run (a wait error, a panic, an early return after the spawn, launcher
+    /// death) it drops the lease instead and the driver's record is left exactly as
+    /// it is, so a driver never retires or erases it on its own, in a `Drop` or
+    /// otherwise. It must remove only what this launch created and never a
+    /// replacement enrollment, even if the launch's own state is already gone.
     fn withdraw(self: Box<Self>);
 }
 
@@ -215,6 +320,25 @@ pub trait RuntimeChannel {
     /// is the only answer that lets such a send fall back to the baseline transport,
     /// and an `Err` means it cannot be told.
     fn enrolled(&self, directory: &Path, binding_id: &str) -> Result<bool, ChannelFault>;
+
+    /// Evidence for a pane, independent of any stored binding (observation may
+    /// already have deleted it): whether an enrollment attributed to this exact pane
+    /// (the address its `enroll` persisted) is live, or unconfirmed because the
+    /// foreground was never recorded. Read-only and bounded by `deadline`.
+    /// `enrolled: false` is the only answer that lets the baseline paste through; an
+    /// attributed record whose recorded processes are all gone has ended and does
+    /// not block. Evidence about this pane that cannot be told is an `Err`. A record
+    /// that cannot be attributed to any pane never blocks an unrelated one: it is
+    /// listed in `skipped` instead, unless its file is named for `binding_id`, the
+    /// binding the caller is delivering to, which makes it that binding's own
+    /// invalid evidence and terminal.
+    fn enrolled_in_pane(
+        &self,
+        directory: &Path,
+        pane: &PaneAddress<'_>,
+        binding_id: Option<&str>,
+        deadline: Instant,
+    ) -> Result<PaneEvidence, EvidenceError>;
 
     /// Run the stdio server the provider starts as its own child, until its
     /// input closes. Only a driver whose provider starts one implements it.
@@ -322,6 +446,16 @@ mod tests {
             Ok(false)
         }
 
+        fn enrolled_in_pane(
+            &self,
+            _: &Path,
+            _: &PaneAddress<'_>,
+            _: Option<&str>,
+            _: Instant,
+        ) -> Result<PaneEvidence, EvidenceError> {
+            Ok(PaneEvidence::default())
+        }
+
         fn enroll(
             &self,
             plan: &ChannelPlan<'_>,
@@ -355,12 +489,25 @@ mod tests {
         let withdrawn = Rc::new(Cell::new(0));
         let channel: Box<dyn RuntimeChannel> = Box::new(Planner(Rc::clone(&withdrawn)));
         let owner = ProcessIncarnation::new(1, "owner").unwrap();
+        let server = ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: "server".into(),
+            socket_path: "/tmp/tmux".into(),
+            server_pid: 1,
+            server_start_time: "start".into(),
+        };
         let user = RuntimeCommand {
             executable: "/bin/agent".into(),
             args: vec!["--model".into(), OsString::from_vec(vec![0xff, b'x'])],
         };
         let plan = |command| ChannelPlan {
             binding_id: "binding",
+            identity_id: "identity",
+            pane: PaneAddress {
+                server: &server,
+                pane_id: "%1",
+                pane_pid: 2,
+            },
             owner: &owner,
             command,
             working_directory: Path::new("/work"),

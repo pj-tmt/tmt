@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
+import { requestAttempts } from './request-state-oracle.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
 
@@ -56,9 +57,9 @@ function launcher(fixture: E2EFixture): string {
 function start(
   fixture: E2EFixture,
   name: string,
-  options: { channel: boolean; env?: Record<string, string> }
+  options: { channel: boolean; env?: Record<string, string>; pane?: string }
 ): Session {
-  const pane = fixture.createShellPane(`claude-${name}`).pane;
+  const pane = options.pane ?? fixture.createShellPane(`claude-${name}`).pane;
   const log = path.join(fixture.root, `${name}.log`);
   const status = path.join(fixture.root, `${name}.status`);
   const home = path.join(fixture.root, `home-${name}`);
@@ -212,6 +213,26 @@ function sql<T>(fixture: E2EFixture, run: (database: Database.Database) => T): T
   } finally {
     database.close();
   }
+}
+
+function notificationStates(fixture: E2EFixture, requestId: string) {
+  return sql(
+    fixture,
+    (database) =>
+      database
+        .prepare(
+          'SELECT reply_state, timeout_state FROM request_notifications WHERE request_id = ?'
+        )
+        .get(requestId) as { reply_state: string; timeout_state: string } | undefined
+  );
+}
+
+function replyCommand(content: string, requestId: string): string[] {
+  const match = new RegExp(`tmt reply (${requestId}) --receipt (\\S+) --message <text>`).exec(
+    content
+  );
+  expect(match, `a reply instruction for ${requestId}`).not.toBeNull();
+  return ['reply', match![1], '--receipt', match![2], '--message', 'channel-ok'];
 }
 
 function identityId(fixture: E2EFixture, name: string): string {
@@ -390,14 +411,16 @@ describe.sequential('Claude channel delivery', () => {
     });
   }, 60_000);
 
-  it('an enrollment is authoritative before the launch is admitted or any harness is preferred', async () => {
+  it('an enrollment stays authoritative in a reconstructed pre-admission state (no launch on the binding, no preferred harness)', async () => {
     await withE2EFixture(async (fixture) => {
       const worker = start(fixture, 'Paused', { channel: true });
       await waitForEvent(fixture, worker, 'initialized-sent');
       await waitForReady(fixture, 1);
       await waitForRunning(fixture, worker, 'Paused');
       // `tmt run` binds, enrolls and spawns, and only then records the launch and
-      // the preferred harness. Recreate the window between enroll and admission.
+      // the preferred harness. This is a reconstruction, not a race: the rows of a
+      // running session are reset by SQL to what they hold between enroll and
+      // admission, and the delivery paths are exercised from that state.
       pauseBeforeAdmission(fixture, 'Paused');
       const trace = installTmuxTrace(fixture);
       for (const target of ['Paused', worker.pane]) {
@@ -410,6 +433,174 @@ describe.sequential('Claude channel delivery', () => {
       expect(await quit(worker)).toBe('0');
     });
   }, 60_000);
+
+  it('losing the pane marker never makes the pane of a live opted-in session a paste target', async () => {
+    await withE2EFixture(async (fixture) => {
+      const worker = start(fixture, 'Marked', { channel: true });
+      const plain = start(fixture, 'Bare', { channel: false, env: { MOCK_AUTOREPLY: '0' } });
+      await ready(fixture, worker, 'Marked');
+      await ready(fixture, plain, 'Bare');
+      await waitForReady(fixture, 1);
+      const bindings = (name: string) =>
+        sql(
+          fixture,
+          (database) =>
+            (
+              database
+                .prepare('SELECT COUNT(*) AS count FROM bindings WHERE identity_id = ?')
+                .get(identityId(fixture, name)) as { count: number }
+            ).count
+        );
+      const trace = installTmuxTrace(fixture);
+      fixture.tmux(['set-option', '-p', '-u', '-t', worker.pane, '@tmux-team.agent']);
+      // Observation of a pane that lost its marker deletes its binding, and with it
+      // the only database link from the pane to its enrollment. Commands that
+      // reconcile come first, as they do in practice; the evidence that keeps the
+      // pane from being pasted to is the enrollment record and the pane's live
+      // processes, not the binding.
+      for (const command of [['ls'], ['whoami']]) {
+        await fixture.runJsonCli(command, { pane: worker.pane });
+      }
+      expect(bindings('Marked'), 'reconciliation deleted the binding').toBe(0);
+      const byName = await talk(fixture, 'Marked', 'unmarked by name', ['--detach']);
+      // The identity is offline now, so a name goes to its durable inbox, not a pane.
+      expect(byName.code, byName.stderr || byName.stdout).toBe(0);
+      expect(byName.json).toMatchObject({ offline: true, status: 'queued' });
+      for (const attempt of [1, 2]) {
+        const result = await talk(fixture, worker.pane, `unmarked ${attempt}`, ['--detach']);
+        expect(result.code, `attempt ${attempt}: ${result.stdout}${result.stderr}`).toBe(1);
+        expect(failureCode(result)).toMatch(/^(DELIVERY_PREPARATION_FAILED|CHANNEL_)/);
+        expect(result.stdout).toContain('nothing was pasted');
+      }
+      expect(named(worker, 'paste'), 'no paste for an opted-in session').toEqual([]);
+      expect(named(worker, 'channel')).toEqual([]);
+      expect(terminalWrites(trace, worker.pane)).toEqual([]);
+
+      // A session that never opted in keeps the baseline: the pane takes the paste.
+      fixture.tmux(['set-option', '-p', '-u', '-t', plain.pane, '@tmux-team.agent']);
+      const pasted = await talk(fixture, plain.pane, 'bare paste', ['--detach']);
+      expect(pasted.code, pasted.stderr || pasted.stdout).toBe(0);
+      await fixture.waitFor(
+        () => named(plain, 'paste').some((line) => String(line.line).includes('bare paste')),
+        10_000,
+        'the unmarked plain pane was pasted'
+      );
+      expect(bindings('Bare')).toBe(0);
+
+      for (const session of [worker, plain]) expect(await quit(session)).toBe('0');
+      // Once the opted-in session has ended, its pane is an ordinary pane again.
+      const after = await talk(fixture, worker.pane, '# after the session ended', [
+        '--detach',
+        '--no-preamble',
+      ]);
+      expect(after.code, after.stderr || after.stdout).toBe(0);
+      await fixture.waitForCapture(
+        (output) => output.includes('# after the session ended'),
+        worker.pane
+      );
+    });
+  }, 90_000);
+
+  it('rebinding the pane of a live opted-in session does not make a name send paste to it', async () => {
+    await withE2EFixture(async (fixture) => {
+      const worker = start(fixture, 'Old', { channel: true });
+      await ready(fixture, worker, 'Old');
+      await waitForReady(fixture, 1);
+      const trace = installTmuxTrace(fixture);
+      // The marker is lost and observation deletes the binding; the user then names
+      // the pane again, which makes a new binding with no record under its own ID.
+      fixture.tmux(['set-option', '-p', '-u', '-t', worker.pane, '@tmux-team.agent']);
+      await fixture.runJsonCli(['ls'], { pane: worker.pane });
+      const renamed = await fixture.runJsonCli(['name', 'Rebound'], { pane: worker.pane });
+      expect(renamed.code, renamed.stderr || renamed.stdout).toBe(0);
+      for (const target of ['Rebound', worker.pane]) {
+        const result = await talk(fixture, target, 'to the rebound pane', ['--detach']);
+        expect(result.code, `${target}: ${result.stdout}${result.stderr}`).toBe(1);
+        expect(failureCode(result), target).toMatch(/^(DELIVERY_PREPARATION_FAILED|CHANNEL_)/);
+        expect(result.stdout).toContain('nothing was pasted');
+      }
+      expect(named(worker, 'paste'), 'no paste for an opted-in session').toEqual([]);
+      expect(terminalWrites(trace, worker.pane)).toEqual([]);
+
+      // The old session ends; the same name now reaches an ordinary pane.
+      expect(await quit(worker)).toBe('0');
+      const after = await talk(fixture, 'Rebound', '# rebound after end', [
+        '--detach',
+        '--no-preamble',
+      ]);
+      expect(after.code, after.stderr || after.stdout).toBe(0);
+      await fixture.waitForCapture((output) => output.includes('# rebound after end'), worker.pane);
+    });
+  }, 90_000);
+
+  it('a crashed opted-in launch does not block its pane, a new plain launch pastes normally and the next enrollment prunes the leftovers', async () => {
+    await withE2EFixture(async (fixture) => {
+      const crashed = start(fixture, 'Crashed', { channel: true });
+      await ready(fixture, crashed, 'Crashed');
+      await waitForReady(fixture, 1);
+      const leftover = enrollment(fixture);
+      const owner = leftover.record.launchOwner.pid;
+      const claude = Number(named(crashed, 'started')[0].pid);
+      const oldId = path.basename(leftover.file, '.json');
+      const oldSocket = path.join(channelDirectory(fixture), `${oldId}.sock`);
+      const oldServers = () =>
+        execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' })
+          .split('\n')
+          // The server's own command line; the provider's MCP config also names it.
+          .filter((line) => /\s__channel-server\s/.test(line) && line.includes(oldId))
+          .map((line) => Number(line.trim().split(/\s+/)[0]));
+      expect(oldServers(), 'the launch has a running channel server').toHaveLength(1);
+      expect(fs.existsSync(oldSocket), 'and its socket').toBe(true);
+      fixture.tmux(['set-option', '-p', '-u', '-t', crashed.pane, '@tmux-team.agent']);
+      await fixture.runJsonCli(['ls'], { pane: crashed.pane });
+      // No process gets to withdraw its enrollment: the record and the socket stay
+      // behind, and the server is killed with the rest.
+      for (const pid of [owner, claude, ...oldServers()]) process.kill(pid, 'SIGKILL');
+      await fixture.waitFor(() => oldServers().length === 0, 10_000, 'the killed server is gone');
+      await fixture.waitFor(
+        () => fs.existsSync(crashed.status),
+        10_000,
+        'the killed tmt run left its shell'
+      );
+      expect(fs.existsSync(leftover.file), 'the record outlived its launch').toBe(true);
+      expect(fs.existsSync(oldSocket), 'and so did its socket').toBe(true);
+
+      // An ended launch is not evidence about the pane: it is ordinary again.
+      const raw = await talk(fixture, crashed.pane, '# after the crash', [
+        '--detach',
+        '--no-preamble',
+      ]);
+      expect(raw.code, raw.stderr || raw.stdout).toBe(0);
+      await fixture.waitForCapture((output) => output.includes('# after the crash'), crashed.pane);
+
+      // A new plain launch in the same pane keeps the baseline paste.
+      fs.rmSync(crashed.status);
+      const fresh = start(fixture, 'Fresh', {
+        channel: false,
+        env: { MOCK_AUTOREPLY: '0' },
+        pane: crashed.pane,
+      });
+      await ready(fixture, fresh, 'Fresh');
+      const sent = await talk(fixture, 'Fresh', 'plain again', ['--detach']);
+      expect(sent.code, sent.stderr || sent.stdout).toBe(0);
+      expect(sent.json).not.toHaveProperty('deliveryState');
+      await fixture.waitFor(
+        () => named(fresh, 'paste').some((line) => String(line.line).includes('plain again')),
+        10_000,
+        'the plain launch was pasted'
+      );
+      expect(await quit(fresh)).toBe('0');
+
+      // The next enrollment removes the record and socket of the launch that is over.
+      const next = start(fixture, 'Next', { channel: true });
+      await ready(fixture, next, 'Next');
+      await waitForReady(fixture, 1);
+      expect(fs.existsSync(leftover.file), 'the ended launch record was pruned').toBe(false);
+      expect(fs.existsSync(oldSocket), 'and its socket').toBe(false);
+      expect(oldServers(), 'no server of the ended launch remains').toEqual([]);
+      expect(await quit(next)).toBe('0');
+    });
+  }, 120_000);
 
   it('a reply notification reaches an opted-in originator through its channel and never by paste', async () => {
     await withE2EFixture(async (fixture) => {
@@ -502,7 +693,7 @@ describe.sequential('Claude channel delivery', () => {
     });
   }, 90_000);
 
-  it('an originator that is not ready or unreachable gets no paste and no resend, and the durable reply is accepted', async () => {
+  it('an originator that is not ready or unreachable gets no paste, its notification settles as unavailable once and an identical reply retry does not attempt it again, and the durable reply is accepted', async () => {
     await withE2EFixture(async (fixture) => {
       const worker = start(fixture, 'Worker', { channel: true });
       const silent = start(fixture, 'Silent', {
@@ -542,13 +733,41 @@ describe.sequential('Claude channel delivery', () => {
         expect(named(originator, 'paste'), 'no paste fallback').toEqual([]);
         expect(terminalWrites(trace, originator.pane)).toEqual([]);
       }
+      // The attempt left a terminal state, not an open claim: an absent message
+      // cannot show that nothing was tried, a settled notification state can.
+      for (const id of asked) {
+        expect(notificationStates(fixture, id), id).toEqual({
+          reply_state: 'unavailable',
+          timeout_state: 'not_attempted',
+        });
+      }
+      // Submitting the very same reply again is accepted without a new attempt: the
+      // hint was claimed once, so the state does not move and nothing is sent.
+      for (const id of asked) {
+        const instruction = contents(worker).find((text) => text.includes(`tmt reply ${id} `))!;
+        const retry = await fixture.runJsonCli(replyCommand(instruction, id), {
+          pane: worker.pane,
+        });
+        expect(retry.code, `${id}: ${retry.stdout}${retry.stderr}`).toBe(0);
+        expect(notificationStates(fixture, id), id).toEqual({
+          reply_state: 'unavailable',
+          timeout_state: 'not_attempted',
+        });
+      }
+      for (const originator of [silent, orphan]) {
+        expect(named(originator, 'channel')).toEqual([]);
+        expect(terminalWrites(trace, originator.pane)).toEqual([]);
+      }
       for (const session of [silent, orphan, worker]) expect(await quit(session)).toBe('0');
     });
   }, 90_000);
 
   it('a direct dispatch to an opted-in session uses the channel, or reports it unavailable, never paste', async () => {
     await withE2EFixture(async (fixture) => {
-      const worker = start(fixture, 'Worker', { channel: true, env: { MOCK_AUTOREPLY: '0' } });
+      const worker = start(fixture, 'Worker', {
+        channel: true,
+        env: { MOCK_AUTOREPLY: '0', MOCK_REQUEST_ON_WAKE: '1' },
+      });
       const silent = start(fixture, 'Silent', {
         channel: true,
         env: { MOCK_AUTOREPLY: '0', MOCK_HANDSHAKE: 'never' },
@@ -564,7 +783,7 @@ describe.sequential('Claude channel delivery', () => {
         path.join(fixture.wrapperDir, 'tmt-teamchat'),
         `#!/bin/sh\nexec "$TMT_EXECUTABLE" api < '${input}'\n`
       );
-      const dispatch = async (recipient: string, message: string) => {
+      const dispatch = async (recipient: string, message: string, operationId = randomUUID()) => {
         fs.writeFileSync(
           input,
           JSON.stringify({
@@ -572,7 +791,7 @@ describe.sequential('Claude channel delivery', () => {
             operation: 'dispatch.create',
             identity: 'Sender',
             input: {
-              operationId: randomUUID(),
+              operationId,
               recipientIds: [identityId(fixture, recipient)],
               message,
             },
@@ -586,11 +805,30 @@ describe.sequential('Claude channel delivery', () => {
       };
 
       const trace = installTmuxTrace(fixture);
-      const live = await dispatch('Worker', 'dispatched to the channel');
+      const operationId = randomUUID();
+      const live = await dispatch('Worker', 'dispatched to the channel', operationId);
       expect(live.wake.status).toBe('uncertain');
       await fixture.waitFor(() => named(worker, 'channel').length === 1, 10_000, 'dispatch');
-      // The wake names the request; the work itself stays in the durable inbox.
-      expect(contents(worker)[0]).toContain(live.items[0].requestId);
+      // The wake names the request; the work itself stays in the durable inbox, and
+      // it was already there when the wake reached the provider.
+      const requestId = live.items[0].requestId;
+      expect(contents(worker)[0]).toContain(requestId);
+      await fixture.waitFor(
+        () => named(worker, 'wake-request').length > 0,
+        10_000,
+        'the durable request read at the first wake'
+      );
+      expect(named(worker, 'wake-request')).toEqual([
+        expect.objectContaining({ requestId, messageText: 'dispatched to the channel' }),
+      ]);
+      // The same operation again is a replay: the same request, no second wake.
+      const replay = await dispatch('Worker', 'dispatched to the channel', operationId);
+      const { wake: _wake, ...receipt } = live;
+      expect(replay).toEqual(expect.objectContaining(receipt));
+      expect(requestAttempts(fixture).filter((row) => row.request_id === requestId)).toHaveLength(
+        1
+      );
+      expect(named(worker, 'channel'), 'one channel event for one operation').toHaveLength(1);
 
       const early = await dispatch('Silent', 'dispatched too early');
       expect(early.wake.status).toBe('unavailable');
@@ -628,41 +866,84 @@ describe.sequential('Claude channel delivery', () => {
     });
   }, 60_000);
 
-  it('refuses to enroll a command whose provider version is not the recorded one', async () => {
+  it.each(['2.1.284 (Claude Code)', '2.0.999 (Claude Code)', '3.0.0 (Claude Code)'])(
+    'refuses to enroll a provider build outside the accepted range: %s',
+    async (version) => {
+      await withE2EFixture(async (fixture) => {
+        const pane = fixture.createShellPane('unsupported').pane;
+        const status = path.join(fixture.root, 'unsupported.status');
+        const marker = path.join(fixture.root, 'unsupported.launched');
+        const fake = path.join(fixture.wrapperDir, 'claude');
+        writeExecutable(
+          fake,
+          `#!/bin/sh\nif [ "$1" = --version ]; then echo '${version}'; exit 0; fi\ntouch ${quote(marker)}\n`
+        );
+        const command = [
+          fixture.executables.cli.executable,
+          ...fixture.executables.cli.args,
+          'run',
+          '--channel',
+          '-s',
+          'Nope',
+          fake,
+        ]
+          .map(quote)
+          .join(' ');
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `${command} 2>${quote(status + '.err')}; printf '%s' "$?" > ${quote(status)}`,
+        ]);
+        fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+        expect(await waitForFileContent(status, { description: 'refused launch' })).toBe('1');
+        expect(fs.readFileSync(`${status}.err`, 'utf8')).toContain(
+          'outside the supported channel range'
+        );
+        expect(fs.existsSync(marker), 'nothing was launched').toBe(false);
+        expect(channelFiles(fixture)).toEqual([]);
+      });
+    },
+    60_000
+  );
+
+  it('a newer provider build is accepted with an advisory, and its handshake decides', async () => {
     await withE2EFixture(async (fixture) => {
-      const pane = fixture.createShellPane('unsupported').pane;
-      const status = path.join(fixture.root, 'unsupported.status');
-      const marker = path.join(fixture.root, 'unsupported.launched');
-      const fake = path.join(fixture.wrapperDir, 'claude');
-      writeExecutable(
-        fake,
-        `#!/bin/sh\nif [ "$1" = --version ]; then echo '2.1.999 (Claude Code)'; exit 0; fi\ntouch ${quote(marker)}\n`
+      // Newer within the major line: it launches, says so, and a completed
+      // handshake delivers exactly like the tested build.
+      const newer = start(fixture, 'Newer', {
+        channel: true,
+        env: { MOCK_VERSION: '2.1.999 (Claude Code)' },
+      });
+      await fixture.waitForCapture(
+        (output) => output.includes('Claude Code 2.1.999 has not been tested'),
+        newer.pane
       );
-      const command = [
-        fixture.executables.cli.executable,
-        ...fixture.executables.cli.args,
-        'run',
-        '--channel',
-        '-s',
-        'Nope',
-        fake,
-      ]
-        .map(quote)
-        .join(' ');
-      fixture.tmux([
-        'send-keys',
-        '-t',
-        pane,
-        '-l',
-        `${command} 2>${quote(status + '.err')}; printf '%s' "$?" > ${quote(status)}`,
-      ]);
-      fixture.tmux(['send-keys', '-t', pane, 'Enter']);
-      expect(await waitForFileContent(status, { description: 'refused launch' })).toBe('1');
-      expect(fs.readFileSync(`${status}.err`, 'utf8')).toContain(
-        'outside the supported channel range'
+      await ready(fixture, newer, 'Newer');
+      const completed = await talk(fixture, 'Newer', 'newer build', ['--timeout', '20s']);
+      expect(completed.code, completed.stderr || completed.stdout).toBe(0);
+      expect(completed.json).toMatchObject({ status: 'completed', deliveryState: 'uncertain' });
+      expect(named(newer, 'paste')).toEqual([]);
+
+      // A newer build whose handshake never completes stays not ready and is
+      // never pasted to.
+      const silent = start(fixture, 'Changed', {
+        channel: true,
+        env: { MOCK_VERSION: '2.7.0 (Claude Code)', MOCK_HANDSHAKE: 'never' },
+      });
+      await fixture.waitForCapture(
+        (output) => output.includes('Claude Code 2.7.0 has not been tested'),
+        silent.pane
       );
-      expect(fs.existsSync(marker), 'nothing was launched').toBe(false);
-      expect(channelFiles(fixture)).toEqual([]);
+      await waitForEvent(fixture, silent, 'initialize-result');
+      await waitForRunning(fixture, silent, 'Changed');
+      const refused = await talk(fixture, 'Changed', 'anyone there', ['--detach']);
+      expect(refused.code).toBe(1);
+      expect(failureCode(refused)).toBe('CHANNEL_NOT_READY');
+      expect(named(silent, 'channel')).toEqual([]);
+      expect(named(silent, 'paste')).toEqual([]);
+      for (const session of [newer, silent]) expect(await quit(session)).toBe('0');
     });
-  }, 60_000);
+  }, 90_000);
 });
