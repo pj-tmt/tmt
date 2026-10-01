@@ -25,7 +25,6 @@ pub struct View {
     pub document: Value,
     pub(super) derived: RefCell<super::derived::Derived>,
     pub rows: crate::rows::Rows,
-    pub colors: BTreeMap<String, String>,
     pub board: Board,
     /// The full-reload interval; `None` reloads only on ctrl-r and actions.
     pub refresh: Option<std::time::Duration>,
@@ -1092,7 +1091,6 @@ pub(crate) mod tests {
             derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
-            colors: BTreeMap::new(),
             refresh: Some(crate::config::DEFAULT_REFRESH),
             board: crate::config::Board::simple(
                 crate::config::BoardMode::Split,

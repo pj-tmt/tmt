@@ -578,6 +578,29 @@ blocked = { color = "blocked", sort = 0 }  # color: default or a theme token;
                                           # sort 0-999 orders states
 ```
 
+State colors and order resolve together: an exact entry in
+`[squad.<name>.states]`, including a layout preset, wins entirely. Otherwise the
+first matching pattern in file order wins; otherwise the state has no color and
+sorts after ranked states. A pattern without `sort` also sorts after ranked
+states. An exact entry does not inherit missing settings from a pattern.
+Explicit `sort` values rank before layout defaults with the same number.
+
+```toml
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "blocked"           # required theme token; older names also accepted
+sort = 0                    # optional, 0-999
+ignore_case = true          # optional; defaults to false
+```
+
+Globs match the whole state: `*` matches any run, including an empty run, and
+`?` matches one Unicode scalar. All other characters are literal, including
+`.` and brackets; there is no regex or escape syntax. `ignore_case` compares
+each scalar's Unicode lowercase form. Each squad can have at most 64 patterns,
+and each nonempty `match` has at most 256 UTF-8 bytes. Patterns decorate and
+order the existing state text; they do not rename it or change tab attention.
+The board and `ls` share this resolution, including section sorting by state.
+
 A column has a `width`, or `min`/`max` and a `grow` share of what is left;
 `align` (`left`, `right`, `center`); `truncate` at the `end` or the `middle`;
 and a `priority`. On a narrow board columns shrink to their `min` first; if the
@@ -630,11 +653,13 @@ that theme token (or one of the older names `red`, `amber`, `green`, `blue`,
 `cyan`, `magenta`), the highest reached winning, with `at` strictly increasing.
 The number compared is the bound value before `format`, or the field's text
 read as a number; text that is not a number, a missing value and a value below
-the first `at` get no color. `state` keeps its state colors. A threshold the
+the first `at` get no color. `state` uses the state resolver above, ignoring
+column thresholds and provider color suggestions. A threshold the
 value reaches wins over a field provider's suggested color. These colors only
 decorate: `ls` text, `mono` and `NO_COLOR` show the same values without them,
 and `ls --json` lists each colored cell's token under the row's `colors`
-(omitted when a row has none).
+(omitted when a row has none). `colors.state` is the resolved state token;
+other keys come from thresholds or providers.
 
 For data TMT does not have, such as a pull request's review state, a field
 provider runs a program of yours for each member and shows its output as a

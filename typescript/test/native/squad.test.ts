@@ -912,7 +912,14 @@ describe('squad extension', () => {
       const documentedFields = [...documented.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
-      expect(documentedFields.sort()).toEqual(Object.keys(rows[0]).sort());
+      expect(documentedFields.sort()).toEqual(
+        Object.keys(rows[0])
+          .filter((key) => key !== 'colors')
+          .sort()
+      );
+      expect(skill).toContain('- A row has the optional `colors` key');
+      expect(rows[0].colors).toEqual({ state: 'blocked' });
+      expect(rows[1].colors).toEqual({ state: 'working' });
       const nested = skill.slice(skill.indexOf('- Every row'), skill.indexOf('- A row with'));
       const ageFields = [...nested.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
@@ -1105,6 +1112,69 @@ describe('squad extension', () => {
         name: 'worker',
         state: 'preparing',
       });
+    });
+  });
+  it('resolves state patterns into the same order and color tokens in JSON and text', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'exact', 'pattern', 'working', 'unknown']) {
+        await identity(sandbox, name);
+      }
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['add', 'exact', 'pattern', 'working', 'unknown']);
+      await squad(sandbox, ['set', 'exact', 'state=blocked']);
+      await squad(sandbox, ['set', 'pattern', 'state=BLOCKED-on-ci']);
+      await squad(sandbox, ['set', 'unknown', 'state=unranked']);
+      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const base = readFileSync(squadToml, 'utf8');
+      const settings = `
+[squad.product.states]
+blocked = { color = "red", sort = 7 }
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "blocked"
+sort = 0
+ignore_case = true
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "review"
+sort = 9
+`;
+      writeFileSync(squadToml, base + settings);
+      for (const sections of [
+        '',
+        '\n[[squad.product.section]]\ntitle = "All"\nsort = ["state"]\n',
+      ]) {
+        writeFileSync(squadToml, base + settings + sections);
+        const listed = await squad(sandbox, ['ls', '--squad', 'product']);
+        expect(listed.status).toBe(0);
+        const rows = listed.body.sections[0].rows;
+        expect(rows.map((row: { name: string }) => row.name)).toEqual([
+          'pattern',
+          'working',
+          'exact',
+          'unknown',
+        ]);
+        expect(rows.map((row: { colors?: { state?: string } }) => row.colors?.state)).toEqual([
+          'blocked',
+          'working',
+          'red',
+          undefined,
+        ]);
+        expect(rows[3]).not.toHaveProperty('colors');
+        const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+        expect(text.status).toBe(0);
+        const order = ['pattern', 'working', 'exact', 'unknown'].map((name) =>
+          text.stdout.indexOf(name)
+        );
+        expect(order.every((offset) => offset >= 0)).toBe(true);
+        expect(order).toEqual([...order].sort((a, b) => a - b));
+        expect(text.stdout).toContain('BLOCKED-on-ci');
+      }
+      writeFileSync(squadToml, base + settings.replace('color = "blocked"', 'color = "pink"'));
+      const refused = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(refused.status).not.toBe(0);
+      expect(JSON.stringify(refused.body)).toContain('squad.product.state_patterns[0].color');
     });
   });
   it('renders user-defined sections from squad.toml and rejects invalid filters', async () => {

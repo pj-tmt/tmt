@@ -51,11 +51,21 @@ cell).
   below for reset and evidence limits.
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
   layout lists it first.
-- A row has `colors` only when a cell has a color: `{field: theme token}`,
-  from the user's column thresholds or a field provider's suggestion. Colors
-  only decorate; read the values.
+- A row has the optional `colors` key only when a cell has a color:
+  `{field: theme token}`. `colors.state` holds the resolved state token; other
+  keys come from the user's column thresholds or a field provider's suggestion.
+  Colors only decorate; read the values.
 - States come from the layout: crew uses `working idle blocked review testing
 hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
+  Color and order resolve through exact `[squad.<name>.states]` entries (including
+  layout presets), then the first matching `[[squad.<name>.state_patterns]]`,
+  then the default. Patterns require `match` and `color`; optional `sort` is
+  0-999 and `ignore_case` defaults to false. `*` matches any run, `?` one Unicode
+  scalar, and other characters are literal. Case-insensitive matching compares
+  each scalar's Unicode lowercase form. Limits: 64 patterns per squad and 256
+  UTF-8 bytes per nonempty match. An exact entry wins entirely; unspecified
+  pattern sort ranks after ranked states. State text and tab attention stay the
+  same. Do not change the user's vocabulary without asking.
 
 `presence` is observed by TMT, not reported by the member. `activity` is what
 the member reported about itself.

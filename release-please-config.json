@@ -23,6 +23,7 @@
         "extensions/tmt-office/typescript",
         "extensions/tmt-squad",
         "extensions/tmt-remote",
+        "extensions/tmt-colab",
         "rust/crates/tmt-tui"
       ],
       "extra-files": [

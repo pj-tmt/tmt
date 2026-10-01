@@ -21,7 +21,6 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use serde_json::Value;
-use std::collections::BTreeMap;
 use tmt_cli_style::{
     Role,
     grid::{self, Align, Truncate},
@@ -115,7 +114,6 @@ fn grid_line(
     cells: &[RowCell],
     row: &Value,
     first: bool,
-    colors: &BTreeMap<String, String>,
 ) -> Option<Vec<Span<'static>>> {
     let mut spans = Vec::new();
     let mut position = 0;
@@ -143,17 +141,14 @@ fn grid_line(
                 .as_array()
                 .is_some_and(|failed| failed.iter().any(|name| name == field))
         });
-        // A cell's own color: `state` by its state, any other field by the
-        // token `status::document` resolved for it (a threshold or a
-        // provider's). Decoration only: the text says the same without it.
+        // Every cell uses the token resolved in status::document, including
+        // the state resolver's token. Decoration only: text is unchanged.
         let token = cell
             .field
             .as_deref()
             .and_then(|field| row["colors"][field].as_str());
         let style = if value.is_none_or(str::is_empty) {
             look.role(Role::Dim)
-        } else if cell.field.as_deref() == Some("state") {
-            look.named(colors.get(text).map_or("default", String::as_str))
         } else if let Some(token) = token {
             look.named(token)
         } else if failed {
@@ -1048,9 +1043,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 };
                 for (index, cells) in rows.lines.iter().enumerate() {
                     let first = index == 0;
-                    let Some(cells) =
-                        grid_line(look, rows, widths, cells, row, first, &view.colors)
-                    else {
+                    let Some(cells) = grid_line(look, rows, widths, cells, row, first) else {
                         continue;
                     };
                     let mut spans = vec![Span::raw(if first { marker } else { "  " })];
@@ -1173,7 +1166,6 @@ mod tests {
                 derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
                 rows: columns(),
-                colors: BTreeMap::from([("blocked".into(), "amber".into())]),
                 refresh: Some(crate::config::DEFAULT_REFRESH),
                 board: crate::config::Board::simple(
                     crate::config::BoardMode::Split,
@@ -1198,7 +1190,7 @@ mod tests {
     }
 
     fn row(name: &str, state: &str, task: &str, extra: Value) -> Value {
-        let mut row = json!({"name": name, "fields": {"state": state, "task": task}, "pending": null, "note": null});
+        let mut row = json!({"name": name, "fields": {"state": state, "task": task}, "pending": null, "note": null, "colors": {"state": if state == "blocked" { "amber" } else { "default" }}});
         for (key, value) in extra.as_object().unwrap() {
             row[key] = value.clone();
         }
@@ -1509,7 +1501,6 @@ lines = [
                     }))]}
                 ]}),
                 rows: columns(),
-                colors: BTreeMap::new(),
                 refresh: None,
                 board,
                 notes,
@@ -1532,6 +1523,22 @@ lines = [
 
     fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::config::Board {
         crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
+    }
+
+    #[test]
+    fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
+        let rows = rows_from("[p.columns]\nshow = ['state']\nstate = { width = 20 }\n");
+        let look = crate::look::Look::default();
+        for state in ["blocked", "blocked-on-ci"] {
+            let row =
+                json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
+            let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &row, true).unwrap();
+            assert_eq!(spans[0].style.fg, look.named("review").fg);
+            assert_eq!(spans[0].content.trim(), state);
+            let plain = json!({"state": state, "fields": {"state": state}});
+            let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &plain, true).unwrap();
+            assert_eq!(spans[0].style, Style::new());
+        }
     }
 
     #[test]
