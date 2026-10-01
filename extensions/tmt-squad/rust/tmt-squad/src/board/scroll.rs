@@ -87,14 +87,26 @@ impl Scrolls {
             .map_or(1, |drawn| drawn.viewport.saturating_sub(1).max(1))
     }
 
-    /// Scrolls `pane` just enough that `line` is on screen.
-    pub fn reveal(&self, pane: Pane, line: usize, area: Rect, content: usize) {
+    /// Keeps the selected record visible, or its first line when it is
+    /// taller than the viewport.
+    pub fn reveal_range(
+        &self,
+        pane: Pane,
+        lines: std::ops::Range<usize>,
+        area: Rect,
+        content: usize,
+    ) {
         let viewport = Self::viewport(area, content).max(1);
+        let end = if lines.len() > viewport {
+            lines.start.saturating_add(1)
+        } else {
+            lines.end
+        };
         let offset = self.offsets.borrow().get(&pane).copied().unwrap_or(0);
-        let offset = if line < offset {
-            line
-        } else if line >= offset + viewport {
-            line + 1 - viewport
+        let offset = if lines.start < offset {
+            lines.start
+        } else if end > offset.saturating_add(viewport) {
+            end.saturating_sub(viewport)
         } else {
             offset
         };

@@ -249,8 +249,18 @@ runs a Squad scope under the same job names (its Cargo checks and the architectu
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
 `Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
 Remote Rust has an explicit rule retaining full native and Office coverage; the full
-Rust job requires nonempty remote test discovery and runs locked workspace tests,
-Clippy and builds (including MSRV). Its result remains required by the native gate.
+Rust checks require nonempty remote test discovery and run locked workspace tests,
+Clippy and builds. A parallel `Native Rust MSRV` job runs
+`cargo +"$MSRV" check --locked --workspace --all-targets` for both full and Squad
+scopes, reading `MSRV` from `workspace.package.rust-version` in `rust/Cargo.toml`.
+Rustup resolves the manifest's two-part minimum to its latest patch release,
+rather than duplicating a patch pin in the workflow.
+It replaces the MSRV executable builds and expands Squad MSRV coverage to the
+whole workspace without changing the declared minimum. Its separate
+`native-rust-msrv` cache has one writer, the MSRV job on main; PRs only restore.
+`Native Rust contracts` is the fail-closed aggregator of these two workers. It
+requires both to succeed, rejects missing selection, and stays skipped for scope
+`none`, preserving the outer native gate and required-check names.
 The remote TypeScript and browser paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
@@ -331,7 +341,15 @@ that serial scenarios exhaust a per-job deadline:
 emulator-backed contracts, three local Vite shards, and eight native-local shards.
 The eight native-local shards (#424) and the three local Vite shards (#574) are paused on
 pull requests until they are fixed and run weekly and by manual dispatch instead; a pull
-request runs only the emulator partition.
+request runs only the emulator partition, for Office-owned paths or its own
+verification machinery.
+`office_browser` selects paths owned by Office in `.github/components.json`
+(including its test fixtures) plus `docs/office/**` and browser-specific machinery
+listed in `selectOfficeBrowser` (the browser workflow, emulator verifier and
+Docker context policy). Shared dependency/selector/generic fixture changes rely
+on the weekly/manual safety net to catch Office build breakage. Scheduled and manual runs cover all twelve
+partitions, including the emulator, regardless of paths. Required CI selection
+remains conservative and independent of this advisory cost policy.
 One `image` job builds the `browser-tests` target once and shares it as a one-day
 artifact; every partition loads that image and never builds it.
 Local partitions do not start Firebase, while native-local shards use the container
@@ -373,9 +391,9 @@ the workspace crates so the denylist cannot go stale.
 - Run the local browser suite above before opening a PR for an Office-affecting
   change, and record the result in the PR.
 - On a pull request, the `Office browser verification` workflow runs only the emulator
-  partition, and only when `office` is selected. The native Office shards and the local
-  Vite shards do not run on pull requests until #424 and #574 are fixed, because they
-  fail on most runs: they run weekly and on a manual dispatch, all eleven together, and
+  partition, and only when `office_browser` is selected (Office ownership or verification machinery).
+  The native Office shards and the local Vite shards do not run on pull requests until #424 and #574 are fixed, because they
+  fail on most runs: weekly/manual runs include them and the emulator, all twelve together, and
   `ci-scope.mjs` still computes `native_office` for the change that re-enables the native
   shards. Their results are advisory: they are not required checks and never gate merge,
   and a red run of that workflow is a browser diagnostic, not a `CI` failure.
@@ -1358,3 +1376,59 @@ deadline, so this interim door closes after at most 15 minutes. Ctrl-C/SIGTERM
 stops it; there is no autostart/LAN/daemon option. Tests use disposable HOME/XDG,
 count startup separately, assert zero request-triggered core calls and run
 socket/process lifecycle acceptance twice. No real model/account/DB is used.
+
+## Colab pilot development
+
+The private local-build Colab executable runs a foreground loopback placeholder
+and lists local-space metadata. APIs and WebSocket upgrades are denied until
+the authentication/sync slice. No installer exists.
+Build and verify it from the repository root:
+
+```bash
+(cd rust && cargo build --offline --locked -p tmt-colab)
+(cd rust && cargo test --offline --locked -p tmt-colab)
+(cd rust && cargo clippy --offline --locked -p tmt-colab --all-targets -- -D warnings)
+(cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
+node typescript/scripts/release-please-config.mjs --check
+(cd typescript && corepack pnpm exec vitest run test/tooling/ci-scope.test.ts)
+```
+
+Tests inject temporary data roots; never point them at the real TMT directory.
+The extension owns `<dataRoot>/colab/` (0700) and regular secret/state files
+(0600). Production startup obtains the absolute root through `tmt api storage.root`
+via `tmt-invoke`; no path guess or Colab root environment variable
+is supported. Store bounds are named in `src/limits.rs`: 16 MiB plus 2 KiB per
+opaque envelope, 64 MiB retained ciphertext and 100,000 durable update receipts
+per page across epochs. Capacity rejects writes without eviction. Checkpoint
+pruning keeps receipts and preserves the other namespace and concurrent tails;
+it also reclaims superseded unpinned checkpoint payloads. `pin_checkpoint` is
+the future verified authority-cut caller's preservation seam.
+Signatures and role admission are required at the future request boundary;
+these storage tests prove transaction rollback and reopening, not crash recovery.
+
+```bash
+(cd rust && cargo build --offline --locked -p tmt-cli -p tmt-colab)
+PATH="$PWD/rust/target/debug:$PATH" tmt colab spaces --json
+PATH="$PWD/rust/target/debug:$PATH" tmt colab serve --json
+```
+
+After building a core supporting `storage.root` (#860) and the extension, put
+`rust/target/debug` on PATH and run `tmt colab serve` (default port 7341).
+A busy port fails with a `--port` hint; `--port 0` selects a free port.
+Direct invocation requires an absolute
+`TMT_EXECUTABLE`. `tmt colab serve --json` prints one plain JSON descriptor with
+space ID and working URL; Ctrl-C/SIGTERM closes sockets, joins workers and
+releases the service lock. `tmt colab spaces --json` lists the local space and
+running state without creating directories or keys; before first serve it
+returns `{"spaces":[]}`. Use an isolated normal TMT data root for manual tests.
+
+The printed `127.0.0.1:<port>` is the only accepted Host and Origin; no localhost,
+forwarded-host or DNS-rebinding alias is admitted. The door bounds are named in
+`src/limits.rs`: 16 active sockets, 8 KiB/32 header fields, 64 KiB HTTP bodies,
+2-second total acquisition and 1-second total response. HTTP body capacity is
+for later sign-in/management; page objects use the future sync path. Reserved
+sync limits are 64 KiB frames and 8 queued frames with `RESYNC_REQUIRED` close
+for slow subscribers; no WebSocket is accepted yet. Real socket and foreground
+process cleanup tests run lifecycle scenarios twice, with no core calls from
+denied traffic. Owner-key temporary cleanup is publication-locked; it preserves
+foreign file names and refuses unsafe matching files.
