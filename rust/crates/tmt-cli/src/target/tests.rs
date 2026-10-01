@@ -27,6 +27,7 @@ fn recipient() -> PaneIdentity {
         server: server.clone(),
         pane_id: "%14".into(),
         pane_pid: 42,
+        pane_incarnation: None,
         session: Default::default(),
     };
     let pane = PaneObservation {
@@ -35,6 +36,7 @@ fn recipient() -> PaneIdentity {
         cwd: None,
         command: "mock-agent".into(),
         pane_pid: binding.pane_pid,
+        pane_incarnation: None,
         suggested_name: None,
         marker: Some(binding.marker(&identity)),
     };

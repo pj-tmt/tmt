@@ -24,6 +24,8 @@ mod local_block_tests;
 #[cfg(test)]
 mod notification_tests;
 #[cfg(test)]
+mod pane_incarnation_tests;
+#[cfg(test)]
 mod prop_pack_tests;
 #[cfg(test)]
 mod receipt_tests;
@@ -222,6 +224,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "admit any approved host driver in bindings, request fences and host servers",
         sql: include_str!("schema/041.sql"),
+    },
+    Migration {
+        name: "record the observed pane process incarnation beside each binding's pane pid",
+        sql: include_str!("schema/042.sql"),
     },
 ];
 

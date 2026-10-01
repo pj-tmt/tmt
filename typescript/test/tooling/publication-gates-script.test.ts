@@ -216,8 +216,7 @@ const finish = (result: string, outcome: string, more: string[] = []) => [
   ...more,
 ];
 
-// Vitest 4 enforces elapsed time for synchronous subprocess fixtures; allow their setup and runs.
-describe('publication-gates.mjs early', { timeout: 10_000 }, () => {
+describe('publication-gates.mjs early', () => {
   it('passes a draft whose commit, immutability, order and migrations are all in order', () => {
     const { run, uploaded, calls } = scenario({ hold: null });
     const result = run(early);
@@ -326,7 +325,7 @@ describe('publication-gates.mjs early', { timeout: 10_000 }, () => {
   });
 });
 
-describe('publication-gates.mjs early --release-hold', { timeout: 10_000 }, () => {
+describe('publication-gates.mjs early --release-hold', () => {
   it('skips exactly the gate the marker names and runs the others', () => {
     const { run, uploaded } = scenario({
       subject: 'feat!: drop a flag',
@@ -363,7 +362,7 @@ describe('publication-gates.mjs early --release-hold', { timeout: 10_000 }, () =
   });
 });
 
-describe('publication-gates.mjs finish', { timeout: 10_000 }, () => {
+describe('publication-gates.mjs finish', () => {
   it('reports that every gate passed when the upgrade was proved, and removes no marker that is not there', () => {
     const { run, uploaded, calls } = scenario({ hold: null });
     const result = run(finish('success', 'proved'));

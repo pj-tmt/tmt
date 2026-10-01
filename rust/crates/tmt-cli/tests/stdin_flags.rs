@@ -56,6 +56,14 @@ impl Drop for Fixture {
 }
 
 fn shared_pipe_after_signal(signal: Signal) {
+    // The CLI must see the default disposition of the signal under test whatever
+    // started this run. A caller that is a background shell job (or `nohup`) starts
+    // it with SIGINT ignored, and an ignored signal survives `exec`, so the CLI
+    // would never see the signal. A handler installed here does not survive `exec`:
+    // the spawned CLI starts with the default disposition, so the test depends on
+    // neither the caller's terminal nor its job control.
+    let _default_for_child = (signal == Signal::SIGINT)
+        .then(|| tmt_adapters::interrupt::Interrupt::install().expect("own SIGINT disposition"));
     let mut fixture = Fixture::new(signal);
     let (reader, writer) = pipe().unwrap();
     let original = fcntl(&reader, FcntlArg::F_GETFL).unwrap();
