@@ -107,12 +107,12 @@ jobs:
           pnpm --filter @tmt/remote-client --fail-if-no-match check
           pnpm --filter @tmt/remote-client --fail-if-no-match test
 
-  native-rust:
-    name: Native Rust contracts
+  native-rust-checks:
+    name: Native Rust checks
     needs: changes
     if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
-    # Full scope took 12m11s/12m37s/14m00s (15m02s cancellations): workspace clippy/test, Rust 1.88 build, Office local-service build/test and native Vitest share this job.
+    # Retain the measured serial budget until the remaining checks are split (#851).
     timeout-minutes: 25
     steps:
       - name: Check out repository
@@ -122,7 +122,6 @@ jobs:
       - name: Install pinned Rust toolchains
         run: |
           rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
-          rustup toolchain install 1.95.0 --profile minimal
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -137,7 +136,6 @@ jobs:
           cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
           cargo test --locked -p tmt-squad
           cargo test --locked -p tmt-cli --test architecture
-          cargo +1.95.0 build --locked -p tmt-squad
       - name: Build Squad process fixtures
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
@@ -161,7 +159,6 @@ jobs:
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
           cargo test --locked --workspace
-          cargo +1.95.0 build --locked --workspace
           cargo build --locked --workspace
           cargo build --locked --example storage-probe
       - name: Build independent native process fixtures
@@ -212,6 +209,50 @@ jobs:
         run: |
           # shellcheck disable=SC2086
           pnpm test:native --reporter=verbose $SCOPED_NATIVE_TESTS
+
+  native-msrv:
+    name: Native Rust MSRV
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the declared minimum Rust version
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Restore Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Check all workspace targets at MSRV
+        working-directory: rust
+        run: cargo +1.88.0 check --locked --workspace --all-targets
+
+  native-rust:
+    name: Native Rust contracts
+    needs: [changes, native-rust-checks, native-msrv]
+    # Preserve the outer gate's skipped result for scope none. Missing selection
+    # must still reach this gate and fail, even when both workers were skipped.
+    if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Require every selected Rust worker
+        env:
+          NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
+          CHECKS_RESULT: ${{ needs.native-rust-checks.result }}
+          MSRV_RESULT: ${{ needs.native-msrv.result }}
+        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CHECKS_RESULT" "$MSRV_RESULT"
 
   unit-tests:
     name: Unit tests

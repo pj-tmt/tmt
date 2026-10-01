@@ -249,8 +249,13 @@ runs a Squad scope under the same job names (its Cargo checks and the architectu
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
 `Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
 Remote Rust has an explicit rule retaining full native and Office coverage; the full
-Rust job requires nonempty remote test discovery and runs locked workspace tests,
-Clippy and builds (including MSRV). Its result remains required by the native gate.
+Rust checks require nonempty remote test discovery and run locked workspace tests,
+Clippy and builds. A parallel `Native Rust MSRV` job runs
+`cargo +1.88.0 check --locked --workspace --all-targets` for both full and Squad
+scopes; it replaces the MSRV executable builds without changing Rust 1.88.
+`Native Rust contracts` is the fail-closed aggregator of these two workers. It
+requires both to succeed, rejects missing selection, and stays skipped for scope
+`none`, preserving the outer native gate and required-check names.
 The remote TypeScript and browser paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
