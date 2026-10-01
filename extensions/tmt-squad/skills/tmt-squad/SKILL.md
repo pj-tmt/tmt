@@ -110,7 +110,7 @@ theme, then `[board.theme]`, then `[squad.<name>.theme]` in `squad.toml`.
 `tmt sq theme ls` (or bare `tmt sq theme`) lists built-in bases, marking the
 current base and its source: `default`, `cli`, `board` or `squad`. Add
 `--squad <name>` to inspect that squad. These choices affect the board only;
-CLI colours stay unchanged.
+CLI colors stay unchanged.
 
 ```sh
 tmt sq theme set tmt-light                 # all boards

@@ -1681,7 +1681,7 @@ mod tests {
         use crate::theme::ThemeScope;
         use tmt_cli_style::{Base, Depth, Role};
         let path = temp("theme-base-preservation");
-        let original = "# personal board\nopaque = { future = 42 }\n\n[board]\nrefresh = \"off\" # manual\n\n[board.theme] # colours\nbase = \"tmt\" # dark\naccent = \"blue\"\n\n[squad.product.theme]\nwaiting = \"red\" # attention\n";
+        let original = "# personal board\nopaque = { future = 42 }\n\n[board]\nrefresh = \"off\" # manual\n\n[board.theme] # colors\nbase = \"tmt\" # dark\naccent = \"blue\"\n\n[squad.product.theme]\nwaiting = \"red\" # attention\n";
         fs::write(&path, original).unwrap();
         let mut config = Config::read(path.clone()).unwrap();
         assert!(

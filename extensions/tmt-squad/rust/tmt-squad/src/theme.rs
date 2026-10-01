@@ -65,25 +65,25 @@ fn scope_option() -> Arg {
 }
 
 pub fn grammar() -> Command {
-    spec("theme", "Choose a board theme; CLI colours stay unchanged", &[
+    spec("theme", "Choose a board theme; CLI colors stay unchanged", &[
         Example { command: "tmt squad theme", note: "List themes and mark the current board default" },
         Example { command: "tmt squad theme set tmt-light", note: "Choose a default for all boards" },
-    ], "Without a subcommand, list themes. Board choices do not change CLI colours.")
+    ], "Without a subcommand, list themes. Board choices do not change CLI colors.")
     .arg(scope_option())
     .subcommand(spec("ls", "List board themes and the current base's source", &[
         Example { command: "tmt squad theme ls", note: "List themes for all boards" },
         Example { command: "tmt squad theme ls --squad product", note: "Inspect one squad's effective theme" },
     ], "The base source is default, cli, board or squad; token overrides layer separately.").alias("list").arg(scope_option()))
-    .subcommand(spec("set", "Set a board theme base; keep token overrides and CLI colours", &[
+    .subcommand(spec("set", "Set a board theme base; keep token overrides and CLI colors", &[
         Example { command: "tmt squad theme set tmt-light", note: "Use a light theme for all boards" },
         Example { command: "tmt squad theme set mono --squad product", note: "Choose a theme for one squad" },
-    ], "Only the base is replaced in squad.toml; token overrides and CLI colours stay unchanged.")
+    ], "Only the base is replaced in squad.toml; token overrides and CLI colors stay unchanged.")
         .arg(Arg::new("name").required(true).help("Built-in theme name"))
         .arg(scope_option()))
-    .subcommand(spec("rm", "Remove a board base override; retain token overrides and CLI colours", &[
+    .subcommand(spec("rm", "Remove a board base override; retain token overrides and CLI colors", &[
         Example { command: "tmt squad theme rm", note: "Let all boards inherit the CLI theme" },
         Example { command: "tmt squad theme rm --squad product", note: "Remove one squad's base override" },
-    ], "Removes only base from the selected theme table. Token overrides and CLI colours are retained.").arg(scope_option()))
+    ], "Removes only base from the selected theme table. Token overrides and CLI colors are retained.").arg(scope_option()))
 }
 
 pub fn parse_base(name: &str) -> Result<Base, SquadError> {
@@ -196,7 +196,7 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
                 )
             } else {
                 format!(
-                    "No board theme override for {}; token overrides kept",
+                    "Kept {} on the inherited theme; no override to remove",
                     scope.label()
                 )
             };
@@ -283,7 +283,10 @@ mod tests {
         );
         let noop = run_words(&mut config, &["theme", "rm", "--squad", "product"]);
         assert_eq!(noop["changed"], false);
-        assert!(text(&noop, Terminal::PLAIN).contains("No board theme override"));
+        assert_eq!(
+            text(&noop, Terminal::PLAIN),
+            "✓ Kept squad product on the inherited theme; no override to remove\n"
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 

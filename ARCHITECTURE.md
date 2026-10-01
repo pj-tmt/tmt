@@ -2676,12 +2676,13 @@ the built-in base with a notice; invalid Squad layers are configuration errors.
 All bases and token overrides are validated per layer, including masked values.
 Named `Config::set_theme_base` and `remove_theme_base` change only `base` through
 the existing writer, keeping token overrides and unrelated content. Squad never
-writes `config.json`, and command/picker text states that CLI colours stay unchanged.
+writes `config.json`, and command/picker text states that CLI colors stay unchanged.
 
 The bindable `theme` action (`T` in both host presets and the all tab) opens a
 small overlay owned by `board::theme_picker`. The session reads its Config at
 opening and keeps that baseline across refreshes. Preview applies the same
-in-memory layer edit as CLI set, with no write; `App::look` supplies it to every
+in-memory layer edit as CLI set, cached when selection or scope changes, with no
+write; `App::look` supplies it to every
 pane and tab. Tab changes board/squad scope; built-in tabs have only board scope,
 and a masking squad base is named. Overlay input cannot operate underlying rows,
 tabs or panes. Enter calls the named Config edit once; failed saves retain the

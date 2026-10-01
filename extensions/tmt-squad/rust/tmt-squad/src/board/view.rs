@@ -42,7 +42,7 @@ const KEYS: &[&str] = &[
 ];
 
 /// The footer names what the most used keys do for the selected row.
-fn hints(app: &App) -> String {
+fn hints(app: &App, width: usize) -> String {
     let bindings = app.bindings();
     let mut hints: Vec<String> = [
         ("enter", "⏎"),
@@ -76,7 +76,19 @@ fn hints(app: &App) -> String {
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
     }
-    hints.join("  ")
+    let mut shown = String::new();
+    for hint in hints {
+        let next = if shown.is_empty() {
+            hint
+        } else {
+            format!("{shown}  {hint}")
+        };
+        if next.width() > width {
+            break;
+        }
+        shown = next;
+    }
+    shown
 }
 
 /// Fixed keys, then every binding for the selected row.
@@ -575,7 +587,10 @@ pub fn render(frame: &mut Frame, app: &App) {
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else {
-        Line::from(Span::styled(hints(app), look.role(Role::Muted)))
+        Line::from(Span::styled(
+            hints(app, usize::from(footer.width)),
+            look.role(Role::Muted),
+        ))
     };
     frame.render_widget(Paragraph::new(footer_line), footer);
     if app.help {
@@ -1236,6 +1251,24 @@ mod tests {
     use serde_json::json;
     use std::collections::BTreeMap;
     use unicode_width::UnicodeWidthChar;
+
+    #[test]
+    fn footer_omits_whole_hints_instead_of_clipping_words() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(crate::board::app::tests::snapshot("product", json!([])));
+        let full = hints(&app, usize::MAX);
+        assert!(full.contains("T theme"));
+        for width in [0, 1, 20, 40, 108, 112] {
+            let shown = hints(&app, width);
+            assert!(shown.width() <= width);
+            assert!(full.starts_with(&shown));
+            assert!(
+                shown.is_empty() || full == shown || full[shown.len()..].starts_with("  "),
+                "partial hint at {width}: {shown}"
+            );
+        }
+        assert!(!draw(&app, 108, 8).last().unwrap().ends_with("◆ ne"));
+    }
 
     /// Rows read from a squad config snippet, as `squad.toml` would give them.
     fn rows_from(text: &str) -> Rows {
@@ -3385,20 +3418,20 @@ columns = [{ name = "member", width = "30%" },
             split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
             Notes::NotShown,
         );
-        assert!(!hints(&app).contains("d toggle"));
+        assert!(!hints(&app, usize::MAX).contains("d toggle"));
         app.view.as_mut().unwrap().board = split(
             Direction::TopBottom,
             vec![Pane::Rows, Pane::Detail],
             vec![60, 40],
         );
-        assert!(hints(&app).contains("d toggle detail"));
+        assert!(hints(&app, usize::MAX).contains("d toggle detail"));
         assert!(draw(&app, 48, 12)[11].contains("d toggle detail"));
         app.view
             .as_mut()
             .unwrap()
             .bindings
             .insert("d".into(), crate::action::Action::parse("refresh").unwrap());
-        assert!(hints(&app).contains("d refresh"));
+        assert!(hints(&app, usize::MAX).contains("d refresh"));
         assert!(
             help_lines(&app)
                 .iter()

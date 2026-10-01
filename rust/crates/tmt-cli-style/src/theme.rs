@@ -238,7 +238,7 @@ impl Base {
         match self {
             Self::Tmt => "soft truecolor for dark terminals",
             Self::TmtLight => "the same palette for light terminals",
-            Self::Terminal => "your terminal's own 16 colours",
+            Self::Terminal => "your terminal's own 16 colors",
             Self::Mono => "bold and dim only",
         }
     }

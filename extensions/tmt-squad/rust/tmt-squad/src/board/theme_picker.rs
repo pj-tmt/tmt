@@ -8,7 +8,7 @@ use ratatui::{
     layout::Rect,
     style::Modifier,
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Padding, Paragraph},
 };
 use tmt_cli_style::{Base, Role};
 
@@ -18,6 +18,7 @@ pub(super) struct Picker {
     pub scope: ThemeScope,
     pub selected: Base,
     pub notice: Option<String>,
+    preview: tmt_cli_style::Theme,
 }
 
 pub(super) enum Input {
@@ -35,25 +36,22 @@ impl Picker {
         } else {
             ThemeScope::Board
         };
+        let preview = config.preview_theme_base(&scope, selected, name)?;
         Ok(Self {
             config,
             squad,
             scope,
             selected,
             notice: None,
+            preview,
         })
     }
 
     pub fn preview(&self, depth: tmt_cli_style::Depth) -> Look {
-        let theme = self
-            .config
-            .preview_theme_base(
-                &self.scope,
-                self.selected,
-                self.squad.as_deref().unwrap_or(""),
-            )
-            .expect("opening validates the layers and built-in bases are valid");
-        Look { theme, depth }
+        Look {
+            theme: self.preview,
+            depth,
+        }
     }
 
     pub fn masked(&self) -> Option<String> {
@@ -69,6 +67,7 @@ impl Picker {
 
     pub fn key(&mut self, key: KeyEvent) -> Input {
         self.notice = None;
+        let previous = (self.scope.clone(), self.selected);
         let position = Base::ALL
             .iter()
             .position(|base| *base == self.selected)
@@ -92,6 +91,16 @@ impl Picker {
             }
             _ => {}
         }
+        if previous != (self.scope.clone(), self.selected) {
+            self.preview = self
+                .config
+                .preview_theme_base(
+                    &self.scope,
+                    self.selected,
+                    self.squad.as_deref().unwrap_or(""),
+                )
+                .expect("opening validates the layers and built-in bases are valid");
+        }
         Input::Preview
     }
 
@@ -112,7 +121,7 @@ impl Picker {
 pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect) {
     let width = body.width.min(72);
     let height = (Base::ALL.len() as u16
-        + 7
+        + 8
         + u16::from(picker.masked().is_some())
         + u16::from(picker.notice.is_some()))
     .min(body.height);
@@ -125,7 +134,7 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect)
     let active = look.role(Role::Accent).add_modifier(Modifier::BOLD);
     let inactive = look.role(Role::Muted);
     let mut scope = vec![Span::styled(
-        " all boards",
+        "all boards",
         if picker.scope == ThemeScope::Board {
             active
         } else {
@@ -147,8 +156,8 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect)
     }
     let mut lines = vec![Line::from(scope), Line::default()];
     for base in Base::ALL {
-        let text = format!(" {:<10} {}", base.name(), base.description());
-        let text = super::view::fit(&text, usize::from(width.saturating_sub(2)));
+        let text = format!("{:<10} {}", base.name(), base.description());
+        let text = super::view::fit(&text, usize::from(width.saturating_sub(4)));
         let style = if base == picker.selected {
             look.selection()
         } else {
@@ -156,11 +165,12 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect)
         };
         lines.push(Line::styled(text, style));
     }
+    lines.push(Line::default());
     if let Some(masked) = picker.masked() {
         lines.push(Line::styled(masked, inactive));
     }
     lines.push(Line::styled(
-        "Board only; CLI colours stay unchanged",
+        "Board only; CLI colors stay unchanged",
         inactive,
     ));
     if let Some(notice) = &picker.notice {
@@ -172,7 +182,12 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect)
     ));
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(lines).block(Block::new().borders(Borders::ALL).title(" theme ")),
+        Paragraph::new(lines).block(
+            Block::new()
+                .borders(Borders::ALL)
+                .padding(Padding::horizontal(1))
+                .title(" theme "),
+        ),
         area,
     );
 }
@@ -283,6 +298,10 @@ mod tests {
         assert_eq!(app.current, current);
         assert!(!app.searching && !app.help && app.switcher.is_none() && app.input.is_none());
         assert_eq!(app.theme_picker.as_ref().unwrap().scope, ThemeScope::Board);
+        let refresh = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        assert_eq!(app.key(refresh), Effect::None, "picker isolates ctrl-r");
+        assert_eq!(app.key(key(KeyCode::Esc)), Effect::None);
+        assert_eq!(app.key(refresh), Effect::Refresh, "normal refresh resumes");
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
             Effect::Quit
@@ -314,6 +333,65 @@ mod tests {
     }
 
     #[test]
+    fn preview_restyles_tabs_and_summary_and_retains_explicit_tokens() {
+        use crate::attention::Attention;
+        use tmt_cli_style::{Base, Depth, Theme};
+        use unicode_width::UnicodeWidthStr;
+        for override_text in ["", "waiting = \"#010203\"\n"] {
+            let text = format!("[board.theme]\nbase = \"tmt\"\n{override_text}");
+            let (path, config) = fixture("header-preview", &text);
+            let mut app = App::new(Some("product".into()));
+            let mut snapshot = crate::board::app::tests::snapshot("product", json!([]));
+            snapshot.attention.insert(
+                "product".into(),
+                Attention {
+                    waiting: 1,
+                    blocked: 0,
+                },
+            );
+            snapshot.view.as_mut().unwrap().look = Look {
+                theme: Theme::new(Base::Tmt),
+                depth: Depth::TrueColor,
+            };
+            app.apply(snapshot);
+            app.theme_picker = Some(Picker::open(config, Some("product".into())).unwrap());
+            for _ in 0..3 {
+                app.key(key(KeyCode::Down));
+            }
+            assert_eq!(app.look().theme.base, Base::Mono);
+            let mut terminal = Terminal::new(TestBackend::new(108, 28)).unwrap();
+            terminal
+                .draw(|frame| super::super::view::render(frame, &app))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let expected = app.look().role(Role::Waiting).fg.unwrap_or_default();
+            let find = |row: u16, text: &str| {
+                let line: String = (0..108).map(|x| buffer[(x, row)].symbol()).collect();
+                line[..line.find(text).expect("header text")].width() as u16
+            };
+            assert_eq!(
+                buffer[(find(0, "product"), 0)].fg,
+                expected,
+                "tab uses the preview, including retained tokens"
+            );
+            assert_eq!(
+                buffer[(find(1, " · 1 waiting"), 1)].fg,
+                expected,
+                "summary uses the preview, including retained tokens"
+            );
+            if override_text.is_empty() {
+                assert_eq!(expected, ratatui::style::Color::Reset);
+            } else {
+                assert_eq!(expected, ratatui::style::Color::Rgb(1, 2, 3));
+            }
+            app.key(key(KeyCode::Esc));
+            assert_eq!(app.look().theme.base, Base::Tmt);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+            std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[test]
     fn overlay_draws_descriptions_scope_note_footer_and_selection_at_each_depth() {
         let (path, config) = fixture("render", "[squad.product.theme]\nbase = \"mono\"\n");
         let mut picker = Picker::open(config, Some("product".into())).unwrap();
@@ -335,13 +413,13 @@ mod tests {
                 "bold and dim only",
                 "all boards",
                 "this squad",
-                "Board only; CLI colours stay unchanged",
+                "Board only; CLI colors stay unchanged",
                 "Enter save · Esc cancel · Tab scope",
                 "squad product keeps mono (its own setting)",
             ] {
                 assert!(content.contains(text), "missing {text}");
             }
-            let selected = &buffer[(11, 11)];
+            let selected = &buffer[(11, 10)];
             assert_eq!(selected.symbol(), "m");
             assert_eq!(selected.bg, look.selection().bg.unwrap_or_default());
             assert_eq!(
