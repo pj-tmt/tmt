@@ -128,8 +128,12 @@ pub enum Invocation {
         channel: Option<tmt_core::native_install::Channel>,
         exact: Option<String>,
         unpin: bool,
+        yes: bool,
     },
     NativeRefreshSkills,
+    NativeUpgradeExtensions {
+        plan: bool,
+    },
     Uninstall {
         purge: bool,
         yes: bool,

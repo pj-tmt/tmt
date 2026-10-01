@@ -192,16 +192,15 @@ selects only tooling tests; `office:test` explicitly selects app tests and fails
 on empty discovery. Office uses Oxfmt; tooling and repository docs use the
 `typescript/.prettierrc` Prettier configuration. Run
 `pnpm --filter @tmt/office format` for app formatting, not the tooling formatter.
-The distinct Vitest versions are lockfile-owned, not a claim that native tests
-were migrated to the newer app runner.
+Root tooling, native, stress and Docker suites use Vitest 4 alongside the
+extension packages; their separate configurations retain their own test discovery.
 Office wire-schema conformance is a nested tooling test. From `typescript`, run
 `corepack pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
 [`extensions/tmt-office/contracts`](extensions/tmt-office/contracts/README.md) for its single source of truth,
 versioning and limits. Design vectors are not executable authorization or crash
 recovery evidence; downstream suites must prove those behaviors separately.
-Root tooling runs at most two suite workers to avoid simultaneous subprocess
-startup overwhelming the existing per-test budgets; assertion/time limits are
-unchanged. Native process and tmux configurations keep their own execution rules.
+Root tooling uses the threads pool with at most two suite workers. Native process, stress and tmux
+configurations also select the threads pool and retain their own execution rules.
 
 For an Office-only clean checkout, use `pnpm office:install`. It installs from
 the app directory against the same workspace lockfile, without workspace recursion.
@@ -812,6 +811,17 @@ cargo build --locked --example storage-probe
 cargo build --locked --example tmux-probe
 cargo +1.88.0 build --locked
 ```
+
+For the unregistered Codex queue transport (#736), focused deterministic checks
+are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
+`cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
+tests own local loopback peers and exercise receipt loss and absolute deadlines;
+they do not start a model or inspect provider credentials. Dependency review
+also records exact features/graph, Rust 1.88, licenses, current advisories and an
+actual CLI release baseline/candidate under one toolchain/profile. Label a
+zero delta from unused/dead-stripped groundwork honestly and repeat the size
+measurement after the final consumer links it. See the
+[owning contract](contracts/codex-channel-v1.md) for remaining integration gates.
 
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
