@@ -363,11 +363,13 @@ export function e2eGatePasses(scope, results, map = componentMap()) {
   return gatePasses(E2E_JOBS, scope, results, map);
 }
 
-/** `Native Rust contracts`: runtime checks and MSRV, selected together. */
+/** `Native Rust contracts`: clippy, tests, Office feature, native fixtures and MSRV. */
 export function rustGatePasses(scope, results, map = componentMap()) {
   const expected = expectedNativeResults(scope, map)?.nativeRust;
-  if (!expected || results?.length !== 2) return false;
-  return results.every((result) => result === expected);
+  if (!expected || results?.length !== 5) return false;
+  return results.every(
+    (result, index) => result === (scope === 'squad' && index === 2 ? 'skipped' : expected)
+  );
 }
 
 export function readChangedCiSelection(base, head, cwd) {

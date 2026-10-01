@@ -249,18 +249,20 @@ runs a Squad scope under the same job names (its Cargo checks and the architectu
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
 `Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
 Remote Rust has an explicit rule retaining full native and Office coverage; the full
-Rust checks require nonempty remote test discovery and run locked workspace tests,
-Clippy and builds. A parallel `Native Rust MSRV` job runs
-`cargo +"$MSRV" check --locked --workspace --all-targets` for both full and Squad
-scopes, reading `MSRV` from `workspace.package.rust-version` in `rust/Cargo.toml`.
+Rust workers require nonempty remote test discovery and run locked workspace
+tests/builds, fmt/Clippy, Office local-service verification and native process
+tests. The MSRV worker reads `workspace.package.rust-version` in `rust/Cargo.toml` and runs
+`cargo +"$MSRV" check --locked --workspace --all-targets` for full and Squad scopes.
 Rustup resolves the manifest's two-part minimum to its latest patch release,
 rather than duplicating a patch pin in the workflow.
-It replaces the MSRV executable builds and expands Squad MSRV coverage to the
-whole workspace without changing the declared minimum. Its separate
-`native-rust-msrv` cache has one writer, the MSRV job on main; PRs only restore.
-`Native Rust contracts` is the fail-closed aggregator of these two workers. It
-requires both to succeed, rejects missing selection, and stays skipped for scope
-`none`, preserving the outer native gate and required-check names.
+`Native Rust contracts` requires all selected workers and remains required by the
+native gate. Squad skips only the Office worker; none skips the aggregate.
+The native worker receives the feature-enabled Office companion from a dedicated
+fixture producer and checks its SHA-256 before use, so native and Office checks start together
+after fixture production while Clippy and workspace tests run independently. CI sets
+`CARGO_PROFILE_DEV_DEBUG=0` and `CARGO_INCREMENTAL=0` globally. Workers share the
+Rust dependency cache with workspace tests as its sole main-only writer; MSRV
+and runtime-target caches keep their own single main-only writers.
 The remote TypeScript and browser paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
