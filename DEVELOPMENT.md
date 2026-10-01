@@ -1002,7 +1002,6 @@ tokens, schema binding, lexical repeats, scoped IDs and exact expansion limits.
 Run the architecture test for dependency changes, and
 `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
 board/list parity fixture.
-Geometry and painting remain later stages; no production board path consumes markup.
 The parity harness captures all three presets at 120×30, 80×30 and 120×30 again,
 including every cell's style/state, hits, row starts and list text/JSON. Its source
 revision is recorded in the fixture. After an explicitly reviewed output change,
@@ -1019,8 +1018,7 @@ axis. View/col default to column direction; other elements default to row.
 Sizes default to auto, gaps/padding/grow to zero, and shrink to one. Full means
 the parent's available axis. Text defaults to clipping; leaf `wrap="true"` or
 `wrap="false"` selects wrapping or clipping and conflicts with `truncate`.
-`token` must name a shared `Role`; omission preserves inheritance. Binding
-paths, dynamic tokens and row-track attributes await their owning later stages.
+`token` must name a shared `Role`; omission preserves inheritance. Row-track attributes await the grid compiler; geometry and paint remain later stages.
 
 ## Native process and shared tests
 
