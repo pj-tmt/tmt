@@ -74,7 +74,8 @@ function rewriteRemoteBranch(scratch: Scratch) {
   scratch.git(scratch.worktree, 'fetch', '-q');
 }
 
-describe('scripts/dev-worktree-remove.sh', () => {
+// Vitest 4 enforces elapsed time for synchronous subprocess fixtures; allow their setup and runs.
+describe('scripts/dev-worktree-remove.sh', { timeout: 10_000 }, () => {
   it('removes a clean worktree whose commits are all on its upstream', async () => {
     await withScratch((scratch) => {
       const result = scratch.remove();
