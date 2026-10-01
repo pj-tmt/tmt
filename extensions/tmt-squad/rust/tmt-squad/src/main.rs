@@ -14,6 +14,7 @@ mod effects;
 mod filter;
 mod hook_protocol;
 mod hotkeys;
+mod look;
 mod me;
 mod member_actions;
 mod membership;
