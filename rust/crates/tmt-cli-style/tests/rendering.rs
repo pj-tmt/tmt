@@ -33,8 +33,8 @@ fn visible(bytes: Vec<u8>) -> String {
 /// The CLI maps each driver descriptor's hue; these fixture drivers stand in.
 fn hue(driver: &str) -> Token {
     Token::Driver(match driver {
-        "claude" => Some(anstyle::AnsiColor::Magenta),
-        "codex" => Some(anstyle::AnsiColor::Cyan),
+        "claude" => Some(tmt_cli_style::Role::Review),
+        "codex" => Some(tmt_cli_style::Role::Link),
         _ => None,
     })
 }
