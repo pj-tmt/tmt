@@ -6,6 +6,7 @@
 
 pub mod attachment;
 pub mod caller;
+pub mod lease;
 pub mod queue;
 pub mod record;
 pub mod server;
