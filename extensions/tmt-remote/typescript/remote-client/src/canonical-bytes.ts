@@ -83,6 +83,15 @@ function uuid(value: string): void {
   requireValue(value.length === 36 && UUID.test(value), 'UUIDv4');
 }
 
+function agentId(value: string): void {
+  requireValue(
+    value.length === 36 &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value) &&
+      value !== '00000000-0000-0000-0000-000000000000',
+    'canonical core agent UUID',
+  );
+}
+
 function binary(value: Uint8Array, length: number): Uint8Array {
   requireValue(value instanceof Uint8Array && value.length === length, `binary length ${length}`);
   return lp(value);
@@ -193,7 +202,7 @@ export function enrollmentSigningBytes(value: Enrollment): Uint8Array {
     lpText(value.origin),
     lp(name),
     binary(value.publicKey, 32),
-    sortedList(value.agentIds, uuid),
+    sortedList(value.agentIds, agentId),
     sortedList(value.scopes, (scope) => requireValue(SCOPES.includes(scope), 'scope')),
     lpText(value.mode),
   ]);
