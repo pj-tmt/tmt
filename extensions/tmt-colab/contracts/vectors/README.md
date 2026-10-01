@@ -21,9 +21,16 @@ sign-in proof/possession, management digest, ciphertext and envelope hash. Pytho
 is needed only for deliberate regeneration/checking; ordinary Rust tests need no
 Python dependency. A different Python/OpenSSL crypto implementation provides
 independent known answers, not proof of universal curve/renderer behavior.
-Complete schemas, HPKE/link vectors, browser interoperability and the three-engine
+Typed membership/payload schemas, browser interoperability and the three-engine
 missing-engine failure gate remain later L1 work.
 
 `keys.jsonl` retains #829 device/owner/link/RFC9180 recipient public keys and
 [RFC8032 test 1](https://www.rfc-editor.org/rfc/rfc8032#section-7.1) /
 [RFC7748 section 6.1](https://www.rfc-editor.org/rfc/rfc7748#section-6.1) key KATs.
+
+`authority-reference.py` independently computes RFC9180 Base AES256GCM wraps,
+owner signatures, chain digests and purpose-separated link keys. Its frozen
+`authority-v1.json` uses #829 public recipient/ephemeral fixtures with the actual
+owner signer bound into the header. Ephemeral fixture secrets are generator-only;
+the runtime seal API always generates fresh ephemeral keys. The owner statement
+bytes anchor the chain fixture and do not implement owner-log admission.

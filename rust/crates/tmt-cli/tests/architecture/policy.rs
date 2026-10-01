@@ -221,6 +221,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Colab model owns pure codecs and fixed crypto, not core or extension behavior.
         "tmt-colab-model" => &[
+            "hpke",
             "x25519-dalek",
             "aes-gcm",
             "base64",

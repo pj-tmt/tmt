@@ -3147,12 +3147,16 @@ CLI releases. #841 gates yrs adoption. Official registration/packaging is separa
 syntax, deterministic Ed25519/X25519 public derivation, bounded LP framing,
 strict Ed25519, sign-in HMAC/possession, management
 bytes, namespace-bound cuts and immutable object codecs/seal/open. Its only OS
-operation is CSPRNG entropy for internal object IDs. No core or extension behavior
+operations are crypto-only entropy for internal object IDs and fresh HPKE
+ephemeral keys. Long-term key generation stays in the executable keyring; no
+filesystem, process or network use. No core or extension behavior
 crate depends on it yet; the architecture guard rejects runtime/core dependencies
 and unreviewed consumers. Envelope syntax/signature success does not establish
 log, session, role, epoch or sequence authority; callers admit those before open.
-Typed membership/payload schemas, HPKE/link derivation, browser client and the
-three-engine harness remain later L1 work. Frozen vectors are contract-owned;
+The model also owns device/chain syntax, purpose-separated link keys and
+owner-authenticated HPKE Base wraps. Caller-owned live-issuer/history/transition
+policy still gates application. Typed membership/payload schemas, browser client,
+pairing/send/baseline builders and the three-engine harness remain later L1 work. Frozen vectors are contract-owned;
 Rust tests read them without Python. Regeneration uses an independent Python
 cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 
