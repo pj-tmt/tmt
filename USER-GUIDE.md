@@ -759,6 +759,7 @@ terminals without the board:
 
 ```sh
 tmt squad jump auth-fix                     # show its pane in your tmux client
+tmt squad jump --lead                       # show your squad's lead
 tmt squad back                              # return to where the last jump came from
 tmt squad open auth-fix                     # pr_link, else link, else another *_link
 tmt squad open auth-fix --link issue_link
@@ -799,7 +800,10 @@ jump, from the board or the command, records where your tmux client came from;
 where your client is now: the member's pane, a new popup, or a key binding such
 as `bind B run-shell "tmt squad back"`. A board left behind by its own jump no
 longer shows your client, so its Backspace cannot return it. With nothing
-recorded, `back` says so and changes nothing. The record is disposable, kept per
+recorded, `back` says so and changes nothing. `jump --lead` jumps to the lead
+of the squad you are in (the identity of the pane you run it from), of the only
+squad, or of `--squad <name>`; if you are in several squads it asks for
+`--squad`, and a squad without a lead is an error that changes nothing. The record is disposable, kept per
 tmux server and client under `$XDG_CACHE_HOME/tmt-squad` (or
 `~/.cache/tmt-squad`), at most 32 entries.
 
@@ -834,6 +838,7 @@ choose other keys in `squad.toml`:
 popup = "S"      # the defaults; a single key, C-x, M-x or F1-F12
 pane  = "B"
 back  = "b"      # optional: prefix b runs `tmt squad back`
+lead  = "L"      # optional: prefix L runs `tmt squad jump --lead` for its pane
 ```
 
 The bindings run the `tmt` found on your PATH (for example `~/.local/bin/tmt`),

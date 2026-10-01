@@ -156,6 +156,7 @@ pub const JUMP: &CommandSpec = spec!(
     "Show a member's pane in your tmux client (tmt focus)",
     [
         "Show a member's pane in your tmux client" => "tmt squad jump auth-fix",
+        "Show your squad's lead" => "tmt squad jump --lead",
     ]
 );
 

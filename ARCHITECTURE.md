@@ -2430,7 +2430,10 @@ prefers the configured program, then, inside tmux, `tmux -S <invoker socket>
 load-buffer -w -`: `-V` must report 3.2 or later, and `show -sv set-clipboard`
 decides whether the text reached the clipboard or only a buffer. Otherwise copy
 writes OSC 52 to `/dev/tty`. `jump` checks membership and then calls `tmt
-focus`; squad has no focus logic of its own.
+focus`; squad has no focus logic of its own. `jump --lead` finds the squad
+from `--squad`, else the caller's identity (`tmt whoami`) in exactly one
+squad roster, else the only squad, and jumps to that roster's lead the same
+way; no lead is a refusal before any focus.
 `action` parses `[bind]` and `[squad.<name>.section.bind]` once per load into
 events and actions whose arguments are templates; bad events, actions or field
 syntax are configuration errors. The board resolves the selected row's section
@@ -2451,7 +2454,9 @@ disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 Every jump pushes the pane the client left, under the client `tmt focus`
 reports; `back` asks core for the invoker's client with `tmt focus --client`,
 pops its entry and focuses it, so squad still never talks to tmux about clients.
-`hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back`)
+`hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back|lead`;
+the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it
+passes `TMUX_PANE=#{pane_id}` for core to name the caller)
 and owns one `source-file` line in the user's tmux configuration. It edits that
 file only after consent, rereads it before publication, keeps a byte-exact
 backup and replaces it atomically with the original mode; removal drops only
