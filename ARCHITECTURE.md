@@ -2955,7 +2955,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 as `tmt remote`. `main` owns style/foreground composition and one bounded
 startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
-`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee.
 
 `http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
 connection/rate bounds and shutdown. It has no CoreClient/storage reference.
