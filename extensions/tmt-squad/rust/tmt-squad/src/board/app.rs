@@ -23,6 +23,7 @@ use std::{
 pub struct View {
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
+    pub(super) derived: RefCell<super::derived::Derived>,
     pub rows: crate::rows::Rows,
     pub colors: BTreeMap<String, String>,
     pub board: Board,
@@ -370,7 +371,9 @@ impl App {
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
-        self.attention = snapshot.attention;
+        self.attention
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
+        self.attention.extend(snapshot.attention);
         if self.current.is_some() && snapshot.squad != self.current {
             if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
                 self.cache.insert(name, view);
@@ -468,6 +471,7 @@ impl App {
         // Never blank the screen: a visited squad shows from the cache at
         // once; otherwise the current frame stays until the new one arrives.
         if let Some(cached) = self.cache.remove(&next) {
+            self.loading_since = None;
             let previous = self.view.replace(cached);
             if let (Some(previous), Some(name)) = (previous, self.shown.replace(next.clone())) {
                 self.cache.insert(name, previous);
@@ -1072,6 +1076,7 @@ pub(crate) mod tests {
 
     fn view(sections: Value) -> View {
         View {
+            derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
             colors: BTreeMap::new(),

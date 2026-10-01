@@ -1634,6 +1634,20 @@ sort = ["state", "-name"]
         }
         fs::write(&path, "").unwrap();
         let config = Config::read(path.clone()).unwrap();
+        for tmux in [true, false] {
+            assert_eq!(
+                config.bindings(tmux).unwrap()["f5"].verb,
+                crate::action::Verb::Refresh
+            );
+        }
+        fs::write(&path, "[bind]\nf5 = \"copy\"\n").unwrap();
+        let rebound = Config::read(path.clone()).unwrap();
+        for tmux in [true, false] {
+            assert_eq!(
+                rebound.bindings(tmux).unwrap()["f5"].verb,
+                crate::action::Verb::Copy
+            );
+        }
         assert_eq!(
             config.bindings(false).unwrap()["double-click"].verb,
             crate::action::Verb::Menu
