@@ -82,7 +82,7 @@ tmt squad hotkeys install           # shows the plan and asks
 Do these in order, and stop at the first step the user hasn't approved.
 
 ```sh
-tmt squad remove "$member"                      # off the board; the agent keeps running
+tmt squad rm "$member"                          # off the board; the agent keeps running
 git -C "$worktree" status --short               # anything uncommitted or untracked?
 git -C "$worktree" log --oneline "$base..HEAD"  # commits that are not in the base branch?
 ```

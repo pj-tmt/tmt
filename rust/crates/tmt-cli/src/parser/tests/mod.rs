@@ -4,6 +4,7 @@ mod extension;
 mod guidance;
 mod identity;
 mod messaging;
+mod naming;
 mod native_install;
 mod notes;
 mod office;

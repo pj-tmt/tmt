@@ -298,7 +298,7 @@ removes that log; a failed or killed observer leaves it for diagnosis.
 
 `--wait` is rejected; talk rejects `--lines` while check
 retains it. Stored mode/maxCaptureLines values are inert, not automatically
-rewritten; explicit local `config clear mode` deletes only that obsolete key.
+rewritten; explicit local `config rm mode` deletes only that obsolete key.
 Historical migrations/nonce columns stay unchanged; new attempts omit nonce.
 
 The Docker peer submits through the real public reply CLI, logs causal
@@ -398,9 +398,9 @@ The attention contract is identity-scoped and explicit:
   acknowledged as an exception for attention management, but that is not
   successful work or a delivered result.
 
-The command surface is `tmt x list`, `tmt x show <request-id>`,
+The command surface is `tmt x ls`, `tmt x show <request-id>`,
 `tmt x ack <request-id> --revision <revision>`, and `tmt x ackall`.
-`tmt x` is equivalent to `tmt x list`. All accept command-local `--identity`
+`tmt x` is equivalent to `tmt x ls`. All accept command-local `--identity`
 and `--json`; only list accepts `--limit` and `--after`, and only ack accepts
 the mandatory `--revision`. Old `ack --all` and batch tokens are rejected.
 

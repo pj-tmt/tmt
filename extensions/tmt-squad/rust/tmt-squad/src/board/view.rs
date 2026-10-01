@@ -143,8 +143,17 @@ fn grid_line(
                 .as_array()
                 .is_some_and(|failed| failed.iter().any(|name| name == field))
         });
+        // A cell's own color: `state` by its state, any other field by the
+        // token `status::document` resolved for it (a threshold or a
+        // provider's). Decoration only: the text says the same without it.
+        let token = cell
+            .field
+            .as_deref()
+            .and_then(|field| row["colors"][field].as_str());
         let style = if cell.field.as_deref() == Some("state") {
             look.named(colors.get(text).map_or("default", String::as_str))
+        } else if let Some(token) = token {
+            look.named(token)
         } else if failed {
             // A field provider's run failed: its `?` stays quiet.
             look.named("dim")
@@ -1492,6 +1501,47 @@ lines = [
 
     fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::config::Board {
         crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
+    }
+
+    #[test]
+    fn a_cell_shows_its_resolved_color_token_as_decoration() {
+        let mut app = board(json!([{"title": null, "rows": [
+            row("auth-fix", "working", "rotate", json!({"colors": {"task": "blocked"}})),
+            row("docs", "working", "write", json!({
+                "colors": {"task": "review"},
+                "staleness": {"state": "stale", "ageMs": 3_600_000},
+            })),
+            row("ci", "working", "fix", json!({})),
+        ]}]));
+        app.selected = 0;
+        let cell = |app: &App, name: &str| {
+            let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+            terminal.draw(|frame| render(frame, app)).unwrap();
+            let buffer = terminal.backend().buffer().clone();
+            let screen = draw(app, 60, 8);
+            let y = screen.iter().position(|line| line.contains(name)).unwrap();
+            let x = screen[y].find(match name {
+                "auth-fix" => "rotate",
+                "docs" => "write",
+                _ => "fix",
+            });
+            buffer[(x.unwrap() as u16, y as u16)].clone()
+        };
+        let role = |app: &App, role: Role| app.look().role(role).fg.unwrap_or_default();
+        // The selected row stays reversed, its cell in its token.
+        let selected = cell(&app, "auth-fix");
+        assert_eq!(selected.fg, role(&app, Role::Blocked));
+        assert!(selected.modifier.contains(Modifier::REVERSED));
+        // On a stale (dim) row the cell's own color still shows.
+        assert_eq!(cell(&app, "docs").fg, role(&app, Role::Review));
+        // No token: no color of its own.
+        assert_ne!(cell(&app, "ci").fg, role(&app, Role::Blocked));
+        // Without color the text is all there is.
+        app.view.as_mut().unwrap().look = crate::look::Look {
+            theme: tmt_cli_style::Theme::default(),
+            depth: tmt_cli_style::Depth::None,
+        };
+        assert_eq!(cell(&app, "auth-fix").fg, ratatui::style::Color::Reset);
     }
 
     #[test]

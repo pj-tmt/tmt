@@ -25,7 +25,7 @@ pub(crate) const OWN_FIELDS: &[&str] = &["member", "role", "state", "pending", "
 const NARROWEST: usize = 4;
 
 /// One grid column: the field it shows by default, its header and sizing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     pub field: String,
     pub title: String,
@@ -41,6 +41,16 @@ pub struct Column {
     /// Where the value comes from, when not the squad field of its name.
     pub from: Option<ColumnSource>,
     pub format: Format,
+    /// Numeric thresholds, strictly increasing: a value at or above `at`
+    /// shows that token, the highest reached winning.
+    pub color: Vec<Threshold>,
+}
+
+/// From `at` upward, a cell's value shows `token` (a theme token).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Threshold {
+    pub at: f64,
+    pub token: String,
 }
 
 impl Column {
@@ -57,7 +67,17 @@ impl Column {
             priority: None,
             from: None,
             format: Format::Text,
+            color: Vec::new(),
         }
+    }
+
+    /// The token of the highest threshold `number` reaches, if any.
+    pub fn threshold(&self, number: f64) -> Option<&str> {
+        self.color
+            .iter()
+            .rev()
+            .find(|threshold| number >= threshold.at)
+            .map(|threshold| threshold.token.as_str())
     }
 
     /// Where the column's value comes from, when it is not shown as the
@@ -118,7 +138,7 @@ pub struct Cell {
     pub span: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Rows {
     pub columns: Vec<Column>,
     /// At least one line; each line's spans cover at most every column.
@@ -241,6 +261,54 @@ fn title(value: &Item, place: &str) -> Result<String, SquadError> {
         .filter(|title| title.len() <= 40 && !title.chars().any(char::is_control))
         .map(str::to_owned)
         .ok_or_else(|| invalid(format!("`{place}` must be one short line.")))
+}
+
+/// `[{ at = <number>, token = "<theme token>" }, …]`, strictly increasing.
+fn thresholds(value: &Item, place: &str) -> Result<Vec<Threshold>, SquadError> {
+    let shape = || {
+        invalid(format!(
+            "`{place}` must be a list of {{ at = <number>, token = \"<theme token>\" }}, at strictly increasing."
+        ))
+    };
+    let entries = value.as_array().ok_or_else(shape)?;
+    let mut thresholds: Vec<Threshold> = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let here = format!("{place}[{index}]");
+        let table = entry.as_inline_table().ok_or_else(shape)?;
+        if let Some((key, _)) = table.iter().find(|(key, _)| !["at", "token"].contains(key)) {
+            return Err(invalid(format!(
+                "`{here}.{key}` is not a threshold setting; use at and token."
+            )));
+        }
+        let at = table
+            .get("at")
+            .and_then(|at| {
+                at.as_float()
+                    .or_else(|| at.as_integer().map(|at| at as f64))
+            })
+            .filter(|at| at.is_finite())
+            .ok_or_else(|| invalid(format!("`{here}.at` must be a number.")))?;
+        let token = table
+            .get("token")
+            .and_then(|token| token.as_str())
+            .filter(|token| crate::look::role(token).is_some())
+            .ok_or_else(|| {
+                invalid(format!(
+                    "`{here}.token` must be a theme token: {}.",
+                    crate::look::names()
+                ))
+            })?;
+        if thresholds.last().is_some_and(|last| at <= last.at) {
+            return Err(invalid(format!(
+                "`{here}.at` must be greater than the threshold before it."
+            )));
+        }
+        thresholds.push(Threshold {
+            at,
+            token: token.to_owned(),
+        });
+    }
+    Ok(thresholds)
 }
 
 fn number(
@@ -392,12 +460,7 @@ fn read_column(
                     invalid(format!("`{place}` must be text, tokens, age or count."))
                 })?;
             }
-            // Kept for value colors, so adding them reshapes nothing.
-            "color" => {
-                return Err(invalid(format!(
-                    "`{place}` is not available yet; it arrives with theme tokens (#503, #514)."
-                )));
-            }
+            "color" => column.color = thresholds(value, &place)?,
             other => {
                 return Err(invalid(format!(
                     "`{here}.{other}` is not a column setting."

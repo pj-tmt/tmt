@@ -11,7 +11,7 @@ and SQLite repository; no room-specific copies or status event log are required.
 ```sh
 tmt identity status set "Reviewing the renderer" --mood "focused" --for 60m
 tmt identity status show --identity Alice --json
-tmt identity status clear --identity Alice
+tmt identity status rm --identity Alice
 ```
 
 Each operation accepts `--identity`. Omission uses the existing verified caller

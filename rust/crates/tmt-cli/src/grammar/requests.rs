@@ -36,7 +36,7 @@ pub(in crate::grammar) fn exchanges() -> Command {
                 "x",
                 "Inspect and acknowledge exchanges",
                 [
-                    "List unacknowledged exchanges" => "tmt x list",
+                    "List unacknowledged exchanges" => "tmt x ls",
                     "Wait for incoming inbox work" => "tmt x listen",
                 ]
             )),
@@ -44,13 +44,13 @@ pub(in crate::grammar) fn exchanges() -> Command {
         )
         .subcommand(with_options(
             storage(spec!(
-                "list",
+                "ls",
                 "List unacknowledged exchanges",
                 [
-                    "List unacknowledged exchanges" => "tmt x list",
-                    "Show at most 20" => "tmt x list --limit 20",
+                    "List unacknowledged exchanges" => "tmt x ls",
+                    "Show at most 20" => "tmt x ls --limit 20",
                 ]
-            )),
+            )).alias("list"),
             &["identity", "limit", "after"],
         ))
         .subcommand(

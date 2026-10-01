@@ -250,6 +250,7 @@ mod tests {
             fields: BTreeMap::from([("state".into(), "working".into())]),
             meta: BTreeMap::from([("team.role".into(), "reviewer".into())]),
             numbers: BTreeMap::new(),
+            colors: Default::default(),
             failed: Default::default(),
             seen,
         }

@@ -31,6 +31,82 @@ use std::{
 };
 use tmt_adapters::process::{CommandRequest, CommandRunner, UnixCommandRunner};
 
+// Reviewed package boundaries and manifest owners; implementation files are not fixed.
+const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
+    ("tmt-core", "rust/crates/tmt-core/Cargo.toml"),
+    ("tmt-adapters", "rust/crates/tmt-adapters/Cargo.toml"),
+    ("tmt-cli", "rust/crates/tmt-cli/Cargo.toml"),
+    ("tmt-cli-style", "rust/crates/tmt-cli-style/Cargo.toml"),
+    ("tmt-invoke", "rust/crates/tmt-invoke/Cargo.toml"),
+    (
+        "tmt-command-output",
+        "rust/crates/tmt-command-output/Cargo.toml",
+    ),
+    (
+        "tmt-driver-protocol",
+        "rust/crates/tmt-driver-protocol/Cargo.toml",
+    ),
+    (
+        "tmt-host-grammar",
+        "rust/crates/tmt-host-grammar/Cargo.toml",
+    ),
+    (
+        "tmt-office",
+        "extensions/tmt-office/rust/tmt-office/Cargo.toml",
+    ),
+    (
+        "tmt-office-command",
+        "extensions/tmt-office/rust/tmt-office-command/Cargo.toml",
+    ),
+    (
+        "tmt-office-model",
+        "extensions/tmt-office/rust/tmt-office-model/Cargo.toml",
+    ),
+    (
+        "tmt-office-pairing",
+        "extensions/tmt-office/rust/tmt-office-pairing/Cargo.toml",
+    ),
+    (
+        "tmt-office-service",
+        "extensions/tmt-office/rust/tmt-office-service/Cargo.toml",
+    ),
+    (
+        "tmt-office-storage",
+        "extensions/tmt-office/rust/tmt-office-storage/Cargo.toml",
+    ),
+    (
+        "tmt-squad",
+        "extensions/tmt-squad/rust/tmt-squad/Cargo.toml",
+    ),
+    (
+        "tmt-remote",
+        "extensions/tmt-remote/rust/tmt-remote/Cargo.toml",
+    ),
+];
+
+fn manifest_location_violation(package: &serde_json::Value, repository: &Path) -> Option<String> {
+    let name = package["name"].as_str().expect("Cargo package name");
+    let (_, relative) = WORKSPACE_MANIFESTS
+        .iter()
+        .find(|(reviewed, _)| *reviewed == name)
+        .expect("workspace package names were reviewed");
+    let expected = repository.join(relative);
+    let actual = Path::new(
+        package["manifest_path"]
+            .as_str()
+            .expect("Cargo manifest path"),
+    );
+    (actual != expected).then(|| {
+        format!(
+            "{name} manifest is {}, expected {}. Restore its documented owner directory or \
+             review the architecture ownership docs and change the ({name:?}, {relative:?}) entry in \
+             WORKSPACE_MANIFESTS in rust/crates/tmt-cli/tests/architecture.rs.",
+            actual.display(),
+            expected.display(),
+        )
+    })
+}
+
 #[test]
 fn workspace_obeys_native_architecture() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml");
@@ -69,27 +145,21 @@ fn workspace_obeys_native_architecture() {
         .collect();
     assert_eq!(
         packages,
-        BTreeSet::from([
-            "tmt-core",
-            "tmt-adapters",
-            "tmt-cli",
-            "tmt-cli-style",
-            "tmt-invoke",
-            "tmt-command-output",
-            "tmt-driver-protocol",
-            "tmt-host-grammar",
-            "tmt-office",
-            "tmt-office-command",
-            "tmt-office-model",
-            "tmt-office-pairing",
-            "tmt-office-service",
-            "tmt-office-storage",
-            "tmt-squad",
-            "tmt-remote"
-        ]),
+        WORKSPACE_MANIFESTS
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<BTreeSet<_>>(),
         "Review native package boundaries when changing workspace members"
     );
+    let repository = Path::new(
+        metadata["workspace_root"]
+            .as_str()
+            .expect("Cargo workspace root"),
+    )
+    .parent()
+    .expect("the Rust workspace has a repository parent");
     for package in metadata["packages"].as_array().expect("Cargo packages") {
+        violations.extend(manifest_location_violation(package, repository));
         violations.extend(policy::dependency_violations(package));
         for target in package["targets"].as_array().expect("Cargo targets") {
             let kind = target["kind"].as_array().expect("Cargo target kinds");
@@ -184,5 +254,38 @@ fn workspace_obeys_native_architecture() {
         violations.is_empty(),
         "Native architecture violations:\n{}",
         violations.join("\n")
+    );
+}
+
+#[test]
+fn core_manifest_in_its_documented_owner_is_accepted() {
+    let package = serde_json::json!({
+        "name": "tmt-core",
+        "manifest_path": "/repository/rust/crates/tmt-core/Cargo.toml",
+    });
+    assert_eq!(
+        manifest_location_violation(&package, Path::new("/repository")),
+        None
+    );
+}
+
+#[test]
+fn relocated_core_manifest_names_the_reviewed_entry_to_change() {
+    let package = serde_json::json!({
+        "name": "tmt-core",
+        "manifest_path": "/repository/extensions/tmt-core/Cargo.toml",
+    });
+    assert_eq!(
+        manifest_location_violation(&package, Path::new("/repository")),
+        Some(
+            concat!(
+                "tmt-core manifest is /repository/extensions/tmt-core/Cargo.toml, ",
+                "expected /repository/rust/crates/tmt-core/Cargo.toml. ",
+                "Restore its documented owner directory or review the architecture ownership docs and change the ",
+                "(\"tmt-core\", \"rust/crates/tmt-core/Cargo.toml\") entry in ",
+                "WORKSPACE_MANIFESTS in rust/crates/tmt-cli/tests/architecture.rs.",
+            )
+            .into()
+        ),
     );
 }

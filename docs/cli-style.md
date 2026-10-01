@@ -151,6 +151,16 @@ Human output shows readable forms (`value`). `--json` always keeps the full valu
 - One-line messages drop a single final period. The stored message, and
   therefore `--json`, keeps it.
 
+## Command names
+
+Use `ls` for listing, `rm` for removal/reset, `mv` for identity renaming, and
+`show` for displaying a record. Root `uninstall` retains its distinct whole-product
+meaning; descriptive domain verbs remain when a shell verb would mislead. Old
+long spellings stay accepted as hidden aliases: help, docs and examples show the
+primary names; completion may offer both. Removal help must state exactly what
+is removed or reset and what is retained. The recursive `list_spelling_report`
+guard checks `ls` with a hidden `list` alias in every nested listing command.
+
 ## Help
 
 Every command is built from a `CommandSpec`: summary, examples, output modes
