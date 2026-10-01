@@ -114,8 +114,8 @@ fn grid_line(
     cells: &[RowCell],
     row: &Value,
     first: bool,
-) -> Option<Vec<Span<'static>>> {
-    let mut spans = Vec::new();
+) -> Option<Vec<Vec<Span<'static>>>> {
+    let mut fitted = Vec::new();
     let mut position = 0;
     let mut shown_any = false;
     for cell in cells {
@@ -157,15 +157,46 @@ fn grid_line(
         } else {
             Style::new()
         };
-        if !spans.is_empty() {
-            spans.push(Span::raw(" ".repeat(GAP)));
-        }
-        spans.push(Span::styled(
-            grid::fit(text, width, column.align, column.truncate),
+        fitted.push((
+            grid::fit_lines(
+                text,
+                width,
+                column.align,
+                column.truncate,
+                column.overflow.unwrap_or_default(),
+            ),
             style,
+            width,
         ));
     }
-    (first || shown_any).then_some(spans)
+    if !first && !shown_any {
+        return None;
+    }
+    let height = fitted
+        .iter()
+        .map(|(lines, _, _)| lines.len())
+        .max()
+        .unwrap_or(1);
+    Some(
+        (0..height)
+            .map(|line| {
+                let mut spans = Vec::new();
+                for (values, style, width) in &fitted {
+                    if !spans.is_empty() {
+                        spans.push(Span::raw(" ".repeat(GAP)));
+                    }
+                    spans.push(Span::styled(
+                        values
+                            .get(line)
+                            .cloned()
+                            .unwrap_or_else(|| " ".repeat(*width)),
+                        *style,
+                    ));
+                }
+                spans
+            })
+            .collect(),
+    )
 }
 
 /// Puts a row's age at the right edge of its first line when it fits after
@@ -501,6 +532,7 @@ fn summary_line(app: &App) -> Line<'_> {
 pub fn render(frame: &mut Frame, app: &App) {
     let look = app.look();
     app.hits.borrow_mut().clear();
+    app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
     let [tabs, summary, body, footer] = Layout::vertical([
@@ -1010,7 +1042,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         ),
         look.role(Role::Muted),
     ))];
-    let mut selected_line = 0;
+    let mut selected_lines = 0..0;
     let mut row_index = 0;
     // The screen lines of each row, for mouse events.
     let mut row_lines = Vec::new();
@@ -1022,9 +1054,8 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             ))),
             Item::Row(row) => {
                 let selected = row_index == app.selected;
-                if selected {
-                    selected_line = lines.len();
-                }
+                let start = lines.len();
+                app.row_starts.borrow_mut().push(start);
                 let marker = if row["pending"].is_string() {
                     "◆ "
                 } else {
@@ -1046,13 +1077,16 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     let Some(cells) = grid_line(look, rows, widths, cells, row, first) else {
                         continue;
                     };
-                    let mut spans = vec![Span::raw(if first { marker } else { "  " })];
-                    spans.extend(cells);
-                    if let Some(age) = age.as_deref().filter(|_| first) {
-                        age_mark(&mut spans, age, usize::from(area.width), look);
+                    for (visual, cells) in cells.into_iter().enumerate() {
+                        let initial = first && visual == 0;
+                        let mut spans = vec![Span::raw(if initial { marker } else { "  " })];
+                        spans.extend(cells);
+                        if let Some(age) = age.as_deref().filter(|_| initial) {
+                            age_mark(&mut spans, age, usize::from(area.width), look);
+                        }
+                        row_lines.push((lines.len(), row_index));
+                        lines.push(Line::from(spans).style(style));
                     }
-                    row_lines.push((lines.len(), row_index));
-                    lines.push(Line::from(spans).style(style));
                 }
                 if let Some(note) = row["note"].as_str().filter(|_| !note_column) {
                     lines.push(Line::from(Span::styled(
@@ -1072,6 +1106,9 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     )));
                     row_lines.push((lines.len() - 1, row_index));
                 }
+                if selected {
+                    selected_lines = start..lines.len();
+                }
                 row_index += 1;
             }
         }
@@ -1090,7 +1127,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     // it; the column header scrolls with the list.
     if app.follow {
         app.scrolls
-            .reveal(Pane::Rows, selected_line, area, lines.len());
+            .reveal_range(Pane::Rows, selected_lines, area, lines.len());
     }
     let (offset, viewport) = app
         .scrolls
@@ -1337,6 +1374,70 @@ lines = [
     }
 
     #[test]
+    fn percentage_wrapping_keeps_continuation_hits_selection_and_visual_paging() {
+        let mut app = board(json!([{ "title": null, "rows": [
+            row("a", "", "alpha beta gamma delta", json!({})),
+            row("b", "", "alpha beta gamma delta", json!({})),
+            row("c", "", "alpha beta gamma delta", json!({})),
+            row("d", "", "alpha beta gamma delta", json!({})),
+        ] }]));
+        app.view.as_mut().unwrap().rows = rows_from(
+            r#"[p.rows]
+columns = [{ name = "member", width = "30%" },
+           { name = "task", width = "70%", overflow = "wrap", max_lines = 2 }]
+"#,
+        );
+        let screen = draw(&app, 20, 10);
+        assert_eq!(screen[3], "  a     alpha beta");
+        assert_eq!(screen[4], "        gamma delta");
+        assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
+        let hits: Vec<_> = app
+            .hits
+            .borrow()
+            .iter()
+            .map(|hit| (hit.y, hit.row))
+            .collect();
+        assert!(hits.contains(&(3, 0)) && hits.contains(&(4, 0)));
+        app.selected = 1;
+        app.mouse(
+            ratatui::crossterm::event::MouseEvent {
+                kind: ratatui::crossterm::event::MouseEventKind::Down(
+                    ratatui::crossterm::event::MouseButton::Left,
+                ),
+                column: 8,
+                row: 4,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert_eq!(app.selected, 0, "a continuation click selects its record");
+        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(
+            app.selected, 2,
+            "a page crosses visual lines, not six records"
+        );
+        draw(&app, 20, 10);
+        app.key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert_eq!(app.selected, 0);
+        app.selected = 3;
+        let screen = draw(&app, 20, 7);
+        assert!(
+            screen.iter().any(|line| line.contains("d     alpha beta")),
+            "{screen:?}"
+        );
+        assert!(
+            screen.iter().any(|line| line.contains("gamma delta")),
+            "{screen:?}"
+        );
+        assert!(app.hits.borrow().iter().filter(|hit| hit.row == 3).count() == 2);
+        for width in [8, 12, 18] {
+            let screen = draw(&app, width, 7);
+            assert!(screen.iter().all(|line| line.width() <= usize::from(width)));
+            assert!(app.hits.borrow().iter().all(|hit| hit.row < 4));
+        }
+    }
+
+    #[test]
     fn middle_truncation_keeps_both_ends_of_a_link() {
         let mut app = board(json!([{"title": null, "rows": [
             row("docs", "working", "", json!({"fields": {"link": "https://github.com/wkh237/tmt/pull/4242"}})),
@@ -1514,11 +1615,13 @@ lines = [
             let row =
                 json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
             let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &row, true).unwrap();
-            assert_eq!(spans[0].style.fg, look.named("review").fg);
-            assert_eq!(spans[0].content.trim(), state);
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0][0].style.fg, look.named("review").fg);
+            assert_eq!(spans[0][0].content.trim(), state);
             let plain = json!({"state": state, "fields": {"state": state}});
             let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &plain, true).unwrap();
-            assert_eq!(spans[0].style, Style::new());
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0][0].style, Style::new());
         }
     }
 

@@ -2,7 +2,7 @@ use super::*;
 
 fn content(basis: usize) -> Track {
     Track {
-        basis,
+        basis: Basis::Cells(basis),
         min: 4,
         max: None,
         grow: 0,
@@ -205,7 +205,7 @@ fn solved_rows_never_exceed_the_width_unless_nothing_more_can_give_way() {
             .map(|_| {
                 let min = random.next(6);
                 Track {
-                    basis: random.next(40),
+                    basis: Basis::Cells(random.next(40)),
                     min,
                     max: (random.next(3) == 0).then(|| min + random.next(30)),
                     grow: random.next(3) as u16,
@@ -256,5 +256,102 @@ fn fit_escapes_control_characters_before_measuring() {
         assert!(!cut.chars().any(|c| c.is_control()), "{raw:?}: {cut:?}");
         // Idempotent: fitting already escaped text changes nothing more.
         assert_eq!(fit(shown, 20, Align::Left, Truncate::End).trim_end(), shown);
+    }
+}
+
+fn percent(value: u8) -> Track {
+    Track {
+        basis: Basis::Percent(value),
+        min: 0,
+        ..content(0)
+    }
+}
+
+#[test]
+fn shares_use_data_width_and_largest_remainders_before_grow() {
+    for available in 4..300 {
+        let widths = solve(&[percent(33), percent(33), percent(34)], Some(available), 2);
+        assert_eq!(widths.iter().flatten().sum::<usize>() + 4, available);
+    }
+    assert_eq!(
+        solve(&[percent(33), percent(33), percent(34)], Some(14), 2),
+        [Some(3), Some(3), Some(4)]
+    );
+    assert_eq!(
+        solve(&[percent(50), percent(50)], Some(12), 1),
+        [Some(6), Some(5)]
+    );
+    let growing = Track {
+        grow: 1,
+        min: 0,
+        ..content(0)
+    };
+    assert_eq!(
+        solve(&[percent(25), growing], Some(22), 2),
+        [Some(5), Some(15)]
+    );
+    let bounded = Track {
+        min: 3,
+        max: Some(6),
+        ..percent(80)
+    };
+    assert_eq!(solve(&[bounded, growing], Some(22), 2), [Some(6), Some(14)]);
+    assert_eq!(
+        solve(&[percent(50), percent(50)], Some(0), 2),
+        [Some(0), Some(0)]
+    );
+}
+
+#[test]
+fn hidden_columns_change_the_percentage_basis_and_separator_budget() {
+    let hidden = Track {
+        priority: Some(1),
+        ..Track::fixed(20)
+    };
+    assert_eq!(
+        solve(&[percent(100), hidden], Some(12), 2),
+        [Some(12), None]
+    );
+}
+
+#[test]
+fn wrapping_is_bounded_aligned_and_uses_a_final_end_ellipsis() {
+    let wrap = Overflow::Wrap { max_lines: 2 };
+    assert_eq!(
+        fit_lines(
+            "alpha beta gamma delta",
+            8,
+            Align::Left,
+            Truncate::Middle,
+            wrap
+        ),
+        ["alpha   ", "beta ga…"]
+    );
+    assert_eq!(
+        fit_lines("abcdefghijk", 4, Align::Left, Truncate::End, wrap),
+        ["abcd", "efg…"]
+    );
+    assert_eq!(
+        fit_lines("中文文本更多", 4, Align::Left, Truncate::End, wrap),
+        ["中文", "文… "]
+    );
+    assert_eq!(fit_lines("中", 1, Align::Left, Truncate::End, wrap), ["…"]);
+    assert_eq!(fit_lines("abc", 0, Align::Left, Truncate::End, wrap), [""]);
+    assert_eq!(
+        fit_lines("a\nb", 3, Align::Left, Truncate::End, wrap),
+        ["a\\n", "b  "]
+    );
+    for width in 0..12 {
+        for text in [
+            "a\nb\t\u{1b}[31m",
+            "中文文本更多",
+            "abc def ghijklmnop",
+            "a\u{301}x",
+        ] {
+            let lines = fit_lines(text, width, Align::Center, Truncate::Middle, wrap);
+            assert!(lines.len() <= 2);
+            assert!(lines.iter().all(|line| line.width() == width));
+            assert!(lines.iter().all(|line| !line.chars().any(char::is_control)));
+        }
     }
 }

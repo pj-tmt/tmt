@@ -24,6 +24,18 @@ squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
 the fields each line of a row shows (`{field, span}`, field null for an empty
 cell).
 
+- A column's `width` is null, a cell count or a percentage string such as
+  `"30%"`. Configured percentage widths total at most 100% and resolve against data width
+  after row marks and gaps; `min`/`max` remain cells.
+- A column has `overflow` only when configured: `"ellipsis"` or `"wrap"`.
+  Without it, cells use ellipsis. Wrapped continuations align to the cell start.
+- A wrapped column has `max_lines`, its bounded visual-line count (1–8, default 2).
+  The last line uses an end ellipsis if cut, even with `truncate = "middle"`. This differs from document-level `lines`,
+  which describes the configured row grid.
+- Text `ls` keeps legacy natural sizing unless a shown column opts into percent
+  width or overflow. Opt-in text uses the shared grid and fit rules; a pipe's
+  budget is natural data widths plus gaps before priority hiding, so text may
+  wrap, truncate or hide columns. JSON row values stay full.
 - `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`),
   `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
   `normal`), `waiting` (members that owe the user a decision or wait for an

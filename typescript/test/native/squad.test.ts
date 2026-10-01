@@ -1069,6 +1069,62 @@ describe('squad extension', () => {
     });
   });
 
+  it('publishes opt-in percent and overflow metadata while fitting text and preserving full rows', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'worker');
+      await squad(sandbox, ['init', 'product']);
+      await squad(sandbox, ['add', 'worker']);
+      const task =
+        'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron';
+      await squad(sandbox, ['set', 'worker', `task=${task}`]);
+      const before = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(
+        before.body.columns.every(
+          (column: Record<string, unknown>) => !('overflow' in column) && !('max_lines' in column)
+        )
+      ).toBe(true);
+      writeFileSync(
+        path.join(sandbox.globalDir, 'squad.toml'),
+        [
+          '[squad.product.rows]',
+          'columns = [',
+          '  { name = "member", width = "20%", overflow = "ellipsis" },',
+          '  { name = "task", width = "40%", overflow = "wrap", max_lines = 2 },',
+          ']',
+          '',
+        ].join('\n')
+      );
+      const configured = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(configured.status).toBe(0);
+      expect(configured.body.columns[0]).toMatchObject({
+        field: 'member',
+        width: '20%',
+        overflow: 'ellipsis',
+      });
+      expect(configured.body.columns[0]).not.toHaveProperty('max_lines');
+      expect(configured.body.columns[1]).toMatchObject({
+        field: 'task',
+        width: '40%',
+        overflow: 'wrap',
+        max_lines: 2,
+      });
+      expect(configured.body.columns[1]).not.toHaveProperty('lines');
+      expect(configured.body.sections).toEqual(before.body.sections);
+      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      expect(text.status).toBe(0);
+      const data = text.stdout.split('\n').filter((line) => line.startsWith('  '));
+      expect(data).toHaveLength(2);
+      expect(data[0]).toContain('worker');
+      expect(data[0]).toContain('alpha beta');
+      expect(data[1]).toContain('…');
+      expect(data[1]).not.toContain('worker');
+      expect(configured.body.sections[0].rows[0].fields.task).toBe(task);
+      const after = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(after.body).toEqual(configured.body);
+    });
+  });
+
   it('keeps several squads apart: ls lists each, changes require a choice', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

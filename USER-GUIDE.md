@@ -601,16 +601,31 @@ and each nonempty `match` has at most 256 UTF-8 bytes. Patterns decorate and
 order the existing state text; they do not rename it or change tab attention.
 The board and `ls` share this resolution, including section sorting by state.
 
-A column has a `width`, or `min`/`max` and a `grow` share of what is left;
-`align` (`left`, `right`, `center`); `truncate` at the `end` or the `middle`;
-and a `priority`. On a narrow board columns shrink to their `min` first; if the
-row still does not fit, the column with the highest `priority` steps aside, and
-columns without one never do. A cell never wraps: it is cut with `…` by display
-width. A later line with nothing to show is left out. `lines` defaults to one
-line of every column. The older `[squad.<name>.columns]` table (`show` plus a
-`title` and `width` per field) still works and means the same grid; set one of
-the two, not both. `tmt sq ls` is a list and stays complete: it takes the
-board's fields in order but never drops or cuts a column when piped.
+A column's `width` is cells or a percentage such as `"30%"` (1–100%).
+Configured percentages must total at most 100%; `min`/`max` remain cells. Percentages
+use the available data width after borders, row marks and gaps, with largest
+remainders receiving rounding cells before bounds and `grow`. On a narrow
+board columns shrink to their `min` first; if the row still does not fit, the
+highest `priority` steps aside and percentages are recomputed. Columns without
+one never step aside. `align` is `left`, `right` or `center`; `truncate` is
+`end` or `middle`.
+
+`overflow = "ellipsis"` is the default. `overflow = "wrap"` adds visual lines,
+with `max_lines = 2` by default (1–8). Continuations start at the cell's column;
+a cut on the last bounded line ends in `…`, even with `truncate = "middle"`. Fitting uses escaped display width,
+including wide characters. Selection, paging, scrolling and clicks follow
+these visual lines, including existing note and configured row lines. A later configured row line with nothing to show is left
+out. The row-level `lines` defaults to one line of every column; a spanned
+cell uses the first column's fitting options. The older
+`[squad.<name>.columns]` table supports `title`, cell/percentage `width`,
+`overflow` and wrap `max_lines` per field; set one row form, not both.
+
+`tmt sq ls` keeps legacy natural list sizing unless a shown column opts into
+percentage width or `overflow`. Opt-in lists use the same grid solver and fit
+rules. When piped, their width budget is the sum of natural data widths plus
+gaps before priority hiding, so they can truncate, wrap or hide columns.
+`--json` keeps full row values; column metadata publishes percentage strings
+and opted-in overflow settings.
 
 A column shows the member's squad field of its `name` unless `from` binds it to
 the member's own TMT data, read on every refresh with no extra commands:
