@@ -156,6 +156,17 @@ fn grid_line(
     (first || shown_any).then_some(spans)
 }
 
+/// Puts a row's age at the right edge of its first line when it fits after
+/// the cells; a narrow board drops it before any cell.
+fn age_mark(spans: &mut Vec<Span<'static>>, age: &str, width: usize, look: crate::look::Look) {
+    let used: usize = spans.iter().map(Span::width).sum();
+    let mark = age.width();
+    if used + GAP + mark <= width {
+        spans.push(Span::raw(" ".repeat(width - used - mark)));
+        spans.push(Span::styled(age.to_owned(), look.role(Role::Dim)));
+    }
+}
+
 /// Shown only when a switch takes long enough to notice.
 const SPINNER_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -365,7 +376,7 @@ fn tab_window(
 /// The second header line: the shown squad's summary.
 fn summary_line(app: &App) -> Line<'_> {
     let look = app.look();
-    let Some(view) = app.view.as_ref().filter(|_| !app.stale()) else {
+    let Some(view) = app.view.as_ref().filter(|_| !app.loading()) else {
         return Line::default();
     };
     let lead = match view.document["squad"]["lead"]["name"].as_str() {
@@ -577,13 +588,20 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focused();
     let pane_block = |pane: Pane| {
         let title = match pane {
-            Pane::Notes => format!(
-                " notes · {} ",
-                view.document["squad"]["lead"]["name"]
+            // The lead's notes nobody updated for a while say how long.
+            Pane::Notes => {
+                let lead = view.document["squad"]["lead"]["name"]
                     .as_str()
-                    .unwrap_or("no lead")
-            ),
-            other => format!(" {} ", other.title()),
+                    .unwrap_or("no lead");
+                let mut title = vec![Span::raw(format!(" notes · {lead} "))];
+                if let Some(age) =
+                    crate::staleness::label(&view.document["squad"]["notesStaleness"])
+                {
+                    title.push(Span::styled(format!("· {age} "), look.role(Role::Waiting)));
+                }
+                Line::from(title)
+            }
+            other => Line::from(format!(" {} ", other.title())),
         };
         let style = if pane == focused && board.panes.len() > 1 {
             look.role(Role::Accent).add_modifier(Modifier::BOLD)
@@ -858,12 +876,32 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     let tracks: Vec<_> = (0..rows.columns.len())
         .map(|index| rows.columns[index].track(natural(index)))
         .collect();
-    // Two cells for the row mark.
-    let widths = grid::solve(
-        &tracks,
-        Some(usize::from(area.width).saturating_sub(2)),
-        GAP,
-    );
+    // Two cells for the row mark, and room at the right for the widest age
+    // mark when a row has one, unless that would hide a column: then the
+    // marks give way.
+    let available = usize::from(area.width).saturating_sub(2);
+    let widths = grid::solve(&tracks, Some(available), GAP);
+    let ages = app
+        .items()
+        .into_iter()
+        .filter_map(|item| match item {
+            Item::Row(row) => crate::staleness::label(&row["staleness"]),
+            Item::Header(_) => None,
+        })
+        .map(|age| age.width() + GAP)
+        .max();
+    let widths = match ages {
+        Some(age) => {
+            let reserved = grid::solve(&tracks, Some(available.saturating_sub(age)), GAP);
+            let shown = |widths: &[Option<usize>]| widths.iter().flatten().count();
+            if shown(&reserved) == shown(&widths) {
+                reserved
+            } else {
+                widths
+            }
+        }
+        None => widths,
+    };
     let note_column = rows.fields().contains(&"note");
     let mut lines = vec![Line::from(Span::styled(
         format!(
@@ -902,8 +940,14 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 } else {
                     "  "
                 };
+                // Its age mark: a row nobody updated for a while is quiet,
+                // and says how long. This is the row's content age, not the
+                // frame still loading another squad.
+                let age = crate::staleness::label(&row["staleness"]);
                 let style = if selected {
                     Style::new().add_modifier(Modifier::REVERSED)
+                } else if age.is_some() {
+                    look.role(Role::Dim)
                 } else {
                     Style::new()
                 };
@@ -916,6 +960,9 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     };
                     let mut spans = vec![Span::raw(if first { marker } else { "  " })];
                     spans.extend(cells);
+                    if let Some(age) = age.as_deref().filter(|_| first) {
+                        age_mark(&mut spans, age, usize::from(area.width), look);
+                    }
                     row_lines.push((lines.len(), row_index));
                     lines.push(Line::from(spans).style(style));
                 }
@@ -1369,6 +1416,83 @@ lines = [
 
     fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::config::Board {
         crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
+    }
+
+    #[test]
+    fn stale_rows_and_notes_are_quiet_and_say_how_old() {
+        let age = |state: &str, ms: u64| json!({"state": state, "ageMs": ms});
+        let mut app = board(json!([
+            {"title": "working", "rows": [
+                row("auth-fix", "working", "rotate", json!({"staleness": age("stale", 3 * 3_600_000)})),
+                row("docs", "working", "write", json!({"staleness": age("fresh", 60_000)})),
+                row("ci", "working", "fix", json!({"staleness": {"state": "unknown"}})),
+            ]},
+            // The same member twice: every row of it carries the same age.
+            {"title": "again", "rows": [
+                row("auth-fix", "working", "rotate", json!({"staleness": age("stale", 3 * 3_600_000)})),
+            ]},
+        ]));
+        app.selected = 1;
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let screen = draw(&app, 60, 12);
+        let line_of = |name: &str, from: usize| {
+            from + screen[from..]
+                .iter()
+                .position(|line| line.contains(name))
+                .unwrap()
+        };
+        let stale = line_of("auth-fix", 0);
+        assert!(screen[stale].ends_with("stale 3h"), "{screen:#?}");
+        let dim = app.look().role(Role::Dim).fg;
+        assert_eq!(Some(buffer[(4, stale as u16)].fg), dim, "the row is quiet");
+        let again = line_of("auth-fix", stale + 1);
+        assert!(screen[again].ends_with("stale 3h"), "repeated rows agree");
+        for name in ["docs", "ci"] {
+            let line = line_of(name, 0);
+            assert!(!screen[line].contains("stale"), "{name}: no mark");
+            assert_ne!(Some(buffer[(4, line as u16)].fg), dim);
+        }
+
+        // Narrow: the age goes first, the cells stay.
+        let narrow = draw(&app, 24, 12);
+        let line = narrow.iter().find(|line| line.contains("auth")).unwrap();
+        assert!(!line.contains("stale"), "{narrow:#?}");
+
+        // Without color the age is still there in words.
+        app.view.as_mut().unwrap().look = crate::look::Look {
+            theme: tmt_cli_style::Theme::default(),
+            depth: tmt_cli_style::Depth::None,
+        };
+        assert!(draw(&app, 60, 12)[stale].ends_with("stale 3h"));
+    }
+
+    #[test]
+    fn stale_lead_notes_say_so_on_the_pane_title() {
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![50, 50],
+            ),
+            Notes::Text("ship it".into()),
+        );
+        let title = |app: &App| draw(app, 70, 8)[2].clone();
+        assert!(!title(&app).contains("stale"), "unknown notes: no mark");
+        app.view.as_mut().unwrap().document["squad"]["notesStaleness"] =
+            json!({"state": "stale", "ageMs": 2 * 3_600_000});
+        let line = title(&app);
+        assert!(line.contains("notes · sol · stale 2h"), "{line}");
+        let mut terminal = Terminal::new(TestBackend::new(70, 8)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let at = line[..line.find("stale 2h").unwrap()].chars().count() as u16;
+        assert_eq!(
+            Some(buffer[(at, 2)].fg),
+            app.look().role(Role::Waiting).fg,
+            "the notes' age asks for attention"
+        );
     }
 
     #[test]
