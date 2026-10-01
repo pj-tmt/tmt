@@ -59,7 +59,7 @@ describe('per-product release run (native-release.yml)', () => {
     expect(job(run, 'plan')).toContain('A retry and a released hold need prepare turned off.');
   });
 
-  it('grants write access only to the jobs that list or upload to draft releases', () => {
+  it('grants write access only to the jobs that list, upload to or publish draft releases', () => {
     const writers = [...jobs(run), ...jobs(bundle)]
       .filter(([, text]) => /^ {6}contents: write$/m.test(text))
       .map(([name]) => name);
@@ -70,6 +70,7 @@ describe('per-product release run (native-release.yml)', () => {
       'finish',
       'gates',
       'plan',
+      'publish',
       'record-failure',
       'upgrade',
     ]);
@@ -127,11 +128,19 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
     expect(failure).toContain('release-draft-assets.mjs record-failure');
   });
 
-  it('never publishes: no job creates, edits or publishes a release', () => {
+  it('publishes only through release-publish.mjs, from one job, and checks the result from one other', () => {
+    // The publishing command and its flags live in the script, which its own tests pin; no
+    // workflow file spells one out.
     for (const text of [run, bundle]) {
       expect(text).not.toMatch(/gh release (create|edit)/);
       expect(text).not.toMatch(/draft=false|--draft=false/);
     }
+    const callers = (command: string) =>
+      [...jobs(bundle)]
+        .filter(([, text]) => text.includes(`release-publish.mjs ${command}`))
+        .map(([name]) => name);
+    expect(callers('publish')).toEqual(['publish']);
+    expect(callers('verify')).toEqual(['published']);
   });
 
   it('caches Rust dependencies per product and target, written by main only', () => {
@@ -253,7 +262,7 @@ describe('release workflow (release.yml)', () => {
   it('starts a release run per product, only in a live run, and never publishes', () => {
     const dispatch = job(release, 'dispatch');
     expect(dispatch).toContain('needs: release-please');
-    expect(dispatch).toMatch(/product:\n {10}- cli\n {10}- office\n {10}- squad/);
+    expect(dispatch).toMatch(/product:\n {10}- cli\n {10}- squad/);
     expect(dispatch).toContain('typescript/scripts/plan-release-builds.mjs --product "$PRODUCT"');
     // `prepare` defaults to true in native-release.yml, so a run that attaches to drafts must
     // turn it off explicitly, and this is the only place that starts one.
@@ -269,16 +278,26 @@ describe('release workflow (release.yml)', () => {
   });
 
   it('starts a run for exactly the products of the component map and the release configuration', () => {
-    const products = Object.keys(
-      (JSON.parse(read('.github/components.json')) as { components: Record<string, unknown> })
-        .components
-    ).sort();
+    const { components } = JSON.parse(read('.github/components.json')) as {
+      components: Record<string, { release?: boolean; owns: string[] }>;
+    };
+    const products = Object.entries(components)
+      .filter(([, component]) => component.release !== false)
+      .map(([name]) => name)
+      .sort();
+    // Parked components own files and CI scope but start no release run.
+    for (const parked of ['browser-addon', 'office']) {
+      expect(components[parked].release).toBe(false);
+      expect(products).not.toContain(parked);
+    }
     const matrix = /product:\n((?: {10}- [a-z]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
     expect(matrix.match(/[a-z]+(?=\n)/g)?.sort()).toEqual(products);
     const config = JSON.parse(read('release-please-config.json')) as {
       packages: Record<string, unknown>;
     };
     expect(Object.keys(config.packages)).toHaveLength(products.length);
+    for (const parked of ['browser-addon', 'office'])
+      expect(config.packages[components[parked].owns[0]]).toBeUndefined();
   });
 });
 
@@ -385,11 +404,13 @@ describe('publication gates (native-release-bundle.yml)', () => {
   const upgradeJob = job(bundle, 'upgrade');
   const finish = job(bundle, 'finish');
 
-  it('runs the gates for a draft that was just attached, or a held draft whose hold is released', () => {
+  it('runs the gates for a draft that was just attached, a complete draft awaiting publication, or a held draft whose hold is released', () => {
     expect(gates).toContain('needs: [check, attach]');
     expect(gates).toContain(
-      "if: ${{ !cancelled() && inputs.tag != '' && needs.check.result == 'success' && ((needs.check.outputs.todo == 'true' && needs.attach.result == 'success') || inputs.hold) }}"
+      "if: ${{ !cancelled() && inputs.tag != '' && needs.check.result == 'success' && ((needs.check.outputs.todo == 'true' && needs.attach.result == 'success') || inputs.hold || needs.check.outputs.awaiting == 'true') }}"
     );
+    // A complete draft that an earlier run did not publish is checked and published again.
+    expect(job(bundle, 'check')).toContain('awaiting: ${{ steps.check.outputs.awaiting }}');
     expect(bundle).toMatch(
       /hold:\n {8}description:[^\n]*\n {8}required: false\n {8}default: false\n {8}type: boolean/
     );
@@ -433,17 +454,63 @@ describe('publication gates (native-release-bundle.yml)', () => {
     expect(finish).toContain('--skip "$SKIP"');
   });
 
-  it('holds a draft and never builds or publishes: no publishing command, no build job after the gates', () => {
-    expect(bundle).not.toMatch(/gh release (create|edit)|draft=false/);
-    // Every job after `attach` names what it needs, because a job that follows a skipped job is
-    // skipped too unless its condition uses a status function.
+  it('names what it needs in every job after attach, and starts no build after the gates', () => {
+    // A job that follows a skipped job is skipped too unless its condition uses a status
+    // function, and `attach` is skipped for a draft that is already complete.
     for (const [name, text] of [
       ['gates', gates],
       ['upgrade', upgradeJob],
       ['finish', finish],
+      ['publish', job(bundle, 'publish')],
+      ['published', job(bundle, 'published')],
     ]) {
       expect(text, name).toContain('!cancelled()');
     }
+    for (const name of ['build', 'assemble', 'verify', 'attach']) {
+      expect(job(bundle, name), name).not.toMatch(/needs:[^\n]*\b(finish|publish|published)\b/);
+    }
+  });
+});
+
+describe('publication (native-release-bundle.yml)', () => {
+  const finish = job(bundle, 'finish');
+  const publish = job(bundle, 'publish');
+  const published = job(bundle, 'published');
+
+  it('publishes only after finish ran and held nothing, never for a bundle prepared without a draft', () => {
+    expect(finish).toContain('held: ${{ steps.finish.outputs.held }}');
+    expect(finish).toMatch(
+      /- name: Hold the draft, or report that every gate passed\n {8}id: finish\n/
+    );
+    expect(publish).toContain('needs: finish');
+    expect(publish).toContain(
+      "if: ${{ !cancelled() && inputs.tag != '' && needs.finish.result == 'success' && needs.finish.outputs.held == '' }}"
+    );
+    expect(publish).toContain(
+      'node typescript/scripts/release-publish.mjs publish --product "$PRODUCT" --tag "$RELEASE_TAG"'
+    );
+  });
+
+  it("publishes with the write token on main's code and nothing else", () => {
+    expect(publish).toMatch(/^ {4}permissions:\n {6}contents: write\n {4}steps:/m);
+    expect(publish).not.toMatch(/^ {10}ref:/m);
+    expect(publish).not.toMatch(/pnpm|cargo|download-artifact/);
+  });
+
+  it('checks the published release after it was published, and reports a failure as an issue', () => {
+    expect(published).toContain('needs: publish');
+    expect(published).toContain("if: ${{ !cancelled() && needs.publish.result == 'success' }}");
+    expect(published).toMatch(
+      /^ {4}permissions:\n {6}contents: read\n {6}issues: write\n {4}steps:/m
+    );
+    expect(published).not.toMatch(/^ {10}ref:/m);
+    expect(published).toContain(
+      'release-publish.mjs verify --product "$PRODUCT" --tag "$RELEASE_TAG"'
+    );
+    expect(published).toContain('--directory "$RUNNER_TEMP/published"');
+    expect(published).toContain(
+      '--run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"'
+    );
   });
 });
 
@@ -460,10 +527,10 @@ describe('the release run releases a hold (native-release.yml)', () => {
     );
   });
 
-  it('grants the pipeline the read access its gates need and nothing more', () => {
+  it('grants the pipeline what its gates, its publication and its failure issue need and nothing more', () => {
     const bundleJob = job(run, 'bundle');
     expect(bundleJob).toMatch(
-      /permissions:\n(?: {6}#[^\n]*\n)? {6}contents: write\n {6}actions: read\n {6}pull-requests: read\n {6}checks: read\n/
+      /permissions:\n(?: {6}#[^\n]*\n)* {6}contents: write\n {6}actions: read\n {6}pull-requests: read\n {6}checks: read\n {6}issues: write\n/
     );
   });
 });

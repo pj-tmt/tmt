@@ -141,6 +141,39 @@ pub(super) fn project(
     Ok(settings)
 }
 
+/// The global file's `theme` settings as written. Only the shape is checked
+/// here, an object of strings; what a theme value means belongs to the CLI
+/// style, which the caller parses it with. A file without `theme` has none.
+/// A wrong shape is a [`ThemeProblem`], never a configuration error: the
+/// theme is presentation and must not stop a command.
+pub(super) fn theme(value: &Value) -> Result<Vec<(String, String)>, ThemeProblem> {
+    let Some(theme) = value.get("theme") else {
+        return Ok(Vec::new());
+    };
+    let problem = |key: String, message: &str| ThemeProblem {
+        key,
+        message: message.to_owned(),
+    };
+    theme
+        .as_object()
+        .ok_or_else(|| problem("theme".into(), "must be an object of settings"))?
+        .iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|text| (key.clone(), text.to_owned()))
+                .ok_or_else(|| problem(format!("theme.{key}"), "must be a string"))
+        })
+        .collect()
+}
+
+/// What is wrong with the global `theme`, by the setting it is about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThemeProblem {
+    pub key: String,
+    pub message: String,
+}
+
 fn setting_value(setting: Setting) -> Value {
     match setting {
         Setting::PreambleMode(value) => json!(value.as_str()),

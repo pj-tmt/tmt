@@ -23,6 +23,7 @@ from `typescript/`; Cargo, Nx and Docker commands run from the repository root.
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
 Rust 1.88; CI also runs the current pinned release toolchain.
+Remote-client tests require `python3` for the independent byte-fixture oracle.
 Shell completion tests require Bash and Zsh. Runtime proof uses the selected
 macOS developer tools or Linux `readelf` (binutils); these are verifier tools,
 not product runtime dependencies.
@@ -247,7 +248,11 @@ no job reads selects nothing beyond Code quality, and the run summary lists ever
 changed path with its owner, rule and selection. A change confined to the Squad extension
 runs a Squad scope under the same job names (its Cargo checks and the architecture guard,
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
-`Native package matrix` expects exactly the scoped results. Shared/unknown paths run both. Code
+`Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
+Remote Rust has an explicit rule retaining full native and Office coverage; the full
+Rust job requires nonempty remote test discovery and runs locked workspace tests,
+Clippy and builds (including MSRV). Its result remains required by the native gate.
+The remote TypeScript and browser paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
 failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser
@@ -783,7 +788,9 @@ protection, and a live-agent demo does not replace deterministic regression test
 The companion package lives at `extensions/tmt-office/rust/tmt-office`, but remains
 in the `rust/Cargo.toml` workspace. Run the same package commands from `rust/`;
 the shared lockfile, toolchain and `rust/target` artifact paths are unchanged.
-Docker build contexts must include both `rust/` and `extensions/tmt-office/rust/`.
+Every Cargo build stage must copy all workspace member directories at their
+workspace-relative paths, including private extensions; `docker-workspace.test.ts`
+checks the E2E, artifact and Office native contexts.
 
 Office storage migration tests live in `tmt-office-storage`
 (`cargo test --locked -p tmt-office-storage`) and build their source databases
@@ -829,19 +836,31 @@ Product identity proofs are package-scoped, matching per-product release builds:
 compare `cargo build --locked --release -p tmt-cli` alone, at the same checkout
 path, before and after a change.
 
-A fixture that writes an executable and then runs it, directly or through an
-installer's verifier, can be refused with ETXTBSY ("Text file busy") in a
-multi-test binary: another test thread's `fork` holds a copy of the write
-descriptor until the child's `exec`, and nothing the writer does closes that
-window. An installer fixture waits it out with a bounded retry of only that
-error; production code never retries. `tmt-office-command` does this in `test_support::install_office`
-(`retry_on_text_file_busy`). A fixture that only needs a stand-in script,
-such as Squad's fake `tmt` and `tmux`, avoids the window instead by not writing
-the file in the test process: Squad's `test_support::write_executable` has a
-short-lived `sh` write it, so no test thread can fork a copy of the descriptor.
+A fixture that writes an executable and then runs it can be refused with
+ETXTBSY ("Text file busy") in a multi-test binary: another test thread's `fork`
+holds a copy of the write descriptor until the child's `exec`, and nothing the
+writer does closes that window. Pick the rule by who writes the file and who
+runs it. Production code never retries ETXTBSY.
+
+- The test writes a script and controls how it runs: run `/bin/sh <script>`
+  so nothing execs the written inode (the `tmt-invoke` and `tmt-adapters` tests).
+- The test writes a stand-in that something else must exec by path, such as a
+  fake `tmt` or `tmux` on `PATH`: let a short-lived `sh` write the file, so no
+  test thread holds its descriptor (Squad's `test_support::write_executable`).
+- The product writes the executable and then execs it, as an installer and its
+  verifier do: the fixture waits out the window with a bounded retry of only
+  that error (`tmt-office-command`'s `test_support::install_office`,
+  `retry_on_text_file_busy`).
+
 The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
 -- --ignored --nocapture` reproduces the race and reports failures with and
 without the retry.
+
+The external-host shell fixtures use a test-local runner with a thirty-second
+execution budget for success cases. This does not change the driver's wire
+`deadlineMs` or output limit. Conformance timing uses scripted elapsed values;
+the late-answer case retains the production runner and deadline. Run the focused
+suite with `cargo test --locked -p tmt-adapters host::external::tests`.
 
 Human output and help snapshots (`insta`, a dev-dependency) live beside the
 tests that assert them, such as `rust/crates/tmt-cli-style/tests/snapshots/`.
@@ -894,6 +913,13 @@ optimization rather than debug hashing cost. The independent Office companion
 and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
 and embedded service tests remain separate required checks; process deadlines
 and assertions are unchanged. Local selection still defaults to the debug CLI.
+
+The CLI version expectation uses the shared workspace reader once per suite, running bounded
+`cargo metadata --no-deps --offline --locked`. The reader also reads `rust/Cargo.lock` and
+lists tracked files with `git ls-files -z`, so the suite needs a Git checkout. Cargo, the
+lockfile and workspace resolution inputs must remain available even when selecting an explicit
+CLI executable. The documented build below supplies the resolution inputs; the expectation
+has no alternate version reader.
 
 Build first, then explicitly select the test-only storage probe. The product CLI
 uses its repository-native default; the probe is never an installed SQL command:
@@ -1051,7 +1077,9 @@ transport, identity, talk, or cleanup changes:
 ```
 
 `TMT_E2E_FILES="squad.e2e.test.ts"` (space-separated plain file names) limits the run to those
-E2E files, and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. CI runs the suite as two
+E2E files (the image passes them to vitest as anchored `test/e2e/<name>` paths, because vitest
+matches a filter by substring and a bare `routing.e2e.test.ts` would also run
+`check-routing.e2e.test.ts` and `session-routing.e2e.test.ts`), and `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests. CI runs the suite as two
 shard jobs behind the required `Docker E2E` gate, each with its own file list from
 `typescript/scripts/e2e-shards.mjs`, balanced by the seconds in
 `typescript/test/e2e/shard-weights.json` (refresh them from a full run when the shards drift
@@ -1099,6 +1127,11 @@ validate domain fields. Scenarios retain their exact/partial payload assertions
 and independent SQL oracles. Helpers with a different stderr or parse contract
 remain local. Do not combine partial identity views into a permissive shared
 schema or import product types to manufacture expected results.
+
+Docker scenario imports use the `typescript/test/e2e/harness.ts` facade; the
+fixture, readiness, cleanup and type modules live under
+`typescript/test/e2e/harness/`. The
+[architecture map](ARCHITECTURE.md#testing-and-evidence-boundaries) defines their ownership.
 
 Shared cross-suite utilities belong in `typescript/test/support/`; suite-only harness,
 assertions and observers stay with their suite. Focused helper tests belong in
@@ -1207,3 +1240,69 @@ Compare exact file bytes, not symlink-directory snapshots or enumerated binary
 objects. Use structured output or a focused formatter test, not mocked
 `console.log`. Apply the [architecture maintenance contract](ARCHITECTURE.md#maintenance-contract)
 when changing an owner, boundary or verification procedure.
+
+## Browser add-on shell
+
+The private MV3 demo shell lives in
+`extensions/tmt-remote/typescript/browser-addon`. It uses the existing pnpm
+workspace and lockfile. It does not connect to TMT or implement pairing/crypto.
+From `typescript/`:
+
+```sh
+corepack pnpm --filter @tmt/browser-addon --fail-if-no-match check
+corepack pnpm --filter @tmt/browser-addon --fail-if-no-match test
+corepack pnpm --filter @tmt/browser-addon --fail-if-no-match build
+corepack pnpm --filter @tmt/browser-addon exec playwright install chromium
+corepack pnpm --filter @tmt/browser-addon --fail-if-no-match test:browser
+```
+
+Browser tests use Playwright's Chromium, a disposable profile and a task-owned
+loopback selection page. They never load the host Chrome profile or team data.
+Load this package's `dist/` as an unpacked add-on in a separate development
+profile to inspect it manually; Chrome 137 or later is required. Both right-click
+Send to agent and the popup capture only after a gesture. All displayed agents
+and replies are demo fixtures; Send does not deliver to an agent. Package code
+uses its own Prettier configuration; shared docs use the tooling formatter.
+
+## Remote pilot development
+
+The local-build-only remote crate is a foreground deny-all door. It performs
+one public startup capabilities read, then refuses every remote application
+request. Pairing, signing, grants, approval, sends and journal/SDK integration
+are not implemented. The [client contract](contracts/remote-client-v1.md) is
+proposed; [the separately owned browser shell](#browser-add-on-shell)
+uses only a stub. No official remote installer/release exists.
+
+```bash
+(cd rust && cargo build --offline --locked -p tmt-remote)
+(cd rust && cargo test --offline --locked -p tmt-remote)
+(cd rust && cargo clippy --offline --locked -p tmt-remote --all-targets -- -D warnings)
+(cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
+node typescript/scripts/release-please-config.mjs --check
+(cd typescript && corepack pnpm exec vitest run test/tooling/release-please-config.test.ts test/tooling/ci-scope.test.ts)
+```
+
+Pure byte/crypto conformance runs with the remote Rust tests above, including
+shared independent canonical vectors, strict Ed25519 refusals, full HMAC tags and
+receipt domain separation. Regenerate/check only Rust-owned crypto fixtures with:
+
+```bash
+python3 extensions/tmt-remote/rust/tmt-remote/tests/fixtures/mac-reference.py --check
+node extensions/tmt-remote/rust/tmt-remote/tests/fixtures/webcrypto.mjs
+```
+
+Use the repository Node 22 version and repeat the WebCrypto command locally on
+Node 24. No extra required-CI Node setup is needed. The script verifies deterministic
+signatures that Rust independently reproduces and verifies; `--write` regenerates
+the public-test-key fixture. The Python oracle does not import product code.
+These checks do not prove real Chrome key persistence/non-extractability across
+MV3 worker restarts. Pairing, authority and browser integration remain separate.
+
+After building core, put `rust/target/debug` on PATH and run `tmt remote serve`
+(or `--json` for its bound descriptor). Direct invocation requires an absolute
+`TMT_EXECUTABLE`; it never searches for another core. Default hard window is
+one hour (maximum 24 hours); denied traffic cannot reset the 15-minute idle
+deadline, so this interim door closes after at most 15 minutes. Ctrl-C/SIGTERM
+stops it; there is no autostart/LAN/daemon option. Tests use disposable HOME/XDG,
+count startup separately, assert zero request-triggered core calls and run
+socket/process lifecycle acceptance twice. No real model/account/DB is used.

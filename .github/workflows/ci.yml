@@ -98,6 +98,14 @@ jobs:
           OFFICE_SELECTED: ${{ needs.changes.outputs.office }}
           OFFICE_RESULT: ${{ needs.office.result }}
         run: node typescript/scripts/ci-scope.mjs gate "$OFFICE_SELECTED" "$OFFICE_RESULT"
+      - name: Install locked byte-codec tools
+        working-directory: typescript
+        run: pnpm --filter @tmt/remote-client install --frozen-lockfile --ignore-scripts
+      - name: Verify canonical bytes on every pull request
+        working-directory: typescript
+        run: |
+          pnpm --filter @tmt/remote-client --fail-if-no-match check
+          pnpm --filter @tmt/remote-client --fail-if-no-match test
 
   native-rust:
     name: Native Rust contracts
@@ -147,10 +155,13 @@ jobs:
         working-directory: rust
         run: |
           cargo fmt --all --check
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked
-          cargo +1.88.0 build --locked
-          cargo build --locked
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
+          printf '%s\n' "$remote_tests"
+          grep -q ': test$' <<< "$remote_tests"
+          cargo test --locked --workspace
+          cargo +1.88.0 build --locked --workspace
+          cargo build --locked --workspace
           cargo build --locked --example storage-probe
       - name: Build independent native process fixtures
         if: needs.changes.outputs.native_scope == 'full'

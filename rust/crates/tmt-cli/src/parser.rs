@@ -9,7 +9,6 @@ use tmt_core::limits::{
 use crate::{grammar::grammar, invocation::*};
 
 #[cfg(test)]
-#[path = "parser_tests.rs"]
 mod tests;
 
 #[cfg(test)]

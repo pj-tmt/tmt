@@ -529,6 +529,29 @@ fn office_consumers_cannot_expand_or_hide_behind_reexports() {
 }
 
 #[test]
+fn core_keeps_one_write_once_host_registry_and_no_other_global_state() {
+    assert_exact(
+        &[syntax("tmt-core", "host.rs", "use std::sync::OnceLock;")],
+        &[],
+    );
+    for (file, text, reference) in [
+        ("host.rs", "use std::sync::Mutex;", "std::sync::Mutex"),
+        (
+            "names.rs",
+            "use std::sync::OnceLock;",
+            "std::sync::OnceLock",
+        ),
+    ] {
+        assert_exact(
+            &[syntax("tmt-core", file, text)],
+            &[&format!(
+                "tmt-core/{file}: non-pure core reference {reference}"
+            )],
+        );
+    }
+}
+
+#[test]
 fn office_model_allows_memory_codecs_not_runtime_effects() {
     assert_exact(
         &[syntax(
@@ -975,24 +998,40 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
 }
 
 #[test]
-fn the_driver_protocol_depends_on_no_tmt_crate() {
-    assert!(
+fn the_host_grammar_is_the_only_crate_core_and_the_protocol_share() {
+    let violations = |owner: &str, dependencies: &[&str]| {
         policy::dependency_violations(&package(
-            "tmt-driver-protocol",
-            ["serde", "serde_json"]
-                .into_iter()
+            owner,
+            dependencies
+                .iter()
                 .map(|name| dependency(name, "normal", None, None))
-                .collect()
+                .collect(),
         ))
-        .is_empty()
+        .len()
+    };
+    assert_eq!(
+        violations(
+            "tmt-driver-protocol",
+            &["serde", "serde_json", "tmt-host-grammar"]
+        ),
+        0
     );
+    assert_eq!(violations("tmt-core", &["tmt-host-grammar"]), 0);
+    // Core never takes the wire crate or serde to reach the grammar.
+    for crate_name in ["tmt-driver-protocol", "serde", "serde_json"] {
+        assert_eq!(violations("tmt-core", &[crate_name]), 1, "{crate_name}");
+    }
     for crate_name in ["tmt-core", "tmt-adapters", "tmt-cli-style", "uuid"] {
         assert_eq!(
-            policy::dependency_violations(&package(
-                "tmt-driver-protocol",
-                vec![dependency(crate_name, "normal", None, None)]
-            ))
-            .len(),
+            violations("tmt-driver-protocol", &[crate_name]),
+            1,
+            "{crate_name}"
+        );
+    }
+    // The grammar depends on nothing at all.
+    for crate_name in ["serde", "tmt-core", "tmt-driver-protocol"] {
+        assert_eq!(
+            violations("tmt-host-grammar", &[crate_name]),
             1,
             "{crate_name}"
         );
@@ -1011,13 +1050,24 @@ fn squad_and_core_are_independent_in_both_directions() {
                 "clap",
                 "serde_json",
                 "toml_edit",
-                "subprocess"
+                "subprocess",
+                "sha2",
+                "nix"
             ]
             .into_iter()
             .map(|name| dependency(name, "normal", Some("cfg(unix)"), None))
             .collect(),
         ))
         .is_empty()
+    );
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("rusqlite", "normal", None, None)]
+        ))
+        .len(),
+        1,
+        "Squad must not add a direct core-storage connection"
     );
     for core in [
         "tmt-core",
@@ -1153,6 +1203,150 @@ fn core_crates_cannot_add_office_modules() {
     );
     assert_exact(
         &[syntax("tmt-office-command", "office_companion.rs", empty)],
+        &[],
+    );
+}
+
+#[test]
+fn remote_crypto_pins_do_not_open_other_dependency_boundaries() {
+    for name in ["ed25519-dalek", "hmac", "sha2"] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-remote",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-remote",
+                vec![dependency(name, "normal", None, Some("alias"))]
+            ))
+            .len(),
+            1
+        );
+    }
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-remote",
+            vec![dependency("curve25519-dalek", "normal", None, None)]
+        ))
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn remote_keeps_public_command_isolation() {
+    assert_exact(
+        &[syntax(
+            "tmt-remote",
+            "main.rs",
+            "use tmt_remote::core::CoreClient; use tmt_cli_style::command;",
+        )],
+        &[],
+    );
+    for name in ["tmt-core", "tmt-adapters", "tmt-office-model"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-remote",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .len(),
+            1
+        );
+    }
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-remote",
+            vec![dependency("tmt-cli-style", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_eq!(
+        policy::source_violations(&[syntax(
+            "tmt-remote",
+            "core.rs",
+            "use tmt_core::room::RoomRepository;"
+        )])
+        .len(),
+        1
+    );
+    assert_eq!(
+        policy::source_violations(&[syntax(
+            "tmt-cli",
+            "extra.rs",
+            "use tmt_remote::core::CoreClient;"
+        )])
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-invoke",
+            vec![
+                dependency("subprocess", "normal", None, None),
+                dependency("nix", "normal", None, None)
+            ]
+        ))
+        .is_empty()
+    );
+    for kind in ["normal", "dev", "build"] {
+        for target in [None, Some("cfg(unix)")] {
+            for name in ["tmt-core", "tmt-adapters", "tmt-cli-style", "serde_json"] {
+                assert_eq!(
+                    policy::dependency_violations(&package(
+                        "tmt-invoke",
+                        vec![dependency(name, kind, target, None)]
+                    ))
+                    .len(),
+                    1
+                );
+            }
+            assert_eq!(
+                policy::dependency_violations(&package(
+                    "tmt-invoke",
+                    vec![dependency("nix", kind, target, Some("alias"))]
+                ))
+                .len(),
+                1
+            );
+        }
+    }
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-remote",
+            vec![dependency("tmt-invoke", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-remote",
+            vec![dependency("tmt-invoke", "normal", None, Some("alias"))]
+        ))
+        .len(),
+        1
+    );
+    assert_exact(
+        &[syntax("tmt-remote", "core.rs", "use tmt_invoke::invoke;")],
+        &[],
+    );
+    for source in [
+        "use tmt_core::identity::Identity;",
+        "pub use tmt_adapters::process;",
+    ] {
+        assert_eq!(
+            policy::source_violations(&[syntax("tmt-invoke", "lib.rs", source)]).len(),
+            1
+        );
+    }
+    assert_exact(
+        &[syntax("tmt-invoke", "lib.rs", "use tmt_invoke::Request;")],
         &[],
     );
 }

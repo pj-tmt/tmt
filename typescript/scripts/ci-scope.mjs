@@ -61,6 +61,7 @@ export function parseComponentMap(text) {
   const components = Object.entries(map.components ?? {}).map(([name, component]) => ({
     name,
     package: component.package,
+    release: component.release,
     owns: nonEmptyStrings(component.owns, `components.${name}.owns`),
     excludes: component.excludes ?? [],
     migrations:
@@ -70,6 +71,10 @@ export function parseComponentMap(text) {
     selectedBy: (component.selectedBy ?? []).map((glob) => ({ glob, pattern: globToRegExp(glob) })),
     scopedChecks: parseScopedChecks(name, component.scopedChecks),
   }));
+  for (const component of components) {
+    if (component.release !== undefined && typeof component.release !== 'boolean')
+      throw new Error(`Component ${component.name} release must be boolean.`);
+  }
   if (components.length === 0) throw new Error('The component map has no components.');
   const ids = new Set();
   const rules = (map.rules ?? []).map((rule) => {
@@ -108,6 +113,16 @@ function componentMap() {
 }
 
 const within = (root, path) => root === '.' || path === root || path.startsWith(`${root}/`);
+
+/**
+ * Whether a component is released: `release: false` parks it (release-please skips it, and the
+ * release pipeline plans and publishes nothing for it). An unknown component is an error.
+ */
+export function isReleased(map, name) {
+  const component = map.components.find((candidate) => candidate.name === name);
+  if (!component) throw new Error(`Unknown component ${name}.`);
+  return component.release !== false;
+}
 
 /** A `selectedBy` glob wins; otherwise the longest `owns` root the path is not excluded from. */
 export function ownerOf(path, map = componentMap()) {

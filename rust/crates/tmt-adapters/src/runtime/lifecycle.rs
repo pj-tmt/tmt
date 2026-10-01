@@ -3,9 +3,10 @@
 use crate::skill_installation::ProviderEnvironment;
 use std::{path::PathBuf, time::Instant};
 use tmt_core::binding::session::{
-    BindingSessionState, DriverState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
-    RuntimeLiveness, RuntimeMode, SessionPreferences,
+    BindingSessionState, DriverState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness,
+    RuntimeMode, SessionPreferences,
 };
+use tmt_core::endpoint::ProcessIncarnation;
 
 #[derive(Debug, Clone, Copy)]
 pub enum HostEvidence {
@@ -44,7 +45,7 @@ pub trait LifecycleObservation {
     fn propose(
         &self,
         current: &BindingSessionState,
-        process: &RuntimeIncarnation,
+        process: &ProcessIncarnation,
         previous: RuntimeLiveness,
         host: HostEvidence,
         owned_resume: bool,
@@ -63,6 +64,41 @@ pub struct TurnEnd {
 pub trait RuntimeLifecycle {
     fn decode(&self, _payload: &[u8]) -> Option<Box<dyn LifecycleObservation>> {
         None
+    }
+
+    /// A prompt submission does not establish or replace a session binding.
+    fn decode_prompt(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
+        None
+    }
+
+    fn decode_activity(
+        &self,
+        _payload: &[u8],
+    ) -> Option<tmt_core::binding::session::activity::Event> {
+        None
+    }
+
+    /// Driver-owned persistence for a normalized admitted activity event.
+    fn activity_state(
+        &self,
+        _event: &tmt_core::binding::session::activity::Event,
+        _session: &ProviderSessionId,
+        _process: &ProcessIncarnation,
+        _previous: Option<&DriverState>,
+        _now_ms: u64,
+    ) -> Option<DriverState> {
+        None
+    }
+
+    fn state_activity(
+        &self,
+        _state: &DriverState,
+    ) -> Option<tmt_core::binding::session::activity::Activity> {
+        None
+    }
+
+    fn encode_prompt_context(&self, text: &str) -> Option<String> {
+        super::hook_protocol::encode_event_context("UserPromptSubmit", text)
     }
 
     /// A turn-end event, recognized even when it carries nothing to read.
@@ -96,7 +132,7 @@ pub trait RuntimeLifecycle {
         _caller_pid: u64,
         _pane_pid: u64,
         _deadline: Instant,
-    ) -> Option<RuntimeIncarnation> {
+    ) -> Option<ProcessIncarnation> {
         None
     }
 
@@ -104,7 +140,7 @@ pub trait RuntimeLifecycle {
         &self,
         _pane_pid: u64,
         _deadline: Instant,
-    ) -> Option<RuntimeIncarnation> {
+    ) -> Option<ProcessIncarnation> {
         None
     }
 
@@ -127,7 +163,7 @@ pub trait RuntimeLifecycle {
         &self,
         current: &BindingSessionState,
         key: ObservedSessionKey,
-        owner: RuntimeIncarnation,
+        owner: ProcessIncarnation,
         _preferences: &SessionPreferences,
     ) -> Option<BindingSessionState> {
         current.record_launched_exit(key, owner)

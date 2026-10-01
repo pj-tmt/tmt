@@ -1,0 +1,43 @@
+name: Browser add-on
+on:
+  pull_request:
+    paths:
+      - 'extensions/tmt-remote/typescript/browser-addon/**'
+      - '.github/workflows/browser-addon.yml'
+      - '.github/actions/setup-tooling/**'
+      - 'scripts/retry-command.sh'
+      - 'typescript/package.json'
+      - 'typescript/pnpm-workspace.yaml'
+      - 'typescript/pnpm-lock.yaml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: browser-addon-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser-addon:
+    name: MV3 shell contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Install locked add-on tools
+        working-directory: typescript
+        run: pnpm --filter @tmt/browser-addon install --frozen-lockfile --ignore-scripts
+      - name: Verify the shell and real isolated extension
+        working-directory: typescript
+        run: |
+          pnpm --filter @tmt/browser-addon --fail-if-no-match check
+          pnpm --filter @tmt/browser-addon --fail-if-no-match test
+          pnpm --filter @tmt/browser-addon --fail-if-no-match build
+          pnpm --filter @tmt/browser-addon exec playwright install --with-deps chromium
+          pnpm --filter @tmt/browser-addon --fail-if-no-match test:browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-addon-evidence
+          path: extensions/tmt-remote/typescript/browser-addon/test-results/

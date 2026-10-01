@@ -15,10 +15,12 @@ use tmt_cli_style::{
 const TTY: Terminal = Terminal {
     color: true,
     width: Some(80),
+    theme: None,
 };
 const NARROW: Terminal = Terminal {
     color: true,
     width: Some(40),
+    theme: None,
 };
 const PIPE: Terminal = Terminal::PLAIN;
 
@@ -31,8 +33,8 @@ fn visible(bytes: Vec<u8>) -> String {
 /// The CLI maps each driver descriptor's hue; these fixture drivers stand in.
 fn hue(driver: &str) -> Token {
     Token::Driver(match driver {
-        "claude" => Some(anstyle::AnsiColor::Magenta),
-        "codex" => Some(anstyle::AnsiColor::Cyan),
+        "claude" => Some(tmt_cli_style::Role::Review),
+        "codex" => Some(tmt_cli_style::Role::Link),
         _ => None,
     })
 }
@@ -106,6 +108,12 @@ fn agents() -> Vec<Section<'static>> {
 }
 
 fn render_list(terminal: Terminal) -> String {
+    if terminal.color {
+        // Production anstream honors NO_COLOR before enabling color; these explicit
+        // color fixtures override crossterm's cached choice.
+        static COLOR: std::sync::Once = std::sync::Once::new();
+        COLOR.call_once(|| crossterm::style::force_color_output(true));
+    }
     let mut output = Vec::new();
     list::write(&mut output, terminal, &agents()).unwrap();
     visible(output)

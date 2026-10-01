@@ -1,5 +1,7 @@
 #[path = "architecture/cases.rs"]
 mod cases;
+#[path = "architecture/colors.rs"]
+mod colors;
 #[path = "architecture/driver_names.rs"]
 mod driver_names;
 #[path = "architecture/extension_host.rs"]
@@ -72,15 +74,18 @@ fn workspace_obeys_native_architecture() {
             "tmt-adapters",
             "tmt-cli",
             "tmt-cli-style",
+            "tmt-invoke",
             "tmt-command-output",
             "tmt-driver-protocol",
+            "tmt-host-grammar",
             "tmt-office",
             "tmt-office-command",
             "tmt-office-model",
             "tmt-office-pairing",
             "tmt-office-service",
             "tmt-office-storage",
-            "tmt-squad"
+            "tmt-squad",
+            "tmt-remote"
         ]),
         "Review native package boundaries when changing workspace members"
     );
@@ -126,9 +131,13 @@ fn workspace_obeys_native_architecture() {
         &sources,
         &tmt_core::driver::ALL.map(|driver| driver.name),
     ));
+    let built_in_hosts = tmt_core::host::HostKind::ALL;
     violations.extend(host_names::violations(
         &sources,
-        &tmt_core::host::HostKind::ALL.map(|host| host.as_str()),
+        &built_in_hosts
+            .iter()
+            .map(|host| host.as_str())
+            .collect::<Vec<_>>(),
     ));
     let extensions =
         extension_host::sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../extensions"));
@@ -152,6 +161,25 @@ fn workspace_obeys_native_architecture() {
         output_allowlist::MIGRATING,
     ));
     violations.extend(interaction::violations(&sources, interaction::MIGRATING));
+    // The extensions outside the workspace draw too; they obey the same rule.
+    let mut drawn = sources;
+    for (package, root) in [
+        ("tmt-squad", "tmt-squad/rust/tmt-squad/src/main.rs"),
+        ("tmt-remote", "tmt-remote/rust/tmt-remote/src/lib.rs"),
+        ("tmt-remote", "tmt-remote/rust/tmt-remote/src/main.rs"),
+    ] {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../extensions")
+            .join(root);
+        drawn.extend(source::collect(package, &root).expect("collect extension source"));
+    }
+    assert!(
+        drawn
+            .iter()
+            .any(|s| s.package == "tmt-squad" && s.file.ends_with("view.rs")),
+        "the color guard reads the Squad board"
+    );
+    violations.extend(colors::violations(&drawn));
     assert!(
         violations.is_empty(),
         "Native architecture violations:\n{}",

@@ -1,5 +1,6 @@
 mod answer_command;
 mod api_command;
+mod appearance;
 mod binding_command;
 mod binding_error;
 mod caller_context;
@@ -79,8 +80,22 @@ fn main() -> ExitCode {
 }
 
 fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
+    // A host driver gets everything it needs in its request; a tmt it runs
+    // does nothing, so a driver can neither recurse nor change TMT's state.
+    if std::env::var_os(tmt_adapters::host::external::CALL_ENV).is_some()
+        && !matches!(parsed.invocation, Invocation::Help(_) | Invocation::Version)
+    {
+        return failure(
+            parsed.mode,
+            "DRIVER_CALL_REFUSED",
+            "tmt runs no command for a host driver; a driver gets what it needs in its request.",
+        );
+    }
+    // A driver's pane IDs and targets are known once its syntax is registered.
+    tmt_adapters::host::external::register_approved();
     // Companions reach core through this executable, whatever name it has.
     tmt_adapters::core_executable::declare_core();
+    appearance::configure(parsed.mode.json);
     let inspect_drift = skill_reminder::eligible_for_drift(&parsed);
     let mode = parsed.mode;
     // This process may observe lifecycle changes for enabled extension hooks;

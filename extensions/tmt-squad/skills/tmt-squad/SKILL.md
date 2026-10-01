@@ -7,8 +7,8 @@ description: Lead a TMT squad - read the squad board, keep member state current 
 
 Use this skill when you lead a squad: `tmt squad ls` shows you as the
 squad's `lead`. A squad is a TMT room named `squad-<name>`. Each member's board
-fields are that member's identity metadata `squad.<name>.<field>`. Squad keeps
-no other state, so Office and threads show the same squad. `tmt sq` is the
+fields are that member's identity metadata `squad.<name>.<field>`. The authoritative roster and board fields stay in TMT; optional age observations
+live in a disposable Squad cache. `tmt sq` is the
 same command as `tmt squad`.
 
 ## Read the board
@@ -35,13 +35,24 @@ cell).
   section.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
-  `pending`, `note`, `fields` (every `squad.<name>.*` value, by field name),
-  `annotation` (the user's open note about this row, or null) and `waitingOnYou`
-  (open requests from this member to the user).
+  `pending`, `note`, `fields` (the `squad.<name>.*` values except the internal
+  leadership marker, by field name,
+  with the user's column sources and field providers applied), `failed` (fields
+  whose provider failed; they show `?`), `annotation` (the user's open note
+  about this row, or null) and `waitingOnYou` (open requests from this member to
+  the user), and `staleness` (observed task/state age).
+- Every row has a separate `staleness` object, and `squad.notesStaleness`
+  describes the lead's notebook: `state` (`disabled`, `unknown`, `fresh`,
+  `stale`), `unchangedSinceMs`, `ageMs`, `activityAfterUpdate` and `reasons`.
+  Unknown timestamps are null. Age is observed raw task/state or exact notes
+  content age, not file/core modification time. First observation starts the
+  clock; never infer older age from a cursor or missing evidence. Text `ls`
+  labels stale rows and notes with their age. See the reminder configuration
+  below for reset and evidence limits.
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
   layout lists it first.
 - States come from the layout: crew uses `working idle blocked review testing
-  hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
+hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
 
 `presence` is observed by TMT, not reported by the member. `activity` is what
 the member reported about itself.
@@ -72,6 +83,14 @@ tmt squad remove <name>                       # leaves the squad; the agent keep
   bytes. `field=` removes a field.
 - `set` applies its pairs in order and reports what it applied. After a
   failure, re-run it with the same pairs.
+- `tmt squad lead <name>` selects the lead independently of free-text `role`
+  and `lead` fields. Setting or clearing either field never changes leadership,
+  and selecting a new lead preserves every member's role text.
+- Legacy members with only `role=lead` still appear as lead until a role write
+  would change leadership or `squad lead` records their separate marker. Listing
+  and opening the board never perform that conversion. The reserved metadata suffix `lead.marker` is not a
+  user field and never appears in row `fields`; leadership is shown through
+  `squad.lead` and the section partition.
 - Removing a member clears its fields for this squad only. Its requests and
   notes keep the history.
 - `tmt squad annotate` acts as you: the identity of the pane you run in (or
@@ -111,3 +130,30 @@ agree on. Examples:
 Record the agreement in your notes (`tmt notes path` prints your notebook's
 path), or propose a `squad.toml` change for the user to apply. Squad never
 starts members, worktrees or windows; that is yours to arrange with the user.
+
+## Optional observed age
+
+The user can enable observation per squad; defaults are disabled and 30 minutes:
+
+```toml
+[squad.product.reminders]
+enabled = true
+stale_after = "30m"
+```
+
+The threshold accepts whole `s`/`m`/`h` durations from 1 minute to 24 hours.
+The first observation starts a grace period; existing work is never backdated.
+Missing or unreadable notes, unavailable cache and rollback clocks are unknown.
+Cache loss/corruption starts a new period; config edits do not reset age.
+Disabling stops observation; after re-enabling, surviving fingerprint matches
+keep their first-observed time. Disabled observation does no cache work and
+never creates a notebook.
+
+The row's age changes only when its raw task/state changes; links, notes and
+provider refreshes do not renew it. `activityAfterUpdate` records relevant
+observed PR link changes, successful current `github-pr` state transitions to
+open/merged, or a submitted member final after the task/state update. Cold
+provider data and bounded room history can miss transitions. Idle is never
+guessed from silence or offline presence. This slice reports age in `ls`;
+board marks, settings controls and a reminder in the lead's next-turn context
+are planned follow-ups. Enabling these keys installs no provider hook.

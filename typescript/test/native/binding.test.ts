@@ -143,6 +143,9 @@ describe('native identity binding process contract', () => {
             // Additive: an offline identity with no remembered session has no address.
             address: null,
             driver: null,
+            session: {
+              activity: { state: 'unknown', sinceMs: null, lastActivityMs: null, providers: {} },
+            },
           },
         ],
       });
@@ -158,6 +161,7 @@ describe('native identity binding process contract', () => {
         'name',
         'pane',
         'presence',
+        'session',
       ]);
 
       const named = await runCli(sandbox, ['list', 'offline agent', '--json']);
@@ -264,6 +268,9 @@ describe('native identity binding process contract', () => {
           command: '',
           address: null,
           driver: null,
+          session: {
+            activity: { state: 'unknown', sinceMs: null, lastActivityMs: null, providers: {} },
+          },
         })),
       });
     });

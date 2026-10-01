@@ -3,7 +3,8 @@ name: Release
 # Runs release-please for the three products: it opens one release pull request per
 # component, a merged one produces a draft release, and this workflow then starts the
 # per-product run (`native-release.yml`) that builds, verifies and attaches the bundle to
-# each draft. It never publishes: publication is a separate, authorized step.
+# each draft, publishes a draft that passes its gates and checks the published release. This
+# workflow itself never publishes.
 #
 # Until the owner has added the release App secrets every push is a dry run that opens,
 # merges, creates and starts nothing; a manual run chooses with `dry_run`.
@@ -123,9 +124,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # One entry per component that releases (.github/components.json); Office is release:false.
         product:
           - cli
-          - office
           - squad
     permissions:
       # Draft releases are only listed for a token that can push; starting a run needs actions.
@@ -138,7 +139,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
-      - name: Start the run when a draft release needs a build
+      - name: Start the run when a draft release needs a build or a publication
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT: ${{ matrix.product }}

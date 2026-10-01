@@ -16,7 +16,7 @@ const WORKSPACE_MANIFEST = 'rust/Cargo.toml';
 const LOCK_FILE = 'rust/Cargo.lock';
 
 /**
- * Crates, their version declaration, their workspace dependencies, the crates that have a
+ * Crates, their resolved version and version declaration, their workspace dependencies, the crates that have a
  * `Cargo.lock` entry and every tracked file, read from the repository at `root`.
  */
 export function readWorkspace(root = ROOT) {
@@ -41,8 +41,11 @@ export function readWorkspace(root = ROOT) {
     const manifest = relative(root, crate.manifest_path);
     return {
       name: crate.name,
+      version: crate.version,
       manifest,
       dir: dirname(manifest),
+      hasBinary: crate.targets.some(({ kind }) => kind.includes('bin')),
+      dist: crate.metadata?.dist?.dist,
       inheritsVersion: /^version\.workspace\s*=\s*true\s*$/m.test(
         readFileSync(crate.manifest_path, 'utf8')
       ),
@@ -129,11 +132,23 @@ export function generateReleasePleaseConfig({ components, workspace }) {
   const map = { components };
   const ownerOfCrate = (crate) => ownerOf(crate.manifest, map);
   const workspaceOwner = ownerOf(WORKSPACE_MANIFEST, map);
+  // A crate that inherits the workspace version changes with the workspace owner's release, so its
+  // lock entry stays in that release even when a private component owns the crate.
+  const versionOwnerOf = (crate) => (crate.inheritsVersion ? workspaceOwner : ownerOfCrate(crate));
+  const releasedCrates = crates.filter(
+    (crate) => components.find(({ name }) => name === versionOwnerOf(crate))?.release !== false
+  );
   const packages = {};
 
   for (const component of components) {
     if (component.owns.length !== 1) {
       throw new Error(`Component ${component.name} must own exactly one root to be a package.`);
+    }
+    const owned = crates.filter((crate) => ownerOfCrate(crate) === component.name);
+    if (component.release === false) {
+      if (owned.some((crate) => crate.hasBinary && crate.dist !== false))
+        throw new Error(`Private component ${component.name} owns a binary without dist=false.`);
+      continue;
     }
     const [packagePath] = component.owns;
     const policy = releasePolicy(component.name);
@@ -144,7 +159,6 @@ export function generateReleasePleaseConfig({ components, workspace }) {
         `Tag prefix ${policy.tagPrefix} of ${component.name} is not ${expectedPrefix}, which release-please would create.`
       );
     }
-    const owned = crates.filter((crate) => ownerOfCrate(crate) === component.name);
     const extraFiles = [];
     const toml = (file, jsonpath) =>
       extraFiles.push({ type: 'toml', path: fromPackage(packagePath, file), jsonpath });
@@ -154,9 +168,8 @@ export function generateReleasePleaseConfig({ components, workspace }) {
     for (const crate of [...owned].sort(byName)) {
       if (!crate.inheritsVersion) toml(crate.manifest, '$.package.version');
     }
-    for (const crate of [...crates].sort(byName)) {
-      const declaredBy = crate.inheritsVersion ? workspaceOwner : ownerOfCrate(crate);
-      if (declaredBy !== component.name) continue;
+    for (const crate of [...releasedCrates].sort(byName)) {
+      if (versionOwnerOf(crate) !== component.name) continue;
       if (!/^[a-z0-9-]+$/.test(crate.name)) {
         throw new Error(`Crate name ${crate.name} cannot be written into a JSONPath filter.`);
       }

@@ -20,7 +20,8 @@
         "extensions/tmt-office/rust/tmt-office-storage",
         "extensions/tmt-office/skills",
         "extensions/tmt-office/typescript",
-        "extensions/tmt-squad"
+        "extensions/tmt-squad",
+        "extensions/tmt-remote"
       ],
       "extra-files": [
         {
@@ -61,6 +62,16 @@
         {
           "type": "toml",
           "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-host-grammar')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-invoke')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-office-model')].version"
         },
         {
@@ -77,33 +88,6 @@
           "type": "toml",
           "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-office-storage')].version"
-        }
-      ]
-    },
-    "extensions/tmt-office": {
-      "release-type": "simple",
-      "component": "tmt-office",
-      "include-component-in-tag": true,
-      "extra-files": [
-        {
-          "type": "toml",
-          "path": "rust/tmt-office/Cargo.toml",
-          "jsonpath": "$.package.version"
-        },
-        {
-          "type": "toml",
-          "path": "rust/tmt-office-command/Cargo.toml",
-          "jsonpath": "$.package.version"
-        },
-        {
-          "type": "toml",
-          "path": "/rust/Cargo.lock",
-          "jsonpath": "$.package[?(@.name.value=='tmt-office')].version"
-        },
-        {
-          "type": "toml",
-          "path": "/rust/Cargo.lock",
-          "jsonpath": "$.package[?(@.name.value=='tmt-office-command')].version"
         }
       ]
     },

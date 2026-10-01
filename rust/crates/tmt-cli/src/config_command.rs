@@ -5,18 +5,24 @@ use crate::invocation::{ConfigRequest, OutputMode};
 use crate::output::Failure;
 use serde_json::json;
 use std::io::{self, Write};
-use tmt_adapters::config::{ConfigFiles, ConfigPaths, Scope};
+use tmt_adapters::config::{ConfigFiles, ConfigPaths, Scope, ThemeProblem};
 use tmt_core::settings::{EDITABLE_KEYS, LocalClear, ResolvedSettings, Setting, SettingKey};
 
 fn invalid_setting(message: String) -> Failure {
     Failure::new("ERROR", message, 1)
 }
 
+struct Shown {
+    loaded: ResolvedSettings,
+    theme: Vec<(String, String)>,
+    /// A bad theme is reported, never a failure: it must not stop
+    /// `config show`, which Squad reads to find its own file.
+    theme_error: Option<ThemeProblem>,
+    paths: ConfigPaths,
+}
+
 enum Report {
-    Show {
-        loaded: ResolvedSettings,
-        paths: ConfigPaths,
-    },
+    Show(Box<Shown>),
     Changed(String),
 }
 
@@ -25,10 +31,28 @@ fn run(request: ConfigRequest) -> Result<Report, Failure> {
         paths: ConfigPaths::discover()?,
     };
     match request {
-        ConfigRequest::Show => Ok(Report::Show {
-            loaded: files.load()?,
-            paths: files.paths,
-        }),
+        ConfigRequest::Show => {
+            let loaded = files.load()?;
+            let (theme, theme_error) = match files.theme()? {
+                Ok(theme) => {
+                    // The meaning is checked here, so a bad value names its key.
+                    let error = crate::appearance::parse(&theme)
+                        .err()
+                        .map(|error| ThemeProblem {
+                            key: error.key,
+                            message: error.message,
+                        });
+                    (theme, error)
+                }
+                Err(problem) => (Vec::new(), Some(problem)),
+            };
+            Ok(Report::Show(Box::new(Shown {
+                loaded,
+                theme,
+                theme_error,
+                paths: files.paths,
+            })))
+        }
         ConfigRequest::Set { key, value, global } => {
             let scope = if global { Scope::Global } else { Scope::Local };
             files.set(
@@ -69,19 +93,59 @@ pub fn execute(request: ConfigRequest, mode: OutputMode) -> io::Result<u8> {
                 tmt_cli_style::message::success(&mut output, terminal, &message)?;
             }
         }
-        Report::Show { loaded, paths } => {
+        Report::Show(shown) => {
+            let Shown {
+                loaded,
+                theme,
+                theme_error,
+                paths,
+            } = *shown;
             if mode.json {
-                writeln!(output, "{}", show_json(&loaded, &paths))?;
+                let mut document = show_json(&loaded, &theme, &paths);
+                document["themeError"] = theme_error.as_ref().map_or(
+                    serde_json::Value::Null,
+                    |problem| json!({"key": problem.key, "message": problem.message}),
+                );
+                writeln!(output, "{document}")?;
             } else {
-                show_text(&mut output, terminal, &loaded, &paths)?;
+                show_text(&mut output, terminal, &loaded, &theme, &paths)?;
+                if let Some(problem) = theme_error {
+                    let mut stderr = tmt_cli_style::stream::stderr();
+                    let terminal = stderr.terminal();
+                    tmt_cli_style::message::error(
+                        &mut stderr,
+                        terminal,
+                        &format!(
+                            "{} {}; commands use the terminal's colors until it is fixed",
+                            problem.key,
+                            problem.message.trim_end_matches('.')
+                        ),
+                        None,
+                    )?;
+                }
             }
         }
     }
     Ok(0)
 }
 
-fn show_json(loaded: &ResolvedSettings, paths: &ConfigPaths) -> serde_json::Value {
+/// `theme` is the global file's settings as written (already checked); an
+/// empty one is the default: the terminal's own colors on the command line.
+fn show_json(
+    loaded: &ResolvedSettings,
+    theme: &[(String, String)],
+    paths: &ConfigPaths,
+) -> serde_json::Value {
     let settings = &loaded.settings;
+    let theme_source = if theme.is_empty() {
+        "default"
+    } else {
+        "global"
+    };
+    let theme: serde_json::Map<String, serde_json::Value> = theme
+        .iter()
+        .map(|(key, value)| (key.clone(), json!(value)))
+        .collect();
     json!({
         "resolved": {
             "preambleMode": settings.preamble_mode.as_str(),
@@ -96,6 +160,7 @@ fn show_json(loaded: &ResolvedSettings, paths: &ConfigPaths) -> serde_json::Valu
             },
             "exchange": { "retentionDays": settings.retention_days },
             "ui": { "paneBadge": settings.pane_badge.as_str() },
+            "theme": theme,
         },
         "sources": {
             "preambleMode": loaded.source(SettingKey::PreambleMode),
@@ -103,6 +168,7 @@ fn show_json(loaded: &ResolvedSettings, paths: &ConfigPaths) -> serde_json::Valu
             "pasteEnterDelayMs": loaded.source(SettingKey::PasteEnterDelayMs),
             "exchange": { "retentionDays": loaded.source(SettingKey::RetentionDays) },
             "ui": { "paneBadge": loaded.source(SettingKey::PaneBadge) },
+            "theme": theme_source,
         },
         "paths": { "global": paths.global_config, "local": paths.local_config },
     })
@@ -112,6 +178,7 @@ fn show_text(
     output: &mut impl Write,
     terminal: tmt_cli_style::Terminal,
     loaded: &ResolvedSettings,
+    theme: &[(String, String)],
     paths: &ConfigPaths,
 ) -> io::Result<()> {
     let settings = &loaded.settings;
@@ -184,6 +251,33 @@ fn show_text(
             Cell::styled(loaded.source(key), Token::Dim),
             Cell::from(changes),
             Cell::styled(key.expected(), Token::Dim),
+        ]);
+    }
+    // The theme is set in the global file only; without a base the command
+    // line keeps the terminal's own colors.
+    let base = theme
+        .iter()
+        .find(|(key, _)| key == "base")
+        .map_or("terminal colors", |(_, value)| value.as_str());
+    let source = if theme.is_empty() {
+        "default"
+    } else {
+        "global"
+    };
+    table.row([
+        Cell::from("theme.base"),
+        Cell::from(base),
+        Cell::styled(source, Token::Dim),
+        Cell::from("global file only"),
+        Cell::styled("tmt, tmt-light, terminal or mono", Token::Dim),
+    ]);
+    for (key, value) in theme.iter().filter(|(key, _)| key != "base") {
+        table.row([
+            Cell::from(format!("theme.{key}")),
+            Cell::from(value.as_str()),
+            Cell::styled("global", Token::Dim),
+            Cell::from("global file only"),
+            Cell::styled("#rrggbb or a color name", Token::Dim),
         ]);
     }
     list::write(

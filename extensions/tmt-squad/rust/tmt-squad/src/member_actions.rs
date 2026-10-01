@@ -26,7 +26,13 @@ fn document(core: &Core, squad: &Squad, config: &Config) -> Result<Value, SquadE
     let layout = config.layout(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
     let rows = config.rows(&squad.name)?;
-    let members = squad.members(core, rows.reads_metadata())?;
+    let providers = config.providers(&squad.name)?;
+    let mut members = squad.members(core, rows.reads_metadata())?;
+    crate::provider::apply(
+        &providers,
+        &mut members,
+        &crate::provider::Cache::load(&squad.name),
+    );
     Ok(status::document(
         squad,
         layout,
@@ -77,6 +83,61 @@ pub fn jump(
         document["warning"] = json!(format!("back will not return here: {warning}"));
     }
     Ok(document.into())
+}
+
+/// `tmt squad jump --lead`: the squad's lead, through the same jump as any
+/// member, so `back` returns from it. No lead changes nothing.
+pub fn jump_lead(core: &Core, squad: &Squad, config: &Config) -> Result<Outcome, SquadError> {
+    let lead = squad
+        .roster(core)?
+        .into_iter()
+        .find(crate::squad::Member::is_lead)
+        .ok_or_else(|| {
+            refused(format!(
+                "Squad {} has no lead; set one with tmt squad lead <name>.",
+                squad.name
+            ))
+        })?;
+    jump(core, squad, config, &lead.name)
+}
+
+/// The squad `jump --lead` means without `--squad`: the one the calling
+/// pane's identity is in, else the only squad. A caller in several squads
+/// must choose; one in none falls back to the only squad.
+pub fn caller_squad(core: &Core, explicit: Option<&str>) -> Result<Squad, SquadError> {
+    if explicit.is_some() {
+        return Squad::resolve(core, explicit);
+    }
+    // Outside a pane core cannot say who calls; that is not this command's
+    // failure, only no caller.
+    let Some(caller) = crate::me::caller(core).ok().flatten() else {
+        return Squad::resolve(core, None);
+    };
+    let mut mine = Vec::new();
+    for squad in Squad::list(core)? {
+        if squad
+            .roster(core)?
+            .iter()
+            .any(|member| member.id == caller.me.id)
+        {
+            mine.push(squad);
+        }
+    }
+    match mine.len() {
+        0 => Squad::resolve(core, None),
+        1 => Ok(mine.remove(0)),
+        _ => Err(SquadError::new(
+            "SQUAD_AMBIGUOUS",
+            format!(
+                "{} is in several squads ({}); choose one with --squad.",
+                caller.me.name,
+                mine.iter()
+                    .map(|squad| squad.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )),
+    }
 }
 
 /// `tmt squad back`: needs no squad; the stack belongs to the tmux client.
@@ -158,4 +219,158 @@ pub fn annotate(
     };
     let request = send::annotate(core, &squad.name, &me.name, &to, name, text)?;
     Ok(json!({"requestId": request, "to": to, "as": me.name, "row": name, "room": crate::squad::room_name(&squad.name)}).into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs, path::PathBuf};
+
+    /// A fake `tmt` with squads `a` and `b`: `rooms.roster` answers per room,
+    /// `whoami` from a file the test writes, and `focus` is logged and never
+    /// reports a client, so no `back` stack is ever written.
+    struct Fixture {
+        root: PathBuf,
+        core: Core,
+    }
+
+    impl Fixture {
+        fn new(name: &str, a: Value, b: Value, caller: Option<&str>) -> Self {
+            let root =
+                std::env::temp_dir().join(format!("squad-jump-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir(&root).unwrap();
+            fs::write(root.join("roster-a"), json!({"members": a}).to_string()).unwrap();
+            fs::write(root.join("roster-b"), json!({"members": b}).to_string()).unwrap();
+            let whoami = match caller {
+                Some(id) => {
+                    json!({"bound": true, "id": id, "name": id.to_lowercase(), "lifetime": "saved"})
+                }
+                None => json!({"bound": false}),
+            };
+            fs::write(root.join("whoami"), whoami.to_string()).unwrap();
+            let executable = root.join("tmt");
+            crate::test_support::write_executable(
+                &executable,
+                r#"#!/bin/sh
+root=${0%/*}
+case "$1" in
+  api)
+    input=$(cat)
+    case "$input" in
+      *'"room-a"'*) cat "$root/roster-a" ;;
+      *'"room-b"'*) cat "$root/roster-b" ;;
+      *) exit 2 ;;
+    esac ;;
+  room)
+    case "$2" in
+      list) printf '%s\n' '{"rooms":[{"id":"room-a","name":"squad-a"},{"id":"room-b","name":"squad-b"}]}' ;;
+      show) printf '{"room":{"id":"room-%s","name":"squad-%s"}}\n' "${3#squad-}" "${3#squad-}" ;;
+      *) exit 2 ;;
+    esac ;;
+  whoami) cat "$root/whoami" ;;
+  ls) printf '%s\n' '{"identities":[]}' ;;
+  focus) printf '%s\n' "focus $2" >> "$root/calls"; printf '%s\n' '{"focused":{"pane":"%9"}}' ;;
+  *) exit 2 ;;
+esac
+"#,
+            );
+            Self {
+                core: Core::at(executable),
+                root,
+            }
+        }
+
+        fn focused(&self) -> String {
+            fs::read_to_string(self.root.join("calls")).unwrap_or_default()
+        }
+
+        fn config(&self) -> Config {
+            let path = self.root.join("squad.toml");
+            fs::write(&path, "").unwrap();
+            Config::read(path).unwrap()
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn member(id: &str, lead: bool) -> Value {
+        let mut metadata = json!({});
+        if lead {
+            metadata["squad.a.lead.marker"] = json!("true");
+            metadata["squad.b.lead.marker"] = json!("true");
+        }
+        json!({"id": id, "name": id.to_lowercase(), "lifetime": "saved", "metadata": metadata})
+    }
+
+    #[test]
+    fn jump_lead_focuses_the_callers_squad_lead_like_any_member() {
+        let fixture = Fixture::new(
+            "mine",
+            json!([member("SOL", true), member("RIN", false)]),
+            json!([member("ADA", true)]),
+            Some("RIN"),
+        );
+        let squad = caller_squad(&fixture.core, None).unwrap();
+        assert_eq!(squad.name, "a", "the calling pane's own squad");
+        let outcome = jump_lead(&fixture.core, &squad, &fixture.config()).unwrap();
+        assert_eq!(fixture.focused(), "focus sol\n");
+        assert_eq!(outcome.document["member"], "sol");
+        assert_eq!(outcome.document["focused"]["pane"], "%9");
+        // As for any jump: no client reported means `back` cannot return.
+        assert!(outcome.document["warning"].is_string());
+        // --squad wins over the caller's squad.
+        let named = caller_squad(&fixture.core, Some("b")).unwrap();
+        assert_eq!(named.name, "b");
+    }
+
+    #[test]
+    fn without_a_lead_nothing_is_focused() {
+        let fixture = Fixture::new(
+            "leaderless",
+            json!([member("RIN", false)]),
+            json!([]),
+            Some("RIN"),
+        );
+        let squad = caller_squad(&fixture.core, None).unwrap();
+        let Err(error) = jump_lead(&fixture.core, &squad, &fixture.config()) else {
+            panic!("a squad without a lead cannot be jumped to");
+        };
+        assert_eq!(error.code, "SQUAD_ACTION_REFUSED");
+        assert_eq!(
+            error.message,
+            "Squad a has no lead; set one with tmt squad lead <name>."
+        );
+        assert_eq!(fixture.focused(), "", "nothing changed");
+    }
+
+    #[test]
+    fn a_caller_in_several_squads_or_none_is_resolved_or_asked() {
+        // In both squads: the caller must choose.
+        let both = Fixture::new(
+            "both",
+            json!([member("RIN", false)]),
+            json!([member("RIN", false)]),
+            Some("RIN"),
+        );
+        let error = caller_squad(&both.core, None).unwrap_err();
+        assert_eq!(error.code, "SQUAD_AMBIGUOUS");
+        assert_eq!(
+            error.message,
+            "rin is in several squads (a, b); choose one with --squad."
+        );
+        // In none, or no pane at all: the only-squad rule, which with two
+        // squads asks for --squad too.
+        for caller in [Some("ZED"), None] {
+            let none = Fixture::new("none", json!([]), json!([]), caller);
+            assert_eq!(
+                caller_squad(&none.core, None).unwrap_err().code,
+                "SQUAD_AMBIGUOUS"
+            );
+        }
+    }
 }

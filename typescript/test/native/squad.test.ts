@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   statSync,
   symlinkSync,
@@ -31,6 +32,7 @@ function installSquad(sandbox: Sandbox): string {
   symlinkSync(squadExecutable, path.join(bin, 'tmt-squad'));
   symlinkSync('tmt-squad', path.join(bin, 'tmt-sq'));
   sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+  sandbox.env.XDG_CACHE_HOME = path.join(sandbox.root, 'cache');
   return bin;
 }
 
@@ -45,7 +47,7 @@ async function identity(sandbox: Sandbox, name: string): Promise<string> {
   return JSON.parse(result.stdout).identity.id;
 }
 
-// Independent observation of core state; squad has no store of its own.
+// Independent observation of the authoritative roster and board metadata.
 function observe(sandbox: Sandbox) {
   const db = new Database(sandbox.database, { readonly: true });
   try {
@@ -66,7 +68,7 @@ function observe(sandbox: Sandbox) {
           `SELECT i.name AS identity, m.key, m.value FROM identity_metadata m
            JOIN identities i ON i.id = m.identity_id ORDER BY identity, key`
         )
-        .all(),
+        .all() as { identity: string; key: string; value: string }[],
     };
   } finally {
     db.close();
@@ -84,6 +86,123 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('reports observed age without changing board metadata or creating missing notes', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      const leadId = await identity(sandbox, 'Sol');
+      const memberId = await identity(sandbox, 'Rin');
+      for (const args of [
+        ['init', 'product', '--me', 'Ben'],
+        ['lead', 'Sol'],
+        ['add', 'Rin'],
+        ['set', 'Rin', 'task=review tokens', 'state=working'],
+      ])
+        expect((await squad(sandbox, args)).status).toBe(0);
+      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const original = readFileSync(toml, 'utf8');
+      const listing = () => squad(sandbox, ['ls', '--squad', 'product']);
+      const disabled = await listing();
+      expect(disabled.status).toBe(0);
+      expect(disabled.body.sections[0].rows[0].staleness).toEqual({
+        state: 'disabled',
+        unchangedSinceMs: null,
+        ageMs: null,
+        activityAfterUpdate: false,
+        reasons: [],
+      });
+      const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+      expect(existsSync(directory)).toBe(false);
+      expect(readFileSync(toml, 'utf8')).toBe(original);
+      const created = await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json']);
+      expect(created.status).toBe(0);
+      const notebook = JSON.parse(created.stdout).path as string;
+      writeFileSync(notebook, '# Current work\nReview token rotation.\n');
+      writeFileSync(
+        toml,
+        `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "1m"\n`
+      );
+      const metadataBefore = observe(sandbox);
+      const first = await listing();
+      expect(first.status).toBe(0);
+      expect(first.body.sections[0].rows[0].staleness).toMatchObject({ state: 'fresh', ageMs: 0 });
+      expect(first.body.squad.notesStaleness).toMatchObject({ state: 'fresh', ageMs: 0 });
+      const file = path.join(
+        directory,
+        readdirSync(directory).find((name) => name.endsWith('.json'))!
+      );
+      const persisted = JSON.parse(readFileSync(file, 'utf8'));
+      // Independent fixture ages retained observations; the public commands
+      // must recompute age from these records rather than from display fields.
+      const since = Date.now() - 125_000;
+      persisted.members[memberId].sinceMs = since;
+      persisted.notes.sinceMs = since;
+      persisted.observedAtMs = since;
+      writeFileSync(file, JSON.stringify(persisted));
+      const stale = await listing();
+      expect(stale.status).toBe(0);
+      expect(stale.stderr).toBe('');
+      expect(stale.body.sections[0].rows[0].staleness).toMatchObject({
+        state: 'stale',
+        unchangedSinceMs: since,
+        activityAfterUpdate: false,
+      });
+      expect(stale.body.squad.notesStaleness.state).toBe('stale');
+      // A public config-writing command is unrelated to observed content age.
+      expect((await squad(sandbox, ['me', 'Sol'])).status).toBe(0);
+      const afterMe = await listing();
+      expect(afterMe.body.sections[0].rows[0].staleness.unchangedSinceMs).toBe(since);
+      expect(afterMe.body.squad.notesStaleness.unchangedSinceMs).toBe(since);
+
+      const human = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      expect(human.status).toBe(0);
+      expect(human.stdout).toContain('lead notes: stale 2m');
+      expect(human.stdout).toContain('stale 2m');
+      expect(human.stdout).toContain('Rin');
+      expect(observe(sandbox)).toEqual(metadataBefore);
+      expect((await runCli(sandbox, ['rename', 'Rin', 'NewRin', '--json'])).status).toBe(0);
+      const renamed = await listing();
+      expect(renamed.body.sections[0].rows[0]).toMatchObject({
+        id: memberId,
+        name: 'NewRin',
+        staleness: { state: 'stale' },
+      });
+      expect((await squad(sandbox, ['set', 'NewRin', 'state=review'])).status).toBe(0);
+      const updated = await listing();
+      expect(updated.body.sections[0].rows[0].staleness).toMatchObject({
+        state: 'fresh',
+        ageMs: 0,
+      });
+      expect(updated.body.squad.notesStaleness.state).toBe('stale');
+      unlinkSync(notebook);
+      const missing = await listing();
+      expect(missing.body.squad.lead.id).toBe(leadId);
+      expect(missing.body.squad.notesStaleness.state).toBe('unknown');
+      expect(existsSync(notebook)).toBe(false);
+      const beforeDisable = readFileSync(file, 'utf8');
+      writeFileSync(toml, `${original}\n[squad.product.reminders]\nenabled = false\n`);
+      const off = await listing();
+      expect(off.body.squad.notesStaleness.state).toBe('disabled');
+      expect(readFileSync(file, 'utf8')).toBe(beforeDisable);
+      writeFileSync(
+        toml,
+        `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "1m"\n`
+      );
+      const reenabled = await listing();
+      expect(reenabled.body.sections[0].rows[0].staleness.unchangedSinceMs).toBe(
+        updated.body.sections[0].rows[0].staleness.unchangedSinceMs
+      );
+      const afterReenable = readFileSync(file, 'utf8');
+      const invalid = `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "59s"\n`;
+      writeFileSync(toml, invalid);
+      const refused = await listing();
+      expect(refused.status).toBe(1);
+      expect(refused.body.error.code).toBe('SQUAD_CONFIG_INVALID');
+      expect(readFileSync(toml, 'utf8')).toBe(invalid);
+      expect(readFileSync(file, 'utf8')).toBe(afterReenable);
+    });
+  });
+
   // The Squad release proof (native-runtime-proof.mjs) expects this exact
   // line; PR CI never runs that proof, so this pins it.
   it('prints exactly squad <version> for --version and -V, directly and through tmt', async () => {
@@ -178,6 +297,22 @@ describe('squad extension', () => {
           'utf8'
         )
       );
+    });
+  });
+
+  it('keeps working when the global theme is wrong', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      // Squad finds squad.toml through tmt config show; a bad theme must not
+      // stop it (the theme is presentation, reported by config show).
+      writeFileSync(sandbox.globalConfig, JSON.stringify({ theme: { waiting: 'orange' } }));
+      const none = await squad(sandbox, ['ls']);
+      expect(none).toMatchObject({ status: 0, body: { squads: [], you: null } });
+      expect((await runCli(sandbox, ['squad', 'init', 'product', '--json'])).status).toBe(0);
+      const listed = await squad(sandbox, ['ls']);
+      expect(listed.status).toBe(0);
+      expect(listed.body.squads[0].squad.name).toBe('product');
     });
   });
 
@@ -415,6 +550,246 @@ describe('squad extension', () => {
     });
   });
 
+  it('keeps leadership separate from role and lead fields through legacy conversion and re-add', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const sol = await identity(sandbox, 'Sol');
+      const rin = await identity(sandbox, 'Rin');
+      const initialized = await squad(sandbox, ['init', 'product']);
+      const room = initialized.body.squad.roomId;
+      for (const id of [sol, rin]) {
+        expect((await runCli(sandbox, ['room', 'join', room, '--identity', id])).status).toBe(0);
+      }
+      expect(
+        (
+          await runCli(sandbox, [
+            'identity',
+            'meta',
+            'set',
+            'squad.product.role',
+            'lead',
+            '--identity',
+            sol,
+          ])
+        ).status
+      ).toBe(0);
+      const legacy = observe(sandbox);
+      for (const command of ['ls', 'board']) {
+        const read = await squad(sandbox, [command, '--squad', 'product']);
+        expect(read.status).toBe(0);
+        expect(read.body.squad.lead.id).toBe(sol);
+        expect(observe(sandbox)).toEqual(legacy);
+      }
+
+      expect(
+        (await squad(sandbox, ['set', 'Sol', 'role=reviews every merge', 'lead=ordinary data']))
+          .status
+      ).toBe(0);
+      let listing = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(listing.body.squad.lead).toMatchObject({
+        id: sol,
+        fields: { role: 'reviews every merge', lead: 'ordinary data' },
+      });
+      expect(listing.body.squad.lead.fields).not.toHaveProperty('lead.marker');
+      expect(observe(sandbox).metadata).toEqual(
+        expect.arrayContaining([
+          { identity: 'Sol', key: 'squad.product.lead.marker', value: 'true' },
+        ])
+      );
+      const textListing = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      expect(textListing.status).toBe(0);
+      expect(textListing.stdout).not.toContain('lead.marker');
+      expect((await squad(sandbox, ['set', 'Sol', 'role='])).status).toBe(0);
+      listing = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(listing.body.squad.lead.id).toBe(sol);
+      expect(listing.body.squad.lead.fields).not.toHaveProperty('role');
+
+      expect((await squad(sandbox, ['set', 'Rin', 'role=lead', 'lead=true'])).status).toBe(0);
+      expect((await squad(sandbox, ['set', 'Sol', 'role=lead'])).status).toBe(0);
+      listing = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(listing.body.squad.lead.id).toBe(sol);
+      expect(listing.body.sections[0].rows[0]).toMatchObject({
+        id: rin,
+        fields: { role: 'lead', lead: 'true' },
+      });
+      for (const row of [listing.body.squad.lead, ...listing.body.sections[0].rows]) {
+        expect(row.fields).not.toHaveProperty('lead.marker');
+      }
+      expect(observe(sandbox).metadata).toEqual(
+        expect.arrayContaining([
+          { identity: 'Sol', key: 'squad.product.lead.marker', value: 'true' },
+          { identity: 'Rin', key: 'squad.product.lead.marker', value: 'false' },
+        ])
+      );
+      expect((await squad(sandbox, ['lead', 'Rin'])).body.replaced).toEqual(['Sol']);
+      listing = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(listing.body.squad.lead).toMatchObject({
+        id: rin,
+        fields: { role: 'lead', lead: 'true' },
+      });
+      expect(listing.body.sections[0].rows[0]).toMatchObject({
+        id: sol,
+        fields: { role: 'lead', lead: 'ordinary data' },
+      });
+
+      const removed = await squad(sandbox, ['remove', 'Rin']);
+      expect(removed.status).toBe(0);
+      expect(removed.body.cleared.sort()).toEqual(['lead', 'lead.marker', 'role']);
+      expect(
+        observe(sandbox).metadata.filter(
+          (row: { identity: string; key: string }) =>
+            row.identity === 'Rin' && row.key === 'squad.product.lead.marker'
+        )
+      ).toEqual([]);
+      expect((await squad(sandbox, ['add', 'Rin'])).status).toBe(0);
+      listing = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(listing.body.squad.lead).toBeNull();
+      expect(
+        listing.body.sections[0].rows.find((row: { id: string }) => row.id === rin).fields
+      ).not.toHaveProperty('lead.marker');
+    });
+  });
+
+  it('keeps a failed legacy conversion from mutating roles or demoting another legacy lead', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const sol = await identity(sandbox, 'Sol');
+      const rin = await identity(sandbox, 'Rin');
+      const initialized = await squad(sandbox, ['init', 'product']);
+      for (const id of [sol, rin]) {
+        expect(
+          (await runCli(sandbox, ['room', 'join', initialized.body.squad.roomId, '--identity', id]))
+            .status
+        ).toBe(0);
+        expect(
+          (
+            await runCli(sandbox, [
+              'identity',
+              'meta',
+              'set',
+              'squad.product.role',
+              'lead',
+              '--identity',
+              id,
+            ])
+          ).status
+        ).toBe(0);
+      }
+      // Fill only Sol's metadata: the extra marker cannot be persisted.
+      const db = new Database(sandbox.database);
+      try {
+        const insert = db.prepare(
+          'INSERT INTO identity_metadata (identity_id, key, value) VALUES (?, ?, ?)'
+        );
+        for (let i = 0; i < 63; i++) insert.run(sol, `squad.product.fixture${i}`, 'value');
+      } finally {
+        db.close();
+      }
+      expect((await squad(sandbox, ['set', 'Sol', 'fixture0=updated'])).status).toBe(0);
+      const before = observe(sandbox);
+      const previousLead = (await squad(sandbox, ['ls', '--squad', 'product'])).body.squad.lead.id;
+      expect([sol, rin]).toContain(previousLead);
+      const failed = await squad(sandbox, ['set', 'Sol', 'fixture0=not applied', 'role=reviewer']);
+      expect(failed.status).toBe(1);
+      expect(failed.body.error.code).toBe('IDENTITY_METADATA_INVALID');
+      expect(observe(sandbox)).toEqual(before);
+      const listing = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(listing.body.squad.lead.id).toBe(previousLead);
+      expect(observe(sandbox)).toEqual(before);
+    });
+  });
+
+  it('masks pre-existing lead data before an addition and leaves a capped addition untouched', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const sol = await identity(sandbox, 'Sol');
+      const rin = await identity(sandbox, 'Rin');
+      expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
+      for (const id of [sol, rin]) {
+        expect(
+          (
+            await runCli(sandbox, [
+              'identity',
+              'meta',
+              'set',
+              'squad.product.role',
+              'lead',
+              '--identity',
+              id,
+            ])
+          ).status
+        ).toBe(0);
+      }
+      const db = new Database(sandbox.database);
+      try {
+        const insert = db.prepare(
+          'INSERT INTO identity_metadata (identity_id, key, value) VALUES (?, ?, ?)'
+        );
+        for (let i = 0; i < 63; i++) insert.run(rin, `squad.product.fixture${i}`, 'value');
+      } finally {
+        db.close();
+      }
+      const before = observe(sandbox);
+      const failed = await squad(sandbox, ['add', 'Rin']);
+      expect(failed.status).toBe(1);
+      expect(failed.body.results[0].error.code).toBe('IDENTITY_METADATA_INVALID');
+      expect(observe(sandbox)).toEqual(before);
+      expect((await squad(sandbox, ['add', 'Sol'])).status).toBe(0);
+      const listing = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(listing.body.squad.lead).toBeNull();
+      expect(listing.body.sections[0].rows[0]).toMatchObject({
+        id: sol,
+        fields: { role: 'lead' },
+      });
+    });
+  });
+
+  it('leaves a capped old legacy lead as the only lead when replacement cannot record its marker', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const sol = await identity(sandbox, 'Sol');
+      await identity(sandbox, 'Rin');
+      const initialized = await squad(sandbox, ['init', 'product']);
+      expect(
+        (await runCli(sandbox, ['room', 'join', initialized.body.squad.roomId, '--identity', sol]))
+          .status
+      ).toBe(0);
+      expect(
+        (
+          await runCli(sandbox, [
+            'identity',
+            'meta',
+            'set',
+            'squad.product.role',
+            'lead',
+            '--identity',
+            sol,
+          ])
+        ).status
+      ).toBe(0);
+      const db = new Database(sandbox.database);
+      try {
+        const insert = db.prepare(
+          'INSERT INTO identity_metadata (identity_id, key, value) VALUES (?, ?, ?)'
+        );
+        for (let i = 0; i < 63; i++) insert.run(sol, `fixture${i}`, 'value');
+      } finally {
+        db.close();
+      }
+      const before = observe(sandbox);
+      const failed = await squad(sandbox, ['lead', 'Rin']);
+      expect(failed.status).toBe(1);
+      expect(failed.body.error).toEqual({
+        code: 'IDENTITY_METADATA_INVALID',
+        message: 'An identity may have at most 64 metadata entries.',
+      });
+      expect(observe(sandbox)).toEqual(before);
+      const listing = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(listing.body.squad.lead.id).toBe(sol);
+      expect(listing.body.sections[0].rows).toEqual([]);
+    });
+  });
+
   it('manages lead and members through core rooms and namespaced metadata only', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -481,19 +856,28 @@ describe('squad extension', () => {
         ),
         'utf8'
       );
-      const documented = skill.slice(
-        skill.indexOf('- Each row has'),
-        skill.indexOf('- A row with')
-      );
+      const documented = skill.slice(skill.indexOf('- Each row has'), skill.indexOf('- Every row'));
       const documentedFields = [...documented.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
       expect(documentedFields.sort()).toEqual(Object.keys(rows[0]).sort());
+      const nested = skill.slice(skill.indexOf('- Every row'), skill.indexOf('- A row with'));
+      const ageFields = [...nested.matchAll(/`([a-z][A-Za-z]*)`/g)]
+        .map((match) => match[1])
+        .filter(
+          (field) =>
+            !['staleness', 'state', 'disabled', 'unknown', 'fresh', 'stale', 'ls'].includes(field)
+        );
+      expect(['state', ...ageFields].sort()).toEqual(Object.keys(rows[0].staleness).sort());
+      expect(Object.keys(status.body.squad.notesStaleness).sort()).toEqual(
+        Object.keys(rows[0].staleness).sort()
+      );
       expect(Object.keys(status.body.squad).sort()).toEqual([
         'attention',
         'layout',
         'lead',
         'name',
+        'notesStaleness',
         'roomId',
       ]);
       // Without a terminal, the board is exactly status, in text and JSON.
@@ -519,7 +903,8 @@ describe('squad extension', () => {
         { room: 'squad-product', identity: 'docs-sweep' },
       ]);
       expect(after.metadata).toEqual([
-        { identity: 'Rin', key: 'squad.product.role', value: 'lead' },
+        { identity: 'Rin', key: 'squad.product.lead.marker', value: 'true' },
+        { identity: 'Sol', key: 'squad.product.lead.marker', value: 'false' },
         { identity: 'auth-fix', key: 'team', value: 'core' },
         { identity: 'docs-sweep', key: 'squad.product.state', value: 'working' },
       ]);

@@ -31,7 +31,9 @@ $ tmt sq                         # the board on a terminal, the member list anyw
 
 <Waiting /> marks what's waiting on _you_. Squad knows who you are from the pane you run it in, or
 from `tmt sq me ben` if you'd rather record it once. It follows that identity through `tmt rename`.
-When your lead runs a squad command in its own pane, it speaks as itself.
+When your lead runs a squad command in its own pane, it speaks as itself. Selecting a lead with `tmt
+sq lead` is independent of the `role` and `lead` fields: changing either field keeps leadership
+unchanged, and choosing a new lead preserves every member's role text.
 
 <Callout title="Squad doesn't start agents.">
   It doesn't create worktrees or windows either. How members come to life is up to you and your
@@ -57,13 +59,14 @@ By default the board is one searchable list of the squad's members. Press `/` an
 
 <Caption>Sketch of the default board. Every key below can be changed.</Caption>
 
-| Key                      | On the selected row                                                                                                                                                                                                    |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enter · double-click · ⌫ | `jump` to the member's own screen, and `back` to where you were. A single click only selects a row. This needs a host that can switch panes; see [Jumping between members](/extensions/squad#jumping-between-members). |
-| t · r                    | `talk` to the member, or `reply` to what it's waiting on, through tmt's own `tmt talk` and `tmt answer`. The answer shows up on the board.                                                                             |
-| a                        | `annotate`: send the lead a note about this row (below).                                                                                                                                                               |
-| o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                       |
-| / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                 |
+| Key                      | On the selected row                                                                                                                                                                                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enter · double-click · ⌫ | `jump` to the member's own screen, and `back` to where you were. A single click only selects a row; clicking a pane, such as the notes, focuses it. This needs a host that can switch panes; see [Jumping between members](/extensions/squad#jumping-between-members). |
+| L                        | `jump lead`: to the lead of this tab's squad; on **leads** and **all**, to the lead of the selected row's squad. In tmux only.                                                                                                                                         |
+| t · r                    | `talk` to the member, or `reply` to what it's waiting on, through tmt's own `tmt talk` and `tmt answer`. The answer shows up on the board.                                                                                                                             |
+| a                        | `annotate`: send the lead a note about this row (below).                                                                                                                                                                                                               |
+| o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                                                                       |
+| / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                                                                 |
 
 ### Tabs: one per squad
 
@@ -102,7 +105,7 @@ Nothing on the board is fixed. Pick a layout preset, then override any part of i
 | pr-queue      | one list, oldest first                           | preparing · ready · sent · merged                  |
 | minimal       | name and state only                              | whatever your lead writes                          |
 
-You can change the panes and their arrangement; add your own **sections**, each a titled list with a filter and a sort; and choose the **columns**, the **states** with their colors and order, and how links open. You also set what every key or click does. A binding is an event (a key like `o`, or `click`, `double-click`) and one line: `jump`, `back`, `talk`, `reply`, `annotate lead`, `open {pr_link}`, `copy {name}: {task}`, or `run <program> {field}…`, where `{field}` is filled from the row. A section can have its own bindings.
+You can change the panes and their arrangement; add your own **sections**, each a titled list with a filter and a sort; and choose the **columns**, the **states** with their colors and order, and how links open. You also set what every key or click does. A binding is an event (a key like `o`, or `click`, `double-click`) and one line: `jump`, `jump lead`, `back`, `talk`, `reply`, `annotate lead`, `open {pr_link}`, `copy {name}: {task}`, or `run <program> {field}…`, where `{field}` is filled from the row. A section can have its own bindings.
 
 <Code>{`
 # ~/.config/tmux-team/squad.toml  (the directory keeps tmt's former name)
@@ -137,7 +140,7 @@ enter = "reply" # in this section, Enter answers
 show = ["member", "state", "task", "pr", "updated"]
 
 [squad.product.states]
-blocked = { color = "amber", sort = 0 }
+blocked = { color = "waiting", sort = 0 }
 parked = { color = "dim" }
 
 [squad.product.notes]
@@ -185,7 +188,18 @@ layout = { direction = "left-right", sizes = [60, 40], panes = [
 ] }
 `}</Code>
 
-Bindings come only from your own config file, never from what agents write on the board. `run` starts the program directly, not through a shell: each `{field}` fills exactly one argument, so a row can't smuggle in extra commands. `open` only opens web links. `tmt sq ls` uses the same sections, so the text and JSON views match the board.
+Bindings come only from your own config file, never from what agents write on the board. `run` starts the program directly, not through a shell: each `{field}` fills exactly one argument, so a row can't smuggle in extra commands, and a value that would start an argument with `-` is refused, so it can't slip in an option either. `open` only opens web links. `tmt sq ls` uses the same sections, so the text and JSON views match the board.
+
+**Field providers** fill a column with data tmt doesn't have, such as a pull request's state. A provider runs a program of yours for each member, under the same rules as `run`, and shows its first line of output as a field of its name. The board never waits for one: it shows the last value while providers run in the background, and runs them again after `every`. A failed run shows a dim `?`, never an error. `tmt sq ls --refresh-fields` runs the ones that are due before listing.
+
+<Code>{`
+[squad.product.fields.pr_state]
+run     = ["gh", "pr", "view", "{pr_link}", "--json", "state", "-q", ".state"]
+every   = "60s"
+timeout = "5s"
+`}</Code>
+
+For the usual case, `preset = "github-pr"` does it for you in place of `run`: it asks `gh` about each member's `pr_link` and shows `#412 open · approved`, `#412 draft` or `#412 merged`. A member without a `pr_link` is skipped; without `gh`, or when it isn't logged in, the column shows `?`.
 
 ### Colors and themes
 
@@ -193,17 +207,25 @@ Color carries meaning, so most of the board stays neutral: only what needs you, 
 
 <TokenTable />
 
-Four themes come built in. **tmt** is the default: soft truecolor for dark terminals. **tmt-light** is the same palette for light backgrounds. **terminal** uses your terminal's own 16 colors, so your color scheme decides. **mono** uses only bold and dim. Themes set text colors only, except for the selection, so your terminal's background always shows through. Where truecolor isn't available, tmt picks the nearest of your 16 colors; with `NO_COLOR` set, or when output goes to a file or another program, there is no color at all, and every state still shows as text or a mark.
+Four themes come built in. **tmt** is soft truecolor for dark terminals. **tmt-light** is the same palette for light backgrounds. **terminal** uses your terminal's own 16 colors, so your color scheme decides. **mono** uses only bold and dim. Themes set text colors only, except for the selection, so your terminal's background always shows through. Where truecolor isn't available, tmt picks the nearest of your 16 colors; with `NO_COLOR` set, or when output goes to a file or another program, there is no color at all, and every state still shows as text or a mark. The command line keeps your terminal's own 16 colors, so your terminal theme wins, until you set `base` yourself; then commands use your theme too.
 
 <Code>{`
-# ~/.config/tmux-team/config.toml: every command and the board
-[theme]
-base    = "tmt"                        # tmt, tmt-light, terminal or mono
-waiting = "#e0a458"                    # override any token: hex or a color name
-accent  = "blue"
+{
+  "theme": {
+    "base": "tmt",
+    "waiting": "#e0a458",
+    "accent": "blue"
+  }
+}
 `}</Code>
 
-Pick a theme and preview it live from the board's settings view; your choice is written back to your config. A squad can override tokens under `[squad.<name>.theme]`. State colors on rows and tabs use these tokens too: `blocked = { color = "blocked" }`.
+The theme lives in `~/.config/tmux-team/config.json`. `base` is `tmt`, `tmt-light`, `terminal` or `mono`, and any token can be overridden with a hex value or a color name; `tmt config show` names a key it can't use. It colors the command line once you set a `base`, and always colors the board.
+
+### Theming the board
+
+The board reads the same theme, with **tmt** as its default. A squad can change its own board under `[squad.<name>.theme]` in `squad.toml`, with the same keys; its `base` wins. State colors on rows and tabs are these tokens too: `blocked = { color = "blocked" }`. The older names `red`, `amber`, `green`, `blue`, `cyan` and `magenta` still work. If the global theme has a mistake, the board uses **tmt** and says so on its summary line.
+
+Picking and previewing a theme from the board's settings view is <Tag kind="planned" />.
 
 ### Skills for your lead
 
@@ -213,9 +235,21 @@ Squad comes with a skill for the lead agent. It teaches the lead to read the boa
 
 Optional **playbooks** are example skills for how a lead lays out its team on your host: `tmux-squad` (a leads session and a crew session, one window and worktree per member), `cmux-squad` and `herdr-squad`. Squad never runs them. Read one with `tmt sq playbook show tmux-squad`, then install it, change it, or ignore it.
 
+### Observed age
+
+Squad can show how long it has seen a member's task and state, and the lead's notes, unchanged. It is off by default; turn it on per squad with a threshold from one minute to 24 hours. `tmt sq ls` then labels stale rows and notes with their age. The clock starts when Squad first sees the content, so it cannot know how long work sat unchanged before that; editing your config or turning the setting off and on keeps the clock as long as the content has not changed.
+
+<Code>{`
+[squad.product.reminders]
+enabled = true
+stale_after = "30m"
+`}</Code>
+
+Marks on the board, reminder settings in the board, and a short reminder in the lead's next turn are planned. These keys install no provider hooks.
+
 ### Where state lives
 
-Squad keeps nothing of its own. A squad is a tmt meeting room named `squad-<name>`. Each member's state, task, note and links are stored on its tmt identity. Members started for one job leave the board when their pane closes. Decisions a member needs from you arrive in your inbox, where you can answer them from the board or the command line.
+Squad keeps its roster and board fields in tmt, with optional observed ages in a disposable local cache. A squad is a tmt meeting room named `squad-<name>`. Each member's state, task, note and links are stored on its tmt identity. Members started for one job leave the board when their pane closes. Decisions a member needs from you arrive in your inbox, where you can answer them from the board or the command line.
 
 ### Jumping between members
 

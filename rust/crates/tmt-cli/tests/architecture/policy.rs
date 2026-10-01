@@ -13,7 +13,10 @@ use syn::{
 pub fn dependency_violations(package: &Value) -> Vec<String> {
     let name = package["name"].as_str().expect("Cargo package name");
     let allowed: &[&str] = match name {
+        // The host grammar is core's one workspace dependency: pure syntax,
+        // shared with the driver protocol, never the wire crate itself.
         "tmt-core" => &[
+            "tmt-host-grammar",
             "semver",
             "uuid",
             "icu_casemap",
@@ -32,7 +35,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
             "semver",
         ],
+        // Adapters run host drivers through the protocol crate (#570).
         "tmt-adapters" => &[
+            "tmt-driver-protocol",
             "serde",
             "ureq",
             "semver",
@@ -75,18 +80,24 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-command-output" => &["tmt-core", "tmt-adapters", "tmt-cli-style", "serde_json"],
         // The shared CLI style is a leaf: it may depend on no TMT crate, so any
-        // CLI, core or extension, can render through it.
+        // CLI, core or extension, can render through it. ratatui is optional
+        // (the `ratatui` feature) so full-screen views get the same theme
+        // styles while core links none of it.
         "tmt-cli-style" => &[
             "anstream",
             "anstyle",
             "clap",
             "comfy-table",
+            "ratatui",
             "shlex",
             "unicode-width",
         ],
-        // The driver protocol is a leaf like the style crate: a community
-        // driver builds against it alone, so it may depend on no TMT crate.
-        "tmt-driver-protocol" => &["serde", "serde_json"],
+        // The driver protocol carries no TMT behavior: a community driver
+        // builds against it alone, so its only workspace crate is the grammar.
+        "tmt-driver-protocol" => &["serde", "serde_json", "tmt-host-grammar"],
+        // A host's pane-ID and target syntax, defined once for core and the
+        // driver protocol; it depends on nothing.
+        "tmt-host-grammar" => &[],
         // The command crate also owns the companion invocation boundary and the
         // Office release verifier it hands to native installation.
         "tmt-office-command" => &[
@@ -158,6 +169,23 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "unicode-width",
             "signal-hook",
             "pulldown-cmark",
+            // Disposable observed-age cache: content fingerprints and
+            // nonblocking Unix advisory locking, no TMT behavior.
+            "sha2",
+            "nix",
+        ],
+        "tmt-invoke" => &["subprocess", "nix"],
+        "tmt-remote" => &[
+            "ed25519-dalek",
+            "hmac",
+            "sha2",
+            "tmt-cli-style",
+            "tmt-invoke",
+            "clap",
+            "serde_json",
+            "getrandom",
+            "httparse",
+            "signal-hook",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
@@ -165,7 +193,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .as_array()
         .expect("Cargo dependencies")
         .iter()
-        .filter(|d| d["kind"] != "dev")
+        .filter(|d| name == "tmt-invoke" || d["kind"] != "dev")
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
             // Source paths use canonical crate names. Renaming even an allowed
@@ -443,7 +471,12 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                             && path
                                 .get(2)
                                 .is_some_and(|p| ["Error", "Cursor"].contains(&p.as_str()))));
-                if (root == "std" && !pure_std.contains(&module) && !model_value)
+                // The approved drivers' host syntax, written once at start (#570).
+                let host_registry = source.package == "tmt-core"
+                    && source.file == "host.rs"
+                    && module == "sync"
+                    && path.get(2).is_some_and(|p| p == "OnceLock");
+                if (root == "std" && !pure_std.contains(&module) && !model_value && !host_registry)
                     || ["print", "println", "eprint", "eprintln", "dbg"].contains(&root)
                 {
                     violations.push(format!(
@@ -470,11 +503,22 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            // The leaf style crate is Squad's one permitted workspace dependency.
-            if source.package == "tmt-squad" && root.starts_with("tmt_") && root != "tmt_cli_style"
+            // Public-interface extensions name their own library and approved leaves only.
+            if ["tmt-squad", "tmt-remote"].contains(&source.package.as_str())
+                && root.starts_with("tmt_")
+                && root != "tmt_cli_style"
+                && !(source.package == "tmt-remote" && root == "tmt_invoke")
+                && root != source.package.replace('-', "_")
             {
                 violations.push(format!(
-                    "{location}: squad reaches TMT only through public commands, not {}",
+                    "{location}: {} reaches TMT only through public commands, not {}",
+                    source.package.strip_prefix("tmt-").unwrap(),
+                    path.join("::")
+                ));
+            }
+            if source.package == "tmt-invoke" && root.starts_with("tmt_") && root != "tmt_invoke" {
+                violations.push(format!(
+                    "{location}: invoke leaf cannot reach {}",
                     path.join("::")
                 ));
             }
@@ -490,9 +534,12 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            if root == "tmt_squad" && source.package != "tmt-squad" {
+            if ["tmt_squad", "tmt_remote"].contains(&root)
+                && source.package.replace('-', "_") != root
+            {
                 violations.push(format!(
-                    "{location}: no package may depend on the squad extension: {}",
+                    "{location}: no package may depend on the {} extension: {}",
+                    root.strip_prefix("tmt_").unwrap(),
                     path.join("::")
                 ));
             }

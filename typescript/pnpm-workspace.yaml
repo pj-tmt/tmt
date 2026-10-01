@@ -1,4 +1,6 @@
 packages:
+  - ../extensions/tmt-remote/typescript/remote-client
+  - ../extensions/tmt-remote/typescript/browser-addon
   - ../extensions/tmt-office/typescript/apps/*
   - ../extensions/tmt-office/typescript/services/office/functions
 

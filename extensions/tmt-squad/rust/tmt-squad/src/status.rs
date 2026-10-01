@@ -16,6 +16,11 @@ use tmt_cli_style::{
     table::{Cell, Column, Table, escape},
 };
 
+/// A member's row as `ls --json` reports it; templates fill from it.
+pub fn row(member: &Member) -> Value {
+    member_value(member)
+}
+
 fn member_value(member: &Member) -> Value {
     let field = |name: &str| {
         member
@@ -27,7 +32,7 @@ fn member_value(member: &Member) -> Value {
         "id": member.id, "name": member.name, "lifetime": member.lifetime,
         "presence": member.presence, "pane": member.pane, "activity": member.activity,
         "state": field("state"), "pending": field("pending"), "note": field("note"),
-        "fields": member.fields,
+        "fields": member.fields, "failed": member.failed, "staleness": crate::staleness::unavailable("disabled"),
     })
 }
 
@@ -73,7 +78,7 @@ fn compare(key: &SortKey, states: &States, a: &Member, b: &Member) -> Ordering {
     }
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| {
@@ -158,7 +163,7 @@ pub fn document(
     json!({
         "squad": {
             "name": squad.name, "roomId": squad.room_id, "layout": layout.as_str(),
-            "lead": leads.first().map_or(Value::Null, member_value),
+            "lead": leads.first().map_or(Value::Null, member_value), "notesStaleness": crate::staleness::unavailable("disabled"),
         },
         "sections": sections,
     })
@@ -243,6 +248,13 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
         cell(&squad["layout"]),
     );
     let _ = writeln!(output, "{}\n", terminal.paint(Token::Dim, &escape(&header)));
+    if let Some(stale) = crate::staleness::label(&squad["notesStaleness"]) {
+        let _ = writeln!(
+            output,
+            "{}\n",
+            terminal.paint(Token::Dim, &format!("lead notes: {stale}"))
+        );
+    }
     // The board's field selection and order: every field on any line, the
     // first line's first. A list stays complete, so only a configured width
     // (a short fixed value) keeps a column from truncating.
@@ -266,6 +278,12 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
     if fields.is_empty() {
         fields = vec![("member", None), ("state", Some(10))];
     }
+    let stale_column = document["sections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|section| section["rows"].as_array().into_iter().flatten())
+        .any(|row| row["staleness"]["state"] == "stale");
     let layout: Vec<Column> = std::iter::once(Column::Fixed)
         .chain(fields.iter().map(|(field, width)| match (*field, width) {
             ("member", _) => Column::Name,
@@ -273,6 +291,7 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
             (_, Some(_)) => Column::Fixed,
         }))
         .chain(std::iter::once(Column::Detail))
+        .chain(stale_column.then_some(Column::Fixed))
         .collect();
     let built: Vec<(String, usize, Table)> = document["sections"]
         .as_array()
@@ -291,7 +310,13 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
                         "state" => Cell::styled(column_cell(row, "state"), Token::Dim),
                         field => column_cell(row, field).into(),
                     }))
-                    .chain(std::iter::once(detail(row).into()));
+                    .chain(std::iter::once(detail(row).into()))
+                    .chain(stale_column.then(|| {
+                        Cell::styled(
+                            crate::staleness::label(&row["staleness"]).unwrap_or_default(),
+                            Token::Dim,
+                        )
+                    }));
                 table.row(cells.collect::<Vec<Cell>>());
             }
             let title = section["title"].as_str().unwrap_or("members").to_owned();
@@ -340,6 +365,7 @@ mod tests {
 
     fn member(name: &str, fields: &[(&str, &str)]) -> Member {
         Member {
+            lead_marker: None,
             id: format!("id-{name}"),
             name: name.into(),
             lifetime: "temporary".into(),
@@ -353,6 +379,7 @@ mod tests {
             meta: Default::default(),
             seen: Value::Null,
             numbers: Default::default(),
+            failed: Default::default(),
         }
     }
 

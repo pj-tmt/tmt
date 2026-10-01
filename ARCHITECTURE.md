@@ -26,7 +26,8 @@ of native schema and application state.
 ## TypeScript workspace boundary
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
-the `@tmt/office` SPA, and the `@tmt/office-service` trusted pairing service.
+the `@tmt/office` SPA, the `@tmt/office-service` trusted pairing service,
+and the private `@tmt/browser-addon` demo shell.
 The two Office packages live under `extensions/tmt-office/typescript` as
 parent-relative members of that same workspace and lockfile. They resolve only
 their declared dependencies, never root-hoisted tooling packages; Office browser
@@ -573,7 +574,11 @@ native source/skill changes, Office's Rust crates, core-only test suites and E2E
 scenario files avoid the Office web checks; prose that no job reads selects nothing
 beyond `Code quality`. Shared or unknown paths (including lockfiles, security,
 contracts, workflows, the map itself and the E2E harness) fan out. Empty diffs fail
-closed to both. Diffs include deletions and both sides of renames. The selector writes
+closed to both. The explicit remote-Rust rule retains full workspace and Office
+coverage independently of its private release ownership. Full Rust checks reject
+empty remote test discovery before executing all workspace tests, including the
+remote lifecycle tests and core architecture guards. Diffs include deletions and both
+sides of renames. The selector writes
 a per-path evidence table (owner, rule, selection, map digest) to the run summary. When
 every path that selects native work is owned by Squad, the native scope is `squad`: the
 same job names run Squad's Cargo checks and architecture guard, its native tests and its
@@ -600,8 +605,15 @@ The same map feeds release versioning. `typescript/scripts/release-please-config
 generates `release-please-config.json` from the map (one release-please package per
 component root, minus its excludes), the Cargo workspace (which crates declare their own
 version, which path dependencies a component links, which crates have a `Cargo.lock`
-entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. A
-`Cargo.lock` line is updated by whichever component declares that crate's version.
+entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
+`readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata; native
+CLI version expectations reuse that reader once per suite instead of parsing TOML separately. A
+`Cargo.lock` line is updated by whichever component declares that crate's version: a crate
+that inherits the workspace version is declared by the owner of `rust/Cargo.toml`, even when
+a private `release: false` component owns the crate, because the next locked build fails
+when that release leaves its entry behind. Office is parked this way: it owns its files and
+CI scope but has no release-please package, manifest entry or release run, and its binary
+opts out of cargo-dist with `dist = false`.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
@@ -618,6 +630,39 @@ a tag disagrees with the policy or a package could leave the alpha line (release
 5.0.0; the flags a published release carries come from the policy when the draft is
 published). Nothing runs the pinned CLI until the release workflow adopts it.
 
+## Browser add-on shell
+
+`extensions/tmt-remote/typescript/browser-addon` is a private Chrome MV3 shell
+in the existing TypeScript workspace/lockfile, not an installed native product
+or a working remote channel. Its composition currently uses a clearly marked
+local demo stub; no crypto, pairing, network or core operations are implemented.
+The shell's types-only `remote-client.ts` is a UI port agreed with the remote
+owner, not a second wire contract or SDK. Future composition may import the
+public SDK; views never import its transport internals.
+
+Browser context-menu clicks and trusted popup actions capture only a top-frame
+selection, URL and title through `activeTab`/`scripting`; `contextMenus` adds the
+selection entry point. There are no host permissions, page-message handlers,
+external connectivity or permanent content scripts. Exact plain-text message
+formatting and escaped hidden-character presentation belong to `message.ts`.
+Source URL admission requires HTTP(S) without username/password; invalid sources
+are refused unchanged before preview, menu persistence or intent freezing,
+including restored captures and intents.
+The popup freezes the reviewed agent UUID, message and operation UUID before
+calling the client. Its origin-owned IndexedDB retains one frozen intent and
+menu capture; restoration retains intent without sending. The shell exports journal schema
+and key constants; IndexedDB ownership and worker-readiness fallback helpers are test-only.
+Explicit status recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
+starting another message does not cancel submitted work. Replies render as text.
+The stub's status transitions are UI evidence, never server security acceptance.
+
+The shell's Chromium profile and loopback page fixture are disposable test
+owners. Its separate workflow selects shell and consumed tooling changes,
+fails on empty test discovery and does not narrow unknown-path checks. The component map assigns this package
+to a private `release: false` owner and selects no native/Office jobs for it. The release generator rejects native crates
+under a private owner and excludes the shell from CLI releases. Native remote
+product registration remains a later slice.
+
 ## Runtime layers
 
 The Rust crates have deliberately narrow responsibilities:
@@ -630,8 +675,8 @@ The Rust crates have deliberately narrow responsibilities:
 
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
-implementation of the [CLI style](docs/cli-style.md) (palette, marks, values,
-messages, lists, tables, the one column-width solver `grid` that tables and
+implementation of the [CLI style](docs/cli-style.md) (palette, themes over the
+design tokens, marks, values, messages, lists, tables, the one column-width solver `grid` that tables and
 extension boards share, the help registration contract and the one
 interaction decision, `Interaction`). Migrated command
 modules, starting with `binding_command` (`tmt ls`, `name`, `add`, `rm`,
@@ -908,8 +953,15 @@ fixtures build products separately to retain ordinary CLI feature isolation;
 
 ## Public command boundary
 
-`rust/crates/tmt-cli/src/grammar.rs` owns core syntax/help/completion and mounts
-the Office subtree from `tmt-office-command::grammar`. Each visible core command
+`rust/crates/tmt-cli/src/grammar.rs` owns the ordered core command registrations,
+shared spec/option helpers and public help projection, and mounts the Office subtree
+from `tmt-office-command::grammar`. Private modules under `grammar/` own command
+builders by group: `launch.rs`, `presence.rs`, `rooms.rs`, `requests.rs`,
+`identity.rs`, `settings.rs` and `installation.rs`. Root help/API, retired-command
+and internal-completion registrations stay in the root. Group modules share root
+helpers and do not import from each other.
+`grammar/completion.rs` and `grammar/extensions.rs` retain completion and external
+command recognition. Each visible core command
 is registered from a `CommandSpec` (summary and examples) through
 `tmt_cli_style::apply`; hidden internal commands have no help page. Squad registers each
 command from a `CommandSpec` in `extensions/tmt-squad/rust/tmt-squad/src/specs.rs` through
@@ -971,10 +1023,13 @@ authentication boundary nor a daemon, batch processor or streaming connection.
 Extensions use `TMT_EXECUTABLE` rather than assuming an installed binary path.
 
 The CLI owns bounded stdin acquisition (EOF within five seconds), JSON publication
-and exit status. `tmt-adapters::api` owns envelope admission and composition;
-identity, room, request history, dispatch and notes retain their existing domain,
-transaction and resource encoders. The same one-shot delivery helper serves
-Office and API dispatch. Explicit identity selects write attribution, not privilege.
+and exit status. `tmt-adapters::api` owns envelope admission and composition.
+Its `api.rs` facade retains the dispatcher, protocol bounds, settings selection
+and storage lifetime. Private `api/` modules own operation-family inputs and
+composition for requests, dispatch, rooms, notes, changes, identity hooks, skills,
+references and identity status. Identity, room, request history, dispatch and
+notes retain their existing domain, transaction and resource encoders. The same
+one-shot delivery helper serves Office and API dispatch. Explicit identity selects write attribution, not privilege.
 Capabilities and unsupported-version discovery never open application storage.
 Input and output bounds are advertised in capabilities; canonical content limits
 still apply independently of JSON escaping.
@@ -1059,6 +1114,17 @@ line about the identity's desk and meeting-area count from its own world
 layout, opening both databases read-only and never through
 `OfficeStore::open_configured`, so context never migrates, activates,
 reconciles or creates files.
+
+Provider `UserPromptSubmit` hooks use the same generic callback and aggregate
+budget, returning only the attributed extension lines as event-specific
+`additionalContext`. A consent-file capability check returns immediately when no
+extension has consented to context, before host probes or storage reads. Otherwise,
+they require an already running, verified binding whose
+provider session and runtime incarnation match the caller, and recheck the
+binding/preferences after callbacks before handing context to the provider.
+They neither admit a session nor replay the SessionStart identity preamble.
+Setup includes one synchronous prompt-submit entry in its consented plan;
+existing SessionStart and opt-in Stop behavior retain their owners.
 
 With no consent file or no enabled observer, a command performs at most one read
 attempt of the consent file, on its first storage open, and spawns nothing;
@@ -1237,11 +1303,26 @@ core table or a column, or rebuilds a table (as schema 39 rebuilt
 until every table is covered or deliberately excluded and every column is
 compared.
 
+Schema 41 admits any host an approved driver serves (#570). The host columns
+of `bindings`, `request_attempts`, `request_responses` and `host_servers`
+accept any host name (1 to 32 of `[a-z0-9-]`, starting with a letter); inbox
+routes still carry no host, and `host_servers` still has no tmux rows. Each
+table is rebuilt from its own stored definition with exactly that one CHECK
+replaced, its rows copied unchanged, and its stored indexes and triggers
+(schema 40's change-cursor triggers among them) replayed. The source must
+match what migrations 1 through 40 make in a fresh database, for these tables
+and everything that mentions them; anything customized is refused. Like
+schema 9, the rebuild runs with foreign keys off, so dropping
+`request_attempts` does not cascade into `request_notifications`, then checks
+them, all in one immediate transaction that rolls back to schema 40 on any
+failure; foreign keys are restored on every exit.
+
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
-optional). A document without usage is still written as version 1, byte for
-byte, and both versions are read. The model's only source is the `model` field
+optional). Version 3 additionally stores session-scoped main-turn activity,
+including the exact provider session and process incarnation. Documents without
+activity retain versions 1/2, byte for byte; all three versions are read. The model's only source is the `model` field
 of a starting hook event, which both providers document (see
 `runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
 then the previous model stays. When a provider sends no model, nothing is stored.
@@ -1249,6 +1330,32 @@ A model is never inferred from transcripts or arguments. Resume replays a stored
 model (`claude --resume <id> --model <m>`, `codex resume -m <m> <id>`, following
 each CLI's recorded usage) only when the document is readable and the slug is a
 safe single argv value. Otherwise it resumes with the provider's default.
+
+Main-turn activity (#656) comes from TMT's own UserPromptSubmit/Stop command
+hooks as installed by `tmt setup`. Claude runs these synchronously: admitted
+transitions commit inside the hook call, before it returns. Ordering relies on
+that provider contract, not a TMT sequence or receipt-time guess. Changing an
+owned entry to `async` is a user-modification edge detected by setup inspection;
+the event path does not re-read effective user/project/plugin settings. Codex
+also requires its first-party turn ID; a Stop for another turn changes no
+activity. Provider-only extras are deferred (`providers: {}`). The driver fixture
+README owns source/version provenance and the documented-contract limitation.
+
+`binding::session::activity` owns normalized transitions and clock validation;
+`runtime::driver_state` owns their opaque persistence. Model/usage retention never
+transfers activity across sessions or process incarnations. SessionStart resets
+activity; start/end events do not establish a binding. Duplicate events do not
+renew timestamps. The existing binding/preferences transaction checks the full
+snapshot, and expired handlers do not begin a write. No detached writer exists.
+
+Public `ls --json` rows expose `session.activity` with `state`, `sinceMs`,
+`lastActivityMs`, and `providers`. Working/idle describe the last admitted
+main-turn event, not all background tasks. Runtime uncertainty is unknown;
+ended requires a conclusive core process observation. Timestamps are accepted
+observation times, never inferred from silence, usage, terminal text or probes.
+The state clock has no stalled threshold. Storage-only identity output does not
+assert activity liveness. The Stop entry remains opt-in through `setup --usage`;
+without it, no end event can be recorded.
 
 Context usage (#519) is opt-in: `tmt setup --usage` adds a TMT `Stop` hook next
 to the lifecycle hooks, and `--no-usage` removes only that entry. A turn end is not
@@ -1399,8 +1506,12 @@ Successful starts reuse the read-only context formatter;
 ends emit no stdout. Provider configuration is changed only by consented setup,
 not by a hook, ordinary command, or skill installation.
 
-The CLI foreground owner separates command selection, binding, spawn and runtime
-admission. A verified live or stopped previous runtime prevents a second launch.
+The CLI foreground owner (`run_command`) keeps its public entry points, caller and
+configuration selection, and storage startup/close in the facade. Private
+`run_command/run.rs` owns the bound foreground launch and completion;
+`run_command/resume.rs` owns command selection, resume pending marks and settlement.
+The existing flow separates command selection, binding, spawn and runtime admission.
+A verified live or stopped previous runtime prevents a second launch.
 An inconclusive previous-runtime probe permits a degraded launch only after
 fencing that same attachment's stored Running state to Unknown; known Ended is
 preserved. This prevents a recovered probe from reviving delivery into the new
@@ -1466,9 +1577,10 @@ that inference, not their normal validation. A thread ID is only a correlation
 hint: the current selector does not derive identity from remembered session
 preferences. Automatic current-session correlation remains dependent on the
 runtime hook integration. No caller probe changes bindings or sends input.
-`tmux::BindingSession` also implements the action port: status delegates to the same
-full server/pane/marker evidence evaluator, and send requires present evidence
-before invoking the existing paste-and-Enter transport once. It preserves that
+The action port's policy is written once, in `host::driver`, over each host's
+`HostDriver` (see the host port below). Status delegates to the same full
+server/pane/marker evidence evaluator, and send requires present evidence
+before invoking the host's paste-and-Enter transport once. It preserves that
 transport's preparation-versus-uncertain failure distinction. `focus` (a
 default-`Unsupported` driver action returning the shown and previous interface IDs
 and the host's name for the view that moved)
@@ -1485,7 +1597,10 @@ Missing or conflicting interface evidence masks the reported runtime to unknown
 without rewriting stored evidence. Recorded running processes are rechecked through
 the bounded `process::runtime` observer before input. It uses a fixed-locale,
 fixed-timezone `ps` start identity (second resolution), not a PID alone or provider
-transcript. Process disappearance, zombie state or a changed start identity reports
+transcript. `tmt_core::endpoint::ProcessIncarnation` (a PID and that opaque start
+token, from core's own inspection) is the one value for comparing a local process:
+runtimes, launch owners, notification waiters and Herdr servers use it, each with
+its own stored columns and lifecycle. Process disappearance, zombie state or a changed start identity reports
 ended. Stopped/traced processes remain unknown rather than ended, allowing later
 resumption without sending input to the shell meanwhile. Inconclusive checks also
 remain unknown and do not permit fallback to legacy unobserved delivery. The probe
@@ -1601,6 +1716,24 @@ Existing files, directories and links are refused without mutation.
 Configuration errors retain their stable public codes and useful paths only at
 the adapter boundary.
 
+The global file's `theme` object is presentation, not a core setting.
+`ConfigFiles::theme` checks only its shape (an object of strings), reporting a
+wrong one as a `ThemeProblem` rather than a configuration error, and never
+affects loading the other settings; `tmt-core` knows nothing of colors. The CLI
+(`appearance`) gives it meaning through `tmt_cli_style::Theme::parse`: `config
+show` reports it resolved with its source and names a bad key in `themeError`
+(an `error:` line in text) while still succeeding, because Squad reads `config
+show` to find its own file; and at startup, only when stdout or stderr is a terminal and the user
+set `theme.base`, `tmt` sets the process theme once
+(`tmt_cli_style::theme::configure`), which `stream::stdout` and
+`stream::stderr` apply at the stream's color depth. A missing or invalid theme
+leaves every command on the terminal's own 16 colors. The Squad board reads the
+same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
+(`look`), defaulting to `tmt`; a bad global theme is a notice on the board, a
+bad squad theme a `squad.toml` error. Only `tmt-cli-style` names colors: the
+native architecture test (`colors`) rejects color literals in other production
+code, the Rust extensions included.
+
 `json_document` owns editable config/tmux metadata number compatibility:
 IEEE-754 values with non-finite opaque values serialized as null. Known invalid
 settings still fail. Raw object order is retained on targeted edits; this is not
@@ -1609,7 +1742,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 40, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 41, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -1751,6 +1884,8 @@ request.
 schema, connection or alternate final-submission path. Input is bounded and
 validated before storage effects. A malformed receipt, a stale revision, an
 unknown identity and an uncertain transport outcome remain distinct failures.
+The [request contract](REQUEST-RESPONSE.md#talk-completion) owns talk interruption
+and retry guidance on either side of preparation.
 
 Talk preparation renders `<tmt-reply from="…">` using the same resolved
 originator's display name (explicit identity before verified caller), or
@@ -1789,7 +1924,15 @@ and `Driver` ports), caller and target resolution, snapshots, capture, send,
 focus and pane cosmetics, over two hosts: `tmt-adapters::tmux` and
 `tmt-adapters::herdr` (#479). A handle has a primary host; its session observes
 new panes there, and probes, marks and clears every stored binding on that
-binding's own host, so presence is complete from either host. `HostError` and
+binding's own host, so presence is complete from either host. Each host
+implements `host::driver::HostDriver`: snapshot, probe, publish, clear, the
+runtime in a pane, input and focus, at the driver protocol's granularity
+(#570). The session picks the driver of an entry's host and runs one binding
+policy over it: `host::driver::{status, send, focus}` decide which evidence
+makes a binding present, when a runtime blocks input, and what a failure
+means. A host without input (`has_input`) is `Unsupported` before any evidence
+is read, and `focus_preflight` refuses before any evidence is read too. The
+out-of-process client of #570 slice 3 implements the same trait. `HostError` and
 the host `ActionError` wrap each host's error and read exactly as it. The
 architecture guard rejects production references to the host modules outside
 `host.rs` and their own directories.
@@ -1802,7 +1945,7 @@ while the public `wN:pM` (its target and display address) is reused after a
 restart. A caller's Herdr pane counts only when its shell is an ancestor of the
 caller (`process::ancestry`, shared with tmux); inside both hosts the nearer
 pane wins. A Herdr server incarnation is its server process (the parent of
-every pane shell) and that process's start; Herdr keeps no server-level store,
+every pane shell) as a `ProcessIncarnation` core observes; Herdr keeps no server-level store,
 so TMT's UUID for it comes from core's `HostServerIds` port, implemented by
 `Storage` (`host_servers`) and resolved by `Host::resolve_servers` before any
 binding transaction opens, so the transaction only sees resolved evidence. A
@@ -1822,8 +1965,14 @@ carries its host, so bindings, target evidence and request fences do too; core
 stores and compares pane IDs as opaque strings. Evidence from another host is
 `Unknown`, never proof of loss, and presence is grouped and scoped by host and
 socket (`ServerSelector`). Storage writes `bindings.transport` and new request
-fences' `host` from the endpoint and refuses a stored host it does not know; a
-NULL fence host is tmux. A `Host` handle states why it was chosen:
+fences' `host` from the endpoint. A stored host is only its name: tmux, Herdr, or
+`HostKind::External` for any other valid host name, which reads whether or not
+its driver is installed, and a NULL fence host is tmux. An external host's
+pane-ID and target syntax come from the approved drivers, which the CLI
+registers once at start (`host::external::register_approved`) in core's one
+write-once registry; until its driver is registered, no pane ID or target is
+its own. Whether a driver serves a host is decided in the adapters that run
+drivers, not stored in the core type. A `Host` handle states why it was chosen:
 `for_caller` (a caller-scoped command), `for_server` (a stored binding or request
 endpoint) or `for_target` (an explicit pane target); its methods take endpoints,
 never loose socket or pane strings. Only `tmt-core/src/host.rs`,
@@ -1840,10 +1989,10 @@ Message delivery changes ASCII `!` to fullwidth `！` to avoid agent bash-mode
 shortcuts; this is transport policy, not arbitrary output rewriting. `check`
 remains bounded terminal diagnostics, not a fallback response channel.
 
-`response_input` owns bounded file/stdin acquisition, regular-file checks,
-nonblocking behavior and restoration of inherited descriptor flags. The public
-CLI owns stdin during acquisition. These adapters do not invent background
-threads or a second process runner.
+`response_input` owns bounded file/stdin acquisition and regular-file checks. It
+polls against the deadline before each read and never mutates stdin descriptor
+flags. The public CLI exclusively owns stdin during acquisition. These adapters
+do not invent background threads or a second process runner.
 
 ### Agent drivers
 
@@ -1889,10 +2038,33 @@ sides:
 - `serve`, a driver's entry point;
 - `conformance::check`, which runs through any invoker.
 
-The crate is a leaf with only `serde` and `serde_json`, so a community driver
-builds against it alone; the architecture guard enforces that. Nothing in `tmt`
-calls it yet. Later #570 slices put tmux behind a host-driver trait, add the
-spawning client with consent and fingerprint checks, and move Herdr out.
+A host's name, pane-ID prefix and target template (parsing, matching and the
+overlap check between hosts) are defined once in `rust/crates/tmt-host-grammar`,
+a leaf with no dependencies at all. The protocol crate wraps it with the
+environment `caller` may read, and `tmt-core` may depend on it to recognize an
+external host's stored pane IDs without taking on the wire crate or serde. The
+protocol crate otherwise depends only on `serde` and `serde_json`, so a
+community driver builds against these two small crates alone. The architecture
+guard allows exactly those edges. Nothing in `tmt` uses a driver for a host yet.
+
+`tmt-adapters::host::external` holds the core side of that boundary:
+
+- **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
+  refuses a declaration that a built-in host or another approved driver would
+  read as its own.
+- **`DriverProcess`:** runs one operation through the bounded process owner,
+  under the operation's deadline and output bound, with `TMT_DRIVER_CALL=1`. It
+  decodes the answer against the driver's grammar.
+- **Trust:** `executable_trust` is shared with extension hooks. It checks
+  ownership and the stat fingerprint before every call, and the digest once per
+  process.
+- **Recursion guard:** a `tmt` started with `TMT_DRIVER_CALL` refuses every
+  command but help and `--version` (`DRIVER_CALL_REFUSED`).
+
+The atomic owner-only replacement of such settings files is `private_file`,
+shared with the extension hook consents. The approved drivers' syntax is
+registered with core at start (see the host section above); running their
+operations for a host is still to come in slice 3b.
 
 ## Managed skills and native installation
 
@@ -1974,8 +2146,11 @@ a missing command link with a retained activation is reported as invalid and
 explicit uninstall can finish that state.
 
 `tmt extension install|upgrade|uninstall|list` (`tmt-cli::extension_install_command`)
-is the public surface for the official extensions over this path. The names come
-from the fixed product table, never from PATH or archive data. Install, upgrade
+is the public surface for the official extensions over this path. Its facade
+retains dispatch, consent, errors, interruption, rendering and uninstall; private
+`extension_install_command/` modules own install, repair, list/upgrade and skills
+settlement through the existing native-installer and owned-skill adapters. The names
+come from the fixed product table, never from PATH or archive data. Install, upgrade
 and uninstall require consent (`--yes`, or an interactive prompt), and refuse a
 non-interactive run without it. `list` reads local receipts only. `--check` adds a
 bounded release lookup (`latest_release_version`, metadata only), and a failed
@@ -2038,14 +2213,17 @@ stays at 16 KiB.
   compositions. Application data and provider skills are separate owners.
 
 Explicit extension `install --repair` is a separate recovery composition in
-`native_install::repair`, limited to GitHub-provenance receipts. `receipt`
+`native_install::repair`, for GitHub and local-archive receipts. `receipt`
 separates bounded metadata/recorded-path validation from payload verification;
 normal readers still require both. An eligible verification failure carries
 `RepairRequired` to the CLI, which owns the single quoted repair-command hint.
 Repair admits only safe owned layouts and no-follow regular files/directories,
-fetches the exact recorded artifact with matching provenance and digests, and
-preserves version/channel/pin. Acquisition holds no installation lock; the stable
-lock and a pre-activation current/receipt revalidation fence publication.
+acquires the exact recorded artifact with matching provenance and digests, and
+preserves version/channel/pin. Observation parses the same bounded receipt bytes
+used for revalidation. Local repair requires the original archive and matching
+manifest; it retains local provenance and cannot replace a GitHub source.
+Acquisition holds no installation lock; the stable lock and a pre-activation
+current/receipt revalidation fence publication.
 `publication` shares candidate staging, durable activation, cleanup and typed
 post-activation failures between normal installs and repair. The damaged release
 is retained untouched at its original path, including foreign entries, rather
@@ -2090,7 +2268,25 @@ through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 
 Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
-squads and removal clears exactly one namespace. `ls` (alias `status`) joins
+squads and removal clears exactly one namespace. Leadership is the reserved
+identity metadata key `squad.<name>.lead.marker` (`true` or `false`), outside the
+user field/column grammar; `role` and `lead` remain ordinary free-text fields.
+The roster parses that key into `Member::lead_marker` and omits it from public
+`fields`, so field enumeration and copy/provider/column consumers never see it.
+`Member::is_lead` reads that value, falling back to `role == "lead"` only for an
+unconverted member. Before applying `set` pairs, the membership owner records
+a marker only when a role write would change that legacy-derived leadership.
+Conversion is per member because sequential core writes can fail partway through
+a squad-wide conversion. New additions need no marker unless their existing
+metadata would make them lead; in that case `add` writes `false` before joining.
+`squad lead` preflights the core metadata capacity for every required marker
+before any write, records `true` before joining the new lead, then sets previous
+leads to `false`, preserving all role text. A concurrent metadata write after
+preflight can still split this sequence; it is not a transaction. Removal clears the reserved key with the
+rest of that squad's namespace. A required new marker at the identity metadata
+capacity limit returns the existing core error before the role pairs or join,
+rather than silently changing leadership. Reads never convert state.
+`ls` (alias `status`) joins
 one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
@@ -2102,7 +2298,23 @@ member's public projection: the `ls --room` row it already joins (`cwd`,
 returns unprefixed only when a column reads `meta.<key>`. `status::document`
 writes each bound value into the row's field of the column's name, with its
 number for sorting, before sections, filters and sorts read it, so the board and
-`ls` show one value and a binding adds no core call. The board sizes it with `tmt-cli-style`'s one solver
+`ls` show one value and a binding adds no core call. Field providers
+(`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
+member through `runner` with the run-binding argument rule
+(`Template::fill_argument`: one argument per template, no shell, a value that
+would start an argument with `-` refused), 4 at a time, bounded in time and
+output. `provider::Cache` keeps each value with the argv that produced it in
+`$XDG_CACHE_HOME/tmt-squad/fields/<squad>.json` (atomic replacement via
+`cache`: a 0600 file in a 0700 directory), so a changed input never shows an
+old value. `preset = "github-pr"` is a fixed `gh pr view {pr_link}` argv whose
+JSON `provider::github_pr` turns into `#<n> <state>[ · <review>]`; anything
+else from `gh` is a failed run; `provider::apply` writes
+current values into member fields before the document is built, `?` plus the
+row's `failed` list after a failed run. Readers never run providers: `ls` reads
+the cache (`--refresh-fields` runs what is due first), and the board hands each
+load's members to one fetcher thread that runs due work off the paint path and
+again at the shortest `every`; a save moves the cache directory's stamp, which
+`board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
 (`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
 field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
@@ -2133,14 +2345,55 @@ or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
 `squad.attention`. The refresh computes it for the shown squad from that
 document, and for every other squad from a roster-only document (one
 `rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
-tabs are colored without loading their rows. `board::tabs` owns the tab
+tabs are colored without loading their rows.
+
+Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
+board refresh and reminder timing. Callers retain their accepted units, numeric
+forms, ranges and key-specific error messages; refresh alone wraps `"off"`.
+
+Optional `[squad.<name>.reminders]` config is parsed by
+`Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
+from 1 minute through 24 hours. `staleness` owns observed raw task/state and
+exact lead-notebook content age, separate from providers and column bindings.
+`ls` acquires its nonblocking cache lock before the roster read, reads notes
+through public `notes.read` only when enabled, and shares the existing bounded
+room history with the request overlay. `Snapshot::apply` adds the same
+`staleness` object to every occurrence of a member UUID and
+`squad.notesStaleness`; text labels derive from those objects. The board's
+observer integration and marks are a later slice, not implemented by this
+status projection.
+
+The private observation cache under `$XDG_CACHE_HOME/tmt-squad/staleness`
+is bounded to 512 KiB and 128 members per room, namespaced by the absolute
+config/data-root path and room UUID, with member/lead UUID ownership. SHA-256
+fingerprints (`sha2`) retain no notebook body. Nonblocking Unix advisory locking
+(`nix::fcntl::Flock`) stays held from
+before the read through atomic cache publication; competing readers report
+unknown and never regress the cache. First observation starts the clock,
+never backdated; unreadable notes, unavailable cache and clock rollback mean
+unknown. Cache loss/corruption restarts grace. Config edits do not
+reset content age. Disabling stops observation; after re-enabling, surviving
+fingerprint matches keep their first-observed time. These are observed content timestamps,
+not core modification times or a history feed. Age determines staleness;
+`activityAfterUpdate` separately records relevant observed PR link/state
+changes or member finals after a row update for future reminder eligibility.
+Only successful unexpired `github-pr` preset cache values and the public room
+history supply that evidence; live idle state is not inferred. This slice
+neither installs hooks nor emits reminders. The planned reminder contributes
+to the lead's next turn through generic consented prompt-submit context, not
+Stop; that generic hook and claims belong to their own follow-up slices.
+
+`board::tabs` owns the tab
 keys: a squad's name, or a built-in key starting with `@` (`@leads`, `@all`),
 which no squad name can. `[tabs] order` and `hide` arrange them. The leads tab's view is
 built by the same worker from each squad's roster document, joined with one
 `ls` read for presence. Its rows carry their squad, so talk goes to that
 squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
 squads, not members: their `tab` action opens the squad's tab, and member
-bindings don't apply there. Moving a tab (Shift+←/→, or a drag on the tab
+bindings don't apply there. `jump lead` (`L` in the tmux preset) resolves a
+lead name in `App::lead`: the document's `squad.lead` on a squad tab, the
+selected row on the leads tab, the row's `lead` field on the all tab; it then
+takes the ordinary jump request, so the popup closes and `back` returns. Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
 format-preserving replacement that records `me`. A tab line that doesn't
 fit scrolls: `tab_window` keeps the current tab in view, starting as near the
@@ -2177,7 +2430,10 @@ prefers the configured program, then, inside tmux, `tmux -S <invoker socket>
 load-buffer -w -`: `-V` must report 3.2 or later, and `show -sv set-clipboard`
 decides whether the text reached the clipboard or only a buffer. Otherwise copy
 writes OSC 52 to `/dev/tty`. `jump` checks membership and then calls `tmt
-focus`; squad has no focus logic of its own.
+focus`; squad has no focus logic of its own. `jump --lead` finds the squad
+from `--squad`, else the caller's identity (`tmt whoami`) in exactly one
+squad roster, else the only squad, and jumps to that roster's lead the same
+way; no lead is a refusal before any focus.
 `action` parses `[bind]` and `[squad.<name>.section.bind]` once per load into
 events and actions whose arguments are templates; bad events, actions or field
 syntax are configuration errors. The board resolves the selected row's section
@@ -2190,15 +2446,17 @@ drawn there. `board::scroll` is the one scroll owner: every pane hands its
 lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
-under the pointer. Panes keep no scroll state of their own; the rows pane only
-asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template and starts it like the
+under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
+asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).
 Every jump pushes the pane the client left, under the client `tmt focus`
 reports; `back` asks core for the invoker's client with `tmt focus --client`,
 pops its entry and focuses it, so squad still never talks to tmux about clients.
-`hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back`)
+`hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back|lead`;
+the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it
+passes `TMUX_PANE=#{pane_id}` for core to name the caller)
 and owns one `source-file` line in the user's tmux configuration. It edits that
 file only after consent, rereads it before publication, keeps a byte-exact
 backup and replaces it atomically with the original mode; removal drops only
@@ -2310,6 +2568,14 @@ contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
 
+Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
+fixture resources and process registries.
+`harness/readiness.ts` observes caller-supplied events, panes and process state;
+`harness/cleanup.ts` stops and checks owned process groups and clients. The
+fixture retains cleanup ordering and error precedence. `harness/types.ts` owns
+their suite-local result, event and option shapes; the helpers do not own a second
+fixture lifetime.
+
 Within Docker E2E, `cli-assertions.ts` owns the repeated strict success envelope
 (zero exit, empty stderr, defined parsed JSON), not domain validation or command
 execution. Scenario-specific payload projections and assertions stay local;
@@ -2349,11 +2615,13 @@ third-party notices (including Vite's bundled frontend inventory for Office), an
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
-The release workflow remains a product-selected preparation and verification
-workflow; publication is separately authorized. `native-release.yml` is the per-product
+The release workflow is a product-selected preparation, verification and publication
+workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
+in the release skill covers the pipeline publishing an alpha draft that passes every gate, and
+nothing else. `native-release.yml` is the per-product
 run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
-the build, assemble and verify pipeline, once per draft release that lacks a verified
-bundle; the state lives on the draft itself (`release-publication.json` marks a complete
+the build, assemble, verify and publish pipeline, once per draft release that lacks a verified
+bundle or is complete and waits for its publication; the state lives on the draft itself (`release-publication.json` marks a complete
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
@@ -2369,10 +2637,16 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
 assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
-attached the pipeline evaluates the publication gates (commit, immutability, monotonic,
-migration, upgrade) in write-token jobs that run `main`'s code and only read the release
-commit's data; a failed gate leaves `publication-held.json` on the draft, and nothing
-publishes a draft yet. CLI, Office and Squad runs share the four-target cargo-dist build and
+attached the pipeline evaluates the publication gates (channel, commit, immutability,
+monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release
+commit's data; a failed gate leaves `publication-held.json` on the draft. A draft that
+passes them is published by `typescript/scripts/release-publish.mjs` in a write-token job on
+`main`'s code (it reads the draft again and refuses a version that is not an alpha, a
+component with `release: false`, a draft without the bundle and one with a hold or failure
+marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
+prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
+the policy's flags, the tag on the release commit and GitHub's attestation for the release and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
@@ -2396,3 +2670,49 @@ Every change reports its architecture impact and names the affected Rust owner,
 adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
+
+## Remote extension pilot
+
+`extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
+as `tmt remote`. `main` owns style/foreground composition and one bounded
+startup capabilities call. `core::CoreClient` owns fixed public `api`/`list`
+subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
+
+`http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
+connection/rate bounds and shutdown. It has no CoreClient/storage reference.
+`transport::Transport` moves append/subscribe/ack envelopes to one message
+owner, which currently denies every request. Startup discovery is not a remote
+operation. The pilot cannot pair, adopt a request, approve, send or subscribe;
+no grant/journal/core DB is created. Denied traffic does not renew the window.
+
+`canonical` owns pure decoded-value local-v1 envelope, enrollment and possession
+framing; `crypto` owns strict Ed25519 verification, full HMAC-SHA256 verification
+and pure receipt-key/proof derivation. Neither module has I/O, clock, storage or
+CoreClient access, and neither is wired into the deny-all door. Referenced agent
+IDs use canonical non-nil UUID syntax independently of core; remote-generated IDs
+remain UUIDv4. Byte construction and valid signatures establish no authority.
+Rust tests consume the independent Python canonical fixtures read-only; Rust-owned
+RFC/Python/WebCrypto vectors exercise cryptographic validity separately. The only
+new production dependencies are the contract's pinned Ed25519 and HMAC primitives,
+with the existing pinned SHA-256 dependency. Real Chrome MV3 security and browser
+interoperability remain later gates; local Node conformance does not replace them.
+
+[`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
+signed-message contract. Pairing/authentication/approval/log/SDK behavior remains
+proposed until its implementation slices land; `cloudflare`, `firestore` and
+`relay-v1` remain reserved. Core never owns a listener or remote state. Official
+product/release registration is deferred. Its private component owner excludes
+remote versions from real-product releases; cargo-dist excludes this pilot binary.
+For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
+
+The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
+TypeScript module owns decoded-value envelope, enrollment and possession signing-byte
+builders and independent exact-byte/SHA-256 fixtures. Enrollment agent references follow
+core canonical non-nil UUID syntax; remote-generated IDs remain UUIDv4, as defined
+by the client contract. Syntax validation establishes neither identity existence nor authority.
+It uses standard UTF-8 and WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
+quality job: the independent Python oracle must pass before the workspace-pinned
+Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
+runtime authority or browser-shell wiring; the proposed contract remains the wire
+and authority definition owner.

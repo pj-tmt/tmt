@@ -14,8 +14,9 @@ use crate::{
     attention::Attention,
     config::{Board, BoardMode, Config, Direction, Layout, NotesRender, Pane},
     core::Core,
+    provider::{self, Provider},
     requests,
-    squad::Squad,
+    squad::{Member, Squad},
     status,
 };
 use serde_json::{Value, json};
@@ -39,18 +40,24 @@ impl Worker {
         let (requests, pending) = mpsc::channel::<Option<String>>();
         let (sender, results) = mpsc::channel();
         std::thread::spawn(move || {
-            // Reply bodies never change once submitted; keep them per worker.
-            let mut bodies = BTreeMap::new();
+            let mut kept = Kept {
+                bodies: BTreeMap::new(),
+                fetch: fetcher(),
+            };
             // The board's pane and squad.toml's place never change, so both
             // are read once.
             let caller = crate::me::caller(&core).ok().flatten();
-            let mut changes = Changes::new(core.clone(), Config::locate(&core).ok());
+            let mut changes = Changes::new(
+                core.clone(),
+                Config::locate(&core).ok(),
+                provider::Cache::directory(),
+            );
             serve(
                 &pending,
                 &sender,
                 CHECK_EVERY,
                 || changes.stamp(),
-                |wanted| load(&core, tmux, caller.as_ref(), wanted, &mut bodies),
+                |wanted| load(&core, tmux, caller.as_ref(), wanted, &mut kept),
             );
         });
         Self { requests, results }
@@ -60,6 +67,61 @@ impl Worker {
     pub fn request(&self, squad: Option<String>) {
         let _ = self.requests.send(squad);
     }
+}
+
+/// What one worker keeps across loads.
+struct Kept {
+    /// Reply bodies never change once submitted.
+    bodies: BTreeMap<String, String>,
+    fetch: Sender<Fetch>,
+}
+
+/// One squad's providers and members, for the fetcher.
+struct Fetch {
+    squad: String,
+    providers: Vec<Provider>,
+    members: Vec<Member>,
+}
+
+/// Field providers run on their own thread, so a slow `gh` never delays a
+/// load. Queued work collapses to the newest; each run rereads the cache,
+/// so work another run finished meanwhile is not repeated. Between loads it
+/// runs the last squad's providers again at their shortest `every`, so
+/// values stay current whatever the board's own interval. Saved values move
+/// the cache directory's stamp, and the next check reloads the board.
+fn fetcher() -> Sender<Fetch> {
+    let (sender, pending) = mpsc::channel::<Fetch>();
+    std::thread::spawn(move || {
+        let mut last: Option<Fetch> = None;
+        loop {
+            let wait = last
+                .as_ref()
+                .and_then(|fetch| fetch.providers.iter().map(Provider::every).min());
+            let received = match wait {
+                Some(wait) => pending.recv_timeout(wait),
+                None => pending.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            };
+            match received {
+                Ok(mut fetch) => {
+                    while let Ok(newer) = pending.try_recv() {
+                        fetch = newer;
+                    }
+                    last = Some(fetch);
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            if let Some(fetch) = &last {
+                provider::refresh(
+                    &fetch.squad,
+                    &fetch.providers,
+                    &fetch.members,
+                    crate::status::now_ms(),
+                );
+            }
+        }
+    });
+    sender
 }
 
 /// Loads each request, newest first, until the board goes away. While idle
@@ -108,7 +170,7 @@ fn load(
     tmux: bool,
     caller: Option<&crate::me::Caller>,
     wanted: Option<String>,
-    bodies: &mut BTreeMap<String, String>,
+    kept: &mut Kept,
 ) -> Snapshot {
     let squads = match Squad::list(core) {
         Ok(squads) => squads,
@@ -176,7 +238,7 @@ fn load(
                 .iter()
                 .find(|squad| squad.name == key)
                 .expect("chosen from the listed squads");
-            squad_view(core, tmux, &config, &squads, squad, me, bodies)?
+            squad_view(core, tmux, &config, &squads, squad, me, kept)?
         };
         attention = found;
         Ok(view)
@@ -200,14 +262,28 @@ fn squad_view(
     squads: &[Squad],
     squad: &Squad,
     me: Option<crate::me::Me>,
-    bodies: &mut BTreeMap<String, String>,
+    kept: &mut Kept,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let layout = config.layout(&squad.name)?;
+    let (theme, theme_notice) = config.theme(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
     let board = config.board(&squad.name, layout)?;
     let sections = config.sections(&squad.name)?;
     let rows = config.rows(&squad.name)?;
-    let members = squad.members(core, rows.reads_metadata())?;
+    let providers = config.providers(&squad.name)?;
+    let mut members = squad.members(core, rows.reads_metadata())?;
+    if !providers.is_empty() {
+        let _ = kept.fetch.send(Fetch {
+            squad: squad.name.clone(),
+            providers: providers.clone(),
+            members: members.clone(),
+        });
+    }
+    provider::apply(
+        &providers,
+        &mut members,
+        &provider::Cache::load(&squad.name),
+    );
     let mut document = status::document(squad, layout, &states, &sections, &rows, members);
     let sent = requests::overlay(core, squad, me.as_ref(), &mut document)?;
     let others: Vec<&Squad> = squads
@@ -221,7 +297,11 @@ fn squad_view(
         Some(sent) if board.panes.contains(&Pane::Replies) => requests::replies(sent, &document),
         _ => Vec::new(),
     };
-    requests::bodies(|id| requests::show_request(core, id), &mut replies, bodies)?;
+    requests::bodies(
+        |id| requests::show_request(core, id),
+        &mut replies,
+        &mut kept.bodies,
+    )?;
     let notes = if board.panes.contains(&Pane::Notes) {
         lead_notes(core, &document["squad"]["lead"])
     } else {
@@ -236,6 +316,8 @@ fn squad_view(
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
         tab_colors: config.tabs()?.colors,
+        look: crate::look::Look::new(theme),
+        theme_notice,
         me: me.map(|me| me.name),
         replies,
         refresh: config.refresh(&squad.name)?,
@@ -257,6 +339,8 @@ fn leads_view(
     me: Option<crate::me::Me>,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let settings = config.tabs()?;
+    // The cross-squad tabs have no squad table: the global theme alone.
+    let (theme, theme_notice) = config.theme("")?;
     let listed = core.json(&["ls"])?;
     let all: Vec<&Squad> = squads.iter().collect();
     let documents = roster_documents(core, config, &all, me.as_ref(), Some(&listed));
@@ -273,6 +357,8 @@ fn leads_view(
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
         tab_colors: settings.colors,
+        look: crate::look::Look::new(theme),
+        theme_notice,
         me: me.map(|me| me.name),
         replies: Vec::new(),
         refresh: config.refresh(LEADS)?,
@@ -299,6 +385,8 @@ fn all_view(
     me: Option<crate::me::Me>,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let settings = config.tabs()?;
+    // The cross-squad tabs have no squad table: the global theme alone.
+    let (theme, theme_notice) = config.theme("")?;
     let all: Vec<&Squad> = squads.iter().collect();
     let documents = roster_documents(core, config, &all, me.as_ref(), None);
     let attention = tab_attention(&documents);
@@ -322,6 +410,8 @@ fn all_view(
         opener: None,
         clipboard: None,
         tab_colors: settings.colors,
+        look: crate::look::Look::new(theme),
+        theme_notice,
         me: me.map(|me| me.name),
         replies: Vec::new(),
         refresh: config.refresh(ALL)?,
@@ -348,7 +438,7 @@ fn all_document(
         .into_iter()
         .map(|name| {
             let document = &documents[name];
-            let lead = document["squad"]["lead"]["name"].as_str().unwrap_or("–");
+            let lead = document["squad"]["lead"]["name"].as_str();
             let members = document["sections"]
                 .as_array()
                 .into_iter()
@@ -507,6 +597,7 @@ mod tests {
 
     fn member(id: &str, fields: &[(&str, &str)]) -> Member {
         Member {
+            lead_marker: None,
             id: id.into(),
             name: id.to_lowercase(),
             lifetime: "saved".into(),
@@ -520,6 +611,7 @@ mod tests {
             meta: Default::default(),
             seen: Value::Null,
             numbers: Default::default(),
+            failed: Default::default(),
         }
     }
 
@@ -721,12 +813,12 @@ mod tests {
         );
         let all = all_document(&tabs, &documents, &attention);
         let rows = all["sections"][0]["rows"].as_array().unwrap();
-        let listed: Vec<(&str, &str, &str)> = rows
+        let listed: Vec<(&str, Option<&str>, &str)> = rows
             .iter()
             .map(|row| {
                 (
                     row["name"].as_str().unwrap(),
-                    row["fields"]["lead"].as_str().unwrap(),
+                    row["fields"]["lead"].as_str(),
                     row["state"].as_str().unwrap(),
                 )
             })
@@ -734,15 +826,45 @@ mod tests {
         assert_eq!(
             listed,
             [
-                ("product", "sol", "waiting"),
-                ("infra", "rin", "blocked"),
-                ("quiet", "–", "normal"),
-                ("hidden", "sol", "normal"),
+                ("product", Some("sol"), "waiting"),
+                ("infra", Some("rin"), "blocked"),
+                ("quiet", None, "normal"),
+                ("hidden", Some("sol"), "normal"),
             ],
             "every squad, with or without a lead, in tab order"
         );
         assert_eq!(rows[0]["squad"], "product", "Enter opens this tab");
         assert_eq!(rows[0]["fields"]["waiting"], "1");
+        assert_eq!(rows[2]["fields"]["lead"], Value::Null);
+
+        let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
+        let view = snapshot.view.as_mut().unwrap();
+        view.document = all;
+        view.rows = crate::rows::Rows::overview();
+        let mut app = crate::board::app::App::new(Some(ALL.into()));
+        app.apply(snapshot);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(64, 10)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let screen: Vec<String> = terminal
+            .backend()
+            .buffer()
+            .content()
+            .chunks(64)
+            .map(|line| line.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        let quiet = screen
+            .iter()
+            .find(|line| line.trim_start().starts_with("quiet"))
+            .expect("the leadless squad is visible on the all tab");
+        assert_eq!(
+            quiet.split_whitespace().collect::<Vec<_>>(),
+            ["quiet", "–", "0", "0", "0"],
+            "the view renders the missing lead as a display placeholder"
+        );
+
         assert_eq!(attention["quiet"], Attention::default());
         assert_eq!(
             attention["infra"],

@@ -1,4 +1,4 @@
-import { withoutAddress } from './cli-assertions.js';
+import { unknownActivity, withoutAddress } from './cli-assertions.js';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture } from './harness.js';
 
@@ -92,6 +92,7 @@ describe.sequential('global identity and runtime routing', () => {
             target: fixture.paneTarget(all.pane),
             cwd: allWorkspace,
             command: 'node',
+            session: { activity: unknownActivity },
           },
           {
             id: alphaId,
@@ -103,6 +104,7 @@ describe.sequential('global identity and runtime routing', () => {
             target: fixture.paneTarget(alpha.pane),
             cwd: alphaWorkspace,
             command: 'node',
+            session: { activity: unknownActivity },
           },
         ],
       });

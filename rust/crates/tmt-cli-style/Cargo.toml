@@ -15,9 +15,16 @@ clap.workspace = true
 comfy-table.workspace = true
 shlex.workspace = true
 unicode-width.workspace = true
+# Full-screen views (the Squad board) draw with ratatui; core does not.
+ratatui = { workspace = true, optional = true }
+
+[features]
+ratatui = ["dep:ratatui"]
 
 [dev-dependencies]
+crossterm.workspace = true
 insta.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -127,6 +127,11 @@ impl Action {
             } else {
                 rest
             })?],
+            Verb::Jump => match rest {
+                "" => Vec::new(),
+                "lead" => vec![Template::parse("lead")?],
+                other => return Err(format!("jump takes nothing or lead, not '{other}'")),
+            },
             Verb::Annotate => match rest {
                 "" | "lead" => vec![Template::parse("lead")?],
                 "member" => vec![Template::parse("member")?],
@@ -164,9 +169,10 @@ impl Action {
         })
     }
 
-    /// `run`: the complete argv. Each template becomes exactly one element.
+    /// `run`: the complete argv. Each template becomes exactly one element,
+    /// and no row value can become an option.
     pub fn argv(&self, row: &Value) -> Result<Vec<String>, String> {
-        self.args.iter().map(|arg| arg.fill(row)).collect()
+        self.args.iter().map(|arg| arg.fill_argument(row)).collect()
     }
 }
 
@@ -243,6 +249,8 @@ pub fn preset(tmux: bool) -> Bindings {
         ("tab", "next-pane"),
     ]
     .into_iter()
+    // Only a host that can show a pane can jump to the lead.
+    .chain(tmux.then_some(("L", "jump lead")))
     .map(|(event, line)| {
         (
             event.to_owned(),
@@ -272,17 +280,26 @@ mod tests {
     #[test]
     fn run_fills_each_field_into_exactly_one_argument() {
         let action =
-            Action::parse(r#"run code --wait {worktree} "{cwd} (lead)" --task={task}"#).unwrap();
+            Action::parse(r#"run code --wait "{cwd} (lead)" --task={task} --dir={worktree}"#)
+                .unwrap();
         assert_eq!(action.verb, Verb::Run);
         assert_eq!(
             action.argv(&row()).unwrap(),
             [
                 "code",
                 "--wait",
-                "-rf /",
                 "/w/app 3 (lead)",
                 "--task=rotate; $(rm -rf ~) `id` \"quoted\" *.rs",
+                "--dir=-rf /",
             ]
+        );
+        // A value that would start an argument with '-' is refused.
+        assert_eq!(
+            Action::parse("run code --wait {worktree}")
+                .unwrap()
+                .argv(&row())
+                .unwrap_err(),
+            "worktree starts with '-' and would be read as an option; refused"
         );
         assert_eq!(
             Action::parse("run code {pending}")
@@ -357,6 +374,14 @@ mod tests {
     #[test]
     fn presets_differ_only_where_the_host_cannot_jump() {
         let (tmux, plain) = (preset(true), preset(false));
+        assert_eq!(tmux["L"].verb, Verb::Jump);
+        assert_eq!(tmux["L"].args[0].literal(), Some("lead"));
+        assert!(!plain.contains_key("L"), "a plain terminal cannot jump");
+        assert_eq!(Action::parse("jump").unwrap().args.len(), 0);
+        assert_eq!(
+            Action::parse("jump member").unwrap_err(),
+            "jump takes nothing or lead, not 'member'"
+        );
         assert_eq!(tmux["enter"].verb, Verb::Jump);
         assert_eq!(plain["enter"].verb, Verb::Menu);
         assert_eq!(plain["double-click"].verb, Verb::Menu);

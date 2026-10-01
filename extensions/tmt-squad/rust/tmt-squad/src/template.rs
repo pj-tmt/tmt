@@ -60,6 +60,19 @@ impl Template {
         Ok(Self(parts))
     }
 
+    /// Fills one program argument. A value placed at the start that begins
+    /// with `-` is refused: row fields are written by agents, and such a
+    /// value would reach the program as an option. A literal `-q` is fine.
+    pub fn fill_argument(&self, row: &Value) -> Result<String, String> {
+        let filled = self.fill(row)?;
+        match self.0.first() {
+            Some(Part::Field(field)) if filled.starts_with('-') => Err(format!(
+                "{field} starts with '-' and would be read as an option; refused"
+            )),
+            _ => Ok(filled),
+        }
+    }
+
     /// Fills every field from the row. A missing or empty value refuses the
     /// action rather than producing an empty or shifted argument.
     pub fn fill(&self, row: &Value) -> Result<String, String> {
@@ -134,5 +147,30 @@ mod tests {
         for bad in ["{Bad}", "{two words}", "{unclosed", "close}", "{}", "a}{b"] {
             assert!(Template::parse(bad).is_err(), "{bad}");
         }
+    }
+
+    /// An agent-written value never becomes an option; literal options and
+    /// a `-` inside a value stay as they are.
+    #[test]
+    fn an_argument_refuses_a_leading_dash_only_from_a_value() {
+        let row = json!({
+            "name": "rin",
+            "fields": {"pr_link": "--repo=evil/x", "task": "a -b", "branch": "-x"}
+        });
+        let argument = |text: &str| Template::parse(text).unwrap().fill_argument(&row);
+        assert_eq!(
+            argument("{pr_link}").unwrap_err(),
+            "pr_link starts with '-' and would be read as an option; refused"
+        );
+        assert!(argument("{branch}").is_err());
+        assert_eq!(argument("--json").unwrap(), "--json");
+        assert_eq!(argument("--head={branch}").unwrap(), "--head=-x");
+        assert_eq!(argument("{task}").unwrap(), "a -b");
+        assert_eq!(argument("{name}").unwrap(), "rin");
+        // Copy text is not an argument: it keeps any value.
+        assert_eq!(
+            Template::parse("{pr_link}").unwrap().fill(&row).unwrap(),
+            "--repo=evil/x"
+        );
     }
 }

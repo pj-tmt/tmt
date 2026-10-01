@@ -6,7 +6,10 @@ mod paths;
 
 #[cfg(test)]
 mod initialization_tests;
+#[cfg(test)]
+mod theme_tests;
 
+pub use document::ThemeProblem;
 pub use paths::ConfigPaths;
 pub(crate) use paths::normalize;
 use std::{fmt, path::Path};
@@ -91,6 +94,15 @@ impl ConfigFiles {
             read_layer(Scope::Global)?,
             read_layer(Scope::Local)?,
         ))
+    }
+
+    /// The global file's `theme` settings, as written. The outer error is
+    /// the file itself (unreadable or not JSON), as for every setting; the
+    /// inner one a wrongly shaped theme, which never affects loading the
+    /// other settings.
+    pub fn theme(&self) -> Result<Result<Vec<(String, String)>, ThemeProblem>, ConfigError> {
+        let path = self.path(Scope::Global);
+        Ok(document::theme(&document::read(path, Scope::Global)?))
     }
 
     pub fn set(&self, setting: Setting, scope: Scope) -> Result<(), ConfigError> {

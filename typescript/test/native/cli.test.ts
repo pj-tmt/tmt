@@ -3,7 +3,11 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
+import { workspaceVersion } from '../support/workspace-version.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
+
+// The version the binary prints is the workspace version, which a release pull request bumps.
+const cliVersion = workspaceVersion();
 
 // The shared selector validates the repository native build before allocating
 // each sandbox. Explicit descriptors remain available for moved executables.
@@ -155,7 +159,7 @@ describe('native grammar process contract', () => {
       const before = fileSnapshot(sandbox.root);
       const version = await runCli(sandbox, ['--version']);
       expect(version.status).toBe(0);
-      expect(version.stdout).toBe('5.0.0-alpha.8\n');
+      expect(version.stdout).toBe(`${cliVersion}\n`);
       expect(version.stderr).toBe('');
       const help = await runCli(sandbox, ['help']);
       expect(help.status).toBe(0);
@@ -208,6 +212,35 @@ describe('native grammar process contract', () => {
         expect(existsSync(sandbox.database)).toBe(false);
         expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
       }
+    });
+  });
+
+  it('runs no command for a host driver, only help and the version', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      // Every host-driver call carries this; a driver that runs tmt changes nothing.
+      sandbox.env.TMT_DRIVER_CALL = '1';
+      for (const args of [
+        ['ls', '--json'],
+        ['room', 'create', 'Nested', '--json'],
+        ['identity', 'create', 'Nested', '--json'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status, args.join(' ')).toBe(1);
+        expectError(result, 'DRIVER_CALL_REFUSED');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect(existsSync(sandbox.database)).toBe(false);
+        expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+      }
+      const version = await runCli(sandbox, ['--version']);
+      expect(version.status, version.stderr).toBe(0);
+      const help = await runCli(sandbox, ['help', 'ls']);
+      expect(help.status, help.stderr).toBe(0);
+      delete sandbox.env.TMT_DRIVER_CALL;
+      const listed = await runCli(sandbox, ['ls', '--json']);
+      expect(listed.status, listed.stderr).toBe(0);
     });
   });
 
@@ -297,7 +330,7 @@ describe('native grammar process contract', () => {
       expect(JSON.parse(literal.stdout).identity.name).toBe('--debug');
       const version = await runCli(sandbox, ['--version']);
       expect(version.status).toBe(0);
-      expect(version.stdout).toBe('5.0.0-alpha.8\n');
+      expect(version.stdout).toBe(`${cliVersion}\n`);
     });
   });
 
@@ -379,7 +412,7 @@ describe('native grammar process contract', () => {
       copyFileSync(sandbox.cli.executable, executable);
       const result = await runCli({ ...sandbox, cli: { executable, args: [] } }, ['--version']);
       expect(result.status).toBe(0);
-      expect(result.stdout).toBe('5.0.0-alpha.8\n');
+      expect(result.stdout).toBe(`${cliVersion}\n`);
       expect(result.stderr).toBe('');
       expect(existsSync(sandbox.database)).toBe(false);
     });

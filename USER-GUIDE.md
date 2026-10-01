@@ -50,7 +50,7 @@ from another TMT installation is listed as a change: setup backs it up next to
 the skills folder (`.tmt-skill-backups`) and replaces it. Without a terminal it needs
 `--yes` and otherwise changes nothing. Run `tmt setup claude` or `tmt setup codex`
 to review one agent's exact settings and launcher paths and approve that plan. Noninteractive use requires `--yes`; add `--json` for a
-structured result. This updates only TMT-owned SessionStart/SessionEnd entries in
+structured result. This updates only TMT-owned SessionStart/SessionEnd/UserPromptSubmit entries in
 `~/.claude/settings.json` or Codex's `CODEX_HOME/hooks.json` (default
 `~/.codex/hooks.json`), retaining other hooks and permission settings. It does
 not install the agent, approve provider hook trust, or change permission policy.
@@ -60,6 +60,15 @@ place across upgrades; rerun setup if it moves. An identical rerun makes no
 changes. Add `--remove` to review removal of only unchanged TMT hooks.
 Edited/conflicting hooks or invalid JSON are left untouched. Updates report a
 recoverable settings backup; identity, notes and exchange data are never removed.
+
+`tmt ls --json` includes `session.activity`: the last reported main-turn
+`working` or `idle` state, its `sinceMs`, and `lastActivityMs`. Missing evidence
+is `unknown`; confirmed runtime exit is `ended`. The timestamp is the last
+accepted start/end event, not a heartbeat or a stalled-work judgment. These facts
+come from TMT's synchronous setup-written hooks. Editing one to run asynchronously
+breaks that source contract; setup reports the edited entry for resolution.
+The optional Stop hook below supplies end events; without it, TMT cannot record
+idle merely because the provider has gone quiet.
 
 Context usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`)
 also installs a TMT `Stop` hook. After each turn, that hook reads the token
@@ -485,12 +494,12 @@ actions wait until it arrives). Tabs keep their width, so switching never moves
 them.
 
 The first header line holds only the tabs. The selected tab is shown in
-reverse. Each tab is colored by what it needs from you: amber when a member
-waits on you (◆, or a request waiting for your answer), red when a member is
-blocked, and plain otherwise. Counts follow the name (`product ◆2 !1`), so the
+reverse. Each tab is colored by what it needs from you: `waiting` when a member
+waits on you (◆, or a request waiting for your answer), `blocked` when a member
+is blocked, and plain otherwise. Counts follow the name (`product ◆2 !1`), so the
 state never depends on color alone, and `ls --json` reports it as
 `squad.attention` (`state`, `waiting`, `blocked`). Change the colors in
-`[tabs.colors]` (`waiting = "amber"`, `blocked = "red"`; the same color names as
+`[tabs.colors]` (`waiting = "waiting"`, `blocked = "blocked"`; the same names as
 states). When there are more tabs than fit, the tab line scrolls to keep the
 current tab in view, and counts the tabs off each end (`‹ 3`, `5 ›`). Each count
 takes the color of the most pressing tab it hides. Tabs listed in
@@ -552,8 +561,8 @@ lines = [
 ]
 
 [squad.product.states]
-blocked = { color = "red", sort = 0 }   # colors: default, dim, red, amber, green,
-                                        # cyan, blue, magenta; sort 0-999 orders states
+blocked = { color = "blocked", sort = 0 }  # color: default or a theme token;
+                                          # sort 0-999 orders states
 ```
 
 A column has a `width`, or `min`/`max` and a `grow` share of what is left;
@@ -580,6 +589,7 @@ the member's own TMT data, read on every refresh with no extra commands:
 | `session.usage.remaining` | the context window less those tokens; only when the driver states a window (Codex does, Claude does not) |
 | `meta.<key>`              | the identity's metadata `<key>`                                                                          |
 | `meta.squad.<field>`      | this squad's field, the same as a plain column of that name                                              |
+| `fields.<name>`           | the value of this squad's field provider `<name>` (below)                                                |
 
 These paths are the same whatever the member's driver, so a member that
 switches from Claude to Codex keeps its columns. Any other path is refused with
@@ -590,7 +600,7 @@ is, and a `format` without `from` formats the squad field. The bound value
 replaces a field of the same name everywhere, so sections, filters and sorts use
 it; numbers sort as numbers. Squad's own fields (`member`, `role`, `state`,
 `pending`, `note`) cannot take `from` or `format`. A member without the value
-shows it as missing:
+shows `–`, the board's one mark for a missing value (an empty cell in `ls`):
 
 ```toml
 [squad.product.rows]
@@ -600,6 +610,50 @@ columns = [
   { name = "ctx",   from = "session.usage.tokens", format = "tokens", align = "right" },
 ]
 ```
+
+For data TMT does not have, such as a pull request's review state, a field
+provider runs a program of yours for each member and shows its output as a
+field of its name:
+
+```toml
+[squad.product.fields.pr_state]
+run     = ["gh", "pr", "view", "{pr_link}", "--json", "state", "-q", ".state"]
+every   = "60s"      # run again after this long; 10s-24h, default 60s
+timeout = "5s"       # 1s-30s, default 5s
+```
+
+`run` follows the rules of a `run` binding below: a literal program on `PATH`
+or an absolute path, never a shell, each `{field}` filling exactly one argument,
+and a value that would begin an argument with `-` refused. A member whose
+placeholder is missing or refused is not run and shows `–`. The program's first
+output line is the value (at most 200 characters, control characters removed);
+it may instead print `{"value": "487k", "color": "review"}`, whose color token
+the board uses once themes arrive. A failed start, a non-zero exit, a timeout or
+more than 4 KiB of output shows a dim `?`, never an error. A squad defines at
+most 8 providers, and at most 4 programs run at once.
+
+For the common case, `preset = "github-pr"` stands in for `run`: it runs
+`gh pr view {pr_link} --json number,state,isDraft,reviewDecision` and shows
+`#412 open`, `#412 draft`, `#412 merged` or `#412 closed`, and for an open pull
+request its review, as in `#412 open · approved`, `· changes requested` or
+`· review required`. A member without `pr_link` shows `–`; without `gh` on
+`PATH`, or when `gh` is not logged in, it shows `?`.
+
+```toml
+[squad.product.fields.pr]
+preset = "github-pr"     # every and timeout work as above
+```
+
+Show a provider's value with a column of its name, or `from = "fields.<name>"`;
+sections, filters and sorts see it like any field, and it replaces a field of
+the same name that an agent wrote. The board never waits for a provider: it
+shows the last value while providers run in the background, reloads when they
+finish (unless its `refresh` is `"off"`), and runs them again after `every`.
+Values are kept in `$XDG_CACHE_HOME/tmt-squad/fields/`, readable only by you,
+with the arguments that produced them, so a member whose `{pr_link}` changed
+shows `–` until its new value arrives. `tmt sq ls` shows the kept values;
+`tmt sq ls --refresh-fields` first runs the providers that are due and waits
+for them.
 
 The board is made of panes: `rows`, `notes` (the lead's own notebook, the same
 file as `tmt notes`, read-only), `detail` (the selected row) and `replies`
@@ -646,9 +700,11 @@ first. Set `[squad.<name>.notes] render = "plain"` to show the text unformatted.
 layout shows rows and notes side by side, pr-queue shows rows over detail, and
 minimal shows rows only.
 
-Keys act on the selected row. Inside tmux, Enter jumps to the member's pane and
-Backspace goes back; in a plain terminal, where the board cannot show another
-pane, Enter opens a menu of the row's actions instead. `o` opens the row's link,
+Keys act on the selected row. Inside tmux, Enter jumps to the member's pane,
+`L` jumps to the squad's lead (on the `all` and `leads` tabs, the lead of the
+selected row's squad) and Backspace goes back; a jump from a popup board closes
+it. In a plain terminal, where the board cannot show another pane, Enter opens
+a menu of the row's actions instead. `o` opens the row's link,
 `y` copies it, `t` talks to the member, `r` replies to it, `a` annotates the
 row for the lead, `n` focuses the notes pane and Tab moves to the next pane;
 `?` lists every key. Rebind keys in `squad.toml`, for all squads or for one section's rows:
@@ -670,7 +726,7 @@ A binding is `event = "action [argument]"`. Events are `enter`, `backspace`,
 `tab`, `space`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1`–`f12`,
 `ctrl-<letter>` (except `ctrl-c`), `click`, `double-click` or one printable
 character other than the board's own `q`, `j`, `k`, `/` and `?`. Actions are
-`jump`, `back`, `open [{field}]`, `copy [template]`, `run <program> [arguments]`,
+`jump [lead]`, `back`, `open [{field}]`, `copy [template]`, `run <program> [arguments]`,
 `notes`, `refresh`, `next-pane`, `menu`, `talk`, `reply`,
 `annotate [lead|member]` and `tab` (open the row's squad tab, on the `all` and
 `leads` tabs). An unknown action, event or field syntax makes the
@@ -693,15 +749,17 @@ e = "run code --reuse-window -- {cwd}"
 The program is a name on `PATH` or an absolute path, written literally. Each
 argument is split once when `squad.toml` loads (double quotes group words), and
 a `{field}` value fills exactly one argument however it is spelled, so it never
-becomes several words or shell syntax. A value can still begin with `-`; when
-the program accepts it, put `--` before field arguments, as above, so such a
-value is read as a file or name rather than an option.
+becomes several words or shell syntax. Agents write row fields, so an argument
+that would begin with `-` because of a value is refused: `{branch}` holding
+`--force` never reaches the program as an option. A literal option such as
+`--wait`, or a value after literal text such as `--head={branch}`, is kept.
 
 Some row actions also work as commands, for scripts, tmux key bindings and
 terminals without the board:
 
 ```sh
 tmt squad jump auth-fix                     # show its pane in your tmux client
+tmt squad jump --lead                       # show your squad's lead
 tmt squad back                              # return to where the last jump came from
 tmt squad open auth-fix                     # pr_link, else link, else another *_link
 tmt squad open auth-fix --link issue_link
@@ -742,7 +800,10 @@ jump, from the board or the command, records where your tmux client came from;
 where your client is now: the member's pane, a new popup, or a key binding such
 as `bind B run-shell "tmt squad back"`. A board left behind by its own jump no
 longer shows your client, so its Backspace cannot return it. With nothing
-recorded, `back` says so and changes nothing. The record is disposable, kept per
+recorded, `back` says so and changes nothing. `jump --lead` jumps to the lead
+of the squad you are in (the identity of the pane you run it from), of the only
+squad, or of `--squad <name>`; if you are in several squads it asks for
+`--squad`, and a squad without a lead is an error that changes nothing. The record is disposable, kept per
 tmux server and client under `$XDG_CACHE_HOME/tmt-squad` (or
 `~/.cache/tmt-squad`), at most 32 entries.
 
@@ -777,6 +838,7 @@ choose other keys in `squad.toml`:
 popup = "S"      # the defaults; a single key, C-x, M-x or F1-F12
 pane  = "B"
 back  = "b"      # optional: prefix b runs `tmt squad back`
+lead  = "J"      # optional: prefix J runs `tmt squad jump --lead` for its pane
 ```
 
 The bindings run the `tmt` found on your PATH (for example `~/.local/bin/tmt`),
@@ -1004,6 +1066,47 @@ overrides live in `./tmux-team.json`. Use the reported paths when a custom home
 or configuration root is in use. Global-only settings cannot be set or cleared
 locally. Unknown fields are preserved; invalid known fields should be repaired,
 not worked around by deleting the file.
+
+Colors come from a theme. The command line uses your terminal's own 16 colors,
+so your terminal theme decides, until you choose a theme in the global file;
+the Squad board uses `tmt` unless you choose:
+
+```json
+{
+  "theme": {
+    "base": "tmt",
+    "waiting": "#e0a458",
+    "accent": "blue"
+  }
+}
+```
+
+`base` is `tmt` (soft 24-bit color for dark terminals), `tmt-light`, `terminal`
+(your 16 colors) or `mono` (bold and dim only). Any token (`text`, `muted`,
+`dim`, `accent`, `waiting`, `working`, `review`, `blocked`, `link`,
+`selection`) can be overridden with `#rrggbb`, a color name such as `blue` or
+`bright black`, `default`, `bold`, `dim` or `reverse`. 24-bit color is used
+when the terminal announces it (`COLORTERM=truecolor`); otherwise `tmt` falls
+back to your 16 colors and a hex value to the nearest of them. `NO_COLOR`, a
+pipe or `--json` means no color at all, and help text keeps your terminal's
+colors. `tmt config show` lists the theme and reports a bad value by its key
+(`themeError` in `--json`) without failing; a bad theme never stops another
+command, which then keeps the default colors.
+
+Every color on the board is one of these tokens: a state's or tab's `color` in
+`squad.toml` is `default` (no color) or a token, and the older names `red`,
+`amber`, `green`, `blue`, `cyan` and `magenta` still work as `blocked`,
+`waiting`, `working`, `accent`, `link` and `review`. A squad can change the
+theme of its own board in `squad.toml`, over the global one; its `base` wins:
+
+```toml
+[squad.product.theme]
+base = "tmt-light"
+waiting = "#b8862b"
+```
+
+A mistake there is a `squad.toml` error named by its key. A bad global theme
+leaves the board on `tmt` and says so on the board's summary line.
 
 ### Optional pane badge
 

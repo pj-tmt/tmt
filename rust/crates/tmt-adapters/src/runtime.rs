@@ -16,6 +16,8 @@ pub mod driver_state;
 pub(crate) mod evidence;
 pub mod hook_protocol;
 pub mod lifecycle;
+#[cfg(test)]
+mod prompt_tests;
 pub mod transcript;
 #[cfg(test)]
 mod usage_tests;
@@ -370,9 +372,9 @@ mod tests {
     fn lifecycle_registration_is_harness_owned_and_generic_exit_keeps_its_default() {
         use lifecycle::RuntimeLifecycle;
         use tmt_core::binding::session::{
-            BindingSessionState, ObservedSessionKey, RuntimeIncarnation, RuntimeState,
-            SessionPreferences,
+            BindingSessionState, ObservedSessionKey, RuntimeState, SessionPreferences,
         };
+        use tmt_core::endpoint::ProcessIncarnation;
         let mut registry = RuntimeRegistry::first_party();
         assert!(
             registry
@@ -418,10 +420,10 @@ mod tests {
             .client_exit(
                 &BindingSessionState::default(),
                 ObservedSessionKey {
-                    incarnation: RuntimeIncarnation::new(2, "child").unwrap(),
+                    incarnation: ProcessIncarnation::new(2, "child").unwrap(),
                     provider_session: None,
                 },
-                RuntimeIncarnation::new(1, "owner").unwrap(),
+                ProcessIncarnation::new(1, "owner").unwrap(),
                 &SessionPreferences::default(),
             )
             .unwrap();

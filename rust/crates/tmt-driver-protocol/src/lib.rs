@@ -20,7 +20,7 @@ mod wire;
 pub mod conformance;
 
 pub use decode::{Answer, DecodeError, decode, decode_capabilities, decode_done};
-pub use grammar::{Grammar, GrammarError};
+pub use grammar::{Grammar, GrammarError, HostGrammar};
 pub use serve::{Handler, serve};
 pub use wire::*;
 

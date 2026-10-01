@@ -1,180 +1,93 @@
-//! Driver actions share the existing binding evidence and pane IO owners.
+//! tmux behind the host-driver trait: the operations only tmux can do.
+//! Which evidence makes a binding present, and what a send or focus may do,
+//! is `host::driver`'s policy for every host.
 
 use super::*;
-use crate::process::CommandError;
-use crate::tmux::{DeliveryError, FocusError};
+use crate::{
+    host::{ActionError, HostError, driver::HostDriver},
+    process::CommandError,
+    tmux::{DeliveryError, FocusError},
+};
 use tmt_core::{
-    binding::{BindingEntry, BindingEvidence, evaluate_binding, session::RuntimeState},
-    driver::{
-        ActionResult, DeliveryAcceptance, Driver, Focused, InterfacePresence, InterfaceStatus,
-        SendFailure,
-    },
+    binding::{BindingEndpoint, session::RuntimeState},
+    driver::Focused,
 };
 
-#[derive(Debug)]
-pub enum ActionError {
-    Evidence(TmuxError),
-    Unverified,
-    Offline,
-    /// No client of the invoking user can be focused; nothing changed.
-    HostUnsupported,
-    Delivery(DeliveryError),
-    Process(CommandError),
-}
-
-impl std::fmt::Display for ActionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Evidence(error) => error.fmt(f),
-            Self::Unverified => f.write_str("Could not verify the identity binding."),
-            Self::Offline => f.write_str("The agent runtime has ended; no pane input was sent."),
-            Self::HostUnsupported => {
-                f.write_str("No tmux client for this invocation can be focused.")
-            }
-            Self::Delivery(error) => error.fmt(f),
-            Self::Process(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for ActionError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Evidence(error) => Some(error),
-            Self::Delivery(error) => Some(error),
-            Self::Process(error) => Some(error),
-            Self::Unverified | Self::Offline | Self::HostUnsupported => None,
-        }
-    }
-}
-
-impl<R: CommandRunner> BindingSession<'_, R> {
-    /// Observe runtime liveness after the caller has verified this binding's
-    /// endpoint. This does not establish presence or grant routing authority.
-    /// It uses the current coordination deadline, without another pane query.
-    pub fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, ActionError> {
-        crate::process::runtime::binding_runtime(&self.tmux.runner, binding, self.deadline)
-            .map_err(ActionError::Process)
-    }
-}
-
-impl<R: CommandRunner> Driver for BindingSession<'_, R> {
-    type Target = BindingEntry;
-    type Error = ActionError;
-    type Launch = ();
-
-    fn status(&mut self, entry: &BindingEntry) -> ActionResult<InterfaceStatus, ActionError> {
-        let Some(binding) = &entry.binding else {
-            return ActionResult::Completed(InterfaceStatus {
-                presence: InterfacePresence::Gone,
-                runtime: RuntimeState::Unknown,
-            });
-        };
-        self.begin_coordination();
-        let probe =
-            match self.probe_binding(&binding.server, std::slice::from_ref(&binding.pane_id)) {
-                Ok(probe) => probe,
-                Err(error) => return ActionResult::Failed(ActionError::Evidence(error)),
-            };
-        let presence = match evaluate_binding(entry, &probe) {
-            BindingEvidence::Active(_) => InterfacePresence::Present,
-            BindingEvidence::EndpointLost => InterfacePresence::Gone,
-            BindingEvidence::MarkerMismatch | BindingEvidence::Unknown => {
-                InterfacePresence::Unknown
-            }
-        };
-        let runtime = if presence == InterfacePresence::Present {
-            match self.observed_runtime(binding) {
-                Ok(runtime) => runtime,
-                Err(error) => return ActionResult::Failed(error),
-            }
-        } else {
-            RuntimeState::Unknown
-        };
-        ActionResult::Completed(InterfaceStatus { presence, runtime })
+impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
+    fn begin_coordination(&mut self) {
+        BindingEndpoint::begin_coordination(self);
     }
 
-    fn send(
+    fn budget_available(&self) -> bool {
+        BindingEndpoint::budget_available(self)
+    }
+
+    fn snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, HostError> {
+        Ok(self.current_snapshot(panes)?)
+    }
+
+    fn probe(
         &mut self,
-        entry: &BindingEntry,
-        message: &str,
-    ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>> {
-        match self.status(entry) {
-            ActionResult::Completed(InterfaceStatus {
-                presence: InterfacePresence::Present,
-                runtime: RuntimeState::Ended,
-            }) => return ActionResult::Failed(SendFailure::NotSent(ActionError::Offline)),
-            ActionResult::Completed(InterfaceStatus {
-                presence: InterfacePresence::Present,
-                runtime: RuntimeState::Unknown,
-            }) if entry.binding.as_ref().is_some_and(|binding| {
-                binding.session.key.is_some() || binding.session.state != RuntimeState::Unknown
-            }) =>
-            {
-                // A failed verification of a recorded runtime is not permission
-                // to downgrade to the legacy no-observation delivery path.
-                return ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified));
-            }
-            ActionResult::Completed(InterfaceStatus {
-                presence: InterfacePresence::Present,
-                ..
-            }) => {}
-            ActionResult::Failed(error) => {
-                return ActionResult::Failed(SendFailure::NotSent(error));
-            }
-            _ => return ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified)),
-        }
-        let Some(binding) = &entry.binding else {
-            return ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified));
-        };
-        match self.tmux.send_on(
+        server: &ServerEvidence,
+        panes: &[String],
+    ) -> Result<EndpointProbe, HostError> {
+        Ok(self.probe_binding(server, panes)?)
+    }
+
+    fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), HostError> {
+        Ok(BindingEndpoint::publish(self, binding, identity)?)
+    }
+
+    fn clear(&mut self, binding: &Binding) -> Result<bool, HostError> {
+        Ok(BindingEndpoint::clear(self, binding)?)
+    }
+
+    /// Uses the current coordination deadline, without another pane query.
+    fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, CommandError> {
+        crate::process::runtime::binding_runtime(&self.tmux.runner, binding, self.deadline)
+    }
+
+    fn has_input(&self) -> bool {
+        true
+    }
+
+    fn input(&mut self, binding: &Binding, message: &str) -> Result<(), DeliveryError> {
+        self.tmux.send_on(
             &binding.server.socket_path,
             &binding.pane_id,
             message,
             self.enter_delay,
-        ) {
-            Ok(()) => ActionResult::Completed(DeliveryAcceptance::Submitted),
-            Err(error) if error.uncertain() => {
-                ActionResult::Failed(SendFailure::Uncertain(ActionError::Delivery(error)))
-            }
-            Err(error) => ActionResult::Failed(SendFailure::NotSent(ActionError::Delivery(error))),
+        )
+    }
+
+    /// Focus moves the user's own client, which must be on the binding's
+    /// server.
+    fn focus_preflight(&self, binding: Option<&Binding>) -> Result<(), ActionError> {
+        let Some(binding) = binding else {
+            return Err(ActionError::Unverified);
+        };
+        match &self.invoker {
+            Some(invoker) if invoker.socket == binding.server.socket_path => Ok(()),
+            _ => Err(ActionError::HostUnsupported),
         }
     }
 
-    /// Requires present endpoint evidence (as before input) but no running
-    /// agent: a pane whose agent ended is still where the member worked.
-    fn focus(&mut self, entry: &BindingEntry) -> ActionResult<Focused, ActionError> {
-        let (Some(binding), Some(invoker)) = (&entry.binding, self.invoker.clone()) else {
-            return ActionResult::Failed(if entry.binding.is_none() {
-                ActionError::Unverified
-            } else {
-                ActionError::HostUnsupported
-            });
+    fn focus(&mut self, binding: &Binding) -> Result<Focused, ActionError> {
+        let Some(invoker) = &self.invoker else {
+            return Err(ActionError::HostUnsupported);
         };
-        // The user's client must be on the binding's own server.
-        if invoker.socket != binding.server.socket_path {
-            return ActionResult::Failed(ActionError::HostUnsupported);
-        }
-        match self.status(entry) {
-            ActionResult::Completed(InterfaceStatus {
-                presence: InterfacePresence::Present,
-                ..
-            }) => {}
-            ActionResult::Failed(error) => return ActionResult::Failed(error),
-            _ => return ActionResult::Failed(ActionError::Unverified),
-        }
         match self
             .tmux
-            .focus_pane(&invoker, &binding.pane_id, self.options(None))
+            .focus_pane(invoker, &binding.pane_id, self.options(None))
         {
-            Ok(before) => ActionResult::Completed(Focused {
+            Ok(before) => Ok(Focused {
                 interface: binding.pane_id.clone(),
                 previous: before.pane,
                 viewer: before.client,
             }),
-            Err(FocusError::HostUnsupported) => ActionResult::Failed(ActionError::HostUnsupported),
-            Err(FocusError::PaneNotFound) => ActionResult::Failed(ActionError::Unverified),
-            Err(FocusError::Evidence(error)) => ActionResult::Failed(ActionError::Evidence(error)),
+            Err(FocusError::HostUnsupported) => Err(ActionError::HostUnsupported),
+            Err(FocusError::PaneNotFound) => Err(ActionError::Unverified),
+            Err(FocusError::Evidence(error)) => Err(ActionError::Evidence(error.into())),
         }
     }
 }
@@ -183,10 +96,44 @@ impl<R: CommandRunner> Driver for BindingSession<'_, R> {
 mod tests {
     use super::*;
     use crate::{
+        host::driver,
         scripted_runner::{ScriptedRunner, failure},
         tmux::{evidence, metadata},
     };
-    use tmt_core::identity::Lifetime;
+    use tmt_core::{
+        binding::BindingEntry,
+        driver::{
+            ActionResult, DeliveryAcceptance, InterfacePresence, InterfaceStatus, SendFailure,
+        },
+        identity::Lifetime,
+    };
+
+    /// The shared binding policy over tmux, as the host session runs it.
+    trait Actions {
+        fn status(&mut self, entry: &BindingEntry) -> ActionResult<InterfaceStatus, ActionError>;
+        fn send(
+            &mut self,
+            entry: &BindingEntry,
+            message: &str,
+        ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>>;
+        fn focus(&mut self, entry: &BindingEntry) -> ActionResult<Focused, ActionError>;
+    }
+
+    impl<R: CommandRunner> Actions for BindingSession<'_, R> {
+        fn status(&mut self, entry: &BindingEntry) -> ActionResult<InterfaceStatus, ActionError> {
+            driver::status(self, entry)
+        }
+        fn send(
+            &mut self,
+            entry: &BindingEntry,
+            message: &str,
+        ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>> {
+            driver::send(self, entry, message)
+        }
+        fn focus(&mut self, entry: &BindingEntry) -> ActionResult<Focused, ActionError> {
+            driver::focus(self, entry)
+        }
+    }
 
     fn entry() -> BindingEntry {
         BindingEntry {
@@ -352,7 +299,7 @@ mod tests {
 
     #[test]
     fn recorded_runtime_is_checked_before_input_even_without_an_end_hook() {
-        use tmt_core::binding::session::{ObservedSessionKey, RuntimeIncarnation};
+        use tmt_core::{binding::session::ObservedSessionKey, endpoint::ProcessIncarnation};
         for (process, expected_offline) in [
             ("Sun Sep 27 10:00:01 2026 S\n", true),
             ("Sun Sep 27 10:00:00 2026 Z\n", true),
@@ -364,7 +311,7 @@ mod tests {
             let session = &mut entry.binding.as_mut().unwrap().session;
             session.state = RuntimeState::Running;
             session.key = Some(ObservedSessionKey {
-                incarnation: RuntimeIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
+                incarnation: ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
                 provider_session: None,
             });
             let runner = ScriptedRunner::default();
@@ -391,7 +338,7 @@ mod tests {
 
     #[test]
     fn launched_runtime_requires_its_owner_but_owner_loss_does_not_mean_child_exit() {
-        use tmt_core::binding::session::{ObservedSessionKey, RuntimeIncarnation};
+        use tmt_core::{binding::session::ObservedSessionKey, endpoint::ProcessIncarnation};
         for (child, owner, expected) in [
             ("S+", Some("S+"), RuntimeState::Running),
             ("S+", Some("Z"), RuntimeState::Unknown),
@@ -402,11 +349,11 @@ mod tests {
             let session = &mut entry.binding.as_mut().unwrap().session;
             session.state = RuntimeState::Running;
             session.key = Some(ObservedSessionKey {
-                incarnation: RuntimeIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
+                incarnation: ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
                 provider_session: None,
             });
             session.launch_owner =
-                Some(RuntimeIncarnation::new(43, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap());
+                Some(ProcessIncarnation::new(43, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap());
             // A same-process hook must not remove the wrapper's delivery fence.
             *session = session
                 .admit(
@@ -472,12 +419,12 @@ mod tests {
 
     #[test]
     fn matching_live_runtime_allows_exactly_one_submission() {
-        use tmt_core::binding::session::{ObservedSessionKey, RuntimeIncarnation};
+        use tmt_core::{binding::session::ObservedSessionKey, endpoint::ProcessIncarnation};
         let mut entry = entry();
         let session = &mut entry.binding.as_mut().unwrap().session;
         session.state = RuntimeState::Running;
         session.key = Some(ObservedSessionKey {
-            incarnation: RuntimeIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
+            incarnation: ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
             provider_session: None,
         });
         let runner = ScriptedRunner::default();
@@ -554,7 +501,7 @@ mod tests {
         runner.push_output(Vec::new(), Vec::new());
         let tmux = Tmux::new(runner);
         let mut driver = BindingSession::new(&tmux).with_invoker(invoker("/tmp/tmt-driver.sock"));
-        let ActionResult::Completed(focused) = driver.focus(&entry) else {
+        let ActionResult::Completed(focused) = Actions::focus(&mut driver, &entry) else {
             panic!("focus");
         };
         assert_eq!(
@@ -589,13 +536,13 @@ mod tests {
         // No invoker, or an invoker on another server: no tmux call at all.
         let tmux = Tmux::new(ScriptedRunner::default());
         assert!(matches!(
-            BindingSession::new(&tmux).focus(&entry),
+            Actions::focus(&mut BindingSession::new(&tmux), &entry),
             ActionResult::Failed(ActionError::HostUnsupported)
         ));
         let tmux = Tmux::new(ScriptedRunner::default());
         let mut driver = BindingSession::new(&tmux).with_invoker(invoker("/tmp/other.sock"));
         assert!(matches!(
-            driver.focus(&entry),
+            Actions::focus(&mut driver, &entry),
             ActionResult::Failed(ActionError::HostUnsupported)
         ));
         assert!(tmux.runner.calls.borrow().is_empty());
@@ -606,7 +553,7 @@ mod tests {
         let tmux = Tmux::new(runner);
         let mut driver = BindingSession::new(&tmux).with_invoker(invoker("/tmp/tmt-driver.sock"));
         assert!(matches!(
-            driver.focus(&entry),
+            Actions::focus(&mut driver, &entry),
             ActionResult::Failed(ActionError::Unverified)
         ));
         assert_eq!(

@@ -300,7 +300,25 @@ fn probe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{process::UnixCommandRunner, test_support::TestDirectory};
+    use crate::{
+        process::{CommandError, CommandOutput, UnixCommandRunner},
+        test_support::TestDirectory,
+    };
+
+    struct ScriptRunner;
+
+    impl CommandRunner for ScriptRunner {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            // Read the fixture instead of execing an inode another fork may hold writable.
+            let mut args = vec![request.program.to_owned()];
+            args.extend_from_slice(request.args);
+            UnixCommandRunner.execute(CommandRequest {
+                program: std::ffi::OsStr::new("/bin/sh"),
+                args: &args,
+                ..request
+            })
+        }
+    }
 
     fn script(directory: &std::path::Path, name: &str, body: &str, mode: u32) {
         let path = directory.join(name);
@@ -386,7 +404,7 @@ mod tests {
         assert_eq!(
             named(Registry::builtin().probe_within(
                 &environment,
-                &UnixCommandRunner,
+                &ScriptRunner,
                 Duration::from_millis(1500)
             )),
             [

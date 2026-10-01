@@ -141,6 +141,7 @@ describe('native configuration process boundary', () => {
         },
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'off' },
+        theme: {},
       });
       expect(document.sources).toEqual({
         preambleMode: 'default',
@@ -148,11 +149,57 @@ describe('native configuration process boundary', () => {
         pasteEnterDelayMs: 'default',
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
+        theme: 'default',
       });
       expect(fileSnapshot(sandbox.root)).toEqual(before);
       expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalBytes);
       expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(localBytes);
       expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('reports the theme as written, names a bad key without failing, and never lets it break a command', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      fs.writeFileSync(
+        sandbox.globalConfig,
+        JSON.stringify({ theme: { base: 'tmt-light', waiting: '#e0a458' } })
+      );
+      const shown = await runCli(sandbox, ['config', 'show', '--json']);
+      expect(shown.status).toBe(0);
+      expect(parseWholeStdout(shown)).toMatchObject({
+        resolved: { theme: { base: 'tmt-light', waiting: '#e0a458' } },
+        sources: { theme: 'global' },
+        themeError: null,
+      });
+      const text = await runCli(sandbox, ['config', 'show']);
+      expect(text.status).toBe(0);
+      expect(text.stdout).toMatch(/theme\.base\s+tmt-light/);
+      expect(text.stdout).toMatch(/theme\.waiting\s+#e0a458/);
+
+      for (const [theme, key] of [
+        [{ waiting: 'orange' }, 'theme.waiting'],
+        [{ base: 'dark' }, 'theme.base'],
+        [{ error: 'red' }, 'theme.error'],
+        [{ waiting: 3 }, 'theme.waiting'],
+        [['tmt'], 'theme'],
+      ] as const) {
+        fs.writeFileSync(sandbox.globalConfig, JSON.stringify({ theme }));
+        // An extension finds its own file through config show: a bad theme is
+        // reported by its key and never fails the command.
+        const invalid = await runCli(sandbox, ['config', 'show', '--json']);
+        expect(invalid.status).toBe(0);
+        expect(parseWholeStdout(invalid)).toMatchObject({
+          themeError: { key, message: expect.any(String) },
+          paths: { global: sandbox.globalConfig },
+        });
+        const human = await runCli(sandbox, ['config', 'show']);
+        expect(human.status).toBe(0);
+        expect(human.stderr).toContain(key);
+        // Every other command keeps working with the terminal's colors.
+        const listed = await runCli(sandbox, ['ls', '--json']);
+        expect(listed.status).toBe(0);
+      }
     });
   });
 
@@ -229,6 +276,7 @@ describe('native configuration process boundary', () => {
         },
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'off' },
+        theme: {},
       });
       expect(document.sources).toEqual({
         preambleMode: 'local',
@@ -236,6 +284,7 @@ describe('native configuration process boundary', () => {
         pasteEnterDelayMs: 'global',
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
+        theme: 'default',
       });
       expect(fileSnapshot(sandbox.root)).toEqual(before);
       expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalBytes);

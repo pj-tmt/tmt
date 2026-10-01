@@ -48,6 +48,12 @@ impl Interaction {
         }
     }
 
+    /// Whether a person may see colored output on stdout or stderr, so
+    /// presentation settings such as the theme are worth reading.
+    pub fn may_color(self) -> bool {
+        !self.json && (self.stdout || self.stderr)
+    }
+
     /// A question is asked on stderr, so stdout stays the command's result,
     /// and answered on stdin.
     pub fn prompt(self) -> Mode {
@@ -62,6 +68,21 @@ impl Interaction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn color_may_be_seen_on_either_output_stream_but_never_with_json() {
+        let with = |stdout: bool, stderr: bool, json: bool| Interaction {
+            json,
+            stdin: false,
+            stdout,
+            stderr,
+            dumb: false,
+        };
+        assert!(with(true, false, false).may_color());
+        assert!(with(false, true, false).may_color());
+        assert!(!with(false, false, false).may_color());
+        assert!(!with(true, true, true).may_color());
+    }
 
     const PERSON: Interaction = Interaction {
         json: false,

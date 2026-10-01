@@ -19,6 +19,22 @@ use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 const FILE_LIMIT: u64 = 1024 * 1024;
 const MAX_SECTIONS: usize = 16;
 
+/// Per-squad observation/reminder policy; enabling never installs hooks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reminders {
+    pub enabled: bool,
+    pub stale_after: Duration,
+}
+
+impl Default for Reminders {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            stale_after: Duration::from_secs(1800),
+        }
+    }
+}
+
 /// One sort key; `-field` sorts descending. `state` follows the layout's order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SortKey {
@@ -153,17 +169,17 @@ impl Layout {
     fn state_colors(self) -> &'static [(&'static str, &'static str)] {
         match self {
             Self::Crew => &[
-                ("working", "green"),
+                ("working", "working"),
                 ("idle", "dim"),
-                ("blocked", "amber"),
-                ("review", "cyan"),
-                ("testing", "blue"),
+                ("blocked", "blocked"),
+                ("review", "review"),
+                ("testing", "accent"),
                 ("hold", "dim"),
             ],
             Self::PrQueue => &[
                 ("preparing", "dim"),
-                ("ready", "green"),
-                ("sent", "cyan"),
+                ("ready", "working"),
+                ("sent", "review"),
                 ("merged", "dim"),
             ],
             Self::Minimal => &[],
@@ -241,8 +257,8 @@ fn tab_list(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
     Ok(keys)
 }
 
-/// `[tabs.colors]`: amber for `waiting` (the ◆ color) and red for `blocked`
-/// by default.
+/// `[tabs.colors]`: the `waiting` and `blocked` tokens by default; any
+/// token, or an older color name, may replace them.
 fn tab_colors(item: &Item) -> Result<TabColors, SquadError> {
     let mut colors = TabColors::default();
     let table = item
@@ -260,11 +276,11 @@ fn tab_colors(item: &Item) -> Result<TabColors, SquadError> {
         };
         *slot = value
             .as_str()
-            .filter(|color| COLORS.contains(color))
+            .filter(|color| crate::look::known(color))
             .ok_or_else(|| {
                 invalid(format!(
-                    "`tabs.colors.{key}` must be one of {}.",
-                    COLORS.join(", ")
+                    "`tabs.colors.{key}` must be {}.",
+                    crate::look::names()
                 ))
             })?
             .into();
@@ -282,16 +298,11 @@ pub struct TabColors {
 impl Default for TabColors {
     fn default() -> Self {
         Self {
-            waiting: "amber".into(),
-            blocked: "red".into(),
+            waiting: "waiting".into(),
+            blocked: "blocked".into(),
         }
     }
 }
-
-/// Colors a user may name; the board maps them onto terminal colors.
-pub const COLORS: &[&str] = &[
-    "default", "dim", "red", "amber", "green", "cyan", "blue", "magenta",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Pane {
@@ -420,6 +431,18 @@ fn bindings_table(item: &Item, place: &str) -> Result<Bindings, SquadError> {
 /// The board's reload interval when nothing sets one.
 pub const DEFAULT_REFRESH: Duration = Duration::from_secs(5);
 
+/// Convert whole-unit durations; callers retain their units, ranges and errors.
+pub(crate) fn duration(text: &str, units: &[char]) -> Option<Duration> {
+    let (number, multiplier) = [('s', 1), ('m', 60), ('h', 3600)]
+        .into_iter()
+        .filter(|(unit, _)| units.contains(unit))
+        .find_map(|(unit, multiplier)| {
+            text.strip_suffix(unit).map(|number| (number, multiplier))
+        })?;
+    let seconds = number.parse::<u64>().ok()?.saturating_mul(multiplier);
+    Some(Duration::from_secs(seconds))
+}
+
 /// `"off"`, or whole seconds or minutes such as `"2s"` or `"1m"`, from 1 s to
 /// 1 h: often enough to be useful, never a busy loop.
 fn refresh(item: &Item, place: &str) -> Result<Option<Duration>, SquadError> {
@@ -432,16 +455,10 @@ fn refresh(item: &Item, place: &str) -> Result<Option<Duration>, SquadError> {
     if text == "off" {
         return Ok(None);
     }
-    let (number, unit) = text.split_at(text.len().saturating_sub(1));
-    let seconds = match (number.parse::<u64>(), unit) {
-        (Ok(number), "s") => number,
-        (Ok(number), "m") => number.saturating_mul(60),
-        _ => return Err(wrong()),
-    };
-    if !(1..=3600).contains(&seconds) {
-        return Err(wrong());
-    }
-    Ok(Some(Duration::from_secs(seconds)))
+    duration(text, &['s', 'm'])
+        .filter(|duration| (1..=3600).contains(&duration.as_secs()))
+        .map(Some)
+        .ok_or_else(wrong)
 }
 
 fn program(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
@@ -472,6 +489,7 @@ pub struct TmuxKeys {
     pub popup: String,
     pub pane: String,
     pub back: Option<String>,
+    pub lead: Option<String>,
 }
 
 /// A tmux key that needs no quoting: one printable character other than
@@ -504,18 +522,54 @@ pub struct Config {
     path: PathBuf,
     original: Option<Vec<u8>>,
     document: DocumentMut,
+    /// The global `theme` as `tmt config show` reports it, as written;
+    /// empty when it names none, or for a file read on its own.
+    global_theme: Vec<(String, String)>,
+    /// Why the global theme is not used: `config show`'s `themeError`.
+    theme_error: Option<String>,
 }
 
 impl Config {
     /// The file lives next to the global config that `tmt config show` reports,
     /// so TMT alone owns path discovery. A missing file is an empty document.
     pub fn load(core: &Core) -> Result<Self, SquadError> {
-        Self::read(Self::locate(core)?)
+        let shown = core.json(&["config", "show"])?;
+        let mut config = Self::read(Self::squad_file(&shown)?)?;
+        config.global_theme(&shown);
+        Ok(config)
+    }
+
+    /// Takes the global theme, and why it is not used, from `config show`.
+    fn global_theme(&mut self, shown: &serde_json::Value) {
+        self.global_theme = shown["resolved"]["theme"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
+            .collect();
+        self.theme_error = shown["themeError"].as_object().map(|problem| {
+            format!(
+                "{} {}",
+                problem
+                    .get("key")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("theme"),
+                problem
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .trim_end_matches('.')
+            )
+        });
     }
 
     /// Where squad.toml lives, without reading it.
     pub fn locate(core: &Core) -> Result<PathBuf, SquadError> {
-        let shown = core.json(&["config", "show"])?;
+        Self::squad_file(&core.json(&["config", "show"])?)
+    }
+
+    /// squad.toml beside the global config `config show` reports.
+    fn squad_file(shown: &serde_json::Value) -> Result<PathBuf, SquadError> {
         let global = shown["paths"]["global"]
             .as_str()
             .ok_or_else(|| invalid("tmt config show did not report the global config path."))?;
@@ -537,6 +591,8 @@ impl Config {
             path,
             original,
             document,
+            global_theme: Vec::new(),
+            theme_error: None,
         };
         config.me()?;
         config.me_id()?;
@@ -566,7 +622,8 @@ impl Config {
     }
 
     /// `[tmux]`: the prefix keys that open the board as a popup (default `S`)
-    /// or a pane (default `B`), and an optional key for `tmt squad back`.
+    /// or a pane (default `B`), and optional keys for `tmt squad back` and
+    /// `tmt squad jump --lead`.
     pub fn tmux_keys(&self) -> Result<TmuxKeys, SquadError> {
         let table = match self.document.get("tmux") {
             None => None,
@@ -578,10 +635,10 @@ impl Config {
         if let Some(unknown) = table
             .into_iter()
             .flat_map(|table| table.iter().map(|(key, _)| key))
-            .find(|key| !["popup", "pane", "back"].contains(key))
+            .find(|key| !["popup", "pane", "back", "lead"].contains(key))
         {
             return Err(invalid(format!(
-                "`tmux.{unknown}` is not a setting; use popup, pane or back."
+                "`tmux.{unknown}` is not a setting; use popup, pane, back or lead."
             )));
         }
         let key = |name: &str| -> Result<Option<String>, SquadError> {
@@ -602,9 +659,11 @@ impl Config {
             popup: key("popup")?.unwrap_or_else(|| "S".into()),
             pane: key("pane")?.unwrap_or_else(|| "B".into()),
             back: key("back")?,
+            lead: key("lead")?,
         };
         let mut chosen = vec![&keys.popup, &keys.pane];
         chosen.extend(keys.back.as_ref());
+        chosen.extend(keys.lead.as_ref());
         if (1..chosen.len()).any(|index| chosen[..index].contains(&chosen[index])) {
             return Err(invalid("`tmux` keys must differ from each other."));
         }
@@ -654,6 +713,49 @@ impl Config {
             .transpose()
     }
 
+    /// `[squad.<name>.reminders]`, off by default. No global enable switch.
+    pub fn reminders(&self, squad: &str) -> Result<Reminders, SquadError> {
+        let place = format!("squad.{squad}.reminders");
+        let Some(item) = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("reminders"))
+        else {
+            return Ok(Reminders::default());
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+        let mut reminders = Reminders::default();
+        for (key, item) in table.iter() {
+            match key {
+                "enabled" => {
+                    reminders.enabled = item.as_bool().ok_or_else(|| {
+                        invalid(format!("`{place}.enabled` must be true or false."))
+                    })?
+                }
+                "stale_after" => {
+                    let wrong = || {
+                        invalid(format!(
+                            "`{place}.stale_after` must be 1m-24h in whole s/m/h units, such as \"30m\"."
+                        ))
+                    };
+                    let text = item.as_str().ok_or_else(wrong)?;
+                    reminders.stale_after = duration(text, &['s', 'm', 'h'])
+                        // Reminders historically require digits, unlike the older timings.
+                        .filter(|_| text.as_bytes().first().is_some_and(u8::is_ascii_digit))
+                        .filter(|duration| (60..=86400).contains(&duration.as_secs()))
+                        .ok_or_else(wrong)?;
+                }
+                _ => {
+                    return Err(invalid(format!(
+                        "`{place}.{key}` is not a reminder setting; use enabled and stale_after."
+                    )));
+                }
+            }
+        }
+        Ok(reminders)
+    }
+
     /// `[squad.<name>] layout` selects the preset; crew is the default.
     pub fn layout(&self, squad: &str) -> Result<Layout, SquadError> {
         match self
@@ -697,6 +799,65 @@ impl Config {
 
     /// How rows are laid out: `[squad.<name>.rows]`, the older `columns`
     /// table, or the preset.
+    /// The board's theme for `squad`: TMT's global theme with the squad's
+    /// `[squad.<name>.theme]` over it (`look::theme`). A bad global theme is
+    /// not this file's mistake: the board uses the default and says why,
+    /// returned as the notice. A bad squad theme is a configuration error.
+    pub fn theme(&self, squad: &str) -> Result<(tmt_cli_style::Theme, Option<String>), SquadError> {
+        let place = format!("squad.{squad}.theme");
+        let own: Vec<(String, String)> = match self
+            .squad_table(squad)?
+            .and_then(|table| table.get("theme"))
+        {
+            None => Vec::new(),
+            Some(item) => {
+                let table = item
+                    .as_table_like()
+                    .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+                table
+                    .iter()
+                    .map(|(key, value)| {
+                        value
+                            .as_str()
+                            .map(|text| (key.to_owned(), text.to_owned()))
+                            .ok_or_else(|| invalid(format!("`{place}.{key}` must be a string.")))
+                    })
+                    .collect::<Result<_, _>>()?
+            }
+        };
+        use crate::look::Problem;
+        // A broken global theme is TMT's config, not this file's: the board
+        // keeps the squad's own theme over the default and says why.
+        let (global, notice) = match &self.theme_error {
+            Some(problem) => (&[][..], Some(problem.clone())),
+            None => (&self.global_theme[..], None),
+        };
+        let (theme, notice) = match crate::look::theme(global, &own, &place) {
+            Ok(theme) => (theme, notice),
+            Err(Problem::Global(problem)) => (
+                crate::look::theme(&[], &own, &place).map_err(|problem| match problem {
+                    Problem::Global(message) | Problem::Squad(message) => invalid(message),
+                })?,
+                Some(problem),
+            ),
+            Err(Problem::Squad(message)) => return Err(invalid(message)),
+        };
+        Ok((
+            theme,
+            notice.map(|notice| format!("{notice}; the board uses the default theme")),
+        ))
+    }
+
+    /// `[squad.<name>.fields]`: the squad's field providers.
+    pub fn providers(&self, squad: &str) -> Result<Vec<crate::provider::Provider>, SquadError> {
+        crate::provider::read(
+            self.squad_table(squad)?,
+            squad,
+            crate::rows::field_name,
+            |field| crate::rows::OWN_FIELDS.contains(&field),
+        )
+    }
+
     pub fn rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
         crate::rows::read(self.squad_table(squad)?, squad)
     }
@@ -966,11 +1127,11 @@ impl Config {
                         "color" => {
                             let color = value
                                 .as_str()
-                                .filter(|color| COLORS.contains(color))
+                                .filter(|color| crate::look::known(color))
                                 .ok_or_else(|| {
                                     invalid(format!(
-                                        "`{place}.{state}.color` must be one of {}.",
-                                        COLORS.join(", ")
+                                        "`{place}.{state}.color` must be {}.",
+                                        crate::look::names()
                                     ))
                                 })?;
                             colors.insert(state.into(), color.into());
@@ -1142,6 +1303,84 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::split::Split;
+
+    #[test]
+    fn reminders_are_per_squad_off_by_default_and_bounded() {
+        let path = temp("reminders-valid");
+        fs::write(
+            &path,
+            "[squad.product.reminders]\nenabled = true\nstale_after = \"30m\"\n",
+        )
+        .unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert_eq!(
+            config.reminders("product").unwrap(),
+            Reminders {
+                enabled: true,
+                stale_after: Duration::from_secs(1800)
+            }
+        );
+        assert_eq!(config.reminders("other").unwrap(), Reminders::default());
+        for (value, seconds) in [
+            ("60s", 60),
+            ("1m", 60),
+            ("0005m", 300),
+            ("1h", 3600),
+            ("24h", 86400),
+            ("1440m", 86400),
+            ("86400s", 86400),
+        ] {
+            fs::write(
+                &path,
+                format!("[squad.product.reminders]\nstale_after = {value:?}\n"),
+            )
+            .unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            assert_eq!(
+                config.reminders("product").unwrap().stale_after,
+                Duration::from_secs(seconds)
+            );
+            assert!(!config.reminders("product").unwrap().enabled);
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn invalid_reminders_never_mutate_config() {
+        let path = temp("reminders-invalid");
+        for setting in [
+            "enabled = 1",
+            "enabled = \"true\"",
+            "stale_after = 60",
+            "extra = true",
+            "stale_after = \"59s\"",
+            "stale_after = \"25h\"",
+            "stale_after = \"1.5m\"",
+            "stale_after = \"+1m\"",
+            "stale_after = \"-1m\"",
+            // Non-ASCII input deliberately exercises the parser boundary.
+            "stale_after = \"1分钟\"",
+            "stale_after = \"5分\"",
+            "stale_after = \"5秒\"",
+            "stale_after = \"18446744073709551615h\"",
+        ] {
+            let original = format!("[squad.product.reminders]\n{setting}\n");
+            fs::write(&path, &original).unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            let error = config.reminders("product").unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+            assert!(error.message.contains("squad.product.reminders"), "{error}");
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        }
+        fs::write(&path, "[squad.product]\nreminders = true\n").unwrap();
+        assert!(
+            Config::read(path.clone())
+                .unwrap()
+                .reminders("product")
+                .is_err()
+        );
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
 
     fn temp(name: &str) -> PathBuf {
         let directory =
@@ -1329,7 +1568,7 @@ sort = ["state", "-name"]
     }
 
     #[test]
-    fn tmux_keys_default_to_s_and_b_and_back_is_opt_in() {
+    fn tmux_keys_default_to_s_and_b_and_back_and_lead_are_opt_in() {
         let path = temp("tmux-keys");
         fs::write(&path, "").unwrap();
         let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
@@ -1338,17 +1577,19 @@ sort = ["state", "-name"]
             TmuxKeys {
                 popup: "S".into(),
                 pane: "B".into(),
-                back: None
+                back: None,
+                lead: None,
             }
         );
         fs::write(
             &path,
-            "[tmux]\npopup = \"C-s\"\npane = \"F5\"\nback = \"b\"\n",
+            "[tmux]\npopup = \"C-s\"\npane = \"F5\"\nback = \"b\"\nlead = \"J\"\n",
         )
         .unwrap();
         let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
         assert_eq!((keys.popup.as_str(), keys.pane.as_str()), ("C-s", "F5"));
         assert_eq!(keys.back.as_deref(), Some("b"));
+        assert_eq!(keys.lead.as_deref(), Some("J"));
         for body in [
             "[tmux]\npopup = \"\"\n",
             "[tmux]\npopup = \"SS\"\n",
@@ -1360,6 +1601,9 @@ sort = ["state", "-name"]
             "[tmux]\npane = \"C-ab\"\n",
             "[tmux]\npane = \"S\"\n",
             "[tmux]\nback = \"B\"\n",
+            "[tmux]\nlead = \"S\"\n",
+            "[tmux]\nback = \"J\"\nlead = \"J\"\n",
+            "[tmux]\nlead = \"#\"\n",
             "[tmux]\nhotkey = \"S\"\n",
             "tmux = \"S\"\n",
             "[tmux]\npopup = 1\n",
@@ -1413,6 +1657,74 @@ sort = ["state", "-name"]
     }
 
     #[test]
+    fn the_board_theme_layers_the_squad_over_the_global_one() {
+        use tmt_cli_style::{Base, Role};
+        let path = temp("theme");
+        fs::write(
+            &path,
+            "[squad.product.theme]\nwaiting = \"#010203\"\n[squad.bad.theme]\nwaiting = \"orange\"\n\
+             [squad.odd]\ntheme = \"mono\"\n",
+        )
+        .unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        config.global_theme(&serde_json::json!({
+            "resolved": {"theme": {"base": "mono", "accent": "blue"}},
+            "themeError": null
+        }));
+        let (theme, notice) = config.theme("product").unwrap();
+        assert_eq!((theme.base, notice), (Base::Mono, None));
+        let (other, _) = config.theme("other").unwrap();
+        assert_ne!(
+            theme.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            other.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            "the squad's override applies to its own board only"
+        );
+        let error = |config: &Config, squad| config.theme(squad).unwrap_err().to_string();
+        assert!(
+            error(&config, "bad").contains("`squad.bad.theme.waiting`"),
+            "{}",
+            error(&config, "bad")
+        );
+        assert!(error(&config, "odd").contains("`squad.odd.theme` must be a table"));
+
+        // A broken global theme is TMT's config, not this file's: the board
+        // draws with the default theme and says why.
+        config.global_theme(&serde_json::json!({
+            "resolved": {"theme": {}},
+            "themeError": {"key": "theme.base", "message": "unknown base dark."}
+        }));
+        let (theme, notice) = config.theme("product").unwrap();
+        assert_eq!(theme.base, Base::Tmt);
+        assert_eq!(
+            notice.as_deref(),
+            Some("theme.base unknown base dark; the board uses the default theme")
+        );
+        // The same when only the theme's meaning is wrong and core reported
+        // no themeError: the global layer fails, the squad's still applies.
+        config.global_theme(&serde_json::json!({
+            "resolved": {"theme": {"base": "dark"}},
+            "themeError": null
+        }));
+        let (fallback, notice) = config.theme("product").unwrap();
+        assert_eq!(fallback.base, Base::Tmt);
+        assert_eq!(
+            fallback.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            theme.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            "the squad's override survives a bad global theme"
+        );
+        assert!(
+            notice
+                .as_deref()
+                .is_some_and(|notice| notice.starts_with("`theme.base`")
+                    && notice.ends_with("; the board uses the default theme")),
+            "{notice:?}"
+        );
+        // A bad squad theme stays this file's error under either global one.
+        assert!(error(&config, "bad").contains("`squad.bad.theme.waiting`"));
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn columns_and_state_colors_default_by_layout_and_override_strictly() {
         let path = temp("board");
         fs::write(
@@ -1440,7 +1752,7 @@ sort = ["state", "-name"]
         let colors = config.states("product", Layout::Crew).unwrap().colors;
         assert_eq!(colors["blocked"], "red");
         assert_eq!(colors["parked"], "dim");
-        assert_eq!(colors["working"], "green", "layout defaults remain");
+        assert_eq!(colors["working"], "working", "layout defaults remain");
         assert!(
             config
                 .states("other", Layout::Minimal)
@@ -1469,6 +1781,38 @@ sort = ["state", "-name"]
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn refresh_preserves_accepted_numbers_units_and_off() {
+        for (text, seconds) in [
+            ("1s", Some(1)),
+            ("+5s", Some(5)),
+            ("005s", Some(5)),
+            ("5m", Some(300)),
+            ("+5m", Some(300)),
+            ("60m", Some(3600)),
+            ("3600s", Some(3600)),
+            ("off", None),
+        ] {
+            assert_eq!(
+                refresh(&value(text), "board.refresh").unwrap(),
+                seconds.map(Duration::from_secs),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_non_ascii_duration_reports_the_setting_without_panicking() {
+        // Multi-byte suffixes reproduce the old byte-index split panic.
+        for place in ["board.refresh", "squad.x.board.refresh"] {
+            for text in ["5分", "5秒"] {
+                let error = refresh(&value(text), place).unwrap_err();
+                assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+                assert!(error.message.contains(place), "{error}");
+            }
+        }
     }
 
     #[test]
@@ -1501,6 +1845,7 @@ sort = ["state", "-name"]
             "[board]\nrefresh = 5\n",
             "[board]\nrefresh = \"5\"\n",
             "[board]\nrefresh = \"5h\"\n",
+            "[board]\nrefresh = \"1h\"\n",
             "[board]\nrefresh = \"fast\"\n",
             "[board]\npanes = [\"rows\"]\n",
             "board = 5\n",
@@ -1723,7 +2068,7 @@ sort = ["state", "-name"]
         assert_eq!(
             tabs.colors,
             TabColors {
-                waiting: "amber".into(),
+                waiting: "waiting".into(),
                 blocked: "magenta".into()
             }
         );
