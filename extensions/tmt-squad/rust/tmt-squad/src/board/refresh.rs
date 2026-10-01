@@ -597,6 +597,7 @@ mod tests {
 
     fn member(id: &str, fields: &[(&str, &str)]) -> Member {
         Member {
+            lead_marker: None,
             id: id.into(),
             name: id.to_lowercase(),
             lifetime: "saved".into(),

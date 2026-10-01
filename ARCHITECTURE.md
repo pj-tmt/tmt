@@ -2263,7 +2263,25 @@ through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 
 Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
-squads and removal clears exactly one namespace. `ls` (alias `status`) joins
+squads and removal clears exactly one namespace. Leadership is the reserved
+identity metadata key `squad.<name>.lead.marker` (`true` or `false`), outside the
+user field/column grammar; `role` and `lead` remain ordinary free-text fields.
+The roster parses that key into `Member::lead_marker` and omits it from public
+`fields`, so field enumeration and copy/provider/column consumers never see it.
+`Member::is_lead` reads that value, falling back to `role == "lead"` only for an
+unconverted member. Before applying `set` pairs, the membership owner records
+a marker only when a role write would change that legacy-derived leadership.
+Conversion is per member because sequential core writes can fail partway through
+a squad-wide conversion. New additions need no marker unless their existing
+metadata would make them lead; in that case `add` writes `false` before joining.
+`squad lead` preflights the core metadata capacity for every required marker
+before any write, records `true` before joining the new lead, then sets previous
+leads to `false`, preserving all role text. A concurrent metadata write after
+preflight can still split this sequence; it is not a transaction. Removal clears the reserved key with the
+rest of that squad's namespace. A required new marker at the identity metadata
+capacity limit returns the existing core error before the role pairs or join,
+rather than silently changing leadership. Reads never convert state.
+`ls` (alias `status`) joins
 one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
