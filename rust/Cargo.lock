@@ -400,6 +400,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "chacha20"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "rand_core",
+]
+
+[[package]]
 name = "cipher"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -997,6 +1008,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi",
+ "rand_core",
 ]
 
 [[package]]
@@ -1837,6 +1849,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "rand"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
+dependencies = [
+ "chacha20",
+ "getrandom 0.4.3",
+ "rand_core",
+]
+
+[[package]]
+name = "rand_core"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
 name = "ratatui"
 version = "0.30.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2206,6 +2235,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
 name = "sha2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2485,7 +2525,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-adapters"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2503,13 +2543,14 @@ dependencies = [
  "tmt-core",
  "tmt-driver-protocol",
  "tmt-office-model",
+ "tungstenite",
  "ureq",
  "uuid",
 ]
 
 [[package]]
 name = "tmt-cli"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2530,7 +2571,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli-style"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2546,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-command-output"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "serde_json",
  "tmt-adapters",
@@ -2556,13 +2597,12 @@ dependencies = [
 
 [[package]]
 name = "tmt-core"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "icu_casemap",
  "icu_locale_core",
  "icu_normalizer",
  "semver",
- "serde_json",
  "sha2",
  "tmt-host-grammar",
  "uuid",
@@ -2570,7 +2610,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-driver-protocol"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "serde",
  "serde_json",
@@ -2579,11 +2619,11 @@ dependencies = [
 
 [[package]]
 name = "tmt-host-grammar"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 
 [[package]]
 name = "tmt-invoke"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "nix",
  "subprocess",
@@ -2631,7 +2671,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-model"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "base64 0.22.1",
  "png",
@@ -2646,7 +2686,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-pairing"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",
@@ -2665,7 +2705,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-service"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "nix",
  "serde",
@@ -2677,7 +2717,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-storage"
-version = "5.0.0-alpha.12"
+version = "5.0.0-alpha.20"
 dependencies = [
  "base64 0.22.1",
  "nix",
@@ -2712,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-squad"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.5"
 dependencies = [
  "clap",
  "nix",
@@ -2793,6 +2833,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48ac77174b19c110a50ab2128b24215ac9cb40e0e12e093fb602d175c569d22"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand",
+ "sha1",
+ "thiserror",
 ]
 
 [[package]]

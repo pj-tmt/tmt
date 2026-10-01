@@ -82,12 +82,15 @@ gates, the markers and the procedures; this section owns who may publish what.
 - Covered: an alpha draft of the CLI, Office or Squad (a version `X.Y.Z-alpha.N`, enforced by
   the `channel` gate and again by the publish command) that the pipeline built from `main`,
   verified and attached, of a component that is released (`release: false` in the component map
-  parks one), and that passes every publication gate. The CLI alpha is published as a
+  parks one), and that passes every publication gate. A new SQLite migration does not hold an
+  alpha: migrations are forward-only, and the `migration` gate only reports the new entries in
+  its summary. The CLI alpha is published as a
   normal release marked latest; Office and Squad alphas as prereleases with `--latest=false`,
   as the bundle's `release-publication.json` says.
 - Still the owner's explicit authorization: stable releases and anything outside the alpha
-  channel; a release from a branch line; a draft that any gate holds, and in particular a new
-  SQLite migration or a breaking change, which always pauses for the owner's explicit OK;
+  channel; a release from a branch line; a draft that any gate holds, and in particular a
+  breaking change (a `!` or `BREAKING CHANGE:` commit), which always pauses for the owner's
+  explicit OK;
   README installer promotion; creating or rotating the release App credentials and the
   `release` Environment (the owner's setup is in the guide's release-please section);
   enabling or changing release immutability; and this authorization itself.
@@ -103,4 +106,6 @@ gates, the markers and the procedures; this section owns who may publish what.
 - After it publishes, the pipeline reads the release back (public, immutable, the policy's
   flags, the tag on the release commit, GitHub's attestation for the release and every asset).
   A failed check opens an issue and fails the run; nothing is rolled back, and a repair is a new
-  reviewed version.
+  reviewed version. A read-only smoke then installs the published release through the public
+  installer (and `tmt upgrade` for the CLI) in an isolated environment on the four hosts, and a
+  failure there is reported on the same issue.

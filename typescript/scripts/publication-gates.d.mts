@@ -44,6 +44,8 @@ export function checkMigration(input: {
   counts: Record<string, number>;
   previous: { tag: string; counts: Record<string, number> } | null;
   commits: readonly { sha: string; subject: string; body?: string }[];
+  /** An alpha publishes new migrations; any other release is held for them. Defaults to false. */
+  alpha?: boolean;
 }): GateOutcome;
 export function checkUpgrade(input: {
   result: string;
