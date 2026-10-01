@@ -2046,6 +2046,8 @@ cleanup owner; process cleanup precedes inode-checked file removal. Attachment
 planning resolves cwd once and names an exact thread. The channel contract owns
 the startup, credential and failure limits; real continuity and launcher crash
 recovery remain final consumer acceptance gates.
+Codex owns folder-trust onboarding: its user answers the TUI prompt; the channel
+never approves it or writes trust configuration (see the channel contract).
 
 `drivers/codex/lease`, `supervisor`, `delivery` and `channel_hooks` compose the
 final consumer (#739, integration in progress). The supervisor owns the original

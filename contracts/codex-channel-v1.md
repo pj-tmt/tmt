@@ -136,6 +136,10 @@ subcommands and implicit/default remote selection. The foreground command uses
 exact supplied provider thread. Planning checks endpoint shape; ownership comes
 from the enrollment resource, not from a user-supplied endpoint string.
 
+If Codex asks to trust the launch folder, the user must answer in its TUI before
+attachment can proceed; the channel never answers that prompt or changes trust
+configuration, and accepted queue input may wait for attachment.
+
 Tests use owned shell stand-ins and temporary files to observe cwd, process exit,
 startup timeout, private capability and replacement-preserving cleanup. They do
 not invoke a model or prove that a real foreground client preserves an active
