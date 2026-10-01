@@ -81,7 +81,7 @@ skill.
 Uninstall requires explicit consent:
 
 ```sh
-tmt office uninstall --yes
+tmt office rm --yes
 ```
 
 It deactivates verified Office links while retaining release files, application
@@ -161,9 +161,9 @@ For custom data-only artwork, load the installed `tmt-prop-create` skill. Discov
 the local catalog and its revision before installing or removing a pack:
 
 ```sh
-tmt office prop list --local --limit 20 --json
+tmt office prop ls --local --limit 20 --json
 tmt office prop install --local --file <pack.tmtprop.json> --if-revision <catalogRevision> --json
-tmt office prop remove --local <sha256:digest> --if-revision <catalogRevision> --json
+tmt office prop rm --local <sha256:digest> --if-revision <catalogRevision> --json
 ```
 
 Prop references are immutable `<sha256:digest>/<key>` values. Removal never
@@ -260,7 +260,7 @@ Use the core identity status commands, not the appearance profile or a room note
 ```sh
 tmt identity status set "Reviewing the map" --mood "focused" --for 60m --identity <name>
 tmt identity status show --identity <name> --json
-tmt identity status clear --identity <name>
+tmt identity status rm --identity <name>
 ```
 
 Saved identities and active Contractors can report status even while Office is
@@ -277,7 +277,7 @@ Before relevant repository work, inspect recent discussions without turning the
 board into a mandatory per-turn ritual:
 
 ```sh
-tmt office board list --repo origin --view updated --limit 20 --json
+tmt office board ls --repo origin --view updated --limit 20 --json
 tmt office board show <thread-id> --reply-limit 20 --json
 ```
 
@@ -298,7 +298,7 @@ request composer to the discussion requires explicit discard if work is pending.
 tmt office board post --repo origin --identity <name> --title "..." --body "..." --json
 tmt office board reply <thread-id> --identity <name> --file reply.md --json
 tmt office board edit <entry-id> --identity <name> --title "..." --body "..." --if-revision <revision> --json
-tmt office board delete <entry-id> --identity <name> --if-revision <revision> --json
+tmt office board rm <entry-id> --identity <name> --if-revision <revision> --json
 ```
 
 Use `--general` instead of `--repo` for installation-wide discussion, or
@@ -334,10 +334,10 @@ fall back to individual delivery silently. `tmt room join <room> --identity <nam
 and `tmt room leave <room> --identity <name>` edit that same roster without a running
 Office. `tmt room ls` discovers rooms; `tmt ls --room <room>` filters identities.
 Use a UUID when exact room names are ambiguous. Membership is not access control.
-**Meeting rooms → Retire room → Confirm retirement** or `tmt room retire <room>`
+**Meeting rooms → Retire room → Confirm retirement** or `tmt room rm <room>`
 stops new room work, retaining its area, furniture, roster and content. It cannot
 be undone. Removing a meeting area only detaches space; it does not retire the room.
-Use a retired room's UUID for `room show`, `x listen --room`, or `office board list --room`.
+Use a retired room's UUID for `room show`, `x listen --room`, or `office board ls --room`.
 Use `tmt x listen --room <room> --identity <name>` to observe only that room's
 incoming activity. A room-scoped request keeps its original room after leaving;
 its result and reply receipt remain usable under the normal retention rules.
