@@ -607,9 +607,21 @@ shows `–`, the board's one mark for a missing value (an empty cell in `ls`):
 columns = [
   { name = "member" },
   { name = "model", from = "session.model" },
-  { name = "ctx",   from = "session.usage.tokens", format = "tokens", align = "right" },
+  { name = "ctx",   from = "session.usage.tokens", format = "tokens", align = "right",
+    color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }] },
 ]
 ```
+
+`color` gives a column numeric thresholds: from each `at` upward the cell takes
+that theme token (or one of the older names `red`, `amber`, `green`, `blue`,
+`cyan`, `magenta`), the highest reached winning, with `at` strictly increasing.
+The number compared is the bound value before `format`, or the field's text
+read as a number; text that is not a number, a missing value and a value below
+the first `at` get no color. `state` keeps its state colors. A threshold the
+value reaches wins over a field provider's suggested color. These colors only
+decorate: `ls` text, `mono` and `NO_COLOR` show the same values without them,
+and `ls --json` lists each colored cell's token under the row's `colors`
+(omitted when a row has none).
 
 For data TMT does not have, such as a pull request's review state, a field
 provider runs a program of yours for each member and shows its output as a
@@ -627,8 +639,9 @@ or an absolute path, never a shell, each `{field}` filling exactly one argument,
 and a value that would begin an argument with `-` refused. A member whose
 placeholder is missing or refused is not run and shows `–`. The program's first
 output line is the value (at most 200 characters, control characters removed);
-it may instead print `{"value": "487k", "color": "review"}`, whose color token
-the board uses once themes arrive. A failed start, a non-zero exit, a timeout or
+it may instead print `{"value": "487k", "color": "review"}` to suggest that
+theme token for the cell. Output is untrusted, so only a theme token's name
+counts; any other color is ignored and the value still shows. A failed start, a non-zero exit, a timeout or
 more than 4 KiB of output shows a dim `?`, never an error. A squad defines at
 most 8 providers, and at most 4 programs run at once.
 

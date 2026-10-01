@@ -2346,7 +2346,13 @@ member's public projection: the `ls --room` row it already joins (`cwd`,
 returns unprefixed only when a column reads `meta.<key>`. `status::document`
 writes each bound value into the row's field of the column's name, with its
 number for sorting, before sections, filters and sorts read it, so the board and
-`ls` show one value and a binding adds no core call. Field providers
+`ls` show one value and a binding adds no core call. It also owns cell color
+resolution: a column's numeric `color` thresholds (`rows::Threshold`, validated
+theme tokens, strictly increasing) over the bound number or the field read as a
+number, else a field provider's token, which `provider::apply` keeps only when
+it names a theme token. The row carries the result as `colors` (`{field: token}`,
+omitted when empty); the board styles those cells through the theme, `state`
+keeps its state colors, and `ls` text stays uncolored. Field providers
 (`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
 member through `runner` with the run-binding argument rule
 (`Template::fill_argument`: one argument per template, no shell, a value that

@@ -40,7 +40,9 @@ cell).
   with the user's column sources and field providers applied), `failed` (fields
   whose provider failed; they show `?`), `annotation` (the user's open note
   about this row, or null) and `waitingOnYou` (open requests from this member to
-  the user), and `staleness` (observed task/state age).
+  the user), `staleness` (observed task/state age), and `colors` when any
+  cell has a color: `{field: theme token}` from the user's column thresholds
+  or a field provider's suggestion. Colors only decorate; read the values.
 - Every row has a separate `staleness` object, and `squad.notesStaleness`
   describes the lead's notebook: `state` (`disabled`, `unknown`, `fresh`,
   `stale`), `unchangedSinceMs`, `ageMs`, `activityAfterUpdate` and `reasons`.

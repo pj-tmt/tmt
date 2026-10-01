@@ -631,6 +631,7 @@ mod tests {
             meta: Default::default(),
             seen: Value::Null,
             numbers: Default::default(),
+            colors: Default::default(),
             failed: Default::default(),
         }
     }
