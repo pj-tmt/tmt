@@ -175,6 +175,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "nix",
         ],
         "tmt-invoke" => &["subprocess", "nix"],
+        "tmt-tui" => &["roxmltree", "tmt-cli-style"],
         "tmt-remote" => &[
             "ed25519-dalek",
             "hmac",
@@ -193,7 +194,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .as_array()
         .expect("Cargo dependencies")
         .iter()
-        .filter(|d| name == "tmt-invoke" || d["kind"] != "dev")
+        .filter(|d| ["tmt-invoke", "tmt-tui"].contains(&name) || d["kind"] != "dev")
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
             // Source paths use canonical crate names. Renaming even an allowed
@@ -520,6 +521,21 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 violations.push(format!(
                     "{location}: invoke leaf cannot reach {}",
                     path.join("::")
+                ));
+            }
+            if source.package == "tmt-tui"
+                && root.starts_with("tmt_")
+                && !["tmt_tui", "tmt_cli_style"].contains(&root)
+            {
+                violations.push(format!(
+                    "{location}: TUI leaf cannot reach {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_tui" && source.package != "tmt-tui" {
+                violations.push(format!(
+                    "{location}: unreviewed TUI consumer {}",
+                    source.package
                 ));
             }
             // Terminal hosts are reached through the host port (#486); only it

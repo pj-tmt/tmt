@@ -697,6 +697,16 @@ lifecycle and its private receipt, shared by the Office commands, Office storage
 switch and the companion. No core crate declares an `office_*` module except the
 facade, which PR B of #355 removes.
 
+`rust/crates/tmt-tui` is an internal, unpublished presentation leaf for TMT
+markup. Its version-1 structural admission accepts bounded XML and produces a
+template with source locations, not a renderable scene. It refuses declarations
+and excessive depth before tree allocation and bounds parser nodes. Utility,
+binding, geometry and paint stages are not implemented yet. No product consumes
+it. The guard permits only XML parsing and the shared style leaf, never core,
+adapters or extension behavior; reverse product edges require adoption review.
+The private component has no release; its inherited version/lock entry follows
+the workspace, while product notices include only their actual dependency graph.
+
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. It follows the actual Rust module tree, checks reviewed
 layer edges and shared declaration ownership, and fails closed for unsupported
