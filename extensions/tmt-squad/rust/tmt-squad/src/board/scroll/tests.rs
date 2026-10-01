@@ -110,3 +110,19 @@ fn reveal_moves_only_as_far_as_needed() {
     scrolls.reveal(Pane::Rows, 1, area, 20);
     assert_eq!(scrolls.offset(Pane::Rows), 1);
 }
+
+#[test]
+fn indicator_uses_the_resolved_token_without_extra_dimming() {
+    let look = crate::look::Look::default();
+    let dim = look.role(tmt_cli_style::Role::Dim);
+    let mut terminal = Terminal::new(TestBackend::new(20, 4)).unwrap();
+    terminal
+        .draw(|frame| {
+            Scrolls::default().show(frame, Pane::Notes, frame.area(), lines(10), dim);
+        })
+        .unwrap();
+    let marker = &terminal.backend().buffer()[(17, 3)];
+    assert_eq!(marker.symbol(), "↓");
+    assert_eq!(Some(marker.fg), dim.fg);
+    assert!(!marker.modifier.contains(ratatui::style::Modifier::DIM));
+}

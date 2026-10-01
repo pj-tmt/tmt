@@ -112,7 +112,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Full scope took 12m11s/12m37s/14m00s (15m02s cancellations): workspace clippy/test, Rust 1.88 build, Office local-service build/test and native Vitest share this job.
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

@@ -21,7 +21,6 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use serde_json::Value;
-use std::collections::BTreeMap;
 use tmt_cli_style::{
     Role,
     grid::{self, Align, Truncate},
@@ -115,7 +114,6 @@ fn grid_line(
     cells: &[RowCell],
     row: &Value,
     first: bool,
-    colors: &BTreeMap<String, String>,
 ) -> Option<Vec<Span<'static>>> {
     let mut spans = Vec::new();
     let mut position = 0;
@@ -143,15 +141,14 @@ fn grid_line(
                 .as_array()
                 .is_some_and(|failed| failed.iter().any(|name| name == field))
         });
-        // A cell's own color: `state` by its state, any other field by the
-        // token `status::document` resolved for it (a threshold or a
-        // provider's). Decoration only: the text says the same without it.
+        // Every cell uses the token resolved in status::document, including
+        // the state resolver's token. Decoration only: text is unchanged.
         let token = cell
             .field
             .as_deref()
             .and_then(|field| row["colors"][field].as_str());
-        let style = if cell.field.as_deref() == Some("state") {
-            look.named(colors.get(text).map_or("default", String::as_str))
+        let style = if value.is_none_or(str::is_empty) {
+            look.role(Role::Dim)
         } else if let Some(token) = token {
             look.named(token)
         } else if failed {
@@ -231,14 +228,14 @@ fn pane_tab(look: crate::look::Look, name: &str, selected: bool) -> Span<'static
     if selected {
         Span::styled(
             format!("[{name}]"),
-            Style::new().add_modifier(Modifier::BOLD),
+            look.role(Role::Accent).add_modifier(Modifier::BOLD),
         )
     } else {
-        Span::styled(format!(" {name} "), look.named("dim"))
+        Span::styled(format!(" {name} "), look.role(Role::Muted))
     }
 }
 
-/// One tab. Selection is shown by reversing it, never by extra characters,
+/// One tab. Selection uses bold focus color, never extra characters,
 /// so switching never moves the tabs beside it (#504). The tab's attention
 /// colors it and, so color never carries meaning alone, also adds counts:
 /// `◆2` members waiting on you, `!1` blocked.
@@ -260,11 +257,16 @@ fn tab(
     let style = match attention.state() {
         "waiting" => look.named(&colors.waiting),
         "blocked" => look.named(&colors.blocked),
-        _ if selected => Style::new(),
-        _ => look.named("dim"),
+        _ if selected => look.role(Role::Accent),
+        _ => look.role(Role::Muted),
     };
     let style = if selected {
-        style.add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        let style = style.add_modifier(Modifier::BOLD);
+        if look.role(Role::Accent).fg.is_none() {
+            style.add_modifier(Modifier::REVERSED)
+        } else {
+            style
+        }
     } else {
         style
     };
@@ -469,7 +471,7 @@ fn summary_line(app: &App) -> Line<'_> {
     } else {
         format!("{lead} · {}", plural(count, "member", "members"))
     };
-    let mut spans = vec![Span::styled(summary, look.named("dim"))];
+    let mut spans = vec![Span::styled(summary, look.role(Role::Muted))];
     let waiting = app
         .current
         .as_ref()
@@ -520,7 +522,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.named("red")))
     } else {
-        Line::from(Span::styled(hints(app), look.named("dim")))
+        Line::from(Span::styled(hints(app), look.role(Role::Muted)))
     };
     frame.render_widget(Paragraph::new(footer_line), footer);
     if app.help {
@@ -671,6 +673,11 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         Block::new()
             .borders(Borders::ALL)
             .border_style(style)
+            .title_style(if pane == focused && board.panes.len() > 1 {
+                look.role(Role::Accent).add_modifier(Modifier::BOLD)
+            } else {
+                look.role(Role::Muted)
+            })
             .title(title)
     };
     match board.mode {
@@ -1001,7 +1008,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 .collect::<Vec<_>>()
                 .join(&" ".repeat(GAP))
         ),
-        look.named("dim"),
+        look.role(Role::Muted),
     ))];
     let mut selected_line = 0;
     let mut row_index = 0;
@@ -1028,7 +1035,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 // frame still loading another squad.
                 let age = crate::staleness::label(&row["staleness"]);
                 let style = if selected {
-                    Style::new().add_modifier(Modifier::REVERSED)
+                    look.selection()
                 } else if age.is_some() {
                     look.role(Role::Dim)
                 } else {
@@ -1036,9 +1043,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 };
                 for (index, cells) in rows.lines.iter().enumerate() {
                     let first = index == 0;
-                    let Some(cells) =
-                        grid_line(look, rows, widths, cells, row, first, &view.colors)
-                    else {
+                    let Some(cells) = grid_line(look, rows, widths, cells, row, first) else {
                         continue;
                     };
                     let mut spans = vec![Span::raw(if first { marker } else { "  " })];
@@ -1161,7 +1166,6 @@ mod tests {
                 derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
                 rows: columns(),
-                colors: BTreeMap::from([("blocked".into(), "amber".into())]),
                 refresh: Some(crate::config::DEFAULT_REFRESH),
                 board: crate::config::Board::simple(
                     crate::config::BoardMode::Split,
@@ -1186,7 +1190,7 @@ mod tests {
     }
 
     fn row(name: &str, state: &str, task: &str, extra: Value) -> Value {
-        let mut row = json!({"name": name, "fields": {"state": state, "task": task}, "pending": null, "note": null});
+        let mut row = json!({"name": name, "fields": {"state": state, "task": task}, "pending": null, "note": null, "colors": {"state": if state == "blocked" { "amber" } else { "default" }}});
         for (key, value) in extra.as_object().unwrap() {
             row[key] = value.clone();
         }
@@ -1478,7 +1482,6 @@ lines = [
                     }))]}
                 ]}),
                 rows: columns(),
-                colors: BTreeMap::new(),
                 refresh: None,
                 board,
                 notes,
@@ -1501,6 +1504,22 @@ lines = [
 
     fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::config::Board {
         crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
+    }
+
+    #[test]
+    fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
+        let rows = rows_from("[p.columns]\nshow = ['state']\nstate = { width = 20 }\n");
+        let look = crate::look::Look::default();
+        for state in ["blocked", "blocked-on-ci"] {
+            let row =
+                json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
+            let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &row, true).unwrap();
+            assert_eq!(spans[0].style.fg, look.named("review").fg);
+            assert_eq!(spans[0].content.trim(), state);
+            let plain = json!({"state": state, "fields": {"state": state}});
+            let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &plain, true).unwrap();
+            assert_eq!(spans[0].style, Style::new());
+        }
     }
 
     #[test]
@@ -1528,10 +1547,11 @@ lines = [
             buffer[(x.unwrap() as u16, y as u16)].clone()
         };
         let role = |app: &App, role: Role| app.look().role(role).fg.unwrap_or_default();
-        // The selected row stays reversed, its cell in its token.
+        // The selected row keeps its background and the cell keeps its token.
         let selected = cell(&app, "auth-fix");
         assert_eq!(selected.fg, role(&app, Role::Blocked));
-        assert!(selected.modifier.contains(Modifier::REVERSED));
+        assert_eq!(Some(selected.bg), app.look().selection().bg);
+        assert!(!selected.modifier.contains(Modifier::REVERSED));
         // On a stale (dim) row the cell's own color still shows.
         assert_eq!(cell(&app, "docs").fg, role(&app, Role::Review));
         // No token: no color of its own.
@@ -1542,6 +1562,66 @@ lines = [
             depth: tmt_cli_style::Depth::None,
         };
         assert_eq!(cell(&app, "auth-fix").fg, ratatui::style::Color::Reset);
+    }
+
+    #[test]
+    fn default_look_keeps_unselected_body_at_terminal_foreground() {
+        let mut app = board(json!([{ "title": null, "rows": [
+            row("docs", "working", "write", json!({})),
+            row("ci", "working", "fix", json!({})),
+        ] }]));
+        app.view.as_mut().unwrap().look = crate::look::Look::default();
+        let mut terminal = Terminal::new(TestBackend::new(60, 7)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        for x in [2, 22] {
+            assert_eq!(buffer[(x, 4)].fg, ratatui::style::Color::Reset);
+        }
+        assert_eq!(buffer[(2, 3)].fg, app.look().selection().fg.unwrap());
+        assert_eq!(buffer[(2, 3)].bg, app.look().selection().bg.unwrap());
+    }
+
+    #[test]
+    fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
+        let mut app = board(json!([{ "title": null, "rows": [
+            row("docs", "working", "write", json!({})),
+            row("ci", "working", "fix", json!({})),
+            row("empty", "", "", json!({"fields": {}})),
+        ] }]));
+        for depth in [
+            tmt_cli_style::Depth::TrueColor,
+            tmt_cli_style::Depth::Ansi16,
+            tmt_cli_style::Depth::None,
+        ] {
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::TmtLight),
+                depth,
+            };
+            let mut terminal = Terminal::new(TestBackend::new(60, 7)).unwrap();
+            terminal.draw(|frame| render(frame, &app)).unwrap();
+            let buffer = terminal.backend().buffer();
+            let fg = |role| app.look().role(role).fg.unwrap_or_default();
+            // Chrome uses the theme; unselected body keeps the terminal foreground.
+            for (x, y) in [(1, 1), (2, 2), (1, 6), (12, 0)] {
+                assert_eq!(buffer[(x, y)].fg, fg(Role::Muted), "chrome {x},{y}");
+            }
+            assert_eq!(buffer[(2, 4)].fg, ratatui::style::Color::Reset);
+            assert_eq!(buffer[(13, 5)].fg, fg(Role::Dim));
+            assert_eq!(buffer[(22, 5)].fg, fg(Role::Dim));
+            assert_eq!(buffer[(1, 0)].fg, fg(Role::Accent));
+            assert!(buffer[(1, 0)].modifier.contains(Modifier::BOLD));
+            let selected = &buffer[(2, 3)];
+            assert_eq!(selected.fg, fg(Role::Text));
+            assert_eq!(selected.bg, app.look().selection().bg.unwrap_or_default());
+            assert_eq!(
+                selected.modifier.contains(Modifier::REVERSED),
+                depth != tmt_cli_style::Depth::TrueColor
+            );
+            assert_eq!(
+                buffer[(1, 0)].modifier.contains(Modifier::REVERSED),
+                depth == tmt_cli_style::Depth::None
+            );
+        }
     }
 
     #[test]
@@ -1813,10 +1893,11 @@ lines = [
         assert_eq!(tabs.trim_end(), " product ◆1 !1   reviews !2");
         let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
         let product = &buffer[(column("product"), 0)];
-        // Waiting wins over blocked; the selected tab is reversed, not bracketed.
+        // Waiting wins over blocked; selection is bold without moving the tab.
         let fg = |role| app.look().role(role).fg.unwrap_or_default();
         assert_eq!(product.fg, fg(Role::Waiting));
-        assert!(product.modifier.contains(Modifier::REVERSED));
+        assert!(product.modifier.contains(Modifier::BOLD));
+        assert!(!product.modifier.contains(Modifier::REVERSED));
         let reviews = &buffer[(column("reviews"), 0)];
         assert_eq!(reviews.fg, fg(Role::Blocked));
         assert!(!reviews.modifier.contains(Modifier::REVERSED));
@@ -2021,7 +2102,7 @@ lines = [
             .map(|x| buffer[(x, 0)].symbol().to_owned())
             .collect();
         assert!(line.starts_with(" quiet (hidden) "), "{line:?}");
-        assert!(buffer[(1, 0)].modifier.contains(Modifier::REVERSED));
+        assert!(buffer[(1, 0)].modifier.contains(Modifier::BOLD));
         assert!(line.trim_end().ends_with(" ›"), "{line:?}");
         // It is not one of the tabs, so it cannot be clicked or dragged, and
         // the tabs after it are hit where they are drawn.
