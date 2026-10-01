@@ -149,7 +149,16 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
         let publish = current.is_none();
         let binding = match current {
             Some(binding) => binding,
-            None => records.insert_binding(&selected.identity, &snapshot.server, pane)?,
+            None => {
+                // Recorded once, when the binding is made, so a reused pid
+                // can later be told from the same pane. A failed observation
+                // is unknown, never a failed bind.
+                let mut pane = pane.clone();
+                pane.pane_incarnation = endpoint
+                    .pane_incarnation(&snapshot.server, pane.pane_pid)
+                    .unwrap_or(None);
+                records.insert_binding(&selected.identity, &snapshot.server, &pane)?
+            }
         };
         if publish {
             endpoint

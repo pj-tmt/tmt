@@ -135,6 +135,7 @@ fn binding(pid: u64) -> Binding {
         server: server(pid),
         pane_id: "term_65ca1161edc141".into(),
         pane_pid: 90593,
+        pane_incarnation: None,
         session: Default::default(),
     }
 }

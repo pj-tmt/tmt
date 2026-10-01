@@ -102,6 +102,10 @@ function expectNativeSchema(
       version: 41,
       name: 'admit any approved host driver in bindings, request fences and host servers',
     },
+    {
+      version: 42,
+      name: "record the observed pane process incarnation beside each binding's pane pid",
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -365,6 +369,7 @@ function expectNativeSchema(
       dflt_value: null,
       pk: 0,
     },
+    { cid: 18, name: 'pane_incarnation', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
   ]);
   expect(newBindings.indexes).toEqual(oldBindings.indexes);
   expect(newBindings.foreignKeys).toEqual(oldBindings.foreignKeys);
@@ -378,6 +383,8 @@ function expectNativeSchema(
       observed_provider_session_id: null,
       launch_owner_pid: null,
       launch_owner_start_identity: null,
+      // Bindings made before schema 42 keep an unknown pane incarnation.
+      pane_incarnation: null,
     }))
   );
 

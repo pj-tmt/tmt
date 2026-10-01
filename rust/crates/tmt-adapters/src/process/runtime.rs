@@ -126,6 +126,22 @@ fn observe_process<R: CommandRunner>(
     })
 }
 
+/// The start token of a live or stopped process, recorded beside its pid so
+/// a reused pid can later be told apart. `None` when the process can't be
+/// observed or is gone; only a child that could not be cleaned up fails.
+pub fn observe_start<R: CommandRunner>(
+    runner: &R,
+    pid: u64,
+    deadline: Instant,
+) -> Result<Option<String>, CommandError> {
+    Ok(match observe_runtime_process(runner, pid, deadline)? {
+        ProcessObservation::Live(process) | ProcessObservation::Stopped(process) => {
+            Some(process.start_identity().to_owned())
+        }
+        _ => None,
+    })
+}
+
 fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObservation {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return ProcessObservation::Unknown;
@@ -209,6 +225,48 @@ mod tests {
             assert_eq!(
                 parse_process_observation(42, bytes).matches(key),
                 RuntimeLiveness::Unknown
+            );
+        }
+    }
+
+    #[test]
+    fn a_recorded_start_is_the_runtime_observations_token_or_unknown() {
+        let pid = u64::from(std::process::id());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let ProcessObservation::Live(single) =
+            observe_runtime_process(&UnixCommandRunner, pid, deadline).unwrap()
+        else {
+            panic!("the test process is live");
+        };
+        assert_eq!(
+            observe_start(&UnixCommandRunner, pid, deadline)
+                .unwrap()
+                .as_deref(),
+            Some(single.start_identity())
+        );
+        struct Runner(&'static [u8]);
+        impl CommandRunner for Runner {
+            fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                Ok(CommandOutput {
+                    stdout: self.0.to_vec(),
+                    stderr: vec![],
+                })
+            }
+        }
+        for (stdout, expected) in [
+            (
+                b"Sun Sep 27 10:00:00 2026 T\n".as_slice(),
+                Some("ps-v1:Sun Sep 27 10:00:00 2026"),
+            ),
+            (b"Sun Sep 27 10:00:00 2026 Z\n", None),
+            (b"garbage\n", None),
+        ] {
+            assert_eq!(
+                observe_start(&Runner(stdout), 42, deadline)
+                    .unwrap()
+                    .as_deref(),
+                expected,
+                "{stdout:?}"
             );
         }
     }

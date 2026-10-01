@@ -244,6 +244,8 @@ impl<R: CommandRunner> Herdr<R> {
                 suggested_name: crate::drivers::suggested_name(&process.command),
                 command: process.command,
                 pane_pid: process.shell_pid,
+                // Read paths don't observe it: a binding records it when made.
+                pane_incarnation: None,
                 marker: marker::decode(pane.tokens.as_ref()),
             })
             .collect();
