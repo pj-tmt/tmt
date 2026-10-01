@@ -33,9 +33,17 @@ use tmt_core::{
 
 mod server;
 
-/// The only provider build with recorded channel evidence. Widening it needs
-/// new evidence and a reviewed change here (see the contract).
-pub const SUPPORTED_VERSIONS: &[&str] = &["2.1.285 (Claude Code)"];
+/// The oldest provider build with recorded channel evidence. A build is accepted
+/// when it is this one or newer within the same major line; whether a newer build
+/// really speaks the channel is decided by the handshake itself (a session that
+/// never becomes ready is terminal and never pasted to). Lowering the minimum or
+/// accepting another major line needs new evidence and a reviewed change here.
+pub const MINIMUM_VERSION: &str = "2.1.285";
+/// The builds on which the channel was exercised against the real provider; any
+/// other accepted build launches with an advisory that names it.
+pub const TESTED_VERSIONS: &[&str] = &["2.1.285"];
+/// Every `--version` line of the product ends with this.
+const PRODUCT_SUFFIX: &str = " (Claude Code)";
 /// The MCP server name Claude sees; it is the `server:<name>` channel entry.
 pub const SERVER_NAME: &str = "tmt";
 pub const MCP_CONFIG_FLAG: &str = "--mcp-config";
@@ -173,7 +181,7 @@ impl RuntimeChannel for ClaudeChannel {
         executable: &OsStr,
         directory: &Path,
         deadline: Instant,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<Option<String>, ChannelError> {
         check_provider(&UnixCommandRunner, executable, directory, deadline)
     }
 
@@ -254,6 +262,10 @@ impl RuntimeChannel for ClaudeChannel {
         }))
     }
 
+    fn enrolled(&self, directory: &Path, binding_id: &str) -> Result<bool, ChannelFault> {
+        read_record(directory, binding_id).map(|record| record.is_some())
+    }
+
     fn serve(
         &self,
         request: &ServeRequest<'_>,
@@ -264,14 +276,59 @@ impl RuntimeChannel for ClaudeChannel {
     }
 }
 
+/// How a provider build stands against the recorded evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildStatus {
+    /// The channel was exercised on exactly this build.
+    Tested,
+    /// Accepted by the range rule only; its handshake is the compatibility check.
+    Untested,
+}
+
+/// Parses a whole `--version` line as `<major>.<minor>.<patch> (Claude Code)` with
+/// canonical decimal numbers; anything else is not a version line.
+fn parse_build(line: &str) -> Option<([u32; 3], &str)> {
+    let number = line.strip_suffix(PRODUCT_SUFFIX)?;
+    let mut parts = number.split('.');
+    let mut parsed = [0; 3];
+    for slot in &mut parsed {
+        let part = parts.next()?;
+        if part.is_empty()
+            || !part.bytes().all(|byte| byte.is_ascii_digit())
+            || (part.len() > 1 && part.starts_with('0'))
+        {
+            return None;
+        }
+        *slot = part.parse().ok()?;
+    }
+    parts.next().is_none().then_some((parsed, number))
+}
+
+/// The status of a provider's `--version` line, or `None` when it is not a
+/// version line, is older than [`MINIMUM_VERSION`] or is another major line.
+pub fn build_status(line: &str) -> Option<BuildStatus> {
+    let (minimum, _) = parse_build(&format!("{MINIMUM_VERSION}{PRODUCT_SUFFIX}"))
+        .expect("the minimum is a canonical version");
+    let (build, number) = parse_build(line)?;
+    if build[0] != minimum[0] || build < minimum {
+        return None;
+    }
+    Some(if TESTED_VERSIONS.contains(&number) {
+        BuildStatus::Tested
+    } else {
+        BuildStatus::Untested
+    })
+}
+
 /// The pre-launch check, single-shot: the directory must fit a socket path, and
-/// the provider's bounded `--version` must be exactly the recorded build.
+/// the provider's bounded `--version` must be a build the range rule accepts. An
+/// accepted build that was never tested comes back with an advisory naming it.
 fn check_provider(
     runner: &dyn CommandRunner,
     executable: &OsStr,
     directory: &Path,
     deadline: Instant,
-) -> Result<(), ChannelError> {
+) -> Result<Option<String>, ChannelError> {
     // A binding ID is a 36-character UUID; check the longest path up front.
     if !directory.is_absolute() || !socket_fits(directory, &"0".repeat(36)) {
         return Err(ChannelError::PathTooLong);
@@ -287,10 +344,14 @@ fn check_provider(
         })
         .map_err(|_| ChannelError::ProviderUnavailable)?;
     let found = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if SUPPORTED_VERSIONS.contains(&found.as_str()) {
-        Ok(())
-    } else {
-        Err(ChannelError::ProviderVersion { found })
+    match build_status(&found) {
+        Some(BuildStatus::Tested) => Ok(None),
+        Some(BuildStatus::Untested) => Ok(Some(format!(
+            "Claude Code {} has not been tested with message channels (tested: {}). Channel delivery depends on its handshake completing; if it never does, requests to this session fail as not ready and nothing is pasted.",
+            found.strip_suffix(PRODUCT_SUFFIX).unwrap_or(&found),
+            TESTED_VERSIONS.join(", ")
+        ))),
+        None => Err(ChannelError::ProviderVersion { found }),
     }
 }
 

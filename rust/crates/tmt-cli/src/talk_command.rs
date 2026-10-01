@@ -221,6 +221,43 @@ fn deliver(
             }
             return Err(correlation.interrupted());
         }
+        // A pane that resolved to no active identity is pasted to directly, but that
+        // does not prove it never opted into a channel: existing evidence (or being
+        // unable to tell) stops it before anything is attempted.
+        if let Some(endpoint) = &prepared.endpoint
+            && correlation.identity.is_none()
+        {
+            let evidence = crate::delivery::pane_channel_evidence(
+                storage,
+                &endpoint.server,
+                &endpoint.pane_id,
+                &tmt_adapters::config::ConfigPaths::channel_directory_in(&correlation.data_dir),
+            )
+            .map_err(|error| {
+                Failure::storage_access(
+                    error,
+                    &correlation.data_dir,
+                    "No message was sent; inspect the retained request before retrying.",
+                    "DELIVERY_PREPARATION_FAILED",
+                    "Could not verify delivery state.",
+                )
+            })?;
+            if let Some(fault) = evidence {
+                RequestService::new(&mut *storage, wall_time_ms)
+                    .settle(&prepared.attempt_id, Settlement::DefinitelyFailed)
+                    .map_err(|error| correlation.state_error(error, false))?;
+                return Err(correlation
+                    .error(
+                        fault.error_code(),
+                        format!(
+                            "{} Nothing was sent and nothing was pasted.",
+                            fault.reason()
+                        ),
+                        1,
+                    )
+                    .suggestion(correlation.inspection()));
+            }
+        }
         if prepared.endpoint.is_some()
             && let Err(primary) =
                 RequestService::new(&mut *storage, wall_time_ms).begin_send(&prepared.attempt_id)

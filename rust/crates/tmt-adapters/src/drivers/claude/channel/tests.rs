@@ -1100,7 +1100,8 @@ fn enrolling_replaces_only_an_enrollment_that_is_over_and_otherwise_leaves_it_un
 #[test]
 fn the_provider_contract_constants_are_pinned() {
     // Changing any of these needs new provider evidence and a contract update.
-    assert_eq!(SUPPORTED_VERSIONS, ["2.1.285 (Claude Code)"]);
+    assert_eq!(MINIMUM_VERSION, "2.1.285");
+    assert_eq!(TESTED_VERSIONS, ["2.1.285"]);
     assert_eq!(CAPABILITY, "claude/channel");
     assert_eq!(NOTIFICATION_METHOD, "notifications/claude/channel");
     assert_eq!(PROTOCOL_VERSION, "2025-11-25");
@@ -1124,7 +1125,7 @@ impl CommandRunner for ScriptRunner {
     }
 }
 
-fn probe(scratch: &Scratch, version: &str) -> Result<(), ChannelError> {
+fn probe(scratch: &Scratch, version: &str) -> Result<Option<String>, ChannelError> {
     let script = scratch.0.join("claude");
     fs::write(&script, format!("echo '{version}'\n")).unwrap();
     check_provider(
@@ -1136,19 +1137,83 @@ fn probe(scratch: &Scratch, version: &str) -> Result<(), ChannelError> {
 }
 
 #[test]
-fn preflight_accepts_only_the_recorded_provider_version() {
+fn the_range_rule_accepts_the_minimum_and_newer_builds_of_the_same_major_only() {
+    use BuildStatus::{Tested, Untested};
+    let line = |number: &str| format!("{number} (Claude Code)");
+    // The minimum is the one tested build; newer builds of the same major line are
+    // accepted untested, however far the minor or patch moved.
+    for (number, expected) in [
+        ("2.1.285", Tested),
+        ("2.1.286", Untested),
+        ("2.1.300", Untested),
+        ("2.2.0", Untested),
+        ("2.10.0", Untested),
+        ("2.999.999", Untested),
+    ] {
+        assert_eq!(build_status(&line(number)), Some(expected), "{number}");
+    }
+    // Below the minimum, another major line, and anything that is not a canonical
+    // `<major>.<minor>.<patch> (Claude Code)` line are all outside the range.
+    for number in [
+        "2.1.284", "2.1.0", "2.0.999", "1.9.999", "0.0.0", "3.0.0", "3.1.285", "10.1.285",
+    ] {
+        assert_eq!(build_status(&line(number)), None, "{number}");
+    }
+    for text in [
+        "2.1.286",
+        "2.1.286 (Claude Code) extra",
+        "2.1.286 (Claude Code)\nextra",
+        "2.1.286 (Other Tool)",
+        "v2.1.286 (Claude Code)",
+        "2.1.286-beta (Claude Code)",
+        "2.1.286.1 (Claude Code)",
+        "2.1 (Claude Code)",
+        "02.1.286 (Claude Code)",
+        "2.01.286 (Claude Code)",
+        "2.1.0286 (Claude Code)",
+        "2.1.+286 (Claude Code)",
+        "2.1.99999999999 (Claude Code)",
+        " 2.1.286 (Claude Code)",
+        "not a version",
+        "",
+    ] {
+        assert_eq!(build_status(text), None, "{text:?}");
+    }
+}
+
+#[test]
+fn preflight_accepts_the_range_and_advises_only_about_untested_builds() {
     let scratch = Scratch::new();
-    assert_eq!(probe(&scratch, "2.1.285 (Claude Code)"), Ok(()));
-    assert_eq!(
-        probe(&scratch, "2.1.286 (Claude Code)"),
-        Err(ChannelError::ProviderVersion {
-            found: "2.1.286 (Claude Code)".into()
-        })
-    );
-    assert!(matches!(
-        probe(&scratch, "not a version"),
-        Err(ChannelError::ProviderVersion { .. })
-    ));
+    assert_eq!(probe(&scratch, "2.1.285 (Claude Code)"), Ok(None));
+    for version in ["2.1.286", "2.2.0", "2.9.9"] {
+        let advisory = probe(&scratch, &format!("{version} (Claude Code)"))
+            .unwrap()
+            .expect("an untested build gets an advisory");
+        // It names the build and the tested set, and says what happens if the
+        // handshake fails: not ready and never pasted.
+        assert!(
+            advisory.contains(&format!("Claude Code {version} ")),
+            "{advisory}"
+        );
+        assert!(advisory.contains("tested: 2.1.285"), "{advisory}");
+        assert!(advisory.contains("nothing is pasted"), "{advisory}");
+    }
+    for drift in [
+        "2.1.284 (Claude Code)",
+        "1.0.0 (Claude Code)",
+        "3.0.0 (Claude Code)",
+        "2.1.286",
+        "not a version",
+        "",
+    ] {
+        assert_eq!(
+            probe(&scratch, drift),
+            Err(ChannelError::ProviderVersion {
+                found: drift.into()
+            }),
+            "{drift:?}"
+        );
+    }
     let missing = ClaudeChannel.preflight(
         scratch.0.join("absent").as_os_str(),
         &scratch.0,
