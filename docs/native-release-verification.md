@@ -132,15 +132,18 @@ published release). GitHub finishes the attestation after publishing, so these c
 retried for about two minutes. A failed check opens an issue and fails the run; nothing is
 rolled back, because a published release is immutable and a repair needs a new reviewed
 version. A `smoke` job then installs the published release as a user does
-(`.github/workflows/native-release-smoke.yml`, also run by hand for any published tag with
-`product` and `tag`). On the four hosts of the upgrade proof, in an isolated home, state directory
+(`.github/workflows/native-release-smoke.yml`, also run by hand with `product` and `tag`, for
+the newest published release of the product only: it installs what the public entry points serve
+now, so any other tag fails its first check and a failed run reports on the issue like any
+other). On the four hosts of the upgrade proof, in an isolated home, state directory
 and prefix and with no token, a CLI alpha goes through the public
 `releases/latest/download/install.sh`: the installer names the tag's version, the installed `tmt`
 is the one PATH selects and reports that version, the installed shared skills are the tag's
 `skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --json` reads the live
 metadata and reports the installation current (a newer alpha that appeared since passes with a
-note). An extension alpha is installed by the newest published CLI's `tmt <extension> install`
-into a separate prefix; its version must be the tag's and no CLI link may appear. The tag is
+note). An extension alpha is installed by the newest published CLI's `tmt extension install
+<extension>` into a separate prefix; `tmt extension list` must report the tag's version and no
+CLI link may appear. The tag is
 checked out only so its skills can be read; none of its code runs. The network steps get three
 attempts, and a GitHub API rate limit that persists is reported as one (the installed CLI reads
 the release list unauthenticated). A failed leg keeps its failed checks as data, and a final job
