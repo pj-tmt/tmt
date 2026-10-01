@@ -2047,8 +2047,15 @@ ownership map.
   durable reply; `ChannelUnavailable` stops the request with
   `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`.
   `Failure` carries an optional additive `deliveryState`.
-- No first-party driver registers a channel yet, so every session still uses its
-  existing transport.
+- `drivers::claude::channel` owns the Claude record and the send classification
+  behind `ClaudeRuntime::send`. It reads the stored binding and the per-binding
+  record under the channel directory, applies the launch-applicability rule, waits
+  a bounded time for a channel that is not ready, and exchanges one frame over the
+  owner-only socket; the record grants nothing unless it matches the binding's
+  launch owner and runtime observation. Without the discovered configuration the
+  outcome is `Denied`, never `NotSent`.
+- No first-party driver registers a channel and nothing writes a record yet, so
+  every session still uses its existing transport.
 
 ### Host driver protocol
 

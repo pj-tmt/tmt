@@ -10,12 +10,12 @@ lifecycle is owned by the request service and
 
 Tracking: #329, delivered as four stacked changes (#712 to #715).
 
-- **Shipped:** the outcome vocabulary and reporting (below), and the
-  `RuntimeChannel` lease port with its registry slot. No first-party driver
-  registers a channel, so no session can opt in and no behavior changes.
-- **Not shipped yet:** the Claude send classification (#713), the enrollment and
-  the stdio server (#714), `tmt run --channel`, notification and raw-pane routing
-  and the E2E scenarios (#715).
+- **Shipped:** the outcome vocabulary and reporting (below), the `RuntimeChannel`
+  lease port with its registry slot, and the Claude send classification
+  (`ClaudeRuntime::send`, "Delivery mapping"). Nothing writes an enrollment yet, so
+  no session can opt in and every Claude session still gets the baseline delivery.
+- **Not shipped yet:** the enrollment and the stdio server (#714), `tmt run
+  --channel`, notification and raw-pane routing and the E2E scenarios (#715).
 
 Every section other than Status and the two shipped items describes the target
 contract of the unshipped changes, not current behavior. Each change updates this
@@ -101,7 +101,12 @@ and only then accepts frames; this is "ready". Frames before that are refused
 The Unix socket is `<global>/channels/<binding-id>.sock` (0600), never a network
 listener. One ingress connection carries one frame,
 `{"version":1,"generation","content"}`, and receives `{"written":true}` after the
-notification was flushed to Claude, or `{"refused":"<reason>"}`. The server keeps
+notification was flushed to Claude, or `{"refused":"<reason>"}`. Writing the frame
+and reading the reply share one absolute 2 s deadline, enforced at each underlying
+read and write, so a slow or trickling endpoint cannot extend it; running out of
+time after the connection exists is `Uncertain`. Only `{"written":true}` alone is a
+write and only `{"refused":…}` without `written` is a refusal: a reply claiming
+both, or neither, is `Uncertain`. The server keeps
 no request-ID set: a request has at most one wake claim in the request service,
 and the driver never retries.
 
@@ -146,7 +151,7 @@ never resent or pasted either.
 | Enrollment removed or its generation replaced during the wait | `Denied` | no |
 | Ready, socket absent or connection refused | `Denied(unreachable)`, zero bytes moved | no |
 | Ready, other connection error, or the endpoint answers `refused` | `Denied` | no |
-| Connected, then any error, timeout or EOF without an answer | `Uncertain` | no, no resend |
+| Connected, then any error, timeout, EOF or ambiguous answer | `Uncertain` | no, no resend |
 | Endpoint answers `written` | `Completed(Unacknowledged)` | no |
 | Payload above the frame bound | `Denied` (before connecting) | no |
 
