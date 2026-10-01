@@ -1,15 +1,15 @@
 //! Real process death while the shared preparation transaction is still open.
 
-use super::support::{Fixture, NOW_MS, endpoint, prepare_input, service};
+use super::support::{Fixture, NOW_MS, endpoint, prepare_input, request_snapshot, service};
 use crate::{
     storage::{Storage, StorageError},
     test_support::TestChild,
 };
-use rusqlite::{Connection, OpenFlags, types::Value};
+use rusqlite::{Connection, OpenFlags};
 use std::{
     env, fs,
     os::unix::process::ExitStatusExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Stdio},
     thread,
     time::{Duration, Instant},
@@ -24,32 +24,6 @@ const DATABASE_ENV: &str = "TMT_REQUEST_CRASH_DATABASE";
 const OWNER_ENV: &str = "TMT_REQUEST_CRASH_OWNER";
 const READY_ENV: &str = "TMT_REQUEST_CRASH_READY";
 const RELEASE_ENV: &str = "TMT_REQUEST_CRASH_RELEASE";
-
-fn snapshot(database: &Path) -> Vec<Vec<Vec<Value>>> {
-    let connection = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .expect("open independent crash oracle");
-    [
-        "SELECT * FROM request_attempts ORDER BY attempt_id",
-        "SELECT * FROM request_responses ORDER BY request_id",
-        "SELECT * FROM preamble_counters ORDER BY identity_id",
-        "SELECT * FROM request_attention_identities ORDER BY identity_id",
-    ]
-    .into_iter()
-    .map(|query| {
-        connection
-            .prepare(query)
-            .unwrap()
-            .query_map([], |row| {
-                (0..row.as_ref().column_count())
-                    .map(|column| row.get(column))
-                    .collect::<rusqlite::Result<Vec<Value>>>()
-            })
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .unwrap()
-    })
-    .collect()
-}
 
 #[test]
 fn sigkill_rolls_back_preparation_without_losing_committed_state() {
@@ -68,7 +42,7 @@ fn sigkill_rolls_back_preparation_without_losing_committed_state() {
             .prepare(baseline, "baseline-attempt".into(), 7)
             .unwrap();
         fixture.storage.close().unwrap();
-        let before = snapshot(&fixture.database);
+        let before = request_snapshot(&fixture.database);
         let ready = fixture._directory.path.join("transaction-ready");
         let release = fixture._directory.path.join("release-commit");
         let child = Command::new(env::current_exe().unwrap())
@@ -85,7 +59,7 @@ fn sigkill_rolls_back_preparation_without_losing_committed_state() {
         child.wait_for_content(&ready, "prepared-uncommitted", Duration::from_secs(5));
         // WAL readers must see the committed baseline while the real service's
         // attempt/cadence/attention writes are held inside its transaction.
-        assert_eq!(snapshot(&fixture.database), before);
+        assert_eq!(request_snapshot(&fixture.database), before);
         if kill_before_commit {
             assert!(child.child.try_wait().unwrap().is_none());
             child.child.kill().unwrap();
@@ -100,7 +74,7 @@ fn sigkill_rolls_back_preparation_without_losing_committed_state() {
         let mut reopened = Storage::open(&fixture.database).unwrap();
         assert_eq!(reopened.health().unwrap().journal_mode, "wal");
         reopened.close().unwrap();
-        let after = snapshot(&fixture.database);
+        let after = request_snapshot(&fixture.database);
         let oracle =
             Connection::open_with_flags(&fixture.database, OpenFlags::SQLITE_OPEN_READ_ONLY)
                 .unwrap();
