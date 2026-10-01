@@ -145,7 +145,8 @@ never resent or pasted either.
 | Provider configuration cannot be discovered | `Denied` (unverifiable) | no |
 | Record names a different launch than the binding's current one, and that current launch is positively proven (its stored launch owner is observed live with a matching start identity) | `Unsupported`: the enrollment is stale for this launch, and the record is left untouched | yes, the normal path |
 | Record unreadable or not a regular file, directory not owner-only, unknown version or other binding, the binding's current launch not verifiable or ambiguous, Claude process differs from the stored runtime observation | `Denied` | no |
-| Record names the binding's current launch and that launch owner is conclusively gone | `Denied(stale)`: the enrollment belongs to an ended launch | no |
+| Record names the binding's current launch, that launch owner is conclusively gone, and the runtime now observed for the binding is positively alive and is not the Claude the record names (a plain relaunch outside `tmt run`) | `Unsupported`: the enrollment is stale for that runtime, and the record is left untouched | yes, the normal path |
+| Record names the binding's current launch and that launch owner is conclusively gone, otherwise (the observed runtime is the one the record names, is not alive, or none is observed) | `Denied(stale)`: the enrollment belongs to an ended launch; the message says to relaunch with `tmt run` | no |
 | Opted in, not ready: waits up to 3 s polling the record, and it becomes ready | continues below | n/a |
 | Opted in, still not ready after the wait (failed handshake, never started, or Claude at its own prompt) | `Denied(not_ready)` | no |
 | Enrollment removed or its generation replaced during the wait | `Denied` | no |
@@ -156,9 +157,10 @@ never resent or pasted either.
 | Payload above the frame bound | `Denied` (before connecting) | no |
 
 An enrollment applies only to the exact launch that created it. A different
-launch that is positively proven current, a plain relaunch included, treats an old
-record as non-applicable and gets the baseline delivery; nothing removes the old
-record. An ended owner alone is never enough, because it does not prove that a
+launch that is positively proven current, a plain relaunch included (through
+`tmt run`, or directly while the binding still names the old launch owner),
+treats an old record as non-applicable and gets the baseline delivery; nothing
+removes the old record. An ended owner alone is never enough, because it does not prove that a
 different launch is current: while that is unknown, ambiguous or unverifiable the
 send stays terminal and nothing is pasted. A record is never read as "never
 opted in" merely because its launch ended.

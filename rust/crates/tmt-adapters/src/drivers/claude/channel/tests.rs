@@ -227,6 +227,78 @@ fn an_enrollment_whose_own_launch_has_ended_is_stale_and_never_pasted_to() {
 }
 
 #[test]
+fn a_plain_relaunch_outside_tmt_run_leaves_the_ended_enrollment_stale_for_the_new_runtime() {
+    let (ended, recorded) = (dead_owner(), provider(4242));
+    // The binding still names the old launch owner; the runtime now observed for
+    // it is a live process that is not the Claude the enrollment names.
+    for (name, record) in [
+        ("ready record", ready(&ended, &recorded)),
+        ("pending record", intent(&ended)),
+    ] {
+        let scratch = Scratch::new();
+        publish(&scratch.0, &record);
+        let before = fs::read(record_path(&scratch.0, BINDING)).unwrap();
+        assert_eq!(
+            deliver(
+                &scratch,
+                &entry(BINDING, Some(ended.clone()), Some(live_owner())),
+                MESSAGE
+            ),
+            ActionResult::Unsupported,
+            "{name}"
+        );
+        assert_eq!(
+            fs::read(record_path(&scratch.0, BINDING)).unwrap(),
+            before,
+            "{name}: the record is untouched"
+        );
+    }
+}
+
+#[test]
+fn an_ended_enrollment_stays_stale_unless_a_different_live_runtime_is_proven() {
+    let ended = dead_owner();
+    let other_ended = ProcessIncarnation::new(ended.pid(), "Thu Oct  1 11:00:00 2026").unwrap();
+    // (case, the Claude the record names, the runtime now observed for the binding)
+    for (name, recorded, running) in [
+        (
+            "the observed runtime is the live one the record names",
+            live_owner(),
+            Some(live_owner()),
+        ),
+        (
+            "the observed runtime is the ended one the record names",
+            provider(4242),
+            Some(provider(4242)),
+        ),
+        (
+            "a different runtime that is not alive",
+            provider(4242),
+            Some(other_ended),
+        ),
+        ("no runtime observed", provider(4242), None),
+    ] {
+        let scratch = Scratch::new();
+        publish(&scratch.0, &ready(&ended, &recorded));
+        assert_eq!(
+            fault(deliver(
+                &scratch,
+                &entry(BINDING, Some(ended.clone()), running),
+                MESSAGE
+            )),
+            ("denied", ChannelFault::Stale),
+            "{name}"
+        );
+    }
+    // Stale is actionable: it says how to recover.
+    assert!(
+        ChannelFault::Stale
+            .reason()
+            .contains("Relaunch the agent with `tmt run`")
+    );
+}
+
+#[test]
 fn an_enrolled_write_is_unacknowledged_and_carries_the_exact_frame() {
     let scratch = Scratch::new();
     let (owner, claude) = (live_owner(), provider(4242));

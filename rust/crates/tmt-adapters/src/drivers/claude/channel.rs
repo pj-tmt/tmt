@@ -154,9 +154,23 @@ fn send_within(
     match binding.session.launch_owner.as_ref() {
         Some(current) if *current == owner => match liveness(&owner) {
             RuntimeLiveness::Alive => {}
-            // The launch ended. That alone is not evidence that the session never
-            // opted in, nor that a different launch is current.
-            RuntimeLiveness::Gone => return denied(ChannelFault::Stale),
+            RuntimeLiveness::Gone => {
+                // A plain relaunch outside `tmt run` leaves the binding's launch
+                // owner at the old one. If the runtime now observed for the binding
+                // is positively alive and is not the Claude this enrollment names,
+                // the enrollment is stale for it: baseline, record untouched.
+                let recorded = record.claude.as_ref().and_then(Process::incarnation);
+                let running = binding.session.key.as_ref().map(|key| &key.incarnation);
+                if let Some(running) = running
+                    && Some(running) != recorded.as_ref()
+                    && liveness(running) == RuntimeLiveness::Alive
+                {
+                    return ActionResult::Unsupported;
+                }
+                // Otherwise the launch ended. That alone is not evidence that the
+                // session never opted in, nor that a different launch is current.
+                return denied(ChannelFault::Stale);
+            }
             RuntimeLiveness::Unknown => return denied(ChannelFault::Unverifiable),
         },
         // A different launch, positively proven current (its owner is observed
