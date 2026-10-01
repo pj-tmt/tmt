@@ -229,7 +229,7 @@ is explicit, never inferred from possession of a new key.
 | `member.role`   | `memberId, role, cuts`; reductions commit affected streams; promotion grants no retroactive authorship                                                         |
 | `link.add`      | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                                    |
 | `link.remove`   | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                           |
-| `device.revoke` | `deviceId, cuts`; revoke the selected device and rotate affected epochs                                                                                        |
+| `device.revoke` | `deviceId, cuts`; revoke the selected identity/sessions/grants and rotate affected epochs; a surviving link seed remains a separate bearer capability          |
 | `bridge.add`    | `machineId, machineSignKey, encKey, pages`; restricted bridge role, not editor                                                                                 |
 | `epoch.advance` | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                                |
 | `page.share`    | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for local/LAN public mode and explicit history scope                           |
@@ -425,18 +425,26 @@ with an epoch advance. There is no automatic per-link-holder history reset.
 
 ### Rotation and sharing
 
-An epoch advance generates a fresh secret and wraps it to every remaining
-member device, link and bridge. Commit statement, baseline, wraps, page epoch
+An epoch advance generates a fresh secret and wraps it only to remaining
+recipients eligible under the resulting sharing mode. Commit statement, baseline, wraps, page epoch
 and removed-writer edge projections together: one local SQLite transaction,
 Firestore transaction or DO storage transaction. Before commit the old epoch
 remains valid; after commit stale writes reject and clients fetch the higher
 revision before writing. Reads, subscriptions, appends, compaction and scoped
-acks MUST recheck applicable admission when authority changes. A retained
-session, old key/token/checkpoint cannot recover new-epoch access.
+acks MUST recheck applicable admission when authority changes. A revoked device's
+identity, session, grant, old epoch key or checkpoint cannot recover its revoked
+authority. A retained seed for a surviving link is an independent capability:
+its holder can decrypt that link's new-epoch wrap and certify a fresh device.
 
-Rotating a link token alone is not revocation. `link.remove` revokes every
-link-certified device; `device.revoke` revokes one. Resetting a share link MUST
-perform removal/rotation and create a new link identity, not just change a URL.
+Rotating a link token alone is not revocation. `device.revoke` on a link-certified
+device revokes only that device identity, sessions and grants; it does NOT exclude
+a bearer retaining the link seed. Trusted share UI's Remove device action MUST
+state this limitation and direct removal of a link holder to Reset link.
+Excluding a link holder requires `link.remove` (revoking that link and every
+device certified by it), plus an epoch advance whose wraps go only to intended
+remaining recipients. If sharing continues, explicit owner `link.add` creates a
+NEW link identity/seed distributed only to intended holders. Reset link MUST
+perform this removal/rotation, not just change a URL or hide an edge record.
 
 Private pages admit named members only. Link pages additionally admit
 link-certified devices at the link role. Public mode is local/LAN only in v1;
@@ -449,9 +457,20 @@ owner explicitly opted into history. Trusted confirmation MUST state that exact
 scope. Public HTML with private discussion is not supported by this key boundary.
 Public readership grants no writing, device certification, grant or Send access.
 
-Leaving public atomically advances again, ends public subscriptions and stops
-public distribution of new keys/objects. Already-public content/history remains
-public forever. Clients derive sharing from the log, never a mutable page index.
+Every audience-narrowing mode change (`link` → `private`, `public` → `private`,
+`public` → `link`) is one atomic owner transition: advance the epoch with its
+baseline, filter wraps by the NEW mode, and remove/disable every existing page
+link with `link.remove`. Private recipients are the implicit root owner, named
+members, their certified devices and bridges only; neither link principals nor
+link-certified devices receive a private-epoch wrap. Link-device edge admission
+ends and all their subscriptions terminate in the same transition. Links are
+revoked, not merely hidden by an index/edge projection. Re-enabling link sharing
+requires an explicit owner action creating a NEW link identity; selecting link
+mode never reactivates a removed identity or its old bearer seed.
+
+Leaving public also ends public subscriptions and stops public distribution of
+new keys/objects. Already-public content/history remains public forever. Clients
+derive sharing from the log, never a mutable page index.
 The server index (`pageId, state, lastUpdateAt, expiresAt, epoch, writer list`)
 is an admission/management projection; trusted space-home labels derive from
 verified statements and decrypted metadata.
@@ -895,6 +914,12 @@ Required L1 gates include:
 - Purpose-separated link X25519 derivation, signed link encryption key and
   surviving-link rewrap after rotation, plus baseline and snapshot descriptor
   vectors and no-old-key bootstrap negatives.
+- A documented limitation vector proves retained-seed access and fresh device
+  certification while a link survives individual device revocation. Exclusion
+  vectors prove denial after link reset/removal plus rotation, with wraps only
+  to intended remaining recipients. Retained-link-seed vectors cover both
+  link-to-private and public-to-private when links are present: no private wraps
+  for link principals/devices, no reactivation of old links.
 - All #829 domains, wraps, transcript/recovery, cut envelope hashes and strict
   malformed encoding mutations; ciphertext interoperability both ways.
 - The complete 148-vector Ed25519 corpus in Chromium, Firefox and WebKit, including
@@ -911,6 +936,10 @@ L3/L4 prove two browsers and CLI concurrently edit/annotate, persist/reopen,
 namespace/role isolation, decoder hostile-corpus containment, dependency/delete-set
 compaction, concurrent tails, revoked checkpoint replacement, baseline resets,
 no-history joins and snapshot restore after compaction/demotion/public transition.
+L3 also proves retained-seed access while a link survives (the documented
+limitation), denial after Reset link plus rotation, and atomic link-to-private /
+public-to-private transitions with links present: removed link-device admission,
+terminated subscriptions and no private-epoch decrypt through retained seeds.
 Renderer attacks need external request capture and positive controls for resource
 loads, nested frames, forms/popups, self/top navigation, refresh, document
 replacement, stale frame/port/source, forged selections and live anchor mapping.
