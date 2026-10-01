@@ -213,6 +213,11 @@ fn owner_binding(payload: &Payload, previous: Option<&Head>) -> Result<OwnerMemb
                         && values::binary(&v.enc_key, 32)? != head.owner_member.encryption_key,
                 )?;
             }
+            match payload {
+                Payload::MemberRemove(v) => require(v.member_id != head.owner_member.id)?,
+                Payload::MemberRole(v) => require(v.member_id != head.owner_member.id)?,
+                _ => {}
+            }
             Ok(head.owner_member.clone())
         }
     }

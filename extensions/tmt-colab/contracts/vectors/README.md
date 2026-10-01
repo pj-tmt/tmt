@@ -35,3 +35,8 @@ owner signer bound into the header. Ephemeral fixture secrets are generator-only
 the runtime seal API always generates fresh ephemeral keys. The owner statement
 bytes also cover the strict owner-statement codec and hash-chain admission;
 applying verified transitions remains a runtime caller responsibility.
+
+The same independent generator freezes `owner-member-v1.json`: valid owner-signed
+removal and role-change statements targeting the pinned owner are rejected, with
+accepted peer-target controls isolating the owner-binding rule from signature and
+payload admission. Rust and browser verifiers consume these exact envelopes.

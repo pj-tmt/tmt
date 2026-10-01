@@ -415,3 +415,44 @@ fn list_caps_reject_otherwise_valid_unique_ordered_entries() {
     exact.push(b' ');
     assert!(payload::decode("page.delete", &exact).is_err());
 }
+
+#[test]
+fn shared_owner_member_vectors_isolate_rejection_from_signature_and_payload_errors() {
+    let v = fixture();
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/owner-member-v1.json"
+    ))
+    .unwrap();
+    let space = v["space"].as_str().unwrap();
+    let key = hex(&v, "public");
+    let genesis = statement::Envelope::from_json(&bytes(&v["statement"])).unwrap();
+    let head = genesis.verify_next(space, &key, None).unwrap().head;
+    for case in cases["cases"].as_array().unwrap() {
+        let wire = &case["envelope"];
+        let input = values::binary(wire["statement"].as_str().unwrap(), 1024).unwrap();
+        let signature = values::binary(wire["signature"].as_str().unwrap(), 64).unwrap();
+        tmt_colab_model::crypto::verify_signature(&key, &input, &signature).unwrap();
+        let envelope = statement::Envelope::from_json(&bytes(wire)).unwrap();
+        let accepted = case["accepted"].as_bool().unwrap();
+        assert_eq!(
+            envelope.verify_next(space, &key, Some(&head)).is_ok(),
+            accepted,
+            "{}",
+            case["name"]
+        );
+        let raw = values::binary(wire["payload"].as_str().unwrap(), payload::MAX_BYTES).unwrap();
+        assert_eq!(
+            statement::sign(
+                space,
+                Some(&head),
+                case["operation"].as_str().unwrap(),
+                &raw,
+                &owner(&v)
+            )
+            .is_ok(),
+            accepted,
+            "{}",
+            case["name"]
+        );
+    }
+}
