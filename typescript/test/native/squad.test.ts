@@ -86,6 +86,78 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('opts into team rows and refreshes only linked PRs through the existing provider', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = installSquad(sandbox);
+      for (const name of ['Ben', 'Sol', 'linked', 'unlinked']) await identity(sandbox, name);
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(toml, 'me = "Ben"\n[squad.product]\nlayout = "team"\n');
+      expect((await squad(sandbox, ['add', 'linked', 'unlinked'])).status).toBe(0);
+      expect(
+        (
+          await squad(sandbox, [
+            'set',
+            'linked',
+            'task=review PR',
+            'pr_link=https://example.com/pull/412',
+          ])
+        ).status
+      ).toBe(0);
+      expect(
+        (await squad(sandbox, ['set', 'unlinked', 'task=write notes', 'pending=approve the plan']))
+          .status
+      ).toBe(0);
+      const calls = path.join(sandbox.root, 'gh-calls');
+      const gh = path.join(bin, 'gh');
+      writeFileSync(
+        gh,
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\nprintf '%s\\n' '{"number":412,"state":"OPEN","isDraft":false,"reviewDecision":"APPROVED"}'\n`
+      );
+      chmodSync(gh, 0o755);
+      const metadata = observe(sandbox);
+      const listed = await squad(sandbox, ['ls', '--squad', 'product', '--refresh-fields']);
+      expect(listed.status).toBe(0);
+      expect(listed.body.squad.layout).toBe('team');
+      expect(listed.body.columns.map((column: { field: string }) => column.field)).toEqual([
+        'member',
+        'state',
+        'task',
+        'pr',
+        'model',
+      ]);
+      expect(listed.body.columns[4].from).toBe('session.model');
+      expect(listed.body.lines[1]).toEqual([
+        { field: null, span: 1 },
+        { field: null, span: 1 },
+        { field: 'pending', span: 3 },
+      ]);
+      const rows = listed.body.sections[0].rows;
+      expect(rows.map((row: { name: string }) => row.name)).toEqual(['unlinked', 'linked']);
+      expect(rows[0]).toMatchObject({
+        state: 'working',
+        pending: 'approve the plan',
+        staleness: { state: 'fresh' },
+      });
+      expect(rows[1].fields.pr).toContain('#412 open');
+      expect(readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(1);
+      const refresh = await squad(sandbox, ['ls', '--squad', 'product', '--refresh-fields']);
+      expect(refresh.status).toBe(0);
+      expect(readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(1);
+      expect(observe(sandbox)).toEqual(metadata);
+      writeFileSync(toml, 'me = "Ben"\n[squad.product]\nlayout = "crew"\n');
+      const crew = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(crew.body.columns.map((column: { field: string }) => column.field)).toEqual([
+        'member',
+        'state',
+        'task',
+        'pr_link',
+      ]);
+      expect(crew.body.sections[0].rows[0].staleness.state).toBe('disabled');
+    });
+  });
+
   it('dispatches rm and remove identically while retaining the identity and its other metadata', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

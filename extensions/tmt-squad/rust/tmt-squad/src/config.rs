@@ -138,6 +138,7 @@ pub enum Layout {
     Crew,
     PrQueue,
     Minimal,
+    Team,
 }
 
 impl Layout {
@@ -146,6 +147,7 @@ impl Layout {
             "crew" => Some(Self::Crew),
             "pr-queue" => Some(Self::PrQueue),
             "minimal" => Some(Self::Minimal),
+            "team" => Some(Self::Team),
             _ => None,
         }
     }
@@ -155,13 +157,14 @@ impl Layout {
             Self::Crew => "crew",
             Self::PrQueue => "pr-queue",
             Self::Minimal => "minimal",
+            Self::Team => "team",
         }
     }
 
     /// Ordered state vocabulary; `add` starts members in the first state.
     pub fn states(self) -> &'static [&'static str] {
         match self {
-            Self::Crew => &["working", "idle", "blocked", "review", "testing", "hold"],
+            Self::Crew | Self::Team => &["working", "idle", "blocked", "review", "testing", "hold"],
             Self::PrQueue => &["preparing", "ready", "sent", "merged"],
             Self::Minimal => &[],
         }
@@ -170,7 +173,7 @@ impl Layout {
     /// Default state colors; `squad.<name>.states` overrides them.
     fn state_colors(self) -> &'static [(&'static str, &'static str)] {
         match self {
-            Self::Crew => &[
+            Self::Crew | Self::Team => &[
                 ("working", "working"),
                 ("idle", "dim"),
                 ("blocked", "blocked"),
@@ -188,10 +191,35 @@ impl Layout {
         }
     }
 
-    /// Crew sorts rows that owe the user a decision (`pending`) first.
+    /// Crew and team sort rows that owe the user a decision (`pending`) first.
     pub fn pending_first(self) -> bool {
-        self == Self::Crew
+        matches!(self, Self::Crew | Self::Team)
     }
+}
+
+/// Opt-in defaults, expressed in the same configuration grammar as overrides.
+const TEAM: &str = r#"
+[team.board]
+layout = { direction = "top-bottom", sizes = [60, 40], panes = [{ direction = "left-right", sizes = [62, 38], panes = ["rows", { direction = "top-bottom", sizes = [50, 50], panes = ["detail", "replies"] }] }, "notes"] }
+[team.rows]
+columns = [
+    { name = "member", width = 14, min = 10 },
+    { name = "state", width = 9 },
+    { name = "task", grow = 1, min = 12 },
+    { name = "pr", width = 18, priority = 2 },
+    { name = "model", from = "session.model", max = 14, priority = 3 },
+]
+lines = [["member", "state", "task", "pr", "model"], ["", "", { field = "pending", span = 3 }]]
+[team.fields.pr]
+preset = "github-pr"
+every = "60s"
+[team.reminders]
+enabled = true
+stale_after = "30m"
+"#;
+
+fn team() -> DocumentMut {
+    TEAM.parse().expect("the team preset is valid TOML")
 }
 
 /// `[tabs]`: see [`Config::tabs`]. Entries are tab keys: a squad name, or
@@ -389,8 +417,18 @@ impl Board {
     }
 
     /// Crew keeps rows and the lead's notes side by side; pr-queue pairs rows
-    /// with the selected row's detail; minimal shows rows only.
+    /// with the selected row's detail; minimal shows rows only. Team nests all
+    /// four panes, with full-width lead notes below the rows/detail/replies.
     fn preset(layout: Layout) -> Self {
+        if layout == Layout::Team {
+            let split = crate::split::read(&team()["team"]["board"]["layout"], "team.board.layout")
+                .expect("the team split is valid");
+            return Self {
+                mode: BoardMode::Split,
+                panes: split.panes(),
+                split,
+            };
+        }
         let (direction, panes, sizes) = match layout {
             Layout::Crew => (
                 Direction::LeftRight,
@@ -403,6 +441,7 @@ impl Board {
                 vec![70, 30],
             ),
             Layout::Minimal => (Direction::LeftRight, vec![Pane::Rows], vec![100]),
+            Layout::Team => unreachable!("team uses its nested split"),
         };
         Self::simple(BoardMode::Split, direction, panes, &sizes)
     }
@@ -730,13 +769,47 @@ impl Config {
             .transpose()
     }
 
-    /// `[squad.<name>.reminders]`, off by default. No global enable switch.
+    /// Team's defaults enter the ordinary row/provider/reminder readers.
+    /// Whole row grids are replaced; provider fields and reminder keys override
+    /// their matching defaults. No other layout's settings are changed.
+    fn preset_settings(&self, squad: &str) -> Result<Option<Table>, SquadError> {
+        let own = self.squad_table(squad)?;
+        if self.layout(squad)? != Layout::Team {
+            return Ok(own.map(|table| {
+                table
+                    .iter()
+                    .map(|(key, value)| (key, value.clone()))
+                    .collect()
+            }));
+        }
+        let mut settings = team()["team"].as_table().expect("team table").clone();
+        // Board::preset owns the pane layout, not this settings projection.
+        settings.remove("board");
+        if let Some(own) = own {
+            if own.get("rows").is_some() || own.get("columns").is_some() {
+                settings.remove("rows");
+            }
+            for (key, item) in own.iter() {
+                if matches!(key, "fields" | "reminders")
+                    && let Some(overrides) = item.as_table_like()
+                {
+                    let defaults = settings[key].as_table_mut().expect("preset table");
+                    for (name, value) in overrides.iter() {
+                        defaults.insert(name, value.clone());
+                    }
+                    continue;
+                }
+                settings.insert(key, item.clone());
+            }
+        }
+        Ok(Some(settings))
+    }
+
+    /// `[squad.<name>.reminders]`, off except team. No global enable switch.
     pub fn reminders(&self, squad: &str) -> Result<Reminders, SquadError> {
         let place = format!("squad.{squad}.reminders");
-        let Some(item) = self
-            .squad_table(squad)?
-            .and_then(|table| table.get("reminders"))
-        else {
+        let settings = self.preset_settings(squad)?;
+        let Some(item) = settings.as_ref().and_then(|table| table.get("reminders")) else {
             return Ok(Reminders::default());
         };
         let table = item
@@ -782,7 +855,7 @@ impl Config {
             None => Ok(Layout::Crew),
             Some(item) => item.as_str().and_then(Layout::parse).ok_or_else(|| {
                 invalid(format!(
-                    "`squad.{squad}.layout` must be crew, pr-queue or minimal."
+                    "`squad.{squad}.layout` must be crew, pr-queue, minimal or team."
                 ))
             }),
         }
@@ -868,7 +941,9 @@ impl Config {
     /// `[squad.<name>.fields]`: the squad's field providers.
     pub fn providers(&self, squad: &str) -> Result<Vec<crate::provider::Provider>, SquadError> {
         crate::provider::read(
-            self.squad_table(squad)?,
+            self.preset_settings(squad)?
+                .as_ref()
+                .map(|table| table as &dyn TableLike),
             squad,
             crate::rows::field_name,
             |field| crate::rows::OWN_FIELDS.contains(&field),
@@ -876,7 +951,12 @@ impl Config {
     }
 
     pub fn rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
-        crate::rows::read(self.squad_table(squad)?, squad)
+        crate::rows::read(
+            self.preset_settings(squad)?
+                .as_ref()
+                .map(|table| table as &dyn TableLike),
+            squad,
+        )
     }
 
     /// `[squad.<name>.board]` over the layout's preset. Validated before the
@@ -940,6 +1020,17 @@ impl Config {
             };
             board.read_collapsed(table.get("collapsed"), &place)?;
             return Ok(board);
+        }
+        if layout == Layout::Team && table.get("panes").is_none() {
+            if let Some(key) = ["direction", "sizes"]
+                .into_iter()
+                .find(|key| table.get(key).is_some())
+            {
+                return Err(invalid(format!(
+                    "`{place}.{key}` cannot partially override team's nested layout; set `{place}.layout` or `{place}.panes`."
+                )));
+            }
+            return Ok(Board { mode, ..preset });
         }
         let (mut direction, mut panes, mut sizes) = match &preset.split {
             crate::split::Split::Group {
@@ -1842,6 +1933,127 @@ sort = ["state", "-name"]
             let code = read(body).refresh("x").err().map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
         }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn team_is_opt_in_and_uses_existing_overrides() {
+        let path = temp("team");
+        let read = |body: &str| {
+            fs::write(&path, body).unwrap();
+            Config::read(path.clone()).unwrap()
+        };
+        let default = read("");
+        assert_eq!(default.layout("x").unwrap(), Layout::Crew);
+        let previous_rows = default.rows("x").unwrap();
+        for layout in ["crew", "pr-queue", "minimal"] {
+            let config = read(&format!("[squad.x]\nlayout = \"{layout}\"\n"));
+            assert_eq!(config.rows("x").unwrap(), previous_rows);
+            assert!(config.providers("x").unwrap().is_empty());
+            assert_eq!(config.reminders("x").unwrap(), Reminders::default());
+        }
+        for layout in [Layout::Crew, Layout::PrQueue, Layout::Minimal] {
+            let expected = default.board("x", layout).unwrap();
+            for body in ["[squad.x.board]\n", "[squad.x.board]\nrefresh = \"10s\"\n"] {
+                assert_eq!(read(body).board("x", layout).unwrap(), expected);
+            }
+        }
+        let config = read("[squad.x]\nlayout = \"team\"\n");
+        let layout = config.layout("x").unwrap();
+        assert_eq!(layout, Layout::Team);
+        assert_eq!(layout.states(), Layout::Crew.states());
+        assert_eq!(
+            config.states("x", layout).unwrap(),
+            default.states("x", Layout::Crew).unwrap()
+        );
+        assert!(layout.pending_first());
+        let rows = config.rows("x").unwrap();
+        assert_eq!(
+            rows.fields(),
+            ["member", "state", "task", "pr", "model", "pending"]
+        );
+        assert_eq!(rows.columns[4].from.as_ref().unwrap().path, "session.model");
+        assert!(
+            !rows.reads_metadata(),
+            "model uses the existing presence projection"
+        );
+        assert_eq!(rows.lines[1][2].field.as_deref(), Some("pending"));
+        assert_eq!(rows.lines[1][2].span, 3);
+        assert_eq!(config.providers("x").unwrap()[0].name, "pr");
+        assert_eq!(
+            config.providers("x").unwrap()[0].every(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            config.reminders("x").unwrap(),
+            Reminders {
+                enabled: true,
+                ..Reminders::default()
+            }
+        );
+        let preset = config.board("x", layout).unwrap();
+        assert_eq!(
+            preset.panes,
+            [Pane::Rows, Pane::Detail, Pane::Replies, Pane::Notes]
+        );
+        assert_eq!(
+            preset.split,
+            crate::split::read(&team()["team"]["board"]["layout"], "team").unwrap()
+        );
+        let refresh = read("[squad.x]\nlayout = \"team\"\n[squad.x.board]\nrefresh = \"10s\"\n");
+        assert_eq!(refresh.board("x", layout).unwrap(), preset);
+        for setting in ["direction = \"left-right\"", "sizes = [50, 50]"] {
+            let partial = read(&format!(
+                "[squad.x]\nlayout = \"team\"\n[squad.x.board]\n{setting}\n"
+            ));
+            let error = partial.board("x", layout).unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+            assert!(error.message.contains("squad.x.board"));
+            assert!(error.message.contains("nested layout"));
+        }
+        let added = read(
+            "[squad.x]\nlayout = \"team\"\n[squad.x.fields.ci]\nrun = [\"echo\", \"ready\"]\n",
+        );
+        let added_providers = added.providers("x").unwrap();
+        let names: std::collections::BTreeSet<_> = added_providers
+            .iter()
+            .map(|provider| provider.name.as_str())
+            .collect();
+        assert_eq!(names, std::collections::BTreeSet::from(["ci", "pr"]));
+        let overrides = read(
+            r#"
+[squad.x]
+layout = "team"
+[squad.x.rows]
+columns = [{ name = "member" }, { name = "pr", from = "fields.pr" }]
+[squad.x.fields.pr]
+run = ["echo", "custom"]
+every = "2m"
+[squad.x.reminders]
+enabled = false
+[squad.x.board]
+panes = ["rows", "notes"]
+"#,
+        );
+        assert_eq!(overrides.rows("x").unwrap().fields(), ["member", "pr"]);
+        assert_eq!(
+            overrides.providers("x").unwrap()[0].every(),
+            Duration::from_secs(120)
+        );
+        assert!(!overrides.reminders("x").unwrap().enabled);
+        assert_eq!(
+            overrides.board("x", layout).unwrap().panes,
+            [Pane::Rows, Pane::Notes]
+        );
+        let tabs = read("[squad.x]\nlayout = \"team\"\n[squad.x.board]\nmode = \"tabs\"\n");
+        assert_eq!(tabs.board("x", layout).unwrap().mode, BoardMode::Tabs);
+        let legacy = read("[squad.x]\nlayout = \"team\"\n[squad.x.columns]\nshow = [\"member\"]\n");
+        assert_eq!(legacy.rows("x").unwrap().fields(), ["member"]);
+        let invalid = read("[squad.x]\nlayout = \"team\"\nreminders = false\n");
+        assert_eq!(
+            invalid.reminders("x").unwrap_err().code,
+            "SQUAD_CONFIG_INVALID"
+        );
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
