@@ -44,13 +44,19 @@ const KEYS: &[&str] = &[
 /// The footer names what the most used keys do for the selected row.
 fn hints(app: &App) -> String {
     let bindings = app.bindings();
-    let mut hints: Vec<String> = [("enter", "⏎"), ("o", "o"), ("y", "y"), ("tab", "tab")]
-        .into_iter()
-        .filter_map(|(event, label)| {
-            let action = bindings.get(event)?;
-            Some(format!("{label} {}", action.verb.name()))
-        })
-        .collect();
+    let mut hints: Vec<String> = [
+        ("enter", "⏎"),
+        ("o", "o"),
+        ("y", "y"),
+        ("tab", "tab"),
+        ("f5", "F5"),
+    ]
+    .into_iter()
+    .filter_map(|(event, label)| {
+        let action = bindings.get(event)?;
+        Some(format!("{label} {}", action.verb.name()))
+    })
+    .collect();
     hints.extend(["/ search", "←→ tab"].map(str::to_owned));
     if !bindings.contains_key("s") {
         hints.push("s switch".into());
@@ -177,8 +183,47 @@ fn age_mark(spans: &mut Vec<Span<'static>>, age: &str, width: usize, look: crate
 }
 
 /// Shown only when a switch takes long enough to notice.
-const SPINNER_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+pub(super) const SPINNER_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+const SPINNER_TICK: std::time::Duration = std::time::Duration::from_millis(80);
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+pub(super) fn spinner_frame(app: &App, now: std::time::Instant) -> Option<usize> {
+    let elapsed = now.checked_duration_since(app.loading_since?)?;
+    (elapsed >= SPINNER_DELAY).then(|| {
+        ((elapsed - SPINNER_DELAY).as_millis() / SPINNER_TICK.as_millis()) as usize % SPINNER.len()
+    })
+}
+
+pub(super) fn spinner_wait(app: &App, now: std::time::Instant) -> Option<std::time::Duration> {
+    let elapsed = now.checked_duration_since(app.loading_since?)?;
+    Some(if elapsed < SPINNER_DELAY {
+        SPINNER_DELAY - elapsed
+    } else {
+        SPINNER_TICK
+            - std::time::Duration::from_millis(
+                ((elapsed - SPINNER_DELAY).as_millis() % SPINNER_TICK.as_millis()) as u64,
+            )
+    })
+}
+
+/// Reply age is the board's only clock-derived text. Hidden replies do not
+/// invalidate a frame, and minute/hour marks redraw only when their text changes.
+pub(super) fn time_marks(app: &App, now: u64) -> Vec<String> {
+    let Some(view) = &app.view else {
+        return Vec::new();
+    };
+    let visible = match view.board.mode {
+        BoardMode::Split => view.board.panes.contains(&Pane::Replies),
+        BoardMode::Tabs => app.focused() == Pane::Replies,
+    };
+    if !visible {
+        return Vec::new();
+    }
+    view.replies
+        .iter()
+        .filter_map(|reply| reply["submittedAtMs"].as_u64().map(|at| age(now, at)))
+        .collect()
+}
 
 /// One pane tab (tabs mode), the same width selected or not: the selected
 /// one is bracketed, the others padded.
@@ -226,7 +271,7 @@ fn tab(
     Span::styled(text, style)
 }
 
-/// The first header line: only the tabs, and the loading spinner. Each
+/// The first header line: only the tabs. Each
 /// tab's place is recorded for clicks and drags. When the tabs do not fit,
 /// the line scrolls to keep the current tab in view, as little as possible
 /// from the last frame, and counts the tabs off each end (`‹ 3`, `5 ›`),
@@ -382,9 +427,15 @@ fn tab_window(
     }
 }
 
-/// The second header line: the shown squad's summary.
+/// The second header line: the shown squad's summary or delayed loading indicator.
 fn summary_line(app: &App) -> Line<'_> {
     let look = app.look();
+    if let Some(frame) = spinner_frame(app, std::time::Instant::now()) {
+        return Line::from(Span::styled(
+            format!("{} loading", SPINNER[frame]),
+            look.role(Role::Accent).add_modifier(Modifier::BOLD),
+        ));
+    }
     let Some(view) = app.view.as_ref().filter(|_| !app.loading()) else {
         return Line::default();
     };
@@ -694,16 +745,25 @@ fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
         Notes::Failed(error) => error.as_str(),
     };
     let width = usize::from(area.width);
-    let lines: Vec<Line> = match (&view.notes, view.render) {
-        (Notes::Text(text), NotesRender::Markdown) => markdown::render(text, width, look),
-        (Notes::Text(text), NotesRender::Plain) => {
-            wrap(text, width).into_iter().map(Line::from).collect()
-        }
-        _ => wrap(text, width)
-            .into_iter()
-            .map(|line| Line::styled(line, look.named("dim")))
-            .collect(),
-    };
+    let mut derived = view.derived.borrow_mut();
+    if derived
+        .notes
+        .as_ref()
+        .is_none_or(|(cached_width, _)| *cached_width != width)
+    {
+        let lines: Vec<Line> = match (&view.notes, view.render) {
+            (Notes::Text(text), NotesRender::Markdown) => markdown::render(text, width, look),
+            (Notes::Text(text), NotesRender::Plain) => {
+                wrap(text, width).into_iter().map(Line::from).collect()
+            }
+            _ => wrap(text, width)
+                .into_iter()
+                .map(|line| Line::styled(line, look.named("dim")))
+                .collect(),
+        };
+        derived.notes = Some((width, lines));
+    }
+    let lines = &derived.notes.as_ref().expect("prepared notes").1;
     app.scrolls
         .show(frame, Pane::Notes, area, lines, look.named("dim"));
 }
@@ -867,57 +927,71 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         return;
     };
     let rows = &view.rows;
-    // Unsized columns start from their widest value on the board.
-    let natural = |index: usize| {
-        let field = &rows.columns[index].field;
-        app.items()
+    let mut derived = view.derived.borrow_mut();
+    let available = usize::from(area.width).saturating_sub(2);
+    if derived
+        .grid
+        .as_ref()
+        .is_none_or(|grid| grid.width != available || grid.search != app.search)
+    {
+        // Unsized columns start from their widest value on the board.
+        let natural = |index: usize| {
+            let field = &rows.columns[index].field;
+            app.items()
+                .into_iter()
+                .filter_map(|item| match item {
+                    Item::Row(row) => cell_text(row, field),
+                    Item::Header(_) => None,
+                })
+                // Measured as drawn: `grid::fit` shows control characters escaped.
+                .map(|value| tmt_cli_style::table::escape(value).width())
+                .chain([rows.columns[index].title.width()])
+                .max()
+                .unwrap_or(0)
+        };
+        let tracks: Vec<_> = (0..rows.columns.len())
+            .map(|index| rows.columns[index].track(natural(index)))
+            .collect();
+        // Two cells for the row mark, and room at the right for the widest age
+        // mark when a row has one, unless that would hide a column: then the
+        // marks give way.
+        let available = usize::from(area.width).saturating_sub(2);
+        let widths = grid::solve(&tracks, Some(available), GAP);
+        let ages = app
+            .items()
             .into_iter()
             .filter_map(|item| match item {
-                Item::Row(row) => cell_text(row, field),
+                Item::Row(row) => crate::staleness::label(&row["staleness"]),
                 Item::Header(_) => None,
             })
-            // Measured as drawn: `grid::fit` shows control characters escaped.
-            .map(|value| tmt_cli_style::table::escape(value).width())
-            .chain([rows.columns[index].title.width()])
-            .max()
-            .unwrap_or(0)
-    };
-    let tracks: Vec<_> = (0..rows.columns.len())
-        .map(|index| rows.columns[index].track(natural(index)))
-        .collect();
-    // Two cells for the row mark, and room at the right for the widest age
-    // mark when a row has one, unless that would hide a column: then the
-    // marks give way.
-    let available = usize::from(area.width).saturating_sub(2);
-    let widths = grid::solve(&tracks, Some(available), GAP);
-    let ages = app
-        .items()
-        .into_iter()
-        .filter_map(|item| match item {
-            Item::Row(row) => crate::staleness::label(&row["staleness"]),
-            Item::Header(_) => None,
-        })
-        .map(|age| age.width() + GAP)
-        .max();
-    let widths = match ages {
-        Some(age) => {
-            let reserved = grid::solve(&tracks, Some(available.saturating_sub(age)), GAP);
-            let shown = |widths: &[Option<usize>]| widths.iter().flatten().count();
-            if shown(&reserved) == shown(&widths) {
-                reserved
-            } else {
-                widths
+            .map(|age| age.width() + GAP)
+            .max();
+        let widths = match ages {
+            Some(age) => {
+                let reserved = grid::solve(&tracks, Some(available.saturating_sub(age)), GAP);
+                let shown = |widths: &[Option<usize>]| widths.iter().flatten().count();
+                if shown(&reserved) == shown(&widths) {
+                    reserved
+                } else {
+                    widths
+                }
             }
-        }
-        None => widths,
-    };
+            None => widths,
+        };
+        derived.grid = Some(super::derived::Grid {
+            width: available,
+            search: app.search.clone(),
+            widths,
+        });
+    }
+    let widths = &derived.grid.as_ref().expect("prepared grid").widths;
     let note_column = rows.fields().contains(&"note");
     let mut lines = vec![Line::from(Span::styled(
         format!(
             "  {}",
             rows.columns
                 .iter()
-                .zip(&widths)
+                .zip(widths)
                 .filter_map(|(column, width)| width.map(|width| grid::fit(
                     &column.title,
                     width,
@@ -963,7 +1037,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 for (index, cells) in rows.lines.iter().enumerate() {
                     let first = index == 0;
                     let Some(cells) =
-                        grid_line(look, rows, &widths, cells, row, first, &view.colors)
+                        grid_line(look, rows, widths, cells, row, first, &view.colors)
                     else {
                         continue;
                     };
@@ -1084,6 +1158,7 @@ mod tests {
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
+                derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
                 rows: columns(),
                 colors: BTreeMap::from([("blocked".into(), "amber".into())]),
@@ -1317,7 +1392,7 @@ lines = [
 
         app.view.as_mut().unwrap().bindings = crate::action::preset(false);
         app.help = true;
-        let help = draw(&app, 60, 24);
+        let help = draw(&app, 60, 26);
         assert!(
             help.iter().any(|line| line == "y           copy"),
             "{help:#?}"
@@ -1328,7 +1403,7 @@ lines = [
             "{help:#?}"
         );
         app.view.as_mut().unwrap().refresh = None;
-        let help = draw(&app, 60, 24);
+        let help = draw(&app, 60, 26);
         assert!(
             help.iter()
                 .any(|line| line == "reload      automatic reload is off"),
@@ -1395,6 +1470,7 @@ lines = [
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
+                derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
                     {"title": null, "rows": [row("auth-fix", "blocked", "rotate tokens", json!({
                         "pending": "approve the plan", "note": "needs a call", "presence": "active", "state": "blocked",
@@ -2071,7 +2147,7 @@ lines = [
         assert!(during[0].starts_with(" product   reviews "), "{during:?}");
         assert_eq!(before[0].trim_end(), " product   reviews");
         assert!(
-            during[0].contains("loading"),
+            during[1].contains("loading"),
             "a slow switch shows a spinner"
         );
         assert!(
@@ -2317,5 +2393,120 @@ lines = [
         );
         assert!(!screen.iter().any(|line| line.contains("line 01")));
         assert_eq!(app.selected, 0);
+    }
+    #[test]
+    fn loading_is_delayed_animated_and_absent_on_a_cached_switch() {
+        let mut app = board(json!([]));
+        let started = std::time::Instant::now();
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.loading_since = Some(started);
+        assert_eq!(
+            spinner_frame(
+                &app,
+                started + SPINNER_DELAY - std::time::Duration::from_millis(1)
+            ),
+            None
+        );
+        assert_eq!(spinner_frame(&app, started + SPINNER_DELAY), Some(0));
+        assert_eq!(
+            spinner_frame(&app, started + SPINNER_DELAY + SPINNER_TICK),
+            Some(1)
+        );
+        app.apply(crate::board::app::tests::snapshot("reviews", json!([])));
+        app.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        assert!(!app.loading());
+        assert_eq!(spinner_frame(&app, std::time::Instant::now()), None);
+        assert!(
+            draw(&app, 60, 8)
+                .iter()
+                .all(|line| !line.contains("loading"))
+        );
+    }
+
+    #[test]
+    fn derivations_survive_selection_and_change_with_width_search_and_snapshot() {
+        let mut app = board(
+            json!([{ "title": null, "rows": [row("first", "working", "one", json!({})), row("second", "working", "two", json!({}))] }]),
+        );
+        let view = app.view.as_mut().unwrap();
+        view.board = crate::config::Board::simple(
+            BoardMode::Tabs,
+            Direction::LeftRight,
+            vec![Pane::Rows, Pane::Notes],
+            &[],
+        );
+        view.notes = Notes::Text("# Notes\nA sentence that wraps at a narrow width.".into());
+        draw(&app, 60, 12);
+        assert_eq!(
+            app.view
+                .as_ref()
+                .unwrap()
+                .derived
+                .borrow()
+                .grid
+                .as_ref()
+                .unwrap()
+                .width,
+            56
+        );
+        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert!(
+            draw(&app, 60, 12)
+                .iter()
+                .any(|line| line.contains("second"))
+        );
+        app.search = "second".into();
+        draw(&app, 35, 12);
+        let grid = app.view.as_ref().unwrap().derived.borrow();
+        assert_eq!(grid.grid.as_ref().unwrap().search, "second");
+        assert_eq!(grid.grid.as_ref().unwrap().width, 31);
+        drop(grid);
+        app.focus = 1;
+        draw(&app, 60, 12);
+        let lines = app
+            .view
+            .as_ref()
+            .unwrap()
+            .derived
+            .borrow()
+            .notes
+            .as_ref()
+            .unwrap()
+            .1
+            .clone();
+        draw(&app, 25, 12);
+        assert_ne!(
+            app.view
+                .as_ref()
+                .unwrap()
+                .derived
+                .borrow()
+                .notes
+                .as_ref()
+                .unwrap()
+                .1,
+            lines
+        );
+        app.apply(crate::board::app::tests::snapshot("product", json!([])));
+        assert!(app.view.as_ref().unwrap().derived.borrow().notes.is_none());
+        assert!(app.view.as_ref().unwrap().derived.borrow().grid.is_none());
+    }
+    #[test]
+    fn only_visible_reply_age_text_invalidates_the_clock() {
+        let mut app = board(json!([]));
+        let view = app.view.as_mut().unwrap();
+        view.board = crate::config::Board::simple(
+            BoardMode::Tabs,
+            Direction::LeftRight,
+            vec![Pane::Rows, Pane::Replies],
+            &[],
+        );
+        view.replies = vec![json!({ "submittedAtMs": 1_000 })];
+        assert!(time_marks(&app, 61_000).is_empty());
+        app.focus = 1;
+        let first = time_marks(&app, 61_000);
+        assert!(!first.is_empty());
+        assert_eq!(first, time_marks(&app, 61_200));
+        assert_ne!(first, time_marks(&app, 121_000));
     }
 }

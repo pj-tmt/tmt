@@ -41,7 +41,6 @@ impl Stamp {
 }
 
 pub struct Changes {
-    core: Core,
     config: Option<PathBuf>,
     fields: Option<PathBuf>,
     /// False once core reports it has no change cursor; never asked again.
@@ -51,18 +50,17 @@ pub struct Changes {
 impl Changes {
     /// `config` is squad.toml's path, when it could be found; `fields` the
     /// field provider cache directory.
-    pub fn new(core: Core, config: Option<PathBuf>, fields: Option<PathBuf>) -> Self {
+    pub fn new(config: Option<PathBuf>, fields: Option<PathBuf>) -> Self {
         Self {
-            core,
             config,
             fields,
             cursor: true,
         }
     }
 
-    pub fn stamp(&mut self) -> Stamp {
+    pub fn stamp(&mut self, core: &Core) -> Stamp {
         Stamp {
-            cursor: self.cursor(),
+            cursor: self.cursor(core),
             config: self.config.as_ref().and_then(|path| {
                 let metadata = std::fs::metadata(path).ok()?;
                 Some((metadata.modified().ok()?, metadata.len()))
@@ -74,11 +72,11 @@ impl Changes {
         }
     }
 
-    fn cursor(&mut self) -> Option<Value> {
+    fn cursor(&mut self, core: &Core) -> Option<Value> {
         if !self.cursor {
             return None;
         }
-        match self.core.api("changes.cursor", json!({})) {
+        match core.api("changes.cursor", json!({})) {
             Ok(document) => document.get("cursor").cloned(),
             // An older core: it has no such operation.
             Err(error) if error.code == "API_INPUT_INVALID" => {
@@ -121,11 +119,7 @@ mod tests {
             ),
         );
         std::fs::write(&cursor, "7").unwrap();
-        let changes = Changes::new(
-            Core::at(fake),
-            Some(config.clone()),
-            Some(dir.join("fields")),
-        );
+        let changes = Changes::new(Some(config.clone()), Some(dir.join("fields")));
         (changes, cursor, config, dir)
     }
 
@@ -139,10 +133,11 @@ mod tests {
     #[test]
     fn a_new_cursor_or_a_rewritten_squad_toml_is_a_change_and_a_repeat_is_not() {
         let (mut changes, cursor, config, dir) = fake("moved");
-        let first = changes.stamp();
+        let core = Core::at(dir.join("tmt"));
+        let first = changes.stamp(&core);
         assert_eq!(first.cursor, Some(json!(7)));
         assert!(first.config.is_none(), "no squad.toml yet");
-        assert!(!first.moved(&changes.stamp()));
+        assert!(!first.moved(&changes.stamp(&core)));
         let request = std::fs::read_to_string(dir.join("calls")).unwrap();
         assert_eq!(
             serde_json::from_str::<Value>(request.lines().next().unwrap()).unwrap(),
@@ -151,32 +146,40 @@ mod tests {
         );
 
         std::fs::write(&cursor, "8").unwrap();
-        let second = changes.stamp();
+        let second = changes.stamp(&core);
         assert!(first.moved(&second), "the cursor advanced");
 
         std::fs::write(&config, "[board]\n").unwrap();
-        let third = changes.stamp();
+        let third = changes.stamp(&core);
         assert!(second.moved(&third), "squad.toml appeared");
         std::fs::write(&config, "[board]\nrefresh = \"2s\"\n").unwrap();
-        assert!(third.moved(&changes.stamp()), "squad.toml was rewritten");
+        assert!(
+            third.moved(&changes.stamp(&core)),
+            "squad.toml was rewritten"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_failed_read_is_no_change_and_an_older_core_is_never_asked_again() {
         let (mut changes, cursor, _config, dir) = fake("fallback");
-        let before = changes.stamp();
+        let core = Core::at(dir.join("tmt"));
+        let before = changes.stamp(&core);
         std::fs::write(&cursor, "error SQUAD_CORE_UNAVAILABLE").unwrap();
-        let failed = changes.stamp();
+        let failed = changes.stamp(&core);
         assert_eq!(failed.cursor, None);
         assert!(!before.moved(&failed) && !failed.moved(&before));
         assert!(changes.cursor, "a transient failure keeps asking");
 
         std::fs::write(&cursor, "error API_INPUT_INVALID").unwrap();
-        assert_eq!(changes.stamp().cursor, None);
+        assert_eq!(changes.stamp(&core).cursor, None);
         let asked = calls(&dir);
         std::fs::write(&cursor, "9").unwrap();
-        assert_eq!(changes.stamp().cursor, None, "the fallback is permanent");
+        assert_eq!(
+            changes.stamp(&core).cursor,
+            None,
+            "the fallback is permanent"
+        );
         assert_eq!(calls(&dir), asked, "and costs no more core calls");
         let _ = std::fs::remove_dir_all(dir);
     }

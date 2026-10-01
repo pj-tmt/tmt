@@ -247,6 +247,7 @@ pub fn preset(tmux: bool) -> Bindings {
         ("y", "copy"),
         ("n", "notes"),
         ("tab", "next-pane"),
+        ("f5", "refresh"),
     ]
     .into_iter()
     // Only a host that can show a pane can jump to the lead.

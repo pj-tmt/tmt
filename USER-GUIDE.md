@@ -501,9 +501,10 @@ refresh = "2s"             # this squad's board
 
 Switching squads never blanks the screen: a squad you already
 visited shows at once while it refreshes, and otherwise the current frame stays
-until the new one is ready, with a small spinner if that takes a moment (row
-actions wait until it arrives). Tabs keep their width, so switching never moves
-them.
+until the new one is ready (row actions wait until it arrives). An uncached
+switch that takes at least 100 ms shows an animated loading indicator on the
+summary line; cached switches show no loading indicator. A newer switch
+preempts the old load. Tabs keep their width, so switching never moves them.
 
 The first header line holds only the tabs. The selected tab is shown in
 reverse. Each tab is colored by what it needs from you: `waiting` when a member
@@ -518,7 +519,7 @@ takes the color of the most pressing tab it hides. Tabs listed in
 `[tabs] pin = [...]` come first, in that order, and stay in view while the rest
 scroll; moving tabs never moves or passes a pin. Selecting or scrolling never
 changes a tab's width. A tab widens or narrows only when its own counts change.
-The second line is the shown squad's summary: `lead sol · 4 members · 1 waiting on you`.
+The second line is the shown squad's summary: `lead sol · 4 members · 1 waiting on you`, or the loading indicator during a slow uncached switch.
 
 Besides one tab per squad, the board has two built-in tabs:
 

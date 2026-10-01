@@ -2490,7 +2490,18 @@ the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data. The input loop asks for a reload at the shown squad's `refresh`
+painted data. Input, snapshots and deferred tab attention share one event channel;
+a snapshot wakes the painter directly. The input loop rebuilds only after a
+state/input/resize change or when displayed clock text or the delayed spinner
+changes. Each immutable view owns disposable markdown wrapping and grid-width
+derivations keyed by effective pane width (and grid search); replacing the view
+invalidates them, and the scroll renderer copies only visible lines.
+A switch advances the worker's generation, cancelling superseded core reads in
+Squad's existing bounded process-group runner. Cancellation kills and reaps the
+child group without changing ordinary command deadlines or output bounds;
+queued results carry their generation and cannot replace a newer view. Worker
+shutdown cancels its core read, disconnects requests and joins after terminal
+restoration. The input loop asks for a reload at the shown squad's `refresh`
 interval (`Config::refresh`: per squad, then top-level `[board]`, then 5 s;
 `None` is off), which each snapshot carries, so a squad that failed to load
 retries at the default. That timer always runs. Between requests the refresh
@@ -2502,15 +2513,21 @@ change, and `API_INPUT_INVALID` (a core without the method) stops cursor reads
 for the session, leaving the file check and the interval. A switch never clears the view: `App` keeps the view of each
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
-swaps in whole; a result for a squad the user left only refreshes that cache.
+swaps in whole. An uncached switch that lasts at least 100 ms shows a spinner in
+the fixed summary header, ticking every 80 ms; cached switches show no loading
+indicator. F5 defaults to refresh in squad, leads and all views; squad/leads
+bindings can rebind it through `[bind]`, while all keeps its own `[tabs.all.bind]`.
 Tabs are the same width selected or not: selection is a style, never extra
 characters. `attention::Attention` is the one definition of a squad's tab
 state, derived from its status document: members waiting on the user (`pending`
 or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
 `squad.attention`. The refresh computes it for the shown squad from that
-document, and for every other squad from a roster-only document (one
-`rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
-tabs are colored without loading their rows.
+document and publishes that view first. The same worker then computes every
+other squad's attention from a roster-only document (one `rooms.roster` read
+each, plus one `inbox` read shared by all, and no `ls`). Previous tab attention
+stays visible until that generation's update arrives; a newer switch preempts
+this lower-priority work. The cross-squad leads/all views still read the rosters
+needed for their own rows before publication.
 
 Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
 board refresh and reminder timing. Callers retain their accepted units, numeric

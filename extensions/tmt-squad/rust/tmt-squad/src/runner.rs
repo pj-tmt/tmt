@@ -5,6 +5,10 @@ use std::{
     ffi::OsString,
     io::{self, Write},
     path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 use subprocess::{Exec, ExecExt, Job, JobExt, Redirection};
@@ -26,7 +30,30 @@ pub enum RunError {
     Timeout,
     OutputLimit,
     Io,
+    Cancelled,
 }
+
+/// One board load's generation. Superseding a switch also cancels a child
+/// currently being read, without changing deadlines for ordinary commands.
+#[derive(Clone)]
+pub struct Cancellation {
+    generation: Arc<AtomicU64>,
+    expected: u64,
+}
+
+impl Cancellation {
+    pub fn new(generation: Arc<AtomicU64>, expected: u64) -> Self {
+        Self {
+            generation,
+            expected,
+        }
+    }
+    pub fn cancelled(&self) -> bool {
+        self.generation.load(Ordering::Acquire) != self.expected
+    }
+}
+
+const CANCEL_WAIT: Duration = Duration::from_millis(20);
 
 /// Runs `program args` with `input` on stdin in its own process group. A
 /// deadline or output-limit failure kills that group and reaps the child.
@@ -37,6 +64,18 @@ pub fn run(
     timeout: Duration,
     max_output_bytes: usize,
 ) -> Result<Finished, RunError> {
+    run_cancellable(program, args, input, timeout, max_output_bytes, None)
+}
+
+pub fn run_cancellable(
+    program: &Path,
+    args: &[OsString],
+    input: &[u8],
+    timeout: Duration,
+    max_output_bytes: usize,
+    cancellation: Option<&Cancellation>,
+) -> Result<Finished, RunError> {
+    check_cancelled(cancellation)?;
     let deadline = Instant::now() + timeout;
     let mut job = Exec::cmd(program)
         .args(args.iter().cloned())
@@ -46,7 +85,7 @@ pub fn run(
         .setpgid()
         .start()
         .map_err(|_| RunError::Spawn)?;
-    let result = communicate(&mut job, deadline, max_output_bytes);
+    let result = communicate(&mut job, deadline, max_output_bytes, cancellation);
     if result.is_err() {
         // Best effort by design: the failure is already reported, and a
         // stuck child must not turn into an unbounded destructor wait.
@@ -65,29 +104,60 @@ fn remaining(deadline: Instant) -> Result<Duration, RunError> {
         .ok_or(RunError::Timeout)
 }
 
-fn communicate(job: &mut Job, deadline: Instant, limit: usize) -> Result<Finished, RunError> {
+fn check_cancelled(cancellation: Option<&Cancellation>) -> Result<(), RunError> {
+    if cancellation.is_some_and(Cancellation::cancelled) {
+        Err(RunError::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+fn wait_budget(
+    deadline: Instant,
+    cancellation: Option<&Cancellation>,
+) -> Result<Duration, RunError> {
+    check_cancelled(cancellation)?;
+    let left = remaining(deadline)?;
+    Ok(if cancellation.is_some() {
+        left.min(CANCEL_WAIT)
+    } else {
+        left
+    })
+}
+
+fn communicate(
+    job: &mut Job,
+    deadline: Instant,
+    limit: usize,
+    cancellation: Option<&Cancellation>,
+) -> Result<Finished, RunError> {
     let mut stdout = Capped::new(limit);
     let mut stderr = Capped::new(limit);
     {
-        let mut communication = job
-            .communicate()
-            .map_err(|_| RunError::Io)?
-            .limit_time(remaining(deadline)?);
-        if let Err(error) = communication.read_to(&mut stdout, &mut stderr) {
-            return Err(if stdout.exceeded || stderr.exceeded {
-                RunError::OutputLimit
-            } else if error.kind() == io::ErrorKind::TimedOut {
-                RunError::Timeout
-            } else {
-                RunError::Io
-            });
+        let mut communication = job.communicate().map_err(|_| RunError::Io)?;
+        loop {
+            communication = communication.limit_time(wait_budget(deadline, cancellation)?);
+            match communication.read_to(&mut stdout, &mut stderr) {
+                Ok(()) => break,
+                Err(_) if stdout.exceeded || stderr.exceeded => return Err(RunError::OutputLimit),
+                Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                    remaining(deadline)?;
+                }
+                Err(_) => return Err(RunError::Io),
+            }
         }
     }
-    // Closed pipes are not completion; the child must also exit in time.
-    let status = job
-        .wait_timeout(remaining(deadline)?)
-        .map_err(|_| RunError::Io)?
-        .ok_or(RunError::Timeout)?;
+    // Pipes can close before the child exits. Cancellation and the original
+    // deadline cover this phase too, with the same cleanup owner.
+    let status = loop {
+        if let Some(status) = job
+            .wait_timeout(wait_budget(deadline, cancellation)?)
+            .map_err(|_| RunError::Io)?
+        {
+            break status;
+        }
+    };
+    check_cancelled(cancellation)?;
     Ok(Finished {
         success: status.success(),
         stdout: stdout.bytes,
@@ -190,5 +260,78 @@ mod tests {
             !marker.exists(),
             "the background descendant was killed with its group"
         );
+    }
+    #[test]
+    fn cancellation_prevents_spawn_and_preserves_output_across_read_slices() {
+        let generation = Arc::new(AtomicU64::new(1));
+        let obsolete = Cancellation::new(Arc::clone(&generation), 0);
+        assert_eq!(
+            run_cancellable(
+                Path::new("/nonexistent/tmt"),
+                &[],
+                b"",
+                Duration::from_secs(2),
+                64,
+                Some(&obsolete)
+            )
+            .unwrap_err(),
+            RunError::Cancelled
+        );
+        let current = Cancellation::new(generation, 1);
+        let finished = run_cancellable(
+            Path::new("/bin/sh"),
+            &[
+                "-c".into(),
+                "printf first; sleep 0.08; printf second".into(),
+            ],
+            b"",
+            Duration::from_secs(2),
+            64,
+            Some(&current),
+        )
+        .unwrap();
+        assert!(finished.success);
+        assert_eq!(finished.stdout, b"firstsecond");
+    }
+
+    #[test]
+    fn cancellation_kills_the_group_with_open_or_closed_output_pipes() {
+        for closed in [false, true] {
+            let root =
+                std::env::temp_dir().join(format!("squad-cancel-{}-{closed}", std::process::id()));
+            std::fs::create_dir(&root).unwrap();
+            let ready = root.join("ready");
+            let survived = root.join("survived");
+            let generation = Arc::new(AtomicU64::new(0));
+            let cancellation = Cancellation::new(Arc::clone(&generation), 0);
+            let script = format!(
+                "{} (sleep 1; touch '{}') & touch '{}'; sleep 30",
+                if closed { "exec >/dev/null 2>&1;" } else { "" },
+                survived.display(),
+                ready.display()
+            );
+            let child = std::thread::spawn(move || {
+                run_cancellable(
+                    Path::new("/bin/sh"),
+                    &["-c".into(), script.into()],
+                    b"",
+                    Duration::from_secs(3),
+                    64,
+                    Some(&cancellation),
+                )
+            });
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !ready.exists() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(ready.exists(), "child reached the cancellable wait");
+            let cancelled = Instant::now();
+            generation.store(1, Ordering::Release);
+            assert_eq!(child.join().unwrap().unwrap_err(), RunError::Cancelled);
+            assert!(cancelled.elapsed() < Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(1100));
+            assert!(!survived.exists(), "the descendant was killed too");
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 }
