@@ -608,7 +608,12 @@ version, which path dependencies a component links, which crates have a `Cargo.l
 entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
 `readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata; native
 CLI version expectations reuse that reader once per suite instead of parsing TOML separately. A
-`Cargo.lock` line is updated by whichever component declares that crate's version.
+`Cargo.lock` line is updated by whichever component declares that crate's version: a crate
+that inherits the workspace version is declared by the owner of `rust/Cargo.toml`, even when
+a private `release: false` component owns the crate, because the next locked build fails
+when that release leaves its entry behind. Office is parked this way: it owns its files and
+CI scope but has no release-please package, manifest entry or release run, and its binary
+opts out of cargo-dist with `dist = false`.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service

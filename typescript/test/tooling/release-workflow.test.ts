@@ -262,7 +262,7 @@ describe('release workflow (release.yml)', () => {
   it('starts a release run per product, only in a live run, and never publishes', () => {
     const dispatch = job(release, 'dispatch');
     expect(dispatch).toContain('needs: release-please');
-    expect(dispatch).toMatch(/product:\n {10}- cli\n {10}- office\n {10}- squad/);
+    expect(dispatch).toMatch(/product:\n {10}- cli\n {10}- squad/);
     expect(dispatch).toContain('typescript/scripts/plan-release-builds.mjs --product "$PRODUCT"');
     // `prepare` defaults to true in native-release.yml, so a run that attaches to drafts must
     // turn it off explicitly, and this is the only place that starts one.
@@ -285,15 +285,19 @@ describe('release workflow (release.yml)', () => {
       .filter(([, component]) => component.release !== false)
       .map(([name]) => name)
       .sort();
-    expect(components['browser-addon'].release).toBe(false);
-    expect(products).not.toContain('browser-addon');
+    // Parked components own files and CI scope but start no release run.
+    for (const parked of ['browser-addon', 'office']) {
+      expect(components[parked].release).toBe(false);
+      expect(products).not.toContain(parked);
+    }
     const matrix = /product:\n((?: {10}- [a-z]+\n)+)/.exec(job(release, 'dispatch'))?.[1] ?? '';
     expect(matrix.match(/[a-z]+(?=\n)/g)?.sort()).toEqual(products);
     const config = JSON.parse(read('release-please-config.json')) as {
       packages: Record<string, unknown>;
     };
     expect(Object.keys(config.packages)).toHaveLength(products.length);
-    expect(config.packages[components['browser-addon'].owns[0]]).toBeUndefined();
+    for (const parked of ['browser-addon', 'office'])
+      expect(config.packages[components[parked].owns[0]]).toBeUndefined();
   });
 });
 
