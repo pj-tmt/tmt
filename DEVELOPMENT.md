@@ -1107,6 +1107,12 @@ and permission/cwd planning. They use disposable state and owned stand-ins; they
 do not establish live-provider or shared product-routing acceptance. See the
 [contract](contracts/codex-channel-v1.md).
 
+Codex lease/supervisor unit tests use owned processes and loopback peers to
+separate endpoint cleanup from foreground retirement. Preserve the launcher
+SIGKILL, Unknown-publication and unconfirmed-startup cases when changing these
+owners. The existing nix dev-only `net` feature supports a bound non-listening
+refusal peer; production transport never retries to make a test pass.
+
 ## Docker E2E
 
 Run the full private tmux/caller lifecycle harness twice for lifecycle,

@@ -2069,6 +2069,15 @@ planning routes supported typed settings to the server/thread and refuses generi
 permission overrides before spawn. No shared routing or registration changes in
 this slice; the [contract](contracts/codex-channel-v1.md) owns these definitions.
 
+The #786 lease/supervisor composition remains unregistered. `lease` combines
+record, endpoint, typed thread creation and foreground planning; `supervisor`
+owns the original endpoint child and a launcher-only close-on-exec control
+socket. EOF cleans the endpoint but preserves enrollment. Explicit withdrawal
+requires no spawned child or the same child confirmed reaped. `channel_context`
+is the single record-derived child environment locator owner; later hooks use
+it without granting ambient environment authority. No CLI or routing entry
+point invokes these modules in this slice.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent

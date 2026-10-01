@@ -2,9 +2,9 @@
 
 Status: unregistered Codex groundwork under #719/#329. The #785 foundations
 extend #736–#738 with pane/foreground record state, exact takeover/prune/withdraw,
-startup cleanup certainty and permission planning. Lease composition, consumer
-routing and user-facing registration remain later slices. This slice neither
-registers a channel nor invokes a native delivery path.
+startup cleanup certainty and permission planning. Lease composition and launcher-only supervision are added in #786. Consumer
+routing and user-facing registration remain later slices. These modules are
+unregistered: no CLI launch or delivery invokes this native channel yet.
 
 ## Delivery receipt
 
@@ -185,3 +185,34 @@ When cleanup cannot be confirmed, created files are retained. Later lease code
 must preserve enrollment as well; this foundation does not yet compose that owner
 or register a channel. Native tests prove record transitions and permission/cwd
 planning, not user-facing delivery or launcher-crash cleanup.
+
+## Owned lease and supervisor (#786)
+
+`drivers/codex/supervisor` owns the original app-server child and its process
+group. A private, close-on-exec launcher socket controls its lifetime; neither
+the provider nor the attached foreground inherits the launcher endpoint. Launcher
+EOF, including SIGKILL, reaps the server and removes only its owned capability
+files while retaining enrollment. Explicit withdrawal is separate: it may retire
+the exact record only after no child was spawned or the same foreground child
+was confirmed reaped. Wait errors, panic and early return do not supply that
+proof. The supervisor never signals a later observed PID.
+
+Supervisor failure itself is a limitation: killing the supervisor can prevent
+its owned-child cleanup. Timeout or unconfirmed cleanup retains evidence and
+reports failure, rather than claiming that the endpoint or foreground ended.
+Manual recovery requires first verifying that the named pane's original
+foreground and endpoint are gone, then removing only the exact named stale
+record. Recovery is separate from delivery and never pastes a payload. Shell
+commands in recovery diagnostics must quote paths, including embedded apostrophes.
+
+The lease creates exactly one thread on its owned endpoint, verifies the returned
+thread UUID and resolved cwd, and supplies that ID to later atomic foreground
+admission. Child environment locators have one provider-local owner,
+`channel_context`; their presence is never authority. The future hook consumer
+must validate the private record before using them.
+
+Mock lifecycle tests exercise startup failure with unconfirmed cleanup, EOF and
+launcher SIGKILL with a surviving foreground, Unknown publication and explicit
+confirmed withdrawal. They do not establish real CLI routing or activation.
+The deterministic connect-refusal test holds a bound non-listening socket using
+the existing nix dev-only `net` feature; no product retry or dependency is added.
