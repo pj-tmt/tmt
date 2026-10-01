@@ -1101,7 +1101,7 @@ Manual provider acceptance must use a disposable identity/window and isolated
 provider settings; installing hooks into the user's real global settings needs explicit
 consent. No test invokes setup against the user's actual provider directory.
 
-Codex channel product scenarios live in `test/e2e/codex-channel.e2e.test.ts`.
+Codex channel product scenarios live in `typescript/test/e2e/codex-channel.e2e.test.ts`.
 They use the existing private E2E fixture and a model-free Rust
 `codex-channel-fixture` example, built into the E2E image only. For a local
 focused run, build both `tmt-cli` and that example; no installed provider or
