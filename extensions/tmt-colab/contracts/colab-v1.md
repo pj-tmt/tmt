@@ -168,6 +168,13 @@ signed descriptor; it MUST NOT advance a stream. `update` and `checkpoint`
 require a positive sequence. An `html` object is `content`; an asset's signed
 descriptor binds its namespace and page reference.
 
+Wrap transport is strict binary JSON `{header, enc, ciphertext, signature}`:
+header is the exact framed wrap input (at most 1,024 bytes), enc is 32 bytes,
+ciphertext is exactly 48 bytes (32-byte epoch secret plus 16-byte tag), and
+signature is the 64-byte owner signature over the wrap-signature input.
+Wrap lists are sorted by `(recipientKind, recipientId)` bytewise, unique and at
+most 512 entries. Invalid or oversized data rejects; it is never truncated.
+
 Wrap recipient kinds are `member`, `device`, `link`, `bridge`. The verified log
 must resolve the recipient ID/key and owner signer; header values are not
 self-authorizing. HPKE all-zero DH results MUST reject. Owner-signed wrapping
@@ -217,7 +224,9 @@ heads, forks or unknown operations report “space state rolled back” and appl
 nothing. Backend membership/index records are only edge-admission projections.
 
 A statement transport contains exactly `{statement, payload, signature}`; exact
-binary payload bytes are hashed in the statement. Payloads decode as strict
+binary payload bytes are hashed in the statement. An owner-statement payload is
+at most 768 KiB serialized, including all nested material; exceeding any cap
+invalidates the statement, never truncates it. Payloads decode as strict
 typed JSON. The operation-specific fields below are exact; keys/digests are
 canonical base64url, IDs/numbers follow the value table. Optional history access
 is explicit, never inferred from possession of a new key.
@@ -275,7 +284,10 @@ or signs in its place. An offline management request remains unavailable; it
 MUST NOT be executed later without rechecking its expiry and expected revision.
 
 `cuts` is a sorted unique list of `{pageId, epoch, namespace, cut}` where `cut`
-is the exact framed stream-cut bytes. Its signed payload scope resolves a single
+is the exact framed stream-cut bytes. At most 512 cuts are allowed, sorted and
+unique by `(pageId bytewise, epoch numerically, namespace bytewise, streamId
+bytewise)`; duplicates or out-of-order entries invalidate the statement.
+Its signed payload scope resolves a single
 device stream and namespace; the framed cut's namespace MUST match that wrapper.
 Both namespaces are committed when affected. The
 checkpoint hash is either hash32 or zero-length `none` paired with checkpoint
@@ -467,6 +479,14 @@ ends and all their subscriptions terminate in the same transition. Links are
 revoked, not merely hidden by an index/edge projection. Re-enabling link sharing
 requires an explicit owner action creating a NEW link identity; selecting link
 mode never reactivates a removed identity or its old bearer seed.
+
+`page.share` publishedKeys is a list of strict `{epoch, key}` entries: epoch is
+a canonical positive decimal string, key is a canonical binary 32-byte epoch
+secret. Entries are unique, sorted by numeric epoch and at most 64. Public mode
+contains exactly the new current epoch plus earlier epochs only when the page's
+history opt-in is on; all earlier entries are below the current epoch. Other
+modes require an empty or absent list. Null is not a list. These syntax bounds do
+not replace the resulting-mode recipient filtering and atomic transition above.
 
 Leaving public also ends public subscriptions and stops public distribution of
 new keys/objects. Already-public content/history remains public forever. Clients

@@ -3298,8 +3298,12 @@ and unreviewed consumers. Envelope syntax/signature success does not establish
 log, session, role, epoch or sequence authority; callers admit those before open.
 The model also owns device/chain syntax, purpose-separated link keys and
 owner-authenticated HPKE Base wraps. Caller-owned live-issuer/history/transition
-policy still gates application. Typed membership/payload schemas, browser client,
-pairing/send/baseline builders and the three-engine harness remain later L1 work. Frozen vectors are contract-owned;
+policy still gates application. Strict bounded operation payloads and owner
+statement hash-chain fencing also belong to the model. Retained heads pin the
+revision-1 editor management member and reject successor reuse of its ID/keys;
+signing derives revision and previous hash from that head. Verification does not
+apply a transition. Browser client, pairing/send/baseline builders and the
+three-engine harness remain later L1 work. Frozen vectors are contract-owned;
 Rust tests read them without Python. Regeneration uses an independent Python
 cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 
