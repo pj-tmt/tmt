@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 
 pub const SUITE: &str = "aes256gcm-hkdfsha256-ed25519-v1";
 pub const MAX_PLAINTEXT: usize = 16 * 1024 * 1024;
-const MAX_JSON: usize = (MAX_PLAINTEXT + 2048) * 4 / 3 + 2048;
+/// Serialized envelope cap: 16 MiB plaintext plus 2 KiB binary overhead reserve
+/// (tag, header, nonce and signature), base64 expansion, then 2 KiB JSON reserve.
+/// Includes whitespace/field syntax; this is a per-object cap, not a page quota.
+pub const MAX_ENVELOPE_JSON: usize = (MAX_PLAINTEXT + 2048) * 4 / 3 + 2048;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Context {
@@ -126,7 +129,7 @@ impl Envelope {
     }
     /// Syntax only: never establishes certificate, writer, epoch, role or stream authority.
     pub fn from_json(bytes: &[u8]) -> Result<Self> {
-        require(bytes.len() <= MAX_JSON)?;
+        require(bytes.len() <= MAX_ENVELOPE_JSON)?;
         let wire: Wire = serde_json::from_slice(bytes).map_err(|_| Invalid)?;
         let header = values::binary(&wire.header, 1024)?;
         let decoded = Header::decode(&header)?;
