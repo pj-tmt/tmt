@@ -1,5 +1,8 @@
 use super::*;
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 use tmt_core::{
     binding::session::{BindingSessionState, SessionTransition},
     endpoint::ServerEvidence,
@@ -11,6 +14,8 @@ struct Counting {
     environment: Vec<(OsString, OsString)>,
     session: Option<ProviderSessionId>,
     withdrawn: Rc<Cell<u32>>,
+    started: Rc<RefCell<Vec<ProcessIncarnation>>>,
+    refuse_foreground: bool,
 }
 
 impl ChannelEnrollment for Counting {
@@ -26,6 +31,14 @@ impl ChannelEnrollment for Counting {
         self.session.as_ref()
     }
 
+    fn foreground_started(&mut self, foreground: &ProcessIncarnation) -> Result<(), ChannelError> {
+        if self.refuse_foreground {
+            return Err(ChannelError::Enrollment);
+        }
+        self.started.borrow_mut().push(foreground.clone());
+        Ok(())
+    }
+
     fn withdraw(self: Box<Self>) {
         self.withdrawn.set(self.withdrawn.get() + 1);
     }
@@ -38,7 +51,19 @@ fn user() -> RuntimeCommand {
     }
 }
 
-fn counting(withdrawn: &Rc<Cell<u32>>) -> Box<Counting> {
+struct Watch {
+    withdrawn: Rc<Cell<u32>>,
+    started: Rc<RefCell<Vec<ProcessIncarnation>>>,
+}
+
+fn watch() -> Watch {
+    Watch {
+        withdrawn: Rc::new(Cell::new(0)),
+        started: Rc::new(RefCell::new(Vec::new())),
+    }
+}
+
+fn counting(watch: &Watch, refuse_foreground: bool) -> Box<Counting> {
     Box::new(Counting {
         command: RuntimeCommand {
             executable: "agent".into(),
@@ -46,19 +71,22 @@ fn counting(withdrawn: &Rc<Cell<u32>>) -> Box<Counting> {
         },
         environment: vec![("TOKEN".into(), "private".into())],
         session: Some(ProviderSessionId::new("thread-1").unwrap()),
-        withdrawn: Rc::clone(withdrawn),
+        withdrawn: Rc::clone(&watch.withdrawn),
+        started: Rc::clone(&watch.started),
+        refuse_foreground,
     })
 }
 
 #[test]
 fn a_held_lease_plans_the_spawn_and_without_one_the_users_command_runs_untouched() {
-    let withdrawn = Rc::new(Cell::new(0));
+    let watch = watch();
     let mut lease = HeldLease::default();
     let user = user();
     assert_eq!(lease.command(&user), &user);
     assert!(lease.environment().is_empty());
     assert!(lease.provider_session().is_none());
-    lease.hold(counting(&withdrawn));
+    assert_eq!(lease.foreground_started(Some(&child())), None);
+    lease.hold(counting(&watch, false));
     assert_eq!(lease.command(&user).args, ["--user", "--planned"]);
     assert_eq!(
         lease.environment(),
@@ -70,46 +98,67 @@ fn a_held_lease_plans_the_spawn_and_without_one_the_users_command_runs_untouched
     );
 }
 
-/// Each path out of a launch that holds a lease, as `run_bound` can take them.
-fn launch(withdrawn: &Rc<Cell<u32>>, path: &str) -> Result<u8, &'static str> {
+/// Each path out of a launch that holds a lease, with the calls `run_bound` makes
+/// at the same points: `foreground_started` right after the child is observed,
+/// and a retiring call only for a failed spawn or a reaped child.
+fn launch(watch: &Watch, path: &str, refuse_foreground: bool) -> Result<u8, &'static str> {
     let mut lease = HeldLease::default();
-    lease.hold(counting(withdrawn));
-    let spawned: Result<(), &str> = match path {
-        "spawn failure" => Err("spawn failed"),
-        _ => Ok(()),
-    };
-    // An early return with `?` happens before any explicit withdrawal.
-    spawned?;
-    if path == "wait error" {
-        // The launcher withdraws right after the wait, before reporting it.
-        lease.withdraw();
-        return Err("wait failed");
+    lease.hold(counting(watch, refuse_foreground));
+    if path == "spawn failure" {
+        lease.never_spawned();
+        return Err("spawn failed");
     }
-    if path == "panic" {
+    let observed = child();
+    let note = lease.foreground_started((path != "unobservable child").then_some(&observed));
+    assert_eq!(
+        note.is_some(),
+        path == "unobservable child" || refuse_foreground,
+        "{path}"
+    );
+    if path == "panic after spawn" {
         panic!("unexpected failure after the spawn");
     }
-    if path == "normal exit" {
-        lease.withdraw();
+    if path == "early return after spawn" {
+        return Err("returned early");
     }
-    // "early return" falls through to the end of the scope without withdrawing.
+    if path == "wait error" {
+        // The wait failed: the child may still run, so nothing is retired.
+        return Err("wait failed");
+    }
+    // The wait returned: the same child was reaped.
+    lease.child_reaped();
     Ok(0)
 }
 
 #[test]
-fn the_lease_is_withdrawn_exactly_once_on_every_path_out_of_a_launch() {
-    for path in [
-        "normal exit",
-        "wait error",
-        "spawn failure",
-        "early return",
-        "panic",
+fn the_lease_is_retired_only_for_a_failed_spawn_or_a_reaped_child() {
+    for (path, refuse, withdrawn, started) in [
+        ("normal exit", false, 1, 1),
+        ("spawn failure", false, 1, 0),
+        // The child ran but its exact incarnation was not recorded; reaping it is
+        // still a confirmed end.
+        ("unobservable child", false, 1, 0),
+        ("normal exit", true, 1, 0),
+        // Nothing confirms the end of the foreground on these paths: the enrollment
+        // is dropped, not retired.
+        ("wait error", false, 0, 1),
+        ("early return after spawn", false, 0, 1),
+        ("panic after spawn", false, 0, 1),
     ] {
-        let withdrawn = Rc::new(Cell::new(0));
+        let watch = watch();
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = launch(&withdrawn, path);
+            let _ = launch(&watch, path, refuse);
         }));
-        assert_eq!(outcome.is_err(), path == "panic", "{path}");
-        assert_eq!(withdrawn.get(), 1, "{path}");
+        assert_eq!(outcome.is_err(), path == "panic after spawn", "{path}");
+        assert_eq!(watch.withdrawn.get(), withdrawn, "{path} refuse={refuse}");
+        assert_eq!(
+            watch.started.borrow().len(),
+            started,
+            "{path} refuse={refuse}"
+        );
+        if started == 1 {
+            assert_eq!(watch.started.borrow()[0], child(), "{path}");
+        }
     }
 }
 

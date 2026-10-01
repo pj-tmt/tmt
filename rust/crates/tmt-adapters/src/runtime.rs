@@ -208,6 +208,33 @@ impl RuntimeRegistry {
         Ok(found)
     }
 
+    /// What the drivers' enrollments say about one pane, whatever binding or
+    /// identity the pane has now. The first driver that finds a live or unconfirmed
+    /// enrollment attributed to it decides; records no driver could attribute are
+    /// merged so the caller can name them. A driver that cannot tell makes it
+    /// unknown (`Err`).
+    pub fn enrolled_in_pane(
+        &self,
+        directory: &Path,
+        pane: &channel::PaneAddress<'_>,
+        binding_id: Option<&str>,
+        deadline: std::time::Instant,
+    ) -> Result<channel::PaneEvidence, channel::EvidenceError> {
+        let mut merged = channel::PaneEvidence::default();
+        for entry in &self.registrations {
+            let Some(channel) = &entry.channel else {
+                continue;
+            };
+            let found = channel.enrolled_in_pane(directory, pane, binding_id, deadline)?;
+            merged.skipped.extend(found.skipped);
+            if found.enrolled {
+                merged.enrolled = true;
+                return Ok(merged);
+            }
+        }
+        Ok(merged)
+    }
+
     /// The harness's channel, if its driver offers one.
     pub fn channel(&self, harness: &HarnessId) -> Option<&dyn channel::RuntimeChannel> {
         self.registrations
@@ -502,6 +529,16 @@ mod tests {
             Ok(false)
         }
 
+        fn enrolled_in_pane(
+            &self,
+            _: &std::path::Path,
+            _: &channel::PaneAddress<'_>,
+            _: Option<&str>,
+            _: std::time::Instant,
+        ) -> Result<channel::PaneEvidence, channel::EvidenceError> {
+            Ok(channel::PaneEvidence::default())
+        }
+
         fn enroll(
             &self,
             _: &channel::ChannelPlan<'_>,
@@ -525,12 +562,139 @@ mod tests {
             self.0
         }
 
+        fn enrolled_in_pane(
+            &self,
+            _: &std::path::Path,
+            _: &channel::PaneAddress<'_>,
+            _: Option<&str>,
+            _: std::time::Instant,
+        ) -> Result<channel::PaneEvidence, channel::EvidenceError> {
+            Ok(channel::PaneEvidence::default())
+        }
+
         fn enroll(
             &self,
             _: &channel::ChannelPlan<'_>,
         ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
             Err(channel::ChannelError::Unsupported)
         }
+    }
+
+    struct InPane(Result<channel::PaneEvidence, channel::EvidenceError>);
+    impl channel::RuntimeChannel for InPane {
+        fn preflight(
+            &self,
+            _: &OsStr,
+            _: &std::path::Path,
+            _: std::time::Instant,
+        ) -> Result<Option<String>, channel::ChannelError> {
+            Ok(None)
+        }
+
+        fn enrolled(&self, _: &std::path::Path, _: &str) -> Result<bool, channel::ChannelFault> {
+            Ok(false)
+        }
+
+        fn enrolled_in_pane(
+            &self,
+            _: &std::path::Path,
+            _: &channel::PaneAddress<'_>,
+            _: Option<&str>,
+            _: std::time::Instant,
+        ) -> Result<channel::PaneEvidence, channel::EvidenceError> {
+            self.0.clone()
+        }
+
+        fn enroll(
+            &self,
+            _: &channel::ChannelPlan<'_>,
+        ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
+            Err(channel::ChannelError::Unsupported)
+        }
+    }
+
+    #[test]
+    fn a_pane_is_enrolled_when_any_driver_says_so_and_unknown_when_one_cannot_tell() {
+        use channel::PaneEvidence;
+        let directory = std::path::Path::new("/channels");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let server = tmt_core::endpoint::ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: "server".into(),
+            socket_path: "/tmp/tmux-test".into(),
+            server_pid: 1,
+            server_start_time: "start".into(),
+        };
+        let pane = channel::PaneAddress {
+            server: &server,
+            pane_id: "%1",
+            pane_pid: 2,
+        };
+        let ask = |answers: &[(&str, Result<PaneEvidence, channel::EvidenceError>)]| {
+            let mut registry = RuntimeRegistry::default();
+            for (name, answer) in answers {
+                registry
+                    .register(id(name), name, 0, Community { id: id(name) })
+                    .unwrap();
+                registry
+                    .register_channel(&id(name), Box::new(InPane(answer.clone())))
+                    .unwrap();
+            }
+            registry.enrolled_in_pane(directory, &pane, Some("binding"), deadline)
+        };
+        let none = || Ok(PaneEvidence::default());
+        let live = || {
+            Ok(PaneEvidence {
+                enrolled: true,
+                skipped: vec![],
+            })
+        };
+        let skipping = |name: &str| {
+            Ok(PaneEvidence {
+                enrolled: false,
+                skipped: vec![std::path::PathBuf::from(name)],
+            })
+        };
+        let unreadable = channel::EvidenceError::at(
+            channel::ChannelFault::InvalidRecord,
+            std::path::Path::new("/channels/a.json"),
+        );
+        // No driver, or none with evidence: the baseline applies.
+        assert_eq!(ask(&[]), Ok(PaneEvidence::default()));
+        assert_eq!(
+            ask(&[("a", none()), ("b", none())]),
+            Ok(PaneEvidence::default())
+        );
+        // Any one driver that finds an enrollment decides, in any order.
+        assert!(ask(&[("a", none()), ("b", live())]).unwrap().enrolled);
+        assert!(ask(&[("b", none()), ("a", live())]).unwrap().enrolled);
+        // Records no driver could attribute are merged so the caller can name them,
+        // and never make the pane enrolled.
+        assert_eq!(
+            ask(&[
+                ("a", skipping("/channels/x.json")),
+                ("b", skipping("/channels/y.json"))
+            ]),
+            Ok(PaneEvidence {
+                enrolled: false,
+                skipped: vec!["/channels/x.json".into(), "/channels/y.json".into()],
+            })
+        );
+        // A driver that cannot tell is terminal and keeps naming its file, unless an
+        // earlier driver (priority, then name) already found the enrollment.
+        assert_eq!(
+            ask(&[("a", Err(unreadable.clone())), ("b", none())]),
+            Err(unreadable.clone())
+        );
+        assert_eq!(
+            ask(&[("a", none()), ("b", Err(unreadable.clone()))]),
+            Err(unreadable.clone())
+        );
+        assert!(
+            ask(&[("a", live()), ("b", Err(unreadable))])
+                .unwrap()
+                .enrolled
+        );
     }
 
     fn registry_answering(

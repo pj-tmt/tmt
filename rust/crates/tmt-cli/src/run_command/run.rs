@@ -23,7 +23,7 @@ use tmt_adapters::{
     },
     runtime::{
         RuntimeRegistry, StateReconciliation,
-        channel::ChannelPlan,
+        channel::{ChannelPlan, PaneAddress},
         lifecycle::{NoLifecycle, RuntimeLifecycle},
     },
     setup::start_hook_installed,
@@ -231,6 +231,12 @@ pub(super) fn run_bound(
             channel
                 .enroll(&ChannelPlan {
                     binding_id: &binding.id,
+                    identity_id: &binding.identity_id,
+                    pane: PaneAddress {
+                        server: &binding.server,
+                        pane_id: &binding.pane_id,
+                        pane_pid: binding.pane_pid,
+                    },
                     owner,
                     command: &launch.command,
                     working_directory: &working_directory,
@@ -244,6 +250,8 @@ pub(super) fn run_bound(
     let child =
         InteractiveChild::start_with(&planned.executable, &planned.args, lease.environment())
             .map_err(|error| {
+                // No child exists, so nothing ran and the enrollment ends.
+                lease.never_spawned();
                 Failure::new("LAUNCH_FAILED", "Could not start the requested command.", 1)
                     .caused_by(error)
             })?;
@@ -257,6 +265,11 @@ pub(super) fn run_bound(
         _ => None,
     };
     let already_exited = matches!(child_evidence, ProcessObservation::UnreapedZombie(_));
+    // The driver records the exact foreground before admission; if it cannot, the
+    // enrollment stays unconfirmed (never "ended") and the child keeps running.
+    if let Some(note) = lease.foreground_started(child_incarnation.as_ref()) {
+        diagnostic(&note);
+    }
     let admitted = storage
         .with_binding_transaction::<_, StorageError>(|records| {
             let Some(current) = records
@@ -359,8 +372,8 @@ pub(super) fn run_bound(
             "signal observation degraded; waiting for the original command without restarting it.",
         )
     });
-    // The enrollment belongs to this launch and ends with it.
-    lease.withdraw();
+    // The enrollment ends with the foreground, and only when its end is confirmed:
+    // a wait that failed proves nothing, so that path leaves the enrollment as it is.
     let status = waited.map_err(|error| {
         Failure::new(
             "PROCESS_ERROR",
@@ -369,6 +382,7 @@ pub(super) fn run_bound(
         )
         .caused_by(error)
     })?;
+    lease.child_reaped();
     if let Some(session) = &launch.resumed {
         settle_resume(
             paths,

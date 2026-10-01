@@ -224,38 +224,41 @@ fn deliver(
         // A pane that resolved to no active identity is pasted to directly, but that
         // does not prove it never opted into a channel: existing evidence (or being
         // unable to tell) stops it before anything is attempted.
+        // A pane no identity claims is pasted to directly, behind the same check as
+        // every baseline paste: the drivers' own enrollment records for this pane.
         if let Some(endpoint) = &prepared.endpoint
             && correlation.identity.is_none()
         {
-            let evidence = crate::delivery::pane_channel_evidence(
-                storage,
-                &endpoint.server,
-                &endpoint.pane_id,
+            let pane = tmt_adapters::runtime::channel::PaneAddress {
+                server: &endpoint.server,
+                pane_id: &endpoint.pane_id,
+                pane_pid: endpoint.pane_pid,
+            };
+            match crate::delivery::pane_channel_evidence(
+                &pane,
+                None,
                 &tmt_adapters::config::ConfigPaths::channel_directory_in(&correlation.data_dir),
-            )
-            .map_err(|error| {
-                Failure::storage_access(
-                    error,
-                    &correlation.data_dir,
-                    "No message was sent; inspect the retained request before retrying.",
-                    "DELIVERY_PREPARATION_FAILED",
-                    "Could not verify delivery state.",
-                )
-            })?;
-            if let Some(fault) = evidence {
-                RequestService::new(&mut *storage, wall_time_ms)
-                    .settle(&prepared.attempt_id, Settlement::DefinitelyFailed)
-                    .map_err(|error| correlation.state_error(error, false))?;
-                return Err(correlation
-                    .error(
-                        fault.error_code(),
-                        format!(
-                            "{} Nothing was sent and nothing was pasted.",
-                            fault.reason()
-                        ),
-                        1,
-                    )
-                    .suggestion(correlation.inspection()));
+            ) {
+                Ok(skipped) => {
+                    for record in skipped {
+                        warn_unattributed_record(&record);
+                    }
+                }
+                Err(evidence) => {
+                    RequestService::new(&mut *storage, wall_time_ms)
+                        .settle(&prepared.attempt_id, Settlement::DefinitelyFailed)
+                        .map_err(|error| correlation.state_error(error, false))?;
+                    return Err(correlation
+                        .error(
+                            evidence.fault.error_code(),
+                            format!(
+                                "{} Nothing was sent and nothing was pasted.",
+                                evidence.message()
+                            ),
+                            1,
+                        )
+                        .suggestion(correlation.inspection()));
+                }
             }
         }
         if prepared.endpoint.is_some()
@@ -578,4 +581,20 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => presentation::publish(report, mode),
         Err(error) => error.publish(mode),
     }
+}
+
+/// A channel record that names no pane (unreadable, or written by an older `tmt`)
+/// protects and blocks nothing; it is reported so it can be removed.
+fn warn_unattributed_record(record: &std::path::Path) {
+    let mut stderr = tmt_cli_style::stream::stderr();
+    let terminal = stderr.terminal();
+    let _ = tmt_cli_style::message::warning(
+        &mut stderr,
+        terminal,
+        &format!(
+            "Skipped channel record {}: it names no pane, so it cannot protect or block this one.",
+            record.display()
+        ),
+        Some("delete it if its session is gone"),
+    );
 }

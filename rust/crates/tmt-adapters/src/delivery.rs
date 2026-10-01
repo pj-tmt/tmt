@@ -3,11 +3,14 @@
 use crate::{
     host::{ActionError, Host},
     process::{SupervisedProbeRunner, runtime::observe_runtime_process},
-    runtime::{RuntimeError, RuntimeRegistry, channel::ChannelFault},
+    runtime::{
+        RuntimeError, RuntimeRegistry,
+        channel::{ChannelFault, EvidenceError, PaneAddress},
+    },
     storage::{Storage, StorageError},
 };
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use tmt_core::{
@@ -21,7 +24,6 @@ use tmt_core::{
         ActionResult, DeliveryAcceptance, Driver, InterfacePresence, InterfaceStatus, SendFailure,
         routing::send_preferred,
     },
-    endpoint::ServerEvidence,
     request::{
         RequestService, WakeState,
         notification::{HintKind, OriginatorHint},
@@ -253,26 +255,44 @@ pub fn send(
                 ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
             },
         },
-        || match session.send(&entry, message) {
-            ActionResult::Unsupported => ActionResult::Unsupported,
-            ActionResult::Completed(value) => ActionResult::Completed(value),
-            ActionResult::Failed(error) => ActionResult::Failed(match error {
-                SendFailure::NotSent(ActionError::Offline) => {
-                    SendFailure::NotSent(Delivery::Offline)
+        || {
+            // The baseline paste is the last resort for a session that never opted
+            // in. A binding made after the pane's marker was lost has no record
+            // under its own ID, so the drivers are asked whether an enrolled launch
+            // still lives in this pane before anything is typed into it.
+            if let (Some(binding), Some(directory)) = (&entry.binding, directory.as_deref()) {
+                let pane = PaneAddress {
+                    server: &binding.server,
+                    pane_id: &binding.pane_id,
+                    pane_pid: binding.pane_pid,
+                };
+                if let Err(evidence) = pane_channel_evidence(&pane, Some(&binding.id), directory) {
+                    return ActionResult::Failed(SendFailure::Denied(
+                        Delivery::ChannelUnavailable(evidence.fault),
+                    ));
                 }
-                SendFailure::NotSent(ActionError::Delivery(error)) => {
-                    SendFailure::NotSent(Delivery::Transport(error))
-                }
-                SendFailure::Uncertain(ActionError::Delivery(error)) => {
-                    SendFailure::Uncertain(Delivery::Transport(error))
-                }
-                SendFailure::NotSent(_) => SendFailure::NotSent(Delivery::Unavailable),
-                SendFailure::Uncertain(_) => SendFailure::Uncertain(Delivery::Uncertain),
-                SendFailure::Denied(_) => SendFailure::Denied(Delivery::Unavailable),
-                SendFailure::AwaitingApproval(_) => {
-                    SendFailure::AwaitingApproval(Delivery::Unavailable)
-                }
-            }),
+            }
+            match session.send(&entry, message) {
+                ActionResult::Unsupported => ActionResult::Unsupported,
+                ActionResult::Completed(value) => ActionResult::Completed(value),
+                ActionResult::Failed(error) => ActionResult::Failed(match error {
+                    SendFailure::NotSent(ActionError::Offline) => {
+                        SendFailure::NotSent(Delivery::Offline)
+                    }
+                    SendFailure::NotSent(ActionError::Delivery(error)) => {
+                        SendFailure::NotSent(Delivery::Transport(error))
+                    }
+                    SendFailure::Uncertain(ActionError::Delivery(error)) => {
+                        SendFailure::Uncertain(Delivery::Transport(error))
+                    }
+                    SendFailure::NotSent(_) => SendFailure::NotSent(Delivery::Unavailable),
+                    SendFailure::Uncertain(_) => SendFailure::Uncertain(Delivery::Uncertain),
+                    SendFailure::Denied(_) => SendFailure::Denied(Delivery::Unavailable),
+                    SendFailure::AwaitingApproval(_) => {
+                        SendFailure::AwaitingApproval(Delivery::Unavailable)
+                    }
+                }),
+            }
         },
     );
     Ok(match result {
@@ -307,39 +327,44 @@ fn runtime_failure(error: SendFailure<RuntimeError>) -> SendFailure<Delivery> {
     }
 }
 
-/// Channel evidence for a pane that resolved to no active identity. Such a pane
-/// is pasted to directly, but "no identity" does not prove it never opted in (a
-/// binding that is not active resolves to none as well), so the pane's recorded
-/// binding is asked whether its driver's channel has any enrollment on record.
-/// `None` means there is none and the baseline transport applies; `Some` is a
-/// terminal fault: nothing may be pasted.
+/// Time one baseline delivery spends asking the drivers about the pane: directory
+/// reads, record reads and a few exact process observations.
+const PANE_EVIDENCE_BUDGET: Duration = Duration::from_secs(3);
+
+/// Channel evidence for a pane about to be pasted to, read from the drivers' own
+/// enrollment records through the pane address each persisted before its
+/// foreground started. It never consults the stored binding: observation deletes
+/// the binding of a pane that lost its marker and naming the pane again makes a new
+/// one, so "no identity" or "no record under this binding" proves nothing about
+/// whether a session in the pane opted in. `Ok` lets the baseline paste through and
+/// returns the records no driver could attribute to any pane, for the caller to
+/// name; `Err` is terminal: nothing may be pasted.
 pub fn pane_channel_evidence(
-    storage: &mut Storage,
-    server: &ServerEvidence,
-    pane_id: &str,
+    pane: &PaneAddress<'_>,
+    binding_id: Option<&str>,
     directory: &Path,
-) -> Result<Option<ChannelFault>, StorageError> {
-    let binding_id = storage.with_binding_transaction(|records| {
-        Ok(records
-            .entry_by_pane(server.host, pane_id, &server.server_id)?
-            .and_then(|entry| entry.binding)
-            .map(|binding| binding.id))
-    })?;
-    Ok(binding_id.and_then(|binding_id| {
-        channel_evidence(&RuntimeRegistry::first_party(), directory, &binding_id)
-    }))
+) -> Result<Vec<PathBuf>, EvidenceError> {
+    pane_evidence(
+        &RuntimeRegistry::first_party(),
+        pane,
+        binding_id,
+        directory,
+        Instant::now() + PANE_EVIDENCE_BUDGET,
+    )
 }
 
-fn channel_evidence(
+fn pane_evidence(
     registry: &RuntimeRegistry,
+    pane: &PaneAddress<'_>,
+    binding_id: Option<&str>,
     directory: &Path,
-    binding_id: &str,
-) -> Option<ChannelFault> {
-    match registry.enrolled_harness(directory, binding_id) {
-        Ok(None) => None,
-        Ok(Some(_)) => Some(ChannelFault::Inactive),
-        Err(fault) => Some(fault),
+    deadline: Instant,
+) -> Result<Vec<PathBuf>, EvidenceError> {
+    let evidence = registry.enrolled_in_pane(directory, pane, binding_id, deadline)?;
+    if evidence.enrolled {
+        return Err(ChannelFault::Inactive.into());
     }
+    Ok(evidence.skipped)
 }
 
 /// The driver that carries a bound identity's delivery. An enrollment on record
@@ -457,30 +482,110 @@ mod tests {
         fn enrolled(&self, _: &Path, _: &str) -> Result<bool, ChannelFault> {
             self.0
         }
+
+        fn enrolled_in_pane(
+            &self,
+            _: &Path,
+            _: &PaneAddress<'_>,
+            _: Option<&str>,
+            _: Instant,
+        ) -> Result<crate::runtime::channel::PaneEvidence, EvidenceError> {
+            Ok(crate::runtime::channel::PaneEvidence::default())
+        }
+    }
+
+    struct InPane(Result<crate::runtime::channel::PaneEvidence, EvidenceError>);
+
+    impl crate::runtime::channel::RuntimeChannel for InPane {
+        fn preflight(
+            &self,
+            _: &std::ffi::OsStr,
+            _: &Path,
+            _: Instant,
+        ) -> Result<Option<String>, crate::runtime::channel::ChannelError> {
+            Ok(None)
+        }
+
+        fn enroll(
+            &self,
+            _: &crate::runtime::channel::ChannelPlan<'_>,
+        ) -> Result<
+            Box<dyn crate::runtime::channel::ChannelEnrollment>,
+            crate::runtime::channel::ChannelError,
+        > {
+            Err(crate::runtime::channel::ChannelError::Unsupported)
+        }
+
+        fn enrolled(&self, _: &Path, _: &str) -> Result<bool, ChannelFault> {
+            Ok(false)
+        }
+
+        fn enrolled_in_pane(
+            &self,
+            _: &Path,
+            _: &PaneAddress<'_>,
+            _: Option<&str>,
+            _: Instant,
+        ) -> Result<crate::runtime::channel::PaneEvidence, EvidenceError> {
+            self.0.clone()
+        }
     }
 
     #[test]
-    fn a_pane_without_identity_pastes_only_when_no_driver_has_channel_evidence() {
+    fn a_pane_is_pasted_to_only_when_no_driver_has_enrollment_evidence_for_it() {
+        use crate::runtime::channel::PaneEvidence;
         let codex = HarnessId::new("codex").unwrap();
+        let server = tmt_core::endpoint::ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: "server".into(),
+            socket_path: "/tmp/tmux-test".into(),
+            server_pid: 1,
+            server_start_time: "start".into(),
+        };
+        let pane = PaneAddress {
+            server: &server,
+            pane_id: "%1",
+            pane_pid: 4242,
+        };
         let evidence = |registry: &RuntimeRegistry| {
-            channel_evidence(registry, Path::new("/channels"), "binding")
+            pane_evidence(
+                registry,
+                &pane,
+                None,
+                Path::new("/channels"),
+                Instant::now() + Duration::from_secs(1),
+            )
         };
         // The built-in drivers have no record in a directory that does not exist.
-        assert_eq!(evidence(&RuntimeRegistry::first_party()), None);
-        // The answer depends on the binding's record alone, never on which harness
-        // the identity currently prefers: any driver's evidence blocks the paste,
+        assert_eq!(evidence(&RuntimeRegistry::first_party()), Ok(vec![]));
+        // The answer comes from the drivers' own records, never from a stored
+        // binding or the preferred harness: any driver's live or unconfirmed
+        // enrollment blocks the paste, unattributable records are only reported,
         // and only "no enrollment" lets it through.
+        let unreadable =
+            EvidenceError::at(ChannelFault::InvalidRecord, Path::new("/channels/x.json"));
+        let skipped = PathBuf::from("/channels/old.json");
         for (answer, expected) in [
-            (Ok(false), None),
-            (Ok(true), Some(ChannelFault::Inactive)),
+            (Ok(PaneEvidence::default()), Ok(vec![])),
             (
-                Err(ChannelFault::InvalidRecord),
-                Some(ChannelFault::InvalidRecord),
+                Ok(PaneEvidence {
+                    enrolled: false,
+                    skipped: vec![skipped.clone()],
+                }),
+                Ok(vec![skipped.clone()]),
             ),
+            (
+                Ok(PaneEvidence {
+                    enrolled: true,
+                    skipped: vec![],
+                }),
+                Err(EvidenceError::from(ChannelFault::Inactive)),
+            ),
+            (Err(unreadable.clone()), Err(unreadable.clone())),
         ] {
             let mut registry = RuntimeRegistry::first_party();
             registry
-                .register_channel(&codex, Box::new(Evidence(answer)))
+                .register_channel(&codex, Box::new(InPane(answer.clone())))
                 .unwrap();
             assert_eq!(evidence(&registry), expected, "{answer:?}");
         }
