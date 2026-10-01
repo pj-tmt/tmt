@@ -64,3 +64,23 @@ schema also lists `userPromptSubmit`. These are documented wire fixtures, not
 recordings from a model run. `runtime::prompt_tests` pins event/session decoding,
 provider-specific context output, bounds and rejection of other event shapes.
 They establish context delivery only; activity ordering is owned by #656.
+
+### Main-turn activity source contract (#656)
+
+Source review on 2026-10-01: Claude Code 2.1.286 and codex-cli 0.159.2 installed
+version commands; official [Claude hooks](https://code.claude.com/docs/en/hooks)
+and [Codex hooks](https://learn.chatgpt.com/docs/hooks) contracts. These are
+versioned contract fixtures, not captured model sessions. No model was invoked.
+
+Both providers report UserPromptSubmit before prompt processing and Stop when
+the main agent finishes responding. SubagentStop and other events are not mapped.
+Codex supplies the active `turn_id` on both events; its Stop continuation creates
+a new prompt. Claude supplies no documented turn ID here: ordering relies on
+synchronous execution of TMT's setup-written command hooks and committing before
+return. Tests model that contract; they do not prove the provider implementation.
+
+Claude documents that async hooks receive identical input. TMT setup never writes
+async hooks; changing an owned entry to async is reported as an edited hook by
+setup inspection. Such a modification violates this source contract. TMT does not
+infer execution mode from payload fields or timing and does not read all effective
+settings on every event. Expired calls cannot defer activity work beyond return.

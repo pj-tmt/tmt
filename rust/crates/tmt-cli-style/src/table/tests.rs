@@ -1,6 +1,12 @@
 use super::*;
 
 fn render(table: &Table, terminal: Terminal) -> String {
+    if terminal.color {
+        // Production anstream honors NO_COLOR before enabling color; these explicit
+        // color fixtures override crossterm's cached choice.
+        static COLOR: std::sync::Once = std::sync::Once::new();
+        COLOR.call_once(|| crossterm::style::force_color_output(true));
+    }
     let mut output = Vec::new();
     table.write(&mut output, terminal).unwrap();
     String::from_utf8(output).unwrap()

@@ -97,7 +97,7 @@ describe('consented provider setup and bounded hook boundary', () => {
         const lifecycle = fs.readFileSync(settings, 'utf8');
         const preview = await runCli(sandbox, ['setup', name, '--usage']);
         expect(preview.stdout).toContain(
-          'SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage) hooks'
+          'SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage and activity) hooks'
         );
         expect(preview.stdout).toContain('no transcript content is stored');
         expect(fs.readFileSync(settings, 'utf8')).toBe(lifecycle);
@@ -111,7 +111,9 @@ describe('consented provider setup and bounded hook boundary', () => {
         expect(fs.readFileSync(settings, 'utf8')).toBe(withUsage);
 
         const opted = await runCli(sandbox, ['setup', name, '--no-usage']);
-        expect(opted.stdout).toContain(`Remove TMT-owned ${name} Stop (context usage) hook`);
+        expect(opted.stdout).toContain(
+          `Remove TMT-owned ${name} Stop (context usage and activity) hook`
+        );
         expect(await setup('--no-usage')).not.toHaveProperty('usage');
         expect(fs.readFileSync(settings, 'utf8')).toBe(lifecycle);
 

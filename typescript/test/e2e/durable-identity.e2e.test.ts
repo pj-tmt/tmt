@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { expectJsonResult, withoutAddress } from './cli-assertions.js';
+import { expectJsonResult, unknownActivity, withoutAddress } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 
@@ -142,7 +142,15 @@ describe.sequential('durable identity lifecycle', () => {
         retired: false,
       });
       expect(expectJsonResult(withoutAddress(await fixture.runJsonCli(['list'])))).toEqual({
-        identities: [{ ...created.identity, presence: 'offline', pane: null, command: '' }],
+        identities: [
+          {
+            ...created.identity,
+            presence: 'offline',
+            pane: null,
+            command: '',
+            session: { activity: unknownActivity },
+          },
+        ],
       });
 
       const restarted = await fixture.restartServer();

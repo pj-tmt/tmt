@@ -63,3 +63,54 @@ fn prompt_hooks_decode_only_submissions_and_encode_their_own_event() {
         assert!(NoLifecycle.decode_prompt(fixture).is_none());
     }
 }
+
+#[test]
+fn activity_uses_only_main_turn_events_and_codex_requires_a_turn_id() {
+    use tmt_core::binding::session::activity::ActivityPhase;
+    let registry = RuntimeRegistry::first_party();
+    for name in ["claude", "codex"] {
+        let driver = registry.lifecycle(&HarnessId::new(name).unwrap()).unwrap();
+        for (event, phase) in [
+            ("UserPromptSubmit", ActivityPhase::Working),
+            ("Stop", ActivityPhase::Idle),
+        ] {
+            let mut payload =
+                json!({"hook_event_name":event,"session_id":"session","turn_id":"turn"});
+            let decoded = driver
+                .decode_activity(payload.to_string().as_bytes())
+                .unwrap();
+            assert_eq!(decoded.phase, phase);
+            assert_eq!(decoded.turn.is_some(), name == "codex");
+            payload.as_object_mut().unwrap().remove("turn_id");
+            assert_eq!(
+                driver
+                    .decode_activity(payload.to_string().as_bytes())
+                    .is_some(),
+                name == "claude"
+            );
+        }
+        for event in [
+            "SubagentStop",
+            "SessionStart",
+            "Notification",
+            "StopFailure",
+        ] {
+            assert!(
+                driver
+                    .decode_activity(
+                        json!({"hook_event_name":event,"session_id":"s","turn_id":"t"})
+                            .to_string()
+                            .as_bytes()
+                    )
+                    .is_none()
+            );
+        }
+        for bytes in [
+            b"{}".as_slice(),
+            b"invalid",
+            &vec![b'x'; hook_protocol::HOOK_INPUT_LIMIT + 1],
+        ] {
+            assert!(driver.decode_activity(bytes).is_none());
+        }
+    }
+}
