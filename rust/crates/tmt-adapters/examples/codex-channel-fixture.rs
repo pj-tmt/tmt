@@ -48,6 +48,10 @@ fn server(args: &[String]) {
         thread::spawn(move || connection(stream.unwrap(), &token, state));
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "tungstenite requires its handshake HTTP error response by value"
+)]
 fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>) {
     stream
         .set_read_timeout(Some(Duration::from_secs(90)))
