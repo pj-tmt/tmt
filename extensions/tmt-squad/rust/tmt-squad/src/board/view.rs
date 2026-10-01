@@ -3126,6 +3126,53 @@ columns = [{ name = "member", width = "30%" },
     }
 
     #[test]
+    fn folded_rows_clear_visual_positions_and_resume_wrapped_paging_after_expansion() {
+        let mut app = board(json!([{ "title": null, "rows": [
+            row("a", "", "alpha beta gamma delta", json!({})),
+            row("b", "", "alpha beta gamma delta", json!({})),
+            row("c", "", "alpha beta gamma delta", json!({})),
+            row("d", "", "alpha beta gamma delta", json!({})),
+        ] }]));
+        let view = app.view.as_mut().unwrap();
+        view.board = split(
+            Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail],
+            vec![50, 50],
+        );
+        view.rows = rows_from(
+            r#"[p.rows]
+columns = [{ name = "member", width = "30%" },
+           { name = "task", width = "70%", overflow = "wrap", max_lines = 2 }]
+"#,
+        );
+        app.selected = 1;
+        draw(&app, 20, 10);
+        assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
+        fold(&mut app, Pane::Rows);
+        draw(&app, 20, 10);
+        assert!(app.row_starts.borrow().is_empty());
+        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(app.selected, 1, "paging detail cannot move hidden rows");
+        fold(&mut app, Pane::Detail);
+        draw(&app, 20, 10);
+        assert_eq!(app.focused_pane(), None);
+        for key in [KeyCode::PageDown, KeyCode::Home, KeyCode::End] {
+            app.key(KeyEvent::new(key, KeyModifiers::NONE));
+            assert_eq!(
+                app.selected, 1,
+                "all-folded navigation cannot page stale rows"
+            );
+        }
+        fold(&mut app, Pane::Rows);
+        draw(&app, 20, 10);
+        assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert!(app.selected > 0, "expanded rows resume visual paging");
+    }
+
+    #[test]
     fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
         let mut app = paned(
             split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
