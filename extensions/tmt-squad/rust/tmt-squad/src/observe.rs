@@ -26,6 +26,16 @@ pub struct Reads {
     pub notes: bool,
 }
 
+/// Ordinary status reads or the verified lead's reminder, without live presence.
+#[derive(Debug, Clone, Copy)]
+pub enum Mode<'a> {
+    Read(Reads),
+    /// The roster must independently establish this identity as the only lead.
+    Reminder {
+        lead: &'a str,
+    },
+}
+
 /// The raw reads of one squad, and their observed ages.
 pub struct Observation {
     pub members: Vec<Member>,
@@ -36,6 +46,8 @@ pub struct Observation {
     pub notes: Option<Result<Value, SquadError>>,
     room: Option<Window>,
     snapshot: staleness::Snapshot,
+    /// Generations durably claimed before handing context to the hook.
+    pub reminder: Option<staleness::Reminder>,
 }
 
 /// Reads the squad under the observer's lock and records what it saw. The
@@ -47,12 +59,28 @@ pub fn observe(
     squad: &Squad,
     reminders: Reminders,
     providers: &[provider::Provider],
-    reads: Reads,
+    mode: Mode<'_>,
 ) -> Result<Observation, SquadError> {
-    let observer = staleness::Observer::begin(config, squad, reminders);
-    let members = squad.members(core, reads.metadata)?;
+    observe_with(core, squad, providers, mode, || {
+        staleness::Observer::begin(config, squad, reminders)
+    })
+}
+
+fn observe_with(
+    core: &Core,
+    squad: &Squad,
+    providers: &[provider::Provider],
+    mode: Mode<'_>,
+    begin: impl FnOnce() -> staleness::Observer,
+) -> Result<Observation, SquadError> {
+    let observer = begin();
+    let members = match mode {
+        Mode::Read(reads) => squad.members(core, reads.metadata)?,
+        Mode::Reminder { .. } => squad.roster(core)?,
+    };
     let cached = provider::Cache::load(&squad.name);
-    let notes = (observer.active() || reads.notes)
+    let wants_notes = matches!(mode, Mode::Read(Reads { notes: true, .. }));
+    let notes = (observer.active() || wants_notes)
         .then(|| members.iter().find(|member| member.is_lead()))
         .flatten()
         .map(|lead| core.api("notes.read", json!({"identityId": lead.id})));
@@ -61,20 +89,35 @@ pub fn observe(
     } else {
         None
     };
-    let snapshot = observer.record(
-        &members,
+    let input = staleness::Input {
+        members: &members,
         providers,
-        &cached,
-        notes.as_ref().and_then(|notes| notes.as_ref().ok()),
-        room.as_ref(),
-        status::now_ms(),
-    );
+        fields: &cached,
+        notes: notes.as_ref().and_then(|notes| notes.as_ref().ok()),
+        room: room.as_ref(),
+        now: status::now_ms(),
+    };
+    let (snapshot, reminder) = match mode {
+        Mode::Read(_) => (
+            observer.record(
+                input.members,
+                input.providers,
+                input.fields,
+                input.notes,
+                input.room,
+                input.now,
+            ),
+            None,
+        ),
+        Mode::Reminder { lead } => observer.record_for_reminder(input, lead),
+    };
     Ok(Observation {
         members,
         cached,
         notes,
         room,
         snapshot,
+        reminder,
     })
 }
 
@@ -112,6 +155,7 @@ impl Observation {
             notes,
             room,
             snapshot,
+            reminder: _,
         } = self;
         provider::apply(providers, &mut members, &cached);
         let mut document = status::document(
@@ -136,7 +180,11 @@ impl Observation {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use std::{fs, path::PathBuf};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{Duration, Instant},
+    };
 
     /// A fake `tmt` that logs every core read and answers the ones a squad's
     /// status needs.
@@ -153,6 +201,7 @@ mod tests {
                 std::env::temp_dir().join(format!("squad-observe-{name}-{}", std::process::id()));
             fs::create_dir(&root).unwrap();
             fs::write(root.join("roster"), json!({"members": roster}).to_string()).unwrap();
+            // Read fixtures stay disabled: enabled tests inject a private cache via observe_with.
             fs::write(root.join("squad.toml"), "").unwrap();
             let executable = root.join("tmt");
             crate::test_support::write_executable(
@@ -163,8 +212,11 @@ case "$1" in
   api)
     input=$(cat)
     case "$input" in
-      *'"rooms.roster"'*) printf '%s\n' roster >> "$root/calls"; cat "$root/roster" ;;
-      *'"notes.read"'*) printf '%s\n' notes >> "$root/calls"; printf '%s\n' '{"content":"ship it"}' ;;
+      *'"rooms.roster"'*)
+        printf '%s\n' roster >> "$root/calls"
+        if [ -p "$root/release" ]; then read -r release < "$root/release"; fi
+        cat "$root/roster" ;;
+      *'"notes.read"'*) printf '%s\n' notes >> "$root/calls"; printf '%s\n' '{"identityId":"SOL","content":"ship it"}' ;;
       *'"requests.list"'*) printf '%s\n' room >> "$root/calls"; printf '%s\n' '{"items":[]}' ;;
       *) exit 2 ;;
     esac ;;
@@ -177,7 +229,7 @@ esac
                 core: Core::at(executable),
                 squad: Squad {
                     name: "p".into(),
-                    room_id: "room".into(),
+                    room_id: "33333333-3333-4333-8333-333333333333".into(),
                 },
                 config: Config::read(root.join("squad.toml")).unwrap(),
                 root,
@@ -205,10 +257,10 @@ esac
                 &self.squad,
                 config.reminders("p").unwrap(),
                 &[],
-                Reads {
+                Mode::Read(Reads {
                     metadata: false,
                     notes,
-                },
+                }),
             )
             .unwrap()
             .document(
@@ -284,5 +336,158 @@ esac
         assert!(shown.notes.is_none());
         assert!(!fixture.calls().contains(&"notes".to_owned()));
         assert!(shown.document["squad"]["lead"].is_null());
+    }
+    impl Fixture {
+        fn enabled(&self) -> Reminders {
+            Reminders {
+                enabled: true,
+                stale_after: Duration::from_secs(60),
+            }
+        }
+
+        fn observer(&self, settings: Reminders) -> staleness::Observer {
+            staleness::Observer::in_directory(
+                self.config.path(),
+                &self.squad,
+                settings,
+                self.root.join("cache"),
+            )
+        }
+
+        fn remind(&self, settings: Reminders, lead: &str) -> Observation {
+            observe_with(
+                &self.core,
+                &self.squad,
+                &[],
+                Mode::Reminder { lead },
+                || self.observer(settings),
+            )
+            .unwrap()
+        }
+
+        fn prime_notes(&self) {
+            let members = self.squad.roster(&self.core).unwrap();
+            self.observer(self.enabled()).record(
+                &members,
+                &[],
+                &provider::Cache::at(None),
+                Some(&json!({"identityId": "SOL", "content": "ship it"})),
+                None,
+                status::now_ms() - 60_001,
+            );
+            fs::remove_file(self.root.join("calls")).unwrap();
+        }
+    }
+
+    #[test]
+    fn reminder_reads_only_the_roster_when_disabled_and_creates_no_cache() {
+        let fixture = Fixture::new(
+            "reminder-off",
+            json!([member("SOL", json!({"squad.p.lead.marker": "true"}))]),
+        );
+        let result = fixture.remind(Reminders::default(), "SOL");
+        assert!(result.reminder.is_none());
+        assert_eq!(fixture.calls(), ["roster"]);
+        assert!(!fixture.root.join("cache").exists());
+    }
+
+    #[test]
+    fn reminder_claims_notes_before_handoff_and_never_reads_ls() {
+        let fixture = Fixture::new(
+            "reminder-claim",
+            json!([member("SOL", json!({"squad.p.lead.marker": "true"}))]),
+        );
+        fixture.prime_notes();
+        let result = fixture.remind(fixture.enabled(), "SOL");
+        assert_eq!(
+            result.reminder,
+            Some(staleness::Reminder {
+                members: vec![],
+                notes: true
+            })
+        );
+        assert_eq!(fixture.calls(), ["roster", "notes", "room"]);
+        let path = fs::read_dir(fixture.root.join("cache"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .unwrap();
+        let cache: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(
+            cache["notes"]["claimed"], true,
+            "claim is already durable when returned"
+        );
+        drop(result);
+        assert!(
+            fixture.remind(fixture.enabled(), "SOL").reminder.is_none(),
+            "a lost handoff is not retried"
+        );
+        assert!(!fixture.calls().iter().any(|call| call == "ls"));
+    }
+
+    #[test]
+    fn reminder_holds_the_observer_lock_before_and_through_the_roster_read() {
+        let fixture = Fixture::new(
+            "reminder-lock",
+            json!([member("SOL", json!({"squad.p.lead.marker": "true"}))]),
+        );
+        fixture.prime_notes();
+        let fifo = fixture.root.join("release");
+        nix::unistd::mkfifo(
+            &fifo,
+            nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+        )
+        .unwrap();
+        // Keep a reader open so release cannot hang if the worker fails first.
+        let _release = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&fifo)
+            .unwrap();
+        std::thread::scope(|scope| {
+            let reading = scope.spawn(|| fixture.remind(fixture.enabled(), "SOL"));
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while fixture.calls().is_empty() {
+                assert!(Instant::now() < deadline, "roster read did not begin");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let competing = fixture.observer(fixture.enabled());
+            let locked = !competing.active();
+            drop(competing);
+            fs::write(&fifo, "continue\n").unwrap();
+            let result = reading.join().unwrap();
+            assert!(
+                locked,
+                "the roster runs while this room's observation lock is held"
+            );
+            assert!(result.reminder.is_some());
+        });
+        fs::remove_file(fifo).unwrap();
+        assert!(
+            fixture.observer(fixture.enabled()).active(),
+            "completion releases the lock"
+        );
+    }
+
+    #[test]
+    fn reminder_contention_and_changed_lead_never_claim() {
+        let fixture = Fixture::new(
+            "reminder-unavailable",
+            json!([member("SOL", json!({"squad.p.lead.marker": "true"}))]),
+        );
+        fixture.prime_notes();
+        let held = fixture.observer(fixture.enabled());
+        assert!(fixture.remind(fixture.enabled(), "SOL").reminder.is_none());
+        assert_eq!(
+            fixture.calls(),
+            ["roster"],
+            "contention skips optional reads"
+        );
+        drop(held);
+        assert!(fixture.remind(fixture.enabled(), "RIN").reminder.is_none());
+        assert!(
+            fixture.remind(fixture.enabled(), "SOL").reminder.is_some(),
+            "a rejected lead did not consume the generation"
+        );
     }
 }

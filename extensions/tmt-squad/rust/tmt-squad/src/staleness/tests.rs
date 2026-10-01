@@ -803,3 +803,54 @@ fn preflight_requires_activity_for_rows_and_rejects_invalid_scope_time_and_budge
     fs::write(&path, "broken").unwrap();
     assert!(due(62_000).is_empty());
 }
+
+#[test]
+fn only_authoritative_idle_after_the_update_is_retained_for_the_roster_only_hook() {
+    let fixture = Fixture::new();
+    let mut rows = members();
+    fixture.record(&rows, None, None, 1_000);
+    for state in ["unknown", "ended", "working"] {
+        rows[1].seen = json!({"session": {"activity": {"state": state, "sinceMs": 2_000, "lastActivityMs": 2_000}}});
+        let doc = fixture.document(&fixture.record(&rows, None, None, 61_000), &rows);
+        assert_eq!(
+            doc["sections"][0]["rows"][0]["staleness"]["activityAfterUpdate"],
+            false
+        );
+    }
+    rows[1].activity = json!({"activity": "idle"});
+    rows[1].presence = "offline".into();
+    for at in [1_000, 62_000] {
+        rows[1].seen = json!({"session": {"activity": {"state": "idle", "sinceMs": at, "lastActivityMs": at}}});
+        let doc = fixture.document(&fixture.record(&rows, None, None, 61_000), &rows);
+        assert_eq!(
+            doc["sections"][0]["rows"][0]["staleness"]["activityAfterUpdate"],
+            false
+        );
+    }
+    rows[1].seen = json!({"session": {"activity": {"state": "idle", "sinceMs": 2_000, "lastActivityMs": 2_000}}});
+    let doc = fixture.document(&fixture.record(&rows, None, None, 61_000), &rows);
+    assert_eq!(
+        doc["sections"][0]["rows"][0]["staleness"]["reasons"],
+        json!(["member_idle"])
+    );
+    rows[1].seen = Value::Null;
+    let fields = provider::Cache::at(None);
+    let (_, claim) = fixture.observer().record_for_reminder(
+        Input {
+            members: &rows,
+            providers: &[],
+            fields: &fields,
+            notes: None,
+            room: None,
+            now: 61_001,
+        },
+        LEAD,
+    );
+    assert_eq!(claim.unwrap().members, [MEMBER]);
+    rows[1].fields.insert("task".into(), "new task".into());
+    let doc = fixture.document(&fixture.record(&rows, None, None, 62_000), &rows);
+    assert_eq!(
+        doc["sections"][0]["rows"][0]["staleness"]["reasons"],
+        json!([])
+    );
+}

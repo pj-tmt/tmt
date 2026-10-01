@@ -121,6 +121,17 @@ impl Observer {
         Self::at(config, squad, settings, cache::directory("staleness"))
     }
 
+    /// Isolates an observer's lock and publication in a fixture-owned cache.
+    #[cfg(test)]
+    pub(crate) fn in_directory(
+        config: &Path,
+        squad: &Squad,
+        settings: Reminders,
+        directory: PathBuf,
+    ) -> Self {
+        Self::at(config, squad, settings, Some(directory))
+    }
+
     fn at(config: &Path, squad: &Squad, settings: Reminders, directory: Option<PathBuf>) -> Self {
         let mut observer = Self {
             settings,
@@ -259,12 +270,16 @@ impl Observer {
             };
             let mut reasons = if same
                 && old["reasons"].as_array().is_some_and(|items| {
-                    items.len() <= 4
+                    items.len() <= 5
                         && items.iter().all(|reason| {
                             matches!(
                                 reason.as_str(),
                                 Some(
-                                    "pr_link_changed" | "pr_opened" | "pr_merged" | "member_final"
+                                    "pr_link_changed"
+                                        | "pr_opened"
+                                        | "pr_merged"
+                                        | "member_final"
+                                        | "member_idle"
                                 )
                             )
                         })
@@ -306,6 +321,19 @@ impl Observer {
                     }
                 }
                 states.insert(field, state.into());
+            }
+            // Only ls/board supply this public, runtime-verified projection.
+            // The roster-only hook retains the reason; it never probes a pane
+            // or infers idle from self-reported status or offline presence.
+            let idle = &member.seen["session"]["activity"];
+            if same
+                && idle["state"] == "idle"
+                && idle["sinceMs"]
+                    .as_u64()
+                    .zip(idle["lastActivityMs"].as_u64())
+                    .is_some_and(|(at, last)| at > since && at <= last && last <= now)
+            {
+                add_reason(&mut reasons, "member_idle");
             }
             if room.is_some_and(|room| {
                 room.items.iter().any(|item| {

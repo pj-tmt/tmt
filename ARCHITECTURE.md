@@ -2638,12 +2638,29 @@ reset content age. Disabling stops observation; after re-enabling, surviving
 fingerprint matches keep their first-observed time. These are observed content timestamps,
 not core modification times or a history feed. Age determines staleness;
 `activityAfterUpdate` separately records relevant observed PR link/state
-changes or member finals after a row update for future reminder eligibility.
-Only successful unexpired `github-pr` preset cache values and the public room
-history supply that evidence; live idle state is not inferred. This slice
-neither installs hooks nor emits reminders. The planned reminder contributes
-to the lead's next turn through generic consented prompt-submit context, not
-Stop; that generic hook and claims belong to their own follow-up slices.
+changes, member finals, or authoritative idle transitions after a row update.
+Only successful unexpired `github-pr` preset cache values, the public room
+history and ordinary reads' runtime-verified `session.activity` supply evidence;
+self-reported activity and offline presence never establish idle.
+
+`reminder` consumes the generic consented `context_v1` callback at SessionStart
+and prompt submission, never Stop. Its cache-only gate exits before core calls
+or room locks for cold/off/fresh/claimed/non-lead cases. A warm candidate uses
+public config and room commands to validate its root and room UUID, then
+`observe::Mode::Reminder` reads only the roster, notes and bounded room history.
+The current roster must independently establish the callback identity as the
+sole lead. It runs no providers, presence probes or inbox overlays. `staleness`
+publishes per-generation claims under the same lock before returning a summary;
+`reminder` represents all claims by names/counts in one sanitized line.
+
+Context calls share one monotonic deadline of at most 300 ms. Core's hook runner
+isolates the extension's process group; context-only nested calls inherit it.
+An invocation-scoped timer bounds input/files/publication/output too, signals
+only its live process-owned group, and is canceled/joined on completion. This
+path requires the extension to own its process group. Host timeout can cut it off
+earlier and owns reaping. Ordinary Core calls retain their existing independent
+groups and allowances. No resident worker or core Squad concept is introduced.
+The extension guide owns the observed-age, claim-loss and cache-loss limits.
 
 `board::tabs` owns the tab
 keys: a squad's name, or a built-in key starting with `@` (`@leads`, `@all`),

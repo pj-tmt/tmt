@@ -51,7 +51,10 @@ pub(super) fn candidates_at(
             continue;
         };
         let config = PathBuf::from(config);
-        if !config.is_absolute() || !crate::config::uuid_like(room_id) {
+        if !config.is_absolute()
+            || !crate::squad::valid_name(name)
+            || !crate::config::uuid_like(room_id)
+        {
             continue;
         }
         let expected = format!(

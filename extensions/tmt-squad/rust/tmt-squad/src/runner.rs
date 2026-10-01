@@ -97,6 +97,42 @@ pub fn run_cancellable(
     result
 }
 
+/// Read-only context calls inherit the hook's isolated host-owned group.
+/// A failed communication aborts that invocation instead of handing off
+/// partial context or leaving a descendant beyond the deadline.
+pub fn run_inherited(
+    program: &Path,
+    args: &[OsString],
+    input: &[u8],
+    deadline: Instant,
+    max_output_bytes: usize,
+) -> Result<Finished, RunError> {
+    use nix::{
+        sys::signal::{Signal, killpg},
+        unistd::{getpgrp, getpid},
+    };
+    let owner = getpid();
+    // A live process cannot have its PID recycled. Equality proves it owns
+    // this group; an interactive caller's group is never a signal target.
+    if getpgrp() != owner {
+        return Err(RunError::Spawn);
+    }
+    remaining(deadline)?;
+    let mut job = Exec::cmd(program)
+        .args(args.iter().cloned())
+        .stdin(input.to_vec())
+        .stdout(Redirection::Pipe)
+        .stderr(Redirection::Pipe)
+        .start()
+        .map_err(|_| RunError::Spawn)?;
+    let result = communicate(&mut job, deadline, max_output_bytes, None);
+    if result.is_err() {
+        let _ = killpg(owner, Signal::SIGKILL);
+        job.detach();
+    }
+    result
+}
+
 fn remaining(deadline: Instant) -> Result<Duration, RunError> {
     deadline
         .checked_duration_since(Instant::now())
