@@ -171,6 +171,14 @@ describe.sequential('Codex native channel product routing', () => {
             db.prepare('SELECT body FROM request_responses WHERE request_id = ?').get(id)
           )
         ).toBeUndefined();
+        await f.waitFor(
+          () =>
+            events(worker, 'channel').some((event) =>
+              event.content?.includes(`native to ${target}`)
+            ),
+          10000,
+          'accepted input published by the mock foreground'
+        );
         const content = events(worker, 'channel').find((e) =>
           e.content?.includes(`native to ${target}`)
         )!.content!;
@@ -417,6 +425,12 @@ describe.sequential('Codex native channel product routing', () => {
       expect(replacement.record.generation).not.toBe(record.generation);
       const sent = await talk(f, 'Worker', 'new explicit channel');
       expect(sent.code, sent.stdout + sent.stderr).toBe(0);
+      await f.waitFor(
+        () =>
+          events(next, 'channel').some((event) => event.content?.includes('new explicit channel')),
+        10000,
+        'replacement foreground received its accepted input'
+      );
       expect(events(next, 'channel')).toHaveLength(1);
       for (const session of [plain, elsewhere, next]) await quit(session);
     });
@@ -465,7 +479,14 @@ describe.sequential('Codex native channel product routing', () => {
       const trace = installTmuxTrace(f);
       const result = await talk(f, 'Worker', 'reply later', boss.pane);
       expect(result.code, result.stdout + result.stderr).toBe(0);
-      const content = events(worker, 'channel')[0].content!;
+      await f.waitFor(
+        () => events(worker, 'channel').some((event) => event.content?.includes('reply later')),
+        10000,
+        'deferred reply input published after native receipt'
+      );
+      const content = events(worker, 'channel').find((event) =>
+        event.content?.includes('reply later')
+      )!.content!;
       const receipt = /tmt reply (\S+) --receipt (\S+) --message <text>/.exec(content)!;
       const bossRecord = records(f).find(
         (row) => row.record.foreground.process?.pid === events(boss, 'started')[0].pid
