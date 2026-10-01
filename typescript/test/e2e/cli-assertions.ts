@@ -12,7 +12,7 @@ export function expectJsonResult<T>(result: CliResult<T>): T {
 type Row = Record<string, unknown>;
 
 /**
- * A `tmt ls`/`tmt list` JSON result without the additive `address` and
+ * A `tmt ls` JSON result without the additive `address` and
  * `driver` keys (#434), after checking them, so scenarios keep asserting the
  * pre-existing contract exactly. Both keys come together; a live pane always
  * has an address, which is its tmux pane unless an agent session is known.

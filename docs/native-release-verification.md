@@ -191,7 +191,7 @@ goes through
 is refused while pinned and installed with `--unpin`, the exact skills are served, SQLite is
 unchanged, the old executable is preserved, a repeat is a no-op and a downgrade is refused.
 An Office or Squad release is installed over the previous one by the newest published CLI
-with `tmt extension install <extension>` and read back with `tmt extension list`
+with `tmt extension install <extension>` and read back with `tmt extension ls`
 (`verify-native-extension-upgrade.mjs`): the version changes, the previous release stays on
 disk, a repeat is a no-op, a downgrade is refused and no CLI link is created. Extensions
 have no install command of their own under `tmt <extension>`; the proof must use the surface

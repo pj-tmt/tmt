@@ -702,9 +702,20 @@ lifecycle and its private receipt, shared by the Office commands, Office storage
 switch and the companion. No core crate declares an `office_*` module except the
 facade, which PR B of #355 removes.
 
+`rust/crates/tmt-tui` is an internal, unpublished presentation leaf for TMT
+markup. Its version-1 structural admission accepts bounded XML and produces a
+template with source locations, not a renderable scene. It refuses declarations
+and excessive depth before tree allocation and bounds parser nodes. Utility,
+binding, geometry and paint stages are not implemented yet. No product consumes
+it. The guard permits only XML parsing and the shared style leaf, never core,
+adapters or extension behavior; reverse product edges require adoption review.
+The private component has no release; its inherited version/lock entry follows
+the workspace, while product notices include only their actual dependency graph.
+
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
-dependency guard. It follows the actual Rust module tree, checks reviewed
-layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
+dependency guard. One reviewed manifest table owns both the fixed workspace
+package names and their documented manifest locations. It follows the actual
+Rust module tree, checks reviewed layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
 ledger (crate, canonical name and target, with a reason per row); aliases are rejected,
 and the invoke leaf remains guarded for every dependency kind. The guard fails closed for unsupported
 module remapping or incomplete discovery. It also checks that the CLI crates
@@ -758,7 +769,7 @@ Office reads core-owned identities and rooms only through the UUID-keyed
 `active_identities`, `room`, and a batch `resolve`), separate from the CLI selector
 port `CoreAccess`. Production implements it as `ProcessReferences`: it runs the
 invoking `tmt` (`TMT_EXECUTABLE`, else `tmt` on `PATH`, never itself) through the
-supervised process runner, using `tmt --json identity list` and the
+supervised process runner, using `tmt --json identity ls` and the
 `references.resolve` API operation, so the Office binary never opens or migrates
 the core database. The in-process `CoreStore` is compiled only for tests and the
 `in-process-core` feature, and a crate test forbids `Storage::open` and
@@ -776,7 +787,7 @@ profile presence and self-reported status. The browser is the local owner, so it
 writes use the API's `"originator":"anonymous"` (no writer identity, exactly like the
 CLI without `--identity`; it grants nothing beyond same-user CLI calls). Each handler
 maps core's error codes through an explicit status table and reports anything else as
-unavailable storage. Presence comes from `tmt list --json`, which verifies tmux
+unavailable storage. Presence comes from `tmt ls --json`, which verifies tmux
 endpoints, and status from the batch `identities.status` operation, so a profile poll
 is two processes. Unit tests run the same operations in-process behind `LocalCore`;
 a crate test forbids `Storage::open` and `tmt_adapters::storage` in service code.
@@ -1141,16 +1152,25 @@ until the user enables it.
 
 ### Core command surface
 
+The Clap grammar owns primary names and accepted aliases. Listing uses `ls`,
+removal uses `rm`, identity renaming uses `mv`, and record display uses `show`.
+Long spellings remain hidden aliases and resolve to the same typed invocation;
+help, examples and guidance use the primaries. Root `uninstall` remains distinct
+from identity retirement. Core names and all aliases, including `mv`, are reserved
+before external PATH dispatch. The recursive listing guard in `tmt-cli-style::audit`
+covers core, embedded Office and the separate Squad grammar. Options, operation
+enums, JSON API method names and persistence semantics are unchanged by spelling.
+
 The maintained public surface is:
 
 - `init`, `config`, `completion`, `learn` and `install` for local setup and
   guidance;
-- identity and binding commands: `identity` create/show/list and metadata
-  set/get/list/remove with exact filters, `list`/`ls`, `add`, `name`/`this`,
-  `whoami`, `unbind`, `rm`/`remove`;
+- identity and binding commands: `identity` create/show/ls/mv and metadata
+  set/show/ls/rm with exact filters, `ls`, `add`, `name`/`this`,
+  `whoami`, `unbind`, `rm`, `mv`;
 - saved-identity notes through `notes path`;
 - the versioned local extension interface through `api`;
-- profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
+- profile and exchange commands: `role`, `preamble`, `x ls|show|ack|ackall`,
   `reply`, `result`, `inbox`, `answer`, `talk`/`send`, `check`/`read`;
 - `focus <identity|pane>`, which shows a verified pane in the
   invoking user's own tmux client and reports that client (see the driver
@@ -1170,7 +1190,7 @@ JSON and human output use the same typed result and status contracts.
 `identity show <name>` remains a storage-only named read. Without a name it
 uses the shared verified-caller selector before opening storage; an unavailable
 or unbound caller does not fall back to a working directory, active pane or sole
-stored identity. `identity list` and bare `preamble show` remain collection reads.
+stored identity. `identity ls` and bare `preamble show` remain collection reads.
 `OutputMode` contains only the supported JSON selection. Unsupported
 `--verbose`/`-v` and `--debug` flags are absent from the grammar and fail with
 `USAGE_ERROR` before effects; literal message/option-value text is unchanged.
@@ -1303,7 +1323,7 @@ inside the writing transaction, so no write path can forget. Migration
 bookkeeping and the Office tables fenced by the schema-36 cutover have none.
 An update counts only when some column's value differs (`WHEN OLD.c IS NOT
 NEW.c OR ...`), so a reconcile that rewrites a row with the same values is not
-a change, and `bindings.last_verified_at`, which `list` refreshes while
+a change, and `bindings.last_verified_at`, which `ls` refreshes while
 reconciling presence, is not compared at all. A later migration that adds a
 core table or a column, or rebuilds a table (as schema 39 rebuilt
 `bindings`), must create or recreate its triggers: `change_cursor_tests` fails
@@ -1698,7 +1718,7 @@ retry. A failed retirement is reported as a secondary diagnostic
 Conclusive pane/server death or explicit unbind retires temporary names without
 erasing retained exchanges; saved identities remain available offline. Saved
 removal requires explicit force. Neither removal nor unbind kills a pane.
-`list` may show verified foreign-server identities, but `talk`/`check` routing
+`ls` may show verified foreign-server identities, but `talk`/`check` routing
 remains current-server-only. Pane number, presentation title and socket pathname
 alone are not endpoint identity. Publication and recovery preserve the full
 server/pane process evidence; ambiguous observations fail closed.
@@ -1948,7 +1968,7 @@ cleanup.
 
 The CLI and the `delivery` and `pane_badge` adapters reach the terminal host
 only through `tmt-adapters::host::Host`. Extensions never do: they read presence
-from `tmt list --json` and the caller from `tmt whoami`, and the architecture
+from `tmt ls --json` and the caller from `tmt whoami`, and the architecture
 guard rejects any extension source, test code included, that names the host
 port, the tmux or Herdr module, or core's `binding`, `endpoint` or `host`
 model. The host port holds the binding session (the core `BindingEndpoint`
@@ -2280,19 +2300,19 @@ links without deleting releases or application data. It is recoverable, not a mu
 a missing command link with a retained activation is reported as invalid and
 explicit uninstall can finish that state.
 
-`tmt extension install|upgrade|uninstall|list` (`tmt-cli::extension_install_command`)
+`tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
 is the public surface for the official extensions over this path. Its facade
 retains dispatch, consent, errors, interruption, rendering and uninstall; private
 `extension_install_command/` modules own install, repair, list/upgrade and skills
 settlement through the existing native-installer and owned-skill adapters. The names
 come from the fixed product table, never from PATH or archive data. Install, upgrade
 and uninstall require consent (`--yes`, or an interactive prompt), and refuse a
-non-interactive run without it. `list` reads local receipts only. `--check` adds a
+non-interactive run without it. `ls` reads local receipts only. `--check` adds a
 bounded release lookup (`latest_release_version`, metadata only), and a failed
 lookup reports `unknown`. Shadowing canonicalizes every `tmt-<name>` on PATH and
 reports those that resolve elsewhere, without executing them. Root help groups
 discovered extension names that resolve to the same file (`squad (also: sq)`).
-`tmt office install|upgrade|status|uninstall` keeps its own Office-specific
+`tmt office install|upgrade|status|rm` keeps its own Office-specific
 flow for now.
 
 An extension's agent skills belong to one owner named after it (`squad`,
@@ -2448,7 +2468,13 @@ member's public projection: the `ls --room` row it already joins (`cwd`,
 returns unprefixed only when a column reads `meta.<key>`. `status::document`
 writes each bound value into the row's field of the column's name, with its
 number for sorting, before sections, filters and sorts read it, so the board and
-`ls` show one value and a binding adds no core call. Field providers
+`ls` show one value and a binding adds no core call. It also owns cell color
+resolution: a column's numeric `color` thresholds (`rows::Threshold`, validated
+theme tokens, strictly increasing) over the bound number or the field read as a
+number, else a field provider's token, which `provider::apply` keeps only when
+it names a theme token. The row carries the result as `colors` (`{field: token}`,
+omitted when empty); the board styles those cells through the theme, `state`
+keeps its state colors, and `ls` text stays uncolored. Field providers
 (`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
 member through `runner` with the run-binding argument rule
 (`Template::fill_argument`: one argument per template, no shell, a value that
@@ -2475,7 +2501,18 @@ the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data. The input loop asks for a reload at the shown squad's `refresh`
+painted data. Input, snapshots and deferred tab attention share one event channel;
+a snapshot wakes the painter directly. The input loop rebuilds only after a
+state/input/resize change or when displayed clock text or the delayed spinner
+changes. Each immutable view owns disposable markdown wrapping and grid-width
+derivations keyed by effective pane width (and grid search); replacing the view
+invalidates them, and the scroll renderer copies only visible lines.
+A switch advances the worker's generation, cancelling superseded core reads in
+Squad's existing bounded process-group runner. Cancellation kills and reaps the
+child group without changing ordinary command deadlines or output bounds;
+queued results carry their generation and cannot replace a newer view. Worker
+shutdown cancels its core read, disconnects requests and joins after terminal
+restoration. The input loop asks for a reload at the shown squad's `refresh`
 interval (`Config::refresh`: per squad, then top-level `[board]`, then 5 s;
 `None` is off), which each snapshot carries, so a squad that failed to load
 retries at the default. That timer always runs. Between requests the refresh
@@ -2487,15 +2524,21 @@ change, and `API_INPUT_INVALID` (a core without the method) stops cursor reads
 for the session, leaving the file check and the interval. A switch never clears the view: `App` keeps the view of each
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
-swaps in whole; a result for a squad the user left only refreshes that cache.
+swaps in whole. An uncached switch that lasts at least 100 ms shows a spinner in
+the fixed summary header, ticking every 80 ms; cached switches show no loading
+indicator. F5 defaults to refresh in squad, leads and all views; squad/leads
+bindings can rebind it through `[bind]`, while all keeps its own `[tabs.all.bind]`.
 Tabs are the same width selected or not: selection is a style, never extra
 characters. `attention::Attention` is the one definition of a squad's tab
 state, derived from its status document: members waiting on the user (`pending`
 or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
 `squad.attention`. The refresh computes it for the shown squad from that
-document, and for every other squad from a roster-only document (one
-`rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
-tabs are colored without loading their rows.
+document and publishes that view first. The same worker then computes every
+other squad's attention from a roster-only document (one `rooms.roster` read
+each, plus one `inbox` read shared by all, and no `ls`). Previous tab attention
+stays visible until that generation's update arrives; a newer switch preempts
+this lower-priority work. The cross-squad leads/all views still read the rosters
+needed for their own rows before publication.
 
 Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
 board refresh and reminder timing. Callers retain their accepted units, numeric
@@ -2669,7 +2712,7 @@ observation for `me_id` at once; the hooks are optional, and the same repair
 happens on the next command that reads `me`. The `tmt-squad` lead skill source lives under
 `extensions/tmt-squad/skills/` and is embedded only in the squad executable,
 never in the core skill bundle. Optional playbooks (`tmt squad playbook
-list|show|install|remove`, first `tmux-squad`) live beside it in
+ls|show|install|rm`, first `tmux-squad`) live beside it in
 `extensions/tmt-squad/playbooks/`, deliberately not under `skills/`: the release
 archive ships and the extension installer offers every skill under `skills/`,
 while a playbook is installed only on request, and a test pins that no playbook is
@@ -2677,8 +2720,8 @@ in that tree. `playbook.rs` holds the one catalog of embedded sources and regist
 subtree through `tmt-cli-style` (summary and examples per command, `--json` from
 squad's global option); it is Squad's first dependency on that crate. `show`
 prints the exact bytes; `install` asks (the same `consent` helper as `hotkeys`),
-then calls `skills.install` as owner `squad`, and `remove` calls `skills.remove`
-with the playbook's name, so the lead skill and `tmt extension uninstall squad`
+then calls `skills.install` as owner `squad`, and `rm` calls `skills.remove`
+with the playbook's name, so the lead skill and `tmt extension rm squad`
 are unaffected. Squad never writes a provider directory and never executes a
 playbook. Squad's dependencies must not change the CLI
 product: the proof is package-scoped (`-p tmt-cli` alone), because combined
@@ -2833,7 +2876,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 
 `extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
 as `tmt remote`. `main` owns style/foreground composition and one bounded
-startup capabilities call. `core::CoreClient` owns fixed public `api`/`list`
+startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 `rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
 

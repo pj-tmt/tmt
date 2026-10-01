@@ -44,13 +44,13 @@ fn help_uses_public_ownership_and_resolves_aliases() {
     let mut command =
         grammar::help_command(&["office".into(), "board".into(), "list".into()]).unwrap();
     let text = command.render_long_help().to_string();
-    assert!(text.contains("tmt office board list"));
+    assert!(text.contains("tmt office board ls"));
     assert!(text.contains("--general"));
     assert!(!text.contains("--detach"));
     assert!(!text.contains("--wait"));
     assert_eq!(
         parse(&arguments(&["ls", "-h"])).unwrap().invocation,
-        Invocation::Help(vec!["list".into()])
+        Invocation::Help(vec!["ls".into()])
     );
     assert!(grammar::help_command(&["__native-install".into()]).is_err());
     assert!(parse(&arguments(&["help", "office", "not-a-command"])).is_err());

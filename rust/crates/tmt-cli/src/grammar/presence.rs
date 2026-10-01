@@ -5,15 +5,15 @@ use clap::{Arg, ArgAction, Command};
 
 pub(in crate::grammar) fn list_command() -> Command {
     general(spec!(
-        "list",
+        "ls",
         "List global identities, lifetime and live presence",
         [
-            "List identities and whether they are live" => "tmt list",
-            "List the members of a room" => "tmt list --room reviewers",
-            "The same, as JSON" => "tmt list --json",
+            "List identities and whether they are live" => "tmt ls",
+            "List the members of a room" => "tmt ls --room reviewers",
+            "The same, as JSON" => "tmt ls --json",
         ]
     ))
-    .visible_alias("ls")
+    .alias("list")
     .arg(operand("target", false).conflicts_with("room"))
     .arg(option("room"))
     .arg(list_filter("saved", "Only saved identities").conflicts_with("temp"))
@@ -80,7 +80,7 @@ pub(in crate::grammar) fn remove() -> Command {
         )),
         &["force"],
     )
-    .visible_alias("remove")
+    .alias("remove")
     .arg(operand("name", true))
 }
 

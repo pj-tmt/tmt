@@ -388,6 +388,7 @@ pub fn apply(providers: &[Provider], members: &mut [Member], cache: &Cache) {
                 .and_then(|argv| current(cache, provider, member, &argv).cloned());
             member.fields.remove(&provider.name);
             member.failed.remove(&provider.name);
+            member.colors.remove(&provider.name);
             let Some(entry) = entry else {
                 continue;
             };
@@ -398,6 +399,16 @@ pub fn apply(providers: &[Provider], members: &mut [Member], cache: &Cache) {
                 member
                     .fields
                     .insert(provider.name.clone(), value.to_owned());
+                // A program's output is untrusted: only a theme token's name
+                // suggests a color; anything else means none.
+                if let Some(token) = entry["color"]
+                    .as_str()
+                    .filter(|token| crate::look::role(token).is_some())
+                {
+                    member
+                        .colors
+                        .insert(provider.name.clone(), token.to_owned());
+                }
             }
         }
     }
@@ -417,7 +428,7 @@ fn clean(text: &str) -> String {
 }
 
 /// Plain text is the value; `{"value": …, "color": "<token>"}` also names a
-/// color token, kept for the board's theme colors (#514).
+/// color token, which `apply` keeps only when it is a theme token.
 fn outcome(stdout: &[u8]) -> Outcome {
     let text = String::from_utf8_lossy(stdout);
     let text = text.trim();
