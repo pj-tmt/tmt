@@ -2922,80 +2922,42 @@ and authority definition owner.
 
 ## Colab extension proposal
 
-**Status: proposed, not implemented.** The local-build-only colab pilot is a
-separate extension under `extensions/tmt-colab/`. Its
-[normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md) owns
-wire/envelope bytes, membership, page state, epochs, renderer, pairing, sync,
-retention and the effect fence. The owning design on #828 supplies product/UI
-choices; #829 and #830 are bounded spike evidence, not shipped behavior. There
-is no registered colab executable, workspace package, core listener, deployment
-or release introduced by this documentation.
+**Status: proposed, not implemented.** The local-build-only pilot lives under
+`extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
+owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
+bridge policy and acceptance gates. The #828 design owns product/UI choices;
+#829/#830 are bounded spike evidence. This documentation adds no registered
+executable, workspace package, listener, deployment or release.
 
-The proposed Rust direction is `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
-and `tmt-cli-style`, plus reviewed workspace dependencies. The model owns pure
-IDs, statements, canonical bytes/codecs/crypto, page/anchor values and retention
-policy; it has no filesystem, process, network, database or core access. The
-executable owns CLI composition, foreground HTTP/WebSocket door, embedded app,
-SQLite/files, keyring and bridge. It reaches core only through the absolute
-invoking `$TMT_EXECUTABLE api` and documented JSON commands, using the bounded
-invoke leaf. It must not import `tmt-core`, `tmt-adapters`, Office or Remote
-behavior crates, open core SQLite or scrape panes. Shared cryptographic code is
-extracted into a reviewed leaf only when actual consumers require it.
+Proposed Rust dependencies are `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
+and `tmt-cli-style`, plus reviewed workspace pins. The model owns pure values,
+canonical bytes/codecs/crypto and policy, without I/O or core access. The
+executable owns CLI composition, foreground door, embedded app, SQLite/files,
+keyring and bridge. Core access is only through the absolute invoking
+`$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
+`tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
+or pane scraping. Shared crypto extraction requires actual consumers and review.
 
-Proposed browser packages are `typescript/colab-client` (envelopes, verified
-membership, per-writer Yjs fold and SyncBinding) and `typescript/app`
-(React/Vite trusted chrome and renderer shell), relative to the extension.
-They join the existing pnpm workspace/lockfile and repository pins when their
-implementation lands. Backend-specific Firebase/Cloudflare packages remain
-separate from model/bridge authority. Workspace/lockfile/component edits follow
-the two-lead rule; the architecture-guard row and CI-scope component land with
-first code. The separate #841 MSRV decision gates yrs adoption. Official product
-registration, packaging and release inclusion require later decisions; CLI
-release artifacts exclude the pilot.
+Proposed extension-relative browser packages are `typescript/colab-client`
+(client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
+(trusted React/Vite chrome and renderer); backend packages are separate. They
+join the existing pnpm workspace/lockfile and pins when implemented. Shared
+workspace/component edits follow the two-lead rule; architecture guard and
+CI-scope registration land with first code. #841 gates yrs adoption. Official
+registration/packaging is separate, and CLI releases exclude the pilot.
 
 All extension state stays in `<core-reported data root>/colab/`, with 0700
-directories and 0600 files. The extension owns its database, ciphertext blobs,
-keyring and machine-local grant/bridge ledger; provider configuration and core
-state retain their existing owners. Local storage and cloud backends store
-opaque ciphertext and signed metadata; they never decode or merge Yjs and
-never establish client membership authority. Auth/Rules or server sessions admit
-ciphertext. This colab-v1 edge model is a deliberate replacement of #478
-signed-edge admission, not inherited Remote transport authority. Clients verify
-the owner log, stream/namespace and role; machine-local grants fence every agent
-effect through the public core dispatch owner.
+directories and 0600 files, separate from core SQLite and provider configuration.
+The extension owns its ciphertext database/blobs, keyring, machine grants and
+bridge ledger. The colab-v1 edge model deliberately replaces #478 signed-edge
+admission with ciphertext Auth/Rules or server-session admission; it does not
+inherit Remote transport authority. The contract owns client authority and
+before-effect verification; the public core API retains dispatch/final ownership.
 
-Live content folds admitted editors' authenticated streams separately from
-writer-owned discussion/intent/reply documents. The contract's epoch baseline
-resets content from one owner-produced exact Yjs update, permitting named-member
-no-history admission without wrapping old keys. Link joins disclose the current
-epoch; local/LAN public mode advances and publishes only the new epoch key.
-Neither cloud backend offers public mode in v1. Snapshots restore content under
-current authority, never grants, sharing or send state. These definitions and
-cryptographic field orders live only in the contract.
-
-Foreign-writer decoding/merging is never in an authority-holding server, bridge
-or CLI parent. Rust re-invokes `tmt-colab` as a bounded child through `tmt-invoke`
-with deadline, input/output caps and confirmed cleanup; the browser uses a
-budgeted dedicated Worker and terminates overruns. Outputs remain untrusted and
-must pass namespace/role/bounds checks before atomic apply. Panic, timeout,
-invalid output or unconfirmed cleanup rejects the update, flags its stream and
-causes no dispatch. This is crash/resource containment, not an OS sandbox or key
-isolation: child filesystem authority and same-origin Worker access remain.
-#830's hostile corpus is a C0 review input; product memory limits, durable
-checkpoint/prune receipts and containment acceptance remain L2/L4 gates.
-
-Trusted parent chrome owns source editing, effectful actions and exact Send
-confirmation. The opaque-origin frame has no bridge/signing capability; nonce-
-authorized shell scripts in static mode do not authorize page scripts. Interactive
-self-navigation can disclose page content, and nonce-shell static admission
-requires L3 attack evidence. Render IDs bind exact source digests, and anchors
-use inert canonical extraction/source mapping with detached-on-mismatch behavior,
-as defined by the contract. UI layout remains design-owned.
-
-Local acceptance is L1–L6 before Firestore then Cloudflare. The extension's
-conformance gates cover the complete three-engine strict Ed25519 corpus with
-fail-on-missing-engine behavior, new namespace/link/baseline vectors, isolated
-hostile decoding, live browser/CLI convergence, renderer attacks and causal
-core reply/recovery. Spikes' in-memory stores and happy-path crypto do not prove
-durable admission or agent effects. Developer commands are added in L2/L3;
-current DEVELOPMENT guidance must not present the proposed CLI as installed.
+Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
+`tmt-colab` child through `tmt-invoke` (deadline/caps/confirmed cleanup), or a
+budgeted browser Worker terminated on overrun, as defined by the contract.
+That boundary contains decoder failure, without claiming an OS/key sandbox.
+Local acceptance precedes Firestore then Cloudflare; protocol, renderer and
+containment details/gates live only in the linked contract. DEVELOPMENT usage
+commands land in L2/L3, when the executable exists.

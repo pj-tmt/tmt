@@ -149,7 +149,7 @@ identify that stream.
 | `tmt-colab-membership-v1`      | version, space, revision, previousStatementHash, operation, SHA256(payloadBytes)                                              | Owner signature; operation at most 32 ASCII bytes                                        |
 | `tmt-colab-membership-hash-v1` | statementBytes, ownerSignature64                                                                                              | SHA256 of exact signed statement                                                         |
 | `tmt-colab-device-cert-v1`     | version, space, issuerKind, issuerId, deviceId, deviceEdPublic, deviceXPublic, membershipRevision, issuedAt, expiresAt        | Issuer kind `member` or `link`                                                           |
-| `tmt-colab-stream-cut-v1`      | version, streamId, checkpointEnvelopeHash, checkpointSeq, tailHeadSeq, tailHeadHash                                           | Exact checkpoint commitment and authenticated tail boundary                              |
+| `tmt-colab-stream-cut-v1`      | version, streamId, namespace, checkpointEnvelopeHash, checkpointSeq, tailHeadSeq, tailHeadHash                                | Namespace-bound checkpoint commitment and authenticated tail boundary                    |
 | `tmt-colab-wrap-v1`            | version, suite, space, page, epoch, recipientKind, recipientId, recipientXPublic, signerEdPublic, membershipRevision, purpose | At most 1,024 bytes; suite `base-x25519-hkdfsha256-aes256gcm`; purpose `epoch-key`       |
 | `tmt-colab-hpke-info-v1`       | wrapHeader                                                                                                                    | HPKE info; wrapHeader also HPKE AAD                                                      |
 | `tmt-colab-wrap-signature-v1`  | version, wrapHeader, enc32, SHA256(wrappedCiphertextWithTag)                                                                  | Owner signature authenticates HPKE Base sender                                           |
@@ -222,29 +222,62 @@ typed JSON. The operation-specific fields below are exact; keys/digests are
 canonical base64url, IDs/numbers follow the value table. Optional history access
 is explicit, never inferred from possession of a new key.
 
-| Operation       | Payload fields / semantic constraints                                                                                                                                |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `member.add`    | `memberId, role, signKey, encKey, pages`; role viewer/commenter/editor/owner; addition under no-history atomically advances each affected page epoch with a baseline |
-| `member.remove` | `memberId, cuts`; remove current authority and advance affected page epochs                                                                                          |
-| `member.role`   | `memberId, role, cuts`; reductions commit affected streams; promotion grants no retroactive authorship                                                               |
-| `link.add`      | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                                          |
-| `link.remove`   | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                                 |
-| `device.revoke` | `deviceId, cuts`; revoke the selected device and rotate affected epochs                                                                                              |
-| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; restricted bridge role, not editor                                                                                       |
-| `epoch.advance` | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                                      |
-| `page.share`    | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for local/LAN public mode and explicit history scope                                 |
-| `page.scripts`  | `pageId, mode`; interactive/static, owner control only                                                                                                               |
-| `retention.set` | `pageId, days`; positive safe-integer day count or null for forever                                                                                                  |
-| `page.archive`  | `pageId`; hide from active lists and freeze writes                                                                                                                   |
-| `page.delete`   | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                                    |
+| Operation       | Payload fields / semantic constraints                                                                                                                          |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `member.add`    | `memberId, role, signKey, encKey, pages`; role viewer/commenter/editor; addition under no-history atomically advances each affected page epoch with a baseline |
+| `member.remove` | `memberId, cuts`; remove current authority and advance affected page epochs                                                                                    |
+| `member.role`   | `memberId, role, cuts`; reductions commit affected streams; promotion grants no retroactive authorship                                                         |
+| `link.add`      | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                                    |
+| `link.remove`   | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                           |
+| `device.revoke` | `deviceId, cuts`; revoke the selected device and rotate affected epochs                                                                                        |
+| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; restricted bridge role, not editor                                                                                 |
+| `epoch.advance` | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                                |
+| `page.share`    | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for local/LAN public mode and explicit history scope                           |
+| `page.scripts`  | `pageId, mode`; interactive/static, owner control only                                                                                                         |
+| `retention.set` | `pageId, days`; positive safe-integer day count or null for forever                                                                                            |
+| `page.archive`  | `pageId`; hide from active lists and freeze writes                                                                                                             |
+| `page.delete`   | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                              |
 
-Owner role does not delegate the root membership-signing key. The root owner
-alone signs log statements. Page creation allocates a page ID, initial epoch
+The root owner is implicit, not an assignable member role; v1 has no co-owner
+or signing delegation. Every log statement is produced and signed by the owner's
+`tmt colab`, whose keyring alone holds the root key. Page creation allocates a page ID, initial epoch
 and baseline through the owner; `create` imports source without executing it.
+
+### Browser management requests
+
+The owner's enrolled browser never receives the root key. To request sharing,
+member/link changes, epoch advance, script policy or retention, it submits a
+device-signed typed management request to the owner's `tmt colab`. Canonical
+input is LP("tmt-colab-management-v1", "1", space, page, expectedRevision,
+operationId, operation, SHA256(payloadBytes), senderDevice, issuedAt, expiresAt).
+The payload is exact strict typed JSON describing the requested operation's
+user-selected fields above, not machine-computed cuts, baselines or wraps;
+the request names the affected page, not a caller-selected signing key. Transport
+contains exactly `{request, payload, signature}` as binary fields. Operation
+IDs are unique, and the validity window is at most ten minutes. Space-wide
+member actions name their affected page set in the typed payload; the page
+field binds the initiating page context, never widens that set.
+
+Verify the live owner-device session, strict possession signature, certificate
+chain, owner member binding, page scope and expiry before signing. Under the
+owner mutation lock, identical operation/digest retries return the recorded
+signed outcome without re-signing. A conflicting digest rejects; a new operation
+must match the expected log revision before signing. Non-owner devices cannot invoke this signing path even
+with editor permission. The owner's `tmt colab` checks current policy, computes
+any epoch baseline through the isolated decoder, and atomically signs/commits
+the resulting statements and transition. A request cannot supply an unverified
+baseline to be signed. The browser verifies returned owner-signed statements
+through the usual log admission; a transport success alone is not a new head.
+
+On cloud backends membership, sharing, rotation and other root-signed changes
+require the owner's machine online. The cloud service never holds the root key
+or signs in its place. An offline management request remains unavailable; it
+MUST NOT be executed later without rechecking its expiry and expected revision.
 
 `cuts` is a sorted unique list of `{pageId, epoch, namespace, cut}` where `cut`
 is the exact framed stream-cut bytes. Its signed payload scope resolves a single
-device stream and namespace. Both namespaces are committed when affected. The
+device stream and namespace; the framed cut's namespace MUST match that wrapper.
+Both namespaces are committed when affected. The
 checkpoint hash is either hash32 or zero-length `none` paired with checkpoint
 sequence `0`. Require checkpointSeq <= tailHeadSeq; an empty tail uses seq `0`
 and hash zero32. A nonempty tail must resolve through its exact chain. Reduction
@@ -267,6 +300,49 @@ membership revision and validity interval. A valid certificate cannot outlive
 issuer revocation or grant roles not present in the current log. Bridge streams
 use the owner-pinned machine key from `bridge.add`; a bridge cannot certify
 human/link devices. Keys from transport records cannot replace log bindings.
+
+### Local sign-in and owner-device enrollment
+
+`serve` prints a single-use sign-in URL whose secret is a uniformly random
+128-bit code carried only in its fragment, with expiry at most ten minutes.
+The URL also identifies a nonsecret code ID and pinned space. Trusted browser
+code imports/removes the fragment before renderer creation; it never enters
+HTTP URLs, logs or analytics. The code stays only in the owner's running process
+memory; durable expiry/consumption state stays in the extension's private subtree.
+Server exit invalidates outstanding codes; a restart issues a fresh one.
+
+The browser generates device Ed25519/X25519 keys and a nonce16. It sends the
+code ID, space, device ID, both public keys and nonce, with canonical input
+LP("tmt-colab-signin-v1", "1", codeId, space, deviceId, deviceEdPublic,
+deviceXPublic, nonce16). Its proof is full HMAC-SHA256(code, input); possession
+is a device signature over LP("tmt-colab-signin-possession-v1", "1", input).
+The secret code is never sent as a transport field. Wrong proofs/signatures,
+expired codes, replay and second use reject without certifying or issuing a
+session.
+
+After verifying the code proof and possession, the owner's `tmt colab` issues
+the framed `device.cert` under the owner's member signing key. The owner's
+member ID/key binding is pinned in revision 1's owner-signed `member.add`
+statement with editor role. Only that initial member is the owner's management
+principal; later member additions cannot claim it or reuse its keys. Root
+ownership remains implicit and is not a role
+that another member can obtain. This certificate identifies an owner-enrolled
+device for page/management access; it grants no local-agent access. Enrollment
+consumes the code and records the exact device binding atomically, before
+returning the certificate/session.
+
+The server issues a 256-bit random session token, stores only its SHA256 hash,
+and binds it to the certified device, space, finite expiry (at most 24 hours)
+and current revocation state. Deliver it as an HttpOnly, SameSite=Strict cookie
+scoped to the space (Secure on HTTPS); the browser automatically presents that
+Cookie header on admitted API/upgrade requests. Browser WebSocket construction
+cannot set an arbitrary authorization header, so tokens MUST NOT be moved into
+query strings as a workaround. The token never enters a URL, renderer message
+or log. `device.revoke` invalidates its sessions immediately when the
+local server applies the verified statement. Every API/upgrade checks expiry,
+device binding and revocation; a cached token cannot revive a revoked device.
+The sign-in code, device certificate and server session do not create a machine-
+local agent grant; that requires the separate pairing ceremony below.
 
 ## Page state, roles and epochs
 
@@ -807,8 +883,15 @@ read-only input, not production modules.
 
 Required L1 gates include:
 
+- Sign-in HMAC/possession and owner management bytes,
+  typed payloads and expected-revision fencing; L2 proves expiry, replay/second-use
+  denial, wrong-device signatures, atomic enrollment, token-hash persistence and
+  device-revocation denial. Owner-only management rejects editor substitution,
+  stale/offline requests and unverified baseline signing.
 - Namespace field bytes and single-field negatives; relabeling, mixed roots,
-  content-as-own checkpoints and demoted-editor checkpoints.
+  content-as-own checkpoints, demoted-editor checkpoints and cut-namespace
+  substitution/mismatch. The namespace addition changes #829 cut bytes as well
+  as object headers; both require new vectors.
 - Purpose-separated link X25519 derivation, signed link encryption key and
   surviving-link rewrap after rotation, plus baseline and snapshot descriptor
   vectors and no-old-key bootstrap negatives.
