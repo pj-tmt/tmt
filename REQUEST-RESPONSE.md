@@ -250,7 +250,10 @@ beginSend/transport, after delay/preparation/receipt encoding. Checks before and
 after each synchronous response read treat equality or crossing as timeout;
 there is no final post-deadline read. Poll sleeps are bounded by remaining time.
 Synchronous transport/Enter time counts, but cannot be cancelled mid-operation.
-Timeout/interruption only releases the observer; late results remain retrievable.
+After preparation, timeout/interruption only releases the observer; late results
+remain retrievable. Interruption during `--delay`, before preparation, reports
+`INTERRUPTED` (exit 1) without request correlation: no message was sent, so running
+the command again is safe.
 
 Detached JSON is `{status:"sent",requestId,target,pane,identity?}`. Completed
 talk returns `status:"completed"`, the same correlation and exact `response`,

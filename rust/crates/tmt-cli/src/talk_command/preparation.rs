@@ -133,16 +133,19 @@ pub(super) fn prepare(
             interrupt
                 .wait_until(Instant::now() + delay)
                 .map_err(|error| {
-                    correlation
-                        .error("ERROR", "Could not wait before delivery.", 1)
-                        .caused_by(error)
+                    Failure::new("ERROR", "Could not wait before delivery.", 1).caused_by(error)
                 })?;
         } else {
             std::thread::sleep(delay);
         }
     }
     if interrupt.is_some_and(Interrupt::is_interrupted) {
-        return Err(correlation.interrupted());
+        return Err(Failure::new(
+            "INTERRUPTED",
+            "Interrupted before sending; no message was sent.",
+            1,
+        )
+        .suggestion("It is safe to run the command again when ready.".into()));
     }
     let preamble = if input.options.inbox
         || input.options.no_preamble

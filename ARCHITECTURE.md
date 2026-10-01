@@ -1873,6 +1873,8 @@ request.
 schema, connection or alternate final-submission path. Input is bounded and
 validated before storage effects. A malformed receipt, a stale revision, an
 unknown identity and an uncertain transport outcome remain distinct failures.
+The [request contract](REQUEST-RESPONSE.md#talk-completion) owns talk interruption
+and retry guidance on either side of preparation.
 
 Talk preparation renders `<tmt-reply from="…">` using the same resolved
 originator's display name (explicit identity before verified caller), or
