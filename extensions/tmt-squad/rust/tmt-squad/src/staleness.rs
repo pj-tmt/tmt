@@ -23,6 +23,9 @@ use std::{
 const FILE_LIMIT: u64 = 512 * 1024;
 const MEMBERS_LIMIT: usize = 128;
 const VERSION: u64 = 1;
+/// Unchanged observations advance the persisted rollback watermark at most
+/// once per minute. Content/evidence changes always publish immediately.
+const WATERMARK_INTERVAL_MS: u64 = 60_000;
 
 fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -171,6 +174,7 @@ impl Observer {
         if members.len() > MEMBERS_LIMIT {
             return Snapshot::unavailable("unknown");
         }
+        let previous = self.document.clone();
         let rollback = self.document["observedAtMs"]
             .as_u64()
             .is_some_and(|previous| previous > now);
@@ -307,6 +311,13 @@ impl Observer {
             }
         } else {
             self.document["notes"] = Value::Null;
+        }
+        let watermark_due = previous["observedAtMs"]
+            .as_u64()
+            .is_none_or(|at| now.saturating_sub(at) >= WATERMARK_INTERVAL_MS);
+        let changed = self.document != previous;
+        if !changed && !watermark_due && !rollback {
+            return snapshot;
         }
         self.document["observedAtMs"] = now.into();
         let bytes = self.document.to_string();

@@ -2627,7 +2627,13 @@ fingerprints (`sha2`) retain no notebook body. Nonblocking Unix advisory locking
 before the read through atomic cache publication; competing readers report
 unknown and never regress the cache. First observation starts the clock,
 never backdated; unreadable notes, unavailable cache and clock rollback mean
-unknown. Cache loss/corruption restarts grace. Config edits do not
+unknown. Fingerprint/ownership/evidence changes publish immediately; otherwise
+unchanged observations replace the cache only when its persisted `observedAtMs`
+rollback watermark is at least 60 seconds old. Ages are computed on every
+observation without writing. A rollback crossing that watermark still reports
+unknown and restarts grace; a reversal entirely within an unwritten interval
+can shorten reported ages by at most 60 seconds, while first-observed times
+remain at or before the watermark. Cache loss/corruption restarts grace. Config edits do not
 reset content age. Disabling stops observation; after re-enabling, surviving
 fingerprint matches keep their first-observed time. These are observed content timestamps,
 not core modification times or a history feed. Age determines staleness;
