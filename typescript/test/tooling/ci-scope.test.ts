@@ -106,6 +106,18 @@ describe('CI area selection', () => {
     });
   });
 
+  it('selects native checks for shared design tokens without narrowing look-alikes', () => {
+    for (const name of ['tokens.json', 'tokens-plugin.ts', 'package.json']) {
+      const file = `design/tokens/${name}`;
+      expect(explainCiSelection([file])[0].rule).toBe('design-tokens');
+      expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: true });
+      expect(selectNativeScope([file])).toBe('full');
+    }
+    const lookalike = 'design/tokens-other/tokens.json';
+    expect(explainCiSelection([lookalike])[0].rule).toBe('unmapped');
+    expect(selectCiAreas([lookalike])).toEqual({ native: true, office: true, nativeOffice: true });
+  });
+
   it('selects native code and embedded skill consumers without Office', () => {
     expect(
       selectCiAreas(['rust/crates/tmt-adapters/src/setup.rs', 'skills/tmux-team/SKILL.md'])
