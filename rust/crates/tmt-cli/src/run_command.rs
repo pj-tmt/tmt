@@ -23,6 +23,7 @@ use tmt_core::{
     endpoint::ProcessIncarnation,
 };
 
+mod channel;
 mod resume;
 mod run;
 
@@ -113,6 +114,8 @@ struct RunRequest<'a> {
     command: &'a [OsString],
     resume: Option<Resume>,
     save: bool,
+    /// Enroll the provider's message channel for this launch.
+    channel: bool,
 }
 
 fn storage_failure(error: StorageError) -> Failure {
@@ -140,12 +143,14 @@ pub fn execute(
     command: &[OsString],
     resume: Option<Resume>,
     save: bool,
+    channel: bool,
 ) -> io::Result<u8> {
     match run(RunRequest {
         name,
         command,
         resume,
         save,
+        channel,
     }) {
         Ok(status) => Ok(status),
         Err(error) => error.publish(OutputMode::default()),

@@ -20,6 +20,15 @@ pub enum Invocation {
         command: Vec<std::ffi::OsString>,
         resume: bool,
         save: bool,
+        /// Enroll the agent's provider channel for this launch.
+        channel: bool,
+    },
+    /// The hidden stdio server a provider starts for an enrolled launch.
+    ChannelServer {
+        harness: String,
+        binding_id: String,
+        generation: String,
+        directory: std::path::PathBuf,
     },
     Resume {
         name: String,

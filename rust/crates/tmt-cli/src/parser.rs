@@ -217,6 +217,12 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             provider: text(m, "provider").expect("required provider"),
             worker: flag(m, "worker"),
         },
+        ["__channel-server"] => Invocation::ChannelServer {
+            harness: text(m, "harness").expect("required harness"),
+            binding_id: text(m, "binding-id").expect("required binding ID"),
+            generation: text(m, "generation").expect("required generation"),
+            directory: text(m, "directory").expect("required directory").into(),
+        },
         ["__request-observer"] => Invocation::RequestObserver {
             request_id: text(m, "request-id").expect("required request ID"),
         },
@@ -256,6 +262,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 command,
                 resume,
                 save: flag(m, "save"),
+                channel: flag(m, "channel"),
             }
         }
         ["resume"] => Invocation::Resume {
