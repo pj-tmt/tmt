@@ -132,8 +132,11 @@ export function generateReleasePleaseConfig({ components, workspace }) {
   const map = { components };
   const ownerOfCrate = (crate) => ownerOf(crate.manifest, map);
   const workspaceOwner = ownerOf(WORKSPACE_MANIFEST, map);
+  // A crate that inherits the workspace version changes with the workspace owner's release, so its
+  // lock entry stays in that release even when a private component owns the crate.
+  const versionOwnerOf = (crate) => (crate.inheritsVersion ? workspaceOwner : ownerOfCrate(crate));
   const releasedCrates = crates.filter(
-    (crate) => components.find(({ name }) => name === ownerOfCrate(crate))?.release !== false
+    (crate) => components.find(({ name }) => name === versionOwnerOf(crate))?.release !== false
   );
   const packages = {};
 
@@ -166,8 +169,7 @@ export function generateReleasePleaseConfig({ components, workspace }) {
       if (!crate.inheritsVersion) toml(crate.manifest, '$.package.version');
     }
     for (const crate of [...releasedCrates].sort(byName)) {
-      const declaredBy = crate.inheritsVersion ? workspaceOwner : ownerOfCrate(crate);
-      if (declaredBy !== component.name) continue;
+      if (versionOwnerOf(crate) !== component.name) continue;
       if (!/^[a-z0-9-]+$/.test(crate.name)) {
         throw new Error(`Crate name ${crate.name} cannot be written into a JSONPath filter.`);
       }
@@ -201,6 +203,10 @@ export function generateReleasePleaseConfig({ components, workspace }) {
     // A published release cannot receive assets (immutability), so the workflow attaches and
     // verifies the bundle on the draft and publishes it afterwards.
     draft: true,
+    // release-please leaves an open release pull request alone while its notes are unchanged, and
+    // the workflow's `gh pr update-branch` cannot resolve a conflict (every release pull request
+    // edits the shared manifest). With this, each run rebuilds them from `main`'s current files.
+    'always-update': true,
     'skip-changelog': true,
     'pull-request-title-pattern': 'chore${scope}: release${component} ${version}',
     packages,

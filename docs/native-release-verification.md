@@ -58,13 +58,16 @@ verification inputs; every archive also contains its own target-filtered notices
 than prose, and on a manual dispatch with `dry_run` (default on). Its `release-please` job
 runs the pinned release-please CLI (`.github/release-please`, exact version and lockfile
 integrity) against the generated `release-please-config.json` and
-`.release-please-manifest.json`: it opens one release pull request per component, and when
+`.release-please-manifest.json`: it opens one release pull request per released component, and when
 one is merged it creates the draft release (release-please's drafts, so a published release
 never has to receive assets). A live run, which is only allowed on `main`, creates a GitHub
 App token in that job alone, enables auto-merge (squash) on the open release pull requests,
 which merge through the normal required checks, and updates the ones that fell behind `main`
 (`strict` requires an up-to-date branch; a busy `main` can keep a release pull request behind
-until a quiet moment). A `dispatch` job then starts the per-product run above for every
+until a quiet moment). release-please runs with `always-update`, so every run also rebuilds each
+open release pull request from `main`'s current files and force-pushes its branch; that, not
+`gh pr update-branch`, is what clears a conflict (every release pull request edits the shared
+manifest, and adjacent lines conflict). A `dispatch` job then starts the per-product run above for every
 product that has a draft without a bundle. The job runs in the `release` Environment and the
 App credentials, `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`, are secrets of that
 Environment, not repository secrets, so only a run its deployment branch rule admits can read
@@ -84,30 +87,56 @@ one, is refused by the Environment. Do not add repository secrets of the same na
 are readable from every ref.
 
 Once a draft's bundle is attached, the run evaluates the publication gates in order:
-`commit` (the release's commit is on `main` and the pull request that produced it passed
+`channel` (the version is an alpha, `X.Y.Z-alpha.N`; a stable version or any other pre-release
+label such as `beta` or `rc` is held, and releasing that hold is refused: the owner publishes it
+by hand), `commit` (the release's commit is on `main` and the pull request that produced it passed
 `Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
 repository's newest published release is immutable, which shows that the setting was on; the
 workflow token cannot read the setting itself), `monotonic` (the release is newer than every
-published release of its product), `migration` (the component's migration list, named in
-`.github/components.json`, has no more entries than at the product's last published release,
-and no commit of the release carries `!` or a `BREAKING CHANGE:` footer) and `upgrade` (the
-proof above; the first release of a product has nothing to upgrade from). A failed gate does
+published release of its product), `migration` (no commit of the release carries `!` or a
+`BREAKING CHANGE:` footer; outside the alpha channel the component's migration list, named in
+`.github/components.json`, also has no more entries than at the product's last published
+release, while an alpha publishes new entries and the gate's summary only reports them) and
+`upgrade` (the proof above; the first release of a product has nothing to upgrade from; the
+CLI proof writes one identity with the previous release and reads it with the candidate, which
+applies the candidate's pending migrations to that record only, so no publication gate exercises
+a migration of any other existing data). A failed gate does
 not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
 `gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
 The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read
 the release commit's data through git and the API. To release a hold once its cause is dealt
 with, publish the draft by hand as below, or dispatch `native-release.yml` on `main` with the
 product, `prepare` off and `hold` set to the tag: the run evaluates the gates again without
-the one gate the marker names (never another) and removes the marker when they pass.
+the one gate the marker names (never another, and never `channel`), removes the marker when
+they pass and then publishes the draft as below.
 
 Publication is authorized by the owner. The owner chose a trunk-based alpha channel, and that
 choice is the standing authorization, recorded in the release skill, for the release pipeline
 to publish an alpha draft that passes every gate above; everything a gate holds, every stable
-release and every publication by hand needs the owner's explicit authorization. The pipeline
-does not publish yet (#562): a draft that passes every gate is reported, and today every
-publication is manual. For a manual publication, verify the selected product run's exact
-commit and all required PR checks, and enable GitHub release immutability before creating a
-draft release.
+release and every publication by hand needs the owner's explicit authorization.
+
+When every gate passes, the `publish` job publishes the draft. `release-publish.mjs publish`
+reads the draft again and refuses unless its version is an alpha, its component is released
+(`release: false` in `.github/components.json` parks a component: release-please opens nothing
+for it, the planner leaves its drafts alone and this command refuses them, so a draft that
+predates the flag cannot publish), and it carries the bundle and neither
+`publication-held.json` nor `verification-failed.json`; then one `gh release edit <tag>
+--draft=false --prerelease=<bool> --latest=<bool>` applies the product's policy below. Both
+flags are explicit because release-please makes every draft a prerelease. The `published` job
+then reads the release back: it is public and `immutable: true`, its flags are the policy's (a
+CLI release is the repository's latest release, an extension release never is), its tag is on
+the release commit, it carries `release-publication.json`, and GitHub's attestation verifies
+(`gh release verify`, and `gh release verify-asset` for every asset downloaded from the
+published release). GitHub finishes the attestation after publishing, so these checks are
+retried for about two minutes. A failed check opens an issue and fails the run; nothing is
+rolled back, because a published release is immutable and a repair needs a new reviewed
+version. Both jobs run `main`'s code and never the release commit's: `publish` holds the write
+token, `published` only read access and `issues: write`. A run that stopped before it published is completed by the
+next run of the product: it plans every complete draft without a hold again and evaluates its
+gates again. A bundle prepared without a draft (`prepare`) never publishes.
+
+For a manual publication, verify the selected product run's exact commit and all required PR
+checks, and enable GitHub release immutability before creating a draft release.
 
 Each bundle carries `release-publication.json` from
 `typescript/scripts/native-release-policy.mjs`; create the draft with its
@@ -119,7 +148,7 @@ in the version and title. Office and Squad releases keep `--prerelease` and
 pre-release published either way (earlier alphas were flagged prereleases) but
 never a stable CLI flagged prerelease, and accepts an extension release only when
 its flag matches whether its version is a pre-release
-(`Product::accepts_prerelease_flag`). After publishing, check
+(`Product::accepts_prerelease_flag`). After a manual publication, check
 `node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/wkh237/tmt/releases/latest --jq .tag_name)"`. A CLI
 release attaches its four tar.gz archives, final `dist-manifest.json`,
 `tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line
@@ -130,7 +159,7 @@ a Squad release does the same under `tmt-squad-v<version>`. Every release also c
 release (about 100 bytes, and `tmt upgrade` selects assets by exact name and ignores it).
 Verify uploaded SHA-256 digests before publishing each draft. Verify
 `immutable: true`, tag commit and GitHub release attestation (`gh release verify`
-and `gh release verify-asset`). Never combine product manifests, replace an
+and `gh release verify-asset`); the pipeline does this for its own publications. Never combine product manifests, replace an
 immutable release's assets or move its tag. A repair needs a new reviewed version.
 
 Also verify **upgrading from the last published release**, not only fresh installs.
@@ -146,9 +175,11 @@ goes through
 is refused while pinned and installed with `--unpin`, the exact skills are served, SQLite is
 unchanged, the old executable is preserved, a repeat is a no-op and a downgrade is refused.
 An Office or Squad release is installed over the previous one by the newest published CLI
-with `tmt <extension> install` (`verify-native-extension-upgrade.mjs`): the version
-changes, the previous release stays on disk, a repeat is a no-op, a downgrade is refused and
-no CLI link is created. The first release of a product has nothing to upgrade from and says
+with `tmt extension install <extension>` and read back with `tmt extension list`
+(`verify-native-extension-upgrade.mjs`): the version changes, the previous release stays on
+disk, a repeat is a no-op, a downgrade is refused and no CLI link is created. Extensions
+have no install command of their own under `tmt <extension>`; the proof must use the surface
+a user's install runs. The first release of a product has nothing to upgrade from and says
 so. A commit that predates these scripts fails the proof with that message; prove it by
 hand as below.
 

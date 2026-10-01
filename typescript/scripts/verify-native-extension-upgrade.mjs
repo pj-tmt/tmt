@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Proves an extension release (Office or Squad) upgrades from its previous published release with
 // their real archives: the newest published CLI installs the previous archive with
-// `tmt <extension> install`, then the candidate over it, in an isolated home, state and prefix.
-// The extension archives carry no installer of their own, so the CLI is the driver.
+// `tmt extension install <extension>`, then the candidate over it, in an isolated home, state and
+// prefix. The extension archives carry no installer of their own, so the CLI is the driver, and
+// `tmt extension install|list` is the one surface that drives every extension: no extension has an
+// install command of its own under `tmt <extension>`.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -66,8 +68,9 @@ await withNativeArtifact(values['driver-archive'], driverArtifact, async (driver
     const install = (archive, manifest, expectedStatus = 0) =>
       run(
         [
-          product,
+          'extension',
           'install',
+          product,
           '--yes',
           '--json',
           '--archive',
@@ -81,21 +84,25 @@ await withNativeArtifact(values['driver-archive'], driverArtifact, async (driver
         ],
         expectedStatus
       );
-    const status = () => run([product, 'status', '--json', '--prefix', prefix]);
+    const installedVersion = () =>
+      run(['extension', 'list', '--json', '--prefix', prefix]).extensions.find(
+        ({ name }) => name === product
+      )?.version;
     const releases = () =>
       fs.readdirSync(path.join(prefix, 'lib', `tmt-${product}`, 'releases')).length;
 
     const initial = install(values['previous-archive'], values['previous-manifest']);
+    assert.equal(initial.extension, product);
     assert.equal(initial.installed, true);
     assert.equal(initial.changed, true);
     assert.equal(initial.version, previous.version);
-    assert.equal(status().version, previous.version);
+    assert.equal(installedVersion(), previous.version);
     assert.equal(releases(), 1);
 
     const upgraded = install(values.archive, values.manifest);
     assert.equal(upgraded.changed, true);
     assert.equal(upgraded.version, current.version);
-    assert.equal(status().version, current.version);
+    assert.equal(installedVersion(), current.version);
     assert.equal(releases(), 2, 'The previous release must stay on disk after the upgrade');
     assert(
       !fs.existsSync(path.join(prefix, 'bin', 'tmt')),
@@ -105,7 +112,7 @@ await withNativeArtifact(values['driver-archive'], driverArtifact, async (driver
     assert.equal(install(values.archive, values.manifest).changed, false);
     const downgrade = install(values['previous-archive'], values['previous-manifest'], 1);
     assert.match(downgrade.error.message, /downgrade/);
-    assert.equal(status().version, current.version);
+    assert.equal(installedVersion(), current.version);
     assert.equal(releases(), 2);
     console.log(
       `Extension upgrade verified: ${product} ${previous.version} -> ${current.version} (${target})`

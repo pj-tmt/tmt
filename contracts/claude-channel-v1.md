@@ -47,7 +47,8 @@ processing.
   substitution included), the launch directory, the binding, the `tmt run`
   process as launch owner and the channel directory, and returns a lease
   (`ChannelEnrollment`): the foreground command to spawn verbatim, environment
-  for the provider child, and a consuming `withdraw`. The CLI never parses or
+  for the provider child, optionally the provider session the driver created
+  before the child starts (Claude creates none), and a consuming `withdraw`. The CLI never parses or
   rewrites provider arguments. The environment reaches the provider child, and
   therefore the subprocesses the provider itself starts (such as its MCP server);
   it is never written to the ambient or global environment, to persisted state or
