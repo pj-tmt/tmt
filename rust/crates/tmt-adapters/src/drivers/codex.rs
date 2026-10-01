@@ -6,6 +6,7 @@
 
 pub mod attachment;
 pub mod caller;
+pub mod channel_hooks;
 pub mod channel;
 pub mod pane;
 pub mod delivery;

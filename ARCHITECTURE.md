@@ -2078,6 +2078,13 @@ is the single record-derived child environment locator owner; later hooks use
 it without granting ambient environment authority. No CLI or routing entry
 point invokes these modules in this slice.
 
+The #787 `delivery`, `pane`, `channel` and `channel_hooks` modules implement
+provider-specific one-shot classification, attributed pane evidence and foreground
+hook preservation against the frozen shared port. They introduce no shared
+routing policy or state. Module tests exercise them directly; descriptor
+registration, runtime send and hook decoder call sites remain unchanged until
+the activation slice, so these consumers are not reachable from product delivery.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent

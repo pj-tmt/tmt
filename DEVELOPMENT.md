@@ -1113,6 +1113,11 @@ SIGKILL, Unknown-publication and unconfirmed-startup cases when changing these
 owners. The existing nix dev-only `net` feature supports a bound non-listening
 refusal peer; production transport never retries to make a test pass.
 
+Codex consumer tests are grouped by send classification, pane evidence and
+channel hook transitions. Keep unknown ownership and ordinary non-channel resume
+controls alongside them. Direct module tests do not replace the final CLI/router
+and native receipt/notification scenarios at activation.
+
 ## Docker E2E
 
 Run the full private tmux/caller lifecycle harness twice for lifecycle,

@@ -2,9 +2,9 @@
 
 Status: unregistered Codex groundwork under #719/#329. The #785 foundations
 extend #736–#738 with pane/foreground record state, exact takeover/prune/withdraw,
-startup cleanup certainty and permission planning. Lease composition and launcher-only supervision are added in #786. Consumer
-routing and user-facing registration remain later slices. These modules are
-unregistered: no CLI launch or delivery invokes this native channel yet.
+startup cleanup certainty and permission planning. Lease composition and launcher-only supervision are added in #786. Provider-local consumer, pane and hook modules are added in #787; runtime
+send/hook wiring and channel registration remain in the activation slice. No
+CLI launch or delivery invokes these native channel modules yet.
 
 ## Delivery receipt
 
@@ -216,3 +216,24 @@ launcher SIGKILL with a surviving foreground, Unknown publication and explicit
 confirmed withdrawal. They do not establish real CLI routing or activation.
 The deterministic connect-refusal test holds a bound non-listening socket using
 the existing nix dev-only `net` feature; no product retry or dependency is added.
+
+## Provider consumer and pane evidence (#787)
+
+The unregistered channel composition delegates enrollment to the owned supervisor,
+binding-keyed evidence to the record reader, and pane evidence to the attributed
+record scan. Unknown is terminal only for its exact pane. Unattributed records
+produce named skipped warnings; corruption named by the current binding is an
+error. Recovery safely quotes exact paths and requires verification that the
+original foreground and endpoint are gone before removal.
+
+The one-shot send module checks the exact binding, launch owner, known foreground,
+server and thread before and after endpoint qualification, then consumes a queue
+attempt. Generic provider errors or missing receipts remain uncertain; only the
+qualified exact pre-enqueue errors are definite refusals. No retry or fallback
+is implemented. The hook module preserves the admitted foreground when a verified
+channel server reports its thread; ordinary non-channel resume is separate.
+
+The modules and their focused tests do not activate a driver entry point:
+`Runtime.channel` stays None, runtime send is unchanged and lifecycle decode still
+uses the ordinary decoder. The activation slice owns all three call-site changes,
+real shared-router tests and release-size evidence.
