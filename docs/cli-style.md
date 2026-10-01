@@ -59,7 +59,19 @@ as (`ok` is `working`, `warn` is `waiting`, `error` is `blocked`; a driver token
 carries its design token, which the CLI picks from the descriptor's hue). Full-screen views get the same
 styles for ratatui from `theme::screen::style`, behind the crate's `ratatui`
 feature, so core links no ratatui. A test keeps the built-in values equal to the
-design tokens.
+design tokens. A contrast test reads the same file and enforces 4.5:1 for
+body text and semantic foregrounds, and 3:1 for `muted`/`dim`, on the designed
+background, the selection background and representative terminal backgrounds.
+
+The Squad board uses `muted` for inactive tabs, summaries, column headers,
+pane titles and footer hints; `dim` remains for borders, empty values, times,
+staleness and scroll marks. Focus uses `accent` and bold, while attention tabs
+keep their attention token. The selected row uses the `selection` background
+and keeps its text/state/provider foregrounds. Without a background color
+(`terminal`, `mono`, 16 colors or `NO_COLOR`), selection uses reverse video.
+Unselected body text keeps the terminal's default foreground. Tabs keep their
+width when selected; without an accent foreground the selected tab also uses
+reverse video.
 
 A `Terminal` carries the stream's theme and depth; `paint` and table cells use
 `Token::themed`, and a stream without a theme renders exactly the 16-color
@@ -150,6 +162,16 @@ Human output shows readable forms (`value`). `--json` always keeps the full valu
 - Line messages use these labels, lowercase everywhere; marks are for list rows.
 - One-line messages drop a single final period. The stored message, and
   therefore `--json`, keeps it.
+
+## Command names
+
+Use `ls` for listing, `rm` for removal/reset, `mv` for identity renaming, and
+`show` for displaying a record. Root `uninstall` retains its distinct whole-product
+meaning; descriptive domain verbs remain when a shell verb would mislead. Old
+long spellings stay accepted as hidden aliases: help, docs and examples show the
+primary names; completion may offer both. Removal help must state exactly what
+is removed or reset and what is retained. The recursive `list_spelling_report`
+guard checks `ls` with a hidden `list` alias in every nested listing command.
 
 ## Help
 

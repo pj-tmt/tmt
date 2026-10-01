@@ -97,6 +97,7 @@ fn member(id: &str, fields: &[(&str, &str)]) -> Member {
         meta: BTreeMap::new(),
         seen: Value::Null,
         numbers: BTreeMap::new(),
+        colors: Default::default(),
         failed: Default::default(),
     }
 }

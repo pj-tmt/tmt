@@ -134,6 +134,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(installation::install(names))
     .subcommand(installation::setup(hooked.clone()))
     .subcommand(installation::hook(hooked))
+    .subcommand(launch::channel_server())
     .subcommand(requests::request_observer())
     .subcommand(
         general(spec!(
@@ -237,6 +238,16 @@ pub fn public_grammar(definition: &Command, root: bool) -> Command {
         .disable_help_flag(true)
         .disable_version_flag(true)
         .disable_help_subcommand(true)
+        .aliases(
+            definition
+                .get_all_aliases()
+                .filter(|alias| {
+                    !definition
+                        .get_visible_aliases()
+                        .any(|visible| visible == *alias)
+                })
+                .map(str::to_owned),
+        )
         .visible_aliases(definition.get_visible_aliases().map(str::to_owned));
     if let Some(about) = definition.get_about() {
         result = result.about(about.clone());

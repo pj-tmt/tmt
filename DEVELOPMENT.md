@@ -907,6 +907,15 @@ fixture and restore the checkout exactly. A stale lockfile or an unexecuted
 test is not evidence that the guard worked. Core must remain free of concrete
 I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
 
+### Internal TUI markup admission
+
+From `rust/`, run `cargo test --locked -p tmt-tui` and
+`cargo +1.88.0 test --locked -p tmt-tui` for structural XML admission and its
+byte/depth/node limits. Run the architecture test for dependency changes.
+The crate has no executable or board consumer; these tests use in-memory XML,
+not application configuration, SQLite or a terminal. Later admission/rendering
+stages must not treat a structural template as a fully validated scene.
+
 ## Native process and shared tests
 
 ### Selecting the CLI under test

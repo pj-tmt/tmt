@@ -124,7 +124,7 @@ pub fn translate(path: &[&str], m: &ArgMatches) -> Result<OfficeOperation, Strin
                     .expect("grammar supplies avatar revision"),
             })
         }
-        Some("remove") if path.get(1) == Some(&"avatar") => {
+        Some("rm") if path.get(1) == Some(&"avatar") => {
             OfficeOperation::Avatar(OfficeAvatarOperation::Remove {
                 digest: required(m, "avatar-digest"),
                 if_revision: *m
@@ -132,7 +132,7 @@ pub fn translate(path: &[&str], m: &ArgMatches) -> Result<OfficeOperation, Strin
                     .expect("grammar supplies avatar revision"),
             })
         }
-        Some("list") if path.get(1) == Some(&"avatar") => {
+        Some("ls") if path.get(1) == Some(&"avatar") => {
             OfficeOperation::Avatar(OfficeAvatarOperation::List {
                 limit: *m
                     .get_one::<u64>("avatar-limit")
@@ -177,7 +177,7 @@ pub fn translate(path: &[&str], m: &ArgMatches) -> Result<OfficeOperation, Strin
                     .expect("grammar supplies prop revision"),
             })
         }
-        Some("remove") if path.get(1) == Some(&"prop") => {
+        Some("rm") if path.get(1) == Some(&"prop") => {
             OfficeOperation::Prop(OfficePropOperation::Remove {
                 digest: required(m, "prop-digest"),
                 if_revision: *m
@@ -185,7 +185,7 @@ pub fn translate(path: &[&str], m: &ArgMatches) -> Result<OfficeOperation, Strin
                     .expect("grammar supplies prop revision"),
             })
         }
-        Some("list") if path.get(1) == Some(&"prop") => {
+        Some("ls") if path.get(1) == Some(&"prop") => {
             OfficeOperation::Prop(OfficePropOperation::List {
                 limit: *m
                     .get_one::<u64>("prop-limit")
@@ -207,7 +207,7 @@ pub fn translate(path: &[&str], m: &ArgMatches) -> Result<OfficeOperation, Strin
                 operation_id: text(m, "operation-id"),
             })
         }
-        Some("list") if path.get(1) == Some(&"board") => {
+        Some("ls") if path.get(1) == Some(&"board") => {
             OfficeOperation::Board(OfficeBoardOperation::List {
                 category: board_category(m),
                 view: required(m, "view"),
@@ -249,7 +249,7 @@ pub fn translate(path: &[&str], m: &ArgMatches) -> Result<OfficeOperation, Strin
                 operation_id: text(m, "operation-id"),
             })
         }
-        Some("delete") if path.get(1) == Some(&"board") => {
+        Some("rm") if path.get(1) == Some(&"board") => {
             OfficeOperation::Board(OfficeBoardOperation::Delete {
                 entry_id: required(m, "entry-id"),
                 actor: board_actor(m),
@@ -352,7 +352,7 @@ pub fn translate(path: &[&str], m: &ArgMatches) -> Result<OfficeOperation, Strin
             channel: text(m, "channel")
                 .and_then(|value| tmt_core::native_install::Channel::parse(&value)),
         },
-        Some("uninstall") => OfficeOperation::Uninstall {
+        Some("rm") => OfficeOperation::Uninstall {
             yes: flag(m, "yes"),
         },
         Some("start") => OfficeOperation::Start {
