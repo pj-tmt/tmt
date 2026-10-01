@@ -2718,7 +2718,7 @@ bundle or is complete and waits for its publication; the state lives on the draf
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
-`release-please-config.json`) on every push to `main` that changes more than prose: it
+`release-please-config.json`) on every push to `main`, documentation included: it
 opens one release pull request per component, enables auto-merge on them (they merge only
 through the required checks) and keeps them current, creates the draft release for a merged
 one, and starts the per-product run for each product that has a draft without a bundle. A

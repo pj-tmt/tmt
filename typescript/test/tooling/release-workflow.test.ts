@@ -154,13 +154,13 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
 describe('release workflow (release.yml)', () => {
   const release = read('.github/workflows/release.yml');
 
-  it('starts on a push to main that changes more than prose, and on a manual dry run by default', () => {
+  it('starts on every push to main, prose included, and on a manual dry run by default', () => {
+    // A documentation merge moves main under the open release pull requests too, so no path is
+    // ignored: the run refreshes them.
     expect(release).toMatch(
-      /^on:\n {2}push:\n {4}branches:\n {6}- main\n(?: {4}#[^\n]*\n)* {4}paths-ignore:/m
+      /^on:\n {2}push:\n {4}branches:\n {6}- main\n(?: {4}#[^\n]*\n)* {2}workflow_dispatch:\n/m
     );
-    for (const ignored of ["'**/*.md'", 'docs/**', '.agents/**']) {
-      expect(release).toContain(`      - ${ignored}`);
-    }
+    expect(release).not.toMatch(/paths-ignore|paths:/);
     expect(release).toMatch(
       /workflow_dispatch:\n {4}inputs:\n {6}dry_run:\n(?: {8}[^\n]*\n)*? {8}default: true\n {8}type: boolean/
     );
