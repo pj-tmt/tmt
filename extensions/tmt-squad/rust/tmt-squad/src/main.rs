@@ -14,6 +14,7 @@ mod effects;
 mod filter;
 mod hook_protocol;
 mod hotkeys;
+mod look;
 mod me;
 mod member_actions;
 mod membership;
@@ -193,7 +194,18 @@ fn grammar() -> Command {
         )
         .subcommand(
             build(specs::JUMP)
-                .arg(operand("member", "Member or lead to show"))
+                .arg(
+                    operand("member", "Member or lead to show")
+                        .required(false)
+                        .required_unless_present("lead")
+                        .conflicts_with("lead"),
+                )
+                .arg(
+                    Arg::new("lead")
+                        .long("lead")
+                        .action(ArgAction::SetTrue)
+                        .help("Show the squad's lead: your own squad's, without --squad"),
+                )
                 .arg(squad_option()),
         )
         .subcommand(
@@ -774,6 +786,10 @@ fn run(
     if matches!(command, "ls" | "board") {
         let refresh_fields = command == "ls" && matches.get_flag("refresh-fields");
         return ls_document(&core, &mut config, text("squad"), refresh_fields);
+    }
+    if command == "jump" && matches.get_flag("lead") {
+        let squad = member_actions::caller_squad(&core, text("squad"))?;
+        return member_actions::jump_lead(&core, &squad, &config);
     }
     let squad = Squad::resolve(&core, text("squad"))?;
     match command {

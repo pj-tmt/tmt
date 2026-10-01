@@ -20,10 +20,25 @@ pub enum Token {
     Title,
     /// Commands and flags a reader types: bold, uncolored.
     Literal,
-    /// An agent driver's address, in the color its descriptor declares;
-    /// dimmed when it declares none. The CLI maps the descriptor's hue, so
-    /// this crate names no driver.
-    Driver(Option<AnsiColor>),
+    /// An agent driver's address, in the design token its descriptor's hue
+    /// names; dimmed when it declares none. The CLI maps the descriptor's
+    /// hue, so this crate names no driver.
+    Driver(Option<crate::Role>),
+}
+
+/// A design token's entry in the terminal's 16-color palette, for a driver's
+/// hue on an unthemed terminal.
+fn sixteen(role: crate::Role) -> Option<AnsiColor> {
+    use crate::Role;
+    match role {
+        Role::Accent => Some(AnsiColor::Blue),
+        Role::Working => Some(AnsiColor::Green),
+        Role::Waiting => Some(AnsiColor::Yellow),
+        Role::Blocked => Some(AnsiColor::Red),
+        Role::Review => Some(AnsiColor::Magenta),
+        Role::Link => Some(AnsiColor::Cyan),
+        Role::Text | Role::Muted | Role::Dim | Role::Selection => None,
+    }
 }
 
 impl Token {
@@ -35,14 +50,13 @@ impl Token {
             Self::Ok => Some(AnsiColor::Green),
             Self::Warn => Some(AnsiColor::Yellow),
             Self::Error => Some(AnsiColor::Red),
-            Self::Driver(color) => color,
+            Self::Driver(role) => role.and_then(sixteen),
             Self::Dim | Self::Title | Self::Literal => None,
         }
     }
 
     /// The design token this shows as in a [`crate::Theme`]; None for the
-    /// bold-only tokens. A driver's hue is the token its color names
-    /// (magenta is review, cyan is link).
+    /// bold-only tokens.
     pub fn role(self) -> Option<crate::Role> {
         use crate::Role;
         match self {
@@ -51,9 +65,8 @@ impl Token {
             Self::Warn => Some(Role::Waiting),
             Self::Error => Some(Role::Blocked),
             Self::Dim | Self::Driver(None) => Some(Role::Dim),
-            Self::Driver(Some(AnsiColor::Magenta)) => Some(Role::Review),
-            Self::Driver(Some(AnsiColor::Cyan)) => Some(Role::Link),
-            Self::Driver(Some(_)) | Self::Title | Self::Literal => None,
+            Self::Driver(role) => role,
+            Self::Title | Self::Literal => None,
         }
     }
 
@@ -176,7 +189,7 @@ mod tests {
             Token::Dim,
             Token::Title,
             Token::Literal,
-            Token::Driver(Some(AnsiColor::Magenta)),
+            Token::Driver(Some(crate::Role::Review)),
             Token::Driver(None),
         ];
         for token in tokens {

@@ -608,7 +608,12 @@ version, which path dependencies a component links, which crates have a `Cargo.l
 entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
 `readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata; native
 CLI version expectations reuse that reader once per suite instead of parsing TOML separately. A
-`Cargo.lock` line is updated by whichever component declares that crate's version.
+`Cargo.lock` line is updated by whichever component declares that crate's version: a crate
+that inherits the workspace version is declared by the owner of `rust/Cargo.toml`, even when
+a private `release: false` component owns the crate, because the next locked build fails
+when that release leaves its entry behind. Office is parked this way: it owns its files and
+CI scope but has no release-please package, manifest entry or release run, and its binary
+opts out of cargo-dist with `dist = false`.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
@@ -618,6 +623,9 @@ extension release only together with a change under that extension's own path.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
 `.github/release-please/`, outside the `typescript` workspace so no other job installs it.
+The config sets `always-update`: release-please otherwise leaves an open release pull request
+untouched while its notes are unchanged, so a conflict with `main` (every release pull request
+edits the shared manifest, and adjacent lines conflict) would never clear.
 A tooling test fails when the committed config is not what the generator writes, when a
 workspace crate's lock entry or declared version is managed zero or several times, or when
 a tag disagrees with the policy or a package could leave the alpha line (release-please's
@@ -645,8 +653,9 @@ are refused unchanged before preview, menu persistence or intent freezing,
 including restored captures and intents.
 The popup freezes the reviewed agent UUID, message and operation UUID before
 calling the client. Its origin-owned IndexedDB retains one frozen intent and
-menu capture; restoration retains intent without sending. Explicit status
-recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
+menu capture; restoration retains intent without sending. The shell exports journal schema
+and key constants; IndexedDB ownership and worker-readiness fallback helpers are test-only.
+Explicit status recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
 starting another message does not cancel submitted work. Replies render as text.
 The stub's status transitions are UI evidence, never server security acceptance.
 
@@ -1742,7 +1751,12 @@ show` to find its own file; and at startup, only when stdout or stderr is a term
 set `theme.base`, `tmt` sets the process theme once
 (`tmt_cli_style::theme::configure`), which `stream::stdout` and
 `stream::stderr` apply at the stream's color depth. A missing or invalid theme
-leaves every command on the terminal's own 16 colors.
+leaves every command on the terminal's own 16 colors. The Squad board reads the
+same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
+(`look`), defaulting to `tmt`; a bad global theme is a notice on the board, a
+bad squad theme a `squad.toml` error. Only `tmt-cli-style` names colors: the
+native architecture test (`colors`) rejects color literals in other production
+code, the Rust extensions included.
 
 `json_document` owns editable config/tmux metadata number compatibility:
 IEEE-754 values with non-finite opaque values serialized as null. Known invalid
@@ -2035,6 +2049,42 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
+### Provider channels
+
+An optional driver port lets a launch hand talk payloads to a running agent
+without terminal paste. [`contracts/claude-channel-v1.md`](contracts/claude-channel-v1.md)
+owns the behavior and the shipped-versus-planned status (#329); this is the
+ownership map.
+
+- `tmt_adapters::runtime::channel` defines the port. `RuntimeChannel` verifies the
+  provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
+  `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
+  provider child's environment (never ambient or persisted), and a consuming `withdraw`. The driver
+  plans the command from the user's command and owns everything that proves a
+  cleanup is for exactly that launch; the CLI neither parses provider arguments
+  nor inspects the lease. A driver registers it in `Runtime.channel`, which
+  `RuntimeRegistry` exposes as `channel(harness)`. The directory for endpoint
+  records is `ConfigPaths::channel_directory()`. The port and core stay free of
+  provider and transport dependencies.
+- Delivery stays in the existing routing. The driver's `send` is the preferred
+  action of `delivery::send`, whose `send_preferred` falls back only after
+  `Unsupported` or `NotSent`. An enrollment applies only to the exact launch that
+  created it: with none, or with one that a different launch, positively proven
+  current, has outlived, a driver's `send` returns `Unsupported` and the baseline
+  transport runs; a session that opted in never gets `NotSent`, and when the
+  launch cannot be verified its outcome is `Denied`. Other outcomes are
+  `Uncertain` or `Completed`, and a completed write without a provider receipt
+  is `DeliveryAcceptance::Unacknowledged`, a terminal acceptance that routing
+  never retries or falls back from. The record layout and the launch comparison
+  stay inside each driver.
+- `delivery::Delivery` carries `Unacknowledged` and `ChannelUnavailable(ChannelFault)`.
+  `Unacknowledged` settles as an uncertain wake and `talk` keeps waiting for the
+  durable reply; `ChannelUnavailable` stops the request with
+  `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` or `CHANNEL_ENROLLMENT_ENDED`.
+  `Failure` carries an optional additive `deliveryState`.
+- No first-party driver registers a channel yet, so every session still uses its
+  existing transport.
+
 ### Host driver protocol
 
 Terminal hosts that TMT doesn't build in will run out of process as host
@@ -2278,7 +2328,25 @@ through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 
 Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
-squads and removal clears exactly one namespace. `ls` (alias `status`) joins
+squads and removal clears exactly one namespace. Leadership is the reserved
+identity metadata key `squad.<name>.lead.marker` (`true` or `false`), outside the
+user field/column grammar; `role` and `lead` remain ordinary free-text fields.
+The roster parses that key into `Member::lead_marker` and omits it from public
+`fields`, so field enumeration and copy/provider/column consumers never see it.
+`Member::is_lead` reads that value, falling back to `role == "lead"` only for an
+unconverted member. Before applying `set` pairs, the membership owner records
+a marker only when a role write would change that legacy-derived leadership.
+Conversion is per member because sequential core writes can fail partway through
+a squad-wide conversion. New additions need no marker unless their existing
+metadata would make them lead; in that case `add` writes `false` before joining.
+`squad lead` preflights the core metadata capacity for every required marker
+before any write, records `true` before joining the new lead, then sets previous
+leads to `false`, preserving all role text. A concurrent metadata write after
+preflight can still split this sequence; it is not a transaction. Removal clears the reserved key with the
+rest of that squad's namespace. A required new marker at the identity metadata
+capacity limit returns the existing core error before the role pairs or join,
+rather than silently changing leadership. Reads never convert state.
+`ls` (alias `status`) joins
 one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
@@ -2422,7 +2490,10 @@ prefers the configured program, then, inside tmux, `tmux -S <invoker socket>
 load-buffer -w -`: `-V` must report 3.2 or later, and `show -sv set-clipboard`
 decides whether the text reached the clipboard or only a buffer. Otherwise copy
 writes OSC 52 to `/dev/tty`. `jump` checks membership and then calls `tmt
-focus`; squad has no focus logic of its own.
+focus`; squad has no focus logic of its own. `jump --lead` finds the squad
+from `--squad`, else the caller's identity (`tmt whoami`) in exactly one
+squad roster, else the only squad, and jumps to that roster's lead the same
+way; no lead is a refusal before any focus.
 `action` parses `[bind]` and `[squad.<name>.section.bind]` once per load into
 events and actions whose arguments are templates; bad events, actions or field
 syntax are configuration errors. The board resolves the selected row's section
@@ -2443,7 +2514,9 @@ disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 Every jump pushes the pane the client left, under the client `tmt focus`
 reports; `back` asks core for the invoker's client with `tmt focus --client`,
 pops its entry and focuses it, so squad still never talks to tmux about clients.
-`hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back`)
+`hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back|lead`;
+the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it
+passes `TMUX_PANE=#{pane_id}` for core to name the caller)
 and owns one `source-file` line in the user's tmux configuration. It edits that
 file only after consent, rereads it before publication, keeps a byte-exact
 backup and replaces it atomically with the original mode; removal drops only
