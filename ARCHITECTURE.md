@@ -2038,7 +2038,9 @@ ownership map.
 - `tmt_adapters::runtime::channel` defines the port. `RuntimeChannel` verifies the
   provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
   `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
-  provider child's environment (never ambient or persisted), and a consuming `withdraw`. The driver
+  provider child's environment (never ambient or persisted), optionally the
+  provider session the driver created before the child starts, and a consuming
+  `withdraw`. The driver
   plans the command from the user's command and owns everything that proves a
   cleanup is for exactly that launch; the CLI neither parses provider arguments
   nor inspects the lease. A driver registers it in `Runtime.channel`, which
