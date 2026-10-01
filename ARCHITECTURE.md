@@ -75,6 +75,11 @@ tracked entry; ignored local outputs are outside that map.
 For add/move review and rename hygiene, use the
 [layout procedure](.agents/skills/tmt-layout/SKILL.md).
 
+Shared visual tokens have one owner: `design/tokens/tokens.json`, maintained by
+the design lead. `design/tokens/tokens-plugin.ts` projects them into CSS for Vite
+consumers without a runtime or package dependency. The handbook imports that
+source; Rust CLI theme tests check its built-in palette against the same file.
+
 ## TypeScript workspace boundary
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,

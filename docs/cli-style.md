@@ -41,7 +41,7 @@ architecture test enforces it for the CLIs and the Rust extensions.
 
 ## Themes
 
-`theme` owns what the design tokens (`site/src/design/tokens.json`) look like in
+`theme` owns what the design tokens (`design/tokens/tokens.json`) look like in
 a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
 `waiting`, `working`, `review`, `blocked`, `link` and `selection` (a
 background). A `Theme` is a built-in base plus per-role overrides:

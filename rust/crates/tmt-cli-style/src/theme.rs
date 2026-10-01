@@ -1,6 +1,6 @@
 //! Color themes: what each color role looks like, for the command line and
 //! full-screen views alike. The roles and the built-in values are the design
-//! tokens (`site/src/design/tokens.json`, checked against this file by a
+//! tokens (`design/tokens/tokens.json`, checked against this file by a
 //! test); a theme is a base plus per-role overrides. Nothing outside this
 //! crate names a literal color: callers ask a [`Theme`] for a role's style at
 //! the [`Depth`] their stream supports.

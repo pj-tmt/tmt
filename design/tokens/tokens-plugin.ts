@@ -1,4 +1,3 @@
-import type { Plugin } from "vite";
 import tokens from "./tokens.json" with { type: "json" };
 
 type Rendering = { dark: string; light: string };
@@ -6,7 +5,11 @@ type Rendering = { dark: string; light: string };
 // Serves tokens.json as CSS custom properties, so the stylesheet and the
 // design page read one source. `--c-*` follows the theme; `--t-*` is always the
 // dark value, for terminal mockups.
-export function designTokens(): Plugin {
+export function designTokens(): {
+  name: string;
+  resolveId: (source: string) => string | undefined;
+  load: (path: string) => string | undefined;
+} {
   const id = "virtual:tokens.css";
   const resolved = "/__tmt-tokens.css";
   const entries = [
@@ -25,7 +28,7 @@ export function designTokens(): Plugin {
     `:root[data-theme="dark"]{color-scheme:dark;${vars("dark")}}`;
   return {
     name: "tmt-design-tokens",
-    resolveId: (source) => (source === id ? resolved : undefined),
-    load: (path) => (path === resolved ? css : undefined),
+    resolveId: (source: string) => (source === id ? resolved : undefined),
+    load: (path: string) => (path === resolved ? css : undefined),
   };
 }

@@ -185,8 +185,8 @@ fn mistakes_name_the_setting() {
 /// never drift apart.
 #[test]
 fn built_in_values_match_the_design_tokens() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../site/src/design/tokens.json");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../design/tokens/tokens.json");
     let tokens: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     let colors = tokens["color"].as_object().unwrap();
@@ -257,8 +257,8 @@ fn command_line_tokens_have_their_design_token() {
 /// representative terminal backgrounds. Selection itself is a background.
 #[test]
 fn design_tokens_keep_text_readable_on_board_backgrounds() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../site/src/design/tokens.json");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../design/tokens/tokens.json");
     let tokens: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let luminance = |hex: &str| {

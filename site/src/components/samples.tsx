@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import tokens from "../design/tokens.json";
+import tokens from "../../../design/tokens/tokens.json";
 
 const termBlock = "my-5 w-full overflow-hidden rounded-md bg-term text-t-text";
 

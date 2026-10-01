@@ -7,10 +7,10 @@ name: Site
 
 on:
   pull_request:
-    paths: ['site/**', '.github/workflows/site.yml']
+    paths: ['site/**', 'design/tokens/**', '.github/workflows/site.yml']
   push:
     branches: [main]
-    paths: ['site/**', '.github/workflows/site.yml']
+    paths: ['site/**', 'design/tokens/**', '.github/workflows/site.yml']
   workflow_dispatch:
     inputs:
       deploy:

@@ -9,9 +9,9 @@
     "build": "tsc --noEmit && vp build && node scripts/spa-routes.mjs",
     "preview": "vp preview --host 127.0.0.1",
     "type:check": "tsc --noEmit",
-    "lint": "vp lint --deny-warnings --react-plugin src scripts vite.config.ts",
-    "format": "vp fmt .",
-    "format:check": "vp fmt --check .",
+    "lint": "vp lint --deny-warnings --react-plugin src scripts vite.config.ts \"$(git rev-parse --show-toplevel)/design/tokens\"",
+    "format": "vp fmt . \"$(git rev-parse --show-toplevel)/design/tokens\"",
+    "format:check": "vp fmt --check . \"$(git rev-parse --show-toplevel)/design/tokens\"",
     "check": "pnpm type:check && pnpm lint && pnpm format:check && node scripts/mdx-imports.mjs"
   },
   "dependencies": {

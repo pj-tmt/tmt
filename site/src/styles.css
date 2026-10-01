@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Tailwind reads the design tokens (virtual:tokens.css, from tokens.json). */
+/* Tailwind reads the design tokens (virtual:tokens.css, from design/tokens/tokens.json). */
 @theme inline {
   --color-text: var(--c-text);
   --color-muted: var(--c-muted);
