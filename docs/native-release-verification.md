@@ -175,9 +175,11 @@ goes through
 is refused while pinned and installed with `--unpin`, the exact skills are served, SQLite is
 unchanged, the old executable is preserved, a repeat is a no-op and a downgrade is refused.
 An Office or Squad release is installed over the previous one by the newest published CLI
-with `tmt <extension> install` (`verify-native-extension-upgrade.mjs`): the version
-changes, the previous release stays on disk, a repeat is a no-op, a downgrade is refused and
-no CLI link is created. The first release of a product has nothing to upgrade from and says
+with `tmt extension install <extension>` and read back with `tmt extension list`
+(`verify-native-extension-upgrade.mjs`): the version changes, the previous release stays on
+disk, a repeat is a no-op, a downgrade is refused and no CLI link is created. Extensions
+have no install command of their own under `tmt <extension>`; the proof must use the surface
+a user's install runs. The first release of a product has nothing to upgrade from and says
 so. A commit that predates these scripts fails the proof with that message; prove it by
 hand as below.
 
