@@ -711,8 +711,9 @@ The private component has no release; its inherited version/lock entry follows
 the workspace, while product notices include only their actual dependency graph.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
-dependency guard. It follows the actual Rust module tree, checks reviewed
-layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
+dependency guard. One reviewed manifest table owns both the fixed workspace
+package names and their documented manifest locations. It follows the actual
+Rust module tree, checks reviewed layer edges and shared declaration ownership. Its policy owns an exact dev-dependency
 ledger (crate, canonical name and target, with a reason per row); aliases are rejected,
 and the invoke leaf remains guarded for every dependency kind. The guard fails closed for unsupported
 module remapping or incomplete discovery. It also checks that the CLI crates
