@@ -2005,6 +2005,67 @@ lines = [
     }
 
     #[test]
+    fn a_click_focuses_the_pane_under_it() {
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let text = (1..=30)
+            .map(|n| format!("line {n:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![50, 50],
+            ),
+            Notes::Text(text),
+        );
+        app.view.as_mut().unwrap().render = NotesRender::Plain;
+        let click = |app: &mut App, column, row| {
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column,
+                    row,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now(),
+            )
+        };
+        draw(&app, 60, 11);
+        assert_eq!(app.focused(), Pane::Rows);
+        // A click in the notes focuses them; keys then scroll the notes.
+        assert_eq!(click(&mut app, 45, 5), crate::board::Effect::None);
+        assert_eq!(app.focused(), Pane::Notes);
+        assert_eq!(app.selected, 0);
+        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let screen = draw(&app, 60, 11);
+        assert!(
+            !screen.iter().any(|line| line.contains("line 01")),
+            "{screen:#?}"
+        );
+        assert!(screen.iter().any(|line| line.contains("line 02")));
+        // The rows border now shows the notes as focused.
+        let mut terminal = Terminal::new(TestBackend::new(60, 11)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        assert!(buffer[(31, 2)].modifier.contains(Modifier::BOLD));
+        assert!(!buffer[(1, 2)].modifier.contains(Modifier::BOLD));
+        // A click on a row focuses the rows again and selects it.
+        let hit = app.hits.borrow()[0];
+        click(&mut app, hit.x, hit.y);
+        assert_eq!(app.focused(), Pane::Rows);
+        assert_eq!(app.selected, hit.row);
+        // Outside every pane, or under the help, a click changes nothing.
+        click(&mut app, 45, 5);
+        assert_eq!(app.focused(), Pane::Notes);
+        click(&mut app, 5, 0);
+        assert_eq!(app.focused(), Pane::Notes, "the header is not a pane");
+        app.help = true;
+        click(&mut app, 5, 5);
+        assert_eq!(app.focused(), Pane::Notes, "the help takes no clicks");
+    }
+
+    #[test]
     fn the_wheel_scrolls_rows_away_from_the_selection_until_a_key_brings_it_back() {
         let rows: Vec<Value> = (0..20)
             .map(|i| row(&format!("m{i:02}"), "working", "", json!({})))

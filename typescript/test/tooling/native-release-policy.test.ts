@@ -3,11 +3,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { checkLatestTag, productOfTag, releaseFlags, releasePolicy } = (await import(
+const { checkLatestTag, productOfTag, publishFlags, releaseFlags, releasePolicy } = (await import(
   pathToFileURL(path.join(repositoryRoot, 'scripts', 'native-release-policy.mjs')).href
 )) as {
   checkLatestTag: (tag: string) => boolean;
   productOfTag: (tag: string) => string | undefined;
+  publishFlags: (product: string) => string[];
   releaseFlags: (product: string) => string[];
   releasePolicy: (product: string) => { latest: boolean; prerelease: boolean };
 };
@@ -36,6 +37,18 @@ describe('native release publication policy', () => {
     for (const extension of ['office', 'squad']) {
       expect(releaseFlags(extension)).toContain('--prerelease');
     }
+  });
+
+  it('publishes a draft with every flag explicit, since release-please makes each draft a prerelease', () => {
+    expect(publishFlags('cli')).toEqual(['--draft=false', '--prerelease=false', '--latest=true']);
+    for (const extension of ['office', 'squad']) {
+      expect(publishFlags(extension)).toEqual([
+        '--draft=false',
+        '--prerelease=true',
+        '--latest=false',
+      ]);
+    }
+    expect(() => publishFlags('unknown')).toThrow();
   });
 
   it('accepts only a CLI tag as the published latest release', () => {

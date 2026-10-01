@@ -484,6 +484,20 @@ impl App {
             .unwrap_or(Pane::Rows)
     }
 
+    /// Focuses the pane drawn under the pointer, if any.
+    fn focus_at(&mut self, column: u16, row: u16) {
+        let Some(pane) = self.scrolls.pane_at(column, row) else {
+            return;
+        };
+        if let Some(position) = self
+            .view
+            .as_ref()
+            .and_then(|view| view.board.panes.iter().position(|p| *p == pane))
+        {
+            self.focus = position;
+        }
+    }
+
     fn next_pane(&mut self) {
         if let Some(view) = &self.view {
             self.focus = (self.focus + 1) % view.board.panes.len().max(1);
@@ -969,7 +983,7 @@ impl App {
     }
 
     /// The wheel scrolls the pane under the pointer, whichever is focused.
-    /// A left click selects the row under it, then runs its `click` binding;
+    /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
         if self.menu.is_some() || self.input.is_some() || self.help || self.switcher.is_some() {
@@ -1013,6 +1027,7 @@ impl App {
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;
         }
+        self.focus_at(event.column, event.row);
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });

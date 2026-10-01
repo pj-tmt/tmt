@@ -34,6 +34,7 @@ proc-macro2 = { version = "=1.0.107", default-features = false }
 
 [target.'cfg(unix)'.dev-dependencies]
 nix.workspace = true
+rusqlite.workspace = true
 
 [lints]
 workspace = true

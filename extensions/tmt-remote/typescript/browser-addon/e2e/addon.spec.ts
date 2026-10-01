@@ -1,4 +1,6 @@
 import { expect, test, chromium } from '@playwright/test';
+import { accessJournal } from './journal.js';
+import { CAPTURE_KEY, INTENT_KEY } from '../src/journal.js';
 import type { BrowserContext, Page } from '@playwright/test';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,6 +9,9 @@ import { createServer } from 'node:http';
 let context: BrowserContext, popup: Page, source: Page, profile: string;
 let server: ReturnType<typeof createServer>;
 let extensionId: string, tabId: number;
+async function extensionWorker() {
+  return context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+}
 test.beforeEach(async () => {
   profile = await mkdtemp(join(tmpdir(), 'tmt-addon-'));
   server = createServer((_request, response) => {
@@ -29,8 +34,7 @@ test.beforeEach(async () => {
       '--enable-unsafe-extension-debugging',
     ],
   });
-  let worker = context.serviceWorkers()[0];
-  if (!worker) worker = await context.waitForEvent('serviceworker');
+  const worker = await extensionWorker();
   extensionId = new URL(worker.url()).host;
   source = context.pages()[0] ?? (await context.newPage());
   await source.goto(url);
@@ -193,63 +197,21 @@ test('uncertain recovery, empty reply and unavailable result stay distinct', asy
 test('restored credentialed menu capture never enters preview or frozen intent', async () => {
   // The initial popup must not consume the fixture while its asynchronous start is pending.
   await popup.close();
-  const worker = context.serviceWorkers()[0];
-  expect(worker).toBeDefined();
+  const worker = await extensionWorker();
   const capture = {
     selection: 'secret selection',
     title: 'title',
     url: 'https://user:password@example.test/',
   };
-  const stored = await worker.evaluate(async (capture) => {
-    // Exercise a genuinely new database after the only popup consumer has closed.
-    await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.deleteDatabase('tmt-addon-shell');
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(new Error('Fixture database failed to reset'));
-    });
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('tmt-addon-shell', 1);
-      request.onupgradeneeded = () => request.result.createObjectStore('values');
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(new Error('Fixture database failed to open'));
-    });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction('values', 'readwrite');
-        tx.objectStore('values').put(capture, 'capture');
-        tx.oncomplete = () => resolve();
-        tx.onabort = () => reject(new Error('Fixture storage failed'));
-      });
-      return await new Promise<unknown>((resolve, reject) => {
-        const tx = db.transaction('values', 'readonly');
-        const request = tx.objectStore('values').get('capture');
-        tx.oncomplete = () => resolve(request.result);
-        tx.onabort = () => reject(new Error('Fixture readback failed'));
-      });
-    } finally {
-      db.close();
-    }
-  }, capture);
+  // Exercise a genuinely new database after the only popup consumer has closed.
+  await accessJournal(worker, { kind: 'reset' });
+  await accessJournal(worker, { kind: 'put', key: CAPTURE_KEY, value: capture });
+  const stored = await accessJournal(worker, { kind: 'get', key: CAPTURE_KEY });
   expect(stored).toEqual(capture);
   popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   await expect(popup.locator('#status')).toContainText('unavailable');
   await expect(popup.locator('#preview')).toHaveText('Capture a selection to begin.');
   await expect(popup.locator('#send')).toBeDisabled();
-  expect(
-    await popup.evaluate(async () => {
-      return await new Promise((resolve) => {
-        const request = indexedDB.open('tmt-addon-shell', 1);
-        request.onsuccess = () => {
-          const db = request.result,
-            tx = db.transaction('values', 'readonly');
-          const intent = tx.objectStore('values').get('intent');
-          tx.oncomplete = () => {
-            resolve(intent.result);
-            db.close();
-          };
-        };
-      });
-    }),
-  ).toBeUndefined();
+  expect(await accessJournal(popup, { kind: 'get', key: INTENT_KEY })).toBeUndefined();
 });
