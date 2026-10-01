@@ -183,8 +183,64 @@ fn an_unknown_path_or_format_is_refused_with_the_choices() {
         ));
         assert!(message.contains("a field Squad reads itself"), "{message}");
     }
-    let message = error("[p.rows]\ncolumns = [{ name = \"m\", color = \"red\" }]\n");
-    assert!(message.contains("#514"), "{message}");
+}
+
+#[test]
+fn numeric_color_thresholds_name_theme_tokens_in_increasing_order() {
+    let rows = parse(
+        "[p.rows]\ncolumns = [{ name = \"ctx\", color = [{ at = 400000, token = \"review\" }, { at = 6e5, token = \"red\" }] }]\n",
+    )
+    .unwrap();
+    let column = &rows.columns[0];
+    assert_eq!(column.threshold(399_999.0), None);
+    assert_eq!(column.threshold(400_000.0), Some("review"));
+    assert_eq!(column.threshold(599_999.5), Some("review"));
+    assert_eq!(
+        column.threshold(600_000.0),
+        Some("red"),
+        "aliases stay names"
+    );
+    assert!(
+        parse("[p.rows]\ncolumns = [{ name = \"ctx\" }]\n")
+            .unwrap()
+            .columns[0]
+            .color
+            .is_empty()
+    );
+    let place = "squad.p.rows.columns[0].color";
+    for (setting, expected) in [
+        ("\"red\"", format!("`{place}` must be a list")),
+        ("[1]", format!("`{place}` must be a list")),
+        (
+            "[{ at = \"1\", token = \"red\" }]",
+            format!("`{place}[0].at` must be a number"),
+        ),
+        (
+            "[{ at = 1, token = \"orange\" }]",
+            format!("`{place}[0].token` must be a theme token"),
+        ),
+        (
+            "[{ at = 1, token = \"default\" }]",
+            format!("`{place}[0].token` must be a theme token"),
+        ),
+        (
+            "[{ at = 1, token = \"red\", over = 2 }]",
+            format!("`{place}[0].over` is not a threshold setting"),
+        ),
+        (
+            "[{ at = 2, token = \"red\" }, { at = 2, token = \"blocked\" }]",
+            format!("`{place}[1].at` must be greater than the threshold before it"),
+        ),
+        (
+            "[{ at = 5, token = \"red\" }, { at = 1, token = \"blocked\" }]",
+            format!("`{place}[1].at` must be greater"),
+        ),
+    ] {
+        let message = error(&format!(
+            "[p.rows]\ncolumns = [{{ name = \"ctx\", color = {setting} }}]\n"
+        ));
+        assert!(message.starts_with(&expected), "{setting}: {message}");
+    }
 }
 
 #[test]
