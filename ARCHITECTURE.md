@@ -2473,8 +2473,23 @@ resolution: a column's numeric `color` thresholds (`rows::Threshold`, validated
 theme tokens, strictly increasing) over the bound number or the field read as a
 number, else a field provider's token, which `provider::apply` keeps only when
 it names a theme token. The row carries the result as `colors` (`{field: token}`,
-omitted when empty); the board styles those cells through the theme, `state`
-keeps its state colors, and `ls` text stays uncolored. Field providers
+omitted when empty). `config::States` owns state color and rank resolution:
+exact entries (including layout presets) win entirely, else the first ordered
+`[[squad.<name>.state_patterns]]` glob, else no color and the default rank.
+Explicit sorts precede preset sorts at the same number; unspecified pattern
+sort ranks after ranked states. The compiler validates theme tokens, sort
+0-999, booleans, unknown settings, and caps of 64 patterns and 256 UTF-8 bytes
+per nonempty match with indexed config errors. Its bitset NFA consumes Unicode
+scalars with fixed-size transitions, no backtracking or dependency: `*` any
+run, `?` one scalar, other characters literal; optional case-insensitive
+matching compares each scalar's lowercase form. `status::document` alone
+publishes the resolved state token as `colors.state`, ignoring state thresholds
+and provider colors. Other color keys still come from thresholds or providers.
+The board consumes these tokens rather than keeping a second state-color map;
+aggregate lead rows retain their original squad's resolved token. `ls` text
+stays uncolored and shares state sorting (including section sort keys) with the
+board. State text and attention classification are independent of decoration.
+Field providers
 (`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
 member through `runner` with the run-binding argument rule
 (`Template::fill_argument`: one argument per template, no shell, a value that
