@@ -2657,7 +2657,10 @@ Geometry, gesture history and native durability retain their existing test owner
 
 Retained tests are organized under `typescript/test/native/`, `typescript/test/e2e/`,
 `typescript/test/tooling/` and `typescript/test/support/`, with Rust unit/integration tests beside
-their owners. They use independent SQL/schema oracles for SQLite behavior and
+their owners. The CLI's `tests/support` module owns the isolated environment and
+direct-child lifetime shared by its stdin-signal and request-observer fixtures;
+[Development](DEVELOPMENT.md#native-process-and-shared-tests) owns the isolation contract.
+They use independent SQL/schema oracles for SQLite behavior and
 frozen fixtures from `typescript/test/fixtures/storage-history/`; implementation reads
 must not generate their own expected results. Native process tests use absolute
 task-owned executables, bounded subprocesses and cleanup that stops, reaps and

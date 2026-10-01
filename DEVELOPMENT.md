@@ -903,6 +903,16 @@ I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
 The maintained JavaScript suites live under `typescript/test/native/`, `typescript/test/e2e/`,
 `typescript/test/tooling/` and `typescript/test/support/`. Rust tests stay beside the owner in
 `rust/crates/*` or the companion package under `extensions/tmt-office/rust/`.
+`tmt-cli/tests/support` owns the environment and direct-child lifetime shared by
+`stdin_flags` and `request_observer`. Their commands clear the parent environment;
+HOME, XDG config/data/state/cache, CODEX_HOME, temporary files and the tmux socket
+directory stay under each fixture's owned root. State uses the canonical
+XDG config `tmux-team` directory. Native TypeScript sandboxes use the same isolation
+contract with an explicit system/Node PATH and UTF-8 locale. Executable selectors
+are resolved separately; scenario-local environment changes remain explicit.
+These fixtures do not inherit caller/provider markers, driver recursion flags or
+color settings. Environment isolation does not remove process ancestry.
+
 The native process selector resolves the repository build at
 `rust/target/debug/tmt` by default and fails if it is absent. An explicit
 descriptor may select another absolute native executable; it must be

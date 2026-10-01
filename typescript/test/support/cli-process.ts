@@ -54,25 +54,30 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
     const home = path.join(root, 'home');
     const xdgConfigHome = path.join(root, 'xdg');
     const tmuxTmpdir = path.join(root, 'tmux');
+    const tmpdir = path.join(root, 'tmp');
     mkdirSync(cwd);
     mkdirSync(home);
     mkdirSync(tmuxTmpdir);
+    mkdirSync(tmpdir);
 
     const globalDir = path.join(xdgConfigHome, 'tmux-team');
     const env: NodeJS.ProcessEnv = {
-      ...process.env,
       HOME: home,
       XDG_CONFIG_HOME: xdgConfigHome,
+      XDG_DATA_HOME: path.join(root, 'xdg-data'),
+      XDG_STATE_HOME: path.join(root, 'xdg-state'),
+      XDG_CACHE_HOME: path.join(root, 'xdg-cache'),
       CODEX_HOME: path.join(home, '.codex'),
-      // Clearing TMUX alone still permits ancestor discovery on the host's
-      // default server. Native process tests never start a tmux server; the
-      // Docker harness owns tests that need one.
+      TMPDIR: tmpdir,
+      // Ancestor discovery must not reach the host's default tmux server.
+      // Native tests never start one; Docker owns real tmux scenarios.
       TMUX_TMPDIR: tmuxTmpdir,
+      PATH: [path.dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(
+        path.delimiter
+      ),
+      LANG: 'en_US.UTF-8',
+      LC_ALL: 'en_US.UTF-8',
     };
-    // Provider-specific overrides must not make contract tests write outside
-    // their isolated home directory.
-    delete env.PI_CODING_AGENT_DIR;
-    delete env.OPENCODE_CONFIG_DIR;
     return {
       [lifecycleKey]: { closing: false, runs: new Set<ActiveRun>() },
       cli,
@@ -112,7 +117,6 @@ export function runCli(
 }
 
 function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOptions): ActiveRun {
-  for (const key of ['TMUX', 'TMUX_PANE', 'TMUX_TEAM_HOME']) delete sandbox.env[key];
   const outputLimitBytes = options.outputLimitBytes ?? 1024 * 1024;
   const deadlineMs = options.deadlineMs ?? 5_000;
   const hasStdin = options.stdin !== undefined;

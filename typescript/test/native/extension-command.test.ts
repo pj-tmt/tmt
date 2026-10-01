@@ -9,7 +9,7 @@ function extension(sandbox: Sandbox, name: string, script: string): string {
   const file = path.join(directory, `tmt-${name}`);
   writeFileSync(file, `#!/bin/sh\n${script}\n`);
   chmodSync(file, 0o700);
-  sandbox.env.PATH = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
+  sandbox.env.PATH = `${directory}${path.delimiter}${sandbox.env.PATH ?? ''}`;
   return file;
 }
 

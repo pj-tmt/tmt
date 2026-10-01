@@ -1,6 +1,8 @@
 //! Detached observer exit status, durable request state and owned log lifetime.
 #![cfg(unix)]
 
+mod support;
+
 use nix::poll::{PollFd, PollFlags, poll};
 use rusqlite::Connection;
 use std::{
@@ -13,8 +15,7 @@ use std::{
     path::PathBuf,
     process::{Child, Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tmt_adapters::{request_runtime::wall_time_ms, storage::Storage};
 use tmt_core::request::{RequestService, SubmitResponse, notification::NotificationPolicy};
@@ -39,16 +40,13 @@ impl Fixture {
         ));
         fs::create_dir(&root).unwrap();
         let mut fixture = Self {
-            database: root.join("state/tmux-team.db"),
+            database: support::state_dir(&root).join("tmux-team.db"),
             root,
             request_id: String::new(),
             recipient_id: String::new(),
             deadline_ms: 0,
             child: None,
         };
-        for name in ["home", "xdg", "unused-tmux"] {
-            fs::create_dir(fixture.root.join(name)).unwrap();
-        }
         fixture.run(&["identity", "create", "Sender", "--json"]);
         fixture.run(&["identity", "create", "Receiver", "--json"]);
         let queued = fixture.run(&[
@@ -81,31 +79,15 @@ impl Fixture {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tmt"));
-        command
-            .args(args)
-            .env_clear()
-            .env("HOME", self.root.join("home"))
-            .env("TMUX_TEAM_HOME", self.root.join("state"))
-            .env("XDG_CONFIG_HOME", self.root.join("xdg"))
-            .env("TMUX_TMPDIR", self.root.join("unused-tmux"))
-            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-            .env("LANG", "en_US.UTF-8")
-            .current_dir(&self.root)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped());
+        let mut command = support::command(&self.root, args);
+        command.stdin(Stdio::null()).stdout(Stdio::piped());
         command
     }
 
     fn wait(&mut self) -> Output {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            if self.child.as_mut().unwrap().try_wait().unwrap().is_some() {
-                return self.child.take().unwrap().wait_with_output().unwrap();
-            }
-            assert!(Instant::now() < deadline, "owned CLI did not exit");
-            thread::sleep(Duration::from_millis(10));
-        }
+        support::wait(&mut self.child, Duration::from_secs(10))
+            .wait_with_output()
+            .unwrap()
     }
 
     fn run(&mut self, args: &[&str]) -> Output {
@@ -117,8 +99,8 @@ impl Fixture {
     }
 
     fn log_path(&self) -> PathBuf {
-        self.root
-            .join("state/request-observers")
+        support::state_dir(&self.root)
+            .join("request-observers")
             .join(format!("{}.log", self.request_id))
     }
 
@@ -173,16 +155,8 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        if let Some(child) = &mut self.child {
-            if !matches!(child.try_wait(), Ok(Some(_))) {
-                let _ = child.kill();
-            }
-            let _ = child.wait();
-        }
-        assert_eq!(
-            fs::read_dir(self.root.join("unused-tmux")).unwrap().count(),
-            0
-        );
+        support::stop(&mut self.child);
+        assert_eq!(fs::read_dir(self.root.join("tmux")).unwrap().count(), 0);
         fs::remove_dir_all(&self.root).unwrap();
     }
 }
