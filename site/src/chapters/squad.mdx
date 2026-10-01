@@ -237,7 +237,7 @@ Optional **playbooks** are example skills for how a lead lays out its team on yo
 
 ### Observed age
 
-Squad can show how long it has seen a member's task and state, and the lead's notes, unchanged. It is off by default; turn it on per squad with a threshold from one minute to 24 hours. `tmt sq ls` then labels stale rows and notes with their age. The clock starts when Squad first sees the content, so it cannot know how long work sat unchanged before that; editing your config or turning the setting off and on keeps the clock as long as the content has not changed.
+Squad can show how long it has seen a member's task and state, and the lead's notes, unchanged. It is off by default; turn it on per squad with a threshold from one minute to 24 hours. `tmt sq ls` then labels stale rows and notes with their age, and the board dims a stale row with its age at the row's end and puts the notes' age on the notes pane title. The clock starts when Squad first sees the content, so it cannot know how long work sat unchanged before that; editing your config or turning the setting off and on keeps the clock as long as the content has not changed.
 
 <Code>{`
 [squad.product.reminders]
@@ -245,7 +245,7 @@ enabled = true
 stale_after = "30m"
 `}</Code>
 
-Marks on the board, reminder settings in the board, and a short reminder in the lead's next turn are planned. These keys install no provider hooks.
+Reminder settings in the board and a short reminder in the lead's next turn are planned. These keys install no provider hooks.
 
 ### Where state lives
 
@@ -272,6 +272,8 @@ A layout that works well: leads in one place you keep open, members in another, 
 
 In tmux, `prefix S` opens the board as a popup that closes when you jump, and `prefix B` keeps it as a pane. `tmt sq hotkeys install` shows exactly what it adds to your tmux config and asks first; `--print` only shows it, and `tmt sq hotkeys remove` takes it out. You can pick other keys: `[tmux] popup = "…"` and `pane = "…"` in squad.toml.
 
+To reach a lead without opening the board, `tmt sq jump --lead` jumps to the lead of the squad you're in (or `--squad <name>`), and `tmt sq back` returns. Add `lead = "J"` under `[tmux]` and install the hotkeys again, and `prefix J` does the same from any member's pane.
+
 | Host           | Jump and back                                 | Where the board opens          |
 | -------------- | --------------------------------------------- | ------------------------------ |
 | tmux           | to the member's pane, even in another session | a popup on a hotkey, or a pane |
@@ -288,6 +290,7 @@ $ tmt talk auth-fix "…" --detach      # the board's t, from the command line
 $ tmt answer auth-fix "use postgres"  # the board's r: what it's waiting on you for
 $ tmt sq annotate auth-fix "split this job"   # the board's a
 $ tmt sq jump auth-fix                # and tmt sq back
+$ tmt sq jump --lead                  # your squad's lead
 $ tmt sq remove auth-fix              # leaves the squad; the agent keeps running
 `}</Cmd>
 
