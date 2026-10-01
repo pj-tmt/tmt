@@ -332,6 +332,20 @@ describe.sequential('Codex native channel product routing', () => {
       const worker = start(f, 'Worker', true, { MOCK_AUTOREPLY: '0' });
       await ready(f, worker);
       const [{ record }] = records(f);
+      sql(f, (db) =>
+        db
+          .prepare(
+            `UPDATE identity_session_preferences SET preferred_harness=NULL,
+        remembered_harness=NULL, runtime_mode=NULL, provider_session_id=NULL`
+          )
+          .run()
+      );
+      const trace = installTmuxTrace(f);
+      // With no preferred harness, enrollment alone selects Codex and reaches
+      // its actual queue transport through the shared enrolled_harness path.
+      const routed = await talk(f, 'Worker', 'enrollment selects native');
+      expect(routed.code, routed.stdout + routed.stderr).toBe(0);
+      expect(events(worker, 'queue')).toHaveLength(1);
       sql(f, (db) => {
         expect(
           db
@@ -347,13 +361,12 @@ describe.sequential('Codex native channel product routing', () => {
           remembered_harness=NULL, runtime_mode=NULL, provider_session_id=NULL`
         ).run();
       });
-      const trace = installTmuxTrace(f);
       for (const target of ['Worker', worker.pane]) {
         const result = await talk(f, target, 'pending launch');
         expect(result.code, result.stdout + result.stderr).toBe(1);
-        expect(result.stdout).toContain('nothing was pasted');
+        expect(result.json).toMatchObject({ error: { code: 'DELIVERY_PREPARATION_FAILED' } });
       }
-      expect(events(worker, 'queue')).toEqual([]);
+      expect(events(worker, 'queue')).toHaveLength(1);
       expect(writes(trace, worker.pane)).toEqual([]);
       await quit(worker);
     });
@@ -381,8 +394,10 @@ describe.sequential('Codex native channel product routing', () => {
       await ready(f, plain);
       const trace = installTmuxTrace(f);
       const blocked = await talk(f, old.pane, 'unknown must not paste');
-      expect(blocked.code, blocked.stdout + blocked.stderr).toBe(1);
-      expect(blocked.stdout).toContain(file);
+      // A saved offline identity may queue its durable inbox without touching
+      // this terminal. The identity-less pane guard is exercised below separately.
+      expect(blocked.code, blocked.stdout + blocked.stderr).toBe(0);
+      expect(blocked.json).toMatchObject({ status: 'queued', offline: true });
       expect(writes(trace, old.pane)).toEqual([]);
       const control = await talk(f, 'Bystander', 'unrelated pane control');
       expect(control.code, control.stdout + control.stderr).toBe(0);
@@ -458,7 +473,16 @@ describe.sequential('Codex native channel product routing', () => {
       // Signal a fixture-owned still-live child, then prove its endpoint is gone.
       process.kill(bossRecord.record.ready.server.pid, 'SIGKILL');
       await f.waitFor(
-        () => gone(bossRecord.record.ready.server.pid),
+        () => {
+          if (gone(bossRecord.record.ready.server.pid)) return true;
+          return execFileSync(
+            'ps',
+            ['-o', 'stat=', '-p', String(bossRecord.record.ready.server.pid)],
+            { encoding: 'utf8' }
+          )
+            .trim()
+            .startsWith('Z');
+        },
         10000,
         'originator endpoint gone'
       );
@@ -484,6 +508,35 @@ describe.sequential('Codex native channel product routing', () => {
       expect(writes(trace, boss.pane)).toEqual([]);
       await quit(worker);
       await quit(boss);
+    });
+  }, 60000);
+  it('an Unknown attributed record protects the unbound raw pane after all recorded processes ended', async () => {
+    await withE2EFixture(async (f) => {
+      const old = start(f, 'Window', true, { MOCK_AUTOREPLY: '0' });
+      await ready(f, old);
+      const [{ file, record }] = records(f);
+      fs.writeFileSync(file, JSON.stringify({ ...record, foreground: { state: 'unknown' } }));
+      process.kill(record.launchOwner.pid, 'SIGKILL');
+      fs.writeFileSync(`${old.log}.quit`, '');
+      await f.waitFor(
+        () =>
+          fs.existsSync(old.status) &&
+          gone(record.foreground.process!.pid) &&
+          !fs.existsSync(path.join(path.dirname(file), record.generation)),
+        10000,
+        'owned processes ended'
+      );
+      f.tmux(['set-option', '-p', '-u', '-t', old.pane, '@tmux-team.agent']);
+      await f.runJsonCli(['ls'], { pane: old.pane });
+      expect(
+        sql(f, (db) => db.prepare('SELECT id FROM bindings WHERE id=?').get(record.bindingId))
+      ).toBeUndefined();
+      const trace = installTmuxTrace(f);
+      const result = await talk(f, old.pane, 'no input to unknown pane');
+      expect(result.code, result.stdout + result.stderr).toBe(1);
+      expect(result.stdout).toContain(file);
+      expect(writes(trace, old.pane)).toEqual([]);
+      expect(fs.existsSync(file)).toBe(true);
     });
   }, 60000);
 });
