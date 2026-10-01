@@ -1,9 +1,9 @@
 //! Opt-in provider contract for the Claude channel launch (#329). Runs only
 //! `--version` and `--help`, never a conversation, MCP server or installation.
-//! It fails when the version leaves the recorded range or `--help` stops
+//! It fails when the version leaves the accepted range or `--help` stops
 //! documenting `--mcp-config`. Claude 2.1.285 does not list the preview
 //! `--dangerously-load-development-channels` flag in `--help`, so that flag is
-//! covered only by the exact-version pin and the spike's evidence.
+//! covered only by the version range and the recorded live evidence.
 
 use std::{
     ffi::OsString,
@@ -11,7 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::{
-    drivers::claude::channel::{MCP_CONFIG_FLAG, SUPPORTED_VERSIONS},
+    drivers::claude::channel::{
+        BuildStatus, MCP_CONFIG_FLAG, MINIMUM_VERSION, TESTED_VERSIONS, build_status,
+    },
     process::{CommandRequest, CommandRunner, UnixCommandRunner},
 };
 
@@ -28,7 +30,7 @@ fn output(executable: &Path, args: &[OsString]) -> Result<String, String> {
     String::from_utf8(result.stdout).map_err(|_| "Provider output is not UTF-8".into())
 }
 
-fn check() -> Result<(), String> {
+fn check() -> Result<BuildStatus, String> {
     let mut arguments = std::env::args_os().skip(1);
     let (Some(executable), None) = (arguments.next(), arguments.next()) else {
         return Err("Usage: channel-contract /absolute/claude".into());
@@ -38,24 +40,28 @@ fn check() -> Result<(), String> {
         return Err("Usage: channel-contract /absolute/claude".into());
     }
     let version = output(executable, &["--version".into()])?;
-    if !SUPPORTED_VERSIONS.contains(&version.trim()) {
+    let Some(status) = build_status(version.trim()) else {
         return Err(format!(
-            "claude channel version drift: supported {SUPPORTED_VERSIONS:?}, received {:?}. Record channel evidence for the new version before widening the range.",
+            "claude channel version drift: accepted range is {MINIMUM_VERSION} or newer in its major line, received {:?}.",
             version.trim()
         ));
-    }
+    };
     let help = output(executable, &["--help".into()])?;
     if !help.contains(MCP_CONFIG_FLAG) {
         return Err(format!(
             "claude --help no longer documents {MCP_CONFIG_FLAG}"
         ));
     }
-    Ok(())
+    Ok(status)
 }
 
 fn main() {
     match check() {
-        Ok(()) => println!("claude channel launch contract matches"),
+        Ok(BuildStatus::Tested) => println!("claude channel launch contract matches"),
+        Ok(BuildStatus::Untested) => println!(
+            "claude channel launch contract matches an untested build (tested: {}); only --version and --help were checked",
+            TESTED_VERSIONS.join(", ")
+        ),
         Err(error) => {
             eprintln!("{error}");
             std::process::exit(1);
