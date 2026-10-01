@@ -64,7 +64,10 @@ never has to receive assets). A live run, which is only allowed on `main`, creat
 App token in that job alone, enables auto-merge (squash) on the open release pull requests,
 which merge through the normal required checks, and updates the ones that fell behind `main`
 (`strict` requires an up-to-date branch; a busy `main` can keep a release pull request behind
-until a quiet moment). A `dispatch` job then starts the per-product run above for every
+until a quiet moment). release-please runs with `always-update`, so every run also rebuilds each
+open release pull request from `main`'s current files and force-pushes its branch; that, not
+`gh pr update-branch`, is what clears a conflict (every release pull request edits the shared
+manifest, and adjacent lines conflict). A `dispatch` job then starts the per-product run above for every
 product that has a draft without a bundle. The job runs in the `release` Environment and the
 App credentials, `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`, are secrets of that
 Environment, not repository secrets, so only a run its deployment branch rule admits can read
