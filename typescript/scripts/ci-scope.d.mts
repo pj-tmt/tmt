@@ -77,6 +77,11 @@ export function nativeGatePasses(
   results: NativeJobResults,
   map?: ComponentMap
 ): boolean;
+export function rustGatePasses(
+  scope: string,
+  results: readonly string[],
+  map?: ComponentMap
+): boolean;
 export function e2eGatePasses(scope: string, results: E2eShardResults, map?: ComponentMap): boolean;
 export function renderSelectionEvidence(input: {
   readonly base: string;

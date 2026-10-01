@@ -26,6 +26,7 @@ import {
   readChangedCiAreas,
   renderSelectionEvidence,
   runCiScope,
+  rustGatePasses,
   scopedChecks,
   selectCiAreas,
   selectNativeScope,
@@ -827,11 +828,7 @@ esac
       if (fixture.status === 0 || fixture.testStatus !== 0)
         expected.push('test --locked --workspace');
       if (fixture.status === 0)
-        expected.push(
-          '+1.88.0 build --locked --workspace',
-          'build --locked --workspace',
-          'build --locked --example storage-probe'
-        );
+        expected.push('build --locked --workspace', 'build --locked --example storage-probe');
       expect(calls).toEqual(expected);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1226,6 +1223,53 @@ describe('required CI gate', () => {
     expect(nativeGatePasses('full', withoutShard as never)).toBe(false);
   });
 
+  describe('Native Rust contracts gate', () => {
+    it.each(['full', 'squad', 'none'])('requires both workers for %s', (scope) => {
+      const expected = scope === 'none' ? 'skipped' : 'success';
+      expect(rustGatePasses(scope, [expected, expected])).toBe(true);
+      for (const other of ['success', 'skipped', 'failure', 'cancelled', '', undefined]) {
+        if (other === expected) continue;
+        expect(rustGatePasses(scope, [other, expected] as string[])).toBe(false);
+        expect(rustGatePasses(scope, [expected, other] as string[])).toBe(false);
+      }
+      for (const results of [[], [expected], [expected, expected, expected], undefined]) {
+        expect(rustGatePasses(scope, results as string[])).toBe(false);
+      }
+    });
+
+    it.each(['', 'unknown', 'office'])('rejects unavailable/unsupported scope %s', (scope) => {
+      expect(rustGatePasses(scope, ['success', 'success'])).toBe(false);
+      expect(rustGatePasses(scope, ['skipped', 'skipped'])).toBe(false);
+    });
+
+    it('enforces the Rust worker result contract in the actual command', () => {
+      const script = fileURLToPath(new URL('../../scripts/ci-scope.mjs', import.meta.url));
+      const options = { cwd: process.cwd(), env: process.env };
+      for (const [scope, values] of [
+        ['full', ['success', 'success']],
+        ['squad', ['success', 'success']],
+        ['none', ['skipped', 'skipped']],
+      ] as const) {
+        expect(
+          runPackedCommand(process.execPath, [script, 'gate-rust', scope, ...values], options)
+        ).toBe('');
+      }
+      for (const args of [
+        ['full', 'failure', 'success'],
+        ['full', 'success', 'cancelled'],
+        ['squad', 'success', 'skipped'],
+        ['none', 'success', 'skipped'],
+        ['full', 'success'],
+        ['full', 'success', 'success', 'success'],
+        ['', 'skipped', 'skipped'],
+      ]) {
+        expect(() =>
+          runPackedCommand(process.execPath, [script, 'gate-rust', ...args], options)
+        ).toThrow();
+      }
+    });
+  });
+
   describe('Docker E2E gate', () => {
     it.each([
       ['full', 'success', 'success'],
@@ -1308,13 +1352,14 @@ describe('required CI gate', () => {
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
       'utf8'
     );
-    const start = workflow.indexOf('\n  native-rust:\n');
+    const start = workflow.indexOf('\n  native-rust-checks:\n');
     const native = workflow.slice(start, workflow.indexOf('\n  unit-tests:\n', start));
     expect(native).toContain('cargo build --locked --release -p tmt-cli');
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
     expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');
-    expect(native).toContain('cargo +1.88.0 build --locked');
+    expect(native).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
+    expect(native).not.toMatch(/cargo \+\d/);
     expect(native).toContain('cargo build --locked -p tmt-office');
     expect(native).toContain('rust/target/debug/examples/storage-probe');
     expect(native).toContain('pnpm test:native --reporter=verbose');
@@ -1396,7 +1441,28 @@ describe('required CI gate', () => {
       );
     }
     // The Rust job runs for every native scope, the E2E job for every native scope of a pull request.
-    expect(job('native-rust')).toContain("if: needs.changes.outputs.native == 'true'");
+    for (const name of ['native-rust-checks', 'native-msrv']) {
+      expect(job(name)).toContain("if: needs.changes.outputs.native == 'true'");
+    }
+    const rustGate = job('native-rust');
+    expect(rustGate).toContain('needs: [changes, native-rust-checks, native-msrv]');
+    expect(rustGate).toContain(
+      "if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}"
+    );
+    expect(rustGate).toContain('CHECKS_RESULT: ${{ needs.native-rust-checks.result }}');
+    expect(rustGate).toContain('MSRV_RESULT: ${{ needs.native-msrv.result }}');
+    expect(rustGate).toContain(
+      'ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CHECKS_RESULT" "$MSRV_RESULT"'
+    );
+    expect(job('native-msrv')).toContain('shared-key: native-rust-msrv');
+    expect(job('native-msrv')).toContain(
+      "save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}"
+    );
+    expect(job('native-msrv')).toContain('["workspace"]["package"]["rust-version"]');
+    expect(job('native-msrv')).toContain('RUSTUP_TOOLCHAIN=%s');
+    expect(job('native-msrv')).toContain('rustup toolchain install "$MSRV" --profile minimal');
+    expect(job('native-msrv')).not.toMatch(/rustup toolchain install \d/);
+    expect(job('native-msrv')).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
     // The E2E suite is two shard jobs; only the first runs for a scoped component, and
     // only the first of a full run also runs the Rust adapter tests.
     expect(job('docker-e2e-shard-1')).toContain(
@@ -1430,7 +1496,13 @@ describe('required CI gate', () => {
       'ci-scope.mjs gate-e2e "$NATIVE_SCOPE" "$SHARD_1_RESULT" "$SHARD_2_RESULT"'
     );
     // Each required check name belongs to exactly one job, and no shard reuses one.
-    for (const required of ['Code quality', 'Unit tests', 'Docker E2E', 'Native package matrix']) {
+    for (const required of [
+      'Code quality',
+      'Unit tests',
+      'Docker E2E',
+      'Native Rust contracts',
+      'Native package matrix',
+    ]) {
       expect(workflow.match(new RegExp(`^ {4}name: ${required}$`, 'gm')), required).toHaveLength(1);
     }
     expect(workflow.match(/^ {4}name: Docker E2E shard \d\/2$/gm)).toHaveLength(2);
@@ -1443,12 +1515,12 @@ describe('required CI gate', () => {
       'Install shell test dependency',
       'Install test dependencies',
     ];
-    for (const { name, scope } of steps(job('native-rust'))) {
+    for (const { name, scope } of steps(job('native-rust-checks'))) {
       if (shared.includes(name)) expect(scope, name).toBeUndefined();
       else expect(scope, `${name} needs an explicit native scope`).toMatch(/native_scope/);
     }
     const scoped = (scope: string) =>
-      steps(job('native-rust'))
+      steps(job('native-rust-checks'))
         .filter((step) => step.scope === `needs.changes.outputs.native_scope == '${scope}'`)
         .map((step) => step.name);
     expect(scoped('full')).toEqual([
@@ -1462,7 +1534,7 @@ describe('required CI gate', () => {
       'Build Squad process fixtures',
       'Verify Squad native contracts',
     ]);
-    expect(job('native-rust')).toContain('Reject an unknown native scope');
+    expect(job('native-rust-checks')).toContain('Reject an unknown native scope');
     // The gate names the same six jobs, in the order nativeGatePasses expects.
     const gate = job('native-install-gate');
     expect(gate).toContain('NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}');

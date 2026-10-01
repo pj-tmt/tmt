@@ -13,6 +13,7 @@
 //! through core's `HostServerIds` port, resolved by [`Host::resolve_servers`] before any
 //! binding transaction opens.
 
+mod delivery;
 pub(crate) mod driver;
 pub mod external;
 
@@ -38,9 +39,10 @@ use tmt_core::{
 };
 
 pub use crate::tmux::{
-    ClientView, DeliveryError, DeliveryStage, FocusError, Invoker, OperationOptions, PaneCosmetics,
-    PaneRefresh,
+    ClientView, FocusError, Invoker, OperationOptions, PaneCosmetics, PaneRefresh,
 };
+pub(crate) use delivery::DeliveryCause;
+pub use delivery::{DeliveryError, DeliveryStage};
 
 /// Invocation-owned observations; tests never mutate process-global variables.
 pub struct CallerEnvironment {

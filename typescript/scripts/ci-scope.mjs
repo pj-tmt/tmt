@@ -363,6 +363,13 @@ export function e2eGatePasses(scope, results, map = componentMap()) {
   return gatePasses(E2E_JOBS, scope, results, map);
 }
 
+/** `Native Rust contracts`: runtime checks and MSRV, selected together. */
+export function rustGatePasses(scope, results, map = componentMap()) {
+  const expected = expectedNativeResults(scope, map)?.nativeRust;
+  if (!expected || results?.length !== 2) return false;
+  return results.every((result) => result === expected);
+}
+
 export function readChangedCiSelection(base, head, cwd) {
   if ([base, head].some((sha) => !/^[a-f0-9]{40}$/.test(sha ?? ''))) {
     throw new Error('Expected exact base and head commit SHAs.');
@@ -396,6 +403,15 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     if (!ciGatePasses(args[1], args.slice(2))) {
       throw new Error(
         'Selected CI work did not complete successfully, or skip evidence is invalid.'
+      );
+    }
+    return;
+  }
+  if (args[0] === 'gate-rust') {
+    const [, scope, ...results] = args;
+    if (!rustGatePasses(scope, results)) {
+      throw new Error(
+        'Selected native Rust workers did not complete successfully, or skip evidence is invalid.'
       );
     }
     return;
