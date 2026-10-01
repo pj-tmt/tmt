@@ -298,7 +298,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 tmt_core::native_install::PinAction::Preserve
             },
         },
-        ["list"] => Invocation::List {
+        ["ls"] => Invocation::List {
             target: text(m, "target"),
             room: text(m, "room"),
             scope: crate::invocation::ListScope {
@@ -314,9 +314,9 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             },
         },
         ["room", "create"] => Invocation::Room(RoomOperation::Create(required(m, "name"))),
-        ["room", "list"] => Invocation::Room(RoomOperation::List),
+        ["room", "ls"] => Invocation::Room(RoomOperation::List),
         ["room", "show"] => Invocation::Room(RoomOperation::Show(required(m, "room"))),
-        ["room", "retire"] => Invocation::Room(RoomOperation::Retire(required(m, "room"))),
+        ["room", "rm"] => Invocation::Room(RoomOperation::Retire(required(m, "room"))),
         ["room", action @ ("send" | "broadcast")] => Invocation::Room(RoomOperation::Dispatch {
             room: required(m, "room"),
             message: required(m, "message"),
@@ -350,7 +350,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             name: required(m, "name"),
             force: flag(m, "force"),
         },
-        ["rename"] | ["identity", "rename"] => Invocation::Rename {
+        ["mv"] | ["identity", "mv"] => Invocation::Rename {
             old: required(m, "old"),
             new: required(m, "new"),
         },
@@ -407,7 +407,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["extension", "hooks", "disable"] => {
             Invocation::ExtensionHooks(ExtensionHooksRequest::Disable(required(m, "name")))
         }
-        ["extension", "hooks", "list"] => Invocation::ExtensionHooks(ExtensionHooksRequest::List),
+        ["extension", "hooks", "ls"] => Invocation::ExtensionHooks(ExtensionHooksRequest::List),
         ["extension", "install"] => {
             Invocation::ExtensionInstall(ExtensionInstallRequest::Install {
                 name: required(m, "name"),
@@ -430,14 +430,12 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 yes: flag(m, "yes"),
             })
         }
-        ["extension", "uninstall"] => {
-            Invocation::ExtensionInstall(ExtensionInstallRequest::Uninstall {
-                name: required(m, "name"),
-                prefix: text(m, "prefix"),
-                yes: flag(m, "yes"),
-            })
-        }
-        ["extension", "list"] => Invocation::ExtensionInstall(ExtensionInstallRequest::List {
+        ["extension", "rm"] => Invocation::ExtensionInstall(ExtensionInstallRequest::Uninstall {
+            name: required(m, "name"),
+            prefix: text(m, "prefix"),
+            yes: flag(m, "yes"),
+        }),
+        ["extension", "ls"] => Invocation::ExtensionInstall(ExtensionInstallRequest::List {
             prefix: text(m, "prefix"),
             check: flag(m, "check"),
         }),
@@ -447,14 +445,14 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             value: required(m, "value"),
             global: flag(m, "global"),
         }),
-        ["config", "clear"] => Invocation::Config(ConfigRequest::Clear {
+        ["config", "rm"] => Invocation::Config(ConfigRequest::Clear {
             key: text(m, "key"),
         }),
         ["identity", "create"] => {
             Invocation::Identity(IdentityRequest::Create(required(m, "name")))
         }
         ["identity", "show"] => Invocation::Identity(IdentityRequest::Show(text(m, "name"))),
-        ["identity", "list"] => {
+        ["identity", "ls"] => {
             let mut filters = Vec::new();
             for expression in texts(m, "where") {
                 let Some((key, value)) = expression.split_once('=') else {
@@ -472,7 +470,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             identity: text(m, "identity"),
             operation: match *operation {
                 "show" => IdentityStatusRequest::Show,
-                "clear" => IdentityStatusRequest::Clear,
+                "rm" => IdentityStatusRequest::Clear,
                 "set" => {
                     use tmt_core::identity_status::{
                         DEFAULT_STATUS_TTL_MS, MAX_STATUS_TTL_MS, MIN_STATUS_TTL_MS,
@@ -502,10 +500,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                     key: required(m, "key"),
                     value: required(m, "value"),
                 },
-                "get" => IdentityMetadataRequest::Get {
+                "show" => IdentityMetadataRequest::Get {
                     key: required(m, "key"),
                 },
-                "list" => IdentityMetadataRequest::List,
+                "ls" => IdentityMetadataRequest::List,
                 "rm" => IdentityMetadataRequest::Remove {
                     key: required(m, "key"),
                 },
@@ -518,7 +516,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["preamble"] | ["preamble", "show"] => {
             Invocation::Preamble(PreambleRequest::Show(text(m, "agent")))
         }
-        ["preamble", "clear"] => Invocation::Preamble(PreambleRequest::Clear(required(m, "agent"))),
+        ["preamble", "rm"] => Invocation::Preamble(PreambleRequest::Clear(required(m, "agent"))),
         ["preamble", "set"] => Invocation::Preamble(PreambleRequest::Set {
             name: required(m, "agent"),
             content: m
@@ -532,12 +530,12 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             identity: text(m, "identity"),
             operation: match *operation {
                 "show" => RoleOperation::Show,
-                "clear" => RoleOperation::Clear,
+                "rm" => RoleOperation::Clear,
                 "set" => RoleOperation::Set(content(m, "content", false)?),
                 _ => unreachable!(),
             },
         },
-        ["x"] | ["x", "list"] => Invocation::Exchange {
+        ["x"] | ["x", "ls"] => Invocation::Exchange {
             identity: text(m, "identity"),
             operation: ExchangeOperation::List {
                 limit: text(m, "limit")

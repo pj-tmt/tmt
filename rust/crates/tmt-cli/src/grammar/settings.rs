@@ -46,12 +46,14 @@ pub(in crate::grammar) fn config() -> Command {
     )
     .subcommand(
         general(spec!(
-            "clear",
-            "Clear a local setting",
+            "rm",
+            "Reset local setting overrides; global settings and defaults stay",
+            details = "With a key, remove that workspace override; without a key, remove all local\noverrides. Global settings and built-in defaults are retained.",
             [
-                "Clear a workspace setting" => "tmt config clear timeout",
+                "Clear a workspace setting" => "tmt config rm timeout",
             ]
         ))
+        .alias("clear")
         .arg(operand("key", false)),
     )
 }

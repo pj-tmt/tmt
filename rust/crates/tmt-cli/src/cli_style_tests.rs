@@ -6,6 +6,12 @@ use crate::{extension_command::Discovered, help_output, invocation::Invocation, 
 use std::ffi::OsString;
 use tmt_cli_style::audit::{self, Probe};
 
+#[test]
+fn every_listing_command_uses_ls_with_the_list_alias() {
+    let report = audit::list_spelling_report(&crate::grammar::grammar(), &["tmt"]);
+    assert!(report.is_empty(), "{}", report.join("\n"));
+}
+
 #[path = "cli_style_allowlist.rs"]
 mod allowlist;
 

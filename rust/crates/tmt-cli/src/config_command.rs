@@ -289,7 +289,7 @@ fn show_text(
             rows: table,
             note: None,
             hint: Some(
-                "CLI numeric writes use unsigned decimal integers; config clear removes local overrides only",
+                "CLI numeric writes use unsigned decimal integers; config rm removes local overrides only",
             ),
         }],
     )?;

@@ -86,6 +86,38 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('dispatches rm and remove identically while retaining the identity and its other metadata', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const id = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
+      expect(
+        (
+          await runCli(sandbox, [
+            'identity',
+            'meta',
+            'set',
+            'team',
+            'infra',
+            '--identity',
+            'worker',
+          ])
+        ).status
+      ).toBe(0);
+      for (const command of ['rm', 'remove']) {
+        expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+        expect((await squad(sandbox, ['set', 'worker', 'task=Review'])).status).toBe(0);
+        expect((await squad(sandbox, [command, 'worker'])).status).toBe(0);
+        expect(observe(sandbox).members).toEqual([]);
+        expect(observe(sandbox).metadata).toEqual([
+          { identity: 'worker', key: 'team', value: 'infra' },
+        ]);
+        const shown = await runCli(sandbox, ['identity', 'show', 'worker', '--json']);
+        expect(JSON.parse(shown.stdout).identity.id).toBe(id);
+      }
+    });
+  });
+
   it('reports observed age without changing board metadata or creating missing notes', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

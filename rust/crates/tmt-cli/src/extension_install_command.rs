@@ -144,7 +144,7 @@ fn failure(code: &'static str, error: io::Error) -> Failure {
     }
     Failure::new(
         code,
-        format!("{error} Inspect with: tmt extension list"),
+        format!("{error} Inspect with: tmt extension ls"),
         if error.kind() == io::ErrorKind::Interrupted {
             130
         } else {
@@ -165,7 +165,7 @@ fn installed(product: Product, prefix: &Path) -> Result<bool, Failure> {
                 Ok(_) => Err(Failure::new(
                     "EXTENSION_INSTALLATION_INVALID",
                     format!(
-                        "{} has an activation but no command link. Finish removal with: tmt extension uninstall {} --yes",
+                        "{} has an activation but no command link. Finish removal with: tmt extension rm {} --yes",
                         product.as_str(),
                         product.as_str()
                     ),

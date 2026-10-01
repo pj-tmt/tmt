@@ -8,7 +8,7 @@ pub(in crate::grammar) fn extension() -> Command {
         "extension",
         "Manage consented extension integrations",
         [
-            "List official extensions" => "tmt extension list",
+            "List official extensions" => "tmt extension ls",
             "Install Squad" => "tmt extension install squad",
         ]
     ))
@@ -18,7 +18,7 @@ pub(in crate::grammar) fn extension() -> Command {
             "hooks",
             "Manage lifecycle hooks for trusted extensions",
             [
-                "List extensions with hooks enabled" => "tmt extension hooks list",
+                "List extensions with hooks enabled" => "tmt extension hooks ls",
                 "Deliver lifecycle hooks to Squad" => "tmt extension hooks enable squad",
             ]
         ))
@@ -43,13 +43,16 @@ pub(in crate::grammar) fn extension() -> Command {
             ))
             .arg(operand("name", true)),
         )
-        .subcommand(general(spec!(
-            "list",
-            "List extensions with enabled hooks",
-            [
-                "List extensions with hooks enabled" => "tmt extension hooks list",
-            ]
-        ))),
+        .subcommand(
+            general(spec!(
+                "ls",
+                "List extensions with enabled hooks",
+                [
+                    "List extensions with hooks enabled" => "tmt extension hooks ls",
+                ]
+            ))
+            .alias("list"),
+        ),
     )
     .subcommand(
         extension_target(general(spec!(
@@ -90,22 +93,26 @@ pub(in crate::grammar) fn extension() -> Command {
         .arg(Arg::new("to").long("to").conflicts_with("unpin"))
         .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
     )
-    .subcommand(extension_target(general(spec!(
-        "uninstall",
-        "Remove an extension's commands; releases and data are kept",
-        [
-            "Remove Squad's commands" => "tmt extension uninstall squad",
-        ]
-    ))))
-    .subcommand(
+    .subcommand(extension_target(
         general(spec!(
-            "list",
-            "List official extensions, versions and PATH shadowing",
+            "rm",
+            "Remove an extension's commands; releases and data are kept",
             [
-                "List official extensions" => "tmt extension list",
-                "Also check for newer releases" => "tmt extension list --check",
+                "Remove Squad's commands" => "tmt extension rm squad",
             ]
         ))
+        .alias("uninstall"),
+    ))
+    .subcommand(
+        general(spec!(
+            "ls",
+            "List official extensions, versions and PATH shadowing",
+            [
+                "List official extensions" => "tmt extension ls",
+                "Also check for newer releases" => "tmt extension ls --check",
+            ]
+        ))
+        .alias("list")
         .arg(Arg::new("prefix").long("prefix"))
         .arg(
             Arg::new("check")

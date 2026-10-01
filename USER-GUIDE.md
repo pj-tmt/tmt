@@ -30,8 +30,8 @@ it does not reload an already running agent session.
 
 Native `name` and `add` bindings are temporary by default. Add `-s`/`--save`
 to preserve an identity, and use `tmt rm <name>` to retire a temporary identity
-(`--force` is required for a saved identity). `tmt rename <old> <new>` (also
-`tmt identity rename`) gives an identity a new name and keeps its UUID, and with
+(`--force` is required for a saved identity). `tmt mv <old> <new>` (also
+`tmt identity mv`) gives an identity a new name and keeps its UUID, and with
 it the remembered session, profile, notes, metadata, rooms and history. Requests
 sent before the rename still reach it; new ones must use the new name. Switching from npm or pnpm is a
 fresh installation: stop old writers first; no configuration, database or
@@ -177,14 +177,14 @@ exist without an active pane:
 ```bash
 tmt identity create coordinator --json
 tmt identity show coordinator --json
-tmt identity list --json
+tmt identity ls --json
 ```
 
 `identity show <name-or-uuid>` reads an active stored identity without tmux.
 An active canonical UUID takes precedence over an identical UUID-shaped display
 name; otherwise selection uses the normalized name. Inside a
 verified bound pane, `identity show` may omit the name to inspect its caller;
-outside that context, supply the name. `identity list` still lists all stored
+outside that context, supply the name. `identity ls` still lists all stored
 identities, and bare `preamble show` still lists all stored preambles.
 
 Creation is idempotent for a canonical-equivalent name. Creation alone does not
@@ -198,11 +198,11 @@ Attach exact, searchable descriptive metadata to an active identity:
 tmt identity meta set --identity coordinator department engineering
 tmt identity meta set --identity coordinator project tmt
 tmt identity meta set --identity coordinator capability.review true
-tmt identity meta list --identity coordinator --json
-tmt identity meta get --identity coordinator project
+tmt identity meta ls --identity coordinator --json
+tmt identity meta show --identity coordinator project
 tmt identity meta rm --identity coordinator project
-tmt identity list --where project=tmt --where department=engineering --json
-tmt identity list --has capability.review --json
+tmt identity ls --where project=tmt --where department=engineering --json
+tmt identity ls --has capability.review --json
 ```
 
 Repeated `--where KEY=VALUE` and `--has KEY` filters are combined with AND;
@@ -398,7 +398,7 @@ react to identity and room changes, enable its hooks explicitly:
 
 ```sh
 tmt extension hooks enable office   # trust tmt-office on PATH
-tmt extension hooks list
+tmt extension hooks ls
 tmt extension hooks disable office
 ```
 
@@ -429,26 +429,26 @@ tmt squad init product --me <your saved identity>   # room squad-product
 tmt squad lead sol                                  # a saved identity
 tmt squad add auth-fix docs-sweep                   # agents already running
 tmt squad set auth-fix state=blocked pending="approve the plan" note="needs a call"
-tmt squad status                                    # --json for scripts
-tmt squad remove auth-fix                           # the agent keeps running
+tmt squad ls                                        # --json for scripts
+tmt squad rm auth-fix                               # the agent keeps running
 tmt squad help set                                  # or `set -h`: help with examples, for every command
 ```
 
 `me` (your saved identity) is recorded in `squad.toml`, next to TMT's global
 `config.json`, with its UUID as `me_id`; the first interactive `init` asks for
 it, and non-interactive use requires `--me`. Re-running `init` changes nothing.
-When you rename your identity (`tmt rename`), squad follows it: at once if you
+When you rename your identity (`tmt mv`), squad follows it: at once if you
 enabled its hooks (`tmt extension hooks enable squad`), otherwise on the next
 command that acts as you. The UUID decides who you are, so editing `me` by hand
 to another identity only prints a warning; change who you are with `tmt squad
 init <squad> --me <name>`. With one squad, commands
-select it; with several, pass `--squad <name>`. `status` lists members, one per
+select it; with several, pass `--squad <name>`. `ls` lists members, one per
 row: a leading mark (◆ when the member waits on you with `pending`, otherwise
 ● active, ◌ unverified or ○ offline), the name, the state, and what you need to
 know first (what it waits on you for, its note, your open annotation). `set
-field=` clears a field. `remove` clears only that squad's fields.
+field=` clears a field. `rm` clears only that squad's fields.
 
-`status` shows one list unless you define sections in `squad.toml`. Each section
+`ls` shows one list unless you define sections in `squad.toml`. Each section
 has a title, an optional filter and optional sort keys; a member appears in every
 section whose filter it matches:
 
@@ -792,7 +792,7 @@ It reads the squad room's request history, so an answer stays after you
 acknowledge it. The newest eight show their text, with terminal escapes removed
 and at most six lines; older ones point to `tmt result <request-id>`, which
 prints the whole reply exactly. Reading replies acknowledges nothing, so
-`tmt x list` still shows them until you acknowledge them there.
+`tmt x ls` still shows them until you acknowledge them there.
 
 `jump` is `tmt focus` for a squad member or the lead, run inside tmux. Each
 jump, from the board or the command, records where your tmux client came from;
@@ -815,7 +815,7 @@ added to your tmux configuration only with your OK:
 tmt squad hotkeys install --print   # what would be written; changes nothing
 tmt squad hotkeys install           # shows the plan, asks, then installs
 tmt squad hotkeys show              # installed? which keys? is tmt still there?
-tmt squad hotkeys remove            # takes out only squad's line and keys
+tmt squad hotkeys rm                # takes out only squad's line and keys
 ```
 
 The bindings live in `squad.tmux.conf` beside `squad.toml`, which squad
@@ -828,7 +828,7 @@ points to and keeps the link; a link to a missing file is refused.
 Before writing, install rereads the file, keeps a byte-exact backup beside it
 (`<name>.tmt-squad-backup-<time>`) and replaces it in one step; running it
 again changes nothing. Inside tmux it also loads the bindings into the running
-server, and `remove` unbinds only keys still bound to squad's commands. Without
+server, and `rm` unbinds only keys still bound to squad's commands. Without
 a terminal to ask on, pass `--yes`. If a chosen key is already bound, in the
 running server or your configuration, install lists it and changes nothing;
 choose other keys in `squad.toml`:
@@ -865,7 +865,7 @@ clipboard = ["pbcopy"]                  # or ["wl-copy"], ["xclip", "-selection"
 
 The lead's skill ships with the extension. Publish it into your agents' skill
 folders with `tmt extension install squad --skills` (an interactive install
-asks); updates keep it current and `tmt extension uninstall squad` removes it.
+asks); updates keep it current and `tmt extension rm squad` removes it.
 `tmt sq skill show` prints the same skill.
 
 Playbooks are optional guidance your lead agent can follow to lay a squad out on a
@@ -875,11 +875,11 @@ playbook; the agent proposes the commands and you decide. A playbook is a skill 
 is not installed with the extension:
 
 ```sh
-tmt squad playbook list                       # names and descriptions
+tmt squad playbook ls                         # names and descriptions
 tmt squad playbook show tmux-squad            # the exact text, nothing installed
 tmt squad playbook install tmux-squad --print # the plan; changes nothing
 tmt squad playbook install tmux-squad         # shows the plan, asks, then publishes
-tmt squad playbook remove tmux-squad          # removes only this playbook's skill
+tmt squad playbook rm tmux-squad              # removes only this playbook's skill
 ```
 
 Installing publishes the skill into your agents' skill directories through TMT's
@@ -971,7 +971,7 @@ tmt x ack <request-id> --revision <revision> --identity coordinator --json
 tmt x ackall --identity coordinator --json
 ```
 
-Bare `x` means `x list`: it returns unacknowledged retained metadata. `x show`
+Bare `x` means `x ls`: it returns unacknowledged retained metadata. `x show`
 reads the retained original prompt and final when available. `ack` requires the
 revision observed by list/show; `ackall` acknowledges the current transaction
 snapshot without enumerating or claiming that every body was read. Reads and
@@ -985,7 +985,7 @@ injected into messages:
 ```bash
 tmt role set "Review correctness before style." --identity reviewer
 tmt role show --identity reviewer
-tmt role clear --identity reviewer
+tmt role rm --identity reviewer
 ```
 
 Preambles are separate and are included in messages for the selected identity:
@@ -993,7 +993,7 @@ Preambles are separate and are included in messages for the selected identity:
 ```bash
 tmt preamble set reviewer "Be concise and cite concrete evidence."
 tmt preamble show reviewer
-tmt preamble clear reviewer
+tmt preamble rm reviewer
 ```
 
 Use notes for deliberate working context, `role` for durable profile data, and
@@ -1058,7 +1058,7 @@ tmt config set exchange.retentionDays 90 --global
 Human `config show` identifies each value's actual source, accepted values and
 whether the setting is CLI-editable locally/globally or global-file-only.
 `defaults.timeout`, `defaults.pollInterval` and `defaults.captureLines` are
-global-file-only; `config set` and `config clear` do not edit them. Numeric CLI
+global-file-only; `config set` and `config rm` do not edit them. Numeric CLI
 writes use unsigned decimal integer tokens. `config show --json` retains the
 resolved values, sources and actual file paths.
 Global settings normally live in `~/.config/tmux-team/config.json`; local

@@ -236,6 +236,16 @@ pub fn public_grammar(definition: &Command, root: bool) -> Command {
         .disable_help_flag(true)
         .disable_version_flag(true)
         .disable_help_subcommand(true)
+        .aliases(
+            definition
+                .get_all_aliases()
+                .filter(|alias| {
+                    !definition
+                        .get_visible_aliases()
+                        .any(|visible| visible == *alias)
+                })
+                .map(str::to_owned),
+        )
         .visible_aliases(definition.get_visible_aliases().map(str::to_owned));
     if let Some(about) = definition.get_about() {
         result = result.about(about.clone());
