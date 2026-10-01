@@ -606,9 +606,10 @@ generates `release-please-config.json` from the map (one release-please package 
 component root, minus its excludes), the Cargo workspace (which crates declare their own
 version, which path dependencies a component links, which crates have a `Cargo.lock`
 entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
-`readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata; native
-CLI version expectations reuse that reader once per suite instead of parsing TOML separately. A
-`Cargo.lock` line is updated by whichever component declares that crate's version: a crate
+`readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata. Native
+CLI version expectations and Office installation/hook fixtures select their crate from that
+reader once per suite instead of parsing TOML separately. A `Cargo.lock` line is updated by
+whichever component declares that crate's version: a crate
 that inherits the workspace version is declared by the owner of `rust/Cargo.toml`, even when
 a private `release: false` component owns the crate, because the next locked build fails
 when that release leaves its entry behind. Office is parked this way: it owns its files and
