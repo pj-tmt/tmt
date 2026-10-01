@@ -539,6 +539,12 @@ impl App {
                 };
             }
             Verb::Back => return Effect::Act(Request::Back),
+            Verb::Jump if action.args.first().and_then(|arg| arg.literal()) == Some("lead") => {
+                return match self.lead() {
+                    Ok(lead) => Effect::Act(Request::Jump(lead)),
+                    Err(reason) => self.say(format!("jump lead: {reason}.")),
+                };
+            }
             _ => {}
         }
         let Some(row) = self.selected_row().cloned() else {
@@ -601,6 +607,28 @@ impl App {
             Ok(request) => Effect::Act(request),
             Err(reason) => self.say(format!("{}: {reason}.", action.verb.name())),
         }
+    }
+
+    /// The lead `jump lead` goes to: the squad's own lead on its tab; on the
+    /// leads and all tabs, which list several squads, the selected row's
+    /// squad's lead.
+    fn lead(&self) -> Result<String, String> {
+        let view = self.view.as_ref().ok_or("the board has not loaded yet")?;
+        let named = |name: Option<&str>| name.filter(|name| !name.is_empty()).map(str::to_owned);
+        let lead = match self.current.as_deref() {
+            Some(super::LEADS) => named(self.selected_row().and_then(|row| row["name"].as_str())),
+            Some(super::ALL) => named(
+                self.selected_row()
+                    .and_then(|row| row["fields"]["lead"].as_str()),
+            ),
+            _ => named(view.document["squad"]["lead"]["name"].as_str()),
+        };
+        lead.ok_or_else(|| match self.current.as_deref() {
+            Some(super::LEADS | super::ALL) if self.selected_row().is_none() => {
+                "no row is selected".to_owned()
+            }
+            _ => "this squad has no lead; set one with tmt squad lead <name>".to_owned(),
+        })
     }
 
     fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
@@ -1186,6 +1214,80 @@ pub(crate) mod tests {
 
     fn bind(entries: &[(&str, &str)]) -> crate::action::Bindings {
         crate::action::parse_bindings(entries.iter().map(|(e, a)| (*e, Some(*a))), "bind").unwrap()
+    }
+
+    /// `L` (`jump lead`) goes to the squad's lead on its own tab, and to the
+    /// selected row's squad's lead on the leads and all tabs; without one it
+    /// says why and nothing runs.
+    #[test]
+    fn jump_lead_goes_to_the_lead_of_the_tab_or_the_selected_row_s_squad() {
+        let lead = |app: &mut App| press(app, KeyCode::Char('L'));
+        let mut app = App::new(Some("product".into()));
+        let mut own = snapshot(
+            "product",
+            json!([{"title": null, "rows": [row("rin", "x")]}]),
+        );
+        own.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
+        app.apply(own);
+        assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
+
+        // An empty squad still has its lead.
+        let mut app = App::new(Some("product".into()));
+        let mut empty = snapshot("product", json!([{"title": null, "rows": []}]));
+        empty.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
+        app.apply(empty);
+        assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
+
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot(
+            "product",
+            json!([{"title": null, "rows": [row("rin", "x")]}]),
+        ));
+        assert_eq!(lead(&mut app), Effect::None);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("jump lead: this squad has no lead; set one with tmt squad lead <name>.")
+        );
+
+        // The all tab: a row per squad, with its lead as a field.
+        let mut app = App::new(Some(crate::board::ALL.into()));
+        app.apply(snapshot(
+            crate::board::ALL,
+            json!([{"title": null, "rows": [
+                {"name": "product", "squad": "product", "fields": {"lead": "sol"}},
+                {"name": "quiet", "squad": "quiet", "fields": {"lead": null}},
+            ]}]),
+        ));
+        assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
+        press(&mut app, KeyCode::Down);
+        assert_eq!(lead(&mut app), Effect::None);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("jump lead: this squad has no lead; set one with tmt squad lead <name>.")
+        );
+
+        // A missing lead is data, so a custom binding gets the same missing-field
+        // notice as any other absent value instead of copying a display glyph.
+        assert_eq!(
+            app.perform(&Action::parse("copy {lead}").unwrap()),
+            Effect::None
+        );
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("copy: lead is empty for this row.")
+        );
+
+        // The leads tab: the selected row is the lead.
+        let mut app = App::new(Some(crate::board::LEADS.into()));
+        app.apply(snapshot(
+            crate::board::LEADS,
+            json!([{"title": null, "rows": [
+                {"name": "sol", "squad": "product", "fields": {}},
+                {"name": "rin", "squad": "infra", "fields": {}},
+            ]}]),
+        ));
+        press(&mut app, KeyCode::Down);
+        assert_eq!(lead(&mut app), Effect::Act(Request::Jump("rin".into())));
     }
 
     #[test]

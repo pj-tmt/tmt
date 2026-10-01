@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -701,6 +702,137 @@ describe('component map', () => {
   });
 });
 
+describe('remote Rust retains full CI coverage', () => {
+  const remote = 'extensions/tmt-remote/rust/tmt-remote/';
+  const all = { native: true, office: true, nativeOffice: true };
+
+  it.each(['Cargo.toml', 'src/core.rs', 'tests/door.rs'])(
+    'explicitly selects full workspace checks for %s despite private release ownership',
+    (suffix) => {
+      const files = [remote + suffix];
+      expect(explainCiSelection(files)).toMatchObject([
+        { owner: 'tmt-remote', rule: 'remote-rust', ...all },
+      ]);
+      expect(selectCiAreas(files)).toEqual(all);
+      expect(selectNativeScope(files)).toBe('full');
+      expect(scopedChecks(selectNativeScope(files))).toEqual({ nativeTests: [], e2eFiles: [] });
+    }
+  );
+
+  it.each([
+    'rust/Cargo.toml',
+    'rust/Cargo.lock',
+    'rust/crates/tmt-cli-style/src/lib.rs',
+    'rust/crates/tmt-cli/tests/architecture.rs',
+    'extensions/tmt-squad/rust/tmt-squad/src/main.rs',
+    'extensions/tmt-office/rust/tmt-office/src/main.rs',
+    'unknown/new-file',
+  ])('retains all consumers and full scope with %s', (other) => {
+    expect(selectNativeScope([remote + 'src/main.rs', other])).toBe('full');
+    expect(selectCiAreas([remote + 'src/main.rs', other])).toEqual(all);
+  });
+
+  it.each([
+    'extensions/tmt-remote/rust-other/src/main.rs',
+    'extensions/tmt-remote-other/rust/src/main.rs',
+    'extensions/tmt-remote/typescript/remote-client/src/canonical.ts',
+  ])('does not swallow %s into the Rust rule', (file) => {
+    expect(explainCiSelection([file])[0].rule).toBe('unmapped');
+    expect(selectCiAreas([file])).toEqual(all);
+    expect(selectNativeScope([file])).toBe('full');
+  });
+
+  it('keeps the browser separate and rejects every missing selected job', () => {
+    const browser = 'extensions/tmt-remote/typescript/browser-addon/src/popup.ts';
+    expect(explainCiSelection([browser])[0].rule).toBe('browser-addon');
+    expect(selectNativeScope([browser])).toBe('none');
+    const scope = selectNativeScope([remote + 'tests/door.rs']);
+    const results = {
+      nativeRust: 'success',
+      unitTests: 'success',
+      e2eShard1: 'success',
+      e2eShard2: 'success',
+      runtimeBuild: 'success',
+      packedInstall: 'success',
+    };
+    expect(nativeGatePasses(scope, results)).toBe(true);
+    for (const job of Object.keys(results)) {
+      for (const result of ['skipped', 'failure', 'cancelled', undefined]) {
+        expect(nativeGatePasses(scope, { ...results, [job]: result })).toBe(false);
+      }
+    }
+    expect(nativeGatePasses('remote', results)).toBe(false);
+  });
+
+  it.each([
+    {
+      discovery: 'door_lifecycle: test\n1 test, 0 benchmarks',
+      listStatus: 0,
+      testStatus: 0,
+      status: 0,
+    },
+    { discovery: '0 tests, 0 benchmarks', listStatus: 0, testStatus: 0, status: 1 },
+    { discovery: 'door_lifecycle: test', listStatus: 7, testStatus: 0, status: 7 },
+    { discovery: 'door_lifecycle: test', listStatus: 0, testStatus: 8, status: 8 },
+  ])('executes the full workflow block with discovery/test status $status', (fixture) => {
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/ci.yml', import.meta.url),
+      'utf8'
+    );
+    const step = workflow
+      .split('      - name: Verify native quality and locked builds\n')[1]
+      ?.split('\n      - name:')[0];
+    expect(step).toContain("if: needs.changes.outputs.native_scope == 'full'");
+    expect(step).toContain('working-directory: rust');
+    const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
+    const root = mkdtempSync(path.join(tmpdir(), 'tmt-remote-ci-'));
+    try {
+      // Exercise the committed shell, including errexit; the real workspace test run is
+      // integration evidence, while this injected Cargo proves empty/failure paths.
+      writeFileSync(
+        path.join(root, 'cargo'),
+        `#!/bin/sh
+printf '%s\\n' "$*" >> "$CALLS"
+case "$*" in
+  'test --locked -p tmt-remote -- --list') printf '%s\\n' "$DISCOVERY"; exit "$LIST_STATUS" ;;
+  'test --locked --workspace') exit "$TEST_STATUS" ;;
+esac
+`
+      );
+      chmodSync(path.join(root, 'cargo'), 0o755);
+      runPackedCommand('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
+        cwd: root,
+        env: {
+          ...process.env,
+          PATH: `${root}:${process.env.PATH}`,
+          CALLS: path.join(root, 'calls'),
+          DISCOVERY: fixture.discovery,
+          LIST_STATUS: String(fixture.listStatus),
+          TEST_STATUS: String(fixture.testStatus),
+        },
+        expectedStatus: fixture.status,
+      });
+      const calls = readFileSync(path.join(root, 'calls'), 'utf8').trim().split('\n');
+      const expected = [
+        'fmt --all --check',
+        'clippy --locked --workspace --all-targets -- -D warnings',
+        'test --locked -p tmt-remote -- --list',
+      ];
+      if (fixture.status === 0 || fixture.testStatus !== 0)
+        expected.push('test --locked --workspace');
+      if (fixture.status === 0)
+        expected.push(
+          '+1.88.0 build --locked --workspace',
+          'build --locked --workspace',
+          'build --locked --example storage-probe'
+        );
+      expect(calls).toEqual(expected);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('CI diff and command integration', () => {
   it('reads actual additions, cross-owner renames and deletions with whitespace-safe paths', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-'));
@@ -866,6 +998,18 @@ describe('CI diff and command integration', () => {
         e2e_shard_2: '',
       });
       expect(scopedLog.text()).toContain('native scope squad.');
+      // A real remote-only git diff must drive the full output consumed by the workflow.
+      mkdirSync(path.join(root, 'extensions/tmt-remote/rust/tmt-remote/src'), { recursive: true });
+      writeFileSync(path.join(root, 'extensions/tmt-remote/rust/tmt-remote/src/main.rs'), '// x\n');
+      const remoteHead = commit();
+      const remoteOutput = capture();
+      const remoteLog = capture();
+      runCiScope([squadHead, remoteHead], { cwd: root, stdout: remoteOutput, stderr: remoteLog });
+      expect(outputs(remoteOutput.text())).toEqual({ ...full, office: 'true' });
+      expect(remoteLog.text()).toContain(
+        '| tmt-remote | remote-rust | native, office, native_office |'
+      );
+
       expect(() => runCiScope(['only-one'], { cwd: root, stdout, stderr })).toThrow(
         'exact base and head'
       );
@@ -1085,7 +1229,7 @@ describe('required CI gate', () => {
     expect(native).toContain('cargo build --locked --release -p tmt-cli');
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
-    expect(native).toContain('cargo clippy --locked --all-targets -- -D warnings');
+    expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');
     expect(native).toContain('cargo +1.88.0 build --locked');
     expect(native).toContain('cargo build --locked -p tmt-office');
     expect(native).toContain('rust/target/debug/examples/storage-probe');

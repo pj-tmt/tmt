@@ -1,5 +1,6 @@
 //! A squad is the core room `squad-<name>`; member fields are the identity
-//! metadata keys `squad.<name>.<field>`. There is no other squad state.
+//! metadata keys `squad.<name>.<field>`. These remain authoritative; optional
+//! observed ages live in the extension-owned disposable staleness cache.
 
 use crate::{
     core::{Core, SquadError},

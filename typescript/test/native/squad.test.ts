@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   statSync,
   symlinkSync,
@@ -31,6 +32,7 @@ function installSquad(sandbox: Sandbox): string {
   symlinkSync(squadExecutable, path.join(bin, 'tmt-squad'));
   symlinkSync('tmt-squad', path.join(bin, 'tmt-sq'));
   sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+  sandbox.env.XDG_CACHE_HOME = path.join(sandbox.root, 'cache');
   return bin;
 }
 
@@ -45,7 +47,7 @@ async function identity(sandbox: Sandbox, name: string): Promise<string> {
   return JSON.parse(result.stdout).identity.id;
 }
 
-// Independent observation of core state; squad has no store of its own.
+// Independent observation of the authoritative roster and board metadata.
 function observe(sandbox: Sandbox) {
   const db = new Database(sandbox.database, { readonly: true });
   try {
@@ -84,6 +86,123 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('reports observed age without changing board metadata or creating missing notes', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      const leadId = await identity(sandbox, 'Sol');
+      const memberId = await identity(sandbox, 'Rin');
+      for (const args of [
+        ['init', 'product', '--me', 'Ben'],
+        ['lead', 'Sol'],
+        ['add', 'Rin'],
+        ['set', 'Rin', 'task=review tokens', 'state=working'],
+      ])
+        expect((await squad(sandbox, args)).status).toBe(0);
+      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      const original = readFileSync(toml, 'utf8');
+      const listing = () => squad(sandbox, ['ls', '--squad', 'product']);
+      const disabled = await listing();
+      expect(disabled.status).toBe(0);
+      expect(disabled.body.sections[0].rows[0].staleness).toEqual({
+        state: 'disabled',
+        unchangedSinceMs: null,
+        ageMs: null,
+        activityAfterUpdate: false,
+        reasons: [],
+      });
+      const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+      expect(existsSync(directory)).toBe(false);
+      expect(readFileSync(toml, 'utf8')).toBe(original);
+      const created = await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json']);
+      expect(created.status).toBe(0);
+      const notebook = JSON.parse(created.stdout).path as string;
+      writeFileSync(notebook, '# Current work\nReview token rotation.\n');
+      writeFileSync(
+        toml,
+        `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "1m"\n`
+      );
+      const metadataBefore = observe(sandbox);
+      const first = await listing();
+      expect(first.status).toBe(0);
+      expect(first.body.sections[0].rows[0].staleness).toMatchObject({ state: 'fresh', ageMs: 0 });
+      expect(first.body.squad.notesStaleness).toMatchObject({ state: 'fresh', ageMs: 0 });
+      const file = path.join(
+        directory,
+        readdirSync(directory).find((name) => name.endsWith('.json'))!
+      );
+      const persisted = JSON.parse(readFileSync(file, 'utf8'));
+      // Independent fixture ages retained observations; the public commands
+      // must recompute age from these records rather than from display fields.
+      const since = Date.now() - 125_000;
+      persisted.members[memberId].sinceMs = since;
+      persisted.notes.sinceMs = since;
+      persisted.observedAtMs = since;
+      writeFileSync(file, JSON.stringify(persisted));
+      const stale = await listing();
+      expect(stale.status).toBe(0);
+      expect(stale.stderr).toBe('');
+      expect(stale.body.sections[0].rows[0].staleness).toMatchObject({
+        state: 'stale',
+        unchangedSinceMs: since,
+        activityAfterUpdate: false,
+      });
+      expect(stale.body.squad.notesStaleness.state).toBe('stale');
+      // A public config-writing command is unrelated to observed content age.
+      expect((await squad(sandbox, ['me', 'Sol'])).status).toBe(0);
+      const afterMe = await listing();
+      expect(afterMe.body.sections[0].rows[0].staleness.unchangedSinceMs).toBe(since);
+      expect(afterMe.body.squad.notesStaleness.unchangedSinceMs).toBe(since);
+
+      const human = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      expect(human.status).toBe(0);
+      expect(human.stdout).toContain('lead notes: stale 2m');
+      expect(human.stdout).toContain('stale 2m');
+      expect(human.stdout).toContain('Rin');
+      expect(observe(sandbox)).toEqual(metadataBefore);
+      expect((await runCli(sandbox, ['rename', 'Rin', 'NewRin', '--json'])).status).toBe(0);
+      const renamed = await listing();
+      expect(renamed.body.sections[0].rows[0]).toMatchObject({
+        id: memberId,
+        name: 'NewRin',
+        staleness: { state: 'stale' },
+      });
+      expect((await squad(sandbox, ['set', 'NewRin', 'state=review'])).status).toBe(0);
+      const updated = await listing();
+      expect(updated.body.sections[0].rows[0].staleness).toMatchObject({
+        state: 'fresh',
+        ageMs: 0,
+      });
+      expect(updated.body.squad.notesStaleness.state).toBe('stale');
+      unlinkSync(notebook);
+      const missing = await listing();
+      expect(missing.body.squad.lead.id).toBe(leadId);
+      expect(missing.body.squad.notesStaleness.state).toBe('unknown');
+      expect(existsSync(notebook)).toBe(false);
+      const beforeDisable = readFileSync(file, 'utf8');
+      writeFileSync(toml, `${original}\n[squad.product.reminders]\nenabled = false\n`);
+      const off = await listing();
+      expect(off.body.squad.notesStaleness.state).toBe('disabled');
+      expect(readFileSync(file, 'utf8')).toBe(beforeDisable);
+      writeFileSync(
+        toml,
+        `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "1m"\n`
+      );
+      const reenabled = await listing();
+      expect(reenabled.body.sections[0].rows[0].staleness.unchangedSinceMs).toBe(
+        updated.body.sections[0].rows[0].staleness.unchangedSinceMs
+      );
+      const afterReenable = readFileSync(file, 'utf8');
+      const invalid = `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "59s"\n`;
+      writeFileSync(toml, invalid);
+      const refused = await listing();
+      expect(refused.status).toBe(1);
+      expect(refused.body.error.code).toBe('SQUAD_CONFIG_INVALID');
+      expect(readFileSync(toml, 'utf8')).toBe(invalid);
+      expect(readFileSync(file, 'utf8')).toBe(afterReenable);
+    });
+  });
+
   // The Squad release proof (native-runtime-proof.mjs) expects this exact
   // line; PR CI never runs that proof, so this pins it.
   it('prints exactly squad <version> for --version and -V, directly and through tmt', async () => {
@@ -178,6 +297,22 @@ describe('squad extension', () => {
           'utf8'
         )
       );
+    });
+  });
+
+  it('keeps working when the global theme is wrong', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      // Squad finds squad.toml through tmt config show; a bad theme must not
+      // stop it (the theme is presentation, reported by config show).
+      writeFileSync(sandbox.globalConfig, JSON.stringify({ theme: { waiting: 'orange' } }));
+      const none = await squad(sandbox, ['ls']);
+      expect(none).toMatchObject({ status: 0, body: { squads: [], you: null } });
+      expect((await runCli(sandbox, ['squad', 'init', 'product', '--json'])).status).toBe(0);
+      const listed = await squad(sandbox, ['ls']);
+      expect(listed.status).toBe(0);
+      expect(listed.body.squads[0].squad.name).toBe('product');
     });
   });
 
@@ -481,19 +616,28 @@ describe('squad extension', () => {
         ),
         'utf8'
       );
-      const documented = skill.slice(
-        skill.indexOf('- Each row has'),
-        skill.indexOf('- A row with')
-      );
+      const documented = skill.slice(skill.indexOf('- Each row has'), skill.indexOf('- Every row'));
       const documentedFields = [...documented.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
       expect(documentedFields.sort()).toEqual(Object.keys(rows[0]).sort());
+      const nested = skill.slice(skill.indexOf('- Every row'), skill.indexOf('- A row with'));
+      const ageFields = [...nested.matchAll(/`([a-z][A-Za-z]*)`/g)]
+        .map((match) => match[1])
+        .filter(
+          (field) =>
+            !['staleness', 'state', 'disabled', 'unknown', 'fresh', 'stale', 'ls'].includes(field)
+        );
+      expect(['state', ...ageFields].sort()).toEqual(Object.keys(rows[0].staleness).sort());
+      expect(Object.keys(status.body.squad.notesStaleness).sort()).toEqual(
+        Object.keys(rows[0].staleness).sort()
+      );
       expect(Object.keys(status.body.squad).sort()).toEqual([
         'attention',
         'layout',
         'lead',
         'name',
+        'notesStaleness',
         'roomId',
       ]);
       // Without a terminal, the board is exactly status, in text and JSON.

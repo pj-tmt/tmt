@@ -61,7 +61,7 @@ fn snapshot_upgrade_preserves_saved_scene_and_rolls_back_schema_with_history() {
         .unwrap();
     observer.close().unwrap();
     let storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 40);
+    assert_eq!(storage.health().unwrap().schema_version, 41);
     let connection = storage.connection().unwrap();
     assert_eq!(
         connection

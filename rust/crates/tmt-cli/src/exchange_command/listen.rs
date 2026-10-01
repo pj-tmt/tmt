@@ -264,58 +264,71 @@ pub(super) fn execute(
     } else if page.items.is_empty() {
         writeln!(stdout, "No incoming messages before the listener timeout.")?;
     } else {
-        use tmt_cli_style::{
-            list::{self, Section},
-            table::{Cell, Column, Table},
-        };
         let terminal = stdout.terminal();
-        let name = |id: Option<&String>| {
-            id.and_then(|value| identities.get(value))
-                .map(|value| value.name.clone())
-                .unwrap_or_else(|| "-".into())
-        };
-        // Request ids stay whole: the follow-up commands take them.
-        let mut rows = Table::new(&[
-            Column::Fixed,
-            Column::Name,
-            Column::Detail,
-            Column::Fixed,
-            Column::Fixed,
-        ]);
-        for item in &page.items {
-            rows.row([
-                Cell::from(item.kind.as_str()),
-                Cell::from(&item.exchange.request_id),
-                Cell::from(format!(
-                    "{} → {}",
-                    name(item.sender_identity_id.as_ref()),
-                    name(item.recipient_identity_id.as_ref())
-                )),
-                Cell::from(item.exchange.delivery.as_str()),
-                Cell::from(item.exchange.final_state.as_str()),
-            ]);
-        }
-        list::write(
-            &mut stdout,
-            terminal,
-            &[Section {
-                title: "incoming",
-                count: Some(page.items.len()),
-                rows,
-                note: None,
-                hint: None,
-            }],
-        )?;
-        for item in &page.items {
-            let (inspect_command, ack_command) = follow_up_commands(item, &identity);
-            tmt_cli_style::message::hint(
-                &mut stdout,
-                terminal,
-                &format!("{inspect_command}, then {ack_command}"),
-            )?;
-        }
+        write_incoming(&mut stdout, terminal, &identity, &page, &identities)?;
     }
     Ok(0)
+}
+
+fn write_incoming(
+    output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
+    identity: &Identity,
+    page: &IncomingPage,
+    identities: &HashMap<String, Identity>,
+) -> io::Result<()> {
+    use tmt_cli_style::{
+        list::{self, Section},
+        table::{Cell, Column, Table},
+    };
+    let name = |id: Option<&String>| {
+        id.and_then(|value| identities.get(value))
+            .map(|value| value.name.clone())
+            .unwrap_or_else(|| "-".into())
+    };
+    // Request ids stay whole: the follow-up commands take them.
+    let mut rows = Table::new(&[
+        Column::Fixed,
+        Column::Name,
+        Column::Detail,
+        Column::Fixed,
+        Column::Fixed,
+    ]);
+    for item in &page.items {
+        rows.row([
+            Cell::from(item.kind.as_str()),
+            Cell::from(&item.exchange.request_id),
+            Cell::from(format!(
+                "{} → {}",
+                name(item.sender_identity_id.as_ref()),
+                name(item.recipient_identity_id.as_ref())
+            )),
+            Cell::from(item.exchange.delivery.as_str()),
+            Cell::from(item.exchange.final_state.as_str()),
+        ]);
+    }
+    list::write(
+        output,
+        terminal,
+        &[Section {
+            title: "incoming",
+            count: Some(page.items.len()),
+            rows,
+            note: page
+                .next_after
+                .map(|_| "More incoming work remains; acknowledge handled items and listen again."),
+            hint: None,
+        }],
+    )?;
+    for item in &page.items {
+        let (inspect_command, ack_command) = follow_up_commands(item, identity);
+        tmt_cli_style::message::hint(
+            output,
+            terminal,
+            &format!("{inspect_command}, then {ack_command}"),
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -375,5 +388,76 @@ mod tests {
         assert!(matches!(cleared.step(seconds(5), 0), Step::Wait(_)));
         assert!(matches!(cleared.step(seconds(6), 4), Step::Wait(_)));
         assert_eq!(cleared.step(seconds(16), 4), Step::Finish);
+    }
+    #[test]
+    fn human_listener_notes_only_a_page_with_more_incoming_work() {
+        use super::{HashMap, Identity, IncomingItem, IncomingPage, write_incoming};
+        use tmt_core::{
+            identity::Lifetime,
+            request::{
+                AttemptStatus,
+                attention::{Exchange, FinalState, IncomingKind},
+            },
+        };
+        let identity = Identity {
+            id: "recipient-id".into(),
+            name: "Recipient".into(),
+            canonical_name: "recipient".into(),
+            lifetime: Lifetime::Saved,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let item = IncomingItem {
+            exchange: Exchange {
+                request_id: "request-id".into(),
+                room_id: None,
+                recipient_identity_id: Some(identity.id.clone()),
+                prepared_at_ms: 1,
+                delivery: AttemptStatus::Queued,
+                final_state: FinalState::NotSubmitted,
+                revision: 1,
+                acknowledged: false,
+                settled: false,
+                retention_expires_at_ms: 10,
+            },
+            kind: IncomingKind::Request,
+            sender_identity_id: None,
+            recipient_identity_id: Some(identity.id.clone()),
+        };
+        let mut page = IncomingPage {
+            items: vec![item],
+            next_after: None,
+        };
+        let identities = HashMap::from([(identity.id.clone(), identity.clone())]);
+        let mut complete = Vec::new();
+        write_incoming(
+            &mut complete,
+            tmt_cli_style::Terminal::PLAIN,
+            &identity,
+            &page,
+            &identities,
+        )
+        .unwrap();
+        page.next_after = Some(1);
+        let mut continued = Vec::new();
+        write_incoming(
+            &mut continued,
+            tmt_cli_style::Terminal::PLAIN,
+            &identity,
+            &page,
+            &identities,
+        )
+        .unwrap();
+        let complete = String::from_utf8(complete).unwrap();
+        let continued = String::from_utf8(continued).unwrap();
+        let note = "More incoming work remains; acknowledge handled items and listen again.";
+        assert!(!complete.contains(note));
+        assert_eq!(continued.matches(note).count(), 1);
+        assert_eq!(continued.replace(&format!("    {note}\n"), ""), complete);
+        assert!(complete.contains("INCOMING 1"));
+        assert!(continued.contains("INCOMING 1"));
+        let follow_up = "tmt x show request-id --incoming --identity recipient";
+        assert!(complete.contains(follow_up));
+        assert!(continued.contains(follow_up));
     }
 }

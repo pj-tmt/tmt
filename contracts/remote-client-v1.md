@@ -43,8 +43,10 @@ JSON is UTF-8 without BOM, duplicate/unknown request members or non-finite numbe
 fields are at most 2^53-1; sequences are decimal strings bounded by 2^64-1. Binary fields are
 unpadded RFC 4648 base64url; reject invalid alphabet, padding, nonzero unused bits and incorrect
 decoded lengths. Remote-generated UUIDs are canonical lowercase UUIDv4; referenced core identity
-UUIDs follow core rules. Core request IDs retain their `req_...` form. Clients tolerate additive
-response fields; incompatible required fields or semantics need another protocol major. Unknown
+UUIDs are lowercase canonical hyphenated, non-nil UUIDs of any version or variant,
+as the core public API accepts. Enrollment `agentIds` are such core references.
+Syntax validation does not establish identity existence or grant authority. Core request IDs
+retain their `req_...` form. Clients tolerate additive response fields; incompatible required fields or semantics need another protocol major. Unknown
 profiles/bindings fail closed.
 
 The accepted [M1 crypto spike](https://github.com/wkh237/tmt/issues/597#issuecomment-5911199408)

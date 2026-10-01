@@ -17,13 +17,11 @@ use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tmt_core::host::HostKind;
+use tmt_core::host::MAX_EXTERNAL_HOSTS;
 use tmt_driver_protocol::{Capabilities, Grammar, PROTOCOL};
 
 pub const REGISTRY_FILE: &str = "drivers.json";
 const REGISTRY_LIMIT: usize = 64 * 1024;
-/// Registered grammars are kept for the process's life, so the count is small.
-pub const MAX_DRIVERS: usize = 16;
 
 /// One approved executable and what it declared.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,7 +148,7 @@ pub fn approve(
         ))
     })?;
     let name = grammar.name().to_owned();
-    if let Some(reason) = builtin_conflict(&grammar) {
+    if let Some(reason) = tmt_core::host::builtin_conflict(grammar.host()) {
         return Err(RegistryError::Refused(format!(
             "Host driver {name} can't be installed: {reason}."
         )));
@@ -168,9 +166,10 @@ pub fn approve(
             )));
         }
     }
-    if drivers.len() >= MAX_DRIVERS {
+    // Each approved host is registered for a process's life (`tmt_core::host`).
+    if drivers.len() >= MAX_EXTERNAL_HOSTS {
         return Err(RegistryError::Refused(format!(
-            "At most {MAX_DRIVERS} host drivers can be installed."
+            "At most {MAX_EXTERNAL_HOSTS} host drivers can be installed."
         )));
     }
     let record = DriverRecord {
@@ -200,24 +199,4 @@ pub fn remove(global_dir: &Path, name: &str) -> Result<bool, RegistryError> {
     }
     write(global_dir, &drivers)?;
     Ok(true)
-}
-
-/// A built-in host's name, or IDs and targets a built-in host would read as
-/// its own.
-fn builtin_conflict(grammar: &Grammar) -> Option<String> {
-    let sample_id = format!("{}1", grammar.pane_id_prefix());
-    HostKind::ALL.into_iter().find_map(|host| {
-        if grammar.name() == host.as_str() {
-            Some(format!("{} is a built-in host", host.as_str()))
-        } else if host.is_pane_id(&sample_id) {
-            Some(format!("its pane IDs look like {}'s", host.as_str()))
-        } else if grammar
-            .sample_target()
-            .is_some_and(|target| host.is_target(&target))
-        {
-            Some(format!("its targets look like {}'s", host.as_str()))
-        } else {
-            None
-        }
-    })
 }

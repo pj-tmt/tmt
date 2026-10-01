@@ -9,16 +9,17 @@ pub mod caller;
 pub use crate::runtime::hook_protocol::encode_context;
 use serde::Deserialize;
 use tmt_core::binding::session::{
-    BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeIncarnation,
-    RuntimeLiveness, RuntimeState, SessionTransition,
+    BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeState,
+    SessionTransition,
 };
+use tmt_core::endpoint::ProcessIncarnation;
 
 pub fn observe_in_pane(
     runner: &impl crate::process::CommandRunner,
     caller_pid: u64,
     pane_pid: u64,
     deadline: std::time::Instant,
-) -> Option<RuntimeIncarnation> {
+) -> Option<ProcessIncarnation> {
     crate::runtime::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, NAME)
 }
 
@@ -115,7 +116,7 @@ impl CodexObservation {
     pub fn propose(
         &self,
         current: &BindingSessionState,
-        process: &RuntimeIncarnation,
+        process: &ProcessIncarnation,
         previous: RuntimeLiveness,
         shared: bool,
     ) -> Option<BindingSessionState> {
@@ -127,7 +128,7 @@ impl CodexObservation {
     pub fn propose_with_resume(
         &self,
         current: &BindingSessionState,
-        process: &RuntimeIncarnation,
+        process: &ProcessIncarnation,
         previous: RuntimeLiveness,
         shared: bool,
         owned_resume: bool,
@@ -324,7 +325,7 @@ pub fn is_shared_session(
 pub fn record_client_exit(
     current: &BindingSessionState,
     key: ObservedSessionKey,
-    owner: RuntimeIncarnation,
+    owner: ProcessIncarnation,
     preferences: &tmt_core::binding::session::SessionPreferences,
 ) -> Option<BindingSessionState> {
     let provider_ended = current.state == RuntimeState::Ended && current.key.as_ref() == Some(&key);
@@ -355,6 +356,32 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::driver_state::state_usage(state)
     }
 
+    fn decode_activity(&self, bytes: &[u8]) -> Option<tmt_core::binding::session::activity::Event> {
+        crate::runtime::hook_protocol::decode_activity(bytes, true)
+    }
+
+    fn activity_state(
+        &self,
+        event: &tmt_core::binding::session::activity::Event,
+        session: &ProviderSessionId,
+        process: &ProcessIncarnation,
+        previous: Option<&tmt_core::binding::session::DriverState>,
+        now_ms: u64,
+    ) -> Option<tmt_core::binding::session::DriverState> {
+        crate::runtime::driver_state::after_activity(previous, session, process, event, now_ms)
+    }
+
+    fn state_activity(
+        &self,
+        state: &tmt_core::binding::session::DriverState,
+    ) -> Option<tmt_core::binding::session::activity::Activity> {
+        crate::runtime::driver_state::state_activity(state)
+    }
+
+    fn decode_prompt(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
+        crate::runtime::hook_protocol::decode_prompt(bytes)
+    }
+
     fn decode_turn(&self, payload: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
         decode_turn(payload)
     }
@@ -379,7 +406,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         &self,
         pane_pid: u64,
         deadline: std::time::Instant,
-    ) -> Option<RuntimeIncarnation> {
+    ) -> Option<ProcessIncarnation> {
         let process = crate::runtime::evidence::observe_replacement(
             &crate::process::SupervisedProbeRunner,
             pane_pid,
@@ -439,7 +466,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         caller: u64,
         pane: u64,
         deadline: std::time::Instant,
-    ) -> Option<RuntimeIncarnation> {
+    ) -> Option<ProcessIncarnation> {
         observe_in_pane(
             &crate::process::SupervisedProbeRunner,
             caller,
@@ -478,7 +505,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         &self,
         current: &BindingSessionState,
         key: ObservedSessionKey,
-        owner: RuntimeIncarnation,
+        owner: ProcessIncarnation,
         preferences: &tmt_core::binding::session::SessionPreferences,
     ) -> Option<BindingSessionState> {
         record_client_exit(current, key, owner, preferences)
@@ -511,7 +538,7 @@ impl crate::runtime::lifecycle::LifecycleObservation for CodexObservation {
     fn propose(
         &self,
         current: &BindingSessionState,
-        process: &RuntimeIncarnation,
+        process: &ProcessIncarnation,
         previous: RuntimeLiveness,
         host: crate::runtime::lifecycle::HostEvidence,
         owned_resume: bool,
@@ -538,9 +565,9 @@ mod tests {
         use tmt_core::binding::session::{
             HarnessId, RememberedSession, RuntimeMode, SessionPreferences,
         };
-        let client = RuntimeIncarnation::new(20, "client-start").unwrap();
-        let owner = RuntimeIncarnation::new(10, "owner-start").unwrap();
-        let server = RuntimeIncarnation::new(30, "server-start").unwrap();
+        let client = ProcessIncarnation::new(20, "client-start").unwrap();
+        let owner = ProcessIncarnation::new(10, "owner-start").unwrap();
+        let server = ProcessIncarnation::new(30, "server-start").unwrap();
         let session = ProviderSessionId::new("exact-thread").unwrap();
         let preferences = SessionPreferences {
             preferred_harness: Some(HarnessId::new("codex").unwrap()),
@@ -620,8 +647,8 @@ mod tests {
     }
     #[test]
     fn independent_lifecycle_and_shared_exact_mapping_are_separate() {
-        let process = RuntimeIncarnation::new(20, "embedded-start").unwrap();
-        let server = RuntimeIncarnation::new(30, "server-start").unwrap();
+        let process = ProcessIncarnation::new(20, "embedded-start").unwrap();
+        let server = ProcessIncarnation::new(30, "server-start").unwrap();
         let empty = BindingSessionState::default();
         assert!(
             start("startup", "a")

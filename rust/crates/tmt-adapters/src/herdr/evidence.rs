@@ -9,7 +9,7 @@ use crate::process::{
 use serde_json::{Map, Value};
 use std::{collections::HashMap, ffi::OsString, time::Instant};
 use tmt_core::{
-    endpoint::{PaneObservation, ServerEvidence, valid_process_id},
+    endpoint::{PaneObservation, ProcessIncarnation, ServerEvidence, valid_process_id},
     host::HostKind,
 };
 
@@ -25,20 +25,20 @@ pub(super) struct ListedPane {
     pub tokens: Option<Map<String, Value>>,
 }
 
-/// A server process and its start, which together name one incarnation.
+/// A server's socket and its process, which together name one incarnation.
+/// The process is core's own observation, never Herdr's report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Incarnation {
     pub socket: String,
-    pub pid: u64,
-    pub start: String,
+    pub process: ProcessIncarnation,
 }
 
 impl Incarnation {
     pub fn matches(&self, server: &ServerEvidence) -> bool {
         server.host == HostKind::Herdr
             && server.socket_path == self.socket
-            && server.server_pid == self.pid
-            && server.server_start_time == self.start
+            && server.server_pid == self.process.pid()
+            && server.server_start_time == self.process.start_identity()
     }
 }
 
@@ -225,10 +225,10 @@ impl<R: CommandRunner> Herdr<R> {
                 "Herdr panes disagree about their server process",
             ));
         };
-        let start = match observe_runtime_process(self.runner(), pid, deadline)
+        let process = match observe_runtime_process(self.runner(), pid, deadline)
             .map_err(HerdrError::command)?
         {
-            ProcessObservation::Live(incarnation) => incarnation.start_identity().to_owned(),
+            ProcessObservation::Live(incarnation) => incarnation,
             _ => {
                 return Err(HerdrError::evidence(
                     "Herdr server process evidence is unavailable",
@@ -250,8 +250,7 @@ impl<R: CommandRunner> Herdr<R> {
         Ok(Some(Observed {
             incarnation: Incarnation {
                 socket: socket.into(),
-                pid,
-                start,
+                process,
             },
             panes,
         }))

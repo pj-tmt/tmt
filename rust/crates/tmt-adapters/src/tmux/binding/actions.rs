@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn recorded_runtime_is_checked_before_input_even_without_an_end_hook() {
-        use tmt_core::binding::session::{ObservedSessionKey, RuntimeIncarnation};
+        use tmt_core::{binding::session::ObservedSessionKey, endpoint::ProcessIncarnation};
         for (process, expected_offline) in [
             ("Sun Sep 27 10:00:01 2026 S\n", true),
             ("Sun Sep 27 10:00:00 2026 Z\n", true),
@@ -311,7 +311,7 @@ mod tests {
             let session = &mut entry.binding.as_mut().unwrap().session;
             session.state = RuntimeState::Running;
             session.key = Some(ObservedSessionKey {
-                incarnation: RuntimeIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
+                incarnation: ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
                 provider_session: None,
             });
             let runner = ScriptedRunner::default();
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn launched_runtime_requires_its_owner_but_owner_loss_does_not_mean_child_exit() {
-        use tmt_core::binding::session::{ObservedSessionKey, RuntimeIncarnation};
+        use tmt_core::{binding::session::ObservedSessionKey, endpoint::ProcessIncarnation};
         for (child, owner, expected) in [
             ("S+", Some("S+"), RuntimeState::Running),
             ("S+", Some("Z"), RuntimeState::Unknown),
@@ -349,11 +349,11 @@ mod tests {
             let session = &mut entry.binding.as_mut().unwrap().session;
             session.state = RuntimeState::Running;
             session.key = Some(ObservedSessionKey {
-                incarnation: RuntimeIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
+                incarnation: ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
                 provider_session: None,
             });
             session.launch_owner =
-                Some(RuntimeIncarnation::new(43, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap());
+                Some(ProcessIncarnation::new(43, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap());
             // A same-process hook must not remove the wrapper's delivery fence.
             *session = session
                 .admit(
@@ -419,12 +419,12 @@ mod tests {
 
     #[test]
     fn matching_live_runtime_allows_exactly_one_submission() {
-        use tmt_core::binding::session::{ObservedSessionKey, RuntimeIncarnation};
+        use tmt_core::{binding::session::ObservedSessionKey, endpoint::ProcessIncarnation};
         let mut entry = entry();
         let session = &mut entry.binding.as_mut().unwrap().session;
         session.state = RuntimeState::Running;
         session.key = Some(ObservedSessionKey {
-            incarnation: RuntimeIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
+            incarnation: ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
             provider_session: None,
         });
         let runner = ScriptedRunner::default();

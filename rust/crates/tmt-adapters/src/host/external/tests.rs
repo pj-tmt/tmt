@@ -7,12 +7,16 @@ use super::{
     registry::{self, RegistryError},
 };
 use crate::{
-    process::{CommandRequest, CommandRunner, UnixCommandRunner},
+    process::{
+        CommandError, CommandFailure, CommandOutput, CommandRequest, CommandRunner,
+        UnixCommandRunner,
+    },
     test_support::TestDirectory,
 };
 use serde_json::{Value, json};
 use std::{
-    ffi::OsString,
+    cell::Cell,
+    ffi::{OsStr, OsString},
     fs,
     os::unix::fs::PermissionsExt,
     path::PathBuf,
@@ -24,6 +28,36 @@ use tmt_driver_protocol::{
 };
 
 const SOCKET: &str = "/tmp/fake-host.sock";
+
+/// Keep the production env/guard request while reading the fixture through its shell.
+struct ScriptRunner;
+
+impl CommandRunner for ScriptRunner {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        assert_eq!(request.program, OsStr::new("/usr/bin/env"));
+        assert_eq!(request.args[0], OsStr::new("TMT_DRIVER_CALL=1"));
+        // A concurrent fork can inherit the written script's fd; only read that inode.
+        let mut args = request.args.to_vec();
+        args.insert(1, "/bin/sh".into());
+        UnixCommandRunner.execute(CommandRequest {
+            args: &args,
+            ..request
+        })
+    }
+}
+
+/// Allow success fixtures their existing CI scheduling budget, while ScriptRunner
+/// retains real process cleanup and unchanged wire/output bounds.
+struct FixtureRunner;
+
+impl CommandRunner for FixtureRunner {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        ScriptRunner.execute(CommandRequest {
+            deadline: Instant::now() + Duration::from_secs(30),
+            ..request
+        })
+    }
+}
 
 /// Answers `__tmt-driver 1 <op>` with the file `<itself>.<op>`, and
 /// `unsupported` when there is none. It records `<op> <TMT_DRIVER_CALL>` for
@@ -121,11 +155,11 @@ impl Installed {
     }
 
     fn approve(&self) -> Result<registry::DriverRecord, RegistryError> {
-        registry::approve(&self.global(), &self.executable, &UnixCommandRunner)
+        registry::approve(&self.global(), &self.executable, &FixtureRunner)
     }
 
-    fn open(&self) -> DriverProcess<UnixCommandRunner> {
-        DriverProcess::open(self.approve().unwrap(), UnixCommandRunner).unwrap()
+    fn open(&self) -> DriverProcess<FixtureRunner> {
+        DriverProcess::open(self.approve().unwrap(), FixtureRunner).unwrap()
     }
 }
 
@@ -144,14 +178,18 @@ fn clear() -> ClearRequest {
 #[test]
 fn a_spawned_driver_is_checked_for_conformance() {
     let installed = Installed::new("fake", answers("fake", "fake-", Some("f{n}")));
+    // Elapsed time is an invoker input. Scripted timing separates conformance
+    // checks from shell startup; the late-answer test below uses the real clock.
+    let late = Cell::new(None::<Op>);
     let mut invoke = |args: &[&str], request: &[u8]| {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-        let started = Instant::now();
+        let mut shell_args = vec![installed.executable.clone().into_os_string()];
+        shell_args.extend_from_slice(&args);
         let result = UnixCommandRunner.execute(CommandRequest {
-            program: installed.executable.as_os_str(),
-            args: &args,
+            program: OsStr::new("/bin/sh"),
+            args: &shell_args,
             input: request,
-            deadline: soon(),
+            deadline: Instant::now() + Duration::from_secs(30),
             max_output_bytes: 2 * 1024 * 1024,
         });
         DriverOutput {
@@ -160,7 +198,15 @@ fn a_spawned_driver_is_checked_for_conformance() {
                 Ok(output) => output.stdout,
                 Err(error) => error.output.map(|output| output.stdout).unwrap_or_default(),
             },
-            elapsed: started.elapsed(),
+            elapsed: late
+                .get()
+                .filter(|op| {
+                    args.get(2)
+                        .is_some_and(|arg| arg == std::ffi::OsStr::new(op.as_str()))
+                })
+                .map_or(Duration::ZERO, |op| {
+                    op.bounds().deadline + Duration::from_nanos(1)
+                }),
         }
     };
     let fixture = Fixture {
@@ -172,6 +218,20 @@ fn a_spawned_driver_is_checked_for_conformance() {
     let findings = conformance::check(&mut invoke, &fixture);
     assert_eq!(findings.len(), 1, "{findings:#?}");
     assert_eq!(findings[0].check, "clear");
+
+    installed.answer("clear", r#"{"ok": {"cleared": false}}"#);
+    for op in [Op::Capabilities, Op::Clear] {
+        late.set(Some(op));
+        let findings = conformance::check(&mut invoke, &fixture);
+        let expected = if op == Op::Capabilities { 1 } else { 2 };
+        assert_eq!(findings.len(), expected, "{findings:#?}");
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.check == op.as_str() && finding.detail.contains("deadline")),
+            "{findings:#?}"
+        );
+    }
 }
 
 #[test]
@@ -199,7 +259,7 @@ fn an_approved_driver_is_recorded_privately_and_called_with_the_guard() {
         .mode();
     assert_eq!(mode & 0o777, 0o600);
 
-    let driver = DriverProcess::open(record, UnixCommandRunner).unwrap();
+    let driver = DriverProcess::open(record, FixtureRunner).unwrap();
     assert!(driver.supports(Op::Snapshot) && !driver.supports(Op::Input));
     let snapshot: SnapshotResponse = driver
         .call(
@@ -249,7 +309,10 @@ fn a_changed_executable_is_not_run_until_approved_again() {
 #[test]
 fn late_oversized_or_malformed_answers_fail() {
     let installed = Installed::new("fake", answers("fake", "fake-", None));
-    let driver = installed.open();
+    let record = installed.approve().unwrap();
+    let driver = DriverProcess::open(record.clone(), FixtureRunner).unwrap();
+    // This call retains the actual 300 ms protocol deadline and cleanup owner.
+    let timed_driver = DriverProcess::open(record, ScriptRunner).unwrap();
     assert_eq!(
         driver.call::<ClearResponse>(clear(), soon()).unwrap(),
         Ok(ClearResponse { cleared: false })
@@ -257,9 +320,10 @@ fn late_oversized_or_malformed_answers_fail() {
 
     fs::write(installed.beside("sleep"), "1.5").unwrap();
     let started = Instant::now();
-    let result = driver.call::<ClearResponse>(clear(), soon());
+    let result = timed_driver.call::<ClearResponse>(clear(), soon());
     assert!(
-        matches!(result, Err(CallError::Process { .. })),
+        matches!(&result, Err(CallError::Process { error, .. })
+            if error.kind == CommandFailure::Timeout && !error.cleanup_failed()),
         "{result:?}"
     );
     assert!(
@@ -272,7 +336,8 @@ fn late_oversized_or_malformed_answers_fail() {
     installed.answer("clear", &" ".repeat(5000));
     let result = driver.call::<ClearResponse>(clear(), soon());
     assert!(
-        matches!(result, Err(CallError::Process { .. })),
+        matches!(&result, Err(CallError::Process { error, .. })
+            if error.kind == CommandFailure::OutputLimit && !error.cleanup_failed()),
         "over 4 KiB: {result:?}"
     );
 
@@ -304,7 +369,7 @@ fn a_driver_that_could_be_read_as_another_host_is_refused() {
     let first = Installed::new("first", answers("first", "fx-", None));
     first.approve().unwrap();
     let second = Installed::new("second", answers("second", "fx-", None));
-    let refused = registry::approve(&first.global(), &second.executable, &UnixCommandRunner);
+    let refused = registry::approve(&first.global(), &second.executable, &FixtureRunner);
     assert!(
         matches!(refused, Err(RegistryError::Refused(_))),
         "{refused:?}"
@@ -317,4 +382,44 @@ fn a_driver_that_could_be_read_as_another_host_is_refused() {
         Err(RegistryError::Refused(_))
     ));
     assert_eq!(registry::read(&not_driver.global()).unwrap(), []);
+}
+
+#[test]
+fn fixture_scheduling_does_not_change_the_capabilities_request() {
+    // An expired command deadline models work dequeued after scheduler delay.
+    // The production runner still refuses it; only the success fixture resets it.
+    struct Queued<R>(R);
+    impl<R: CommandRunner> CommandRunner for Queued<R> {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            let wire: Value = serde_json::from_slice(request.input).unwrap();
+            assert_eq!(wire["deadlineMs"], 1000);
+            assert_eq!(request.max_output_bytes, 4096);
+            self.0.execute(CommandRequest {
+                deadline: Instant::now(),
+                ..request
+            })
+        }
+    }
+    let installed = Installed::new("fake", answers("fake", "fake-", None));
+    let refused = registry::approve(
+        &installed.global(),
+        &installed.executable,
+        &Queued(UnixCommandRunner),
+    );
+    assert!(
+        matches!(refused, Err(RegistryError::Refused(ref reason)) if reason.contains("Timeout")),
+        "{refused:?}"
+    );
+    assert!(
+        installed.calls().is_empty(),
+        "expired production runner never spawns"
+    );
+    let record = registry::approve(
+        &installed.global(),
+        &installed.executable,
+        &Queued(FixtureRunner),
+    )
+    .unwrap();
+    assert_eq!(record.name, "fake");
+    assert_eq!(installed.calls(), ["capabilities 1"]);
 }

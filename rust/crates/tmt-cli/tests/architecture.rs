@@ -72,6 +72,7 @@ fn workspace_obeys_native_architecture() {
             "tmt-adapters",
             "tmt-cli",
             "tmt-cli-style",
+            "tmt-invoke",
             "tmt-command-output",
             "tmt-driver-protocol",
             "tmt-host-grammar",
@@ -81,7 +82,8 @@ fn workspace_obeys_native_architecture() {
             "tmt-office-pairing",
             "tmt-office-service",
             "tmt-office-storage",
-            "tmt-squad"
+            "tmt-squad",
+            "tmt-remote"
         ]),
         "Review native package boundaries when changing workspace members"
     );
@@ -127,9 +129,13 @@ fn workspace_obeys_native_architecture() {
         &sources,
         &tmt_core::driver::ALL.map(|driver| driver.name),
     ));
+    let built_in_hosts = tmt_core::host::HostKind::ALL;
     violations.extend(host_names::violations(
         &sources,
-        &tmt_core::host::HostKind::ALL.map(|host| host.as_str()),
+        &built_in_hosts
+            .iter()
+            .map(|host| host.as_str())
+            .collect::<Vec<_>>(),
     ));
     let extensions =
         extension_host::sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../extensions"));

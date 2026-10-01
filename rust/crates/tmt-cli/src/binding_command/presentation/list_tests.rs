@@ -4,11 +4,10 @@ use tmt_core::{
     binding::{
         Binding,
         session::{
-            BindingSessionState, HarnessId, ObservedSessionKey, ProviderSessionId,
-            RuntimeIncarnation, RuntimeMode,
+            BindingSessionState, HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeMode,
         },
     },
-    endpoint::ServerEvidence,
+    endpoint::{ProcessIncarnation, ServerEvidence},
 };
 
 const CLAUDE: &str = "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f";
@@ -55,7 +54,7 @@ fn binding(state: RuntimeState, session: Option<&str>) -> Binding {
             last_transition: None,
             state,
             key: session.map(|session| ObservedSessionKey {
-                incarnation: RuntimeIncarnation::new(10, "start").unwrap(),
+                incarnation: ProcessIncarnation::new(10, "start").unwrap(),
                 provider_session: Some(ProviderSessionId::new(session).unwrap()),
             }),
             launch_owner: None,
@@ -87,6 +86,7 @@ fn row(
     };
     let (pane, binding) = live.map_or((None, None), |(pane, binding)| (Some(pane), Some(binding)));
     ListedRow {
+        activity: serde_json::json!({"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}),
         presence: IdentityPresence {
             identity: identity(name, lifetime),
             presence,
@@ -156,6 +156,12 @@ fn agents() -> Vec<ListedRow> {
 
 /// Rendered against the fixture's home, `/Users/ada`.
 fn render(rows: Vec<ListedRow>, terminal: Terminal, all: bool) -> String {
+    if terminal.color {
+        // Production anstream honors NO_COLOR before enabling color; these explicit
+        // color fixtures override crossterm's cached choice.
+        static COLOR: std::sync::Once = std::sync::Once::new();
+        COLOR.call_once(|| crossterm::style::force_color_output(true));
+    }
     let mut output = Vec::new();
     write_listing(
         &mut output,
@@ -295,6 +301,7 @@ fn the_list_on_a_narrow_terminal() {
     let narrow = Terminal {
         color: true,
         width: Some(40),
+        theme: None,
     };
     insta::assert_snapshot!(render(agents(), narrow, false));
 }
@@ -308,7 +315,7 @@ fn an_empty_list_says_so_and_how_to_name_an_agent() {
 }
 
 #[test]
-fn json_rows_only_gain_the_full_address_and_driver() {
+fn json_rows_gain_address_driver_and_activity() {
     let rows = agents();
     let before: Vec<Value> = rows
         .iter()
@@ -328,6 +335,10 @@ fn json_rows_only_gain_the_full_address_and_driver() {
         let object = row.as_object_mut().unwrap();
         let address = object.remove("address").unwrap();
         let driver = object.remove("driver").unwrap();
+        assert_eq!(
+            object.remove("session").unwrap(),
+            serde_json::json!({"activity":{"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}})
+        );
         assert_eq!(row, original.take());
         assert_eq!(
             address.is_null(),
@@ -341,4 +352,55 @@ fn json_rows_only_gain_the_full_address_and_driver() {
     );
     assert_eq!(document["identities"][6]["address"], "tmux:%31");
     assert_eq!(document["identities"][3]["address"], Value::Null);
+}
+
+#[test]
+fn activity_projection_requires_current_scope_and_runtime_evidence() {
+    use tmt_core::binding::session::activity::{ActivityPhase, Event};
+    let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
+    let mut binding = binding(RuntimeState::Running, Some(CLAUDE));
+    let mut remembered = remembered("claude", CLAUDE, false);
+    let key = binding.session.key.as_ref().unwrap();
+    remembered.state = tmt_adapters::runtime::driver_state::after_activity(
+        None,
+        &remembered.provider_session,
+        &key.incarnation,
+        &Event {
+            phase: ActivityPhase::Working,
+            turn: None,
+        },
+        10,
+    );
+    let project = |binding: &Binding, remembered: &RememberedSession, runtime| {
+        crate::output::activity_document(Some(binding), Some(remembered), runtime, &registry)
+    };
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Running),
+        json!({
+            "state":"working", "sinceMs":10, "lastActivityMs":10, "providers":{},
+        })
+    );
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Unknown),
+        json!({
+            "state":"unknown", "sinceMs":null, "lastActivityMs":10, "providers":{},
+        })
+    );
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Ended)["state"],
+        "ended"
+    );
+    binding.session.key.as_mut().unwrap().incarnation =
+        ProcessIncarnation::new(10, "replacement").unwrap();
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Running),
+        json!({
+            "state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{},
+        })
+    );
+    remembered.provider_session = ProviderSessionId::new("other").unwrap();
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Running)["state"],
+        "unknown"
+    );
 }

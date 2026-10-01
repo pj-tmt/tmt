@@ -21,7 +21,7 @@
         "extensions/tmt-office/skills",
         "extensions/tmt-office/typescript",
         "extensions/tmt-squad",
-        "extensions/tmt-remote/typescript/browser-addon"
+        "extensions/tmt-remote"
       ],
       "extra-files": [
         {
@@ -63,6 +63,11 @@
           "type": "toml",
           "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-host-grammar')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-invoke')].version"
         },
         {
           "type": "toml",

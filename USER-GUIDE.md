@@ -50,7 +50,7 @@ from another TMT installation is listed as a change: setup backs it up next to
 the skills folder (`.tmt-skill-backups`) and replaces it. Without a terminal it needs
 `--yes` and otherwise changes nothing. Run `tmt setup claude` or `tmt setup codex`
 to review one agent's exact settings and launcher paths and approve that plan. Noninteractive use requires `--yes`; add `--json` for a
-structured result. This updates only TMT-owned SessionStart/SessionEnd entries in
+structured result. This updates only TMT-owned SessionStart/SessionEnd/UserPromptSubmit entries in
 `~/.claude/settings.json` or Codex's `CODEX_HOME/hooks.json` (default
 `~/.codex/hooks.json`), retaining other hooks and permission settings. It does
 not install the agent, approve provider hook trust, or change permission policy.
@@ -60,6 +60,15 @@ place across upgrades; rerun setup if it moves. An identical rerun makes no
 changes. Add `--remove` to review removal of only unchanged TMT hooks.
 Edited/conflicting hooks or invalid JSON are left untouched. Updates report a
 recoverable settings backup; identity, notes and exchange data are never removed.
+
+`tmt ls --json` includes `session.activity`: the last reported main-turn
+`working` or `idle` state, its `sinceMs`, and `lastActivityMs`. Missing evidence
+is `unknown`; confirmed runtime exit is `ended`. The timestamp is the last
+accepted start/end event, not a heartbeat or a stalled-work judgment. These facts
+come from TMT's synchronous setup-written hooks. Editing one to run asynchronously
+breaks that source contract; setup reports the edited entry for resolution.
+The optional Stop hook below supplies end events; without it, TMT cannot record
+idle merely because the provider has gone quiet.
 
 Context usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`)
 also installs a TMT `Stop` hook. After each turn, that hook reads the token
@@ -691,9 +700,11 @@ first. Set `[squad.<name>.notes] render = "plain"` to show the text unformatted.
 layout shows rows and notes side by side, pr-queue shows rows over detail, and
 minimal shows rows only.
 
-Keys act on the selected row. Inside tmux, Enter jumps to the member's pane and
-Backspace goes back; in a plain terminal, where the board cannot show another
-pane, Enter opens a menu of the row's actions instead. `o` opens the row's link,
+Keys act on the selected row. Inside tmux, Enter jumps to the member's pane,
+`L` jumps to the squad's lead (on the `all` and `leads` tabs, the lead of the
+selected row's squad) and Backspace goes back; a jump from a popup board closes
+it. In a plain terminal, where the board cannot show another pane, Enter opens
+a menu of the row's actions instead. `o` opens the row's link,
 `y` copies it, `t` talks to the member, `r` replies to it, `a` annotates the
 row for the lead, `n` focuses the notes pane and Tab moves to the next pane;
 `?` lists every key. Rebind keys in `squad.toml`, for all squads or for one section's rows:
@@ -715,7 +726,7 @@ A binding is `event = "action [argument]"`. Events are `enter`, `backspace`,
 `tab`, `space`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1`–`f12`,
 `ctrl-<letter>` (except `ctrl-c`), `click`, `double-click` or one printable
 character other than the board's own `q`, `j`, `k`, `/` and `?`. Actions are
-`jump`, `back`, `open [{field}]`, `copy [template]`, `run <program> [arguments]`,
+`jump [lead]`, `back`, `open [{field}]`, `copy [template]`, `run <program> [arguments]`,
 `notes`, `refresh`, `next-pane`, `menu`, `talk`, `reply`,
 `annotate [lead|member]` and `tab` (open the row's squad tab, on the `all` and
 `leads` tabs). An unknown action, event or field syntax makes the
@@ -1050,6 +1061,32 @@ overrides live in `./tmux-team.json`. Use the reported paths when a custom home
 or configuration root is in use. Global-only settings cannot be set or cleared
 locally. Unknown fields are preserved; invalid known fields should be repaired,
 not worked around by deleting the file.
+
+Colors come from a theme. The command line uses your terminal's own 16 colors,
+so your terminal theme decides, until you choose a theme in the global file;
+the Squad board uses `tmt` unless you choose:
+
+```json
+{
+  "theme": {
+    "base": "tmt",
+    "waiting": "#e0a458",
+    "accent": "blue"
+  }
+}
+```
+
+`base` is `tmt` (soft 24-bit color for dark terminals), `tmt-light`, `terminal`
+(your 16 colors) or `mono` (bold and dim only). Any token (`text`, `muted`,
+`dim`, `accent`, `waiting`, `working`, `review`, `blocked`, `link`,
+`selection`) can be overridden with `#rrggbb`, a color name such as `blue` or
+`bright black`, `default`, `bold`, `dim` or `reverse`. 24-bit color is used
+when the terminal announces it (`COLORTERM=truecolor`); otherwise `tmt` falls
+back to your 16 colors and a hex value to the nearest of them. `NO_COLOR`, a
+pipe or `--json` means no color at all, and help text keeps your terminal's
+colors. `tmt config show` lists the theme and reports a bad value by its key
+(`themeError` in `--json`) without failing; a bad theme never stops another
+command, which then keeps the default colors.
 
 ### Optional pane badge
 

@@ -169,6 +169,23 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "unicode-width",
             "signal-hook",
             "pulldown-cmark",
+            // Disposable observed-age cache: content fingerprints and
+            // nonblocking Unix advisory locking, no TMT behavior.
+            "sha2",
+            "nix",
+        ],
+        "tmt-invoke" => &["subprocess", "nix"],
+        "tmt-remote" => &[
+            "ed25519-dalek",
+            "hmac",
+            "sha2",
+            "tmt-cli-style",
+            "tmt-invoke",
+            "clap",
+            "serde_json",
+            "getrandom",
+            "httparse",
+            "signal-hook",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
@@ -176,7 +193,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .as_array()
         .expect("Cargo dependencies")
         .iter()
-        .filter(|d| d["kind"] != "dev")
+        .filter(|d| name == "tmt-invoke" || d["kind"] != "dev")
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
             // Source paths use canonical crate names. Renaming even an allowed
@@ -454,7 +471,12 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                             && path
                                 .get(2)
                                 .is_some_and(|p| ["Error", "Cursor"].contains(&p.as_str()))));
-                if (root == "std" && !pure_std.contains(&module) && !model_value)
+                // The approved drivers' host syntax, written once at start (#570).
+                let host_registry = source.package == "tmt-core"
+                    && source.file == "host.rs"
+                    && module == "sync"
+                    && path.get(2).is_some_and(|p| p == "OnceLock");
+                if (root == "std" && !pure_std.contains(&module) && !model_value && !host_registry)
                     || ["print", "println", "eprint", "eprintln", "dbg"].contains(&root)
                 {
                     violations.push(format!(
@@ -481,11 +503,22 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            // The leaf style crate is Squad's one permitted workspace dependency.
-            if source.package == "tmt-squad" && root.starts_with("tmt_") && root != "tmt_cli_style"
+            // Public-interface extensions name their own library and approved leaves only.
+            if ["tmt-squad", "tmt-remote"].contains(&source.package.as_str())
+                && root.starts_with("tmt_")
+                && root != "tmt_cli_style"
+                && !(source.package == "tmt-remote" && root == "tmt_invoke")
+                && root != source.package.replace('-', "_")
             {
                 violations.push(format!(
-                    "{location}: squad reaches TMT only through public commands, not {}",
+                    "{location}: {} reaches TMT only through public commands, not {}",
+                    source.package.strip_prefix("tmt-").unwrap(),
+                    path.join("::")
+                ));
+            }
+            if source.package == "tmt-invoke" && root.starts_with("tmt_") && root != "tmt_invoke" {
+                violations.push(format!(
+                    "{location}: invoke leaf cannot reach {}",
                     path.join("::")
                 ));
             }
@@ -501,9 +534,12 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            if root == "tmt_squad" && source.package != "tmt-squad" {
+            if ["tmt_squad", "tmt_remote"].contains(&root)
+                && source.package.replace('-', "_") != root
+            {
                 violations.push(format!(
-                    "{location}: no package may depend on the squad extension: {}",
+                    "{location}: no package may depend on the {} extension: {}",
+                    root.strip_prefix("tmt_").unwrap(),
                     path.join("::")
                 ));
             }

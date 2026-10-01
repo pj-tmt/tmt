@@ -163,6 +163,17 @@ pub fn overlay(
     me: Option<&crate::me::Me>,
     document: &mut Value,
 ) -> Result<Option<Sent>, SquadError> {
+    overlay_with_room(core, squad, me, document, None)
+}
+
+/// A caller that also observes activity can share this same room window.
+pub fn overlay_with_room(
+    core: &Core,
+    squad: &Squad,
+    me: Option<&crate::me::Me>,
+    document: &mut Value,
+    room: Option<Window>,
+) -> Result<Option<Sent>, SquadError> {
     let Some(me) = me else {
         let empty = Window {
             items: Vec::new(),
@@ -172,11 +183,21 @@ pub fn overlay(
         return Ok(None);
     };
     let me_id = me.id.clone();
-    let fetch = |input| core.api("requests.list", input);
-    let room = window(fetch, &json!({"roomId": squad.room_id}))?;
+    let room = match room {
+        Some(room) => room,
+        None => room_window(core, squad)?,
+    };
     let inbox = inbox(core, &me_id)?;
     apply(document, &squad.name, &me_id, &room, &inbox);
     Ok(Some(Sent { me: me_id, room }))
+}
+
+/// The same bounded room history for annotations, replies and activity.
+pub fn room_window(core: &Core, squad: &Squad) -> Result<Window, SquadError> {
+    window(
+        |input| core.api("requests.list", input),
+        &json!({"roomId": squad.room_id}),
+    )
 }
 
 /// The requests waiting on the user, from `tmt inbox`.

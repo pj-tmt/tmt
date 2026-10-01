@@ -22,11 +22,11 @@ pub struct FileChange {
 impl SetupPlan {
     /// The TMT hooks this plan writes or removes, for its preview.
     pub fn events(&self) -> &'static str {
-        const ALL: &str = "SessionStart, SessionEnd and Stop (context usage) hooks";
-        const LIFECYCLE: &str = "SessionStart and SessionEnd hooks";
+        const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage and activity) hooks";
+        const LIFECYCLE: &str = "SessionStart, SessionEnd and UserPromptSubmit hooks";
         match (self.removing, self.usage_before, self.usage) {
             (true, true, _) | (false, _, true) => ALL,
-            (false, true, false) => "Stop (context usage) hook",
+            (false, true, false) => "Stop (context usage and activity) hook",
             _ => LIFECYCLE,
         }
     }

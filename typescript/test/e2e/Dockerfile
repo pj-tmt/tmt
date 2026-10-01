@@ -7,6 +7,7 @@ COPY skills/ ../skills/
 COPY extensions/tmt-office/skills/ ../extensions/tmt-office/skills/
 # The squad extension: built for its E2E scenarios.
 COPY extensions/tmt-squad/ ../extensions/tmt-squad/
+COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
 ARG TMT_NATIVE_PROFILE=dev
 RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
@@ -51,5 +52,7 @@ ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.
 # TMT_E2E_FILES (validated plain file names) limits the suite to those files, and
-# TMT_E2E_ADAPTER_TESTS=0 skips the Rust adapter tests; CI sets both per shard.
-CMD ["sh", "-c", "if [ \"${TMT_E2E_ADAPTER_TESTS:-1}\" = 1 ]; then /opt/tmt-tests/adapter-tests; fi && cd /workspace/typescript && exec pnpm exec vitest run --config test/e2e/vitest.config.ts $TMT_E2E_FILES"]
+# TMT_E2E_ADAPTER_TESTS=0 skips the Rust adapter tests; CI sets both per shard. Vitest
+# matches a positional filter by substring, so each name becomes the anchored path
+# test/e2e/<name>: a bare routing.e2e.test.ts would also select check-routing.e2e.test.ts.
+CMD ["sh", "-c", "if [ \"${TMT_E2E_ADAPTER_TESTS:-1}\" = 1 ]; then /opt/tmt-tests/adapter-tests; fi && cd /workspace/typescript && for name in $TMT_E2E_FILES; do set -- \"$@\" \"test/e2e/$name\"; done && exec pnpm exec vitest run --config test/e2e/vitest.config.ts \"$@\""]
