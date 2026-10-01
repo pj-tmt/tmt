@@ -23,7 +23,7 @@ use std::{
 };
 use tmt_core::{
     binding::{Binding, session::RuntimeState},
-    driver::Focused,
+    driver::{ActionResult, DeliveryAcceptance, Focused, SendFailure},
     endpoint::{
         BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ProcessIncarnation,
         ServerEvidence,
@@ -414,6 +414,15 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
     /// Input arrives in slice 3b-2b; until then core uses the inbox.
     fn has_input(&self) -> bool {
         false
+    }
+
+    /// The `prompt` operation arrives with input in slice 3b-2b.
+    fn prompt(
+        &mut self,
+        _: &Binding,
+        _: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>> {
+        ActionResult::Unsupported
     }
 
     fn input(&mut self, _: &Binding, _: &str) -> Result<(), DeliveryError> {
