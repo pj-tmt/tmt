@@ -6,6 +6,7 @@
   "prerelease-type": "alpha",
   "prerelease": true,
   "draft": true,
+  "always-update": true,
   "skip-changelog": true,
   "pull-request-title-pattern": "chore${scope}: release${component} ${version}",
   "packages": {

@@ -163,6 +163,10 @@ describe('release-please configuration generator', () => {
     }
   });
 
+  it('rebuilds every open release pull request on each run, so a conflict with main clears', () => {
+    expect(generate()).toMatchObject({ 'always-update': true });
+  });
+
   it('keeps every package in the alpha line: a false prerelease would graduate it to a stable version', () => {
     const config = generate();
     expect(config).toMatchObject({ prerelease: true, 'prerelease-type': 'alpha' });
@@ -394,6 +398,8 @@ describe('committed release-please configuration', () => {
   it('creates drafts, one pull request per component, and the tags the release policy publishes', () => {
     expect(config).toMatchObject({
       draft: true,
+      // Without it an open release pull request that conflicts with main is never rewritten.
+      'always-update': true,
       'separate-pull-requests': true,
       'include-v-in-tag': true,
       versioning: 'prerelease',

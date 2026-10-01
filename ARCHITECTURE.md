@@ -618,6 +618,9 @@ extension release only together with a change under that extension's own path.
 `.release-please-manifest.json` holds the last published versions and belongs to
 release-please after its first release pull request. The CLI is pinned with a lockfile in
 `.github/release-please/`, outside the `typescript` workspace so no other job installs it.
+The config sets `always-update`: release-please otherwise leaves an open release pull request
+untouched while its notes are unchanged, so a conflict with `main` (every release pull request
+edits the shared manifest, and adjacent lines conflict) would never clear.
 A tooling test fails when the committed config is not what the generator writes, when a
 workspace crate's lock entry or declared version is managed zero or several times, or when
 a tag disagrees with the policy or a package could leave the alpha line (release-please's
