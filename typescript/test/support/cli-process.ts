@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolveCliExecutables, type CliExecutable } from './cli-executable.mjs';
 
+// The container's test-owned Secret Service is reached through its explicit session bus.
+const runtimeConnectionEnvironmentKeys = ['DBUS_SESSION_BUS_ADDRESS'] as const;
+
 const lifecycleKey = Symbol('sandbox process lifetime');
 interface ActiveRun {
   result: Promise<CliResult>;
@@ -78,6 +81,10 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
       LANG: 'en_US.UTF-8',
       LC_ALL: 'en_US.UTF-8',
     };
+    for (const key of runtimeConnectionEnvironmentKeys) {
+      const value = process.env[key];
+      if (value !== undefined) env[key] = value;
+    }
     return {
       [lifecycleKey]: { closing: false, runs: new Set<ActiveRun>() },
       cli,

@@ -122,6 +122,46 @@ it('owns the default tmux socket directory and removes it with the sandbox', asy
   }
 });
 
+it('passes only the declared runtime connection variables to sandbox children', async () => {
+  const sessionBus = 'unix:path=/test-owned/session-bus';
+  vi.stubEnv('DBUS_SESSION_BUS_ADDRESS', sessionBus);
+  const excludedKeys = [
+    'DBUS_SYSTEM_BUS_ADDRESS',
+    'GNOME_KEYRING_CONTROL',
+    'XDG_RUNTIME_DIR',
+    'FIREBASE_AUTH_EMULATOR_HOST',
+    'TMT_TEST_BROWSER_CHANNEL',
+  ];
+  for (const key of excludedKeys) vi.stubEnv(key, 'unrelated parent value');
+  const observe = () =>
+    withSandbox(async (sandbox) => {
+      const result = await runCli(
+        {
+          ...sandbox,
+          cli: {
+            executable: process.execPath,
+            args: ['-e', 'console.log(JSON.stringify(process.env))'],
+          },
+        },
+        []
+      );
+      expect(result.status).toBe(0);
+      const childEnv = JSON.parse(result.stdout);
+      expect(childEnv.HOME).toBe(sandbox.home);
+      expect(childEnv.XDG_CONFIG_HOME).toBe(sandbox.xdgConfigHome);
+      for (const key of [...excludedKeys, 'TMT_TEST_CLI', 'TMT_TEST_PEER_CLI'])
+        expect(childEnv).not.toHaveProperty(key);
+      return childEnv;
+    });
+  try {
+    expect(await observe()).toHaveProperty('DBUS_SESSION_BUS_ADDRESS', sessionBus);
+    vi.stubEnv('DBUS_SESSION_BUS_ADDRESS', undefined);
+    expect(await observe()).not.toHaveProperty('DBUS_SESSION_BUS_ADDRESS');
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 it.each(['ignore', 'inherit'])(
   'normal parent exit cleans descendants with %s output',
   async (output) => {
