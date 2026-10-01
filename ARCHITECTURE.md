@@ -645,8 +645,9 @@ are refused unchanged before preview, menu persistence or intent freezing,
 including restored captures and intents.
 The popup freezes the reviewed agent UUID, message and operation UUID before
 calling the client. Its origin-owned IndexedDB retains one frozen intent and
-menu capture; restoration retains intent without sending. Explicit status
-recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
+menu capture; restoration retains intent without sending. The shell exports journal schema
+and key constants; IndexedDB ownership and worker-readiness fallback helpers are test-only.
+Explicit status recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
 starting another message does not cancel submitted work. Replies render as text.
 The stub's status transitions are UI evidence, never server security acceptance.
 
