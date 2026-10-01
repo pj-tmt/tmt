@@ -1682,7 +1682,10 @@ sort = ["state", "-name"]
             (columns[2].field.as_str(), columns[2].title.as_str()),
             ("note", "WHY")
         );
-        assert_eq!((columns[2].width, columns[2].grow), (Some(30), 0));
+        assert_eq!(
+            (columns[2].width, columns[2].grow),
+            (Some(tmt_cli_style::grid::Basis::Cells(30)), 0)
+        );
         assert_eq!(columns[0].title, "MEMBER");
         let states = config.states("product", Layout::Crew).unwrap();
         assert_eq!(states.color(Some("blocked")).unwrap(), "red");

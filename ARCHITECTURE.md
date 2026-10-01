@@ -2546,8 +2546,20 @@ the cache (`--refresh-fields` runs what is due first), and the board hands each
 load's members to one fetcher thread that runs due work off the paint path and
 again at the shortest `every`; a save moves the cache directory's stamp, which
 `board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
-(`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
-field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
+(`grid::solve`, `grid::span`, `grid::fit`, `grid::fit_lines`). `rows::Column`
+uses `grid::Basis` for cell or percent widths; bounds stay in cells. The solver
+resolves percentages against data width after marks/borders/gaps, rounds by
+largest remainder, clamps cell bounds (percent columns default to a four-cell minimum, capped by an explicit max), then grows. Hiding recomputes the shown set.
+`grid::fit_lines` owns escaped, exact-cell-width bounded wrapping, with a final
+end ellipsis. Column metadata preserves percent strings and adds `overflow`
+and wrap `max_lines` only when opted in; full row values never change.
+`rows::ListSizing` chooses the text sizing policy once from shown column
+settings: without percent/overflow it keeps legacy list sizing and complete
+piped values. Opt-in text lists decode only projected display settings through
+`rows::Column::display` and use the same grid solver/fitter. A pipe's budget is
+summed natural data widths plus gaps before priority hiding; such lists may
+truncate, wrap or hide columns. The existing list/table owner still renders
+sections and styles; no parallel layout engine is introduced. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
 none), so a script's shape never depends on how many squads exist. Commands that
 change state still require `--squad` when several exist; `filter` owns a bounded boolean language over a row's text
@@ -2711,7 +2723,9 @@ lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
 under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
-asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
+asks it to reveal the selected record's visual-line range while followed (or
+its first line when taller than the viewport). The draw records record starts
+and hit targets for every continuation; paging moves by viewport lines for all rows, including existing notes/configured row lines, with record paging when no positions were drawn. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).

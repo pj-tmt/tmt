@@ -244,6 +244,8 @@ pub struct App {
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
+    /// Each record's first visual line in the last rows draw, for paging.
+    pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
     /// The first tab the tab line showed, so it scrolls only as needed.
@@ -910,9 +912,9 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.select(self.selected.saturating_sub(1)),
             KeyCode::Down | KeyCode::Char('j') => self.select(self.selected + 1),
             KeyCode::PageUp if !self.bound(key) => {
-                self.select(self.selected.saturating_sub(self.rows_page()));
+                self.page_rows(-1);
             }
-            KeyCode::PageDown if !self.bound(key) => self.select(self.selected + self.rows_page()),
+            KeyCode::PageDown if !self.bound(key) => self.page_rows(1),
             KeyCode::Home if !self.bound(key) => self.select(0),
             KeyCode::End if !self.bound(key) => self.select(usize::MAX),
             KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
@@ -993,9 +995,32 @@ impl App {
         self.follow = true;
     }
 
-    /// Rows one page moves: the rows pane's last viewport, less one.
-    fn rows_page(&self) -> usize {
-        self.scrolls.page_lines(Pane::Rows)
+    /// Page by visual lines; an oversized row can scroll within itself.
+    fn page_rows(&mut self, direction: isize) {
+        let starts = self.row_starts.borrow();
+        if starts.is_empty() {
+            drop(starts);
+            let lines = direction * self.scrolls.page_lines(Pane::Rows) as isize;
+            self.select(self.selected.saturating_add_signed(lines));
+            return;
+        }
+        let origin = starts
+            .get(self.selected)
+            .copied()
+            .unwrap_or(0)
+            .max(self.scrolls.offset(Pane::Rows));
+        let target =
+            origin.saturating_add_signed(direction * self.scrolls.page_lines(Pane::Rows) as isize);
+        let row = starts
+            .partition_point(|start| *start <= target)
+            .saturating_sub(1);
+        drop(starts);
+        if row == self.selected {
+            self.scrolls.scroll(Pane::Rows, Step::Pages(direction));
+            self.follow = false;
+        } else {
+            self.select(row);
+        }
     }
 
     /// The wheel scrolls the pane under the pointer, whichever is focused.
@@ -1135,6 +1160,26 @@ pub(crate) mod tests {
                 Item::Row(row) => row["name"].as_str().unwrap(),
             })
             .collect()
+    }
+
+    #[test]
+    fn paging_without_drawn_row_positions_keeps_record_navigation() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot(
+            "product",
+            json!([{ "title": null, "rows": [
+            row("a", ""), row("b", ""), row("c", ""), row("d", "")
+        ] }]),
+        ));
+        app.selected = 2;
+        assert!(app.row_starts.borrow().is_empty());
+        press(&mut app, KeyCode::PageDown);
+        assert_eq!(app.selected, 3);
+        press(&mut app, KeyCode::PageUp);
+        assert_eq!(app.selected, 2);
+        app.selected = 0;
+        press(&mut app, KeyCode::PageUp);
+        assert_eq!(app.selected, 0);
     }
 
     #[test]
