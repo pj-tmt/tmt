@@ -6,6 +6,7 @@
 
 pub mod attachment;
 pub mod caller;
+pub mod delivery;
 pub mod channel_context;
 pub mod lease;
 pub mod supervisor;
