@@ -241,14 +241,7 @@ pub fn decode(operation: &str, bytes: &[u8]) -> Result<Payload> {
             values::decimal(&v.epoch, false)?;
             cuts(&v.cuts)?;
             require(v.baseline.page_id == v.page_id && v.baseline.epoch == v.epoch)?;
-            values::decimal(&v.baseline.membership_revision, false)?;
-            for hash in [
-                &v.baseline.source_digest,
-                &v.baseline.baseline_commitment,
-                &v.baseline.object_envelope_hash,
-            ] {
-                key(hash)?;
-            }
+            validate_baseline(&v.baseline)?;
             let mut previous = None;
             for w in v.wraps.as_slice() {
                 let h = w.header()?;
@@ -343,4 +336,25 @@ fn published_keys<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<Option<List<PublishedKey, 64>>, D::Error> {
     List::deserialize(d).map(Some)
+}
+
+/// Shared descriptor syntax, not source/update digest verification or current-epoch admission.
+pub fn validate_baseline(v: &Baseline) -> Result<()> {
+    values::generated_id(&v.page_id)?;
+    values::decimal(&v.epoch, false)?;
+    values::decimal(&v.membership_revision, false)?;
+    for hash in [
+        &v.source_digest,
+        &v.baseline_commitment,
+        &v.object_envelope_hash,
+    ] {
+        key(hash)?;
+    }
+    Ok(())
+}
+pub fn decode_baseline(bytes: &[u8]) -> Result<Baseline> {
+    require(bytes.len() <= MAX_BYTES)?;
+    let value = parse(bytes)?;
+    validate_baseline(&value)?;
+    Ok(value)
 }

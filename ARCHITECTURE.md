@@ -3444,7 +3444,9 @@ policy still gates application. Strict bounded operation payloads and owner
 statement hash-chain fencing also belong to the model. Retained heads pin the
 revision-1 editor management member and reject successor reuse of its ID/keys;
 signing derives revision and previous hash from that head. Verification does not
-apply a transition. Browser client, pairing/send/baseline builders and the
+apply a transition. Shared baseline descriptor admission and exact management
+frame decoding stay here; sync/control transport DTOs belong to the server.
+Browser client, pairing/send/baseline builders and the
 three-engine harness remain later L1 work. Frozen vectors are contract-owned;
 Rust tests read them without Python. Regeneration uses an independent Python
 cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
