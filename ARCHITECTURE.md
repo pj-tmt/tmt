@@ -2282,6 +2282,21 @@ stays at 16 KiB.
 - `native_install_command` and `native_upgrade_command` are thin CLI
   compositions. Application data and provider skills are separate owners.
 
+`native_upgrade_command` upgrades the CLI and refreshes its managed skills before
+asking the newly installed executable to upgrade installed official products.
+The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
+pending versions; the parent owns one terminal consent question and sends that
+exact plan on stdin to the new executable with `--yes`. It validates the bounded
+plan/result reports and exit status. Unsupported older targets fail with a rerun
+hint; old-process extension logic is never used as a fallback.
+`extension_install_command::upgrade_all` in the new executable discovers products
+in its managed CLI prefix and retains each channel/pin. A selected
+version uses the same native acquisition/activation path without creating an exact
+version pin; extension verification and skill settlement retain their existing owners.
+JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
+Product failures remain independent in the aggregate report; CLI failure stops the
+extension phase, while a pinned CLI permits it. No rollback or second installer exists.
+
 Explicit extension `install --repair` is a separate recovery composition in
 `native_install::repair`, for GitHub and local-archive receipts. `receipt`
 separates bounded metadata/recorded-path validation from payload verification;

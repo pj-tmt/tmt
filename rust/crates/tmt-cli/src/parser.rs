@@ -271,12 +271,16 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 .and_then(|value| tmt_core::native_install::Channel::parse(&value)),
             exact: text(m, "to"),
             unpin: flag(m, "unpin"),
+            yes: flag(m, "yes"),
         },
         ["office", ..] => Invocation::Office {
             prefix: text(m, "prefix"),
             operation: crate::office_facade::parser::translate(path, m)?,
         },
         ["__native-refresh-skills"] => Invocation::NativeRefreshSkills,
+        ["__native-upgrade-extensions"] => Invocation::NativeUpgradeExtensions {
+            plan: flag(m, "plan"),
+        },
         ["uninstall"] => Invocation::Uninstall {
             purge: flag(m, "purge"),
             yes: flag(m, "yes"),

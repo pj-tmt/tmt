@@ -76,6 +76,7 @@ pub fn upgrade_product(
         product,
         request,
         verifier,
+        None,
         checkpoint,
         |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
     )
@@ -87,13 +88,36 @@ fn upgrade_with(
     checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
-    upgrade_product_with(super::Product::Cli, request, None, checkpoint, get)
+    upgrade_product_with(super::Product::Cli, request, None, None, checkpoint, get)
+}
+
+/// Upgrade the version shown in a consent prompt without changing the recorded pin policy.
+pub fn upgrade_product_selected(
+    product: super::Product,
+    request: UpgradeRequest<'_>,
+    version: &str,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> Result<UpgradeReport, UpgradeFailure> {
+    let version = version
+        .parse::<semver::Version>()
+        .map_err(io::Error::other)?;
+    let client = crate::release_http::Https::new();
+    upgrade_product_with(
+        product,
+        request,
+        verifier,
+        Some(&version),
+        checkpoint,
+        |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
+    )
 }
 
 fn upgrade_product_with(
     product: super::Product,
     request: UpgradeRequest<'_>,
     verifier: Option<ReleaseVerifier<'_>>,
+    selected: Option<&semver::Version>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
@@ -126,7 +150,7 @@ fn upgrade_product_with(
     let downloaded = release::download_product(
         product,
         channel,
-        exact.as_ref(),
+        selected.or(exact.as_ref()),
         &current.target,
         Instant::now() + Duration::from_secs(60),
         get,
