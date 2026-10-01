@@ -221,7 +221,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     runtime: Some(super::Runtime {
         driver: || Box::new(ClaudeRuntime),
         lifecycle: || Box::new(ClaudeLifecycle),
-        channel: None,
+        channel: Some(|| Box::new(channel::ClaudeChannel)),
         identify_caller: None,
     }),
 };

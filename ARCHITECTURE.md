@@ -2070,8 +2070,18 @@ ownership map.
   owner-only socket; the record grants nothing unless it matches the binding's
   launch owner and runtime observation. Without the discovered configuration the
   outcome is `Denied`, never `NotSent`.
-- No first-party driver registers a channel and nothing writes a record yet, so
-  every session still uses its existing transport.
+- The same module owns enrollment and the stdio MCP server (`channel/server.rs`).
+  `ClaudeChannel::enroll` writes the per-launch record and returns a lease that
+  withdraws only what it wrote. Every mutation of a record or socket (the enroll
+  write, the server's readiness publish, bind and socket removal, and the lease's
+  withdraw) runs under one lock file in the channel directory, taken through
+  `file_lock::exclusive`, and proceeds only while the record still carries the
+  caller's generation and launch owner, so a stale launcher or server can never
+  replace or remove a newer enrollment. The server's calling thread is its only
+  output writer, and it can only complete an enrollment that `enroll` created.
+- Claude registers its channel in `Runtime.channel`, but no CLI entry point calls
+  `enroll` or `serve` yet, so no record is ever written and every session still
+  uses its existing transport.
 
 ### Host driver protocol
 
