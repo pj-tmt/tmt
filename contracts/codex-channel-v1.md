@@ -49,7 +49,7 @@ arbitrary endpoint's self-report is insufficient authority. The client accepts
 only explicit loopback IPv4/nonzero ports and a bounded capability token, sent
 in the HTTP Authorization header. It initializes that owned endpoint and reads
 the leading provider build version from `userAgent`, not the trailing client
-version. The bounded supported set is 0.159.2 and 0.159.3; other builds fail closed.
+version. The bounded supported set is 0.159.2 and 0.159.3; other builds fail closed. Binary preflight requires parseable `codex-cli major.minor.patch`, the 0.159 minor line and patch 2 or later. Older, malformed or different-line output is refused; patches above 3 receive an unqualified-build advisory. This does not qualify them: the owned initialize handshake remains authoritative and its exact allowlist is unchanged.
 The initialize format is source-backed at the pinned revision above, in
 `request_processors/initialize_processor.rs` and
 `login/src/auth/default_client.rs`. Patch compatibility still requires the final
