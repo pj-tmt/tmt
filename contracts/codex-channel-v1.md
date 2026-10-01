@@ -195,7 +195,7 @@ EOF, including SIGKILL, reaps the server and removes only its owned capability
 files while retaining enrollment. Explicit withdrawal is separate: it may retire
 the exact record only after no child was spawned or the same foreground child
 was confirmed reaped. Wait errors, panic and early return do not supply that
-proof. The supervisor never signals a later observed PID.
+proof. The supervisor never signals a later observed PID. Before a usable Ready handoff, initialization or publication failure explicitly retires the no-child enrollment after confirmed server cleanup. A failed control write is not retirement acknowledgement; cleanup uncertainty preserves evidence. After a complete Ready frame is written, a flush failure cannot prove that no foreground exists and retains enrollment.
 
 Supervisor failure itself is a limitation: killing the supervisor can prevent
 its owned-child cleanup. Timeout or unconfirmed cleanup retains evidence and

@@ -2072,7 +2072,7 @@ this slice; the [contract](contracts/codex-channel-v1.md) owns these definitions
 The #786 lease/supervisor composition remains unregistered. `lease` combines
 record, endpoint, typed thread creation and foreground planning; `supervisor`
 owns the original endpoint child and a launcher-only close-on-exec control
-socket. EOF cleans the endpoint but preserves enrollment. Explicit withdrawal
+socket. EOF cleans the endpoint but preserves enrollment. Pre-handoff startup failures explicitly retire only after confirmed cleanup; a complete Ready frame may already have escaped, so later flush failure retains evidence. Explicit withdrawal
 requires no spawned child or the same child confirmed reaped. `channel_context`
 is the single record-derived child environment locator owner; later hooks use
 it without granting ambient environment authority. No CLI or routing entry
