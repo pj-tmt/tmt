@@ -95,6 +95,7 @@ fn observe_turn(
     harness: &HarnessId,
     lifecycle: &dyn RuntimeLifecycle,
     turn: &TurnEnd,
+    activity: Option<&tmt_core::binding::session::activity::Event>,
     deadline: Instant,
 ) -> Result<(), ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
@@ -128,34 +129,32 @@ fn observe_turn(
         return Ok(());
     };
     let environment = ProviderEnvironment::capture().map_err(|_| ())?;
-    let Some(next) = lifecycle.turn_state(
+    let usage = lifecycle.turn_state(
         turn,
         &environment,
         remembered.state.as_ref(),
         tmt_adapters::request_runtime::wall_time_ms(),
-    ) else {
+    );
+    let previous = usage.as_ref().or(remembered.state.as_ref());
+    let next = activity
+        .filter(|_| binding.session.state == tmt_core::binding::session::RuntimeState::Running)
+        .and_then(|event| {
+            lifecycle.activity_state(
+                event,
+                &turn.session,
+                &process,
+                previous,
+                tmt_adapters::request_runtime::wall_time_ms(),
+            )
+        })
+        .or(usage);
+    let Some(next) = next else {
         return Ok(());
     };
     if Instant::now() >= deadline {
         return Err(());
     }
-    let mut storage = Storage::open_hook(&paths.database).map_err(|_| ())?;
-    storage
-        .with_binding_transaction::<_, StorageError>(|records| {
-            let current = records
-                .entry_by_id(&binding.identity_id)?
-                .and_then(|entry| entry.binding);
-            let mut preferences = records.session_preferences(&binding.identity_id)?;
-            if current.as_ref() != Some(binding) || preferences != stored.preferences {
-                return Ok(false);
-            }
-            if let Some(remembered) = preferences.remembered.as_mut() {
-                remembered.state = Some(next);
-            }
-            records.set_session_preferences(&binding.identity_id, &preferences)
-        })
-        .map_err(|_| ())?;
-    storage.close().map_err(|_| ())
+    commit_driver_state(&paths, &stored, next, deadline).map(|_| ())
 }
 
 /// The caller a hook event came from, verified the same way for every event.
@@ -279,12 +278,27 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
     let registry = RuntimeRegistry::first_party();
     let harness = HarnessId::new(provider).map_err(|_| ())?;
     let lifecycle = registry.lifecycle(&harness).ok_or(())?;
+    let activity = lifecycle.decode_activity(input.as_bytes());
     if let Some(turn) = lifecycle.decode_turn(input.as_bytes()) {
-        return observe_turn(provider, &harness, lifecycle, &turn, deadline)
-            .map(|()| String::new());
+        return observe_turn(
+            provider,
+            &harness,
+            lifecycle,
+            &turn,
+            activity.as_ref(),
+            deadline,
+        )
+        .map(|()| String::new());
     }
     if let Some(session) = lifecycle.decode_prompt(input.as_bytes()) {
-        return observe_prompt(provider, &harness, lifecycle, &session, deadline);
+        return observe_prompt(
+            provider,
+            &harness,
+            lifecycle,
+            &session,
+            activity.as_ref(),
+            deadline,
+        );
     }
     let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
@@ -439,10 +453,12 @@ fn observe_prompt(
     harness: &HarnessId,
     lifecycle: &dyn RuntimeLifecycle,
     session: &ProviderSessionId,
+    activity: Option<&tmt_core::binding::session::activity::Event>,
     deadline: Instant,
 ) -> Result<String, ()> {
     let paths = ConfigPaths::discover().map_err(|_| ())?;
-    if !tmt_adapters::extension_hooks::has_context_consent(&paths.global_dir) {
+    if activity.is_none() && !tmt_adapters::extension_hooks::has_context_consent(&paths.global_dir)
+    {
         return Ok(String::new());
     }
     let host = lifecycle.host_evidence().map_err(|_| ())?;
@@ -486,9 +502,6 @@ fn observe_prompt(
             .checked_sub(Duration::from_millis(200))
             .unwrap_or(deadline),
     );
-    if context.is_empty() {
-        return Ok(String::new());
-    }
     // A callback can run public commands: do not hand its context to a binding
     // or conversation that changed while the callback was running.
     let refreshed = Storage::context_by_pane(
@@ -510,5 +523,62 @@ fn observe_prompt(
     {
         return Err(());
     }
+    if let Some(event) = activity {
+        let previous = stored
+            .preferences
+            .remembered
+            .as_ref()
+            .and_then(|session| session.state.as_ref());
+        if let Some(next) = lifecycle.activity_state(
+            event,
+            session,
+            &process,
+            previous,
+            tmt_adapters::request_runtime::wall_time_ms(),
+        ) {
+            let changed = commit_driver_state(&paths, &stored, next, deadline)?;
+            if !changed {
+                return Err(());
+            }
+        }
+    }
+    if context.is_empty() {
+        return Ok(String::new());
+    }
     lifecycle.encode_prompt_context(&context).ok_or(())
+}
+
+/// Shared publication boundary: a current binding/preferences snapshot and enough
+/// time for the bounded hook-storage transaction. No work is queued after return.
+fn commit_driver_state(
+    paths: &ConfigPaths,
+    stored: &IdentityContextSnapshot,
+    next: tmt_core::binding::session::DriverState,
+    deadline: Instant,
+) -> Result<bool, ()> {
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
+    if Instant::now() + Duration::from_millis(100) >= deadline {
+        return Err(());
+    }
+    let mut storage = Storage::open_hook(&paths.database).map_err(|_| ())?;
+    let pending = storage.with_binding_transaction::<_, StorageError>(|records| {
+        if Instant::now() + Duration::from_millis(100) >= deadline {
+            return Ok(false);
+        }
+        let current = records
+            .entry_by_id(&binding.identity_id)?
+            .and_then(|entry| entry.binding);
+        let mut preferences = records.session_preferences(&binding.identity_id)?;
+        if current.as_ref() != Some(binding) || preferences != stored.preferences {
+            return Ok(false);
+        }
+        if let Some(remembered) = preferences.remembered.as_mut() {
+            remembered.state = Some(next);
+        }
+        records.set_session_preferences(&binding.identity_id, &preferences)
+    });
+    let cleanup = storage.close();
+    pending
+        .and_then(|changed| cleanup.map(|()| changed))
+        .map_err(|_| ())
 }

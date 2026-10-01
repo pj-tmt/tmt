@@ -1314,8 +1314,9 @@ failure; foreign keys are restored on every exit.
 The claude and codex drivers implement persistence with one document
 (`runtime::driver_state`): version 1 is `{"model": <slug>}`, and version 2 adds
 `"usage": {"tokens", "windowTokens"?, "observedAtMs"}` (the model is then
-optional). A document without usage is still written as version 1, byte for
-byte, and both versions are read. The model's only source is the `model` field
+optional). Version 3 additionally stores session-scoped main-turn activity,
+including the exact provider session and process incarnation. Documents without
+activity retain versions 1/2, byte for byte; all three versions are read. The model's only source is the `model` field
 of a starting hook event, which both providers document (see
 `runtime/fixtures/README.md`). Claude may omit it, for example after `/clear`, and
 then the previous model stays. When a provider sends no model, nothing is stored.
@@ -1323,6 +1324,32 @@ A model is never inferred from transcripts or arguments. Resume replays a stored
 model (`claude --resume <id> --model <m>`, `codex resume -m <m> <id>`, following
 each CLI's recorded usage) only when the document is readable and the slug is a
 safe single argv value. Otherwise it resumes with the provider's default.
+
+Main-turn activity (#656) comes from TMT's own UserPromptSubmit/Stop command
+hooks as installed by `tmt setup`. Claude runs these synchronously: admitted
+transitions commit inside the hook call, before it returns. Ordering relies on
+that provider contract, not a TMT sequence or receipt-time guess. Changing an
+owned entry to `async` is a user-modification edge detected by setup inspection;
+the event path does not re-read effective user/project/plugin settings. Codex
+also requires its first-party turn ID; a Stop for another turn changes no
+activity. Provider-only extras are deferred (`providers: {}`). The driver fixture
+README owns source/version provenance and the documented-contract limitation.
+
+`binding::session::activity` owns normalized transitions and clock validation;
+`runtime::driver_state` owns their opaque persistence. Model/usage retention never
+transfers activity across sessions or process incarnations. SessionStart resets
+activity; start/end events do not establish a binding. Duplicate events do not
+renew timestamps. The existing binding/preferences transaction checks the full
+snapshot, and expired handlers do not begin a write. No detached writer exists.
+
+Public `ls --json` rows expose `session.activity` with `state`, `sinceMs`,
+`lastActivityMs`, and `providers`. Working/idle describe the last admitted
+main-turn event, not all background tasks. Runtime uncertainty is unknown;
+ended requires a conclusive core process observation. Timestamps are accepted
+observation times, never inferred from silence, usage, terminal text or probes.
+The state clock has no stalled threshold. Storage-only identity output does not
+assert activity liveness. The Stop entry remains opt-in through `setup --usage`;
+without it, no end event can be recorded.
 
 Context usage (#519) is opt-in: `tmt setup --usage` adds a TMT `Stop` hook next
 to the lifecycle hooks, and `--no-usage` removes only that entry. A turn end is not
@@ -1846,6 +1873,8 @@ request.
 schema, connection or alternate final-submission path. Input is bounded and
 validated before storage effects. A malformed receipt, a stale revision, an
 unknown identity and an uncertain transport outcome remain distinct failures.
+The [request contract](REQUEST-RESPONSE.md#talk-completion) owns talk interruption
+and retry guidance on either side of preparation.
 
 Talk preparation renders `<tmt-reply from="…">` using the same resolved
 originator's display name (explicit identity before verified caller), or
@@ -2639,8 +2668,10 @@ For shell ownership, see the [browser add-on shell](#browser-add-on-shell).
 
 The private [`remote-client`](extensions/tmt-remote/typescript/remote-client/README.md)
 TypeScript module owns decoded-value envelope, enrollment and possession signing-byte
-builders and independent exact-byte/SHA-256 fixtures. It uses standard UTF-8 and
-WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
+builders and independent exact-byte/SHA-256 fixtures. Enrollment agent references follow
+core canonical non-nil UUID syntax; remote-generated IDs remain UUIDv4, as defined
+by the client contract. Syntax validation establishes neither identity existence nor authority.
+It uses standard UTF-8 and WebCrypto SHA-256 primitives and runs byte conformance in the existing Code
 quality job: the independent Python oracle must pass before the workspace-pinned
 Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
 runtime authority or browser-shell wiring; the proposed contract remains the wire

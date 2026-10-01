@@ -61,6 +61,15 @@ changes. Add `--remove` to review removal of only unchanged TMT hooks.
 Edited/conflicting hooks or invalid JSON are left untouched. Updates report a
 recoverable settings backup; identity, notes and exchange data are never removed.
 
+`tmt ls --json` includes `session.activity`: the last reported main-turn
+`working` or `idle` state, its `sinceMs`, and `lastActivityMs`. Missing evidence
+is `unknown`; confirmed runtime exit is `ended`. The timestamp is the last
+accepted start/end event, not a heartbeat or a stalled-work judgment. These facts
+come from TMT's synchronous setup-written hooks. Editing one to run asynchronously
+breaks that source contract; setup reports the edited entry for resolution.
+The optional Stop hook below supplies end events; without it, TMT cannot record
+idle merely because the provider has gone quiet.
+
 Context usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`)
 also installs a TMT `Stop` hook. After each turn, that hook reads the token
 counts from the end of the agent's own transcript and stores them with the
