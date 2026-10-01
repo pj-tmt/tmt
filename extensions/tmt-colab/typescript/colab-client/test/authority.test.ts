@@ -4,6 +4,9 @@ import * as c from '../src/index.js';
 const v = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/authority-v1.json', import.meta.url), 'utf8'),
 );
+const ownerCases = JSON.parse(
+  readFileSync(new URL('../../../contracts/vectors/owner-member-v1.json', import.meta.url), 'utf8'),
+).cases;
 const hex = (s: string): c.Bytes => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
 const json = (value: unknown): c.Bytes => c.text(JSON.stringify(value));
 const member = JSON.parse(v.payload);
@@ -130,20 +133,22 @@ describe('browser authority ports', () => {
     await expect(
       e.verifyNext(v.space, hex(v.public), { ...g.head, hash: new Uint8Array(32) }),
     ).rejects.toThrow();
-    for (const operation of ['member.remove', 'member.role']) {
-      const value = {
-        memberId: v.device,
-        cuts: [],
-        ...(operation === 'member.role' ? { role: 'editor' } : {}),
-      };
-      await expect(
-        (await signed(operation, value, g.head)).verifyNext(v.space, hex(v.public), g.head),
-      ).rejects.toThrow();
-      const other = { ...value, memberId: v.page };
+    for (const test of ownerCases) {
+      const wire = test.envelope;
       expect(
-        (await (await signed(operation, other, g.head)).verifyNext(v.space, hex(v.public), g.head))
-          .head.revision,
-      ).toBe(2n);
+        await c.strictVerify(
+          hex(v.public),
+          c.binary(wire.signature, 64, 64),
+          c.binary(wire.statement, 1024),
+        ),
+      ).toBe(true);
+      const pending = c.statement.Envelope.fromJson(json(wire)).verifyNext(
+        v.space,
+        hex(v.public),
+        g.head,
+      );
+      if (test.accepted) expect((await pending).head.revision).toBe(2n);
+      else await expect(pending).rejects.toThrow();
     }
     const peer = (await crypto.subtle.generateKey('Ed25519', false, [
       'sign',

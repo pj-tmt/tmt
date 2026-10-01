@@ -13,6 +13,9 @@ const corpus = (await readFile(new URL('ed25519-829.jsonl', vectors), 'utf8'))
   .map(JSON.parse);
 const fixture = JSON.parse(await readFile(new URL('model-v1.json', vectors), 'utf8'));
 const authority = JSON.parse(await readFile(new URL('authority-v1.json', vectors), 'utf8'));
+const ownerCases = JSON.parse(
+  await readFile(new URL('owner-member-v1.json', vectors), 'utf8'),
+).cases;
 const fixtureEnvelope = {
   header: Buffer.from(fixture.header, 'hex').toString('base64url'),
   nonce: Buffer.alloc(12).toString('base64url'),
@@ -96,7 +99,7 @@ try {
       await page.goto(origin);
       await page.waitForFunction(() => window.client);
       const result = await page.evaluate(
-        async ({ corpus, fixture, nativeEnvelope, authority, nativeAuthority }) => {
+        async ({ corpus, fixture, nativeEnvelope, authority, nativeAuthority, ownerCases }) => {
           const c = window.client;
           const hex = (s) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
           const same = (a, b) => c.equal(a, hex(b));
@@ -110,6 +113,23 @@ try {
             c.text(JSON.stringify(authority.statement)),
           ).verifyNext(authority.space, root, null);
           assert(same(genesis.head.hash, authority.statementHash));
+          for (const test of ownerCases) {
+            const wire = test.envelope;
+            assert(
+              await c.strictVerify(
+                root,
+                c.binary(wire.signature, 64, 64),
+                c.binary(wire.statement, 1024),
+              ),
+            );
+            const envelope = c.statement.Envelope.fromJson(c.text(JSON.stringify(wire)));
+            let accepted = false;
+            try {
+              await envelope.verifyNext(authority.space, root, genesis.head);
+              accepted = true;
+            } catch {}
+            assert(accepted === test.accepted);
+          }
           let head = null;
           for (const wire of nativeAuthority.statements)
             head = (
@@ -321,7 +341,7 @@ try {
             })),
           };
         },
-        { corpus, fixture, nativeEnvelope, authority, nativeAuthority },
+        { corpus, fixture, nativeEnvelope, authority, nativeAuthority, ownerCases },
       );
       results.push({ engine: name, version: browser.version(), ...result });
     } catch (error) {
