@@ -8,10 +8,10 @@ pub mod attachment;
 pub mod caller;
 pub mod channel_context;
 pub mod lease;
-pub mod supervisor;
 pub mod queue;
 pub mod record;
 pub mod server;
+pub mod supervisor;
 pub mod transport;
 
 pub use crate::runtime::hook_protocol::encode_context;
