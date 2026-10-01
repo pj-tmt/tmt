@@ -2775,7 +2775,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-tui"
-version = "5.0.0-alpha.20"
+version = "5.0.0-alpha.22"
 dependencies = [
  "roxmltree",
 ]
