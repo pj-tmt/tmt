@@ -30,6 +30,7 @@ import {
   scopedChecks,
   selectCiAreas,
   selectNativeScope,
+  selectOfficeBrowser,
 } from '../../scripts/ci-scope.mjs';
 
 const { runPackedCommand } = await import(
@@ -835,6 +836,63 @@ esac
   });
 });
 
+describe('Office-owned browser PR selection', () => {
+  it.each([
+    'extensions/tmt-office/typescript/apps/office/src/main.tsx',
+    'extensions/tmt-office/rust/tmt-office/src/main.rs',
+    'extensions/tmt-office/contracts/world-v1.md',
+    'extensions/tmt-office/skills/tmt-office/SKILL.md',
+    'docs/office/architecture.md',
+    'typescript/test/native/office-storage.test.ts',
+  ])('selects Office-owned path %s', (file) => {
+    expect(selectOfficeBrowser([file])).toBe(true);
+    expect(selectOfficeBrowser(['rust/Cargo.lock', file])).toBe(true);
+  });
+
+  it.each([
+    '.github/workflows/office-browser.yml',
+    '.dockerignore',
+    'typescript/scripts/verify-office-emulators.mjs',
+    'extensions/tmt-office/typescript/services/office/Dockerfile',
+    'extensions/tmt-office/typescript/apps/office/e2e/native-office-fixture.ts',
+  ])('verifies browser machinery when it changes: %s', (file) => {
+    expect(selectOfficeBrowser([file])).toBe(true);
+  });
+
+  it.each([
+    '.github/components.json',
+    'typescript/package.json',
+    'typescript/pnpm-lock.yaml',
+    'typescript/pnpm-workspace.yaml',
+    'typescript/scripts/ci-scope.mjs',
+    'typescript/scripts/ci-scope.d.mts',
+    'typescript/test/tooling/ci-scope.test.ts',
+    'typescript/test/support/cli-process.ts',
+    'typescript/test/e2e/harness.ts',
+    'typescript/test/e2e/harness/fixture.ts',
+    'rust/crates/tmt-adapters/src/api.rs',
+    'rust/Cargo.lock',
+    'contracts/remote-client-v1.md',
+    'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
+    '.github/workflows/ci.yml',
+    'docs/cli-style.md',
+    'unmapped/new-file',
+    'extensions/tmt-office-other/src/main.rs',
+    'typescript/test/support-other/fixture.ts',
+    'typescript/test/e2e/harness-other/fixture.ts',
+    'typescript/test/e2e/binding.e2e.test.ts',
+    'docs/office-other/architecture.md',
+    'extensions/tmt-squad/rust/tmt-squad/src/main.rs',
+  ])('does not spend PR browser runners on non-Office path %s', (file) => {
+    expect(selectOfficeBrowser([file])).toBe(false);
+  });
+
+  it('keeps empty-diff required checks conservative without claiming an Office change', () => {
+    expect(selectOfficeBrowser([])).toBe(false);
+    expect(selectCiAreas([])).toEqual({ native: true, office: true, nativeOffice: true });
+  });
+});
+
 describe('CI diff and command integration', () => {
   it('reads actual additions, cross-owner renames and deletions with whitespace-safe paths', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-'));
@@ -964,6 +1022,7 @@ describe('CI diff and command integration', () => {
         native: 'true',
         office: 'false',
         native_office: 'true',
+        office_browser: 'false',
         native_scope: 'full',
         scoped_native_tests: '',
       });
@@ -994,6 +1053,7 @@ describe('CI diff and command integration', () => {
         native: 'true',
         office: 'false',
         native_office: 'false',
+        office_browser: 'false',
         native_scope: 'squad',
         scoped_native_tests:
           'squad.test.ts extension-install.test.ts extension-upgrade-proof.test.ts',
@@ -1012,6 +1072,24 @@ describe('CI diff and command integration', () => {
       expect(remoteLog.text()).toContain(
         '| tmt-remote | remote-rust | native, office, native_office |'
       );
+      const officePath = path.join(root, 'docs/office/fixture.md');
+      mkdirSync(path.dirname(officePath), { recursive: true });
+      writeFileSync(officePath, 'Office fixture\n');
+      const officeHead = commit();
+      const browserSelected = (baseHead: string, nextHead: string) => {
+        const output = capture();
+        runCiScope([baseHead, nextHead], { cwd: root, stdout: output, stderr: capture() });
+        return outputs(output.text()).office_browser;
+      };
+      expect(browserSelected(remoteHead, officeHead)).toBe('true');
+      renameSync(officePath, path.join(root, 'docs/moved.md'));
+      const movedHead = commit();
+      expect(browserSelected(officeHead, movedHead)).toBe('true');
+      writeFileSync(officePath, 'Office fixture\n');
+      const restoredHead = commit();
+      rmSync(officePath);
+      const deletedHead = commit();
+      expect(browserSelected(restoredHead, deletedHead)).toBe('true');
 
       expect(() => runCiScope(['only-one'], { cwd: root, stdout, stderr })).toThrow(
         'exact base and head'
@@ -1508,7 +1586,9 @@ describe('required CI gate', () => {
     }
     // The selector decides the emulator partition of a pull request.
     expect(job(browser, 'office-emulator')).toContain('needs: [changes, image]');
-    expect(job(browser, 'office-emulator')).toContain("needs.changes.outputs.office == 'true'");
+    expect(job(browser, 'office-emulator')).toContain(
+      "needs.changes.outputs.office_browser == 'true'"
+    );
   });
 
   // #424 and #574: the native Office shards and the local Office partitions fail on most runs, so
@@ -1551,16 +1631,20 @@ describe('required CI gate', () => {
     // `false` for a scheduled or dispatched run.
     const changes = job('changes');
     expect(changes).not.toMatch(/^ {4}if:/m);
-    expect(changes).toContain("office: ${{ steps.scope.outputs.office || 'false' }}");
+    expect(changes).toContain(
+      "office_browser: ${{ steps.scope.outputs.office_browser || 'false' }}"
+    );
     expect(changes.match(/^ {6}(?:- )?(?:name: [^\n]+\n {8})?if: /gm)).toHaveLength(3);
     expect(changes.match(/if: github\.event_name == 'pull_request'/g)).toHaveLength(3);
 
     // The job-level conditions are exactly these: the emulator partition follows the selection,
-    // the image is built for it or for the paused partitions, and those skip pull requests.
+    // weekly/manual runs include all partitions, while paused partitions still skip PRs.
     const condition = (name: string) => /^ {4}if: (.*)$/m.exec(job(name))?.[1];
-    expect(condition('office-emulator')).toBe("needs.changes.outputs.office == 'true'");
+    expect(condition('office-emulator')).toBe(
+      "github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'"
+    );
     expect(condition('image')).toBe(
-      "github.event_name != 'pull_request' || needs.changes.outputs.office == 'true'"
+      "github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'"
     );
     expect(condition('office-local')).toBe("github.event_name != 'pull_request'");
     expect(condition('native-office-browser')).toBe("github.event_name != 'pull_request'");

@@ -611,6 +611,16 @@ push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, we
 aggregate validates these workers on seeding runs too; the outer merge gates do
 not run. A seeding run has no diff to select from, so it takes the full native scope.
 
+The advisory Office browser workflow has a separate ownership-based PR flag,
+`office_browser`: Office-owned component paths, `docs/office/**` and the browser
+verification machinery select its emulator/image work. The selector owns the
+browser-specific workflow/emulator/context-policy exception so that machinery
+exercises itself. Shared dependency/selector/generic fixture changes, ordinary
+core product dependencies and unknown paths do not select
+browser PR work while Office is parked. Scheduled/manual runs cover all twelve
+partitions, including the emulator; the existing native/local PR pauses remain.
+Required CI keeps its conservative consumer selection and unchanged gates.
+
 The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
 generates `release-please-config.json` from the map (one release-please package per
 component root, minus its excludes), the Cargo workspace (which crates declare their own
