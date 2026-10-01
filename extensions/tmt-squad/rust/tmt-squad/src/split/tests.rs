@@ -167,7 +167,10 @@ fn folded_siblings_redistribute_percentages_and_grow_shares_in_both_directions()
                 r.height
             }
         };
-        assert_eq!(extent(areas[0].1), extent(areas[2].1));
+        assert!(extent(areas[0].1).abs_diff(extent(areas[2].1)) <= 1);
+        if direction == Direction::LeftRight {
+            assert_eq!(areas[1].1.x, areas[0].1.right() + 1);
+        }
         assert_eq!(
             extent(areas[1].1),
             if direction == Direction::LeftRight {
@@ -197,7 +200,7 @@ fn folded_subtree_shrinks_and_tiny_rectangles_never_overlap_or_escape() {
     let tree=parse(r#"{ direction = "left-right", panes = ["rows", { direction = "top-bottom", panes = ["detail", "notes", "replies"] }] }"#).unwrap();
     let right = BTreeSet::from([Pane::Detail, Pane::Notes, Pane::Replies]);
     let areas = tree.solve(Rect::new(0, 0, 100, 20), &right);
-    assert_eq!(areas[0].1.width, 91);
+    assert_eq!(areas[0].1.width, 90);
     assert_eq!(areas[1].1.x, 91);
     assert_eq!(
         areas.iter().skip(1).map(|(_, r)| r.y).collect::<Vec<_>>(),

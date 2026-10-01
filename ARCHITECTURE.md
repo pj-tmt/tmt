@@ -2735,7 +2735,7 @@ through unchanged refreshes and cached switches, resetting them on changed board
 configuration, and dropping removed tabs. Restarting uses config again. The
 existing `action` parser/dispatcher owns `toggle <pane>` (`d` defaults to detail).
 Each render records the visible title hit regions; a left press toggles before
-row dispatch, without changing selection or row double-click history. Folded
+row dispatch, without selecting a row or contributing to row double-click history. Folded
 bodies produce no row/scroll hits. Collapsing focus advances to the next expanded
 pane; with every pane folded there is no body focus. Expanding from that state
 focuses the expanded pane. The notes action expands notes before focusing it.

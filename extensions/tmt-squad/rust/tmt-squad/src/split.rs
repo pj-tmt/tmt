@@ -69,7 +69,8 @@ impl Split {
                     .collect::<Option<Vec<_>>>()?;
                 Some(match direction {
                     Direction::LeftRight => (
-                        sizes.iter().map(|(w, _)| *w).sum(),
+                        sizes.iter().map(|(w, _)| *w).sum::<u16>()
+                            + sizes.len().saturating_sub(1) as u16,
                         sizes.iter().map(|(_, h)| *h).max().unwrap_or(0),
                     ),
                     Direction::TopBottom => (
@@ -127,8 +128,17 @@ impl Split {
             let mut remaining = length;
             let fixed: Vec<_> = folded
                 .iter()
-                .map(|size| {
-                    let wanted = size.map_or(0, |(w, h)| if horizontal { w } else { h });
+                .enumerate()
+                .map(|(index, size)| {
+                    // A horizontal folded subtree has one blank cell before its
+                    // title, separating it from an adjacent expanded border.
+                    let wanted = size.map_or(0, |(w, h)| {
+                        if horizontal {
+                            w + u16::from(index > 0)
+                        } else {
+                            h
+                        }
+                    });
                     let given = wanted.min(remaining);
                     remaining -= given;
                     given
@@ -191,7 +201,8 @@ impl Split {
             fixed
                 .iter()
                 .zip(&folded)
-                .map(|(fixed, folded)| {
+                .enumerate()
+                .map(|(index, (fixed, folded))| {
                     let length = if folded.is_some() {
                         *fixed
                     } else {
@@ -199,10 +210,11 @@ impl Split {
                             .next()
                             .map_or(0, |rect| if horizontal { rect.width } else { rect.height })
                     };
+                    let gap = u16::from(horizontal && index > 0 && folded.is_some() && length > 0);
                     let rect = if horizontal {
                         Rect {
-                            x: area.x + offset,
-                            width: length,
+                            x: area.x + offset + gap,
+                            width: length - gap,
                             ..area
                         }
                     } else {

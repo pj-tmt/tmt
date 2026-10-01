@@ -2964,6 +2964,9 @@ columns = [{ name = "member", width = "30%" },
                 assert_eq!(hit.area.height, 1);
                 if direction == Direction::LeftRight {
                     assert_eq!(hit.area.x, 72);
+                    let title = &folded[hit.area.y as usize];
+                    assert_eq!(title.chars().nth(hit.area.x as usize - 1), Some(' '));
+                    assert_eq!(title.chars().nth(hit.area.x as usize - 2), Some('┐'));
                 } else {
                     assert_eq!(hit.area.y, 22 - 1);
                 }
@@ -3018,7 +3021,11 @@ columns = [{ name = "member", width = "30%" },
         assert!(!screen.iter().any(|line| line.contains("SECRET")));
         fold(&mut app, Pane::Rows);
         let screen = draw(&app, 100, 23);
-        assert!(screen.iter().any(|line| line.starts_with("▸ rows▸ detail")));
+        assert!(
+            screen
+                .iter()
+                .any(|line| line.starts_with("▸ rows ▸ detail"))
+        );
         assert!(app.hits.borrow().is_empty());
         assert_eq!(app.focused_pane(), None);
         for (w, h) in [(20, 9), (10, 6), (3, 4), (1, 1), (0, 0)] {
