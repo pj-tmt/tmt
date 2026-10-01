@@ -608,7 +608,12 @@ version, which path dependencies a component links, which crates have a `Cargo.l
 entry, which files are tracked) and `native-release-policy.mjs`, the one owner of tags and publication flags. Its
 `readWorkspace()` exposes Cargo-resolved crate versions through bounded, offline metadata; native
 CLI version expectations reuse that reader once per suite instead of parsing TOML separately. A
-`Cargo.lock` line is updated by whichever component declares that crate's version.
+`Cargo.lock` line is updated by whichever component declares that crate's version: a crate
+that inherits the workspace version is declared by the owner of `rust/Cargo.toml`, even when
+a private `release: false` component owns the crate, because the next locked build fails
+when that release leaves its entry behind. Office is parked this way: it owns its files and
+CI scope but has no release-please package, manifest entry or release run, and its binary
+opts out of cargo-dist with `dist = false`.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
@@ -645,8 +650,9 @@ are refused unchanged before preview, menu persistence or intent freezing,
 including restored captures and intents.
 The popup freezes the reviewed agent UUID, message and operation UUID before
 calling the client. Its origin-owned IndexedDB retains one frozen intent and
-menu capture; restoration retains intent without sending. Explicit status
-recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
+menu capture; restoration retains intent without sending. The shell exports journal schema
+and key constants; IndexedDB ownership and worker-readiness fallback helpers are test-only.
+Explicit status recovery never sends. Held operations have no request ID. Explicit retry keeps the same ID and bytes;
 starting another message does not cancel submitted work. Replies render as text.
 The stub's status transitions are UI evidence, never server security acceptance.
 
@@ -1721,7 +1727,12 @@ show` to find its own file; and at startup, only when stdout or stderr is a term
 set `theme.base`, `tmt` sets the process theme once
 (`tmt_cli_style::theme::configure`), which `stream::stdout` and
 `stream::stderr` apply at the stream's color depth. A missing or invalid theme
-leaves every command on the terminal's own 16 colors.
+leaves every command on the terminal's own 16 colors. The Squad board reads the
+same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
+(`look`), defaulting to `tmt`; a bad global theme is a notice on the board, a
+bad squad theme a `squad.toml` error. Only `tmt-cli-style` names colors: the
+native architecture test (`colors`) rejects color literals in other production
+code, the Rust extensions included.
 
 `json_document` owns editable config/tmux metadata number compatibility:
 IEEE-754 values with non-finite opaque values serialized as null. Known invalid
@@ -2293,7 +2304,25 @@ through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
 
 Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
-squads and removal clears exactly one namespace. `ls` (alias `status`) joins
+squads and removal clears exactly one namespace. Leadership is the reserved
+identity metadata key `squad.<name>.lead.marker` (`true` or `false`), outside the
+user field/column grammar; `role` and `lead` remain ordinary free-text fields.
+The roster parses that key into `Member::lead_marker` and omits it from public
+`fields`, so field enumeration and copy/provider/column consumers never see it.
+`Member::is_lead` reads that value, falling back to `role == "lead"` only for an
+unconverted member. Before applying `set` pairs, the membership owner records
+a marker only when a role write would change that legacy-derived leadership.
+Conversion is per member because sequential core writes can fail partway through
+a squad-wide conversion. New additions need no marker unless their existing
+metadata would make them lead; in that case `add` writes `false` before joining.
+`squad lead` preflights the core metadata capacity for every required marker
+before any write, records `true` before joining the new lead, then sets previous
+leads to `false`, preserving all role text. A concurrent metadata write after
+preflight can still split this sequence; it is not a transaction. Removal clears the reserved key with the
+rest of that squad's namespace. A required new marker at the identity metadata
+capacity limit returns the existing core error before the role pairs or join,
+rather than silently changing leadership. Reads never convert state.
+`ls` (alias `status`) joins
 one `rooms.roster` snapshot with `ls --room` presence. It always returns one
 `sections` shape: without user-defined sections, a single untitled section.
 User-defined sections (`[[squad.<name>.section]]`: title, filter, sort) replace
@@ -2450,7 +2479,7 @@ drawn there. `board::scroll` is the one scroll owner: every pane hands its
 lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
-under the pointer. Panes keep no scroll state of their own; the rows pane only
+under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
 asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
@@ -2617,13 +2646,13 @@ third-party notices (including Vite's bundled frontend inventory for Office), an
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
-The release workflow remains a product-selected preparation and verification
+The release workflow is a product-selected preparation, verification and publication
 workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
 in the release skill covers the pipeline publishing an alpha draft that passes every gate, and
 nothing else. `native-release.yml` is the per-product
 run (one queued concurrency group per product) and calls `native-release-bundle.yml`,
-the build, assemble and verify pipeline, once per draft release that lacks a verified
-bundle; the state lives on the draft itself (`release-publication.json` marks a complete
+the build, assemble, verify and publish pipeline, once per draft release that lacks a verified
+bundle or is complete and waits for its publication; the state lives on the draft itself (`release-publication.json` marks a complete
 bundle, `verification-failed.json` parks a failed draft), so a replaced or cancelled run
 loses nothing and a known-bad commit is not rebuilt. `release.yml` runs release-please
 (the CLI pinned in `.github/release-please`, configured by the generated
@@ -2639,10 +2668,16 @@ Until they exist every push is a dry run that opens, merges, creates and starts 
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
 assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
-attached the pipeline evaluates the publication gates (commit, immutability, monotonic,
-migration, upgrade) in write-token jobs that run `main`'s code and only read the release
-commit's data; a failed gate leaves `publication-held.json` on the draft, and nothing
-publishes a draft yet. CLI, Office and Squad runs share the four-target cargo-dist build and
+attached the pipeline evaluates the publication gates (channel, commit, immutability,
+monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release
+commit's data; a failed gate leaves `publication-held.json` on the draft. A draft that
+passes them is published by `typescript/scripts/release-publish.mjs` in a write-token job on
+`main`'s code (it reads the draft again and refuses a version that is not an alpha, a
+component with `release: false`, a draft without the bundle and one with a hold or failure
+marker, and the planner leaves the drafts of such a component alone; one `gh release edit` applies the product policy's explicit draft,
+prerelease and latest flags), and a job without write access to contents reads the release back: public, immutable,
+the policy's flags, the tag on the release commit and GitHub's attestation for the release and
+every asset. A failed check opens an issue and fails the run; nothing is rolled back. CLI, Office and Squad runs share the four-target cargo-dist build and
 archive verifier, while keeping product-qualified bundles, independent versions and separate
 immutable tags.
 Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill

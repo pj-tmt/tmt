@@ -169,17 +169,17 @@ impl Layout {
     fn state_colors(self) -> &'static [(&'static str, &'static str)] {
         match self {
             Self::Crew => &[
-                ("working", "green"),
+                ("working", "working"),
                 ("idle", "dim"),
-                ("blocked", "amber"),
-                ("review", "cyan"),
-                ("testing", "blue"),
+                ("blocked", "blocked"),
+                ("review", "review"),
+                ("testing", "accent"),
                 ("hold", "dim"),
             ],
             Self::PrQueue => &[
                 ("preparing", "dim"),
-                ("ready", "green"),
-                ("sent", "cyan"),
+                ("ready", "working"),
+                ("sent", "review"),
                 ("merged", "dim"),
             ],
             Self::Minimal => &[],
@@ -257,8 +257,8 @@ fn tab_list(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
     Ok(keys)
 }
 
-/// `[tabs.colors]`: amber for `waiting` (the ◆ color) and red for `blocked`
-/// by default.
+/// `[tabs.colors]`: the `waiting` and `blocked` tokens by default; any
+/// token, or an older color name, may replace them.
 fn tab_colors(item: &Item) -> Result<TabColors, SquadError> {
     let mut colors = TabColors::default();
     let table = item
@@ -276,11 +276,11 @@ fn tab_colors(item: &Item) -> Result<TabColors, SquadError> {
         };
         *slot = value
             .as_str()
-            .filter(|color| COLORS.contains(color))
+            .filter(|color| crate::look::known(color))
             .ok_or_else(|| {
                 invalid(format!(
-                    "`tabs.colors.{key}` must be one of {}.",
-                    COLORS.join(", ")
+                    "`tabs.colors.{key}` must be {}.",
+                    crate::look::names()
                 ))
             })?
             .into();
@@ -298,16 +298,11 @@ pub struct TabColors {
 impl Default for TabColors {
     fn default() -> Self {
         Self {
-            waiting: "amber".into(),
-            blocked: "red".into(),
+            waiting: "waiting".into(),
+            blocked: "blocked".into(),
         }
     }
 }
-
-/// Colors a user may name; the board maps them onto terminal colors.
-pub const COLORS: &[&str] = &[
-    "default", "dim", "red", "amber", "green", "cyan", "blue", "magenta",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Pane {
@@ -526,18 +521,54 @@ pub struct Config {
     path: PathBuf,
     original: Option<Vec<u8>>,
     document: DocumentMut,
+    /// The global `theme` as `tmt config show` reports it, as written;
+    /// empty when it names none, or for a file read on its own.
+    global_theme: Vec<(String, String)>,
+    /// Why the global theme is not used: `config show`'s `themeError`.
+    theme_error: Option<String>,
 }
 
 impl Config {
     /// The file lives next to the global config that `tmt config show` reports,
     /// so TMT alone owns path discovery. A missing file is an empty document.
     pub fn load(core: &Core) -> Result<Self, SquadError> {
-        Self::read(Self::locate(core)?)
+        let shown = core.json(&["config", "show"])?;
+        let mut config = Self::read(Self::squad_file(&shown)?)?;
+        config.global_theme(&shown);
+        Ok(config)
+    }
+
+    /// Takes the global theme, and why it is not used, from `config show`.
+    fn global_theme(&mut self, shown: &serde_json::Value) {
+        self.global_theme = shown["resolved"]["theme"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
+            .collect();
+        self.theme_error = shown["themeError"].as_object().map(|problem| {
+            format!(
+                "{} {}",
+                problem
+                    .get("key")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("theme"),
+                problem
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .trim_end_matches('.')
+            )
+        });
     }
 
     /// Where squad.toml lives, without reading it.
     pub fn locate(core: &Core) -> Result<PathBuf, SquadError> {
-        let shown = core.json(&["config", "show"])?;
+        Self::squad_file(&core.json(&["config", "show"])?)
+    }
+
+    /// squad.toml beside the global config `config show` reports.
+    fn squad_file(shown: &serde_json::Value) -> Result<PathBuf, SquadError> {
         let global = shown["paths"]["global"]
             .as_str()
             .ok_or_else(|| invalid("tmt config show did not report the global config path."))?;
@@ -559,6 +590,8 @@ impl Config {
             path,
             original,
             document,
+            global_theme: Vec::new(),
+            theme_error: None,
         };
         config.me()?;
         config.me_id()?;
@@ -762,6 +795,55 @@ impl Config {
 
     /// How rows are laid out: `[squad.<name>.rows]`, the older `columns`
     /// table, or the preset.
+    /// The board's theme for `squad`: TMT's global theme with the squad's
+    /// `[squad.<name>.theme]` over it (`look::theme`). A bad global theme is
+    /// not this file's mistake: the board uses the default and says why,
+    /// returned as the notice. A bad squad theme is a configuration error.
+    pub fn theme(&self, squad: &str) -> Result<(tmt_cli_style::Theme, Option<String>), SquadError> {
+        let place = format!("squad.{squad}.theme");
+        let own: Vec<(String, String)> = match self
+            .squad_table(squad)?
+            .and_then(|table| table.get("theme"))
+        {
+            None => Vec::new(),
+            Some(item) => {
+                let table = item
+                    .as_table_like()
+                    .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+                table
+                    .iter()
+                    .map(|(key, value)| {
+                        value
+                            .as_str()
+                            .map(|text| (key.to_owned(), text.to_owned()))
+                            .ok_or_else(|| invalid(format!("`{place}.{key}` must be a string.")))
+                    })
+                    .collect::<Result<_, _>>()?
+            }
+        };
+        use crate::look::Problem;
+        // A broken global theme is TMT's config, not this file's: the board
+        // keeps the squad's own theme over the default and says why.
+        let (global, notice) = match &self.theme_error {
+            Some(problem) => (&[][..], Some(problem.clone())),
+            None => (&self.global_theme[..], None),
+        };
+        let (theme, notice) = match crate::look::theme(global, &own, &place) {
+            Ok(theme) => (theme, notice),
+            Err(Problem::Global(problem)) => (
+                crate::look::theme(&[], &own, &place).map_err(|problem| match problem {
+                    Problem::Global(message) | Problem::Squad(message) => invalid(message),
+                })?,
+                Some(problem),
+            ),
+            Err(Problem::Squad(message)) => return Err(invalid(message)),
+        };
+        Ok((
+            theme,
+            notice.map(|notice| format!("{notice}; the board uses the default theme")),
+        ))
+    }
+
     /// `[squad.<name>.fields]`: the squad's field providers.
     pub fn providers(&self, squad: &str) -> Result<Vec<crate::provider::Provider>, SquadError> {
         crate::provider::read(
@@ -1041,11 +1123,11 @@ impl Config {
                         "color" => {
                             let color = value
                                 .as_str()
-                                .filter(|color| COLORS.contains(color))
+                                .filter(|color| crate::look::known(color))
                                 .ok_or_else(|| {
                                     invalid(format!(
-                                        "`{place}.{state}.color` must be one of {}.",
-                                        COLORS.join(", ")
+                                        "`{place}.{state}.color` must be {}.",
+                                        crate::look::names()
                                     ))
                                 })?;
                             colors.insert(state.into(), color.into());
@@ -1566,6 +1648,74 @@ sort = ["state", "-name"]
     }
 
     #[test]
+    fn the_board_theme_layers_the_squad_over_the_global_one() {
+        use tmt_cli_style::{Base, Role};
+        let path = temp("theme");
+        fs::write(
+            &path,
+            "[squad.product.theme]\nwaiting = \"#010203\"\n[squad.bad.theme]\nwaiting = \"orange\"\n\
+             [squad.odd]\ntheme = \"mono\"\n",
+        )
+        .unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        config.global_theme(&serde_json::json!({
+            "resolved": {"theme": {"base": "mono", "accent": "blue"}},
+            "themeError": null
+        }));
+        let (theme, notice) = config.theme("product").unwrap();
+        assert_eq!((theme.base, notice), (Base::Mono, None));
+        let (other, _) = config.theme("other").unwrap();
+        assert_ne!(
+            theme.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            other.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            "the squad's override applies to its own board only"
+        );
+        let error = |config: &Config, squad| config.theme(squad).unwrap_err().to_string();
+        assert!(
+            error(&config, "bad").contains("`squad.bad.theme.waiting`"),
+            "{}",
+            error(&config, "bad")
+        );
+        assert!(error(&config, "odd").contains("`squad.odd.theme` must be a table"));
+
+        // A broken global theme is TMT's config, not this file's: the board
+        // draws with the default theme and says why.
+        config.global_theme(&serde_json::json!({
+            "resolved": {"theme": {}},
+            "themeError": {"key": "theme.base", "message": "unknown base dark."}
+        }));
+        let (theme, notice) = config.theme("product").unwrap();
+        assert_eq!(theme.base, Base::Tmt);
+        assert_eq!(
+            notice.as_deref(),
+            Some("theme.base unknown base dark; the board uses the default theme")
+        );
+        // The same when only the theme's meaning is wrong and core reported
+        // no themeError: the global layer fails, the squad's still applies.
+        config.global_theme(&serde_json::json!({
+            "resolved": {"theme": {"base": "dark"}},
+            "themeError": null
+        }));
+        let (fallback, notice) = config.theme("product").unwrap();
+        assert_eq!(fallback.base, Base::Tmt);
+        assert_eq!(
+            fallback.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            theme.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
+            "the squad's override survives a bad global theme"
+        );
+        assert!(
+            notice
+                .as_deref()
+                .is_some_and(|notice| notice.starts_with("`theme.base`")
+                    && notice.ends_with("; the board uses the default theme")),
+            "{notice:?}"
+        );
+        // A bad squad theme stays this file's error under either global one.
+        assert!(error(&config, "bad").contains("`squad.bad.theme.waiting`"));
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn columns_and_state_colors_default_by_layout_and_override_strictly() {
         let path = temp("board");
         fs::write(
@@ -1593,7 +1743,7 @@ sort = ["state", "-name"]
         let colors = config.states("product", Layout::Crew).unwrap().colors;
         assert_eq!(colors["blocked"], "red");
         assert_eq!(colors["parked"], "dim");
-        assert_eq!(colors["working"], "green", "layout defaults remain");
+        assert_eq!(colors["working"], "working", "layout defaults remain");
         assert!(
             config
                 .states("other", Layout::Minimal)
@@ -1909,7 +2059,7 @@ sort = ["state", "-name"]
         assert_eq!(
             tabs.colors,
             TabColors {
-                waiting: "amber".into(),
+                waiting: "waiting".into(),
                 blocked: "magenta".into()
             }
         );

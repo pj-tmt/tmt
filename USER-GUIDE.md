@@ -494,12 +494,12 @@ actions wait until it arrives). Tabs keep their width, so switching never moves
 them.
 
 The first header line holds only the tabs. The selected tab is shown in
-reverse. Each tab is colored by what it needs from you: amber when a member
-waits on you (◆, or a request waiting for your answer), red when a member is
-blocked, and plain otherwise. Counts follow the name (`product ◆2 !1`), so the
+reverse. Each tab is colored by what it needs from you: `waiting` when a member
+waits on you (◆, or a request waiting for your answer), `blocked` when a member
+is blocked, and plain otherwise. Counts follow the name (`product ◆2 !1`), so the
 state never depends on color alone, and `ls --json` reports it as
 `squad.attention` (`state`, `waiting`, `blocked`). Change the colors in
-`[tabs.colors]` (`waiting = "amber"`, `blocked = "red"`; the same color names as
+`[tabs.colors]` (`waiting = "waiting"`, `blocked = "blocked"`; the same names as
 states). When there are more tabs than fit, the tab line scrolls to keep the
 current tab in view, and counts the tabs off each end (`‹ 3`, `5 ›`). Each count
 takes the color of the most pressing tab it hides. Tabs listed in
@@ -561,8 +561,8 @@ lines = [
 ]
 
 [squad.product.states]
-blocked = { color = "red", sort = 0 }   # colors: default, dim, red, amber, green,
-                                        # cyan, blue, magenta; sort 0-999 orders states
+blocked = { color = "blocked", sort = 0 }  # color: default or a theme token;
+                                          # sort 0-999 orders states
 ```
 
 A column has a `width`, or `min`/`max` and a `grow` share of what is left;
@@ -1087,6 +1087,21 @@ pipe or `--json` means no color at all, and help text keeps your terminal's
 colors. `tmt config show` lists the theme and reports a bad value by its key
 (`themeError` in `--json`) without failing; a bad theme never stops another
 command, which then keeps the default colors.
+
+Every color on the board is one of these tokens: a state's or tab's `color` in
+`squad.toml` is `default` (no color) or a token, and the older names `red`,
+`amber`, `green`, `blue`, `cyan` and `magenta` still work as `blocked`,
+`waiting`, `working`, `accent`, `link` and `review`. A squad can change the
+theme of its own board in `squad.toml`, over the global one; its `base` wins:
+
+```toml
+[squad.product.theme]
+base = "tmt-light"
+waiting = "#b8862b"
+```
+
+A mistake there is a `squad.toml` error named by its key. A bad global theme
+leaves the board on `tmt` and says so on the board's summary line.
 
 ### Optional pane badge
 
