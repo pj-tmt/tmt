@@ -546,6 +546,33 @@ impl Fixture {
 }
 
 #[test]
+fn a_new_claim_publishes_before_the_unchanged_watermark_is_due() {
+    let fixture = Fixture::new();
+    let rows = members();
+    let content = notes("one");
+    fixture.record(&rows, Some(&content), None, 1_000);
+    fixture.record(&rows, Some(&content), None, 61_000);
+    let observer = fixture.observer();
+    let path = observer.path.clone().unwrap();
+    assert_eq!(observer.document["notes"]["claimed"], false);
+    drop(observer);
+    assert_eq!(
+        fixture.claim(&rows, Some(&content), 61_001),
+        Some(Reminder {
+            members: vec![],
+            notes: true,
+        })
+    );
+    let claimed = fixture.observer().document;
+    assert_eq!(claimed["notes"]["claimed"], true);
+    assert_eq!(claimed["observedAtMs"], 61_001);
+    let bytes = fs::read(&path).unwrap();
+    assert_eq!(fixture.claim(&rows, Some(&content), 61_002), None);
+    fixture.record(&rows, Some(&content), None, 61_003);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
 fn reminder_requires_eligible_age_and_commits_each_generation_before_returning() {
     let fixture = Fixture::new();
     let mut rows = members();
