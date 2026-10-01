@@ -1,5 +1,4 @@
 {
-  ".": "5.0.0-alpha.11",
-  "extensions/tmt-office": "0.1.0-alpha.4",
-  "extensions/tmt-squad": "0.1.0-alpha.3"
+  ".": "5.0.0-alpha.18",
+  "extensions/tmt-squad": "0.1.0-alpha.5"
 }

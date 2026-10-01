@@ -200,6 +200,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     runtime: Some(super::Runtime {
         driver: || Box::new(CodexRuntime),
         lifecycle: || Box::new(CodexLifecycle),
+        channel: None,
         identify_caller: Some(identify_caller),
     }),
 };
