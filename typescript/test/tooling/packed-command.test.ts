@@ -97,6 +97,46 @@ describe('packed command verifier', () => {
     }
   );
 
+  it(
+    'names the command, the status and both output streams, which a --json CLI fills on stdout',
+    { timeout: 10_000 },
+    () => {
+      const root = createFixture();
+      try {
+        const script =
+          'process.stdout.write(\'{"error":{"message":"unrecognized subcommand squad"}}\'); process.exitCode = 2;';
+        let message = '';
+        try {
+          runNode(root, script);
+        } catch (error) {
+          message = (error as Error).message;
+        }
+        expect(message).toContain('Packed command failed:');
+        expect(message).toContain(`${process.execPath} --eval`);
+        expect(message).toContain('exited 2, expected 0');
+        expect(message).toContain('stdout: {"error":{"message":"unrecognized subcommand squad"}}');
+        expect(message).toContain('stderr: ');
+        expect(() => runNode(root, "process.stderr.write('a diagnostic\\n');")).toThrow(
+          /unexpected diagnostics: .*\na diagnostic/
+        );
+        // A long stream is cut, so the message stays readable.
+        const long = runNode(
+          root,
+          "process.stdout.write('x'.repeat(5000)); process.exitCode = 1;",
+          {
+            expectedStatus: 1,
+          }
+        );
+        expect(long).toHaveLength(5000);
+        expect(() =>
+          runNode(root, "process.stdout.write('y'.repeat(5000)); process.exitCode = 1;")
+        ).toThrow(/y{2000}\.\.\. \(5000 characters\)/);
+      } finally {
+        removeFixture(root);
+      }
+    }
+  );
+
   it('rejects a signal termination and nonempty stderr', { timeout: 10_000 }, () => {
     const root = createFixture();
     try {

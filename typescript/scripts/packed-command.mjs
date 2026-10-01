@@ -27,8 +27,24 @@ export function runPackedCommand(
     }
   }
   if (result.error) throw result.error;
-  assert.equal(result.signal, null, `Packed command terminated: ${result.signal}`);
-  assert.equal(result.status, expectedStatus, `Packed command failed: ${result.stderr}`);
-  assert.equal(result.stderr, '', 'Packed command emitted unexpected diagnostics');
+  const command = bounded([executable, ...args].join(' '), 300);
+  assert.equal(result.signal, null, `Packed command terminated: ${result.signal}: ${command}`);
+  // A CLI run with `--json` reports its error on stdout, so the failure shows both streams.
+  assert.equal(
+    result.status,
+    expectedStatus,
+    `Packed command failed: ${command} exited ${result.status}, expected ${expectedStatus}\n` +
+      `stdout: ${bounded(result.stdout)}\nstderr: ${bounded(result.stderr)}`
+  );
+  assert.equal(
+    result.stderr,
+    '',
+    `Packed command emitted unexpected diagnostics: ${command}\n${bounded(result.stderr)}`
+  );
   return result.stdout;
+}
+
+/** `text` cut to `limit` characters, so a failure message stays readable. */
+function bounded(text, limit = 2000) {
+  return text.length > limit ? `${text.slice(0, limit)}... (${text.length} characters)` : text;
 }
