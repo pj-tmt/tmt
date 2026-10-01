@@ -36,7 +36,9 @@ their declared dependencies, never root-hoisted tooling packages; Office browser
 specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
-and the Office skill sources live under `extensions/tmt-office/`. The Nx task graph orders only the Office SPA producer, embedded
+and the Office skill sources live under `extensions/tmt-office/`; the proposed
+colab contract lives under `extensions/tmt-colab/contracts/` (see the
+[colab boundary](#colab-extension-proposal)). The Nx task graph orders only the Office SPA producer, embedded
 native companion and installed-browser acceptance chain; ordinary CLI targets
 remain independent. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
@@ -2917,3 +2919,83 @@ quality job: the independent Python oracle must pass before the workspace-pinned
 Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
 runtime authority or browser-shell wiring; the proposed contract remains the wire
 and authority definition owner.
+
+## Colab extension proposal
+
+**Status: proposed, not implemented.** The local-build-only colab pilot is a
+separate extension under `extensions/tmt-colab/`. Its
+[normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md) owns
+wire/envelope bytes, membership, page state, epochs, renderer, pairing, sync,
+retention and the effect fence. The owning design on #828 supplies product/UI
+choices; #829 and #830 are bounded spike evidence, not shipped behavior. There
+is no registered colab executable, workspace package, core listener, deployment
+or release introduced by this documentation.
+
+The proposed Rust direction is `tmt-colab` → `tmt-colab-model`, `tmt-invoke`
+and `tmt-cli-style`, plus reviewed workspace dependencies. The model owns pure
+IDs, statements, canonical bytes/codecs/crypto, page/anchor values and retention
+policy; it has no filesystem, process, network, database or core access. The
+executable owns CLI composition, foreground HTTP/WebSocket door, embedded app,
+SQLite/files, keyring and bridge. It reaches core only through the absolute
+invoking `$TMT_EXECUTABLE api` and documented JSON commands, using the bounded
+invoke leaf. It must not import `tmt-core`, `tmt-adapters`, Office or Remote
+behavior crates, open core SQLite or scrape panes. Shared cryptographic code is
+extracted into a reviewed leaf only when actual consumers require it.
+
+Proposed browser packages are `typescript/colab-client` (envelopes, verified
+membership, per-writer Yjs fold and SyncBinding) and `typescript/app`
+(React/Vite trusted chrome and renderer shell), relative to the extension.
+They join the existing pnpm workspace/lockfile and repository pins when their
+implementation lands. Backend-specific Firebase/Cloudflare packages remain
+separate from model/bridge authority. Workspace/lockfile/component edits follow
+the two-lead rule; the architecture-guard row and CI-scope component land with
+first code. The separate #841 MSRV decision gates yrs adoption. Official product
+registration, packaging and release inclusion require later decisions; CLI
+release artifacts exclude the pilot.
+
+All extension state stays in `<core-reported data root>/colab/`, with 0700
+directories and 0600 files. The extension owns its database, ciphertext blobs,
+keyring and machine-local grant/bridge ledger; provider configuration and core
+state retain their existing owners. Local storage and cloud backends store
+opaque ciphertext and signed metadata; they never decode or merge Yjs and
+never establish client membership authority. Auth/Rules or server sessions admit
+ciphertext. This colab-v1 edge model is a deliberate replacement of #478
+signed-edge admission, not inherited Remote transport authority. Clients verify
+the owner log, stream/namespace and role; machine-local grants fence every agent
+effect through the public core dispatch owner.
+
+Live content folds admitted editors' authenticated streams separately from
+writer-owned discussion/intent/reply documents. The contract's epoch baseline
+resets content from one owner-produced exact Yjs update, permitting named-member
+no-history admission without wrapping old keys. Link joins disclose the current
+epoch; local/LAN public mode advances and publishes only the new epoch key.
+Neither cloud backend offers public mode in v1. Snapshots restore content under
+current authority, never grants, sharing or send state. These definitions and
+cryptographic field orders live only in the contract.
+
+Foreign-writer decoding/merging is never in an authority-holding server, bridge
+or CLI parent. Rust re-invokes `tmt-colab` as a bounded child through `tmt-invoke`
+with deadline, input/output caps and confirmed cleanup; the browser uses a
+budgeted dedicated Worker and terminates overruns. Outputs remain untrusted and
+must pass namespace/role/bounds checks before atomic apply. Panic, timeout,
+invalid output or unconfirmed cleanup rejects the update, flags its stream and
+causes no dispatch. This is crash/resource containment, not an OS sandbox or key
+isolation: child filesystem authority and same-origin Worker access remain.
+#830's hostile corpus is a C0 review input; product memory limits, durable
+checkpoint/prune receipts and containment acceptance remain L2/L4 gates.
+
+Trusted parent chrome owns source editing, effectful actions and exact Send
+confirmation. The opaque-origin frame has no bridge/signing capability; nonce-
+authorized shell scripts in static mode do not authorize page scripts. Interactive
+self-navigation can disclose page content, and nonce-shell static admission
+requires L3 attack evidence. Render IDs bind exact source digests, and anchors
+use inert canonical extraction/source mapping with detached-on-mismatch behavior,
+as defined by the contract. UI layout remains design-owned.
+
+Local acceptance is L1–L6 before Firestore then Cloudflare. The extension's
+conformance gates cover the complete three-engine strict Ed25519 corpus with
+fail-on-missing-engine behavior, new namespace/link/baseline vectors, isolated
+hostile decoding, live browser/CLI convergence, renderer attacks and causal
+core reply/recovery. Spikes' in-memory stores and happy-path crypto do not prove
+durable admission or agent effects. Developer commands are added in L2/L3;
+current DEVELOPMENT guidance must not present the proposed CLI as installed.
