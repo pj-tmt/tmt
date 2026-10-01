@@ -13,8 +13,9 @@ use std::{
 };
 
 use tmt_adapters::{
+    host::DeliveryError,
     process::{CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner},
-    tmux::{CallerEnvironment, DeliveryError, OperationOptions, Tmux, TmuxError},
+    tmux::{CallerEnvironment, OperationOptions, Tmux, TmuxError},
 };
 use tmt_core::endpoint::{
     BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence,
