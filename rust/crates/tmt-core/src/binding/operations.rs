@@ -151,11 +151,12 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
             Some(binding) => binding,
             None => {
                 // Recorded once, when the binding is made, so a reused pid
-                // can later be told from the same pane.
+                // can later be told from the same pane. A failed observation
+                // is unknown, never a failed bind.
                 let mut pane = pane.clone();
                 pane.pane_incarnation = endpoint
                     .pane_incarnation(&snapshot.server, pane.pane_pid)
-                    .map_err(BindingError::Endpoint)?;
+                    .unwrap_or(None);
                 records.insert_binding(&selected.identity, &snapshot.server, &pane)?
             }
         };

@@ -419,6 +419,32 @@ fn a_bind_records_the_observed_pane_incarnation_or_leaves_it_unknown() {
 }
 
 #[test]
+fn a_failed_pane_incarnation_observation_still_binds_with_an_unknown_start() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    endpoint.pane_mut("%1").pane_pid = 101;
+    endpoint
+        .starts
+        .insert(101, "ps-v1:Thu Oct 1 09:00:00 2026".into());
+    endpoint.incarnation_failure = true;
+
+    bind_identity(&mut storage, &mut endpoint, "%1", "Alice", false).unwrap();
+    assert_eq!(endpoint.incarnation_calls, 1);
+    assert_eq!(endpoint.publish_calls, 1, "the binding was published");
+    let identity = storage.find_identity("alice").unwrap().unwrap();
+    let binding = storage
+        .with_binding_transaction(|records| records.entry_by_id(&identity.id))
+        .unwrap()
+        .unwrap()
+        .binding
+        .unwrap();
+    assert_eq!(binding.pane_id, "%1");
+    assert_eq!(binding.pane_incarnation, None);
+    storage.close().unwrap();
+}
+
+#[test]
 fn expiry_after_publication_rolls_back_binding_without_losing_identity() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();
