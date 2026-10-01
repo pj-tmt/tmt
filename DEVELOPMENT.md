@@ -253,8 +253,8 @@ Rust checks require nonempty remote test discovery and run locked workspace test
 Clippy and builds. A parallel `Native Rust MSRV` job runs
 `cargo +"$MSRV" check --locked --workspace --all-targets` for both full and Squad
 scopes, reading `MSRV` from `workspace.package.rust-version` in `rust/Cargo.toml`.
-Rustup resolves a two-part minimum such as `1.88` to its latest patch release
-(currently `1.88.0`), rather than duplicating a patch pin in the workflow.
+Rustup resolves the manifest's two-part minimum to its latest patch release,
+rather than duplicating a patch pin in the workflow.
 It replaces the MSRV executable builds and expands Squad MSRV coverage to the
 whole workspace without changing the declared minimum. Its separate
 `native-rust-msrv` cache has one writer, the MSRV job on main; PRs only restore.

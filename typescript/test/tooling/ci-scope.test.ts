@@ -1281,7 +1281,7 @@ describe('required CI gate', () => {
     expect(native).toContain('cargo test --locked');
     expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');
     expect(native).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
-    expect(native).not.toContain('cargo +1.88.0 build');
+    expect(native).not.toMatch(/cargo \+\d/);
     expect(native).toContain('cargo build --locked -p tmt-office');
     expect(native).toContain('rust/target/debug/examples/storage-probe');
     expect(native).toContain('pnpm test:native --reporter=verbose');
@@ -1382,6 +1382,8 @@ describe('required CI gate', () => {
     );
     expect(job('native-msrv')).toContain('["workspace"]["package"]["rust-version"]');
     expect(job('native-msrv')).toContain('RUSTUP_TOOLCHAIN=%s');
+    expect(job('native-msrv')).toContain('rustup toolchain install "$MSRV" --profile minimal');
+    expect(job('native-msrv')).not.toMatch(/rustup toolchain install \d/);
     expect(job('native-msrv')).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
     // The E2E suite is two shard jobs; only the first runs for a scoped component, and
     // only the first of a full run also runs the Rust adapter tests.
