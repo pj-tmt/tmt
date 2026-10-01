@@ -265,6 +265,7 @@ fn squad_view(
     kept: &mut Kept,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let layout = config.layout(&squad.name)?;
+    let (theme, theme_notice) = config.theme(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
     let board = config.board(&squad.name, layout)?;
     let sections = config.sections(&squad.name)?;
@@ -315,6 +316,8 @@ fn squad_view(
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
         tab_colors: config.tabs()?.colors,
+        look: crate::look::Look::new(theme),
+        theme_notice,
         me: me.map(|me| me.name),
         replies,
         refresh: config.refresh(&squad.name)?,
@@ -336,6 +339,8 @@ fn leads_view(
     me: Option<crate::me::Me>,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let settings = config.tabs()?;
+    // The cross-squad tabs have no squad table: the global theme alone.
+    let (theme, theme_notice) = config.theme("")?;
     let listed = core.json(&["ls"])?;
     let all: Vec<&Squad> = squads.iter().collect();
     let documents = roster_documents(core, config, &all, me.as_ref(), Some(&listed));
@@ -352,6 +357,8 @@ fn leads_view(
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
         tab_colors: settings.colors,
+        look: crate::look::Look::new(theme),
+        theme_notice,
         me: me.map(|me| me.name),
         replies: Vec::new(),
         refresh: config.refresh(LEADS)?,
@@ -378,6 +385,8 @@ fn all_view(
     me: Option<crate::me::Me>,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let settings = config.tabs()?;
+    // The cross-squad tabs have no squad table: the global theme alone.
+    let (theme, theme_notice) = config.theme("")?;
     let all: Vec<&Squad> = squads.iter().collect();
     let documents = roster_documents(core, config, &all, me.as_ref(), None);
     let attention = tab_attention(&documents);
@@ -401,6 +410,8 @@ fn all_view(
         opener: None,
         clipboard: None,
         tab_colors: settings.colors,
+        look: crate::look::Look::new(theme),
+        theme_notice,
         me: me.map(|me| me.name),
         replies: Vec::new(),
         refresh: config.refresh(ALL)?,

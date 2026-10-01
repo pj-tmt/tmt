@@ -1721,7 +1721,12 @@ show` to find its own file; and at startup, only when stdout or stderr is a term
 set `theme.base`, `tmt` sets the process theme once
 (`tmt_cli_style::theme::configure`), which `stream::stdout` and
 `stream::stderr` apply at the stream's color depth. A missing or invalid theme
-leaves every command on the terminal's own 16 colors.
+leaves every command on the terminal's own 16 colors. The Squad board reads the
+same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
+(`look`), defaulting to `tmt`; a bad global theme is a notice on the board, a
+bad squad theme a `squad.toml` error. Only `tmt-cli-style` names colors: the
+native architecture test (`colors`) rejects color literals in other production
+code, the Rust extensions included.
 
 `json_document` owns editable config/tmux metadata number compatibility:
 IEEE-754 values with non-finite opaque values serialized as null. Known invalid
