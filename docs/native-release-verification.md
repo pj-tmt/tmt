@@ -64,7 +64,10 @@ never has to receive assets). A live run, which is only allowed on `main`, creat
 App token in that job alone, enables auto-merge (squash) on the open release pull requests,
 which merge through the normal required checks, and updates the ones that fell behind `main`
 (`strict` requires an up-to-date branch; a busy `main` can keep a release pull request behind
-until a quiet moment). A `dispatch` job then starts the per-product run above for every
+until a quiet moment). release-please runs with `always-update`, so every run also rebuilds each
+open release pull request from `main`'s current files and force-pushes its branch; that, not
+`gh pr update-branch`, is what clears a conflict (every release pull request edits the shared
+manifest, and adjacent lines conflict). A `dispatch` job then starts the per-product run above for every
 product that has a draft without a bundle. The job runs in the `release` Environment and the
 App credentials, `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`, are secrets of that
 Environment, not repository secrets, so only a run its deployment branch rule admits can read
@@ -90,10 +93,14 @@ by hand), `commit` (the release's commit is on `main` and the pull request that 
 `Code quality`, `Unit tests`, `Docker E2E` and `Native package matrix`), `immutability` (the
 repository's newest published release is immutable, which shows that the setting was on; the
 workflow token cannot read the setting itself), `monotonic` (the release is newer than every
-published release of its product), `migration` (the component's migration list, named in
-`.github/components.json`, has no more entries than at the product's last published release,
-and no commit of the release carries `!` or a `BREAKING CHANGE:` footer) and `upgrade` (the
-proof above; the first release of a product has nothing to upgrade from). A failed gate does
+published release of its product), `migration` (no commit of the release carries `!` or a
+`BREAKING CHANGE:` footer; outside the alpha channel the component's migration list, named in
+`.github/components.json`, also has no more entries than at the product's last published
+release, while an alpha publishes new entries and the gate's summary only reports them) and
+`upgrade` (the proof above; the first release of a product has nothing to upgrade from; the
+CLI proof writes one identity with the previous release and reads it with the candidate, which
+applies the candidate's pending migrations to that record only, so no publication gate exercises
+a migration of any other existing data). A failed gate does
 not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
 `gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
 The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read

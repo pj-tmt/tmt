@@ -203,6 +203,10 @@ export function generateReleasePleaseConfig({ components, workspace }) {
     // A published release cannot receive assets (immutability), so the workflow attaches and
     // verifies the bundle on the draft and publishes it afterwards.
     draft: true,
+    // release-please leaves an open release pull request alone while its notes are unchanged, and
+    // the workflow's `gh pr update-branch` cannot resolve a conflict (every release pull request
+    // edits the shared manifest). With this, each run rebuilds them from `main`'s current files.
+    'always-update': true,
     'skip-changelog': true,
     'pull-request-title-pattern': 'chore${scope}: release${component} ${version}',
     packages,

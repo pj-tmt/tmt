@@ -42,6 +42,10 @@ pub struct View {
     pub me: Option<String>,
     /// Finals to the user's squad requests, newest first (replies pane).
     pub replies: Vec<Value>,
+    /// The squad's theme at the terminal's depth: every color the board draws.
+    pub look: crate::look::Look,
+    /// Why the board uses the default theme, when the global one is wrong.
+    pub theme_notice: Option<String>,
 }
 
 /// The lead's notebook, already sanitized for display.
@@ -1043,6 +1047,15 @@ impl App {
         }
     }
 
+    /// How the board draws now: the shown squad's theme, or the default
+    /// one before the first load.
+    pub fn look(&self) -> crate::look::Look {
+        self.view.as_ref().map_or_else(
+            || crate::look::Look::new(tmt_cli_style::Theme::default()),
+            |view| view.look,
+        )
+    }
+
     pub fn selected_row(&self) -> Option<&Value> {
         self.rows().get(self.selected).map(|(_, row)| *row)
     }
@@ -1076,6 +1089,8 @@ pub(crate) mod tests {
             opener: None,
             clipboard: None,
             tab_colors: Default::default(),
+            look: Default::default(),
+            theme_notice: None,
             me: None,
             replies: Vec::new(),
         }
