@@ -1280,7 +1280,7 @@ describe('required CI gate', () => {
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
     expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');
-    expect(native).toContain('cargo +1.88.0 check --locked --workspace --all-targets');
+    expect(native).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
     expect(native).not.toContain('cargo +1.88.0 build');
     expect(native).toContain('cargo build --locked -p tmt-office');
     expect(native).toContain('rust/target/debug/examples/storage-probe');
@@ -1376,8 +1376,13 @@ describe('required CI gate', () => {
     expect(rustGate).toContain(
       'ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CHECKS_RESULT" "$MSRV_RESULT"'
     );
-    expect(job('native-msrv')).toContain('save-if: false');
-    expect(job('native-msrv')).toContain('cargo +1.88.0 check --locked --workspace --all-targets');
+    expect(job('native-msrv')).toContain('shared-key: native-rust-msrv');
+    expect(job('native-msrv')).toContain(
+      "save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}"
+    );
+    expect(job('native-msrv')).toContain('["workspace"]["package"]["rust-version"]');
+    expect(job('native-msrv')).toContain('RUSTUP_TOOLCHAIN=%s');
+    expect(job('native-msrv')).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
     // The E2E suite is two shard jobs; only the first runs for a scoped component, and
     // only the first of a full run also runs the Rust adapter tests.
     expect(job('docker-e2e-shard-1')).toContain(

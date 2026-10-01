@@ -251,8 +251,11 @@ its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, 
 Remote Rust has an explicit rule retaining full native and Office coverage; the full
 Rust checks require nonempty remote test discovery and run locked workspace tests,
 Clippy and builds. A parallel `Native Rust MSRV` job runs
-`cargo +1.88.0 check --locked --workspace --all-targets` for both full and Squad
-scopes; it replaces the MSRV executable builds without changing Rust 1.88.
+`cargo +"$MSRV" check --locked --workspace --all-targets` for both full and Squad
+scopes, reading `MSRV` from `workspace.package.rust-version` in `rust/Cargo.toml`.
+It replaces the MSRV executable builds and expands Squad MSRV coverage to the
+whole workspace without changing the declared minimum. Its separate
+`native-rust-msrv` cache has one writer, the MSRV job on main; PRs only restore.
 `Native Rust contracts` is the fail-closed aggregator of these two workers. It
 requires both to succeed, rejects missing selection, and stays skipped for scope
 `none`, preserving the outer native gate and required-check names.

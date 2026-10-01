@@ -602,8 +602,10 @@ scopes; scope `none` skips the aggregate, while missing scope fails closed.
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
-Rust checks` and the native runtime builds. The parallel MSRV check only restores.
-Pull requests only restore them; they are written by non-pull-request runs of those two jobs alone, which run on a `main`
+Rust checks` and the native runtime builds. The parallel MSRV check reads the
+minimum version from the workspace manifest and owns a separate
+`native-rust-msrv` cache, saved only on main. Pull requests only restore caches.
+The other caches are written by non-pull-request runs of those two jobs alone, which run on a `main`
 push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
 (GitHub evicts unused caches after seven days) and on manual dispatch. The Rust
 aggregate validates these workers on seeding runs too; the outer merge gates do

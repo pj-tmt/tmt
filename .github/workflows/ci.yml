@@ -220,17 +220,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Read the declared minimum Rust version
+        run: |
+          msrv="$(python3 -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["rust-version"])')"
+          printf 'MSRV=%s\nRUSTUP_TOOLCHAIN=%s\n' "$msrv" "$msrv" >> "$GITHUB_ENV"
       - name: Install the declared minimum Rust version
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install "$MSRV" --profile minimal
       - name: Restore Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: rust
-          shared-key: native-rust
-          save-if: false
+          shared-key: native-rust-msrv
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
       - name: Check all workspace targets at MSRV
         working-directory: rust
-        run: cargo +1.88.0 check --locked --workspace --all-targets
+        run: cargo +"$MSRV" check --locked --workspace --all-targets
 
   native-rust:
     name: Native Rust contracts
