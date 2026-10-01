@@ -2014,6 +2014,18 @@ Only those two places spell a driver's name. The tmt-cli architecture test
 fails on a production string literal equal to a driver name anywhere else.
 Stored harness IDs are the descriptor names, so storage is unchanged.
 
+### Codex queue transport groundwork
+
+`drivers/codex/queue` owns exact native request/receipt validation, while
+`drivers/codex/transport` owns synchronous WebSocket framing and the absolute
+I/O deadline. The only new transport dependency is adapter-local tungstenite,
+exactly pinned with default features disabled and `handshake` enabled; no TLS
+or async runtime enters core or shared ports. The architecture dependency guard
+permits it only in adapters. The [Codex channel contract](contracts/codex-channel-v1.md)
+owns limits, version qualification and receipt semantics. These modules are
+unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
+integration must be proven before user-facing activation in the later #719 slices.
+
 ### Host driver protocol
 
 Terminal hosts that TMT doesn't build in will run out of process as host
