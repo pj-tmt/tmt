@@ -1095,6 +1095,15 @@ Manual provider acceptance must use a disposable identity/window and isolated
 provider settings; installing hooks into the user's real global settings needs explicit
 consent. No test invokes setup against the user's actual provider directory.
 
+Codex channel product scenarios live in `test/e2e/codex-channel.e2e.test.ts`.
+They use the existing private E2E fixture and a model-free Rust
+`codex-channel-fixture` example, built into the E2E image only. For a local
+focused run, build both `tmt-cli` and that example; no installed provider or
+credentials are used. The tests independently check native queue receipts,
+durable replies, the shared enrollment/pane gates, and per-pane terminal writes
+with a plain-session positive control. Provider live continuity evidence is
+separate; see [the contract](contracts/codex-channel-v1.md#verification-boundaries).
+
 ## Docker E2E
 
 Run the full private tmux/caller lifecycle harness twice for lifecycle,

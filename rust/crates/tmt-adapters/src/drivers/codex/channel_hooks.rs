@@ -1,32 +1,22 @@
 //! Channel-only hook observations preserve the admitted foreground incarnation.
 //! Environment is a locator, never authority; the private record supplies proof.
 use super::{
-    CodexObservation, decode_hook,
+    CodexObservation,
+    channel_context::{BINDING_ENV, GENERATION_ENV},
+    decode_hook,
     record::{Foreground, Record, Store},
 };
 use crate::{
     process::{UnixCommandRunner, runtime::observe_runtime_process},
     runtime::lifecycle::{HostEvidence, LifecycleObservation},
 };
-use std::{
-    ffi::OsString,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use tmt_core::{
     binding::session::{
         BindingSessionState, DriverState, ProviderSessionId, RuntimeLiveness, SessionTransition,
     },
     endpoint::ProcessIncarnation,
 };
-
-pub const BINDING_ENV: &str = "TMT_CODEX_CHANNEL_BINDING";
-pub const GENERATION_ENV: &str = "TMT_CODEX_CHANNEL_GENERATION";
-pub fn environment(record: &Record) -> Vec<(OsString, OsString)> {
-    vec![
-        (BINDING_ENV.into(), record.binding_id.clone().into()),
-        (GENERATION_ENV.into(), record.generation.clone().into()),
-    ]
-}
 
 pub fn decode(payload: &[u8]) -> Option<Box<dyn LifecycleObservation>> {
     let event = decode_hook(payload)?;

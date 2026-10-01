@@ -54,7 +54,7 @@ impl Lease {
             &options,
             &generation,
             deadline,
-            &super::channel_hooks::environment(&lease.record),
+            &super::channel_context::environment(&lease.record),
         ))?;
         let server = lease.server.as_ref().expect("owned server just assigned");
         let mut client = Client::connect(&server.endpoint, deadline).map_err(|_| invalid())?;
@@ -69,7 +69,7 @@ impl Lease {
         lease.command = options
             .foreground(command, &server.endpoint.url(), &session)
             .map_err(|_| invalid())?;
-        lease.environment = super::channel_hooks::environment(&lease.record);
+        lease.environment = super::channel_context::environment(&lease.record);
         lease
             .environment
             .push((TOKEN_ENV.into(), server.capability().into()));

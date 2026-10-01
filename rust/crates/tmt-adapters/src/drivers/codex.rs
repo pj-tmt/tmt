@@ -7,6 +7,7 @@
 pub mod attachment;
 pub mod caller;
 pub mod channel;
+pub mod channel_context;
 pub mod channel_hooks;
 pub mod delivery;
 pub mod lease;
@@ -208,7 +209,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     runtime: Some(super::Runtime {
         driver: || Box::new(CodexRuntime),
         lifecycle: || Box::new(CodexLifecycle),
-        channel: None,
+        channel: Some(|| Box::new(channel::CodexChannel)),
         identify_caller: Some(identify_caller),
     }),
 };

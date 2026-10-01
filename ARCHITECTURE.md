@@ -2050,14 +2050,20 @@ Codex owns folder-trust onboarding: its user answers the TUI prompt; the channel
 never approves it or writes trust configuration (see the channel contract).
 
 `drivers/codex/lease`, `supervisor`, `delivery` and `channel_hooks` compose the
-final consumer (#739, integration in progress). The supervisor owns the original
+native consumer (#739). The supervisor owns the original
 endpoint process handle; launcher EOF requests endpoint cleanup but preserves
 the provider enrollment. Explicit withdrawal is reserved for no-child or
 confirmed foreground reap. Provider records retain the pre-spawn pane address
 and Unknown/Known foreground state; app-server readiness is never foreground
 lifetime proof. The channel contract owns takeover, pruning and manual recovery
-limits. Shared launcher/port changes remain with their channel owner; Codex
-registration stays disabled until integrated routing and live continuity pass.
+limits. Codex registers through the shared `Runtime.channel` port; native enrollment
+selects the one terminal route before provider preference. Both the identity and
+raw-pane paste boundaries query provider evidence, including reply notifications.
+The shared launcher owns admission and confirmed-only withdrawal; the provider
+owns its endpoint, record, foreground planning and one-shot queue transport.
+The contract distinguishes accepted provider attachment evidence from the real
+CLI/router tests. Permission options configure the owned thread and server,
+not remote resume; unsupported forms fail in enroll before any spawn.
 
 ### Provider channels
 

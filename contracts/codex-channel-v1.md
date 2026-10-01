@@ -1,10 +1,11 @@
 # Codex native channel contract
 
-Status: receipt/transport groundwork in #736, under #719 and #329. The Codex
-runtime does not register or invoke this channel yet. Private record groundwork
-is added in #737 and endpoint/attachment groundwork in #738. Lease and consumer
-integration is in progress in #739; no user-facing native delivery
-or live foreground continuity is claimed here.
+Status: native Codex channel implementation in #739, following #736–#738 under
+#719/#329. The final activation slice registers `tmt run --channel codex` against
+the shared channel routing and launcher ports. Queue acceptance is a delivery
+receipt; durable request completion remains separate. The pinned 0.159.3
+attachment/active-turn proof is accepted; product routing and lifecycle gates
+are independent evidence described below.
 
 ## Delivery receipt
 
@@ -43,7 +44,7 @@ disabled and only `handshake` enabled. No TLS, async runtime or handwritten
 WebSocket/SHA1 implementation is added. Core and shared driver ports do not
 reference this dependency.
 
-The future enrollment owner must establish ownership of the exact endpoint
+The enrollment owner establishes ownership of the exact endpoint
 process and capability before constructing a client. A loopback address or an
 arbitrary endpoint's self-report is insufficient authority. The client accepts
 only explicit loopback IPv4/nonzero ports and a bounded capability token, sent
@@ -52,8 +53,8 @@ the leading provider build version from `userAgent`, not the trailing client
 version. The bounded supported set is 0.159.2 and 0.159.3; other builds fail closed.
 The initialize format is source-backed at the pinned revision above, in
 `request_processors/initialize_processor.rs` and
-`login/src/auth/default_client.rs`. Patch compatibility still requires the final
-slice's real-provider verification; the allowlist alone is not runtime evidence.
+`login/src/auth/default_client.rs`. The accepted 0.159.3 attachment proof qualifies the remote foreground behavior
+for that build; the allowlist alone is not runtime evidence for future versions.
 
 One client connection has one absolute deadline, recalculated before every
 underlying read and write, including library-internal handshake/fragment reads.
@@ -170,7 +171,7 @@ provider turn. The final lease/consumer slice must establish that continuity,
 thread admission, channel foreground identity, and terminal routing for talk and
 reply notifications before user-facing opt-in is enabled.
 
-## Final consumer lifecycle (integration in progress)
+## Consumer lifecycle
 
 The provider record persists the claimed identity and pane address before spawn:
 host/server UUID, socket path, server PID/start, pane ID and pane PID. The launcher
@@ -209,5 +210,26 @@ endpoint and thread, qualifies the owned endpoint once, and consumes one queue
 attempt. Channel-originated hooks preserve the admitted foreground incarnation;
 ordinary non-channel resume remains separate. Mock supervisor tests exercise
 startup failure, launcher SIGKILL with a surviving foreground, the publication
-window and explicit confirmed withdrawal. Full shared-router zero-paste and
-real same-live-turn attachment acceptance are still required before registration.
+window and explicit confirmed withdrawal. The registered driver participates in the shared `enrolled_harness` route selection
+and `enrolled_in_pane` guards; it does not create a second paste policy. This
+includes originator reply notifications, identity sends and identity-less panes.
+
+## Verification boundaries
+
+The accepted [0.159.3 proof](https://github.com/wkh237/tmt/issues/739#issuecomment-5925294420)
+used a fresh 128-bit nonce rendered by the foreground while the native same-thread,
+same-turn synthetic barrier remained held, plus two exact owned endpoint
+connections. One barrier release was followed by successful native completion
+of that turn and a separately rendered assistant reply. Cleanup and shared-file
+hash preservation were independently checked. Retained native events are selected
+evidence, not a complete stream. No product-router claim is inferred from this
+provider proof.
+
+`codex-channel.e2e.test.ts` uses the real CLI, shared delivery path, private tmux
+and the deterministic `codex-channel-fixture` peer. Native queue frames, durable
+request/response rows and per-pane tmux write traces are separate oracles. A
+never-enrolled plain session is the positive paste control. The fixture is an
+E2E-only Rust example using the existing WebSocket library, never a provider,
+model, release artifact or production fallback. These scenarios complement the
+native provider-local ownership tests; neither replaces the live attachment
+proof or the shared launcher's wait-error tests.
