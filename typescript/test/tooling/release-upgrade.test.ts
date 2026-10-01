@@ -563,10 +563,12 @@ describe('failureCause and combineFailures', () => {
     expect(
       failureCause(
         trace(
-          'AssertionError [ERR_ASSERTION]: Packed command failed: tmt extension install squad exited 1, expected 0\nstdout: {}'
+          'AssertionError [ERR_ASSERTION]: Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad\ncommand: x'
         )
       )
-    ).toBe('Packed command failed: tmt extension install squad exited 1, expected 0');
+    ).toBe(
+      'Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad'
+    );
   });
 
   it('says so when the log shows no error, and keeps one bounded line of printable text', () => {

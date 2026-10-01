@@ -428,7 +428,8 @@ describe('checkUpgrade', () => {
   });
 
   it('puts the cause the failed hosts name in front of the run, and still cites the run without one', () => {
-    const cause = 'Packed command failed: tmt extension install squad exited 1, expected 0';
+    const cause =
+      'Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad';
     expect(
       checkUpgrade({
         result: 'failure',

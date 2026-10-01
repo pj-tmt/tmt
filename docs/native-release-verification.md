@@ -181,10 +181,11 @@ disk, a repeat is a no-op, a downgrade is refused and no CLI link is created. Ex
 have no install command of their own under `tmt <extension>`; the proof must use the surface
 a user's install runs. The first release of a product has nothing to upgrade from and says
 so. A commit that predates these scripts fails the proof with that message; prove it by
-hand as below. A failed host keeps its log as an artifact, and the `conclude` job outputs, as
-the workflow's `reason`, the first error of each failing host on one bounded line (it reads the
-logs as data, because the release commit's own scripts wrote them); the `upgrade` hold marker
-carries that reason with the run URL.
+hand as below. A verifier command that fails says, on one line, which command failed, how it
+ended and the first thing it said. A failed host keeps its log as an artifact, and the
+`conclude` job outputs, as the workflow's `reason`, the first error of each failing host on one
+bounded line (it reads the logs as data, because the release commit's own scripts wrote them);
+the `upgrade` hold marker carries that reason with the run URL.
 
 The automated proof does not run `tmt upgrade` or a public installer: the candidate has no
 published release for `tmt upgrade` to find, and production has no test endpoint. By hand,
