@@ -91,9 +91,12 @@ snapshot and its own live incarnation through the existing launcher admission
 authority. This caller guard is a prerequisite, not implemented by this record
 module and not permission to write a second binding registry. Under the record
 lock, creation rechecks that new owner is alive, and admits takeover only when
-the prior launch owner is conclusively gone or equals the new owner. A different
-live/unknown owner, unreadable record, or unverifiable new owner is terminal and
-leaves prior state untouched. Old-owner absence alone never grants new authority.
+every prior recorded process is conclusively gone. A known foreground is
+compared by PID and start identity. An Unknown foreground permits takeover only
+for an explicit relaunch of the same binding with the same persisted pane
+address; a historical ready server must also be conclusively gone. Any live or
+unverifiable recorded process, unreadable record, or unverifiable new owner is
+terminal and leaves prior state untouched. Old-owner absence alone never grants new authority.
 The final launcher/lease slice must exercise this guard, later admission failure
 and withdrawal together before activation; record unit tests alone do not prove
 full crash recovery or cleanup of a former endpoint process.
@@ -133,9 +136,52 @@ subcommands and implicit/default remote selection. The foreground command uses
 exact supplied provider thread. Planning checks endpoint shape; ownership comes
 from the enrollment resource, not from a user-supplied endpoint string.
 
+If Codex asks to trust the launch folder, the user must answer in its TUI before
+attachment can proceed; the channel never answers that prompt or changes trust
+configuration, and accepted queue input may wait for attachment.
+
+Channel permission options are owned by the new thread, not its attached TUI.
+`-s`/`--sandbox` accepts `read-only`, `workspace-write` or `danger-full-access`;
+`-a`/`--ask-for-approval` accepts `untrusted`, `on-request` or `never`. They set
+`thread/start.sandbox` and `thread/start.approvalPolicy`, respectively, and the
+same app-server defaults; they are never passed to `resume --remote`. With no
+explicit flags, thread creation leaves these fields absent and preserves the
+provider defaults. Unsupported values are refused before any process starts.
+
+Generic `-c`/`--config` permission roots (`approval_policy`, `approvals_reviewer`,
+`sandbox_mode`, `default_permissions`, `permissions`, `network`, and
+`sandbox_workspace_write`) are refused; use the supported typed flags where
+applicable. Other bare dotted config keys retain their server and foreground
+routing. Quoted or ambiguous config keys are refused rather than allowing a
+permission override to evade classification. Refusal is `UnsupportedArguments`
+in enrollment, before provider/supervisor spawn or enrollment record creation;
+the launcher's binding may already exist. No argument is silently discarded.
+
+This mapping follows Codex 0.159.3 commit
+[01fc69f4026735edfdf6789820549727a4867b11](https://github.com/openai/codex/blob/01fc69f4026735edfdf6789820549727a4867b11/codex-rs/app-server/src/request_processors/thread_processor.rs#L1670):
+the thread-start processor maps typed sandbox and approval fields into its
+configuration. The TUI's `app/config_persistence.rs` permission detector and
+`app/startup.rs` remote-resume check reject foreground permission overrides.
+
 Tests use owned shell stand-ins and temporary files to observe cwd, process exit,
 startup timeout, private capability and replacement-preserving cleanup. They do
 not invoke a model or prove that a real foreground client preserves an active
 provider turn. The final lease/consumer slice must establish that continuity,
 thread admission, channel foreground identity, and terminal routing for talk and
 reply notifications before user-facing opt-in is enabled.
+
+## Foreground and cleanup foundations (#785)
+
+The private record stores its claimed pane address before any foreground spawn.
+Unknown foreground state stays terminal for that exact pane and is never pruned;
+server disappearance is not evidence that an unconfirmed foreground ended. An
+explicit same-binding, same-pane relaunch may take over Unknown only after all
+recorded processes are conclusively gone. A known foreground must also be gone.
+Every mutation compares the exact lease under the existing lock. Records without
+attribution require named recovery and cannot establish authority for a pane.
+
+Failed endpoint startup returns both the startup error and cleanup certainty.
+When cleanup cannot be confirmed, created files are retained. Later lease code
+must preserve enrollment as well; this foundation does not yet compose that owner
+or register a channel. Native tests prove record transitions and permission/cwd
+planning, not user-facing delivery or launcher-crash cleanup.

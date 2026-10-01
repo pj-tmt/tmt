@@ -1101,6 +1101,12 @@ Manual provider acceptance must use a disposable identity/window and isolated
 provider settings; installing hooks into the user's real global settings needs explicit
 consent. No test invokes setup against the user's actual provider directory.
 
+Codex channel foundation tests are provider-local (`drivers::codex` in the
+adapter library): record foreground/takeover/withdraw, startup cleanup certainty
+and permission/cwd planning. They use disposable state and owned stand-ins; they
+do not establish live-provider or shared product-routing acceptance. See the
+[contract](contracts/codex-channel-v1.md).
+
 ## Docker E2E
 
 Run the full private tmux/caller lifecycle harness twice for lifecycle,
