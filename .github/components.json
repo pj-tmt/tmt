@@ -39,6 +39,7 @@
       "owns": ["extensions/tmt-squad"],
       "selectedBy": [
         "typescript/test/e2e/squad.e2e.test.ts",
+        "typescript/test/e2e/squad-reminder.e2e.test.ts",
         "typescript/test/native/squad.test.ts"
       ],
       "scopedChecks": {
@@ -47,7 +48,7 @@
           "extension-install.test.ts",
           "extension-upgrade-proof.test.ts"
         ],
-        "e2eFiles": ["squad.e2e.test.ts"]
+        "e2eFiles": ["squad.e2e.test.ts", "squad-reminder.e2e.test.ts"]
       }
     },
     "browser-addon": {

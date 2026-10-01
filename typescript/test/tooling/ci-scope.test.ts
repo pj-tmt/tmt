@@ -456,6 +456,7 @@ describe('component map', () => {
     expect(owner('extensions/tmt-squad/rust/tmt-squad/src/main.rs')).toBe('squad');
     expect(owner('typescript/test/native/office-board.test.ts')).toBe('office');
     expect(owner('typescript/test/e2e/squad.e2e.test.ts')).toBe('squad');
+    expect(owner('typescript/test/e2e/squad-reminder.e2e.test.ts')).toBe('squad');
     expect(owner('extensions/tmt-squad-other/file.rs')).toBe('cli');
     expect(owner('extensions/tmt-officer/file.rs')).toBe('cli');
   });
@@ -507,6 +508,7 @@ describe('component map', () => {
     [['extensions/tmt-squad/rust/tmt-squad/src/main.rs'], 'squad'],
     [['extensions/tmt-squad/skills/tmt-squad/SKILL.md', 'ARCHITECTURE.md'], 'squad'],
     [['typescript/test/e2e/squad.e2e.test.ts', 'typescript/test/native/squad.test.ts'], 'squad'],
+    [['typescript/test/e2e/squad-reminder.e2e.test.ts'], 'squad'],
     [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'rust/Cargo.lock'], 'full'],
     [
       ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'rust/crates/tmt-cli-style/src/lib.rs'],
@@ -535,7 +537,7 @@ describe('component map', () => {
         'extension-install.test.ts',
         'extension-upgrade-proof.test.ts',
       ],
-      e2eFiles: ['squad.e2e.test.ts'],
+      e2eFiles: ['squad.e2e.test.ts', 'squad-reminder.e2e.test.ts'],
     });
     expect(scopedChecks('full', map)).toEqual({ nativeTests: [], e2eFiles: [] });
     expect(scopedChecks('none', map)).toEqual({ nativeTests: [], e2eFiles: [] });
@@ -1057,7 +1059,7 @@ describe('CI diff and command integration', () => {
         native_scope: 'squad',
         scoped_native_tests:
           'squad.test.ts extension-install.test.ts extension-upgrade-proof.test.ts',
-        e2e_shard_1: 'squad.e2e.test.ts',
+        e2e_shard_1: 'squad.e2e.test.ts squad-reminder.e2e.test.ts',
         e2e_shard_2: '',
       });
       expect(scopedLog.text()).toContain('native scope squad.');
