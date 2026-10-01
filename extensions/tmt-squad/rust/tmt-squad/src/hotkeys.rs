@@ -79,6 +79,13 @@ pub fn bindings(keys: &TmuxKeys, launcher: &Path) -> Result<String, SquadError> 
             "bind-key -N \"{NOTE} back\" {back} run-shell \"{tmt} squad back\"\n"
         ));
     }
+    // A run-shell job has `TMUX` but no `TMUX_PANE`; the key's own pane says
+    // whose lead to show.
+    if let Some(lead) = &keys.lead {
+        text.push_str(&format!(
+            "bind-key -N \"{NOTE} lead\" {lead} run-shell \"TMUX_PANE=#{{pane_id}} {tmt} squad jump --lead\"\n"
+        ));
+    }
     Ok(text)
 }
 
@@ -218,6 +225,7 @@ fn tmux(socket: &str, args: &[&str]) -> Result<String, SquadError> {
 fn chosen(keys: &TmuxKeys) -> Vec<&str> {
     let mut all = vec![keys.popup.as_str(), keys.pane.as_str()];
     all.extend(keys.back.as_deref());
+    all.extend(keys.lead.as_deref());
     all
 }
 
@@ -436,7 +444,7 @@ fn text(bytes: &Option<Vec<u8>>) -> String {
 }
 
 fn keys_json(keys: &TmuxKeys) -> Value {
-    json!({"popup": keys.popup, "pane": keys.pane, "back": keys.back})
+    json!({"popup": keys.popup, "pane": keys.pane, "back": keys.back, "lead": keys.lead})
 }
 
 /// `install [--print] [--yes] [--config <path>]`.
@@ -493,7 +501,7 @@ pub fn install(
         return Ok(document);
     }
     let summary = format!(
-        "tmt squad hotkeys will:\n  write {} (squad's bindings: prefix {} popup, prefix {} pane{})\n  {} {} with the line:\n    {}{}",
+        "tmt squad hotkeys will:\n  write {} (squad's bindings: prefix {} popup, prefix {} pane{}{})\n  {} {} with the line:\n    {}{}",
         plan.squad_file.display(),
         plan.keys.popup,
         plan.keys.pane,
@@ -501,6 +509,10 @@ pub fn install(
             .back
             .as_ref()
             .map_or(String::new(), |key| format!(", prefix {key} back")),
+        plan.keys
+            .lead
+            .as_ref()
+            .map_or(String::new(), |key| format!(", prefix {key} lead")),
         if original.is_some() {
             "add to"
         } else {
@@ -677,6 +689,7 @@ mod tests {
             popup: "S".into(),
             pane: "B".into(),
             back: None,
+            lead: None,
         }
     }
 
@@ -732,6 +745,19 @@ mod tests {
             with_back
                 .ends_with("bind-key -N \"tmt squad back\" b run-shell \"'/x/tmt' squad back\"\n")
         );
+        // The lead key passes its own pane, which a run-shell job lacks.
+        let with_lead = bindings(
+            &TmuxKeys {
+                lead: Some("J".into()),
+                ..keys()
+            },
+            Path::new("/x/tmt"),
+        )
+        .unwrap();
+        assert!(with_lead.ends_with(
+            "bind-key -N \"tmt squad lead\" J run-shell \"TMUX_PANE=#{pane_id} '/x/tmt' squad jump --lead\"\n"
+        ));
+        assert!(!with_back.contains("jump --lead"), "lead is opt-in");
         assert_eq!(
             recorded(&text),
             Some(PathBuf::from("/Users/me/.local/bin/tmt"))

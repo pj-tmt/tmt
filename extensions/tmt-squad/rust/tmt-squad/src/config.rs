@@ -489,6 +489,7 @@ pub struct TmuxKeys {
     pub popup: String,
     pub pane: String,
     pub back: Option<String>,
+    pub lead: Option<String>,
 }
 
 /// A tmux key that needs no quoting: one printable character other than
@@ -621,7 +622,8 @@ impl Config {
     }
 
     /// `[tmux]`: the prefix keys that open the board as a popup (default `S`)
-    /// or a pane (default `B`), and an optional key for `tmt squad back`.
+    /// or a pane (default `B`), and optional keys for `tmt squad back` and
+    /// `tmt squad jump --lead`.
     pub fn tmux_keys(&self) -> Result<TmuxKeys, SquadError> {
         let table = match self.document.get("tmux") {
             None => None,
@@ -633,10 +635,10 @@ impl Config {
         if let Some(unknown) = table
             .into_iter()
             .flat_map(|table| table.iter().map(|(key, _)| key))
-            .find(|key| !["popup", "pane", "back"].contains(key))
+            .find(|key| !["popup", "pane", "back", "lead"].contains(key))
         {
             return Err(invalid(format!(
-                "`tmux.{unknown}` is not a setting; use popup, pane or back."
+                "`tmux.{unknown}` is not a setting; use popup, pane, back or lead."
             )));
         }
         let key = |name: &str| -> Result<Option<String>, SquadError> {
@@ -657,9 +659,11 @@ impl Config {
             popup: key("popup")?.unwrap_or_else(|| "S".into()),
             pane: key("pane")?.unwrap_or_else(|| "B".into()),
             back: key("back")?,
+            lead: key("lead")?,
         };
         let mut chosen = vec![&keys.popup, &keys.pane];
         chosen.extend(keys.back.as_ref());
+        chosen.extend(keys.lead.as_ref());
         if (1..chosen.len()).any(|index| chosen[..index].contains(&chosen[index])) {
             return Err(invalid("`tmux` keys must differ from each other."));
         }
@@ -1564,7 +1568,7 @@ sort = ["state", "-name"]
     }
 
     #[test]
-    fn tmux_keys_default_to_s_and_b_and_back_is_opt_in() {
+    fn tmux_keys_default_to_s_and_b_and_back_and_lead_are_opt_in() {
         let path = temp("tmux-keys");
         fs::write(&path, "").unwrap();
         let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
@@ -1573,17 +1577,19 @@ sort = ["state", "-name"]
             TmuxKeys {
                 popup: "S".into(),
                 pane: "B".into(),
-                back: None
+                back: None,
+                lead: None,
             }
         );
         fs::write(
             &path,
-            "[tmux]\npopup = \"C-s\"\npane = \"F5\"\nback = \"b\"\n",
+            "[tmux]\npopup = \"C-s\"\npane = \"F5\"\nback = \"b\"\nlead = \"J\"\n",
         )
         .unwrap();
         let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
         assert_eq!((keys.popup.as_str(), keys.pane.as_str()), ("C-s", "F5"));
         assert_eq!(keys.back.as_deref(), Some("b"));
+        assert_eq!(keys.lead.as_deref(), Some("J"));
         for body in [
             "[tmux]\npopup = \"\"\n",
             "[tmux]\npopup = \"SS\"\n",
@@ -1595,6 +1601,9 @@ sort = ["state", "-name"]
             "[tmux]\npane = \"C-ab\"\n",
             "[tmux]\npane = \"S\"\n",
             "[tmux]\nback = \"B\"\n",
+            "[tmux]\nlead = \"S\"\n",
+            "[tmux]\nback = \"J\"\nlead = \"J\"\n",
+            "[tmux]\nlead = \"#\"\n",
             "[tmux]\nhotkey = \"S\"\n",
             "tmux = \"S\"\n",
             "[tmux]\npopup = 1\n",
