@@ -4,13 +4,7 @@
 //! keeps a scroll position of its own.
 
 use crate::config::Pane;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Modifier, Style},
-    text::Line,
-    widgets::Paragraph,
-};
+use ratatui::{Frame, layout::Rect, style::Style, text::Line, widgets::Paragraph};
 use std::{cell::RefCell, collections::BTreeMap};
 
 /// Lines one wheel notch moves.
@@ -122,14 +116,15 @@ impl Scrolls {
     /// Draws `lines` in `area` from the pane's position, with `↑ n  ↓ m`
     /// on the last line when there is more above or below. Returns the first
     /// line shown and how many are shown.
-    pub fn show(
+    pub fn show<'a>(
         &self,
         frame: &mut Frame,
         pane: Pane,
         area: Rect,
-        lines: Vec<Line<'_>>,
+        lines: impl AsRef<[Line<'a>]>,
         dim: Style,
     ) -> (usize, usize) {
+        let lines = lines.as_ref();
         let content = lines.len();
         let viewport = Self::viewport(area, content);
         self.drawn.borrow_mut().insert(
@@ -146,7 +141,10 @@ impl Scrolls {
             height: viewport as u16,
             ..area
         };
-        frame.render_widget(Paragraph::new(lines).scroll((offset as u16, 0)), body);
+        frame.render_widget(
+            Paragraph::new(lines[offset..(offset + viewport).min(content)].to_vec()),
+            body,
+        );
         if viewport < usize::from(area.height) {
             let above = offset;
             let below = content.saturating_sub(offset + viewport);
@@ -163,11 +161,7 @@ impl Scrolls {
                 ..area
             };
             frame.render_widget(
-                Paragraph::new(Line::styled(
-                    parts.join("  "),
-                    dim.add_modifier(Modifier::DIM),
-                ))
-                .right_aligned(),
+                Paragraph::new(Line::styled(parts.join("  "), dim)).right_aligned(),
                 indicator,
             );
         }

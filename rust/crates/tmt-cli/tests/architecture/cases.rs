@@ -1445,3 +1445,64 @@ fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
         &[],
     );
 }
+
+#[test]
+fn tui_admission_is_an_internal_presentation_leaf() {
+    for name in ["roxmltree", "tmt-cli-style"] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-tui",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+    }
+    for kind in ["normal", "dev", "build"] {
+        for name in ["tmt-core", "tmt-adapters", "tmt-squad"] {
+            assert_eq!(
+                policy::dependency_violations(&package(
+                    "tmt-tui",
+                    vec![dependency(name, kind, Some("cfg(unix)"), None)]
+                ))
+                .len(),
+                1
+            );
+        }
+    }
+    for owner in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-cli-style",
+        "tmt-squad",
+    ] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency("tmt-tui", "normal", None, None)]
+            ))
+            .len(),
+            1
+        );
+        assert!(
+            !policy::source_violations(&[syntax(owner, "lib.rs", "use tmt_tui::parse;")])
+                .is_empty()
+        );
+    }
+    assert_exact(
+        &[syntax("tmt-tui", "lib.rs", "use tmt_cli_style::Role;")],
+        &[],
+    );
+    assert_eq!(
+        policy::source_violations(&[syntax("tmt-tui", "lib.rs", "use tmt_core::identity;")]).len(),
+        1
+    );
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-tui",
+            vec![dependency("roxmltree", "normal", None, Some("alias"))]
+        ))
+        .len(),
+        1
+    );
+}

@@ -1978,6 +1978,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "roxmltree"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
+
+[[package]]
 name = "rusqlite"
 version = "0.40.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2525,7 +2531,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-adapters"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2550,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2571,7 +2577,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli-style"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2587,7 +2593,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-command-output"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "serde_json",
  "tmt-adapters",
@@ -2597,7 +2603,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-core"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "icu_casemap",
  "icu_locale_core",
@@ -2610,7 +2616,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-driver-protocol"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "serde",
  "serde_json",
@@ -2619,11 +2625,11 @@ dependencies = [
 
 [[package]]
 name = "tmt-host-grammar"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 
 [[package]]
 name = "tmt-invoke"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "nix",
  "subprocess",
@@ -2671,7 +2677,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-model"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "base64 0.22.1",
  "png",
@@ -2686,7 +2692,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-pairing"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",
@@ -2705,7 +2711,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-service"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "nix",
  "serde",
@@ -2717,7 +2723,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-office-storage"
-version = "5.0.0-alpha.22"
+version = "5.0.0-alpha.24"
 dependencies = [
  "base64 0.22.1",
  "nix",
@@ -2752,7 +2758,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-squad"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.7"
 dependencies = [
  "clap",
  "nix",
@@ -2765,6 +2771,13 @@ dependencies = [
  "tmt-cli-style",
  "toml_edit",
  "unicode-width",
+]
+
+[[package]]
+name = "tmt-tui"
+version = "5.0.0-alpha.24"
+dependencies = [
+ "roxmltree",
 ]
 
 [[package]]

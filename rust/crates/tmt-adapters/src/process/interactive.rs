@@ -38,11 +38,25 @@ pub struct InteractiveChild {
 
 impl InteractiveChild {
     pub fn start(program: &OsStr, args: &[OsString]) -> Result<Self, CommandError> {
+        Self::start_with(program, args, &[])
+    }
+
+    /// Like `start`, with extra environment for the child only: this process's
+    /// own environment is never touched.
+    pub fn start_with(
+        program: &OsStr,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+    ) -> Result<Self, CommandError> {
         // Catch rather than ignore terminal interrupts. Exec resets caught
         // handlers, so the harness receives normal terminal signal behavior.
         let signals =
             ChildSignals::install().map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
-        let job = Exec::cmd(program)
+        let job = environment
+            .iter()
+            .fold(Exec::cmd(program), |exec, (key, value)| {
+                exec.env(key, value)
+            })
             .args(args.iter().cloned())
             // Defaults inherit all three streams and the parent's process group.
             .start()
@@ -335,6 +349,43 @@ mod tests {
             );
             assert_eq!(waitpid(pid, None), Err(Errno::ECHILD));
         }
+    }
+
+    #[test]
+    fn extra_environment_reaches_only_the_child() {
+        let _invocation = INVOCATION.lock().unwrap();
+        let key = "TMT_INTERACTIVE_TEST_CHILD_ONLY";
+        let child = InteractiveChild::start_with(
+            OsStr::new("/bin/sh"),
+            &[
+                OsString::from("-c"),
+                OsString::from(format!("test \"${key}\" = child-value")),
+            ],
+            &[(OsString::from(key), OsString::from("child-value"))],
+        )
+        .unwrap();
+        assert_eq!(
+            child
+                .wait(|cause| panic!("unexpected degradation: {cause}"))
+                .unwrap(),
+            0
+        );
+        assert!(std::env::var_os(key).is_none(), "this process is untouched");
+        // Without it the child does not see the variable at all.
+        let child = InteractiveChild::start(
+            OsStr::new("/bin/sh"),
+            &[
+                OsString::from("-c"),
+                OsString::from(format!("test -z \"${key}\"")),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            child
+                .wait(|cause| panic!("unexpected degradation: {cause}"))
+                .unwrap(),
+            0
+        );
     }
 
     #[test]

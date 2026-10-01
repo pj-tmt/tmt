@@ -118,9 +118,9 @@ and `squad`) through the same verified native installer as the CLI:
 
 ```sh
 tmt extension install squad --yes --channel alpha
-tmt extension list            # local state only; add --check to look for updates
+tmt extension ls              # local state only; add --check to look for updates
 tmt extension upgrade squad --yes
-tmt extension uninstall squad --yes
+tmt extension rm squad --yes
 ```
 
 Install, upgrade and uninstall change your installation, so they ask first, or
@@ -133,7 +133,7 @@ and its short form `tmt-sq`. Each extension has its own version and release tags
 (`tmt-office-v<version>`, `tmt-squad-v<version>`); Squad's releases are still
 alpha, hence `--channel alpha`.
 
-`tmt extension list` never uses the network unless you add `--check`. An
+`tmt extension ls` never uses the network unless you add `--check`. An
 unreachable release then shows as `unknown`. The listing also reports any other
 `tmt-<name>` command on your PATH that would shadow the installed one; it never
 runs that command.

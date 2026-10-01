@@ -63,7 +63,7 @@ When installation and application are authorized, discover the current catalog
 revision, install, and read the selected identity's profile:
 
 ```sh
-tmt office avatar list --local --limit 20 --json
+tmt office avatar ls --local --limit 20 --json
 tmt office avatar install --local --file <pack.tmtavatar.json> --if-revision <catalogRevision> --json
 tmt office avatar show --local <sha256:digest> --json
 tmt office profile show --local --identity <name> --json
@@ -89,7 +89,7 @@ determine whether it committed. Removing a pack requires authorization and its
 current catalog revision:
 
 ```sh
-tmt office avatar remove --local <sha256:digest> --if-revision <catalogRevision> --json
+tmt office avatar rm --local <sha256:digest> --if-revision <catalogRevision> --json
 ```
 
 Removal retains saved profile references. Unavailable art falls back to that

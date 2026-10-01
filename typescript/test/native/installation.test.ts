@@ -167,10 +167,10 @@ describe('native installation process contract', () => {
       for (const required of [
         '"formatVersion": 1',
         'tmt office prop validate --file',
-        'tmt office prop list --local',
+        'tmt office prop ls --local',
         'tmt office prop install --local',
         'tmt office layout apply --file',
-        'tmt office prop remove --local',
+        'tmt office prop rm --local',
         '`.layout`',
       ])
         expect(propGuidance.stdout).toContain(required);
@@ -183,19 +183,19 @@ describe('native installation process contract', () => {
         '`formatVersion: 1`',
         '32×48 pixels',
         'tmt office avatar validate --file',
-        'tmt office avatar list --local',
+        'tmt office avatar ls --local',
         'tmt office avatar install --local',
         'tmt office profile apply --local',
-        'tmt office avatar remove --local',
+        'tmt office avatar rm --local',
         'maintained `Avatar` composition',
       ])
         expect(avatarGuidance.stdout).toContain(required);
       for (const required of [
         '`tmt-prop-create`',
         '`tmt-avatar-create`',
-        'tmt office prop list --local',
+        'tmt office prop ls --local',
         'tmt office prop install --local',
-        'tmt office prop remove --local',
+        'tmt office prop rm --local',
         '`.layout`',
         '{"version":1,"map":{...},"objects":[...]}',
         '--legacy-basis',

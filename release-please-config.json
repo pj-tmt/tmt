@@ -22,7 +22,8 @@
         "extensions/tmt-office/skills",
         "extensions/tmt-office/typescript",
         "extensions/tmt-squad",
-        "extensions/tmt-remote"
+        "extensions/tmt-remote",
+        "rust/crates/tmt-tui"
       ],
       "extra-files": [
         {
@@ -89,6 +90,11 @@
           "type": "toml",
           "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-office-storage')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-tui')].version"
         }
       ]
     },

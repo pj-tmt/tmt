@@ -153,6 +153,7 @@ mod tests {
                 command: vec!["claude".into()],
                 resume: false,
                 save: false,
+                channel: false,
             },
             Invocation::Learn {
                 skill: Some("tmux-team".into()),
