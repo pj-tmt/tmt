@@ -255,8 +255,10 @@ before use. Core also decides from its own evidence:
   a driver's `startTime`;
 - runtime and liveness come from core's own process inspection of the pane's
   shell (status is not a driver operation);
-- loss is proved only by core's evidence. A driver that is missing, changed,
-  failing or out of time leaves a binding Unknown, never retired;
+- a server's loss is proved only by core's own process check. A pane is lost
+  only when a snapshot of that same, core-verified server omits it or shows
+  another shell. A driver that is missing, changed, failing or out of time
+  leaves a binding Unknown, never retired;
 - deliveries are accepted only through core's receipt logic.
 
 **What a driver receives:** it never receives tokens, receipts, requests or
