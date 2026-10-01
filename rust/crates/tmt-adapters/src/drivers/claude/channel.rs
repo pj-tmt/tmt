@@ -3,13 +3,23 @@
 //! `contracts/claude-channel-v1.md` owns the behavior and the mapping below.
 
 use crate::{
-    process::{UnixCommandRunner, runtime::observe_runtime_process},
-    runtime::{RuntimeError, channel::ChannelFault},
+    process::{
+        CommandRequest, CommandRunner, UnixCommandRunner,
+        runtime::{ProcessObservation, observe_runtime_process},
+    },
+    runtime::{
+        RuntimeCommand, RuntimeError,
+        channel::{
+            ChannelEnrollment, ChannelError, ChannelFault, ChannelPlan, RuntimeChannel,
+            ServeRequest,
+        },
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    ffi::{OsStr, OsString},
     fs,
-    io::{self, Read, Write},
+    io::{self, BufRead, Read, Write},
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     time::{Duration, Instant},
@@ -21,7 +31,20 @@ use tmt_core::{
     exact_text::MAX_EXCHANGE_TEXT_BYTES,
 };
 
-const RECORD_VERSION: u8 = 1;
+mod server;
+
+/// The only provider build with recorded channel evidence. Widening it needs
+/// new evidence and a reviewed change here (see the contract).
+pub const SUPPORTED_VERSIONS: &[&str] = &["2.1.285 (Claude Code)"];
+/// The MCP server name Claude sees; it is the `server:<name>` channel entry.
+pub const SERVER_NAME: &str = "tmt";
+pub const MCP_CONFIG_FLAG: &str = "--mcp-config";
+pub const CHANNEL_FLAG: &str = "--dangerously-load-development-channels";
+pub const CAPABILITY: &str = "claude/channel";
+pub const NOTIFICATION_METHOD: &str = "notifications/claude/channel";
+/// The protocol version the spike negotiated.
+pub const PROTOCOL_VERSION: &str = "2025-11-25";
+pub(super) const RECORD_VERSION: u8 = 1;
 /// Payload bound: one exchange text plus the generated request framing.
 pub(super) const CONTENT_LIMIT: usize = MAX_EXCHANGE_TEXT_BYTES + 64 * 1024;
 const RECORD_LIMIT: u64 = 4096;
@@ -33,6 +56,15 @@ const EXCHANGE_DEADLINE: Duration = Duration::from_secs(2);
 const READINESS_WAIT: Duration = Duration::from_secs(3);
 const READINESS_POLL: Duration = Duration::from_millis(50);
 const OWNER_PROBE: Duration = Duration::from_secs(1);
+const VERSION_DEADLINE: Duration = Duration::from_secs(5);
+const VERSION_OUTPUT: usize = 4096;
+/// macOS `sockaddr_un` holds 104 bytes; stay below it (and Linux's 108).
+const SOCKET_PATH_LIMIT: usize = 100;
+/// One lock file serializes every mutation of a record or socket in the channel
+/// directory (see "Enrollment ownership and serialization" in the contract).
+const LOCK_FILE: &str = ".lock";
+const LOCK_WAIT: Duration = Duration::from_secs(2);
+const LOCK_POLL: Duration = Duration::from_millis(10);
 
 /// A process identity as stored in the record.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -43,6 +75,13 @@ pub(super) struct Process {
 }
 
 impl Process {
+    pub(super) fn of(incarnation: &ProcessIncarnation) -> Self {
+        Self {
+            pid: incarnation.pid(),
+            start: incarnation.start_identity().to_owned(),
+        }
+    }
+
     fn incarnation(&self) -> Option<ProcessIncarnation> {
         ProcessIncarnation::new(self.pid, &self.start).ok()
     }
@@ -89,6 +128,199 @@ fn socket_path(directory: &Path, binding_id: &str) -> PathBuf {
     directory.join(format!("{binding_id}.sock"))
 }
 
+fn socket_fits(directory: &Path, binding_id: &str) -> bool {
+    socket_path(directory, binding_id).as_os_str().len() <= SOCKET_PATH_LIMIT
+}
+
+fn write_record(directory: &Path, record: &Record) -> io::Result<()> {
+    crate::private_file::replace(
+        &record_path(directory, &record.binding_id),
+        &serde_json::to_vec(record).map_err(io::Error::other)?,
+    )
+}
+
+/// Runs `action` while holding the channel directory lock, retrying a busy lock
+/// for a bounded time. A lock that cannot be taken is an error and the action
+/// does not run: every caller fails closed.
+fn locked<T>(directory: &Path, action: impl FnOnce() -> T) -> io::Result<T> {
+    locked_within(directory, LOCK_WAIT, action)
+}
+
+fn locked_within<T>(directory: &Path, wait: Duration, action: impl FnOnce() -> T) -> io::Result<T> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match crate::file_lock::exclusive(&directory.join(LOCK_FILE)) {
+            Ok(guard) => {
+                let value = action();
+                drop(guard);
+                return Ok(value);
+            }
+            Err(error)
+                if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
+            {
+                std::thread::sleep(LOCK_POLL);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+pub struct ClaudeChannel;
+
+impl RuntimeChannel for ClaudeChannel {
+    fn preflight(
+        &self,
+        executable: &OsStr,
+        directory: &Path,
+        deadline: Instant,
+    ) -> Result<(), ChannelError> {
+        // A binding ID is a 36-character UUID; check the longest path up front.
+        if !directory.is_absolute() || !socket_fits(directory, &"0".repeat(36)) {
+            return Err(ChannelError::PathTooLong);
+        }
+        let deadline = deadline.min(Instant::now() + VERSION_DEADLINE);
+        let output = UnixCommandRunner
+            .execute(CommandRequest {
+                program: executable,
+                args: &["--version".into()],
+                input: &[],
+                deadline,
+                max_output_bytes: VERSION_OUTPUT,
+            })
+            .map_err(|_| ChannelError::ProviderUnavailable)?;
+        let found = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if SUPPORTED_VERSIONS.contains(&found.as_str()) {
+            Ok(())
+        } else {
+            Err(ChannelError::ProviderVersion { found })
+        }
+    }
+
+    fn enroll(&self, plan: &ChannelPlan<'_>) -> Result<Box<dyn ChannelEnrollment>, ChannelError> {
+        // A command line that already names a development channel cannot be
+        // planned around: ours would be ambiguous with it.
+        if plan
+            .command
+            .args
+            .iter()
+            .any(|argument| argument == CHANNEL_FLAG)
+        {
+            return Err(ChannelError::UnsupportedArguments(
+                "it already passes --dangerously-load-development-channels",
+            ));
+        }
+        if !socket_fits(plan.directory, plan.binding_id) {
+            return Err(ChannelError::PathTooLong);
+        }
+        ensure_private_directory(plan.directory).map_err(|_| ChannelError::Enrollment)?;
+        let owner = Process::of(plan.owner);
+        // A fresh generation per launch tells a relaunched server from a stale one.
+        let generation = uuid::Uuid::new_v4().to_string();
+        locked(plan.directory, || {
+            // The newest launch of a binding replaces an earlier enrollment only
+            // when that one is positively over: its owner is conclusively gone,
+            // or it is this very launch. Anything alive, different or
+            // unverifiable stays untouched and refuses this launch.
+            match read_record(plan.directory, plan.binding_id) {
+                Ok(None) => {}
+                Ok(Some(old)) if old.launch_owner == owner => {}
+                Ok(Some(old)) => match old.launch_owner.incarnation().map(|old| liveness(&old)) {
+                    Some(RuntimeLiveness::Gone) => {}
+                    _ => return Err(ChannelError::Occupied),
+                },
+                Err(_) => return Err(ChannelError::Occupied),
+            }
+            write_record(
+                plan.directory,
+                &Record {
+                    version: RECORD_VERSION,
+                    binding_id: plan.binding_id.to_owned(),
+                    generation: generation.clone(),
+                    launch_owner: owner.clone(),
+                    claude: None,
+                },
+            )
+            .map_err(|_| ChannelError::Enrollment)
+        })
+        .map_err(|_| ChannelError::Enrollment)??;
+        let config = serde_json::json!({
+            "mcpServers": {
+                SERVER_NAME: {
+                    "command": plan.tmt,
+                    "args": [
+                        "__channel-server",
+                        super::NAME,
+                        plan.binding_id,
+                        generation,
+                        plan.directory,
+                    ],
+                }
+            }
+        });
+        let mut command = plan.command.clone();
+        command.args.extend([
+            MCP_CONFIG_FLAG.into(),
+            config.to_string().into(),
+            CHANNEL_FLAG.into(),
+            format!("server:{SERVER_NAME}").into(),
+        ]);
+        Ok(Box::new(Lease {
+            command,
+            directory: plan.directory.to_owned(),
+            binding_id: plan.binding_id.to_owned(),
+            generation,
+            owner,
+        }))
+    }
+
+    fn serve(
+        &self,
+        request: &ServeRequest<'_>,
+        input: Box<dyn BufRead + Send>,
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        server::serve(request, input, output)
+    }
+}
+
+/// One launch's enrollment: it knows exactly which record it wrote, and only
+/// ever removes that one.
+struct Lease {
+    command: RuntimeCommand,
+    directory: PathBuf,
+    binding_id: String,
+    generation: String,
+    owner: Process,
+}
+
+impl ChannelEnrollment for Lease {
+    fn command(&self) -> &RuntimeCommand {
+        &self.command
+    }
+
+    fn environment(&self) -> &[(OsString, OsString)] {
+        &[]
+    }
+
+    /// Removes the record and socket only if the record still carries exactly
+    /// this launch's generation and owner, under the directory lock. A
+    /// replacement enrollment, or a record this launch never wrote, is left
+    /// alone, and so is everything when the lock cannot be taken.
+    fn withdraw(self: Box<Self>) {
+        let _ = locked(&self.directory, || {
+            let ours = matches!(
+                read_record(&self.directory, &self.binding_id),
+                Ok(Some(record)) if record.generation == self.generation
+                    && record.launch_owner == self.owner
+            );
+            if ours {
+                let _ = fs::remove_file(record_path(&self.directory, &self.binding_id));
+                let _ = fs::remove_file(socket_path(&self.directory, &self.binding_id));
+            }
+        });
+    }
+}
+
 fn directory_is_private(directory: &Path) -> bool {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     fs::symlink_metadata(directory).is_ok_and(|metadata| {
@@ -96,6 +328,33 @@ fn directory_is_private(directory: &Path) -> bool {
             && metadata.uid() == nix::unistd::geteuid().as_raw()
             && metadata.permissions().mode() & 0o077 == 0
     })
+}
+
+/// The endpoint directory is created owner-only and must stay so: a record or
+/// socket another user could write is no evidence.
+fn ensure_private_directory(directory: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(directory)?;
+    if directory_is_private(directory) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the channel directory must be an owner-only directory",
+        ))
+    }
+}
+
+/// The Claude process the channel server belongs to: its parent, observed live.
+fn parent_incarnation(deadline: Instant) -> Option<ProcessIncarnation> {
+    let parent = u64::try_from(nix::unistd::getppid().as_raw()).ok()?;
+    match observe_runtime_process(&UnixCommandRunner, parent, deadline) {
+        Ok(ProcessObservation::Live(incarnation)) => Some(incarnation),
+        _ => None,
+    }
 }
 
 type Sent = ActionResult<DeliveryAcceptance, SendFailure<RuntimeError>>;

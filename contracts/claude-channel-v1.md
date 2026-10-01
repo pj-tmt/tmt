@@ -12,10 +12,13 @@ Tracking: #329, delivered as four stacked changes (#712 to #715).
 
 - **Shipped:** the outcome vocabulary and reporting (below), the `RuntimeChannel`
   lease port with its registry slot, and the Claude send classification
-  (`ClaudeRuntime::send`, "Delivery mapping"). Nothing writes an enrollment yet, so
-  no session can opt in and every Claude session still gets the baseline delivery.
-- **Not shipped yet:** the enrollment and the stdio server (#714), `tmt run
-  --channel`, notification and raw-pane routing and the E2E scenarios (#715).
+  (`ClaudeRuntime::send`, "Delivery mapping").
+- **Shipped (#714):** the Claude channel provider (`ClaudeChannel`: preflight, the
+  enrollment lease, the stdio server and the directory-lock serialization) and its
+  registration. No CLI entry point calls `enroll` or `serve` yet, so no enrollment
+  is reachable.
+- **Not shipped yet:** `tmt run --channel` and the hidden `__channel-server`
+  command, notification and raw-pane routing and the E2E scenarios (#715).
 
 Every section other than Status and the two shipped items describes the target
 contract of the unshipped changes, not current behavior. Each change updates this
@@ -119,7 +122,7 @@ every mutation of the record or the socket, so no check-then-change race exists:
 
 | Mutation | Under the lock, it proceeds only if |
 | --- | --- |
-| `enroll` writes the record | always: the newest launch of a binding replaces any earlier record |
+| `enroll` writes the record | the old record is absent, this same launch's, or its launch owner is conclusively gone; an owner that is alive and different, or an unreadable record, refuses the enrollment (`Occupied`) and leaves it untouched |
 | Server publishes readiness (`claude`) | the record still carries the server's generation and launch owner |
 | Server binds the socket (and replaces an unreachable one) | the record carries the server's generation; a live second server is refused |
 | Server removes its socket on exit | the record still carries the server's generation |
@@ -127,7 +130,9 @@ every mutation of the record or the socket, so no check-then-change race exists:
 
 A launcher never removes a record because its owner is gone; a stale launcher has
 no authority over a replacement enrollment. Stale takeover happens only in `enroll`
-and in the server's bind. A socket path therefore belongs to the generation in the
+and in the server's bind. The lock file is never removed (replacing its inode would
+split lock domains), and a lock that cannot be taken within 2 s fails the
+operation closed. A socket path therefore belongs to the generation in the
 record or is a leftover that only the next validated bind replaces. `send` is
 read-only.
 

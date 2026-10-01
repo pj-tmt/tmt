@@ -120,22 +120,15 @@ fn intent(owner: &ProcessIncarnation) -> Record {
         version: RECORD_VERSION,
         binding_id: BINDING.into(),
         generation: GENERATION.into(),
-        launch_owner: process(owner),
+        launch_owner: Process::of(owner),
         claude: None,
     }
 }
 
 fn ready(owner: &ProcessIncarnation, claude: &ProcessIncarnation) -> Record {
     Record {
-        claude: Some(process(claude)),
+        claude: Some(Process::of(claude)),
         ..intent(owner)
-    }
-}
-
-fn process(incarnation: &ProcessIncarnation) -> Process {
-    Process {
-        pid: incarnation.pid(),
-        start: incarnation.start_identity().to_owned(),
     }
 }
 
@@ -553,13 +546,13 @@ fn an_enrollment_replaced_or_removed_while_waiting_is_a_mismatch_not_a_fallback(
 #[test]
 fn an_enrollment_whose_identity_changes_under_the_same_generation_is_denied_without_a_frame() {
     let (owner, claude) = (live_owner(), provider(4242));
-    let other_owner = process(&provider(1));
+    let other_owner = Process::of(&provider(1));
     let changes: Vec<(&str, Record)> = vec![
         (
             "launch owner",
             Record {
                 launch_owner: other_owner,
-                claude: Some(process(&claude)),
+                claude: Some(Process::of(&claude)),
                 ..intent(&owner)
             },
         ),
@@ -567,7 +560,7 @@ fn an_enrollment_whose_identity_changes_under_the_same_generation_is_denied_with
             "version",
             Record {
                 version: 2,
-                claude: Some(process(&claude)),
+                claude: Some(Process::of(&claude)),
                 ..intent(&owner)
             },
         ),
@@ -575,7 +568,7 @@ fn an_enrollment_whose_identity_changes_under_the_same_generation_is_denied_with
             "binding",
             Record {
                 binding_id: "44444444-4444-4444-8444-444444444444".into(),
-                claude: Some(process(&claude)),
+                claude: Some(Process::of(&claude)),
                 ..intent(&owner)
             },
         ),
@@ -813,4 +806,734 @@ fn an_endpoint_that_never_reads_cannot_hold_the_write_past_the_deadline() {
     );
     release.send(()).unwrap();
     server.join().unwrap();
+}
+
+// Enrollment, the lease and the launch contract.
+
+fn user_command() -> RuntimeCommand {
+    RuntimeCommand {
+        executable: "/opt/claude/bin/claude".into(),
+        args: vec!["--model".into(), "sonnet".into()],
+    }
+}
+
+fn plan<'a>(
+    directory: &'a Path,
+    owner: &'a ProcessIncarnation,
+    command: &'a RuntimeCommand,
+) -> ChannelPlan<'a> {
+    ChannelPlan {
+        binding_id: BINDING,
+        owner,
+        command,
+        working_directory: Path::new("/work"),
+        tmt: Path::new("/opt/tmt/bin/tmt"),
+        directory,
+    }
+}
+
+/// A lease for tests that move it across threads: the one `enroll` wrote, rebuilt
+/// from the record it left.
+fn lease(scratch: &Scratch, owner: &ProcessIncarnation) -> Lease {
+    let command = user_command();
+    let enrolled = ClaudeChannel
+        .enroll(&plan(&scratch.0, owner, &command))
+        .unwrap();
+    Lease {
+        command: enrolled.command().clone(),
+        directory: scratch.0.clone(),
+        binding_id: BINDING.into(),
+        generation: read_record(&scratch.0, BINDING)
+            .unwrap()
+            .unwrap()
+            .generation,
+        owner: Process::of(owner),
+    }
+}
+
+fn withdraw(lease: Lease) {
+    Box::new(lease).withdraw();
+}
+
+#[test]
+fn enrollment_is_durable_before_launch_and_plans_the_command() {
+    let scratch = Scratch::new();
+    let (owner, user) = (live_owner(), user_command());
+    let enrolled = ClaudeChannel
+        .enroll(&plan(&scratch.0, &owner, &user))
+        .unwrap();
+    let command = enrolled.command();
+    // The user's command is untouched; the provider's flags follow it.
+    assert_eq!(command.executable, user.executable);
+    assert_eq!(command.args[..2], user.args[..]);
+    assert_eq!(command.args.len(), 6);
+    assert_eq!(command.args[2], MCP_CONFIG_FLAG);
+    assert_eq!(command.args[4], CHANNEL_FLAG);
+    assert_eq!(command.args[5], format!("server:{SERVER_NAME}").as_str());
+    assert!(
+        !command
+            .args
+            .iter()
+            .any(|argument| argument == "--strict-mcp-config"),
+        "user MCP servers stay available"
+    );
+    assert!(enrolled.environment().is_empty());
+    let config: serde_json::Value =
+        serde_json::from_str(command.args[3].to_str().unwrap()).unwrap();
+    let servers = config["mcpServers"].as_object().unwrap();
+    assert_eq!(servers.len(), 1);
+    let server = &servers[SERVER_NAME];
+    assert_eq!(server["command"], "/opt/tmt/bin/tmt");
+    let args: Vec<_> = server["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert_eq!(args[..3], ["__channel-server", "claude", BINDING]);
+    assert_eq!(args[4], scratch.0.to_str().unwrap());
+    // The record already exists ("opted in, not ready"), and names the same
+    // generation the server will be started with, and this launch's owner.
+    let stored = read_record(&scratch.0, BINDING).unwrap().unwrap();
+    assert_eq!(stored.generation, args[3]);
+    assert_eq!(stored.launch_owner, Process::of(&owner));
+    assert_eq!(stored.claude, None);
+    assert!(uuid::Uuid::parse_str(args[3]).is_ok());
+    // A relaunch is a new generation, replacing the earlier enrollment.
+    let again = ClaudeChannel
+        .enroll(&plan(&scratch.0, &owner, &user))
+        .unwrap();
+    assert_ne!(command.args, again.command().args);
+    assert_ne!(
+        read_record(&scratch.0, BINDING)
+            .unwrap()
+            .unwrap()
+            .generation,
+        args[3]
+    );
+    // And an enrollment is only ever written to an owner-only directory.
+    fs::set_permissions(&scratch.0, fs::Permissions::from_mode(0o770)).unwrap();
+    assert_eq!(
+        ClaudeChannel.enroll(&plan(&scratch.0, &owner, &user)).err(),
+        Some(ChannelError::Enrollment)
+    );
+}
+
+#[test]
+fn a_command_line_that_already_names_a_channel_is_rejected_before_any_side_effect() {
+    let scratch = Scratch::new();
+    let owner = live_owner();
+    let command = RuntimeCommand {
+        executable: "claude".into(),
+        args: vec![CHANNEL_FLAG.into(), "server:other".into()],
+    };
+    let error = ClaudeChannel
+        .enroll(&plan(&scratch.0, &owner, &command))
+        .err();
+    assert!(matches!(error, Some(ChannelError::UnsupportedArguments(_))));
+    assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
+}
+
+#[test]
+fn withdrawing_removes_this_launchs_enrollment_and_its_socket_and_then_a_send_sees_none() {
+    let scratch = Scratch::new();
+    let owner = live_owner();
+    let lease = lease(&scratch, &owner);
+    drop(UnixListener::bind(socket_path(&scratch.0, BINDING)).unwrap());
+    withdraw(lease);
+    assert!(!record_path(&scratch.0, BINDING).exists());
+    assert!(!socket_path(&scratch.0, BINDING).exists());
+    // Afterwards a send sees a session that never opted in.
+    assert_eq!(
+        deliver(
+            &scratch,
+            &entry(BINDING, Some(owner), Some(provider(4242))),
+            MESSAGE
+        ),
+        ActionResult::Unsupported
+    );
+}
+
+// Enrollment ownership: a launch only ever removes or replaces what is its own,
+// and every mutation is serialized by the directory lock.
+
+#[test]
+fn an_old_withdrawal_after_a_newer_enrollment_keeps_the_new_record_and_socket() {
+    let scratch = Scratch::new();
+    let owner = live_owner();
+    let old = lease(&scratch, &owner);
+    // The same launch enrolling again replaces its earlier enrollment.
+    let new = lease(&scratch, &owner);
+    assert_ne!(old.generation, new.generation);
+    let _socket = UnixListener::bind(socket_path(&scratch.0, BINDING)).unwrap();
+    let record = fs::read(record_path(&scratch.0, BINDING)).unwrap();
+    withdraw(old);
+    assert_eq!(fs::read(record_path(&scratch.0, BINDING)).unwrap(), record);
+    assert!(socket_path(&scratch.0, BINDING).exists());
+    withdraw(new);
+    assert!(!record_path(&scratch.0, BINDING).exists());
+    assert!(!socket_path(&scratch.0, BINDING).exists());
+}
+
+#[test]
+fn a_withdrawal_never_removes_an_enrollment_of_another_owner_even_with_the_same_generation() {
+    let scratch = Scratch::new();
+    let owner = live_owner();
+    let mine = lease(&scratch, &owner);
+    // Same generation, but another launch owner: not this lease's record.
+    let other = Record {
+        launch_owner: Process::of(&provider(1)),
+        generation: mine.generation.clone(),
+        ..intent(&owner)
+    };
+    publish(&scratch.0, &other);
+    let record = fs::read(record_path(&scratch.0, BINDING)).unwrap();
+    withdraw(mine);
+    assert_eq!(fs::read(record_path(&scratch.0, BINDING)).unwrap(), record);
+}
+
+#[test]
+fn a_withdrawal_waits_for_the_lock_and_then_finds_the_record_replaced() {
+    let scratch = Scratch::new();
+    let owner = live_owner();
+    let old = lease(&scratch, &owner);
+    let replacement = Record {
+        generation: "66666666-6666-4666-8666-666666666666".into(),
+        ..intent(&owner)
+    };
+    let blocked = std::thread::scope(|scope| {
+        locked(&scratch.0, || {
+            let withdrawal = scope.spawn(move || withdraw(old));
+            std::thread::sleep(Duration::from_millis(300));
+            // An unserialized withdrawal would already have finished by now.
+            let blocked = !withdrawal.is_finished();
+            // The record is replaced while the old withdrawal waits.
+            publish(&scratch.0, &replacement);
+            blocked
+        })
+        .unwrap()
+    });
+    assert!(blocked, "the withdrawal waits for the directory lock");
+    assert_eq!(
+        read_record(&scratch.0, BINDING).unwrap().unwrap(),
+        replacement,
+        "the replacement survives the old withdrawal"
+    );
+}
+
+#[test]
+fn a_lock_that_cannot_be_taken_fails_closed() {
+    let scratch = Scratch::new();
+    let ran = std::sync::atomic::AtomicBool::new(false);
+    let failed = locked(&scratch.0, || {
+        locked_within(&scratch.0, Duration::from_millis(100), || {
+            ran.store(true, Ordering::SeqCst);
+        })
+        .is_err()
+    })
+    .unwrap();
+    assert!(failed);
+    assert!(!ran.load(Ordering::SeqCst), "the action never ran");
+    // Once released, the lock is available again.
+    assert!(locked(&scratch.0, || ()).is_ok());
+}
+
+/// A live process other than this one, to stand for another launch that still runs.
+fn another_live_process() -> (std::process::Child, ProcessIncarnation) {
+    let child = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    let observed = observe_runtime_process(
+        &UnixCommandRunner,
+        u64::from(child.id()),
+        Instant::now() + Duration::from_secs(3),
+    );
+    match observed {
+        Ok(ProcessObservation::Live(incarnation)) => (child, incarnation),
+        other => panic!("the child must be observable: {other:?}"),
+    }
+}
+
+#[test]
+fn enrolling_replaces_only_an_enrollment_that_is_over_and_otherwise_leaves_it_untouched() {
+    let (owner, user) = (live_owner(), user_command());
+    let (mut other, other_live) = another_live_process();
+    // Unreadable, or owned by a launch that is alive and different: untouched.
+    for (name, bytes) in [
+        ("unreadable record", b"{not json".to_vec()),
+        (
+            "alive and different owner",
+            serde_json::to_vec(&intent(&other_live)).unwrap(),
+        ),
+    ] {
+        let scratch = Scratch::new();
+        ensure_private_directory(&scratch.0).unwrap();
+        fs::write(record_path(&scratch.0, BINDING), &bytes).unwrap();
+        assert_eq!(
+            ClaudeChannel.enroll(&plan(&scratch.0, &owner, &user)).err(),
+            Some(ChannelError::Occupied),
+            "{name}"
+        );
+        assert_eq!(
+            fs::read(record_path(&scratch.0, BINDING)).unwrap(),
+            bytes,
+            "{name}: untouched"
+        );
+    }
+    other.kill().unwrap();
+    other.wait().unwrap();
+    // A conclusively gone owner, or this very launch, is replaced.
+    for (name, old_owner) in [("gone owner", dead_owner()), ("same launch", owner.clone())] {
+        let scratch = Scratch::new();
+        publish(&scratch.0, &intent(&old_owner));
+        let before = read_record(&scratch.0, BINDING).unwrap().unwrap();
+        ClaudeChannel
+            .enroll(&plan(&scratch.0, &owner, &user))
+            .unwrap();
+        let after = read_record(&scratch.0, BINDING).unwrap().unwrap();
+        assert_ne!(after.generation, before.generation, "{name}");
+        assert_eq!(after.launch_owner, Process::of(&owner), "{name}");
+    }
+}
+
+#[test]
+fn the_provider_contract_constants_are_pinned() {
+    // Changing any of these needs new provider evidence and a contract update.
+    assert_eq!(SUPPORTED_VERSIONS, ["2.1.285 (Claude Code)"]);
+    assert_eq!(CAPABILITY, "claude/channel");
+    assert_eq!(NOTIFICATION_METHOD, "notifications/claude/channel");
+    assert_eq!(PROTOCOL_VERSION, "2025-11-25");
+    assert_eq!(MCP_CONFIG_FLAG, "--mcp-config");
+    assert_eq!(CHANNEL_FLAG, "--dangerously-load-development-channels");
+}
+
+fn probe(scratch: &Scratch, version: &str) -> Result<(), ChannelError> {
+    let script = scratch.0.join("claude");
+    let _ = fs::remove_file(&script);
+    fs::write(&script, format!("#!/bin/sh\necho '{version}'\n")).unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    // Another test's fork can briefly hold the just-written file open (ETXTBSY);
+    // only that launch failure is retried, and only in this fixture.
+    let mut result = Err(ChannelError::ProviderUnavailable);
+    for _ in 0..40 {
+        result = ClaudeChannel.preflight(
+            script.as_os_str(),
+            &scratch.0,
+            Instant::now() + Duration::from_secs(5),
+        );
+        if result != Err(ChannelError::ProviderUnavailable) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    result
+}
+
+#[test]
+fn preflight_accepts_only_the_recorded_provider_version() {
+    let scratch = Scratch::new();
+    assert_eq!(probe(&scratch, "2.1.285 (Claude Code)"), Ok(()));
+    assert_eq!(
+        probe(&scratch, "2.1.286 (Claude Code)"),
+        Err(ChannelError::ProviderVersion {
+            found: "2.1.286 (Claude Code)".into()
+        })
+    );
+    assert!(matches!(
+        probe(&scratch, "not a version"),
+        Err(ChannelError::ProviderVersion { .. })
+    ));
+    let missing = ClaudeChannel.preflight(
+        scratch.0.join("absent").as_os_str(),
+        &scratch.0,
+        Instant::now() + Duration::from_secs(5),
+    );
+    assert_eq!(missing, Err(ChannelError::ProviderUnavailable));
+}
+
+#[test]
+fn preflight_refuses_a_directory_whose_socket_path_cannot_fit() {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let long = PathBuf::from(format!("/tmp/{}", "d".repeat(80)));
+    assert_eq!(
+        ClaudeChannel.preflight("claude".as_ref(), &long, deadline),
+        Err(ChannelError::PathTooLong)
+    );
+    assert_eq!(
+        ClaudeChannel.preflight("claude".as_ref(), Path::new("relative"), deadline),
+        Err(ChannelError::PathTooLong)
+    );
+}
+
+// The real server, driven through its stdio ends and its socket.
+
+struct Running {
+    scratch: Scratch,
+    stdin: UnixStream,
+    stdout: io::BufReader<UnixStream>,
+    thread: JoinHandle<io::Result<()>>,
+}
+
+fn wait_for(path: &Path) {
+    for _ in 0..500 {
+        if path.exists() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{} never appeared", path.display());
+}
+
+fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
+    for _ in 0..500 {
+        if condition() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{what} never happened");
+}
+
+fn serve_on(directory: &Path, input: UnixStream, output: UnixStream) -> io::Result<()> {
+    let mut output = output;
+    ClaudeChannel.serve(
+        &ServeRequest {
+            binding_id: BINDING,
+            generation: GENERATION,
+            directory,
+        },
+        Box::new(io::BufReader::new(input)),
+        &mut output,
+    )
+}
+
+/// The launch owner is this process; `tmt run --channel` has already written
+/// the enrollment when Claude starts the server.
+fn start() -> Running {
+    let scratch = Scratch::new();
+    publish(&scratch.0, &intent(&live_owner()));
+    let (stdin, server_in) = UnixStream::pair().unwrap();
+    let (server_out, stdout) = UnixStream::pair().unwrap();
+    stdout
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let directory = scratch.0.clone();
+    let thread = std::thread::spawn(move || serve_on(&directory, server_in, server_out));
+    wait_for(&socket_path(&scratch.0, BINDING));
+    Running {
+        scratch,
+        stdin,
+        stdout: io::BufReader::new(stdout),
+        thread,
+    }
+}
+
+impl Running {
+    fn say(&mut self, message: serde_json::Value) {
+        writeln!(self.stdin, "{message}").unwrap();
+    }
+
+    fn hear(&mut self) -> serde_json::Value {
+        let mut line = String::new();
+        self.stdout.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+
+    fn frame(&self, generation: &str, content: &str) -> Reply {
+        let mut stream = UnixStream::connect(socket_path(&self.scratch.0, BINDING)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let frame = Frame {
+            version: RECORD_VERSION,
+            generation: generation.into(),
+            content: content.into(),
+        };
+        writeln!(stream, "{}", serde_json::to_string(&frame).unwrap()).unwrap();
+        let mut line = String::new();
+        io::BufReader::new(stream).read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+
+    fn stop(self) -> (Scratch, io::Result<()>) {
+        drop(self.stdin);
+        (self.scratch, self.thread.join().unwrap())
+    }
+}
+
+fn initialize() -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {},
+                   "clientInfo": {"name": "claude-code", "version": "2.1.285"}}
+    })
+}
+
+#[test]
+fn the_server_declares_the_channel_and_no_tools_then_delivers_one_frame_at_a_time() {
+    let mut running = start();
+    let owner = live_owner();
+    running.say(initialize());
+    let initialized = running.hear();
+    let result = &initialized["result"];
+    assert_eq!(result["protocolVersion"], PROTOCOL_VERSION);
+    assert_eq!(
+        result["capabilities"],
+        serde_json::json!({"experimental": {CAPABILITY: {}}}),
+        "the channel capability and nothing else, so no tools"
+    );
+    assert_eq!(result["serverInfo"]["name"], SERVER_NAME);
+    // Before the client's `initialized` the enrollment is still "not ready":
+    // a send reports that, and a frame is refused, not written.
+    assert_eq!(
+        read_record(&running.scratch.0, BINDING)
+            .unwrap()
+            .unwrap()
+            .claude,
+        None
+    );
+    assert_eq!(
+        running.frame(GENERATION, MESSAGE).refused.as_deref(),
+        Some("not_ready")
+    );
+    running.say(serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    wait_until("the enrollment becoming ready", || {
+        read_record(&running.scratch.0, BINDING)
+            .unwrap()
+            .is_some_and(|record| record.claude.is_some())
+    });
+
+    // The record names this test process's parent as "Claude", the same
+    // observation the server made, and keeps the launch owner untouched.
+    let stored = read_record(&running.scratch.0, BINDING).unwrap().unwrap();
+    let claude_process = stored.claude.clone().unwrap();
+    assert_eq!(
+        claude_process.pid,
+        u64::try_from(nix::unistd::getppid().as_raw()).unwrap()
+    );
+    assert_eq!(stored.generation, GENERATION);
+    assert_eq!(stored.launch_owner, Process::of(&owner));
+    let claude = claude_process.incarnation().unwrap();
+    assert_eq!(
+        fs::metadata(socket_path(&running.scratch.0, BINDING))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+
+    // A wrong generation is refused and produces no notification.
+    assert_eq!(
+        running
+            .frame("55555555-5555-4555-8555-555555555555", "stale")
+            .refused
+            .as_deref(),
+        Some("generation")
+    );
+    assert_eq!(
+        send(
+            Some(&running.scratch.0),
+            &entry(BINDING, Some(owner), Some(claude)),
+            MESSAGE
+        ),
+        ActionResult::Completed(DeliveryAcceptance::Unacknowledged)
+    );
+    // The first line after the handshake is the accepted frame, not "stale".
+    let notification = running.hear();
+    assert_eq!(notification["method"], NOTIFICATION_METHOD);
+    assert_eq!(notification["params"]["content"], MESSAGE);
+    assert!(notification.get("id").is_none(), "one-way notification");
+
+    // A ping and an unknown request keep their JSON-RPC shapes.
+    running.say(serde_json::json!({"jsonrpc": "2.0", "id": 9, "method": "ping"}));
+    assert_eq!(running.hear()["result"], serde_json::json!({}));
+    running.say(serde_json::json!({"jsonrpc": "2.0", "id": 10, "method": "tools/list"}));
+    assert_eq!(running.hear()["error"]["code"], -32601);
+
+    // Claude going away ends the server and its socket; the enrollment stays
+    // with the launch, which withdraws it.
+    let (scratch, result) = running.stop();
+    result.unwrap();
+    assert!(!socket_path(&scratch.0, BINDING).exists());
+    assert!(record_path(&scratch.0, BINDING).exists());
+}
+
+#[test]
+fn a_server_that_never_completes_its_handshake_leaves_the_enrollment_not_ready() {
+    let mut running = start();
+    running.say(initialize());
+    running.hear();
+    // Claude closes the session before `initialized`: a failed handshake.
+    let (scratch, result) = running.stop();
+    result.unwrap();
+    let record = read_record(&scratch.0, BINDING).unwrap().unwrap();
+    assert_eq!(record.claude, None, "never became ready");
+    // A later send therefore reports not ready with no byte and no paste,
+    // rather than treating the session as not opted in.
+    let owner = live_owner();
+    assert_eq!(
+        fault(send_within(
+            Some(&scratch.0),
+            &entry(BINDING, Some(owner), Some(provider(4242))),
+            MESSAGE,
+            SHORT_WAIT
+        )),
+        ("denied", ChannelFault::NotReady)
+    );
+}
+
+#[test]
+fn a_server_cannot_create_an_enrollment_and_validates_its_arguments_first() {
+    let scratch = Scratch::new();
+    let serve = |binding: &str, generation: &str, directory: &Path| {
+        ClaudeChannel.serve(
+            &ServeRequest {
+                binding_id: binding,
+                generation,
+                directory,
+            },
+            Box::new(io::BufReader::new(io::empty())),
+            &mut Vec::new(),
+        )
+    };
+    for error in [
+        serve("../escape", GENERATION, &scratch.0),
+        serve(BINDING, "not-a-uuid", &scratch.0),
+        serve(BINDING, GENERATION, Path::new("relative")),
+    ] {
+        assert_eq!(error.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+    let created = |scratch: &Scratch| {
+        fs::read_dir(&scratch.0)
+            .unwrap()
+            .filter(|entry| entry.as_ref().unwrap().file_name() != ".lock")
+            .count()
+    };
+    // Started by hand, with no enrollment from `tmt run --channel`: refused,
+    // and it must not have made one or bound a socket.
+    assert_eq!(
+        serve(BINDING, GENERATION, &scratch.0).unwrap_err().kind(),
+        io::ErrorKind::NotFound
+    );
+    assert_eq!(created(&scratch), 0);
+    // An enrollment of another generation is not this server's.
+    publish(
+        &scratch.0,
+        &Record {
+            generation: "55555555-5555-4555-8555-555555555555".into(),
+            ..intent(&live_owner())
+        },
+    );
+    assert_eq!(
+        serve(BINDING, GENERATION, &scratch.0).unwrap_err().kind(),
+        io::ErrorKind::NotFound
+    );
+    // A directory others can write to cannot hold the endpoint.
+    fs::set_permissions(&scratch.0, fs::Permissions::from_mode(0o770)).unwrap();
+    assert_eq!(
+        serve(BINDING, GENERATION, &scratch.0).unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+}
+
+#[test]
+fn a_second_server_for_a_live_binding_is_refused_and_a_stale_socket_is_replaced() {
+    let running = start();
+    let error = ClaudeChannel
+        .serve(
+            &ServeRequest {
+                binding_id: BINDING,
+                generation: GENERATION,
+                directory: &running.scratch.0,
+            },
+            Box::new(io::BufReader::new(io::empty())),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+    let (scratch, result) = running.stop();
+    result.unwrap();
+    // A crashed predecessor leaves a socket file; a new server of the same
+    // enrolled launch takes it over.
+    drop(UnixListener::bind(socket_path(&scratch.0, BINDING)).unwrap());
+    let (stdin, server_in) = UnixStream::pair().unwrap();
+    let (server_out, _stdout) = UnixStream::pair().unwrap();
+    let directory = scratch.0.clone();
+    let thread = std::thread::spawn(move || serve_on(&directory, server_in, server_out));
+    wait_until("the replacement server accepting", || {
+        UnixStream::connect(socket_path(&scratch.0, BINDING)).is_ok()
+    });
+    drop(stdin);
+    thread.join().unwrap().unwrap();
+}
+
+#[test]
+fn a_late_readiness_publish_cannot_clobber_a_newer_enrollment() {
+    let scratch = Scratch::new();
+    let owner = live_owner();
+    publish(&scratch.0, &intent(&owner));
+    let newer = Record {
+        generation: "66666666-6666-4666-8666-666666666666".into(),
+        ..intent(&owner)
+    };
+    let ready = std::sync::atomic::AtomicBool::new(false);
+    let request = ServeRequest {
+        binding_id: BINDING,
+        generation: GENERATION,
+        directory: &scratch.0,
+    };
+    let blocked = std::thread::scope(|scope| {
+        locked(&scratch.0, || {
+            let publishing =
+                scope.spawn(|| server::publish(&request, &Process::of(&owner), &ready));
+            std::thread::sleep(Duration::from_millis(500));
+            let blocked = !publishing.is_finished();
+            // A newer enrollment lands while the server's publish waits.
+            publish(&scratch.0, &newer);
+            blocked
+        })
+        .unwrap()
+    });
+    assert!(blocked, "the publish waits for the directory lock");
+    assert_eq!(read_record(&scratch.0, BINDING).unwrap().unwrap(), newer);
+    assert!(!ready.load(Ordering::SeqCst), "and it never reports ready");
+}
+
+#[test]
+fn a_late_old_server_neither_binds_over_nor_unlinks_a_replacement_enrollments_socket() {
+    let running = start();
+    let replacement = Record {
+        generation: "66666666-6666-4666-8666-666666666666".into(),
+        ..intent(&live_owner())
+    };
+    // The launch was re-enrolled while this server was still running.
+    publish(&running.scratch.0, &replacement);
+    let (scratch, result) = running.stop();
+    result.unwrap();
+    assert!(
+        socket_path(&scratch.0, BINDING).exists(),
+        "the socket of a replacement enrollment is not the old server's to remove"
+    );
+    assert_eq!(
+        read_record(&scratch.0, BINDING).unwrap().unwrap(),
+        replacement
+    );
+    // And a server of the replaced generation can no longer start at all.
+    assert_eq!(
+        ClaudeChannel
+            .serve(
+                &ServeRequest {
+                    binding_id: BINDING,
+                    generation: GENERATION,
+                    directory: &scratch.0,
+                },
+                Box::new(io::BufReader::new(io::empty())),
+                &mut Vec::new(),
+            )
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::NotFound
+    );
 }
