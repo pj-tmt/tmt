@@ -40,4 +40,5 @@ Optional `COLAB_CHROMIUM_EXECUTABLE`, `COLAB_FIREFOX_EXECUTABLE` and
 `COLAB_WEBKIT_EXECUTABLE` select explicit local binaries. Launch failures never
 skip a required engine. Reports default to ignored `differential-results.json`;
 set `COLAB_REPORT` to retain evidence elsewhere. Browser/server cleanup runs even
-on a failed engine. CI integration requires the core lead's decision.
+on a failed engine. CI runs the library check and unit tests on every pull request;
+the non-required, path-scoped three-engine job remains a coordinated follow-up.
