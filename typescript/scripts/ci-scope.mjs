@@ -197,9 +197,9 @@ function consumedByNativeOffice(path) {
 /**
  * What each changed path selects and why, for the run summary. The first
  * matching rule of the component map decides `native` and `office`; a path no
- * rule matches fails closed to both. `nativeOffice` schedules the advisory
- * native Office browser shards only for Office itself or the core surfaces it
- * consumes.
+ * rule matches fails closed to both. `nativeOffice` retains the local Office
+ * verification impact of core surfaces it consumes; advisory PR scheduling
+ * uses the separate ownership-only selectOfficeBrowser policy.
  */
 export function explainCiSelection(paths, map = componentMap()) {
   return paths.map((path) => {
@@ -227,6 +227,15 @@ export function selectCiAreas(paths, map = componentMap()) {
     office: rows.some((row) => row.office),
     nativeOffice: rows.some((row) => row.nativeOffice),
   };
+}
+
+/**
+ * Parked Office browser diagnostics follow ownership on pull requests, not core
+ * dependencies. Weekly/manual runs cover every partition regardless of this flag.
+ * Empty or unknown paths select no browser work; required CI stays conservative.
+ */
+export function selectOfficeBrowser(paths, map = componentMap()) {
+  return paths.some((path) => ownerOf(path, map) === 'office' || path.startsWith('docs/office/'));
 }
 
 /**
@@ -365,8 +374,8 @@ export function readChangedCiAreas(base, head, cwd) {
 }
 
 /**
- * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the three
- * outputs; the evidence table goes to standard error and the step summary.
+ * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the
+ * selection outputs; the evidence table goes to standard error and the step summary.
  */
 export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   if (args[0] === 'gate') {
@@ -401,7 +410,10 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
   const selection = readChangedCiSelection(args[0], args[1], cwd);
-  const evidence = renderSelectionEvidence({ base: args[0], head: args[1], ...selection });
+  const officeBrowser = selectOfficeBrowser(selection.paths);
+  const evidence =
+    renderSelectionEvidence({ base: args[0], head: args[1], ...selection }) +
+    `\nOffice browser PR selection (Office-owned paths): ${officeBrowser}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;
@@ -409,6 +421,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const [firstShard, secondShard] = e2eShardFiles(nativeScope, checks.e2eFiles);
   stdout.write(
     `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
+      `office_browser=${officeBrowser}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
       `e2e_shard_1=${firstShard.join(' ')}\n` +
