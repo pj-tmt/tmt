@@ -42,7 +42,7 @@ function rememberSession(fixture: E2EFixture, identityId: string): void {
   }
 }
 
-describe.sequential('identity rename', () => {
+describe('identity rename', { concurrent: false }, () => {
   it('keeps the UUID, binding, pending work and remembered session while the pane shows the new name', async () => {
     await withE2EFixture(
       async (fixture) => {

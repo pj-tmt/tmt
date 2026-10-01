@@ -73,7 +73,7 @@ function listenerWaitIsReady(fixture: E2EFixture, pid: number): boolean {
   );
 }
 
-describe.sequential('Exchange attention through the real Docker/tmux fixture', () => {
+describe('Exchange attention through the real Docker/tmux fixture', { concurrent: false }, () => {
   it('ackall works before any list, late finals reopen attention, and explicit/implicit identity access survives rebind', async () => {
     await withE2EFixture(
       async (fixture) => {

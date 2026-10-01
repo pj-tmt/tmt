@@ -60,7 +60,7 @@ function identityId(fixture: E2EFixture, name: string): string {
   }
 }
 
-describe.sequential('foreground identity launch', () => {
+describe('foreground identity launch', { concurrent: false }, () => {
   it('auto-names a launch, names the same live identity, and resumes its hook-recorded session', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('auto-run').pane;

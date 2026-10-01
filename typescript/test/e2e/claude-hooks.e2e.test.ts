@@ -17,7 +17,7 @@ const hook = (event: string, transition: string, session: string, model?: string
 });
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
-describe.sequential('Claude hooks with a real pane and verified runtime ancestry', () => {
+describe('Claude hooks with a real pane and verified runtime ancestry', { concurrent: false }, () => {
   it('injects the bound identity, retains it through clear and fences stale end events', async () => {
     await withE2EFixture(
       async (fixture) => {

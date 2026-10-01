@@ -41,7 +41,7 @@ function memberSession(fixture: E2EFixture, session: string): string {
   return fixture.tmux(['new-session', '-d', '-s', session, '-P', '-F', '#{pane_id}', 'cat']).trim();
 }
 
-describe.sequential('focus: show a verified pane in the invoking client', () => {
+describe('focus: show a verified pane in the invoking client', { concurrent: false }, () => {
   it('moves only the invoker client across sessions and returns with the captured pane', async () => {
     await withE2EFixture(async (fixture) => {
       const member = memberSession(fixture, 'crew');

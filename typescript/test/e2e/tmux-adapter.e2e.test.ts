@@ -21,7 +21,7 @@ function fixtureOptions(): E2EFixtureOptions {
   return { mode: 'input-log', executableEnv: { TMT_TEST_CLI: probe } };
 }
 
-describe.sequential('tmux adapter probe: caller evidence, inventory and metadata', () => {
+describe('tmux adapter probe: caller evidence, inventory and metadata', { concurrent: false }, () => {
   it('cleans the native-selected fixture after an intentional scenario failure', async () => {
     const fixtures: E2EFixture[] = [];
     await expect(

@@ -22,7 +22,7 @@ function installCursorReader(fixture: E2EFixture): () => Promise<number> {
   return async () => expectJsonResult(await fixture.runCli<{ cursor: number }>(['cursor'])).cursor;
 }
 
-describe.sequential('change cursor on a live host', () => {
+describe('change cursor on a live host', { concurrent: false }, () => {
   it('stays put across repeated reads of bound, running and remembered state, and moves on real transitions', async () => {
     await withE2EFixture(async (fixture) => {
       const cursor = installCursorReader(fixture);

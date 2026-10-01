@@ -25,7 +25,7 @@ async function seedDiagnostic(fixture: E2EFixture, message: string): Promise<voi
   await fixture.waitForCapture((output) => output.includes(message));
 }
 
-describe.sequential('current-server diagnostic routing', () => {
+describe('current-server diagnostic routing', { concurrent: false }, () => {
   it('captures names, stable panes and tmux targets with configured and explicit line counts', async () => {
     await withE2EFixture(async (fixture) => {
       expect(await fixture.runJsonCli(['name', 'Alice'])).toMatchObject({

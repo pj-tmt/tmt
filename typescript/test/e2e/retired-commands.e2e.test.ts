@@ -166,7 +166,7 @@ function expectNeighborsPresent(output: string, shell?: 'bash' | 'zsh'): void {
   }
 }
 
-describe.sequential('retired legacy registry commands', () => {
+describe('retired legacy registry commands', { concurrent: false }, () => {
   it('rejects every retired command and flag before opening resources', async () => {
     await withE2EFixture(async (fixture) => {
       expect(fs.existsSync(databasePath(fixture))).toBe(false);

@@ -29,7 +29,7 @@ function runtimeSelection(mode: 'app-server' | '--no-daemon' | 'orphan'): NodeJS
   };
 }
 
-describe.sequential('runtime-owned caller attribution through real process ancestry', () => {
+describe('runtime-owned caller attribution through real process ancestry', { concurrent: false }, () => {
   it('never borrows the shared host identity, preserves anonymous sends and honors explicit identity', async () => {
     await withE2EFixture(
       async (fixture) => {

@@ -133,7 +133,7 @@ const resumeOf = (stdout: string) =>
     (identity) => identity.name === 'Usage Reader'
   )?.resume;
 
-describe.sequential('turn-end usage hooks with a real pane and verified runtime', () => {
+describe('turn-end usage hooks with a real pane and verified runtime', { concurrent: false }, () => {
   for (const provider of providers) {
     it(`records ${provider.name} usage only for the remembered conversation`, async () => {
       await withE2EFixture(

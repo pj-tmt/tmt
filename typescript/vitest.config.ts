@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  test: {
+  test: { clearMocks: false,
     pool: 'threads',
     include: ['test/tooling/**/*.test.ts'],
     exclude: ['test/e2e/**', 'node_modules', 'dist'],

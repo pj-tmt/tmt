@@ -7,7 +7,7 @@ function quote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-describe.sequential('interactive shell completion', () => {
+describe('interactive shell completion', { concurrent: false }, () => {
   for (const shell of ['bash', 'zsh', 'fish']) {
     it(`${shell} completes identities and delegates command arguments on real Tab input`, async () => {
       await withE2EFixture(async (fixture) => {

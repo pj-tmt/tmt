@@ -22,7 +22,7 @@ function attentionState(fixture: E2EFixture): unknown {
   }
 }
 
-describe.sequential('identity context request summaries', () => {
+describe('identity context request summaries', { concurrent: false }, () => {
   it('counts unacknowledged X items without consuming attention or exposing message content', async () => {
     await withE2EFixture(
       async (fixture) => {

@@ -5,7 +5,7 @@ import { withE2EFixture } from './harness.js';
 
 const inputLog = { mode: 'input-log' } as const;
 
-describe.sequential('saved identity notes through verified tmux callers', () => {
+describe('saved identity notes through verified tmux callers', { concurrent: false }, () => {
   it('uses the verified saved identity implicitly and remains available explicitly offline', async () => {
     await withE2EFixture(async (fixture) => {
       const bound = await fixture.runJsonCli<{ id: string }>(['name', 'Saved Researcher', '-s']);

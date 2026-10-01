@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture } from './harness.js';
 
-describe.sequential('command option ownership', () => {
+describe('command option ownership', { concurrent: false }, () => {
   it('rejects an irrelevant delivery flag without binding a pane or opening storage', async () => {
     await withE2EFixture(async (fixture) => {
       const metadata = fixture.paneMetadata(fixture.pane);

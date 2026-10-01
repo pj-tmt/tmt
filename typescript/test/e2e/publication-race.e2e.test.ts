@@ -147,7 +147,7 @@ async function assertPublished(fixture: E2EFixture, name: string): Promise<void>
   );
 }
 
-describe.sequential('crash-safe identity publication', () => {
+describe('crash-safe identity publication', { concurrent: false }, () => {
   it('keeps an unpublished binding out of committed discovery while an observer starts', async () => {
     await withE2EFixture(
       async (fixture) => {

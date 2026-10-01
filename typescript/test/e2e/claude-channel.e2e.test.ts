@@ -286,7 +286,7 @@ function pauseBeforeAdmission(fixture: E2EFixture, name: string): void {
   });
 }
 
-describe.sequential('Claude channel delivery', () => {
+describe('Claude channel delivery', { concurrent: false }, () => {
   it('names an automatic identity without changing the live channel enrollment', async () => {
     await withE2EFixture(async (fixture) => {
       const worker = start(fixture, 'auto-channel', { channel: true, unnamed: true });
