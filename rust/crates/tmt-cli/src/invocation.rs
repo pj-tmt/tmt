@@ -131,6 +131,9 @@ pub enum Invocation {
         yes: bool,
     },
     NativeRefreshSkills,
+    NativeUpgradeExtensions {
+        plan: bool,
+    },
     Uninstall {
         purge: bool,
         yes: bool,

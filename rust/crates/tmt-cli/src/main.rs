@@ -268,6 +268,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 parsed.mode,
             );
         }
+        Invocation::NativeUpgradeExtensions { plan } => {
+            return extension_install_command::upgrade_all::execute(plan, parsed.mode);
+        }
         Invocation::NativeRefreshSkills => {
             return skill_refresh_command::execute(parsed.mode);
         }

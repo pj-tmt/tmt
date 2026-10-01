@@ -98,3 +98,32 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
     let help = crate::grammar::public_grammar(&crate::grammar::grammar(), true);
     assert!(help.find_subcommand("__native-install").is_none());
 }
+
+#[test]
+fn internal_extension_upgrade_requires_plan_or_consent() {
+    assert_eq!(
+        parsed(&["__native-upgrade-extensions", "--plan", "--json"]).invocation,
+        Invocation::NativeUpgradeExtensions { plan: true }
+    );
+    assert_eq!(
+        parsed(&["__native-upgrade-extensions", "--yes", "--json"]).invocation,
+        Invocation::NativeUpgradeExtensions { plan: false }
+    );
+}
+
+#[test]
+fn internal_extension_upgrade_is_hidden_and_rejects_ambiguous_modes() {
+    assert_eq!(
+        parse_error(&["__native-upgrade-extensions"]).code,
+        "USAGE_ERROR"
+    );
+    assert_eq!(
+        parse_error(&["__native-upgrade-extensions", "--plan", "--yes"]).code,
+        "USAGE_ERROR"
+    );
+    let help = crate::grammar::public_grammar(&crate::grammar::grammar(), true);
+    assert!(
+        help.find_subcommand("__native-upgrade-extensions")
+            .is_none()
+    );
+}

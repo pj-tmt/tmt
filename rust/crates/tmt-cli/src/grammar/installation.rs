@@ -234,6 +234,27 @@ pub(in crate::grammar) fn refresh_skills() -> Command {
     internal("__native-refresh-skills", "Internal managed skill refresh").hide(true)
 }
 
+pub(in crate::grammar) fn upgrade_extensions() -> Command {
+    internal(
+        "__native-upgrade-extensions",
+        "Internal extension upgrade plan/apply",
+    )
+    .hide(true)
+    .arg(
+        Arg::new("plan")
+            .long("plan")
+            .action(ArgAction::SetTrue)
+            .conflicts_with("yes")
+            .required_unless_present("yes"),
+    )
+    .arg(
+        Arg::new("yes")
+            .long("yes")
+            .action(ArgAction::SetTrue)
+            .required_unless_present("plan"),
+    )
+}
+
 pub(in crate::grammar) fn native_install() -> Command {
     internal("__native-install", "Internal offline native installation")
         .hide(true)

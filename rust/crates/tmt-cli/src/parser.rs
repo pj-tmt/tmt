@@ -278,6 +278,9 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             operation: crate::office_facade::parser::translate(path, m)?,
         },
         ["__native-refresh-skills"] => Invocation::NativeRefreshSkills,
+        ["__native-upgrade-extensions"] => Invocation::NativeUpgradeExtensions {
+            plan: flag(m, "plan"),
+        },
         ["uninstall"] => Invocation::Uninstall {
             purge: flag(m, "purge"),
             yes: flag(m, "yes"),

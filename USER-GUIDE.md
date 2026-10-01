@@ -28,6 +28,8 @@ in JSON or non-terminal use without it, pending extensions report `consentRequir
 and the same rerun command, without changing extensions or failing the command.
 Missing extensions are never installed. Results list each product; an extension
 failure makes the command fail but does not undo other successful updates.
+If an older target CLI cannot run the extension-upgrade phase, the report fails
+with a hint to run `tmt upgrade` again; it never uses the previous CLI's installer.
 `--channel` and `--to` select only the CLI; clear an extension pin with
 `tmt extension upgrade <name> --unpin`. Package-manager
 installations from older releases are a separate legacy TypeScript runtime.

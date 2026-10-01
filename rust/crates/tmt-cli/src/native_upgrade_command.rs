@@ -1,4 +1,6 @@
-//! Native update composition; the newly activated executable owns skill refresh.
+//! Native update composition; the new executable owns skill refresh and extensions.
+
+mod extensions;
 
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
@@ -121,14 +123,12 @@ fn finish(
     mode: OutputMode,
 ) -> io::Result<u8> {
     let extensions = if failure.is_none() {
-        match native_install::inspect(&report.installation.active_executable) {
-            Ok(current) => {
-                crate::extension_install_command::upgrade_installed(current.prefix(), yes, mode)
-            }
-            Err(error) => vec![
-                json!({"product":"extensions","status":"failed","error":{"code":"EXTENSION_INSTALLATION_INVALID","message":error.to_string()}}),
-            ],
-        }
+        extensions::upgrade(
+            &report.installation.active_executable,
+            yes,
+            mode,
+            &UnixCommandRunner,
+        )
     } else {
         Vec::new()
     };
@@ -314,13 +314,20 @@ fn product_rows(
     failure: Option<&Failure>,
     extensions: Vec<Value>,
 ) -> Vec<Value> {
+    let status = if failure.is_some() {
+        "failed"
+    } else if report.is_some_and(|report| report.skipped_pinned) {
+        "skippedPinned"
+    } else if report.is_some_and(|report| report.installation.changed) {
+        "changed"
+    } else {
+        "unchanged"
+    };
     let mut products = vec![json!({
-        "product":"cli",
-        "status": if failure.is_some() {"failed"}
-            else if report.is_some_and(|r|r.skipped_pinned) {"skippedPinned"}
-            else if report.is_some_and(|r|r.installation.changed) {"changed"} else {"unchanged"},
-        "version": report.map(|r| &r.installation.version),
-        "error": failure.map(|f| f.document()["error"].clone()),
+        "product": "cli",
+        "status": status,
+        "version": report.map(|report| &report.installation.version),
+        "error": failure.map(|failure| failure.document()["error"].clone()),
     })];
     products.extend(extensions);
     products

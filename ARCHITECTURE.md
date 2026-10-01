@@ -2252,9 +2252,14 @@ stays at 16 KiB.
   compositions. Application data and provider skills are separate owners.
 
 `native_upgrade_command` upgrades the CLI and refreshes its managed skills before
-asking the existing extension command owner to upgrade installed official products.
-`extension_install_command::upgrade_all` discovers them in the managed CLI prefix,
-retains each channel/pin, and asks once for the listed version changes. A selected
+asking the newly installed executable to upgrade installed official products.
+The bounded hidden `__native-upgrade-extensions --json --plan` command supplies
+pending versions; the parent owns one terminal consent question and sends that
+exact plan on stdin to the new executable with `--yes`. It validates the bounded
+plan/result reports and exit status. Unsupported older targets fail with a rerun
+hint; old-process extension logic is never used as a fallback.
+`extension_install_command::upgrade_all` in the new executable discovers products
+in its managed CLI prefix and retains each channel/pin. A selected
 version uses the same native acquisition/activation path without creating an exact
 version pin; extension verification and skill settlement retain their existing owners.
 JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
