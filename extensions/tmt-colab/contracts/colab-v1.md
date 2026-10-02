@@ -666,7 +666,8 @@ machine's grant. Altered transcripts/devices/offers/tags MUST reject.
 
 Comments, sync, replay, compaction and HTML scripts MUST NOT dispatch agent work.
 Only explicit Send in trusted parent UI signs an immutable intent after showing
-the exact final text, agent UUID, destination machine/online state and hold policy.
+the exact final text, agent UUID, destination machine/online state and, only
+under a `hold` grant, that the send waits for local approval.
 All effectful actions (Send, share, approve, delete) live in trusted parent
 chrome. The canvas retains a visible boundary and the selection popover is
 parent-drawn and clamped to it. Ask agent is a separate confirmed step from
@@ -687,8 +688,9 @@ is not execution authority.
 For each operation ID the durable bridge ledger transitions:
 
 ```text
-held → dispatching → accepted | failed | uncertain
-held → refused | expired
+fence → dispatching → accepted | failed | uncertain   (direct grant, default)
+fence → held → dispatching                            (hold grant, after approve)
+fence | held → refused | expired
 uncertain → accepted (receipt recovery) | abandoned
 uncertain → dispatching (explicit eligible retry only)
 ```
@@ -697,9 +699,9 @@ The fence checks signature/device chain, current local grant revision,
 revocation/expiry, intent window, self machine ID, space/page, selected agent
 scope, sender authority at the latest locally verified head, and operation dedup.
 Same ID/digest returns recorded state; different digest is `INTENT_CONFLICT`.
-Run the fence at adoption into held and again under the bridge lock immediately
-before dispatch. Approval does not extend validity. Revocation while held or
-offline blocks dispatch.
+Run the fence under the bridge lock immediately before dispatch; under a `hold`
+grant also run it at adoption into held. Approval does not extend validity.
+Revocation while held or offline blocks dispatch.
 
 Persist dispatching, then call public `dispatch.create` with frozen operation ID,
 recipient UUID and exact bytes, anonymous originator. Core owns request/wake
@@ -716,9 +718,10 @@ No shared API extension is assumed. Abandon stops local tracking and says “may
 still have been delivered”; it neither proves non-delivery nor cancels accepted
 work. No automatic new operation or repeated wake is permitted.
 
-Until #600 merges every send is held for local `approve`. Afterwards only the
-owner's own paired browser may use direct mode; all others remain held. The
-product preference cannot bypass the readiness gate.
+The grant mode comes from the remote trust grant: `direct` (the default)
+dispatches right after the fence, `hold` keeps the send held for local
+`approve`. Whether non-owner members may use Ask agent is a pending owner
+decision in the remote channel contract.
 
 `devices revoke` revokes machine-local grants immediately. Member removal on
 that machine also revokes corresponding grants in the same local transaction.
