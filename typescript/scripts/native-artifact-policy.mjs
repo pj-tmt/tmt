@@ -7,6 +7,14 @@ import { gunzipSync } from 'node:zlib';
 import * as tar from 'tar';
 
 const executables = { cli: 'tmt', office: 'tmt-office', squad: 'tmt-squad' };
+/**
+ * Executables a product's archive carries beside its own, installed with it
+ * and recorded in its receipt. Mirrors Product::companions() in
+ * rust/crates/tmt-core/src/native_install/product.rs; a release built here
+ * always carries them, while the installer also accepts older archives
+ * without them.
+ */
+const companions = { cli: ['tmt-driver-herdr'], office: [], squad: [] };
 /** The agent-skills tree an extension archive carries under one directory. */
 const skillsRoot = 'skills';
 const skillFileLimit = 1024 * 1024;
@@ -14,7 +22,13 @@ const skillTreeFileLimit = 16 * 64;
 
 function runtimeFiles(product = 'cli') {
   assert(Object.hasOwn(executables, product), 'Unknown native product');
-  return [executables[product], 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
+  return [
+    executables[product],
+    'LICENSE',
+    'NATIVE-INSTALL.md',
+    'THIRD-PARTY-NOTICES.txt',
+    ...companions[product],
+  ];
 }
 const compressedLimit = 64 * 1024 * 1024;
 const expandedLimit = 128 * 1024 * 1024;
@@ -125,7 +139,8 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
         assert.equal(entry.type, 'File', `Native archive entry must be regular: ${entry.path}`);
         assert.equal(entry.mode & 0o7000, 0, 'Native archive must not set special permission bits');
         assert(entry.size > 0, `Empty native archive entry: ${entry.path}`);
-        if (entry.path === `${rootName}/${requiredFiles[0]}`) {
+        const executable = [requiredFiles[0], ...companions[metadata.product ?? 'cli']];
+        if (executable.some((name) => entry.path === `${rootName}/${name}`)) {
           assert(entry.mode & 0o111, 'Native executable lacks execute permission');
         }
       },

@@ -2724,6 +2724,8 @@ dependencies = [
  "tmt-cli-style",
  "tmt-command-output",
  "tmt-core",
+ "tmt-driver-herdr",
+ "tmt-driver-protocol",
  "tmt-office-command",
  "tmt-office-model",
  "toml_edit",

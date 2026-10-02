@@ -27,6 +27,8 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
 };
 
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
+/** Product::companions(): executables a product's archive carries beside its own. */
+const COMPANIONS = { cli: ['tmt-driver-herdr'], office: [], squad: [] };
 const TARGET = 'aarch64-apple-darwin';
 const VERSION = '5.0.0-alpha.1';
 
@@ -46,6 +48,10 @@ interface ArchiveOptions {
   readonly skillLink?: boolean;
   readonly duplicate?: string;
   readonly executable?: boolean;
+  /** Whether the companion executables keep their execute bit (default true). */
+  readonly companionExecutable?: boolean;
+  /** Whether the manifest lists the companion executables (default true). */
+  readonly declareCompanions?: boolean;
   readonly extra?: string;
   readonly link?: 'hard' | 'symlink';
   readonly omit?: string;
@@ -80,11 +86,14 @@ async function createArchiveFixture(
   const executable = { cli: 'tmt', office: 'tmt-office', squad: 'tmt-squad' }[
     options.product ?? 'cli'
   ];
-  const files = [executable, ...REQUIRED_FILES.slice(1)];
+  const companions = COMPANIONS[options.product ?? 'cli'];
+  const files = [executable, ...REQUIRED_FILES.slice(1), ...companions];
   for (const file of files) {
     if (file === options.omit) continue;
     const target = path.join(root, file);
-    fs.writeFileSync(target, `${file} fixture\n`, { mode: file === executable ? 0o755 : 0o644 });
+    const runs =
+      file === executable || (companions.includes(file) && options.companionExecutable !== false);
+    fs.writeFileSync(target, `${file} fixture\n`, { mode: runs ? 0o755 : 0o644 });
   }
   for (const [file, content] of Object.entries(options.skills ?? {})) {
     fs.mkdirSync(path.dirname(path.join(root, 'skills', file)), { recursive: true });
@@ -137,7 +146,9 @@ async function createArchiveFixture(
         target_triples: [TARGET],
         checksums: { sha256 },
         assets: [
-          ...files,
+          ...files.filter(
+            (file) => options.declareCompanions !== false || !companions.includes(file)
+          ),
           ...((options.declareSkills ?? options.product === 'squad') ? ['skills'] : []),
         ].map((file) => ({ path: file })),
       },
@@ -351,7 +362,7 @@ describe('native artifact policy', () => {
 
       const result = await withNativeArtifact(fixture.archiveFile, fixture.metadata, (root) => {
         extracted = root;
-        expect(fs.readdirSync(root).sort()).toEqual([...REQUIRED_FILES].sort());
+        expect(fs.readdirSync(root).sort()).toEqual([...REQUIRED_FILES, ...COMPANIONS.cli].sort());
         expect(fs.readFileSync(path.join(root, 'LICENSE'), 'utf8')).toBe('LICENSE fixture\n');
         expect(fs.statSync(path.join(root, 'tmt')).mode & 0o111).not.toBe(0);
         expect(fs.readFileSync(sentinel, 'utf8')).toBe('preserve me\n');
@@ -458,6 +469,41 @@ describe('native artifact policy', () => {
       await expect(
         withNativeArtifact(nonExecutable.archiveFile, nonExecutable.metadata, () => undefined)
       ).rejects.toThrow('Native executable lacks execute permission');
+    });
+  });
+
+  it('requires the CLI companion driver, executable, and only in the CLI archive', async () => {
+    await withSandbox(async (sandbox) => {
+      const cli = await createArchiveFixture(sandbox);
+      await withNativeArtifact(cli.archiveFile, cli.metadata, (root) => {
+        expect(fs.readdirSync(root)).toContain('tmt-driver-herdr');
+        expect(fs.statSync(path.join(root, 'tmt-driver-herdr')).mode & 0o111).not.toBe(0);
+      });
+
+      await expect(createArchiveFixture(sandbox, { declareCompanions: false })).rejects.toThrow(
+        'Manifest must describe exactly the native runtime files'
+      );
+
+      const missing = await createArchiveFixture(sandbox, { omit: 'tmt-driver-herdr' });
+      await expect(
+        withNativeArtifact(missing.archiveFile, missing.metadata, () => undefined)
+      ).rejects.toThrow(
+        'Missing native archive entry: tmux-team-5.0.0-alpha.1-aarch64-apple-darwin/tmt-driver-herdr'
+      );
+
+      const nonExecutable = await createArchiveFixture(sandbox, { companionExecutable: false });
+      await expect(
+        withNativeArtifact(nonExecutable.archiveFile, nonExecutable.metadata, () => undefined)
+      ).rejects.toThrow('Native executable lacks execute permission');
+
+      const squad = await createArchiveFixture(sandbox, {
+        product: 'squad',
+        skills: { 'tmt-squad/SKILL.md': 'lead skill\n' },
+        extra: 'tmt-driver-herdr',
+      });
+      await expect(
+        withNativeArtifact(squad.archiveFile, squad.metadata, () => undefined)
+      ).rejects.toThrow('Unexpected native archive entry');
     });
   });
 

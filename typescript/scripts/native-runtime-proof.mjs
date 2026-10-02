@@ -194,6 +194,7 @@ export async function verifyNativeRuntime({
   profileContent,
   subject,
   product = 'cli',
+  herdrDriver,
   matchingHostMessage = `${subject} requires a matching native host`,
 }) {
   assert(fs.statSync(executable).isFile(), `${subject} must be a regular file`);
@@ -265,6 +266,16 @@ export async function verifyNativeRuntime({
         await terminateOwnedChild(child);
       }
       return;
+    }
+    if (herdrDriver !== undefined) {
+      // The first-party Herdr driver ships beside tmt (Product::companions):
+      // self-contained, and the same release as the CLI it ships with.
+      verifyLinkage(herdrDriver, cwd, env, `${subject} Herdr driver`);
+      const answer = JSON.parse(
+        runPackedCommand(herdrDriver, ['__tmt-driver', '1', 'capabilities'], { cwd, env })
+      );
+      assert.equal(answer.ok?.name, 'herdr', `${subject} Herdr driver name mismatch`);
+      assert.equal(answer.ok?.version, version, `${subject} Herdr driver version mismatch`);
     }
     assert.equal(typeof skill, 'string', 'CLI runtime proof requires the canonical skill');
     assert.equal(typeof inboxSkill, 'string', 'CLI runtime proof requires the inbox skill');

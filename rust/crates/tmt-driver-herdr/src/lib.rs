@@ -21,6 +21,20 @@ use tmt_driver_protocol::{
 /// The most panes one snapshot reports, as the contract bounds it.
 const MAX_PANES: usize = 4096;
 
+/// One driver call as the executable runs it: `tmt-driver-herdr
+/// __tmt-driver <protocol> <op>`, one request on stdin and one answer on
+/// stdout. Returns the process exit code.
+pub fn serve_call() -> u8 {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let code = tmt_driver_protocol::serve(
+        &args,
+        std::io::stdin().lock(),
+        std::io::stdout().lock(),
+        &mut HerdrDriver::new(run::Processes),
+    );
+    u8::try_from(code).unwrap_or(1)
+}
+
 /// What the driver declares. `input` takes one line: Herdr types text raw,
 /// so a line break would submit early, and such text is refused before any
 /// effect. Messages reach agent panes through `prompt`, which Herdr submits
