@@ -3233,11 +3233,20 @@ full-width body measurement before rendering; the view only passes the resulting
 set to `Split::solve`. `App` owns bounded per-tab session overrides, preserving them
 through unchanged refreshes and cached switches, resetting them on changed board
 configuration, and dropping removed tabs. Restarting uses config again. The
-existing `action` parser/dispatcher owns `toggle <pane>` (`d` defaults to detail).
+existing `action` parser/dispatcher owns `toggle <pane>...`, accepting one or
+more unique literal pane names. It acts on the named panes present in the board,
+silently doing nothing when none are present. If any is expanded it folds all;
+otherwise it expands all, setting each pane's session override. Both host presets
+bind `d` to `toggle detail replies` when the resolved board contains both panes,
+otherwise the one available pane; neither yields no default `d` action or hint.
+Configured and section bindings still override the preset. Footer and help name
+the effective panes and current state (`detail+replies ▾` when any is expanded,
+`detail+replies ▸` when all are folded); the footer drops the whole hint if it
+does not fit. View presets supply only immutable Board defaults.
 Each render records the visible title hit regions; a left press toggles before
 row dispatch, without selecting a row or contributing to row double-click history. Folded
-bodies produce no row/scroll hits. Collapsing focus advances to the next expanded
-pane; with every pane folded there is no body focus. Expanding from that state
+bodies produce no row/scroll hits. Collapsing focus returns to visible rows, otherwise the next
+expanded pane; with every pane folded there is no body focus. Expanding from that state
 focuses the expanded pane. The notes action expands notes before focusing it.
 Single expanded panes keep their existing borderless rendering; their folded
 title is clickable to expand. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane shows the squad lead's own saved-identity notebook, read-only;
@@ -3325,7 +3334,13 @@ marks the document `olderRequestsNotShown` when either is cut off.
 The same room window yields the replies list (finals to the user's requests,
 newest first); bodies come from `requests.show` for the newest eight only, and
 the refresh worker caches them by request ID because a submitted final never
-changes. Bodies are agent-written and are sanitized like notes before display.
+changes. Bodies are agent-written and use the notes sanitizer and Markdown
+renderer, with full wrapped content and a two-cell indent. Prompts wrap with a
+hanging indent; recipient/age headers remain single-line. The immutable view's
+`Derived` caches rendered bodies by request ID, effective pane width and look;
+headers and prompts are assembled each frame so ages stay current without
+reparsing Markdown. View replacement discards the cache. Replies keep the shared
+`Scrolls` owner, including overflow indicators, wheel and keyboard paging.
 Membership commands are sequences of idempotent core commands, not one
 transaction; each reports what it applied, and a re-run converges. `squad.toml`,
 beside the global config that `tmt config show` reports, is the user's file.

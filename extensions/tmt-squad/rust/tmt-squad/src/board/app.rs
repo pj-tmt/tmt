@@ -595,9 +595,7 @@ impl App {
             let board = view.board.clone();
             self.remember_folds(key, &board);
         }
-        if self.focused_pane().is_none() {
-            self.next_pane();
-        }
+        self.restore_focus();
     }
 
     /// Resolve immutable defaults and user overrides for the board body width.
@@ -629,9 +627,7 @@ impl App {
 
     pub fn set_body_width(&mut self, width: u16) {
         self.body_width = width;
-        if self.focused_pane().is_none() {
-            self.next_pane();
-        }
+        self.restore_focus();
     }
 
     pub fn focused_pane(&self) -> Option<Pane> {
@@ -666,6 +662,23 @@ impl App {
         }
     }
 
+    /// A hidden focus returns to rows; boards without visible rows use the next pane.
+    fn restore_focus(&mut self) {
+        if self.focused_pane().is_some() {
+            return;
+        }
+        if let Some(position) = self
+            .view
+            .as_ref()
+            .and_then(|view| view.board.panes.iter().position(|pane| *pane == Pane::Rows))
+            && !self.collapsed_panes().contains(&Pane::Rows)
+        {
+            self.focus = position;
+        } else {
+            self.next_pane();
+        }
+    }
+
     fn next_pane(&mut self) {
         if let Some(view) = &self.view {
             let collapsed = self.collapsed_panes();
@@ -679,7 +692,7 @@ impl App {
         }
     }
 
-    fn toggle_pane(&mut self, pane: Pane) -> Effect {
+    fn toggle_panes(&mut self, panes: &[Pane]) -> Effect {
         if self.loading() {
             return self.say(format!(
                 "Loading {}…",
@@ -692,27 +705,38 @@ impl App {
         if view.board.mode != BoardMode::Split {
             return self.say("toggle applies to split mode only.");
         }
-        let Some(position) = view.board.panes.iter().position(|p| *p == pane) else {
-            return self.say(format!(
-                "The {} pane is not on this board; add it to panes.",
-                pane.title()
-            ));
-        };
+        let panes: Vec<_> = panes
+            .iter()
+            .filter(|pane| view.board.panes.contains(pane))
+            .copied()
+            .collect();
+        if panes.is_empty() {
+            return Effect::None;
+        }
+        let position = view
+            .board
+            .panes
+            .iter()
+            .position(|pane| Some(pane) == panes.first())
+            .expect("validated toggle panes");
         let had_focus = self.focused_pane().is_some();
         let Some(key) = self.shown.clone() else {
             return Effect::None;
         };
         let board = view.board.clone();
         self.remember_folds(key.clone(), &board);
-        let expanding = self.collapsed_panes().contains(&pane);
+        let collapsed = self.collapsed_panes();
+        let expanding = panes.iter().all(|pane| collapsed.contains(pane));
         let Some(state) = self.folds.get_mut(&key) else {
             return Effect::None;
         };
-        state.overrides.insert(pane, !expanding);
+        for pane in &panes {
+            state.overrides.insert(*pane, !expanding);
+        }
         if expanding && !had_focus {
             self.focus = position;
-        } else if self.focused_pane().is_none() {
-            self.next_pane();
+        } else {
+            self.restore_focus();
         }
         self.last_click = None;
         Effect::None
@@ -761,13 +785,16 @@ impl App {
         }
         match action.verb {
             Verb::Toggle => {
-                let pane = action
+                let panes: Vec<_> = action
                     .args
-                    .first()
-                    .and_then(|arg| arg.literal())
-                    .and_then(Pane::parse)
-                    .expect("validated toggle pane");
-                return self.toggle_pane(pane);
+                    .iter()
+                    .map(|arg| {
+                        arg.literal()
+                            .and_then(Pane::parse)
+                            .expect("validated toggle pane")
+                    })
+                    .collect();
+                return self.toggle_panes(&panes);
             }
             Verb::TokenWindow => {
                 if let Some(meter) = self.meter.as_mut() {
@@ -800,7 +827,7 @@ impl App {
                             ));
                         }
                         if self.collapsed_panes().contains(&Pane::Notes) {
-                            self.toggle_pane(Pane::Notes);
+                            self.toggle_panes(&[Pane::Notes]);
                         }
                         self.focus = position;
                         Effect::None
@@ -1363,7 +1390,7 @@ impl App {
             .map(|hit| hit.pane);
         if let Some(pane) = title {
             self.notice = None;
-            return self.toggle_pane(pane);
+            return self.toggle_panes(&[pane]);
         }
         self.focus_at(event.column, event.row);
         let hit = self.hits.borrow().iter().copied().find(|hit| {
@@ -1426,7 +1453,7 @@ pub(crate) mod tests {
             ),
             notes: super::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
-            bindings: crate::action::preset(true),
+            bindings: crate::action::preset(true, &[]),
             section_bindings: Vec::new(),
             opener: None,
             clipboard: None,
@@ -1762,7 +1789,7 @@ pub(crate) mod tests {
 
     #[test]
     fn keys_resolve_the_selected_row_into_requests_or_refuse_with_a_notice() {
-        let mut app = crew(crate::action::preset(true), Vec::new());
+        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
         assert_eq!(
             press(&mut app, KeyCode::Enter),
             Effect::Act(Request::Jump("auth-fix".into()))
@@ -1812,7 +1839,7 @@ pub(crate) mod tests {
 
     #[test]
     fn talk_annotate_and_reply_compose_one_line_and_empty_sends_nothing() {
-        let mut app = crew(crate::action::preset(true), Vec::new());
+        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
         {
             let view = app.view.as_mut().unwrap();
             view.me = Some("Ben".into());
@@ -1908,7 +1935,7 @@ pub(crate) mod tests {
 
     #[test]
     fn back_is_one_request_and_outcomes_become_the_notice() {
-        let mut app = crew(crate::action::preset(true), Vec::new());
+        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
         assert_eq!(
             press(&mut app, KeyCode::Backspace),
             Effect::Act(Request::Back)
@@ -1922,7 +1949,7 @@ pub(crate) mod tests {
     #[test]
     fn ctrl_r_refreshes_without_typing_into_search_or_message_inputs() {
         for tmux in [false, true] {
-            let mut app = crew(crate::action::preset(tmux), Vec::new());
+            let mut app = crew(crate::action::preset(tmux, &[]), Vec::new());
             let refresh = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
             assert_eq!(app.key(refresh), Effect::Refresh);
             assert_eq!(press(&mut app, KeyCode::F(5)), Effect::None);
@@ -1961,7 +1988,7 @@ pub(crate) mod tests {
 
     #[test]
     fn ctrl_r_keeps_normalization_and_effective_binding_overrides() {
-        let mut global = crate::action::preset(true);
+        let mut global = crate::action::preset(true, &[]);
         global.extend(bind(&[("ctrl-r", "copy"), ("f5", "refresh")]));
         let mut app = crew(global, vec![bind(&[("ctrl-r", "refresh")])]);
         let refresh = KeyEvent::new(
@@ -1992,7 +2019,7 @@ pub(crate) mod tests {
 
     #[test]
     fn section_bindings_win_over_bind_which_wins_over_the_preset() {
-        let mut global = crate::action::preset(true);
+        let mut global = crate::action::preset(true, &[]);
         global.extend(bind(&[("o", "open {pr_link}"), ("f5", "refresh")]));
         let sections = vec![
             Bindings::new(),
@@ -2025,7 +2052,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_plain_host_menu_lists_row_actions_and_runs_the_chosen_one() {
-        let mut app = crew(crate::action::preset(false), Vec::new());
+        let mut app = crew(crate::action::preset(false, &[]), Vec::new());
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         let menu = app.menu.as_ref().expect("menu");
         assert_eq!(menu.title, "auth-fix");
@@ -2047,7 +2074,7 @@ pub(crate) mod tests {
     #[test]
     fn clicks_select_rows_and_run_click_or_double_click_bindings() {
         use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-        let mut global = crate::action::preset(true);
+        let mut global = crate::action::preset(true, &[]);
         global.extend(bind(&[("click", "notes"), ("double-click", "jump")]));
         let mut app = crew(global, Vec::new());
         *app.hits.borrow_mut() = vec![
@@ -2132,6 +2159,7 @@ pub(crate) mod tests {
             vec![Pane::Rows, Pane::Detail, Pane::Notes],
             &[40, 30, 30],
         );
+        view.bindings = crate::action::preset(true, &view.board.panes);
         snapshot
     }
 
@@ -2142,9 +2170,9 @@ pub(crate) mod tests {
         app.focus = 1;
         // No selected row is needed: d goes through the normal binding path.
         press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.focused_pane(), Some(Pane::Notes));
-        press(&mut app, KeyCode::Tab);
         assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
         app.perform(&Action::parse("toggle rows").unwrap());
         assert_eq!(app.focused_pane(), Some(Pane::Notes));
         app.perform(&Action::parse("toggle notes").unwrap());
@@ -2210,16 +2238,16 @@ pub(crate) mod tests {
         app.focus = 1;
         app.set_body_width(80);
         assert_eq!(app.collapsed_panes(), [Pane::Detail].into());
-        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
         app.set_body_width(120);
         assert!(app.collapsed_panes().is_empty());
         assert_eq!(
             app.focused_pane(),
-            Some(Pane::Notes),
+            Some(Pane::Rows),
             "widening never steals focus"
         );
         app.set_body_width(80);
-        app.toggle_pane(Pane::Detail);
+        app.toggle_panes(&[Pane::Detail]);
         assert!(
             app.collapsed_panes().is_empty(),
             "explicit expansion wins below threshold"
@@ -2230,7 +2258,7 @@ pub(crate) mod tests {
             app.collapsed_panes().is_empty(),
             "override survives refresh and widening"
         );
-        app.toggle_pane(Pane::Detail);
+        app.toggle_panes(&[Pane::Detail]);
         assert!(
             app.collapsed_panes().contains(&Pane::Detail),
             "explicit collapse wins above threshold"
@@ -2265,6 +2293,142 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn grouped_toggle_folds_mixed_panes_then_expands_and_keeps_each_override() {
+        for tmux in [false, true] {
+            let mut snapshot = folding_snapshot("product");
+            let view = snapshot.view.as_mut().unwrap();
+            view.board = crate::config::Config::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/fixtures/markup-parity.toml"),
+            )
+            .unwrap()
+            .board("team")
+            .unwrap();
+            view.bindings = crate::action::preset(tmux, &view.board.panes);
+            let mut app = App::new(Some("product".into()));
+            app.set_body_width(120);
+            app.apply(snapshot);
+            app.focus = 1;
+            press(&mut app, KeyCode::Char('d'));
+            assert_eq!(app.collapsed_panes(), [Pane::Detail, Pane::Replies].into());
+            assert_eq!(app.focused_pane(), Some(Pane::Rows));
+            press(&mut app, KeyCode::Char('d'));
+            assert_eq!(
+                app.focused_pane(),
+                Some(Pane::Rows),
+                "unfolding never steals focus"
+            );
+            assert!(app.collapsed_panes().is_empty());
+            app.toggle_panes(&[Pane::Detail]);
+            assert_eq!(app.collapsed_panes(), [Pane::Detail].into());
+            press(&mut app, KeyCode::Char('d'));
+            assert_eq!(
+                app.collapsed_panes(),
+                [Pane::Detail, Pane::Replies].into(),
+                "any expanded member folds the whole group"
+            );
+            press(&mut app, KeyCode::Char('d'));
+            for width in [80, 120, 200] {
+                app.set_body_width(width);
+                assert!(
+                    app.collapsed_panes().is_empty(),
+                    "both explicit expansions override fold_below"
+                );
+            }
+            press(&mut app, KeyCode::Char('d'));
+            app.set_body_width(200);
+            assert_eq!(app.collapsed_panes(), [Pane::Detail, Pane::Replies].into());
+            assert!(app.view.as_ref().unwrap().board.collapsed.is_empty());
+        }
+    }
+
+    #[test]
+    fn pane_defaults_cover_every_layout_and_group_state_is_per_squad_and_session() {
+        let config = crate::config::Config::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/markup-parity.toml"),
+        )
+        .unwrap();
+        for layout in ["crew", "pr-queue", "minimal", "team"] {
+            let board = config.board(layout).unwrap();
+            let snapshot = |squad: &str| {
+                let mut snapshot = folding_snapshot(squad);
+                let view = snapshot.view.as_mut().unwrap();
+                view.board = board.clone();
+                view.bindings = config.bindings(true, &board.panes).unwrap();
+                snapshot
+            };
+            let mut app = App::new(Some("product".into()));
+            app.set_body_width(120);
+            app.apply(snapshot("product"));
+            let targets: BTreeSet<_> = board
+                .panes
+                .iter()
+                .filter(|pane| [Pane::Detail, Pane::Replies].contains(pane))
+                .copied()
+                .collect();
+            press(&mut app, KeyCode::Char('d'));
+            assert_eq!(app.collapsed_panes(), targets, "{layout}");
+            assert!(app.notice.is_none());
+            app.apply(snapshot("product"));
+            assert_eq!(app.collapsed_panes(), targets, "reload retains overrides");
+            app.apply(snapshot("infra"));
+            app.go("infra".into());
+            assert!(
+                app.collapsed_panes().is_empty(),
+                "another squad has its own defaults"
+            );
+            app.go("product".into());
+            assert_eq!(
+                app.collapsed_panes(),
+                targets,
+                "tab switch retains group state"
+            );
+            let mut restarted = App::new(Some("product".into()));
+            restarted.set_body_width(120);
+            restarted.apply(snapshot("product"));
+            assert!(
+                restarted.collapsed_panes().is_empty(),
+                "restart uses config, never persisted overrides"
+            );
+        }
+    }
+
+    #[test]
+    fn partial_group_toggles_present_panes_and_an_absent_group_is_silent() {
+        let mut snapshot = folding_snapshot("product");
+        let view = snapshot.view.as_mut().unwrap();
+        view.board = Board::simple(
+            BoardMode::Split,
+            crate::config::Direction::TopBottom,
+            vec![Pane::Detail],
+            &[100],
+        );
+        view.bindings = crate::action::preset(true, &view.board.panes);
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot);
+        app.perform(&Action::parse("toggle detail replies").unwrap());
+        assert_eq!(
+            app.collapsed_panes(),
+            [Pane::Detail].into(),
+            "partially present group acts on its available subset"
+        );
+        assert!(app.notice.is_none());
+        app.perform(&Action::parse("toggle rows notes").unwrap());
+        assert_eq!(
+            app.collapsed_panes(),
+            [Pane::Detail].into(),
+            "entirely absent group changes nothing"
+        );
+        assert!(app.notice.is_none());
+        app.perform(&Action::parse("toggle detail replies").unwrap());
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(app.focused_pane(), None);
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(app.focused_pane(), Some(Pane::Detail));
+    }
+
+    #[test]
     fn folding_refuses_a_stale_frame_tabs_and_an_absent_pane() {
         let mut app = App::new(Some("product".into()));
         app.apply(folding_snapshot("product"));
@@ -2282,9 +2446,11 @@ pub(crate) mod tests {
         );
         app.apply(snapshot("infra", json!([])));
         press(&mut app, KeyCode::Char('d'));
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("The detail pane is not on this board; add it to panes.")
+        app.notice = None;
+        press(&mut app, KeyCode::Char('d'));
+        assert!(
+            app.notice.is_none(),
+            "no detail/replies means d is a silent no-op"
         );
     }
 }
@@ -2295,7 +2461,7 @@ mod token_window_tests {
     use super::*;
     use crate::config::{TokenRate, TokenWindow};
     fn app() -> App {
-        let mut app = crew(crate::action::preset(false), Vec::new());
+        let mut app = crew(crate::action::preset(false, &[]), Vec::new());
         app.meter = Some(super::super::meter::Meter::new(
             TokenRate {
                 enabled: true,

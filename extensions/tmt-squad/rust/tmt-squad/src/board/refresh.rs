@@ -550,7 +550,7 @@ fn squad_view(
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
-        bindings: config.bindings(tmux)?,
+        bindings: config.bindings(tmux, &board.panes)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
@@ -585,7 +585,7 @@ fn leads_view(
     let documents = roster_documents(core, config, &all, me.as_ref(), Some(&listed));
     let document = leads_document(tabs, &documents);
     let attention = tab_attention(&documents);
-    let mut bindings = config.bindings(tmux)?;
+    let mut bindings = config.bindings(tmux, &[])?;
     bindings.extend(settings.leads);
     let view = View {
         token_rate: None,
@@ -1275,7 +1275,7 @@ mod tests {
             std::fs::write(&path, body).unwrap();
             let config = Config::read(path.clone()).unwrap();
             for tmux in [false, true] {
-                let squad_bindings = config.bindings(tmux).unwrap();
+                let squad_bindings = config.bindings(tmux, &[]).unwrap();
                 assert_eq!(squad_bindings["ctrl-r"].verb, squad);
                 assert!(!squad_bindings.contains_key("f5"));
                 let leads_bindings = leads_view(&core, tmux, &config, &[], &[], None)

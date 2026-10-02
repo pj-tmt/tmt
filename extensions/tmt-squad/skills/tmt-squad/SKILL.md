@@ -146,13 +146,28 @@ Agents change the user's appearance only when the user requests it.
 
 The detail pane shows full projected board-column values not already shown by its header, task, note, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
 
+The replies pane shows full available replies to your squad requests as safe
+Markdown, using the notes pane's styles. Reply bodies are indented; prompts wrap,
+and recipient/age headers stay on one line. Fenced code and unsupported Markdown
+constructs appear as source text. Focus replies to scroll with arrows or j/k,
+PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
+remaining content. Older replies without a loaded body retain `tmt result <id>`
+hints; reading and scrolling acknowledge nothing.
+
 ## Fold board panes
 
-In split mode, press `d` to fold or expand detail, or click a pane's title.
+In split mode, press `d` to fold or expand detail and replies together when
+both panes exist; otherwise it toggles whichever exists. With neither it does
+nothing silently. Footer and help show `d detail+replies ▾` when any is open, or
+`d detail+replies ▸` when both are folded; single-pane labels use that pane's
+title. The footer drops the whole hint when space is short. Click a pane's title
+to toggle it alone.
 A folded title reads `▸ detail` and stays in place. Stacked panes reserve one
 line; side-by-side panes reserve a compact title-width column. Expanded neighbours
 share the freed space, and expanding restores the configured proportions.
-Tab skips folded panes. With all panes folded, only titles and bindings act;
+Tab skips folded panes. Folding a focused pane moves focus to rows when visible,
+otherwise the next expanded pane; unfolding keeps an existing focus. With all
+panes folded, only titles and bindings act;
 `n` expands and focuses notes. A single expanded pane stays borderless; bind
 `toggle rows` to fold it, then click its folded title to expand.
 
@@ -168,11 +183,17 @@ d = "toggle detail"
 ```
 
 `collapsed` accepts unique configured pane names: rows, notes, detail or replies.
-It applies only to split mode. `toggle <pane>` uses the same literal names;
-a missing pane or tabs mode gives a notice. User and section bindings keep their
+It applies only to split mode. `toggle <pane>...` uses the same literal names
+and accepts one or more unique panes, for example `toggle detail replies`. If any present pane is expanded, it
+folds all present panes; otherwise it expands all. Duplicate or unknown names are configuration
+errors; the action toggles the named panes present on the board and does nothing
+silently if none are present.
+Tabs mode gives a notice before any change. User and section bindings keep their
 usual precedence. Runtime folds survive unchanged refreshes and squad switches
 within the board session. Changed board configuration resets them; restarting
-uses the configured initial state. Toggling writes no config or member state.
+uses the configured initial state. Manual toggles win over automatic width-based
+folds until the board config changes, including after resizing in either
+direction. Toggling writes no config or member state.
 
 ## Keep it current
 
@@ -379,9 +400,9 @@ detail above replies (50/50). The lead's notes fill the bottom 40%.
 
 Below 100 columns of board body width, team folds detail and replies into title
 bars: `board.fold_below = { width = 100, panes = ["detail", "replies"] }`.
-`d` toggles detail; click either title to toggle its pane. User toggles win at
-both narrow and wide widths until the board configuration changes or the session
-restarts. Widening restores automatic panes without moving focus. Custom split
+`d` toggles detail and replies together; click either title to toggle it alone.
+Widening restores automatically folded panes without moving focus; manual folds
+keep the session policy described above. Custom split
 boards can set `fold_below` with width 1–1000 and panes present in their layout.
 
 Member, state, PR and model use percentage widths (22%, 14%, 24%, 16%);
