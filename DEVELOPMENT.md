@@ -257,7 +257,7 @@ Rustup resolves the manifest's two-part minimum to its latest patch release,
 rather than duplicating a patch pin in the workflow.
 It replaces the MSRV executable builds and expands Squad MSRV coverage to the
 whole workspace without changing the declared minimum. Its separate
-`native-rust-msrv` cache has one writer, the MSRV job on main; PRs only restore.
+`native-rust-msrv` cache has one writer, the MSRV job on main; PR and merge-group events only restore.
 `Native Rust contracts` is the fail-closed aggregator of these two workers. It
 requires both to succeed, rejects missing selection, and stays skipped for scope
 `none`, preserving the outer native gate and required-check names.
@@ -269,6 +269,13 @@ partitions run in their own workflow (below), so a red `CI` run means one of its
 jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
+
+Merge-group candidates run full verification through `node typescript/scripts/ci-scope.mjs full`,
+including both E2E shard lists and all four required checks. PR path selection is
+unchanged. Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
+from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
+[Architecture](ARCHITECTURE.md) owns the event, gate and main-ref cache policy;
+queue/ruleset activation is a separate repository-owner operation.
 
 Linux CI package installation uses `.github/actions/apt-install`: each apt update
 or install attempt has a 120-second timeout with a 10-second forced-kill grace.
@@ -1062,16 +1069,18 @@ manual lifecycle evidence in issue #321 owns that distinction, including the
 Codex cross-mode limitation. Normal `tmt run` does not execute this developer
 check or enforce these version pins on user commands.
 
-The Claude channel provider has its own opt-in check, for the one build with
-recorded channel evidence (see the [channel contract](contracts/claude-channel-v1.md)):
+The Claude channel provider has its own opt-in check against the supported range
+and the builds with recorded channel evidence (see the
+[channel contract](contracts/claude-channel-v1.md)):
 
 ```bash
 cargo run --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
   --example channel-contract -- /absolute/claude
 ```
 
-It runs only `--version` and `--help`. The channel launch preflight applies the same
-version pin to user commands once `tmt run --channel` ships (#715).
+It runs only `--version` and `--help`, fails outside the range and says when the build
+is accepted but untested. `tmt run --channel` applies the same range rule to the user's
+command before it binds or spawns anything.
 
 `tmt whoami --context [--json]` is the read-only rehydration entry point. It reports
 the verified caller identity and lifetime, up to 500 characters of role text,
@@ -1147,6 +1156,12 @@ Manual provider acceptance must use a disposable identity/window and isolated
 provider settings; installing hooks into the user's real global settings needs explicit
 consent. No test invokes setup against the user's actual provider directory.
 
+Codex channel foundation tests are provider-local (`drivers::codex` in the
+adapter library): record foreground/takeover/withdraw, startup cleanup certainty
+and permission/cwd planning. They use disposable state and owned stand-ins; they
+do not establish live-provider or shared product-routing acceptance. See the
+[contract](contracts/codex-channel-v1.md).
+
 ## Docker E2E
 
 Run the full private tmux/caller lifecycle harness twice for lifecycle,
@@ -1194,6 +1209,7 @@ Keep these boundaries when choosing where a regression belongs:
 | `tmux-adapter`, `transport-adapter`                            | Explicit adapter-probe evidence: caller/inventory/markers and delivery/capture stages; not public CLI success                         |
 | `pane-badge`                                                   | Default-off behavior, opt-in updates, theme preservation, rendering, conflicts and cleanup                                            |
 | `executable-selection`, `smoke`                                | Harness selection, causal nested replies, startup and cleanup controls                                                                |
+| `claude-channel`                                               | Claude channel delivery against a mock `claude`: no paste to an opted-in pane, crash cleanup, plain paste kept                        |
 
 Similar commands do not imply duplicate evidence: native-process tests inspect
 the executable's public contracts and independent stored state, while Docker
@@ -1387,3 +1403,59 @@ deadline, so this interim door closes after at most 15 minutes. Ctrl-C/SIGTERM
 stops it; there is no autostart/LAN/daemon option. Tests use disposable HOME/XDG,
 count startup separately, assert zero request-triggered core calls and run
 socket/process lifecycle acceptance twice. No real model/account/DB is used.
+
+## Colab pilot development
+
+The private local-build Colab executable runs a foreground loopback placeholder
+and lists local-space metadata. APIs and WebSocket upgrades are denied until
+the authentication/sync slice. No installer exists.
+Build and verify it from the repository root:
+
+```bash
+(cd rust && cargo build --offline --locked -p tmt-colab)
+(cd rust && cargo test --offline --locked -p tmt-colab)
+(cd rust && cargo clippy --offline --locked -p tmt-colab --all-targets -- -D warnings)
+(cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
+node typescript/scripts/release-please-config.mjs --check
+(cd typescript && corepack pnpm exec vitest run test/tooling/ci-scope.test.ts)
+```
+
+Tests inject temporary data roots; never point them at the real TMT directory.
+The extension owns `<dataRoot>/colab/` (0700) and regular secret/state files
+(0600). Production startup obtains the absolute root through `tmt api storage.root`
+via `tmt-invoke`; no path guess or Colab root environment variable
+is supported. Store bounds are named in `src/limits.rs`: 16 MiB plus 2 KiB per
+opaque envelope, 64 MiB retained ciphertext and 100,000 durable update receipts
+per page across epochs. Capacity rejects writes without eviction. Checkpoint
+pruning keeps receipts and preserves the other namespace and concurrent tails;
+it also reclaims superseded unpinned checkpoint payloads. `pin_checkpoint` is
+the future verified authority-cut caller's preservation seam.
+Signatures and role admission are required at the future request boundary;
+these storage tests prove transaction rollback and reopening, not crash recovery.
+
+```bash
+(cd rust && cargo build --offline --locked -p tmt-cli -p tmt-colab)
+PATH="$PWD/rust/target/debug:$PATH" tmt colab spaces --json
+PATH="$PWD/rust/target/debug:$PATH" tmt colab serve --json
+```
+
+After building a core supporting `storage.root` (#860) and the extension, put
+`rust/target/debug` on PATH and run `tmt colab serve` (default port 7341).
+A busy port fails with a `--port` hint; `--port 0` selects a free port.
+Direct invocation requires an absolute
+`TMT_EXECUTABLE`. `tmt colab serve --json` prints one plain JSON descriptor with
+space ID and working URL; Ctrl-C/SIGTERM closes sockets, joins workers and
+releases the service lock. `tmt colab spaces --json` lists the local space and
+running state without creating directories or keys; before first serve it
+returns `{"spaces":[]}`. Use an isolated normal TMT data root for manual tests.
+
+The printed `127.0.0.1:<port>` is the only accepted Host and Origin; no localhost,
+forwarded-host or DNS-rebinding alias is admitted. The door bounds are named in
+`src/limits.rs`: 16 active sockets, 8 KiB/32 header fields, 64 KiB HTTP bodies,
+2-second total acquisition and 1-second total response. HTTP body capacity is
+for later sign-in/management; page objects use the future sync path. Reserved
+sync limits are 64 KiB frames and 8 queued frames with `RESYNC_REQUIRED` close
+for slow subscribers; no WebSocket is accepted yet. Real socket and foreground
+process cleanup tests run lifecycle scenarios twice, with no core calls from
+denied traffic. Owner-key temporary cleanup is publication-locked; it preserves
+foreign file names and refuses unsafe matching files.

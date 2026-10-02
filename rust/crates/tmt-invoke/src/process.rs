@@ -1,4 +1,7 @@
-use crate::{Cleanup, ExitStatus, FailureKind, InvokeError, Output, Phase, Request, Stream};
+use crate::{
+    Cleanup, EnvironmentPolicy, ExitStatus, FailureKind, InvokeError, Output, Phase, Request,
+    Stream,
+};
 use nix::{errno::Errno, sys::signal::killpg, unistd::Pid};
 use std::{
     io::{self, Write},
@@ -33,7 +36,13 @@ pub(crate) fn invoke(
     stop: Option<&AtomicBool>,
 ) -> Result<Output, InvokeError> {
     remaining(request.deadline, stop)?;
-    let job = Exec::cmd(request.program)
+    let mut command = Exec::cmd(request.program);
+    if let EnvironmentPolicy::ClearAllowlist(names) = request.launch.environment {
+        command = command
+            .env_clear()
+            .env_extend(std::env::vars_os().filter(|(name, _)| names.contains(name)));
+    }
+    let job = command
         .args(request.args.iter().cloned())
         .stdin(request.input.to_vec())
         .stdout(Redirection::Pipe)

@@ -1,9 +1,9 @@
 [workspace]
-members = ["crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli-style", "crates/tmt-tui", "crates/tmt-invoke", "crates/tmt-command-output", "crates/tmt-driver-protocol", "crates/tmt-host-grammar", "crates/tmt-cli", "../extensions/tmt-office/rust/tmt-office", "../extensions/tmt-office/rust/tmt-office-model", "../extensions/tmt-office/rust/tmt-office-command", "../extensions/tmt-office/rust/tmt-office-storage", "../extensions/tmt-office/rust/tmt-office-pairing", "../extensions/tmt-office/rust/tmt-office-service", "../extensions/tmt-squad/rust/tmt-squad", "../extensions/tmt-remote/rust/tmt-remote"]
+members = ["crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli-style", "crates/tmt-tui", "crates/tmt-invoke", "crates/tmt-command-output", "crates/tmt-driver-protocol", "crates/tmt-host-grammar", "crates/tmt-cli", "../extensions/tmt-office/rust/tmt-office", "../extensions/tmt-office/rust/tmt-office-model", "../extensions/tmt-office/rust/tmt-office-command", "../extensions/tmt-office/rust/tmt-office-storage", "../extensions/tmt-office/rust/tmt-office-pairing", "../extensions/tmt-office/rust/tmt-office-service", "../extensions/tmt-squad/rust/tmt-squad", "../extensions/tmt-remote/rust/tmt-remote", "../extensions/tmt-colab/rust/tmt-colab"]
 resolver = "3"
 
 [workspace.package]
-version = "5.0.0-alpha.28"
+version = "5.0.0-alpha.33"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"

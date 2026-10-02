@@ -101,13 +101,13 @@ fn reveal_moves_only_as_far_as_needed() {
     let scrolls = Scrolls::default();
     let area = Rect::new(0, 0, 20, 5);
     // 20 lines in 5 rows: 4 shown.
-    scrolls.reveal(Pane::Rows, 2, area, 20);
+    scrolls.reveal_range(Pane::Rows, 2..3, area, 20);
     assert_eq!(scrolls.offset(Pane::Rows), 0);
-    scrolls.reveal(Pane::Rows, 9, area, 20);
+    scrolls.reveal_range(Pane::Rows, 9..10, area, 20);
     assert_eq!(scrolls.offset(Pane::Rows), 6);
-    scrolls.reveal(Pane::Rows, 7, area, 20);
+    scrolls.reveal_range(Pane::Rows, 7..8, area, 20);
     assert_eq!(scrolls.offset(Pane::Rows), 6, "already visible");
-    scrolls.reveal(Pane::Rows, 1, area, 20);
+    scrolls.reveal_range(Pane::Rows, 1..2, area, 20);
     assert_eq!(scrolls.offset(Pane::Rows), 1);
 }
 
@@ -125,4 +125,16 @@ fn indicator_uses_the_resolved_token_without_extra_dimming() {
     assert_eq!(marker.symbol(), "↓");
     assert_eq!(Some(marker.fg), dim.fg);
     assert!(!marker.modifier.contains(ratatui::style::Modifier::DIM));
+}
+
+#[test]
+fn selection_reveals_all_visual_lines_or_the_start_of_a_tall_record() {
+    let scrolls = Scrolls::default();
+    let area = Rect::new(0, 0, 20, 6);
+    scrolls.reveal_range(Pane::Rows, 4..7, area, 20);
+    assert_eq!(scrolls.offset(Pane::Rows), 2);
+    scrolls.reveal_range(Pane::Rows, 1..4, area, 20);
+    assert_eq!(scrolls.offset(Pane::Rows), 1);
+    scrolls.reveal_range(Pane::Rows, 10..18, area, 20);
+    assert_eq!(scrolls.offset(Pane::Rows), 6);
 }

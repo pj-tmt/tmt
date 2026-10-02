@@ -48,7 +48,7 @@ fn hints(app: &App) -> String {
         ("o", "o"),
         ("y", "y"),
         ("tab", "tab"),
-        ("f5", "F5"),
+        ("ctrl-r", "ctrl-r"),
     ]
     .into_iter()
     .filter_map(|(event, label)| {
@@ -114,8 +114,8 @@ fn grid_line(
     cells: &[RowCell],
     row: &Value,
     first: bool,
-) -> Option<Vec<Span<'static>>> {
-    let mut spans = Vec::new();
+) -> Option<Vec<Vec<Span<'static>>>> {
+    let mut fitted = Vec::new();
     let mut position = 0;
     let mut shown_any = false;
     for cell in cells {
@@ -157,15 +157,46 @@ fn grid_line(
         } else {
             Style::new()
         };
-        if !spans.is_empty() {
-            spans.push(Span::raw(" ".repeat(GAP)));
-        }
-        spans.push(Span::styled(
-            grid::fit(text, width, column.align, column.truncate),
+        fitted.push((
+            grid::fit_lines(
+                text,
+                width,
+                column.align,
+                column.truncate,
+                column.overflow.unwrap_or_default(),
+            ),
             style,
+            width,
         ));
     }
-    (first || shown_any).then_some(spans)
+    if !first && !shown_any {
+        return None;
+    }
+    let height = fitted
+        .iter()
+        .map(|(lines, _, _)| lines.len())
+        .max()
+        .unwrap_or(1);
+    Some(
+        (0..height)
+            .map(|line| {
+                let mut spans = Vec::new();
+                for (values, style, width) in &fitted {
+                    if !spans.is_empty() {
+                        spans.push(Span::raw(" ".repeat(GAP)));
+                    }
+                    spans.push(Span::styled(
+                        values
+                            .get(line)
+                            .cloned()
+                            .unwrap_or_else(|| " ".repeat(*width)),
+                        *style,
+                    ));
+                }
+                spans
+            })
+            .collect(),
+    )
 }
 
 /// Puts a row's age at the right edge of its first line when it fits after
@@ -501,6 +532,7 @@ fn summary_line(app: &App) -> Line<'_> {
 pub fn render(frame: &mut Frame, app: &App) {
     let look = app.look();
     app.hits.borrow_mut().clear();
+    app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
     let [tabs, summary, body, footer] = Layout::vertical([
@@ -848,6 +880,23 @@ fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
         .show(frame, Pane::Replies, area, lines, look.named("dim"));
 }
 
+/// Fields already shown by detail's header, body or links line.
+fn detail_represents(field: &str) -> bool {
+    matches!(
+        field,
+        "member"
+            | "state"
+            | "task"
+            | "pending"
+            | "note"
+            | "activity"
+            | "presence"
+            | "target"
+            | "cwd"
+            | "link"
+    ) || field.ends_with("_link")
+}
+
 /// The selected row: where it is, what it is doing and what it waits on.
 fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
@@ -902,6 +951,29 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         .collect();
     if !links.is_empty() {
         lines.push(Line::from(format!("links: {}", links.join("  "))));
+    }
+    if let Some(view) = &app.view {
+        for column in &view.rows.columns {
+            let field = &column.field;
+            if detail_represents(field) {
+                continue;
+            }
+            let failed = row["failed"]
+                .as_array()
+                .is_some_and(|failed| failed.iter().any(|name| name == field));
+            let value = if failed {
+                "?"
+            } else {
+                row["fields"][field]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("–")
+            };
+            lines.push(Line::from(format!(
+                "{field}: {}",
+                tmt_cli_style::table::escape(value)
+            )));
+        }
     }
     let width = usize::from(area.width);
     let lines: Vec<Line> = lines
@@ -1010,7 +1082,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         ),
         look.role(Role::Muted),
     ))];
-    let mut selected_line = 0;
+    let mut selected_lines = 0..0;
     let mut row_index = 0;
     // The screen lines of each row, for mouse events.
     let mut row_lines = Vec::new();
@@ -1022,9 +1094,8 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             ))),
             Item::Row(row) => {
                 let selected = row_index == app.selected;
-                if selected {
-                    selected_line = lines.len();
-                }
+                let start = lines.len();
+                app.row_starts.borrow_mut().push(start);
                 let marker = if row["pending"].is_string() {
                     "◆ "
                 } else {
@@ -1046,13 +1117,16 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     let Some(cells) = grid_line(look, rows, widths, cells, row, first) else {
                         continue;
                     };
-                    let mut spans = vec![Span::raw(if first { marker } else { "  " })];
-                    spans.extend(cells);
-                    if let Some(age) = age.as_deref().filter(|_| first) {
-                        age_mark(&mut spans, age, usize::from(area.width), look);
+                    for (visual, cells) in cells.into_iter().enumerate() {
+                        let initial = first && visual == 0;
+                        let mut spans = vec![Span::raw(if initial { marker } else { "  " })];
+                        spans.extend(cells);
+                        if let Some(age) = age.as_deref().filter(|_| initial) {
+                            age_mark(&mut spans, age, usize::from(area.width), look);
+                        }
+                        row_lines.push((lines.len(), row_index));
+                        lines.push(Line::from(spans).style(style));
                     }
-                    row_lines.push((lines.len(), row_index));
-                    lines.push(Line::from(spans).style(style));
                 }
                 if let Some(note) = row["note"].as_str().filter(|_| !note_column) {
                     lines.push(Line::from(Span::styled(
@@ -1072,6 +1146,9 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     )));
                     row_lines.push((lines.len() - 1, row_index));
                 }
+                if selected {
+                    selected_lines = start..lines.len();
+                }
                 row_index += 1;
             }
         }
@@ -1090,7 +1167,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     // it; the column header scrolls with the list.
     if app.follow {
         app.scrolls
-            .reveal(Pane::Rows, selected_line, area, lines.len());
+            .reveal_range(Pane::Rows, selected_lines, area, lines.len());
     }
     let (offset, viewport) = app
         .scrolls
@@ -1337,6 +1414,70 @@ lines = [
     }
 
     #[test]
+    fn percentage_wrapping_keeps_continuation_hits_selection_and_visual_paging() {
+        let mut app = board(json!([{ "title": null, "rows": [
+            row("a", "", "alpha beta gamma delta", json!({})),
+            row("b", "", "alpha beta gamma delta", json!({})),
+            row("c", "", "alpha beta gamma delta", json!({})),
+            row("d", "", "alpha beta gamma delta", json!({})),
+        ] }]));
+        app.view.as_mut().unwrap().rows = rows_from(
+            r#"[p.rows]
+columns = [{ name = "member", width = "30%" },
+           { name = "task", width = "70%", overflow = "wrap", max_lines = 2 }]
+"#,
+        );
+        let screen = draw(&app, 20, 10);
+        assert_eq!(screen[3], "  a     alpha beta");
+        assert_eq!(screen[4], "        gamma delta");
+        assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
+        let hits: Vec<_> = app
+            .hits
+            .borrow()
+            .iter()
+            .map(|hit| (hit.y, hit.row))
+            .collect();
+        assert!(hits.contains(&(3, 0)) && hits.contains(&(4, 0)));
+        app.selected = 1;
+        app.mouse(
+            ratatui::crossterm::event::MouseEvent {
+                kind: ratatui::crossterm::event::MouseEventKind::Down(
+                    ratatui::crossterm::event::MouseButton::Left,
+                ),
+                column: 8,
+                row: 4,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert_eq!(app.selected, 0, "a continuation click selects its record");
+        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(
+            app.selected, 2,
+            "a page crosses visual lines, not six records"
+        );
+        draw(&app, 20, 10);
+        app.key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert_eq!(app.selected, 0);
+        app.selected = 3;
+        let screen = draw(&app, 20, 7);
+        assert!(
+            screen.iter().any(|line| line.contains("d     alpha beta")),
+            "{screen:?}"
+        );
+        assert!(
+            screen.iter().any(|line| line.contains("gamma delta")),
+            "{screen:?}"
+        );
+        assert!(app.hits.borrow().iter().filter(|hit| hit.row == 3).count() == 2);
+        for width in [8, 12, 18] {
+            let screen = draw(&app, width, 7);
+            assert!(screen.iter().all(|line| line.width() <= usize::from(width)));
+            assert!(app.hits.borrow().iter().all(|hit| hit.row < 4));
+        }
+    }
+
+    #[test]
     fn middle_truncation_keeps_both_ends_of_a_link() {
         let mut app = board(json!([{"title": null, "rows": [
             row("docs", "working", "", json!({"fields": {"link": "https://github.com/wkh237/tmt/pull/4242"}})),
@@ -1441,6 +1582,25 @@ lines = [
     }
 
     #[test]
+    fn refresh_hint_and_help_render_exact_lowercase_ctrl_r() {
+        let mut app = board(json!([{"title": null, "rows": [row("a", "idle", "", json!({}))]}]));
+        let screen = draw(&app, 160, 12);
+        assert!(screen[11].contains("ctrl-r refresh"), "{:?}", screen[11]);
+        assert!(!screen[11].contains("f5") && !screen[11].contains("F5"));
+        app.help = true;
+        let screen = draw(&app, 160, 40);
+        assert!(
+            screen.iter().any(|line| line == "ctrl-r      refresh"),
+            "{screen:?}"
+        );
+        assert!(
+            !screen
+                .iter()
+                .any(|line| line.contains("Ctrl-R") || line.contains("F5") || line.contains("f5"))
+        );
+    }
+
+    #[test]
     fn search_help_and_errors_use_the_footer_and_overlay() {
         let mut app = board(json!([{"title": null, "rows": [row("a", "idle", "", json!({}))]}]));
         app.searching = true;
@@ -1514,11 +1674,13 @@ lines = [
             let row =
                 json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
             let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &row, true).unwrap();
-            assert_eq!(spans[0].style.fg, look.named("review").fg);
-            assert_eq!(spans[0].content.trim(), state);
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0][0].style.fg, look.named("review").fg);
+            assert_eq!(spans[0][0].content.trim(), state);
             let plain = json!({"state": state, "fields": {"state": state}});
             let spans = grid_line(look, &rows, &[Some(20)], &rows.lines[0], &plain, true).unwrap();
-            assert_eq!(spans[0].style, Style::new());
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0][0].style, Style::new());
         }
     }
 
@@ -1740,6 +1902,132 @@ lines = [
             app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
             assert_eq!(app.focused(), expected);
         }
+    }
+
+    fn detail_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| render_detail(frame, app, Rect::new(0, 0, width, height)))
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn detail_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .filter(|line| !line.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn detail_default_output_remains_exact_and_represented_fields_do_not_repeat() {
+        let mut app = board(json!([{"title": null, "rows": [row(
+            "worker", "working", "rotate tokens", json!({
+                "state": "working", "presence": "active", "pending": "approve",
+                "pane": {"target": "crew:2.0", "cwd": "/work"},
+                "note": "needs a call", "activity": {"activity": "testing"},
+                "fields": {"state": "working", "task": "rotate tokens", "pr_link": "https://example.com/412"}
+            })
+        )]}]));
+        // Includes all represented fields, even those missing from fields.
+        app.view.as_mut().unwrap().rows = rows_from(
+            "[p.columns]\nshow = ['member', 'state', 'task', 'pending', 'note', 'activity', 'presence', 'target', 'cwd', 'link', 'pr_link']\n",
+        );
+        assert_eq!(
+            detail_text(&detail_buffer(&app, 100, 20)),
+            [
+                "worker",
+                "waiting on you: approve",
+                "active · working · crew:2.0 · /work",
+                "task: rotate tokens",
+                "note: needs a call",
+                "activity: testing",
+                "links: pr_link https://example.com/412",
+            ]
+        );
+        for column in &app.view.as_ref().unwrap().rows.columns {
+            assert!(detail_represents(&column.field), "{}", column.field);
+        }
+        for field in ["pr", "model", "build", "review", "location"] {
+            assert!(!detail_represents(field), "{field}");
+        }
+        // The actual default preset is identical.
+        let mut default = preset_board();
+        let before = detail_text(&detail_buffer(&default, 100, 20));
+        default.view.as_mut().unwrap().rows = columns();
+        assert_eq!(detail_text(&detail_buffer(&default, 100, 20)), before);
+    }
+
+    #[test]
+    fn detail_appends_full_projected_provider_and_bound_values_in_column_order() {
+        let mut app = board(json!([{"title": null, "rows": [row(
+            "worker", "working", "rotate tokens", json!({
+                "fields": {"task": "rotate tokens", "pr": "#412 open · changes requested", "model": "a full session model name"}
+            })
+        )]}]));
+        app.view.as_mut().unwrap().rows = rows_from(
+            "[p.fields.pr]\npreset = 'github-pr'\n[p.rows]\ncolumns = [{name = 'pr', width = 4, title = 'Pull request', from = 'fields.pr'}, {name = 'model', width = 4, from = 'session.model'}]\n",
+        );
+        let buffer = detail_buffer(&app, 80, 20);
+        assert_eq!(
+            detail_text(&buffer),
+            [
+                "worker",
+                "– · –",
+                "task: rotate tokens",
+                "pr: #412 open · changes requested",
+                "model: a full session model name",
+            ]
+        );
+        // New lines inherit the terminal foreground; no grid/provider tint.
+        assert_eq!(buffer[(0, 3)].fg, ratatui::style::Color::Reset);
+        assert_eq!(buffer[(4, 3)].fg, ratatui::style::Color::Reset);
+    }
+
+    #[test]
+    fn detail_wraps_long_values_without_grid_truncation() {
+        let value = "abcdefghijklmnopqrstuvwxyz0123456789";
+        let mut app = board(json!([{"title": null, "rows": [row(
+            "worker", "working", "", json!({"fields": {"model": value}})
+        )]}]));
+        app.view.as_mut().unwrap().rows =
+            rows_from("[p.rows]\ncolumns = [{name = 'model', width = 4}]\n");
+        let text = detail_text(&detail_buffer(&app, 9, 20));
+        assert_eq!(text[2..].concat(), format!("model:{value}"));
+        assert!(!text.join("").contains('…'));
+        // Existing bounds handle zero area and single-cell panes.
+        detail_buffer(&app, 0, 0);
+        detail_buffer(&app, 1, 1);
+    }
+
+    #[test]
+    fn detail_uses_failed_missing_and_shared_cell_escaping() {
+        let mut app = board(json!([{"title": null, "rows": [row(
+            "worker", "working", "", json!({
+                "fields": {"pr": "stale provider value", "model": "", "build": "one\ntwo\t\u{1b}[31m"},
+                "failed": ["pr"]
+            })
+        )]}]));
+        app.view.as_mut().unwrap().rows =
+            rows_from("[p.columns]\nshow = ['pr', 'model', 'review', 'build']\n");
+        assert_eq!(
+            detail_text(&detail_buffer(&app, 100, 20))[2..],
+            [
+                "pr: ?",
+                "model: –",
+                "review: –",
+                &format!(
+                    "build: {}",
+                    tmt_cli_style::table::escape("one\ntwo\t\u{1b}[31m")
+                ),
+            ]
+        );
     }
 
     #[test]

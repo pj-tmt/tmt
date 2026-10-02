@@ -24,6 +24,18 @@ squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
 the fields each line of a row shows (`{field, span}`, field null for an empty
 cell).
 
+- A column's `width` is null, a cell count or a percentage string such as
+  `"30%"`. Configured percentage widths total at most 100% and resolve against data width
+  after row marks and gaps; `min`/`max` remain cells.
+- A column has `overflow` only when configured: `"ellipsis"` or `"wrap"`.
+  Without it, cells use ellipsis. Wrapped continuations align to the cell start.
+- A wrapped column has `max_lines`, its bounded visual-line count (1–8, default 2).
+  The last line uses an end ellipsis if cut, even with `truncate = "middle"`. This differs from document-level `lines`,
+  which describes the configured row grid.
+- Text `ls` keeps legacy natural sizing unless a shown column opts into percent
+  width or overflow. Opt-in text uses the shared grid and fit rules; a pipe's
+  budget is natural data widths plus gaps before priority hiding, so text may
+  wrap, truncate or hide columns. JSON row values stay full.
 - `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`),
   `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
   `normal`), `waiting` (members that owe the user a decision or wait for an
@@ -76,6 +88,12 @@ user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Board appearance
 
+`ctrl-r` refreshes the board in squad, leads and all views, including while
+searching or composing a message, without changing the entered text. The footer
+and `?` help list the effective bindings. Rebind it in `[bind]` (or a section),
+or `[tabs.all.bind]` for all. F5 has no default action; an explicit
+`f5 = "refresh"` binding remains supported.
+
 The board uses the shared TMT design tokens: `muted` for readable tabs, labels
 and key hints, `accent` plus bold for focus, and `dim` for secondary values and
 borders. Attention tabs keep their waiting/blocked color and counts. Selection
@@ -84,6 +102,8 @@ provider color; a terminal without a background color uses reverse video,
 including `NO_COLOR`. Colors decorate the words and marks; never infer state
 from color alone. The global theme belongs in `config.json`; per-squad theme
 bases and overrides belong in `[squad.<name>.theme]` in `squad.toml`.
+
+The detail pane shows full projected board-column values not already shown by its header, task, note, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
 
 ## Keep it current
 
@@ -178,8 +198,31 @@ tabs show no ages.
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant
 observed PR link changes, successful current `github-pr` state transitions to
-open/merged, or a submitted member final after the task/state update. Cold
-provider data and bounded room history can miss transitions. Idle is never
-guessed from silence or offline presence. This slice reports age in `ls`;
-board marks, settings controls and a reminder in the lead's next-turn context
-are planned follow-ups. Enabling these keys installs no provider hook.
+open/merged, a submitted member final, or an authoritative idle transition in
+public `session.activity` after the task/state update. Ordinary `ls` and board
+reads retain that idle evidence; the reminder never probes live presence or
+uses self-reported activity. Cold provider data and bounded room history can
+miss transitions. Idle is never guessed from silence or offline presence.
+
+With Squad's extension hooks enabled (`tmt extension hooks enable squad`) and
+the provider hook installed through consented `tmt setup`, Squad may add one
+informational line to the lead's next turn, including SessionStart context.
+It never emits at Stop. Enabling reminder settings installs no hook. Start
+observations with `tmt sq ls` or the board: a cold cache stays silent. Disabled,
+fresh, already-claimed and non-lead cache checks call no core and take no room
+lock; warm candidates revalidate the current config, room and sole lead. The
+best-effort preflight examines at most 128 cache-directory entries per call.
+
+A reminder names stale notes or counts/names stale rows with relevant activity.
+The line is sanitized and at most 240 characters; one invocation has an aggregate
+300 ms budget including child cleanup, capped by the host's earlier deadline.
+No provider or network runs in the hook. The host isolates the hook's process
+group, and nested public reads remain in it so timeout cleanup reaches them.
+Context calls require an isolated process group owned by the extension.
+
+One claim bit per content generation is atomically published before handoff.
+Concurrent calls share the nonblocking room lock. A lost handoff, crash or host
+cutoff after publication can lose a reminder; it is never blindly retried.
+At-most-once applies while the cache survives: loss/corruption restarts grace,
+and changed content starts a new generation. This is best-effort context, not a
+notification queue. Board reminder-setting controls are a separate slice.
