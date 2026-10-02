@@ -125,6 +125,10 @@ $ tmt sq view rm --squad product             # inherit the arrangement
 
 A hand-written `board.layout` or `panes` for a squad always wins, then that squad's `view`, then `[board] view`, then the workflow layout's own arrangement. `view set` changes only the `view` key and refuses a file that changed meanwhile; with `--squad` it also refuses a hand-written layout, so remove that yourself first. `view rm` removes only `view`, so custom layouts and folds stay. Folds you make by hand keep their usual session rules.
 
+Press **l** on the board to pick a view. Moving through the list previews each one live; **Tab** switches between all boards and this squad, **Enter** saves, and **Esc** puts back what you had without writing anything. The `default` entry shows what you would inherit and removes only your choice. The leads and all tabs always show rows only; views apply to squad tabs.
+
+A squad with a hand-written `board.layout` or `panes` shows a `custom` entry. You can preview views there, but saving for that squad is refused until you remove those keys from `squad.toml`. A choice for all boards still saves, and that squad keeps its custom layout. In the help, **l** sits next to **L** (jump to the lead) and **T** (theme).
+
 ### Panes: rows, notes and replies
 
 The board is made of panes: **rows** (the list above), **notes** (the lead's own `tmt notes`, read-only), **detail** (the selected row) and **replies** (the latest answers from the lead and members). Show the ones you want, split side by side, stacked top and bottom, or as tabs you flip between.
