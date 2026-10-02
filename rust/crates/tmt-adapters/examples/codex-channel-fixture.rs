@@ -29,8 +29,14 @@ fn flag(args: &[String], name: &str) -> String {
 fn main() {
     let args: Vec<_> = env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--version") {
-        println!("codex-cli 0.159.3");
+        println!(
+            "codex-cli {}",
+            env::var("MOCK_VERSION").unwrap_or_else(|_| "0.160.0".into())
+        );
     } else if args.iter().any(|arg| arg == "app-server") {
+        if env::var_os("MOCK_SERVER_FAILURE").is_some() {
+            std::process::exit(1);
+        }
         server(&args);
     } else {
         foreground(&args);
@@ -73,7 +79,7 @@ fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>)
         let id = request["id"].clone();
         let method = request["method"].as_str().unwrap();
         let result = match method {
-            "initialize" => json!({"userAgent":"codex_cli_rs/0.159.3"}),
+            "initialize" => json!({"userAgent":"codex_cli_rs/0.160.0"}),
             "initialized" => continue,
             "thread/start" => {
                 let mut state = state.lock().unwrap();
@@ -84,12 +90,28 @@ fn connection(stream: TcpStream, token: &str, state: Arc<Mutex<Option<String>>>)
                 json!({"cwd":request["params"]["cwd"],"thread":{"id":thread}})
             }
             "thread/resume" => {
-                assert_eq!(
-                    request["params"]["threadId"].as_str(),
-                    state.lock().unwrap().as_deref()
-                );
-                event("attached");
-                json!({})
+                let mut state = state.lock().unwrap();
+                let requested = request["params"]["threadId"].as_str().unwrap();
+                if state.is_none() {
+                    log(
+                        json!({"event":"thread-resume","params":request["params"],"thread":requested}),
+                    );
+                    if env::var("MOCK_RESUME_FAILURE").as_deref() == Ok("refused") {
+                        socket.send(Message::text(json!({"id":id,"error":{"code":-32603,"message":"fixture resume refused"}}).to_string())).unwrap();
+                        continue;
+                    }
+                    let returned = if env::var("MOCK_RESUME_FAILURE").as_deref() == Ok("mismatch") {
+                        "33333333-3333-4333-8333-333333333333"
+                    } else {
+                        requested
+                    };
+                    *state = Some(returned.to_owned());
+                    json!({"cwd":request["params"]["cwd"],"thread":{"id":returned}})
+                } else {
+                    assert_eq!(Some(requested), state.as_deref());
+                    event("attached");
+                    json!({})
+                }
             }
             "thread/queue/add" => {
                 assert_eq!(
@@ -195,7 +217,7 @@ fn foreground(args: &[String]) {
     } else {
         None
     };
-    event("started");
+    log(json!({"event":"started","pid":std::process::id(),"args":args}));
     thread::spawn(|| {
         for line in std::io::stdin().lock().lines().map_while(Result::ok) {
             log(json!({"event":"paste","line":line}));

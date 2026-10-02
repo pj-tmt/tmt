@@ -685,11 +685,23 @@ If an identity holds the executable name, shorthand refuses: use
 `tmt run claude claude` for that identity or `tmt run <new-name> claude`.
 TMT options precede the first operand; shorthand provider arguments stay verbatim.
 Resume still needs the hook-recorded session; naming preserves it but never guesses
-one. Save to keep resume coordinates across pane loss. `--channel` remains opt-in,
-and naming an enrolled launch neither restarts its channel nor enables paste fallback.
+one. Save to keep resume coordinates across pane loss. Naming an enrolled launch
+neither restarts its channel nor enables paste fallback.
+
+The driver advertises its channel default: qualified Codex launches enroll by
+default; Claude remains opt-in. `--no-channel` chooses plain paste delivery for
+one launch, while `--channel` requires enrollment or fails. The flags conflict
+and go before the name for both run and exact resume. Default enrollment that
+cannot finish safely before startup prints one line naming why the session uses
+paste delivery and runs the original plain command. Live or unconfirmed
+enrollment evidence remains terminal; never paste or resend into an enrolled
+pane after a refused or uncertain channel outcome. Codex owns an extra private
+app-server and supervisor per enrolled foreground, cleaned on exit and Ctrl-C.
+Folder trust is answered by the user in Codex's TUI; accepted queued input may
+wait for attachment. Enrollment never changes global provider config, auth or hooks.
 
 `tmt run [-s] <name> <command...>` binds this tmux pane and starts the exact
-command with its terminal streams and normal Ctrl-C/Ctrl-Z/`fg` job control.
+foreground with its terminal streams and normal Ctrl-C/Ctrl-Z/`fg` job control.
 TMT options, including `-s`/`--save` and `--resume`, go before the name; every
 argument after it belongs to the command, without requiring a `--` separator.
 The executable itself cannot start with `-`; misplaced TMT flags such as
@@ -712,7 +724,10 @@ is remembered or the driver cannot resume it, it fails and says
 that fails before the provider confirms the session marks it stale; a stale
 session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
 combine `--resume` with an explicit command, and never resend a task after a
-failed resume. Details:
+failed resume. Codex's default channel resumes the exact selected thread, never
+a fresh substitute. If enrollment cannot finish safely before startup, Default
+may run only the original exact-resume command with the visible paste notice;
+`--channel` fails instead. Details:
 <https://pj-tmt.github.io/tmt/working#tmt-resume>.
 
 TMT records the owned command's exit and keeps the pane binding. Its exit status

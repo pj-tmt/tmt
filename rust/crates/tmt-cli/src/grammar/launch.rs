@@ -4,13 +4,13 @@ use crate::grammar::{base, internal, operand, option, storage};
 use clap::{Arg, ArgAction, ArgGroup, Command};
 
 pub(in crate::grammar) fn run() -> Command {
-    base(spec!(
+    let command = base(spec!(
         "run",
         "Start a known agent, or bind this pane and run a command",
         [
-            "Start an agent now and name it later with tmt this" => "tmt run claude",
-            "Start an agent in this pane under a temporary name" => "tmt run worker claude",
-            "Keep the identity after the pane is gone" => "tmt run --save worker claude",
+            "Start and name an agent" => "tmt run worker claude",
+            "Save the agent for later" => "tmt run --save worker claude",
+            "Use plain paste delivery" => "tmt run --no-channel worker codex",
         ]
     ))
     .arg(option("save"))
@@ -21,20 +21,14 @@ pub(in crate::grammar) fn run() -> Command {
             .help("Resume the remembered session; put this option before the name"),
     )
     .arg(
-        Arg::new("channel")
-            .long("channel")
-            .action(ArgAction::SetTrue)
-            .conflicts_with("resume")
-            .help("Deliver talk through the agent's message channel instead of paste (supported agents only); put this option before the name"),
-    )
-    .arg(
         Arg::new("run-argv")
             .value_name("AGENT [ARGS...] | NAME [COMMAND...]")
             .required(true)
             .num_args(1..)
             .trailing_var_arg(true)
             .value_parser(clap::builder::OsStringValueParser::new()),
-    )
+    );
+    channel_options(command, false)
 }
 
 /// Inspection and recovery of one `tmt run --channel` enrollment.
@@ -111,12 +105,13 @@ pub(in crate::grammar) fn channel_server() -> Command {
 }
 
 pub(in crate::grammar) fn resume() -> Command {
-    base(spec!(
+    let command = base(spec!(
         "resume",
         "Resume an identity's remembered session in this pane",
         [
             "Resume an identity's last session" => "tmt resume worker",
-            "Forget the remembered session" => "tmt resume --forget worker",
+            "Require a channel for exact resume" => "tmt resume --channel worker",
+            "Forget an identity's last session" => "tmt resume --forget worker",
         ]
     ))
     .arg(
@@ -132,5 +127,26 @@ pub(in crate::grammar) fn resume() -> Command {
             .conflicts_with("forget")
             .help("Try a session marked stale once more"),
     )
-    .arg(operand("name", true).help("Identity name; TMT options go before it"))
+    .arg(operand("name", true).help("Identity name; TMT options go before it"));
+    channel_options(command, true)
+}
+
+/// Both foreground commands expose the same mutually exclusive launch policy.
+fn channel_options(command: Command, forget: bool) -> Command {
+    let required = Arg::new("channel")
+        .long("channel")
+        .action(ArgAction::SetTrue)
+        .conflicts_with("no-channel")
+        .help("Require the agent's message channel; fail if unavailable (put before the name)");
+    let disabled = Arg::new("no-channel")
+        .long("no-channel")
+        .action(ArgAction::SetTrue)
+        .help("Use plain paste delivery for this launch (put before the name)");
+    if forget {
+        command
+            .arg(required.conflicts_with("forget"))
+            .arg(disabled.conflicts_with("forget"))
+    } else {
+        command.arg(required).arg(disabled)
+    }
 }

@@ -114,8 +114,8 @@ struct RunRequest<'a> {
     command: &'a [OsString],
     resume: Option<Resume>,
     save: bool,
-    /// Enroll the provider's message channel for this launch.
-    channel: bool,
+    /// The launcher's channel policy for this launch.
+    channel: crate::invocation::ChannelMode,
 }
 
 fn storage_failure(error: StorageError) -> Failure {
@@ -143,7 +143,7 @@ pub fn execute(
     command: &[OsString],
     resume: Option<Resume>,
     save: bool,
-    channel: bool,
+    channel: crate::invocation::ChannelMode,
 ) -> io::Result<u8> {
     match run(RunRequest {
         name,
@@ -198,9 +198,6 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     }
     pending
 }
-
-#[cfg(test)]
-pub(crate) use channel::PRINTED_HINTS as CHANNEL_HINTS;
 
 #[cfg(test)]
 pub(crate) use resume::PRINTED_HINTS as RESUME_HINTS;

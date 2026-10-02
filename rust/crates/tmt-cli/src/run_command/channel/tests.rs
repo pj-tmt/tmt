@@ -296,3 +296,167 @@ fn a_claim_is_current_only_for_the_same_session_or_its_own_unknown_fence() {
         assert!(!claim_is_current(&binding(changed), &claimed));
     }
 }
+
+struct Advertised {
+    default: Cell<bool>,
+    probes: Cell<u32>,
+    outcome: u8,
+}
+impl RuntimeChannel for Advertised {
+    fn enabled_by_default(&self) -> bool {
+        self.default.get()
+    }
+    fn preflight(
+        &self,
+        _: &OsStr,
+        _: &std::path::Path,
+        _: Instant,
+    ) -> Result<Option<String>, ChannelError> {
+        self.probes.set(self.probes.get() + 1);
+        match self.outcome {
+            0 => Ok(None),
+            1 => Err(ChannelError::ProviderUnqualified {
+                reason: "unqualified fixture build".into(),
+            }),
+            2 => Err(ChannelError::ProviderVersion {
+                found: "fixture".into(),
+            }),
+            4 => Ok(Some("informational fixture advisory".into())),
+            _ => Err(ChannelError::ProviderUnavailable),
+        }
+    }
+    fn enroll(
+        &self,
+        _: &tmt_adapters::runtime::channel::ChannelPlan<'_>,
+    ) -> Result<Box<dyn ChannelEnrollment>, ChannelError> {
+        panic!("preflight must not enroll")
+    }
+    fn enrolled(
+        &self,
+        _: &std::path::Path,
+        _: &str,
+    ) -> Result<bool, tmt_adapters::runtime::channel::ChannelFault> {
+        Ok(false)
+    }
+    fn enrolled_in_pane(
+        &self,
+        _: &std::path::Path,
+        _: &tmt_adapters::runtime::channel::PaneAddress<'_>,
+        _: Option<&str>,
+        _: Instant,
+    ) -> Result<
+        tmt_adapters::runtime::channel::PaneEvidence,
+        tmt_adapters::runtime::channel::EvidenceError,
+    > {
+        Ok(Default::default())
+    }
+}
+
+#[test]
+fn default_policy_follows_only_the_advertised_driver_default() {
+    let port = Advertised {
+        default: Cell::new(false),
+        probes: Cell::new(0),
+        outcome: 0,
+    };
+    let prepare = |mode| {
+        super::prepare(
+            Some(&port),
+            mode,
+            OsStr::new("agent"),
+            PathBuf::from("/fixture"),
+        )
+    };
+    assert!(prepare(ChannelMode::Default).unwrap().channel.is_none());
+    assert_eq!(port.probes.get(), 0);
+    port.default.set(true);
+    assert!(prepare(ChannelMode::Default).unwrap().channel.is_some());
+    assert_eq!(port.probes.get(), 1);
+    assert!(prepare(ChannelMode::Disabled).unwrap().channel.is_none());
+    assert_eq!(port.probes.get(), 1);
+    port.default.set(false);
+    assert!(prepare(ChannelMode::Required).unwrap().channel.is_some());
+    assert_eq!(port.probes.get(), 2);
+}
+
+#[test]
+fn unavailable_and_advisory_preflight_fall_back_only_under_default() {
+    for (outcome, code) in [
+        (1, "CHANNEL_PROVIDER_UNSUPPORTED"),
+        (2, "CHANNEL_PROVIDER_UNSUPPORTED"),
+        (3, "CHANNEL_UNAVAILABLE"),
+    ] {
+        let port = Advertised {
+            default: Cell::new(true),
+            probes: Cell::new(0),
+            outcome,
+        };
+        let prepared = prepare(
+            Some(&port),
+            ChannelMode::Default,
+            OsStr::new("agent"),
+            "/fixture".into(),
+        )
+        .unwrap();
+        assert!(prepared.channel.is_none());
+        assert!(prepared.notice.is_some());
+        let error = prepare(
+            Some(&port),
+            ChannelMode::Required,
+            OsStr::new("agent"),
+            "/fixture".into(),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.code, code);
+    }
+    let error = prepare(
+        None,
+        ChannelMode::Required,
+        OsStr::new("agent"),
+        "/fixture".into(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(error.code, "CHANNEL_UNSUPPORTED");
+    let absent = prepare(
+        None,
+        ChannelMode::Default,
+        OsStr::new("agent"),
+        "/fixture".into(),
+    )
+    .unwrap();
+    assert!(absent.channel.is_none() && absent.notice.is_none());
+    assert_eq!(
+        paste_notice("worker\nname", "build\nunknown\rhere"),
+        "worker name uses paste delivery: build unknown here"
+    );
+}
+
+#[test]
+fn informational_advisory_does_not_gate_an_available_driver() {
+    let port = Advertised {
+        default: Cell::new(true),
+        probes: Cell::new(0),
+        outcome: 4,
+    };
+    for mode in [ChannelMode::Default, ChannelMode::Required] {
+        let prepared = prepare(Some(&port), mode, OsStr::new("agent"), "/fixture".into()).unwrap();
+        assert!(prepared.channel.is_some());
+        assert!(prepared.notice.is_none());
+    }
+}
+
+#[test]
+fn unsupported_enrollment_keeps_the_driver_reason_and_stable_code() {
+    for reason in [
+        "This command has no channel support.",
+        "Claude channel enrollment on resume is not supported yet; resume without --channel",
+    ] {
+        let error = ChannelError::Unsupported(reason);
+        assert_eq!(error.to_string(), reason);
+        let failure = enrollment_failure(error);
+        assert_eq!(failure.code, "CHANNEL_UNSUPPORTED");
+        assert_eq!(failure.message, reason);
+    }
+}

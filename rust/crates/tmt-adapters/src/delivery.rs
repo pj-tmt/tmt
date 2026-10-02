@@ -782,7 +782,9 @@ mod tests {
             Box<dyn crate::runtime::channel::ChannelEnrollment>,
             crate::runtime::channel::ChannelError,
         > {
-            Err(crate::runtime::channel::ChannelError::Unsupported)
+            Err(crate::runtime::channel::ChannelError::Unsupported(
+                "This command has no channel support.",
+            ))
         }
 
         fn enrolled(&self, _: &Path, _: &str) -> Result<bool, ChannelFault> {
@@ -851,7 +853,9 @@ mod tests {
             Box<dyn crate::runtime::channel::ChannelEnrollment>,
             crate::runtime::channel::ChannelError,
         > {
-            Err(crate::runtime::channel::ChannelError::Unsupported)
+            Err(crate::runtime::channel::ChannelError::Unsupported(
+                "This command has no channel support.",
+            ))
         }
 
         fn enrolled(&self, _: &Path, _: &str) -> Result<bool, ChannelFault> {

@@ -40,9 +40,10 @@ interface RecordFile {
 function start(
   f: E2EFixture,
   name: string,
-  channel = true,
+  channel: boolean | 'default' = 'default',
   extra: Record<string, string> = {},
-  existingPane?: string
+  existingPane?: string,
+  resume = false
 ): Session {
   const pane = existingPane ?? f.createShellPane(`codex-${name}`).pane;
   const run = randomUUID();
@@ -75,11 +76,9 @@ function start(
     ...Object.entries(env).map(([key, value]) => `${key}=${value}`),
     f.executables.cli.executable,
     ...f.executables.cli.args,
-    'run',
-    ...(channel ? ['--channel'] : []),
-    '-s',
-    name,
-    executable,
+    resume ? 'resume' : 'run',
+    ...(channel === true ? ['--channel'] : channel === false ? ['--no-channel'] : []),
+    ...(resume ? [name] : ['-s', name, executable]),
   ]
     .map(quote)
     .join(' ');
@@ -98,7 +97,11 @@ function events(s: Session, name: string): Event[] {
     : [];
 }
 async function ready(f: E2EFixture, s: Session) {
-  await f.waitFor(() => events(s, 'started').length === 1, 15000, 'mock foreground started');
+  await f.waitFor(
+    () => events(s, 'started').length === 1,
+    30000,
+    'mock foreground started after bounded channel startup'
+  );
   const deadline = Date.now() + 15000;
   for (;;) {
     const result = await f.runJsonCli<{ sessionState: string }>(['whoami'], { pane: s.pane });
@@ -204,6 +207,227 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       );
     });
   });
+
+  it('default enrolls on a qualified build and cleans the owned endpoint on Ctrl-C', async () => {
+    await withE2EFixture(async (f) => {
+      const worker = start(f, 'Default');
+      await ready(f, worker);
+      const [{ file, record }] = records(f);
+      const trace = installTmuxTrace(f);
+      expect((await talk(f, 'Default', 'default native')).code).toBe(0);
+      expect(events(worker, 'queue')).toHaveLength(1);
+      expect(events(worker, 'paste')).toEqual([]);
+      expect(writes(trace, worker.pane)).toEqual([]);
+      f.tmux(['send-keys', '-t', worker.pane, 'C-c']);
+      expect(
+        await waitForFileContent(worker.status, { description: 'Ctrl-C reaped foreground' })
+      ).toBe('130');
+      await f.waitFor(
+        () =>
+          gone(record.ready.server.pid) &&
+          !fs.existsSync(file) &&
+          !fs.existsSync(path.join(path.dirname(file), record.generation)),
+        10000,
+        'Ctrl-C endpoint, capability and record cleanup'
+      );
+    });
+  }, 60000);
+
+  for (const [reason, extra] of [
+    ['unqualified build', { MOCK_VERSION: '0.160.1' }],
+    ['qualification advisory', { MOCK_VERSION: '0.159.4' }],
+    ['missing app-server', { MOCK_SERVER_FAILURE: '1' }],
+  ] as Array<[string, Record<string, string>]>) {
+    it(`${reason} defaults to plain launch with one reason notice; strict mode fails`, async () => {
+      await withE2EFixture(async (f) => {
+        const worker = start(f, 'Fallback', 'default', extra);
+        await ready(f, worker);
+        const output = f.capture(200, worker.pane);
+        expect(output.match(/tmt: Fallback uses paste delivery:/g)).toHaveLength(1);
+        expect(output.replaceAll(/\s+/g, ' ')).toMatch(
+          /outside the supported channel range|has not been qualified|enrollment could not be recorded/
+        );
+        expect(records(f)).toEqual([]);
+        expect(events(worker, 'thread-start')).toEqual([]);
+        const trace = installTmuxTrace(f);
+        expect((await talk(f, 'Fallback', 'plain control')).code).toBe(0);
+        await f.waitFor(
+          () => events(worker, 'paste').some((e) => e.line?.includes('plain control')),
+          10000,
+          'plain foreground processed paste'
+        );
+        expect(writes(trace, worker.pane).length).toBeGreaterThan(0);
+        await quit(worker);
+        const strict = start(f, 'Strict', true, extra);
+        expect(
+          await waitForFileContent(strict.status, {
+            description: 'strict launch refused after bounded startup',
+            timeoutMs: 30000,
+          })
+        ).toBe('1');
+        expect(events(strict, 'started')).toEqual([]);
+        expect(f.capture(200, strict.pane)).not.toContain('uses paste delivery:');
+        expect(records(f)).toEqual([]);
+      });
+    }, 60000);
+  }
+
+  for (const [mode, failure] of [
+    ['default', ''],
+    [false, ''],
+    [true, ''],
+    ['default', 'refused'],
+    ['default', 'mismatch'],
+    [true, 'refused'],
+    [true, 'mismatch'],
+  ] as Array<[boolean | 'default', string]>) {
+    it(`exact resume mode=${mode} ${failure || 'reattaches the remembered thread'} without substitution`, async () => {
+      await withE2EFixture(async (f) => {
+        const first = start(f, 'Resume');
+        await ready(f, first);
+        const original = records(f)[0].record.ready.thread;
+        await quit(first);
+        // This protocol peer has no provider lifecycle hooks. Seed only the
+        // historical hook-owned preference; real CLI selects the exact session.
+        sql(f, (db) =>
+          db
+            .prepare(
+              `UPDATE identity_session_preferences SET remembered_harness='codex', runtime_mode='embedded', provider_session_id=? WHERE identity_id=(SELECT id FROM identities WHERE name='Resume')`
+            )
+            .run(original)
+        );
+        const resumed = start(
+          f,
+          'Resume',
+          mode,
+          failure ? { MOCK_RESUME_FAILURE: failure } : {},
+          first.pane,
+          true
+        );
+        if (mode === true && failure) {
+          expect(
+            await waitForFileContent(resumed.status, { description: 'strict exact-resume refusal' })
+          ).toBe('1');
+          expect(events(resumed, 'started')).toEqual([]);
+          expect(events(resumed, 'thread-start')).toEqual([]);
+          expect(events(resumed, 'thread-resume')).toHaveLength(1);
+          expect(records(f)).toEqual([]);
+          expect(f.capture(200, resumed.pane)).not.toContain('uses paste delivery:');
+          return;
+        }
+        await ready(f, resumed);
+        expect(events(resumed, 'thread-start')).toEqual([]);
+        expect(events(resumed, 'thread-resume')).toHaveLength(mode === false ? 0 : 1);
+        if (mode !== false) expect(events(resumed, 'thread-resume')[0].thread).toBe(original);
+        const trace = installTmuxTrace(f);
+        expect((await talk(f, 'Resume', 'resumed message')).code).toBe(0);
+        if (failure || mode === false) {
+          expect(records(f)).toEqual([]);
+          expect(events(resumed, 'started')[0].args).toEqual(['resume', original, '--no-daemon']);
+          expect(
+            f.capture(200, resumed.pane).match(/tmt: Resume uses paste delivery:/g) ?? []
+          ).toHaveLength(mode === false ? 0 : 1);
+          await f.waitFor(
+            () => events(resumed, 'paste').some((e) => e.line?.includes('resumed message')),
+            10000,
+            'original plain resume received paste'
+          );
+          expect(writes(trace, resumed.pane).length).toBeGreaterThan(0);
+        } else {
+          expect(records(f)[0].record.ready.thread).toBe(original);
+          expect(events(resumed, 'attached')).toHaveLength(1);
+          expect(events(resumed, 'queue')).toHaveLength(1);
+          expect(events(resumed, 'paste')).toEqual([]);
+          expect(writes(trace, resumed.pane)).toEqual([]);
+        }
+        await quit(resumed);
+        await f.waitFor(() => records(f).length === 0, 5000, 'resumed endpoint enrollment retired');
+      });
+    }, 60000);
+  }
+
+  it('default channel hooks preserve the foreground and remembered model through exact resume', async () => {
+    await withE2EFixture(async (f) => {
+      const preference = () =>
+        sql(f, (db) =>
+          db
+            .prepare(
+              `SELECT b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id, p.provider_session_id, p.driver_state FROM bindings b JOIN identity_session_preferences p ON b.identity_id=p.identity_id JOIN identities i ON i.id=b.identity_id WHERE i.name='HookModel'`
+            )
+            .get()
+        ) as {
+          runtime_pid: number;
+          runtime_start_identity: string;
+          observed_provider_session_id: string;
+          provider_session_id: string;
+          driver_state: string;
+        };
+      const first = start(f, 'HookModel', 'default', { MOCK_HOOK_MODEL: 'fixture-first-model' });
+      await ready(f, first);
+      const original = records(f)[0].record.ready.thread;
+      const trace = installTmuxTrace(f);
+      const exerciseHook = async (s: Session, model: string) => {
+        const [{ record }] = records(f);
+        const foreground = record.foreground.process!;
+        trace.clear();
+        expect((await talk(f, 'HookModel', 'observe hook model')).code).toBe(0);
+        await f.waitFor(
+          () => events(s, 'hook').length === 1,
+          10000,
+          'real enrolled lifecycle hook'
+        );
+        const result = events(s, 'hook')[0];
+        expect(result.ok).toBe(true);
+        expect(result.stderr).toBe('');
+        expect(JSON.parse(result.stdout as string).hookSpecificOutput.additionalContext).toContain(
+          'HookModel'
+        );
+        const saved = preference();
+        expect(saved.runtime_pid).toBe(foreground.pid);
+        expect(saved.runtime_start_identity).toBe(foreground.start);
+        expect(saved.runtime_pid).not.toBe(record.ready.server.pid);
+        expect(saved.observed_provider_session_id).toBe(original);
+        expect(saved.provider_session_id).toBe(original);
+        expect(JSON.parse(saved.driver_state).model).toBe(model);
+        expect(records(f)[0].record.foreground.process).toEqual(foreground);
+        expect(events(s, 'queue')).toHaveLength(1);
+        expect(events(s, 'paste')).toEqual([]);
+        expect(writes(trace, s.pane)).toEqual([]);
+        await quit(s);
+        await f.waitFor(
+          () => gone(record.ready.server.pid) && records(f).length === 0,
+          5000,
+          'hook scenario owned app-server and enrollment gone'
+        );
+      };
+      await exerciseHook(first, 'fixture-first-model');
+      const resumed = start(
+        f,
+        'HookModel',
+        'default',
+        { MOCK_HOOK_MODEL: 'fixture-resumed-model' },
+        first.pane,
+        true
+      );
+      await ready(f, resumed);
+      expect(events(resumed, 'thread-start')).toEqual([]);
+      expect(events(resumed, 'thread-resume')).toHaveLength(1);
+      expect(events(resumed, 'thread-resume')[0].params).toMatchObject({
+        threadId: original,
+        model: 'fixture-first-model',
+      });
+      expect(records(f)[0].record.ready.thread).toBe(original);
+      const argv = events(resumed, 'started')[0].args as string[];
+      expect(argv[0]).toBe('resume');
+      expect(argv).toContain('--remote');
+      expect(argv.slice(argv.indexOf('-m'), argv.indexOf('-m') + 2)).toEqual([
+        '-m',
+        'fixture-first-model',
+      ]);
+      expect(argv.at(-1)).toBe(original);
+      await exerciseHook(resumed, 'fixture-resumed-model');
+    });
+  }, 60000);
 
   it('queue receipt is delivery only; durable reply completes and name/raw sends never paste', async () => {
     await withE2EFixture(async (f) => {
@@ -450,6 +674,16 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         'old launcher and endpoint cleaned'
       );
       await f.waitFor(() => gone(record.foreground.process!.pid), 10000, 'old foreground ended');
+      const before = fs.readFileSync(file, 'utf8');
+      const fallback = start(f, 'Worker', 'default', { MOCK_VERSION: '0.160.1' }, old.pane);
+      expect(
+        await waitForFileContent(fallback.status, {
+          description: 'retained enrollment blocks fallback launch',
+        })
+      ).toBe('1');
+      expect(events(fallback, 'started')).toEqual([]);
+      expect(fs.readFileSync(file, 'utf8')).toBe(before);
+      expect(f.capture(200, fallback.pane)).not.toContain('uses paste delivery:');
       const plain = start(f, 'Bystander', false, { MOCK_AUTOREPLY: '0' });
       await ready(f, plain);
       const trace = installTmuxTrace(f);

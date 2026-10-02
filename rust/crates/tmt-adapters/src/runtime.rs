@@ -564,7 +564,9 @@ mod tests {
             &self,
             _: &channel::ChannelPlan<'_>,
         ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
-            Err(channel::ChannelError::Unsupported)
+            Err(channel::ChannelError::Unsupported(
+                "This command has no channel support.",
+            ))
         }
     }
 
@@ -597,7 +599,9 @@ mod tests {
             &self,
             _: &channel::ChannelPlan<'_>,
         ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
-            Err(channel::ChannelError::Unsupported)
+            Err(channel::ChannelError::Unsupported(
+                "This command has no channel support.",
+            ))
         }
     }
 
@@ -630,7 +634,9 @@ mod tests {
             &self,
             _: &channel::ChannelPlan<'_>,
         ) -> Result<Box<dyn channel::ChannelEnrollment>, channel::ChannelError> {
-            Err(channel::ChannelError::Unsupported)
+            Err(channel::ChannelError::Unsupported(
+                "This command has no channel support.",
+            ))
         }
     }
 

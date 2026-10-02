@@ -1,4 +1,5 @@
 use super::*;
+use crate::invocation::ChannelMode;
 
 #[test]
 fn run_identity_starts_an_opaque_command_tail() {
@@ -23,7 +24,7 @@ fn run_identity_starts_an_opaque_command_tail() {
                 command,
                 resume: false,
                 save: false,
-                channel: false,
+                channel: ChannelMode::Default,
             },
             mode: OutputMode::default(),
         }
@@ -42,7 +43,7 @@ fn run_identity_starts_an_opaque_command_tail() {
                 .to_vec(),
             resume: false,
             save: false,
-            channel: false,
+            channel: ChannelMode::Default,
         }
     );
     assert_eq!(
@@ -52,7 +53,7 @@ fn run_identity_starts_an_opaque_command_tail() {
             command: vec![],
             resume: true,
             save: false,
-            channel: false,
+            channel: ChannelMode::Default,
         }
     );
     assert_eq!(
@@ -73,7 +74,7 @@ fn run_save_belongs_only_before_the_identity() {
                 command: vec!["claude".into(), "-s".into()],
                 resume: false,
                 save: true,
-                channel: false,
+                channel: ChannelMode::Default,
             }
         );
         assert_eq!(
@@ -83,14 +84,14 @@ fn run_save_belongs_only_before_the_identity() {
                 command: vec![],
                 resume: true,
                 save: true,
-                channel: false,
+                channel: ChannelMode::Default,
             }
         );
     }
 }
 
 #[test]
-fn run_channel_is_an_option_before_the_identity_and_never_combines_with_resume() {
+fn run_channel_is_an_option_before_the_identity_and_combines_with_exact_resume() {
     assert_eq!(
         parsed(&["run", "--channel", "Alice", "claude", "--channel"]).invocation,
         Invocation::Run {
@@ -98,11 +99,11 @@ fn run_channel_is_an_option_before_the_identity_and_never_combines_with_resume()
             command: vec!["claude".into(), "--channel".into()],
             resume: false,
             save: false,
-            channel: true,
+            channel: ChannelMode::Required,
         },
         "an option after the identity belongs to the command"
     );
-    assert!(parse(&args(&["run", "--channel", "--resume", "Alice"])).is_err());
+    assert!(parse(&args(&["run", "--channel", "--resume", "Alice"])).is_ok());
     let error = parse(&args(&["run", "Alice", "--channel"])).unwrap_err();
     assert!(error.message.contains("TMT options go before the name"));
 }
@@ -130,7 +131,42 @@ fn a_known_agent_tail_preserves_provider_flags_without_a_name() {
             command: ["--model", "opus", "--help"].map(OsString::from).to_vec(),
             resume: false,
             save: true,
-            channel: false
+            channel: ChannelMode::Default
         }
     );
+}
+
+#[test]
+fn both_foreground_commands_choose_one_channel_mode_and_reject_conflicts() {
+    for (flags, mode) in [
+        (vec![], ChannelMode::Default),
+        (vec!["--channel"], ChannelMode::Required),
+        (vec!["--no-channel"], ChannelMode::Disabled),
+    ] {
+        for command in ["run", "resume"] {
+            let mut words = vec![command];
+            words.extend(flags.iter().copied());
+            if command == "run" {
+                words.push("--resume");
+            }
+            words.push("Alice");
+            match parsed(&words).invocation {
+                Invocation::Run {
+                    channel,
+                    resume: true,
+                    ..
+                }
+                | Invocation::Resume { channel, .. } => assert_eq!(channel, mode),
+                other => panic!("unexpected launch: {other:?}"),
+            }
+        }
+    }
+    for command in ["run", "resume"] {
+        let error = parse(&args(&[command, "--channel", "--no-channel", "Alice"])).unwrap_err();
+        assert_eq!(error.code, "USAGE_ERROR");
+        assert!(error.message.contains("cannot be used with"));
+    }
+    for flag in ["--channel", "--no-channel"] {
+        assert!(parse(&args(&["resume", "--forget", flag, "Alice"])).is_err());
+    }
 }

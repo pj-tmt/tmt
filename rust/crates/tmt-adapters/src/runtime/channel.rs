@@ -333,12 +333,14 @@ pub enum RecoveryError {
 /// Failures before a channel launch: reported before any binding or spawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelError {
-    /// The claimed driver has no channel.
-    Unsupported,
+    /// The driver cannot enroll this launch and owns the reason shown to the user.
+    Unsupported(&'static str),
     /// The provider could not be probed within its bounds.
     ProviderUnavailable,
     /// The provider is outside the supported range.
     ProviderVersion { found: String },
+    /// The driver refuses an otherwise parseable but unqualified build.
+    ProviderUnqualified { reason: String },
     /// The endpoint path would not fit a Unix socket address.
     PathTooLong,
     /// The enrollment record could not be written.
@@ -357,7 +359,7 @@ pub enum ChannelError {
 impl fmt::Display for ChannelError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Unsupported => formatter.write_str("This command has no channel support."),
+            Self::Unsupported(reason) => formatter.write_str(reason),
             Self::ProviderUnavailable => {
                 formatter.write_str("The provider version could not be verified.")
             }
@@ -365,6 +367,7 @@ impl fmt::Display for ChannelError {
                 formatter,
                 "The provider version {found:?} is outside the supported channel range."
             ),
+            Self::ProviderUnqualified { reason } => formatter.write_str(reason),
             Self::PathTooLong => {
                 formatter.write_str("The channel socket path is too long for a Unix socket.")
             }
@@ -401,6 +404,8 @@ pub struct ChannelPlan<'a> {
     /// The launch as the user asked for it, resume substitution included. The
     /// driver plans the foreground command from it and never edits it in place.
     pub command: &'a RuntimeCommand,
+    /// Exact remembered session selected by the launcher, never inferred from argv.
+    pub resume_session: Option<&'a ProviderSessionId>,
     /// The directory the launch starts in.
     pub working_directory: &'a Path,
     /// The absolute `tmt` the provider starts as its channel server.
@@ -464,9 +469,16 @@ pub trait ChannelEnrollment {
 }
 
 pub trait RuntimeChannel {
+    /// Whether Default launcher policy should attempt this driver's channel.
+    /// The launcher owns policy; drivers advertise only this default.
+    fn enabled_by_default(&self) -> bool {
+        false
+    }
+
     /// Verify the provider before anything is bound or spawned. `Ok(Some(text))`
-    /// accepts the launch with an advisory the launcher shows the user before the
-    /// session starts (for example a provider build newer than any tested one);
+    /// reports an informational advisory and permits enrollment. An unavailable
+    /// outcome is `Err`; the driver owns qualification, and the launcher chooses
+    /// plain fallback or a strict error;
     /// `Ok(None)` has nothing to say.
     fn preflight(
         &self,
@@ -705,6 +717,7 @@ mod tests {
             args: vec!["--model".into(), OsString::from_vec(vec![0xff, b'x'])],
         };
         let plan = |command| ChannelPlan {
+            resume_session: None,
             binding_id: "binding",
             identity_id: "identity",
             pane: PaneAddress {

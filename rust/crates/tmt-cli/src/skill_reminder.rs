@@ -173,7 +173,7 @@ mod tests {
                 command: vec!["claude".into()],
                 resume: false,
                 save: false,
-                channel: false,
+                channel: crate::invocation::ChannelMode::Default,
             },
             Invocation::Learn {
                 skill: Some("tmux-team".into()),

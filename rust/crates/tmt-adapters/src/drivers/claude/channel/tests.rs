@@ -12,7 +12,10 @@ use std::{
 use tmt_core::{
     binding::{
         Binding,
-        session::{BindingSessionState, ObservedSessionKey, RuntimeState, SessionTransition},
+        session::{
+            BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeState,
+            SessionTransition,
+        },
     },
     endpoint::ServerEvidence,
     host::HostKind,
@@ -876,6 +879,7 @@ fn plan<'a>(
     server: &'a ServerEvidence,
 ) -> ChannelPlan<'a> {
     ChannelPlan {
+        resume_session: None,
         binding_id: BINDING,
         identity_id: IDENTITY,
         pane: address(server),
@@ -974,6 +978,34 @@ fn enrollment_is_durable_before_launch_and_plans_the_command() {
             .err(),
         Some(ChannelError::Enrollment)
     );
+}
+
+#[test]
+fn exact_resume_is_refused_before_enrollment_writes() {
+    let scratch = Scratch::new();
+    let owner = live_owner();
+    let session = ProviderSessionId::new("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap();
+    let command = RuntimeCommand {
+        executable: "claude".into(),
+        args: vec![
+            "--resume".into(),
+            session.as_str().into(),
+            "--model".into(),
+            "sonnet".into(),
+        ],
+    };
+    let server = server();
+    let mut planned = plan(&scratch.0, &owner, &command, &server);
+    planned.resume_session = Some(&session);
+    let error = ClaudeChannel.enroll(&planned).err().unwrap();
+    assert_eq!(
+        error,
+        ChannelError::Unsupported(
+            "Claude channel enrollment on resume is not supported yet; resume without --channel"
+        )
+    );
+    assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
+    assert_eq!(read_record(&scratch.0, BINDING).unwrap(), None);
 }
 
 #[test]
@@ -2183,6 +2215,7 @@ mod pane {
         let owner = live_owner();
         let server = server();
         ClaudeChannel.enroll(&ChannelPlan {
+            resume_session: None,
             binding_id,
             identity_id: IDENTITY,
             pane: address(&server),

@@ -38,6 +38,7 @@ struct Start {
     executable: Vec<u8>,
     args: Vec<Vec<u8>>,
     cwd: Vec<u8>,
+    resume_session: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,7 +60,8 @@ pub struct Supervisor {
 }
 impl Supervisor {
     pub fn start(plan: &ChannelPlan<'_>) -> io::Result<Self> {
-        LaunchOptions::parse(plan.command, plan.working_directory).map_err(|_| invalid())?;
+        LaunchOptions::for_launch(plan.command, plan.working_directory, plan.resume_session)
+            .map_err(|_| invalid())?;
         let deadline = Instant::now() + START;
         let attribution = Attribution::new(
             plan.identity_id,
@@ -84,6 +86,9 @@ impl Supervisor {
                 .map(|a| a.as_bytes().to_vec())
                 .collect(),
             cwd: plan.working_directory.as_os_str().as_bytes().to_vec(),
+            resume_session: plan
+                .resume_session
+                .map(|session| session.as_str().to_owned()),
         };
         let bytes = serde_json::to_vec(&start).map_err(io::Error::other)?;
         if bytes.len() > LIMIT {
@@ -276,7 +281,26 @@ pub fn serve(
         args: start.args.into_iter().map(OsString::from_vec).collect(),
     };
     let cwd = PathBuf::from(OsString::from_vec(start.cwd));
-    let mut lease = Lease::from_record(store, record, &command, &cwd, Instant::now() + START)?;
+    let resume_session = match start
+        .resume_session
+        .as_deref()
+        .map(ProviderSessionId::new)
+        .transpose()
+    {
+        Ok(session) => session,
+        Err(_) => {
+            store.withdraw(&record)?;
+            return Err(invalid());
+        }
+    };
+    let mut lease = Lease::from_record(
+        store,
+        record,
+        &command,
+        &cwd,
+        resume_session.as_ref(),
+        Instant::now() + START,
+    )?;
     let published = (|| {
         let ready = Ready {
             executable: lease.command().executable.as_bytes().to_vec(),

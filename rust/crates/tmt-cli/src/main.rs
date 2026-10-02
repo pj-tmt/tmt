@@ -195,6 +195,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             name,
             forget,
             retry,
+            channel,
         } => {
             if forget {
                 return resume_command::forget(&name);
@@ -204,7 +205,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 &[],
                 Some(run_command::Resume { retry }),
                 false,
-                false,
+                channel,
             );
         }
         Invocation::Learn { skill } => {

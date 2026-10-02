@@ -148,6 +148,7 @@ fn run_lifetime(explicit: bool, published: bool) {
         )
     });
     let start = Start {
+        resume_session: None,
         executable: command.executable.as_bytes().to_vec(),
         args: command
             .args
@@ -241,6 +242,7 @@ fn startup_failure_cleans_only_owned_record_without_waiting_for_eof() {
     .unwrap();
     store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
     let start = Start {
+        resume_session: None,
         executable: fixture.path.join("absent").as_os_str().as_bytes().to_vec(),
         args: vec![],
         cwd: fixture.path.as_os_str().as_bytes().to_vec(),
@@ -301,6 +303,7 @@ fn rejected_ready_retires_without_a_foreground_handoff() {
         store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
         let command = fixture_command(&root);
         let start = Start {
+            resume_session: None,
             executable: command.executable.as_bytes().to_vec(),
             args: command
                 .args
@@ -399,6 +402,7 @@ fn ready_write_failure_retires_but_post_frame_flush_failure_preserves() {
         store.create(&record, |_| RuntimeLiveness::Alive).unwrap();
         let command = fixture_command(&root);
         let start = Start {
+            resume_session: None,
             executable: command.executable.as_bytes().to_vec(),
             args: command
                 .args

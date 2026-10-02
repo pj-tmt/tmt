@@ -1,12 +1,73 @@
 # Codex native channel contract
 
-Status: native Codex channel implementation in #739, following #736–#738 under
-#719/#329. The final activation slice registers `tmt run --channel codex` against
-the shared channel routing and launcher ports. Queue acceptance is a delivery
-receipt; durable request completion remains separate. The pinned 0.159.3
+Status: qualified Codex launches and exact `tmt resume` enroll natively by
+default. `--no-channel` chooses a plain launch, while `--channel` requires the
+channel. The shared launcher policy and Codex-specific boundaries are below.
+Queue acceptance is a delivery receipt; durable request completion remains separate. The pinned 0.159.3
 attachment/active-turn proof and 0.160.0 attach/queue/durable-reply proof are
 accepted; product routing and lifecycle gates are independent evidence described
 below.
+
+## Default launch policy
+
+The [shared launcher policy](claude-channel-v1.md#opt-in-and-the-launch-lease)
+selects one mode for both `tmt run` (including `--resume`) and
+`tmt resume`: Default when neither flag is present, Disabled for `--no-channel`,
+or Required for `--channel`. The flags conflict in clap, before launch. Each
+driver advertises only whether its channel is enabled by default through the
+shared channel port. Codex advertises enabled; Claude remains opt-in. The CLI
+contains no provider-name test for this policy. Changing a driver's advertised
+default and its contract suffices to change its default behavior.
+
+Default attempts enrollment only for a driver that advertises it. Disabled uses
+the original plain command without enrollment. Required attempts enrollment
+regardless of the advertised default and fails if unavailable. The run and
+resume CommandSpec examples include both flags so the grammar audit covers them.
+
+For Default, any reason enrollment cannot happen before channel foreground
+startup, including an unqualified build, a preflight advisory, no supported
+app-server, unsupported arguments or a failed exact resume, selects the original
+plain command and prints exactly one visible notice line saying that the session
+uses paste delivery and naming the reason:
+`warning: tmt: <name> uses paste delivery: <reason>`. Codex's preflight classifies
+its unqualified-build advisory as unavailable for enrollment, even if a later handshake might otherwise succeed. Required
+reports the same reasons as errors with stable codes: `CHANNEL_UNSUPPORTED` for
+an absent channel port, `CHANNEL_PROVIDER_UNSUPPORTED` for a refused build or
+qualification advisory, and `CHANNEL_UNAVAILABLE` for other enrollment failures.
+
+Plain fallback after an enrollment attempt requires confirmed owned-endpoint
+cleanup and the existing pane-enrollment evidence to establish that no live or
+unconfirmed enrollment remains. Unknown, unreadable or retained enrollment
+evidence stays terminal. The launcher must still hold its binding admission
+authority; fallback never bypasses a binding conflict or performs recovery.
+No command is launched if these prerequisites cannot be established. Once
+enrolled, the no-paste rule is unchanged: not-ready, unreachable, refused and
+uncertain delivery remain terminal, with no resend or paste fallback.
+
+Exact resume carries the launcher's selected, typed provider session through
+the shared channel plan and private supervisor startup request. The Codex driver
+uses `thread/resume` on its owned endpoint and validates that the returned thread
+UUID equals that session before attaching the foreground. It never substitutes
+a new thread or guesses a remembered session from arbitrary user argv. A Default
+resume that cannot enroll before startup may run only the original exact-resume
+command, with the visible paste notice and the same cleanup/evidence guards;
+it never silently downgrades an enrolled thread. Disabled explicitly chooses
+plain exact resume and still cannot bypass enrollment evidence already in the
+pane. Required fails instead of launching plainly.
+
+An enrolled Codex launch owns one extra app-server process, plus its existing
+supervisor, for that foreground's lifetime. Normal exit and Ctrl-C use the same
+confirmed-child cleanup path. Codex's folder-trust prompt remains user-owned:
+the default neither answers it nor changes trust configuration, and queued input
+may wait until the user completes attachment. Plain `codex` and global provider
+config, authentication and hooks are unchanged.
+
+Acceptance covers default enrollment, explicit opt-out and its positive paste
+control, unavailable/advisory fallback with one reason line, strict stable
+errors, terminal enrolled-but-not-ready routing, exact default resume without
+thread substitution, cleanup on exit and Ctrl-C, and a test that toggles a
+driver's advertised default without a CLI provider-name change. Native fixture
+and product-routing evidence remain separate from live provider qualification.
 
 ## Delivery receipt
 
@@ -53,9 +114,9 @@ in the HTTP Authorization header. It initializes that owned endpoint and reads
 the leading provider build version from `userAgent`, not the trailing client
 version. The bounded supported set is 0.159.2, 0.159.3 and 0.160.0; other builds
 fail closed. Binary preflight requires parseable `codex-cli major.minor.patch`
-and accepts the 0.159 minor line at patch 2 or later, or exactly 0.160.0. Older,
-malformed or other-line/build output is refused; 0.159 patches above 3 retain an
-unqualified-build advisory. This does not qualify them: the owned initialize
+and accepts only those qualified builds. Older, malformed or other-line/build
+output is refused; 0.159 patches above 3 return an unavailable unqualified-build
+advisory. This does not qualify them: the owned initialize
 handshake remains authoritative and accepts only the exact supported builds.
 Untested 0.160.x patches are refused at both boundaries.
 
@@ -64,7 +125,7 @@ Untested 0.160.x patches are refused at both boundaries.
 | 0.159.2 | Accepted | Accepted | Isolated native queue observations in #329; no accepted foreground continuity claim for this build. |
 | 0.159.3 | Accepted | Accepted | Accepted foreground attachment and active-turn continuity proof in #739. |
 | 0.160.0 | Accepted | Accepted | Accepted foreground attachment, idle/busy queue correlation and durable reply in #1043. |
-| Later 0.159 patches | Advisory | Refused | Unqualified. |
+| Later 0.159 patches | Unavailable: unqualified-build advisory | Refused | Unqualified. |
 | Other builds, including later 0.160 patches | Refused | Refused | Unqualified. |
 
 The initialize format is source-backed at the pinned revision above, in
@@ -148,8 +209,9 @@ which is not a guarantee provided by destructors.
 `drivers/codex/attachment` accepts a bounded option surface before launch. It
 resolves relative `-C` against the original working directory once, emits the
 absolute directory for foreground resume, and exposes that same directory to
-server spawn and later thread creation. It rejects initial prompts, resume/fork
-subcommands and implicit/default remote selection. The foreground command uses
+server spawn and later thread creation. It rejects initial prompts, user-supplied resume/fork
+subcommands and implicit/default remote selection; only the launcher-selected
+typed exact resume uses its bounded generated grammar. The foreground command uses
 `resume --remote ... --remote-auth-token-env TMT_CODEX_ENDPOINT_TOKEN` with the
 exact supplied provider thread. Planning checks endpoint shape; ownership comes
 from the enrollment resource, not from a user-supplied endpoint string.

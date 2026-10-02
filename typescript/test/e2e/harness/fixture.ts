@@ -38,6 +38,9 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const mockAgentPath = path.join(repoRoot, 'test', 'e2e', 'mock-agent.mjs');
+// Generous for one tmux client call on loaded CI; synchronous calls must leave
+// the event loop available for the scenario timeout instead of hanging forever.
+const TMUX_COMMAND_TIMEOUT_MS = 5_000;
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -545,6 +548,8 @@ exit ${'$'}status
       env: this.env,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: TMUX_COMMAND_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     });
   }
 

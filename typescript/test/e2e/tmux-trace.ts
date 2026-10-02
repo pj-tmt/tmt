@@ -24,6 +24,9 @@ export function installTmuxTrace(fixture: E2EFixture): TmuxTrace {
   const delegatedWrapperPath = path.join(fixture.wrapperDir, 'tmux-inner');
   const tracePath = path.join(fixture.root, 'tmux-command-trace.log');
 
+  if (fs.existsSync(delegatedWrapperPath)) {
+    throw new Error('Tmux trace is already installed for this fixture. Reuse and clear it.');
+  }
   fs.renameSync(wrapperPath, delegatedWrapperPath);
   fs.writeFileSync(
     wrapperPath,

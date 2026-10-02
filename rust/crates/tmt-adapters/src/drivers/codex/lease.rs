@@ -34,6 +34,7 @@ impl Lease {
         record: Record,
         command: &RuntimeCommand,
         cwd: &Path,
+        resume_session: Option<&ProviderSessionId>,
         deadline: Instant,
     ) -> io::Result<Self> {
         // From the first durable opt-in write, every later failure is owned by
@@ -47,7 +48,8 @@ impl Lease {
             environment: Vec::new(),
             session: None,
         };
-        let options = LaunchOptions::parse(command, cwd).map_err(|_| invalid())?;
+        let options =
+            LaunchOptions::for_launch(command, cwd, resume_session).map_err(|_| invalid())?;
         let generation = lease.store.generation_directory(&lease.record)?;
         lease.accept_start(OwnedServer::start_with_environment(
             command,
@@ -59,13 +61,17 @@ impl Lease {
         let server = lease.server.as_ref().expect("owned server just assigned");
         let mut client = Client::connect(&server.endpoint, deadline).map_err(|_| invalid())?;
         let id = uuid::Uuid::new_v4().to_string();
+        let (method, params) = match resume_session {
+            Some(session) => ("thread/resume", options.thread_resume_params(session)),
+            None => ("thread/start", options.thread_start_params()),
+        };
         let response = client
-            .call(
-                &json!({"id":id,"method":"thread/start","params":options.thread_start_params()}),
-                &id,
-            )
+            .call(&json!({"id":id,"method":method,"params":params}), &id)
             .map_err(|_| invalid())?;
         let session = created_thread(&response, options.working_directory())?;
+        if resume_session.is_some_and(|expected| expected != &session) {
+            return Err(invalid());
+        }
         lease.command = options
             .foreground(command, &server.endpoint.url(), &session)
             .map_err(|_| invalid())?;
