@@ -1,6 +1,6 @@
 use crate::{
-    Cleanup, EnvironmentPolicy, ExitStatus, FailureKind, InvokeError, Output, Phase, Request,
-    Stream,
+    Cleanup, EnvironmentPolicy, ExitStatus, FailureKind, InvokeError, Output, Phase, ProcessGroup,
+    Request, Stream,
 };
 use nix::{errno::Errno, sys::signal::killpg, unistd::Pid};
 use std::{
@@ -42,17 +42,20 @@ pub(crate) fn invoke(
             .env_clear()
             .env_extend(std::env::vars_os().filter(|(name, _)| names.contains(name)));
     }
+    if request.launch.process_group == ProcessGroup::New {
+        command = command.setpgid();
+    }
     let job = command
         .args(request.args.iter().cloned())
         .stdin(request.input.to_vec())
         .stdout(Redirection::Pipe)
         .stderr(Redirection::Pipe)
-        .setpgid()
         .start()
         .map_err(|cause| failure(FailureKind::Spawn, Some(cause)))?;
     let mut child = Child {
         job,
         finished: false,
+        group: request.launch.process_group,
     };
     let observed = observe(
         &mut child.job,
@@ -159,10 +162,16 @@ impl Write for Capped {
 struct Child {
     job: Job,
     finished: bool,
+    group: ProcessGroup,
 }
 
 impl Child {
     fn cleanup(&mut self) -> Cleanup {
+        if self.group == ProcessGroup::InheritCaller {
+            // No signal, wait or group inspection: this group belongs to the caller.
+            self.job.detach();
+            return Cleanup::CallerOwned;
+        }
         let signal = self.job.send_signal_group(9);
         let waited = self.job.wait_timeout(CLEANUP);
         if !matches!(waited, Ok(Some(_))) {

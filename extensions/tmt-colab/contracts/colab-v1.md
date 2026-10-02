@@ -673,7 +673,11 @@ records become uncertain, never automatically resend.
 Recovery reads `dispatch.show`: found becomes accepted; not found stays uncertain.
 An explicit same-ID/bytes retry reruns the full fence and requires the original
 child confirmed stopped. Within one live bridge invocation the process owner
-reports `Cleanup::Confirmed`; after a bridge crash today's API does not establish
+reports `Cleanup::Confirmed`. Retry is eligible only on `Confirmed`; any other
+started-failure cleanup, including `CallerOwned`, disables retry and keeps the
+entry uncertain. Colab uses only default fresh-group invocation for core and
+decoder children, so it never receives `CallerOwned`. `NotStarted` means no
+call was made and retains the normal fence/approval path. After a bridge crash today's API does not establish
 original-child identity/termination, so retry remains disabled with that reason.
 No shared API extension is assumed. Abandon stops local tracking and says “may
 still have been delivered”; it neither proves non-delivery nor cancels accepted

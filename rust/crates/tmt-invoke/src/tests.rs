@@ -12,9 +12,9 @@ use std::{
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-struct Fixture(PathBuf);
+pub(crate) struct Fixture(pub(crate) PathBuf);
 impl Fixture {
-    fn new(script: &str) -> Self {
+    pub(crate) fn new(script: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "tmt-invoke-{}-{}",
             std::process::id(),
@@ -400,7 +400,10 @@ fn environment_policy_child() {
                 input: b"",
                 deadline: Instant::now() + Duration::from_secs(5),
                 max_stream_bytes: 4096,
-                launch: LaunchOptions { environment },
+                launch: LaunchOptions {
+                    environment,
+                    ..Default::default()
+                },
             },
             None,
         )

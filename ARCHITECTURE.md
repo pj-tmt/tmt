@@ -2478,11 +2478,11 @@ reached through the external command contract as `tmt squad` and, through a
 `tmt-sq` link to the same file, `tmt sq`. Its command name is fixed, never taken
 from argv[0], so both spellings share one help text, error set and completion.
 It is a workspace member for the shared lockfile and toolchain only. It depends
-on no TMT crate except the leaf `tmt-cli-style`, which carries no TMT behavior,
+on the neutral leaves `tmt-cli-style` and `tmt-invoke`, which carry no core behavior,
 and no TMT crate depends on it; the architecture guard enforces both directions
 for Cargo dependencies and source references. Squad reaches TMT
 through `TMT_EXECUTABLE` (or `tmt` on PATH), using public `--json` commands and
-`tmt api`, with its own minimal bounded child runner.
+`tmt api`, with `runner` mapping results/errors to `tmt-invoke` for bounded capture.
 
 Squad keeps no store. A squad is the core room `squad-<name>`. Member fields are
 identity metadata `squad.<name>.<field>`, so one identity can belong to several
@@ -2583,7 +2583,9 @@ changes. Each immutable view owns disposable markdown wrapping and grid-width
 derivations keyed by effective pane width (and grid search); replacing the view
 invalidates them, and the scroll renderer copies only visible lines.
 A switch advances the worker's generation, cancelling superseded core reads in
-Squad's existing bounded process-group runner. Cancellation kills and reaps the
+the shared `tmt-invoke` bounded process owner. The refresh worker owns one never-reset stop flag per generation; preemption
+and shutdown set that flag while the generation counter still fences events.
+Cancellation kills and reaps the
 child group without changing ordinary command deadlines or output bounds;
 queued results carry their generation and cannot replace a newer view. Worker
 shutdown cancels its core read, disconnects requests and joins after terminal
@@ -2980,7 +2982,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 as `tmt remote`. `main` owns style/foreground composition and one bounded
 startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
-`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`.
 
 `http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
 connection/rate bounds and shutdown. It has no CoreClient/storage reference.

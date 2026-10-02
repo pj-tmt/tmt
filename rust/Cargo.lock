@@ -2786,6 +2786,7 @@ dependencies = [
  "signal-hook 0.4.4",
  "subprocess",
  "tmt-cli-style",
+ "tmt-invoke",
  "toml_edit",
  "unicode-width",
 ]

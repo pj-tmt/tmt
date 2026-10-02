@@ -23,6 +23,17 @@ pub struct Request<'a> {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LaunchOptions<'a> {
     pub environment: EnvironmentPolicy<'a>,
+    pub process_group: ProcessGroup,
+}
+
+/// Selects the owner of process-group termination after a started failure.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessGroup {
+    /// Start a fresh group; invoke terminates and reaps it on failure.
+    #[default]
+    New,
+    /// Stay in the caller's group. The caller must supervise failed children.
+    InheritCaller,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -80,6 +91,8 @@ pub enum FailureKind {
 pub enum Cleanup {
     NotStarted,
     Confirmed,
+    /// A child started in an inherited group; the caller owns cleanup.
+    CallerOwned,
     Unconfirmed(io::Error),
 }
 
@@ -106,12 +119,16 @@ impl std::error::Error for InvokeError {
     }
 }
 
-/// Capture one child in a fresh owned process group. Nonzero exits are data.
-/// A started failure terminates the group with a one-second cleanup budget;
-/// termination does not establish rollback and never causes an automatic retry.
+/// Capture one child; by default its fresh group is owned here. Nonzero exits are data.
+/// A started failure in New mode terminates the group with a one-second cleanup budget.
+/// InheritCaller returns CallerOwned without signalling or waiting for cleanup.
+/// Termination does not establish rollback and never causes an automatic retry.
 pub fn invoke(request: Request<'_>, stop: Option<&AtomicBool>) -> Result<Output, InvokeError> {
     process::invoke(request, stop)
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod inherited_tests;
