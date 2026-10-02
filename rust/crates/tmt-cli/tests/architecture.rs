@@ -33,11 +33,16 @@ use tmt_adapters::process::{CommandRequest, CommandRunner, UnixCommandRunner};
 
 // Reviewed package boundaries and manifest owners; implementation files are not fixed.
 const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
+    (
+        "tmt-colab",
+        "extensions/tmt-colab/rust/tmt-colab/Cargo.toml",
+    ),
     ("tmt-core", "rust/crates/tmt-core/Cargo.toml"),
     ("tmt-adapters", "rust/crates/tmt-adapters/Cargo.toml"),
     ("tmt-cli", "rust/crates/tmt-cli/Cargo.toml"),
     ("tmt-cli-style", "rust/crates/tmt-cli-style/Cargo.toml"),
     ("tmt-invoke", "rust/crates/tmt-invoke/Cargo.toml"),
+    ("tmt-tui", "rust/crates/tmt-tui/Cargo.toml"),
     (
         "tmt-command-output",
         "rust/crates/tmt-command-output/Cargo.toml",

@@ -4,13 +4,7 @@
 //! keeps a scroll position of its own.
 
 use crate::config::Pane;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Modifier, Style},
-    text::Line,
-    widgets::Paragraph,
-};
+use ratatui::{Frame, layout::Rect, style::Style, text::Line, widgets::Paragraph};
 use std::{cell::RefCell, collections::BTreeMap};
 
 /// Lines one wheel notch moves.
@@ -93,14 +87,26 @@ impl Scrolls {
             .map_or(1, |drawn| drawn.viewport.saturating_sub(1).max(1))
     }
 
-    /// Scrolls `pane` just enough that `line` is on screen.
-    pub fn reveal(&self, pane: Pane, line: usize, area: Rect, content: usize) {
+    /// Keeps the selected record visible, or its first line when it is
+    /// taller than the viewport.
+    pub fn reveal_range(
+        &self,
+        pane: Pane,
+        lines: std::ops::Range<usize>,
+        area: Rect,
+        content: usize,
+    ) {
         let viewport = Self::viewport(area, content).max(1);
+        let end = if lines.len() > viewport {
+            lines.start.saturating_add(1)
+        } else {
+            lines.end
+        };
         let offset = self.offsets.borrow().get(&pane).copied().unwrap_or(0);
-        let offset = if line < offset {
-            line
-        } else if line >= offset + viewport {
-            line + 1 - viewport
+        let offset = if lines.start < offset {
+            lines.start
+        } else if end > offset.saturating_add(viewport) {
+            end.saturating_sub(viewport)
         } else {
             offset
         };
@@ -122,14 +128,15 @@ impl Scrolls {
     /// Draws `lines` in `area` from the pane's position, with `↑ n  ↓ m`
     /// on the last line when there is more above or below. Returns the first
     /// line shown and how many are shown.
-    pub fn show(
+    pub fn show<'a>(
         &self,
         frame: &mut Frame,
         pane: Pane,
         area: Rect,
-        lines: Vec<Line<'_>>,
+        lines: impl AsRef<[Line<'a>]>,
         dim: Style,
     ) -> (usize, usize) {
+        let lines = lines.as_ref();
         let content = lines.len();
         let viewport = Self::viewport(area, content);
         self.drawn.borrow_mut().insert(
@@ -146,7 +153,10 @@ impl Scrolls {
             height: viewport as u16,
             ..area
         };
-        frame.render_widget(Paragraph::new(lines).scroll((offset as u16, 0)), body);
+        frame.render_widget(
+            Paragraph::new(lines[offset..(offset + viewport).min(content)].to_vec()),
+            body,
+        );
         if viewport < usize::from(area.height) {
             let above = offset;
             let below = content.saturating_sub(offset + viewport);
@@ -163,11 +173,7 @@ impl Scrolls {
                 ..area
             };
             frame.render_widget(
-                Paragraph::new(Line::styled(
-                    parts.join("  "),
-                    dim.add_modifier(Modifier::DIM),
-                ))
-                .right_aligned(),
+                Paragraph::new(Line::styled(parts.join("  "), dim)).right_aligned(),
                 indicator,
             );
         }

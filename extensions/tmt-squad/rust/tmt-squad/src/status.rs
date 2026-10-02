@@ -4,13 +4,14 @@
 use crate::{
     config::{Layout, Section, SortKey, States},
     filter::Row,
-    rows::Rows,
+    rows::{Column as RowColumn, ListSizing, Rows},
     squad::{Member, Squad},
 };
 use serde_json::{Value, json};
 use std::{cmp::Ordering, io::Write};
 use tmt_cli_style::{
     Terminal, Token,
+    grid::{self, Overflow},
     list::{self, Section as ListSection},
     mark::Mark,
     table::{Cell, Column, Table, escape},
@@ -115,9 +116,12 @@ fn apply_sources(rows: &Rows, members: &mut [Member], now_ms: u64) {
 /// a provider's suggested token; otherwise the cell has none. The value is
 /// the bound number when there is one, else the field's text read as a
 /// number. `state` keeps its state colors.
-fn apply_colors(rows: &Rows, members: &mut [Member]) {
+fn apply_colors(rows: &Rows, states: &States, members: &mut [Member]) {
     for member in members.iter_mut() {
         member.colors.remove("state");
+        if let Some(token) = states.color(member.fields.get("state").map(String::as_str)) {
+            member.colors.insert("state".into(), token.to_owned());
+        }
         for column in rows
             .columns
             .iter()
@@ -158,7 +162,7 @@ pub fn document(
     mut members: Vec<Member>,
 ) -> Value {
     apply_sources(row_layout, &mut members, now_ms());
-    apply_colors(row_layout, &mut members);
+    apply_colors(row_layout, states, &mut members);
     let (leads, mut members): (Vec<_>, Vec<_>) = members.into_iter().partition(Member::is_lead);
     sort(&mut members, layout, states);
     let all: Vec<&Member> = members.iter().collect();
@@ -271,6 +275,9 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
     String::from_utf8(output).unwrap_or_default()
 }
 
+/// Table's two-cell indent, one-cell row mark and two-cell gap before data.
+const LIST_PREFIX: usize = 2 + 1 + 2;
+
 /// One squad: its header, then each section with the configured columns (the
 /// board's), a leading mark and a trailing detail.
 fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
@@ -289,48 +296,114 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
             terminal.paint(Token::Dim, &format!("lead notes: {stale}"))
         );
     }
-    // The board's field selection and order: every field on any line, the
-    // first line's first. A list stays complete, so only a configured width
-    // (a short fixed value) keeps a column from truncating.
-    let width = |field: &str| {
-        document["columns"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|column| column["field"] == field)
-            .and_then(|column| column["width"].as_u64())
-    };
-    let mut fields: Vec<(&str, Option<u64>)> = Vec::new();
-    let lines = document["lines"].as_array().into_iter().flatten();
-    for cell in lines.flat_map(|line| line.as_array().into_iter().flatten()) {
+    // Flatten configured lines in order; the shared grid owns sizing and
+    // fitting, while the list/table renderer still owns sections and styles.
+    let mut fields = Vec::new();
+    for cell in document["lines"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|line| line.as_array().into_iter().flatten())
+    {
         if let Some(field) = cell["field"].as_str()
-            && !fields.iter().any(|(known, _)| *known == field)
+            && !fields.contains(&field)
         {
-            fields.push((field, width(field)));
+            fields.push(field);
         }
     }
     if fields.is_empty() {
-        fields = vec![("member", None), ("state", Some(10))];
+        fields = vec!["member", "state"];
     }
-    let stale_column = document["sections"]
+    let sections: Vec<_> = document["sections"]
         .as_array()
         .into_iter()
         .flatten()
-        .flat_map(|section| section["rows"].as_array().into_iter().flatten())
-        .any(|row| row["staleness"]["state"] == "stale");
-    let layout: Vec<Column> = std::iter::once(Column::Fixed)
-        .chain(fields.iter().map(|(field, width)| match (*field, width) {
-            ("member", _) => Column::Name,
-            (_, None) => Column::Detail,
-            (_, Some(_)) => Column::Fixed,
-        }))
-        .chain(std::iter::once(Column::Detail))
-        .chain(stale_column.then_some(Column::Fixed))
         .collect();
-    let built: Vec<(String, usize, Table)> = document["sections"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let rows: Vec<_> = sections
+        .iter()
+        .flat_map(|section| section["rows"].as_array().into_iter().flatten())
+        .collect();
+    let stale_column = rows.iter().any(|row| row["staleness"]["state"] == "stale");
+    let mut columns: Vec<_> = fields
+        .iter()
+        .map(|field| {
+            let value = document["columns"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|column| column["field"] == *field)
+                .unwrap_or(&Value::Null);
+            RowColumn::display(field, value)
+        })
+        .collect();
+    let sizing = ListSizing::for_columns(&columns);
+    columns.push(RowColumn::display("detail", &Value::Null));
+    if stale_column {
+        columns.push(RowColumn::display("staleness", &Value::Null));
+    }
+    let value = |row: &Value, index: usize| -> String {
+        if index < fields.len() {
+            column_cell(row, fields[index]).to_owned()
+        } else if index == fields.len() {
+            detail(row)
+        } else {
+            crate::staleness::label(&row["staleness"])
+                .unwrap_or_default()
+                .to_owned()
+        }
+    };
+    let (shown, layout): (Vec<(usize, Option<usize>)>, Vec<Column>) = match sizing {
+        ListSizing::Natural => (
+            (0..columns.len()).map(|index| (index, None)).collect(),
+            std::iter::once(Column::Fixed)
+                .chain(columns.iter().map(|column| {
+                    if column.field == "member" {
+                        Column::Name
+                    } else if column.width.is_some() || column.field == "staleness" {
+                        Column::Fixed
+                    } else {
+                        Column::Detail
+                    }
+                }))
+                .collect(),
+        ),
+        ListSizing::Configured => {
+            let natural: Vec<_> = (0..columns.len())
+                .map(|index| {
+                    rows.iter()
+                        .map(|row| {
+                            unicode_width::UnicodeWidthStr::width(
+                                escape(&value(row, index)).as_str(),
+                            )
+                        })
+                        .max()
+                        .unwrap_or(0)
+                })
+                .collect();
+            let tracks: Vec<_> = columns
+                .iter()
+                .zip(&natural)
+                .map(|(column, natural)| column.track(*natural))
+                .collect();
+            // Indent, mark, and its gap are outside the data grid. A pipe
+            // uses natural data widths plus gaps, before priority hiding.
+            let available = terminal
+                .width
+                .map(|width| usize::from(width).saturating_sub(LIST_PREFIX))
+                .unwrap_or_else(|| {
+                    natural.iter().sum::<usize>() + 2 * columns.len().saturating_sub(1)
+                });
+            let shown: Vec<_> = grid::solve(&tracks, Some(available), 2)
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, width)| width.map(|width| (index, Some(width))))
+                .collect();
+            let layout = vec![Column::Fixed; shown.len() + 1];
+            (shown, layout)
+        }
+    };
+    let built: Vec<(String, usize, Table)> = sections
+        .iter()
         .map(|section| {
             let rows = section["rows"]
                 .as_array()
@@ -339,22 +412,51 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
             let mut table = Table::new(&layout);
             for row in rows {
                 let mark = mark(row);
-                let cells = std::iter::once(Cell::styled(mark.symbol(), mark.token()))
-                    .chain(fields.iter().map(|(field, _)| match *field {
-                        "state" => Cell::styled(column_cell(row, "state"), Token::Dim),
-                        field => column_cell(row, field).into(),
-                    }))
-                    .chain(std::iter::once(detail(row).into()))
-                    .chain(stale_column.then(|| {
-                        Cell::styled(
-                            crate::staleness::label(&row["staleness"]).unwrap_or_default(),
-                            Token::Dim,
-                        )
-                    }));
-                table.row(cells.collect::<Vec<Cell>>());
+                let fitted: Vec<_> = shown
+                    .iter()
+                    .map(|&(index, width)| {
+                        let column = &columns[index];
+                        match width {
+                            Some(width) => grid::fit_lines(
+                                &value(row, index),
+                                width,
+                                column.align,
+                                column.truncate,
+                                column.overflow.unwrap_or(Overflow::Ellipsis),
+                            ),
+                            None => vec![value(row, index)],
+                        }
+                    })
+                    .collect();
+                let height = fitted.iter().map(Vec::len).max().unwrap_or(1);
+                for line in 0..height {
+                    let mut cells = vec![Cell::styled(
+                        if line == 0 { mark.symbol() } else { " " },
+                        mark.token(),
+                    )];
+                    for ((index, width), fitted) in shown.iter().zip(&fitted) {
+                        let text = fitted
+                            .get(line)
+                            .cloned()
+                            .unwrap_or_else(|| " ".repeat(width.unwrap_or(0)));
+                        cells.push(
+                            if columns[*index].field == "state"
+                                || columns[*index].field == "staleness"
+                            {
+                                Cell::styled(text, Token::Dim)
+                            } else {
+                                text.into()
+                            },
+                        );
+                    }
+                    table.row(cells);
+                }
             }
-            let title = section["title"].as_str().unwrap_or("members").to_owned();
-            (title, rows.len(), table)
+            (
+                section["title"].as_str().unwrap_or("members").to_owned(),
+                rows.len(),
+                table,
+            )
         })
         .collect();
     let older = (document["olderRequestsNotShown"] == true).then_some("older requests not shown");
@@ -499,15 +601,72 @@ mod tests {
         }
     }
 
-    fn states(layout: Layout) -> States {
-        States {
-            order: layout
-                .states()
-                .iter()
-                .map(|state| (*state).to_owned())
-                .collect(),
-            colors: Default::default(),
+    #[test]
+    fn patterns_color_and_order_the_projected_rows_and_sections() {
+        let directory =
+            std::env::temp_dir().join(format!("squad-state-patterns-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(
+            &path,
+            r#"
+[squad.product.states]
+custom = { sort = 9 }
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "blocked"
+sort = 0
+[[squad.product.state_patterns]]
+match = "review*"
+color = "review"
+sort = 3
+[[squad.product.section]]
+title = "All"
+sort = ["state"]
+"#,
+        )
+        .unwrap();
+        let config = crate::config::Config::read(path).unwrap();
+        let states = config.states("product", Layout::Crew).unwrap();
+        let squad = Squad {
+            name: "product".into(),
+            room_id: "room".into(),
+        };
+        let members = || {
+            vec![
+                member("unknown", &[("state", "unknown")]),
+                member("working", &[("state", "working")]),
+                member("review", &[("state", "review-on-ci")]),
+                member("blocked", &[("state", "blocked-on-ci")]),
+                member("custom", &[("state", "custom")]),
+                member("missing", &[]),
+            ]
+        };
+        let layout = Rows::preset();
+        for sections in [Vec::new(), config.sections("product").unwrap()] {
+            let mut members = members();
+            members[0].colors.insert("state".into(), "red".into());
+            let result = document(&squad, Layout::Crew, &states, &sections, &layout, members);
+            let rows = result["sections"][0]["rows"].as_array().unwrap();
+            assert_eq!(
+                rows.iter()
+                    .map(|row| row["name"].as_str().unwrap())
+                    .take(4)
+                    .collect::<Vec<_>>(),
+                ["blocked", "working", "review", "custom"]
+            );
+            assert_eq!(rows[0]["colors"]["state"], "blocked");
+            assert_eq!(rows[1]["colors"]["state"], "working");
+            assert_eq!(rows[2]["colors"]["state"], "review");
+            for row in &rows[3..] {
+                assert!(row.get("colors").is_none(), "{row}");
+            }
         }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn states(layout: Layout) -> States {
+        States::preset(layout)
     }
 
     fn names(document: &Value) -> Vec<&str> {
@@ -776,6 +935,63 @@ mod tests {
             all_matched["sections"].as_array().unwrap().len(),
             1,
             "no empty trailing section"
+        );
+    }
+
+    #[test]
+    fn opted_in_piped_lists_share_fitting_without_changing_full_row_values() {
+        let config: toml_edit::DocumentMut = r#"[p.rows]
+columns = [{ name = "member", width = "20%" },
+           { name = "task", width = "40%", overflow = "wrap", max_lines = 2 }]
+"#
+        .parse()
+        .unwrap();
+        let rows = crate::rows::read(config["p"].as_table_like(), "p").unwrap();
+        let task =
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron";
+        let mut document = document(
+            &Squad {
+                name: "p".into(),
+                room_id: "room-p".into(),
+            },
+            Layout::Minimal,
+            &states(Layout::Minimal),
+            &[],
+            &rows,
+            vec![member("worker", &[("task", task)])],
+        );
+        let metadata = rows.value();
+        document["columns"] = metadata["columns"].clone();
+        document["lines"] = metadata["lines"].clone();
+        let before = document.clone();
+        let rendered = text(&document, Terminal::PLAIN);
+        let data: Vec<_> = rendered
+            .lines()
+            .filter(|line| line.starts_with("  "))
+            .collect();
+        assert_eq!(data.len(), 2, "{rendered}");
+        assert!(
+            data[0].contains("worker") && data[0].contains("alpha beta"),
+            "{rendered}"
+        );
+        assert!(
+            data[1].contains('…') && !data[1].contains("worker"),
+            "{rendered}"
+        );
+        assert_eq!(document, before);
+        assert_eq!(document["sections"][0]["rows"][0]["fields"]["task"], task);
+        let narrow = text(
+            &document,
+            Terminal {
+                width: Some(20),
+                ..Terminal::PLAIN
+            },
+        );
+        assert!(
+            narrow
+                .lines()
+                .filter(|line| line.starts_with("  "))
+                .all(|line| unicode_width::UnicodeWidthStr::width(line) <= 20)
         );
     }
 

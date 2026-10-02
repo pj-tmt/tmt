@@ -15,7 +15,9 @@ run explicit developer fixtures and verifiers, never serve as a product fallback
 Published releases are immutable. Source changes do not publish replacements
 or migrate application data.
 TMT remains an invocation-owned local CLI, without a remote MCP server, identity
-memory or a separate inbox service. The independently installed Office companion may
+memory or a separate inbox service. The one MCP server it ships is the hidden
+`__channel-server`, a stdio server that an opted-in Claude launch starts as its own
+child; it listens on no network port. The independently installed Office companion may
 run one explicit loopback-only browser service; it does not execute CLI work or change
 the CLI's invocation-owned storage policy.
 
@@ -34,7 +36,9 @@ their declared dependencies, never root-hoisted tooling packages; Office browser
 specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
-and the Office skill sources live under `extensions/tmt-office/`. The Nx task graph orders only the Office SPA producer, embedded
+and the Office skill sources live under `extensions/tmt-office/`; the proposed
+colab contract lives under `extensions/tmt-colab/contracts/` (see the
+[colab boundary](#colab-extension-proposal)). The Nx task graph orders only the Office SPA producer, embedded
 native companion and installed-browser acceptance chain; ordinary CLI targets
 remain independent. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
@@ -591,15 +595,31 @@ weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs t
 tests): it requires both shards when native work is selected, the first alone for a scoped
 component and neither when nothing native is selected, so a skipped, cancelled or missing
 selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
-remain; `Code quality` gates selected Office verification and `Native package
+remain; `Native Rust contracts` aggregates the runtime checks and the parallel
+workspace/all-targets MSRV check. Both workers must succeed for full and Squad
+scopes; scope `none` skips the aggregate, while missing scope fails closed.
+`Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
-Rust contracts` and the native runtime builds. Pull requests only restore them; they
-are written by non-pull-request runs of those two jobs alone, which run on a `main`
+Rust checks` and the native runtime builds. The parallel MSRV check reads the
+minimum version from the workspace manifest and owns a separate
+`native-rust-msrv` cache, saved only on main. Pull requests only restore caches.
+The other caches are written by non-pull-request runs of those two jobs alone, which run on a `main`
 push that changes `Cargo.lock`, `Cargo.toml`, the toolchain file or `ci.yml`, weekly
-(GitHub evicts unused caches after seven days) and on manual dispatch. No gate runs
-for them. A seeding run has no diff to select from, so it takes the full native scope.
+(GitHub evicts unused caches after seven days) and on manual dispatch. The Rust
+aggregate validates these workers on seeding runs too; the outer merge gates do
+not run. A seeding run has no diff to select from, so it takes the full native scope.
+
+The advisory Office browser workflow has a separate ownership-based PR flag,
+`office_browser`: Office-owned component paths, `docs/office/**` and the browser
+verification machinery select its emulator/image work. The selector owns the
+browser-specific workflow/emulator/context-policy exception so that machinery
+exercises itself. Shared dependency/selector/generic fixture changes, ordinary
+core product dependencies and unknown paths do not select
+browser PR work while Office is parked. Scheduled/manual runs cover all twelve
+partitions, including the emulator; the existing native/local PR pauses remain.
+Required CI keeps its conservative consumer selection and unchanged gates.
 
 The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
 generates `release-please-config.json` from the map (one release-please package per
@@ -699,6 +719,16 @@ the Office release verifier it hands to native installation.
 lifecycle and its private receipt, shared by the Office commands, Office storage's
 switch and the companion. No core crate declares an `office_*` module except the
 facade, which PR B of #355 removes.
+
+`rust/crates/tmt-tui` is an internal, unpublished presentation leaf for TMT
+markup. Its version-1 structural admission accepts bounded XML and produces a
+template with source locations, not a renderable scene. It refuses declarations
+and excessive depth before tree allocation and bounds parser nodes. Utility,
+binding, geometry and paint stages are not implemented yet. No product consumes
+it. The guard permits only XML parsing and the shared style leaf, never core,
+adapters or extension behavior; reverse product edges require adoption review.
+The private component has no release; its inherited version/lock entry follows
+the workspace, while product notices include only their actual dependency graph.
 
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and
 dependency guard. One reviewed manifest table owns both the fixed workspace
@@ -1429,7 +1459,9 @@ own process verification and event mapping; core does not interpret hook ancestr
 First-party and community registrations share the same API; descending priority
 and then harness ID resolve competing claims deterministically. Registration is
 in-process, not dynamic plugin discovery. Explicit launches preserve every argv
-byte; the registry neither executes recognition nor remembers arguments or paths.
+byte (`tmt run --channel` lets the driver append its own provider flags after the
+user's and never rewrites theirs); the registry neither executes recognition nor
+remembers arguments or paths.
 Bare relaunch resolves the registered executable through PATH with no arguments.
 Exact resume is runtime-owned, including the mode: the shared constants are
 Claude `default` and Codex `shared`/`embedded`. Provider hooks must record those
@@ -1591,7 +1623,9 @@ process owner. These contracts do not discover or execute plugins, install provi
 hooks or replace the durable retirement receipts in `identity_hooks`. Container
 interfaces remain the existing tmux binding records; the session interface kind
 is reserved, not a shipped session-only binding store. Current
-public messaging still uses its existing tmux transport and request lifecycle.
+public messaging still uses its existing tmux transport and request lifecycle,
+except that a session that opted into a provider channel (`tmt run --channel`) is
+reached through it and never pasted to (see "Provider channels").
 Implicit caller selection first consults the runtime driver's `identify_caller`
 action. `drivers::codex::caller` owns Codex thread markers and bounded process
 ancestry inspection. It takes one PID/parent/command snapshot and walks it in
@@ -1967,7 +2001,14 @@ runtime in a pane, input and focus, at the driver protocol's granularity
 policy over it: `host::driver::{status, send, focus}` decide which evidence
 makes a binding present, when a runtime blocks input, and what a failure
 means. A host without input (`has_input`) is `Unsupported` before any evidence
-is read, and `focus_preflight` refuses before any evidence is read too. The
+is read, and `focus_preflight` refuses before any evidence is read too. A send
+that passes the evidence and runtime checks first offers the message to the
+agent the host recognizes in the pane (`prompt`); only `Unsupported` (no
+agent-aware input, or no agent seen) falls back to raw pane input (`input`),
+and any other answer, such as an agent that is blocked or not ready, is final.
+tmux recognizes no agents, so every tmux send is raw input. `DeliveryError`
+(`host::delivery`) is the host-neutral input failure: the stage that failed,
+whether text may have reached the pane, and the host's own cause. The
 out-of-process client of #570 slice 3 implements the same trait. `HostError` and
 the host `ActionError` wrap each host's error and read exactly as it. The
 architecture guard rejects production references to the host modules outside
@@ -2073,6 +2114,29 @@ owns limits, version qualification and receipt semantics. These modules are
 unregistered groundwork (#736): endpoint/launch ownership and terminal consumer
 integration must be proven before user-facing activation in the later #719 slices.
 
+`drivers/codex/record` adds provider-private opt-in/readiness persistence (#737),
+using the existing nonblocking file lock for compare/write/remove. It stores
+exact launch/process/thread coordinates but no capability material and owns no
+binding transaction. The launcher must validate new-launch authority before
+calling it; record-level takeover and withdrawal remain generation/incarnation
+scoped. The same contract owns this persistence definition and its still-pending
+launcher/crash-cleanup integration. This adds no user-facing registration.
+
+`drivers/codex/server` and `attachment` add unregistered endpoint/foreground
+planning (#738). A launch-owned process group and private capability share one
+cleanup owner; process cleanup precedes inode-checked file removal. Attachment
+planning resolves cwd once and names an exact thread. The channel contract owns
+the startup, credential and failure limits; real continuity and launcher crash
+recovery remain final consumer acceptance gates.
+
+The unregistered #785 foundations extend that record with persisted pane
+attribution and Unknown/Known foreground state. The record owns exact takeover,
+pruning and withdrawal; a server alone never proves an Unknown foreground ended.
+Startup errors carry cleanup certainty to their eventual lease caller. Permission
+planning routes supported typed settings to the server/thread and refuses generic
+permission overrides before spawn. No shared routing or registration changes in
+this slice; the [contract](contracts/codex-channel-v1.md) owns these definitions.
+
 ### Provider channels
 
 An optional driver port lets a launch hand talk payloads to a running agent
@@ -2087,7 +2151,7 @@ ownership map.
   provider session the driver created before the child starts, `foreground_started`
   and a consuming `withdraw`. `ChannelPlan` carries the identity and a `PaneAddress`
   (tmux server incarnation, pane ID, pane process), which the driver persists in its
-  enrollment before the child starts. A launcher calls `foreground_started` once
+  enrollment before the child starts. The launcher calls `foreground_started` once
   with the exact child incarnation it spawned and observed, before admission, and
   retires the lease only when no child was spawned or its wait returned; on any other
   path it drops the lease and the record stays. The driver
@@ -2155,9 +2219,14 @@ ownership map.
   stale launcher or server can never replace or remove a newer enrollment. The
   server's calling thread is its only output writer, and it can only complete an
   enrollment that `enroll` created.
-- Claude registers its channel in `Runtime.channel`, but no CLI entry point calls
-  `enroll` or `serve` yet, so no record is ever written and every session still
-  uses its existing transport.
+- `tmt run --channel` (`run_command/channel.rs`, `run_command/run.rs`) is the only
+  entry point that enrolls. It probes the provider version and shows the driver's
+  advisory before binding, enrolls after binding and before the spawn, publishes
+  the child through `foreground_started`, and retires the lease only on a failed
+  spawn or a reaped child. The hidden `__channel-server` command
+  (`channel_server_command.rs`) parses its argv into a `ServeRequest` and calls the
+  driver's `serve`. A session that never opted in has no record and keeps its
+  existing transport.
 
 ### Host driver protocol
 
@@ -2452,8 +2521,23 @@ resolution: a column's numeric `color` thresholds (`rows::Threshold`, validated
 theme tokens, strictly increasing) over the bound number or the field read as a
 number, else a field provider's token, which `provider::apply` keeps only when
 it names a theme token. The row carries the result as `colors` (`{field: token}`,
-omitted when empty); the board styles those cells through the theme, `state`
-keeps its state colors, and `ls` text stays uncolored. Field providers
+omitted when empty). `config::States` owns state color and rank resolution:
+exact entries (including layout presets) win entirely, else the first ordered
+`[[squad.<name>.state_patterns]]` glob, else no color and the default rank.
+Explicit sorts precede preset sorts at the same number; unspecified pattern
+sort ranks after ranked states. The compiler validates theme tokens, sort
+0-999, booleans, unknown settings, and caps of 64 patterns and 256 UTF-8 bytes
+per nonempty match with indexed config errors. Its bitset NFA consumes Unicode
+scalars with fixed-size transitions, no backtracking or dependency: `*` any
+run, `?` one scalar, other characters literal; optional case-insensitive
+matching compares each scalar's lowercase form. `status::document` alone
+publishes the resolved state token as `colors.state`, ignoring state thresholds
+and provider colors. Other color keys still come from thresholds or providers.
+The board consumes these tokens rather than keeping a second state-color map;
+aggregate lead rows retain their original squad's resolved token. `ls` text
+stays uncolored and shares state sorting (including section sort keys) with the
+board. State text and attention classification are independent of decoration.
+Field providers
 (`provider`, `[squad.<name>.fields.<field>]`) run the user's own program per
 member through `runner` with the run-binding argument rule
 (`Template::fill_argument`: one argument per template, no shell, a value that
@@ -2470,8 +2554,20 @@ the cache (`--refresh-fields` runs what is due first), and the board hands each
 load's members to one fetcher thread that runs due work off the paint path and
 again at the shortest `every`; a save moves the cache directory's stamp, which
 `board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
-(`grid::solve`, `grid::span`, `grid::fit`); the text output takes only its
-field selection and order and keeps list sizing, so a list stays complete. With `--squad`, `ls` returns that squad's document;
+(`grid::solve`, `grid::span`, `grid::fit`, `grid::fit_lines`). `rows::Column`
+uses `grid::Basis` for cell or percent widths; bounds stay in cells. The solver
+resolves percentages against data width after marks/borders/gaps, rounds by
+largest remainder, clamps cell bounds (percent columns default to a four-cell minimum, capped by an explicit max), then grows. Hiding recomputes the shown set.
+`grid::fit_lines` owns escaped, exact-cell-width bounded wrapping, with a final
+end ellipsis. Column metadata preserves percent strings and adds `overflow`
+and wrap `max_lines` only when opted in; full row values never change.
+`rows::ListSizing` chooses the text sizing policy once from shown column
+settings: without percent/overflow it keeps legacy list sizing and complete
+piped values. Opt-in text lists decode only projected display settings through
+`rows::Column::display` and use the same grid solver/fitter. A pipe's budget is
+summed natural data widths plus gaps before priority hiding; such lists may
+truncate, wrap or hide columns. The existing list/table owner still renders
+sections and styles; no parallel layout engine is introduced. With `--squad`, `ls` returns that squad's document;
 without it, always `{squads: [...], you}` in name order (even for one squad or
 none), so a script's shape never depends on how many squads exist. Commands that
 change state still require `--squad` when several exist; `filter` owns a bounded boolean language over a row's text
@@ -2480,7 +2576,18 @@ the same document with ratatui over crossterm; `board::terminal` owns raw
 mode and the alternate screen behind a `Screen` trait, restoring on return,
 error, panic (via the panic hook) and TERM/HUP (signal-hook). One refresh thread
 loads snapshots off the input loop, collapsing queued requests, so keys act on
-painted data. The input loop asks for a reload at the shown squad's `refresh`
+painted data. Input, snapshots and deferred tab attention share one event channel;
+a snapshot wakes the painter directly. The input loop rebuilds only after a
+state/input/resize change or when displayed clock text or the delayed spinner
+changes. Each immutable view owns disposable markdown wrapping and grid-width
+derivations keyed by effective pane width (and grid search); replacing the view
+invalidates them, and the scroll renderer copies only visible lines.
+A switch advances the worker's generation, cancelling superseded core reads in
+Squad's existing bounded process-group runner. Cancellation kills and reaps the
+child group without changing ordinary command deadlines or output bounds;
+queued results carry their generation and cannot replace a newer view. Worker
+shutdown cancels its core read, disconnects requests and joins after terminal
+restoration. The input loop asks for a reload at the shown squad's `refresh`
 interval (`Config::refresh`: per squad, then top-level `[board]`, then 5 s;
 `None` is off), which each snapshot carries, so a squad that failed to load
 retries at the default. That timer always runs. Between requests the refresh
@@ -2492,15 +2599,23 @@ change, and `API_INPUT_INVALID` (a core without the method) stops cursor reads
 for the session, leaving the file check and the interval. A switch never clears the view: `App` keeps the view of each
 visited squad, shows a cached one at once, and otherwise keeps the current
 frame (marked stale, so row actions refuse) until the new squad's snapshot
-swaps in whole; a result for a squad the user left only refreshes that cache.
+swaps in whole. An uncached switch that lasts at least 100 ms shows a spinner in
+the fixed summary header, ticking every 80 ms; cached switches show no loading
+indicator. `ctrl-r` defaults to refresh in squad, leads and all views; squad/leads
+bindings can rebind it through `[bind]`, while all keeps its own `[tabs.all.bind]`.
+The effective `ctrl-r` refresh binding is dispatched before text inputs, preserving
+search and composed messages. F5 has no default binding but remains configurable.
 Tabs are the same width selected or not: selection is a style, never extra
 characters. `attention::Attention` is the one definition of a squad's tab
 state, derived from its status document: members waiting on the user (`pending`
 or `waitingOnYou`) and members `blocked`, each counted once. `ls` adds it as
 `squad.attention`. The refresh computes it for the shown squad from that
-document, and for every other squad from a roster-only document (one
-`rooms.roster` read each, plus one `inbox` read shared by all, and no `ls`), so
-tabs are colored without loading their rows.
+document and publishes that view first. The same worker then computes every
+other squad's attention from a roster-only document (one `rooms.roster` read
+each, plus one `inbox` read shared by all, and no `ls`). Previous tab attention
+stays visible until that generation's update arrives; a newer switch preempts
+this lower-priority work. The cross-squad leads/all views still read the rosters
+needed for their own rows before publication.
 
 Squad `config::duration` owns UTF-8-safe whole-unit suffix conversion for provider,
 board refresh and reminder timing. Callers retain their accepted units, numeric
@@ -2534,17 +2649,40 @@ fingerprints (`sha2`) retain no notebook body. Nonblocking Unix advisory locking
 before the read through atomic cache publication; competing readers report
 unknown and never regress the cache. First observation starts the clock,
 never backdated; unreadable notes, unavailable cache and clock rollback mean
-unknown. Cache loss/corruption restarts grace. Config edits do not
+unknown. Fingerprint/ownership/evidence changes publish immediately; otherwise
+unchanged observations replace the cache only when its persisted `observedAtMs`
+rollback watermark is at least 60 seconds old. Ages are computed on every
+observation without writing. A rollback crossing that watermark still reports
+unknown and restarts grace; a reversal entirely within an unwritten interval
+can shorten reported ages by at most 60 seconds, while first-observed times
+remain at or before the watermark. Cache loss/corruption restarts grace. Config edits do not
 reset content age. Disabling stops observation; after re-enabling, surviving
 fingerprint matches keep their first-observed time. These are observed content timestamps,
 not core modification times or a history feed. Age determines staleness;
 `activityAfterUpdate` separately records relevant observed PR link/state
-changes or member finals after a row update for future reminder eligibility.
-Only successful unexpired `github-pr` preset cache values and the public room
-history supply that evidence; live idle state is not inferred. This slice
-neither installs hooks nor emits reminders. The planned reminder contributes
-to the lead's next turn through generic consented prompt-submit context, not
-Stop; that generic hook and claims belong to their own follow-up slices.
+changes, member finals, or authoritative idle transitions after a row update.
+Only successful unexpired `github-pr` preset cache values, the public room
+history and ordinary reads' runtime-verified `session.activity` supply evidence;
+self-reported activity and offline presence never establish idle.
+
+`reminder` consumes the generic consented `context_v1` callback at SessionStart
+and prompt submission, never Stop. Its cache-only gate exits before core calls
+or room locks for cold/off/fresh/claimed/non-lead cases. A warm candidate uses
+public config and room commands to validate its root and room UUID, then
+`observe::Mode::Reminder` reads only the roster, notes and bounded room history.
+The current roster must independently establish the callback identity as the
+sole lead. It runs no providers, presence probes or inbox overlays. `staleness`
+publishes per-generation claims under the same lock before returning a summary;
+`reminder` represents all claims by names/counts in one sanitized line.
+
+Context calls share one monotonic deadline of at most 300 ms. Core's hook runner
+isolates the extension's process group; context-only nested calls inherit it.
+An invocation-scoped timer bounds input/files/publication/output too, signals
+only its live process-owned group, and is canceled/joined on completion. This
+path requires the extension to own its process group. Host timeout can cut it off
+earlier and owns reaping. Ordinary Core calls retain their existing independent
+groups and allowances. No resident worker or core Squad concept is introduced.
+The extension guide owns the observed-age, claim-loss and cache-loss limits.
 
 `board::tabs` owns the tab
 keys: a squad's name, or a built-in key starting with `@` (`@leads`, `@all`),
@@ -2577,7 +2715,7 @@ validated before raw mode. `split` owns how panes sit: a tree of row and column
 splits whose children have a percentage or a grow share (ratatui `Percentage`
 and `Fill`), nested up to three levels; `layout` is its full form and the
 `direction`/`panes`/`sizes` keys its one-level form, and the board draws either
-by one recursive walk. The tree's reading order is the focus order. The notes pane reads the lead's notebook only through
+by one recursive walk. The tree's reading order is the focus order. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane reads the lead's notebook only through
 `tmt api notes.read` (bounded, never creating a file); `board::notes` removes
 every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
@@ -2610,7 +2748,9 @@ lines to `Scrolls::show`, which keeps a position per pane, clamps it to the
 content, reserves the last line for an `↑ n  ↓ m` indicator when the pane
 overflows, and records where the pane was drawn so the wheel scrolls the pane
 under the pointer and a left click focuses it. Panes keep no scroll state of their own; the rows pane only
-asks it to reveal the selected line while the selection is followed. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
+asks it to reveal the selected record's visual-line range while followed (or
+its first line when taller than the viewport). The draw records record starts
+and hit targets for every continuation; paging moves by viewport lines for all rows, including existing notes/configured row lines, with record paging when no positions were drawn. `run` fills one argv element per template (refusing a value that would start an argument with `-`) and starts it like the
 opener (no shell, null stdio, its own process group, a reaper thread). `back` keeps a
 disposable stack per tmux server and client (`$XDG_CACHE_HOME/tmt-squad/back`,
 0700, atomic replacement, 32 entries, corrupt or foreign files read as empty).
@@ -2840,7 +2980,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 as `tmt remote`. `main` owns style/foreground composition and one bounded
 startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
-`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf.
+`rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee.
 
 `http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
 connection/rate bounds and shutdown. It has no CoreClient/storage reference.
@@ -2879,3 +3019,93 @@ quality job: the independent Python oracle must pass before the workspace-pinned
 Vitest suite runs. It implements no wire decoder, signing, key persistence, transport,
 runtime authority or browser-shell wiring; the proposed contract remains the wire
 and authority definition owner.
+
+## Colab extension proposal
+
+**Status: persistence and foreground deny-all executable implemented; model,
+authentication, sync, decoder, browser and backend work remains proposed.** The local-build-only pilot lives under
+`extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
+owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
+bridge policy and acceptance gates. The #828 design owns product/UI choices;
+#829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
+
+Current executable dependencies are `tmt-invoke`, `tmt-cli-style` and reviewed
+workspace pins. The proposed `tmt-colab-model` integration will own pure values,
+canonical bytes/codecs/crypto and policy, without I/O or core access. The
+executable owns CLI composition, foreground door, SQLite/files and keyring;
+the embedded app and bridge remain proposed. Core access is only through the absolute invoking
+`$TMT_EXECUTABLE api` and documented JSON commands via the invoke leaf; no
+`tmt-core`, `tmt-adapters`, Office or Remote behavior dependencies, core SQLite
+or pane scraping. Shared crypto extraction requires actual consumers and review.
+
+Proposed extension-relative browser packages are `typescript/colab-client`
+(client crypto/log verification, Yjs state and SyncBinding) and `typescript/app`
+(trusted React/Vite chrome and renderer); backend packages are separate. They
+join the existing pnpm workspace/lockfile and pins when implemented. Shared
+workspace/component edits follow the two-lead rule; architecture guards and
+full runtime CI-scope coverage include the persistence library. The component map gives the
+contract directory private file ownership (`release: false`) and excludes it from
+CLI releases. #841 gates yrs adoption. Official registration/packaging is separate.
+
+All extension state stays in `<core-reported data root>/colab/`, with 0700
+directories and 0600 files, separate from core SQLite and provider configuration.
+The extension owns its ciphertext database/blobs, keyring, machine grants and
+bridge ledger. The colab-v1 edge model deliberately replaces #478 signed-edge
+admission with ciphertext Auth/Rules or server-session admission; it does not
+inherit Remote transport authority. The contract owns client authority and
+before-effect verification; the public core API retains dispatch/final ownership.
+
+Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
+`tmt-colab` child through `tmt-invoke` (deadline/caps/confirmed cleanup), or a
+budgeted browser Worker terminated on overrun, as defined by the contract.
+That boundary contains decoder failure, without claiming an OS/key sandbox.
+Local acceptance precedes Firestore then Cloudflare; protocol, renderer and
+containment details/gates live only in the linked contract. DEVELOPMENT
+documents the current local build and foreground run commands.
+
+### Persistence implementation
+
+`extensions/tmt-colab/rust/tmt-colab` is a private, local-build-only library
+slice for #847. `keyring::Layout` owns the injected absolute data root's
+`colab/` subtree, with owned 0700 directories and no-follow, bounded regular
+0600 files. It preserves existing root permissions and touches no core database,
+configuration or provider settings. `Keyring` publishes one software owner seed
+with create-only, synced file publication; existing invalid keys fail closed.
+The temporary space-ID builder follows the contract's domain-framed derivation and will
+move to the separately owned L1 model when that API lands.
+
+`store::Store` owns real SQLite ciphertext, durable create-only stream receipts,
+conflict freezing and epoch fencing. Namespace checkpoints prune only their
+covered prefix and superseded unpinned checkpoint payloads in the same
+transaction; receipts and concurrent tails survive. New checkpoint prefixes
+advance monotonically; exact retries never republish pruned bytes. The
+`pin_checkpoint` seam preserves authority-cut ciphertext for the later verified
+owner-log caller.
+Per-page capacity returns an error instead of evicting history. Envelope
+signatures, identity grammar, roles and owner-transition authorization belong
+to the future model/admission caller; this library creates no network authority.
+Tests own isolated directories and SQLite oracles. Sync, authentication, decoder and model integration remain later slices.
+The executable depends on the reviewed invoke/style leaves and pinned
+storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
+workspace checks and Docker build contexts include its manifest.
+
+### Foreground composition and loopback door
+
+`main` owns `serve` and read-only `spaces`, style/JSON output, signals and one
+foreground service lock. `core` makes one fixed `storage.root` public API call
+through the absolute invoking `TMT_EXECUTABLE` and `tmt-invoke`, with deadline,
+stream caps and cancellation; missing/invalid roots fail before state creation.
+`spaces` creates nothing. `serve` opens the private keyring/store before printing
+a working IPv4-loopback placeholder URL. Keyring publication and stale temporary
+cleanup share a short-lived private lock; matching files require bounded owned
+regular-file admission without following symlinks. Typed state/schema faults
+reach machine-readable CLI errors.
+
+`http::Door` has no keyring, store or core reference. It owns finite loopback
+sockets and joined workers, exact Host/Origin admission, strict HTTP/1.1 framing,
+body/header/connection bounds and absolute read/write deadlines. It serves only
+the static placeholder and denies every API/WebSocket upgrade, including forged
+cookies. Shutdown closes retained sockets before joining all workers. Accepted
+WebSocket framing, subscriber queues and slow-subscriber close remain L2b, along
+with sign-in, owner management and the decoder. Tests use real sockets and
+isolated CLI processes, with readiness channels and explicit kill/wait guards.

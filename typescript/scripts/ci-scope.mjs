@@ -197,9 +197,9 @@ function consumedByNativeOffice(path) {
 /**
  * What each changed path selects and why, for the run summary. The first
  * matching rule of the component map decides `native` and `office`; a path no
- * rule matches fails closed to both. `nativeOffice` schedules the advisory
- * native Office browser shards only for Office itself or the core surfaces it
- * consumes.
+ * rule matches fails closed to both. `nativeOffice` retains the local Office
+ * verification impact of core surfaces it consumes; advisory PR scheduling
+ * uses the separate ownership-only selectOfficeBrowser policy.
  */
 export function explainCiSelection(paths, map = componentMap()) {
   return paths.map((path) => {
@@ -227,6 +227,29 @@ export function selectCiAreas(paths, map = componentMap()) {
     office: rows.some((row) => row.office),
     nativeOffice: rows.some((row) => row.nativeOffice),
   };
+}
+
+// Office-local browser harnesses/build files are already component-owned. These
+// are the browser-specific machinery inputs outside that component; shared
+// dependency and generic fixture changes rely on the weekly/manual safety net.
+const OFFICE_BROWSER_INPUTS = new Set([
+  '.github/workflows/office-browser.yml',
+  '.dockerignore',
+  'typescript/scripts/verify-office-emulators.mjs',
+]);
+
+/**
+ * Parked Office browser PRs follow ownership plus browser-specific machinery,
+ * not shared inputs or core dependencies. Weekly/manual runs cover every partition.
+ * Empty or unknown paths select no browser work; required CI stays conservative.
+ */
+export function selectOfficeBrowser(paths, map = componentMap()) {
+  return paths.some(
+    (path) =>
+      ownerOf(path, map) === 'office' ||
+      path.startsWith('docs/office/') ||
+      OFFICE_BROWSER_INPUTS.has(path)
+  );
 }
 
 /**
@@ -340,6 +363,13 @@ export function e2eGatePasses(scope, results, map = componentMap()) {
   return gatePasses(E2E_JOBS, scope, results, map);
 }
 
+/** `Native Rust contracts`: runtime checks and MSRV, selected together. */
+export function rustGatePasses(scope, results, map = componentMap()) {
+  const expected = expectedNativeResults(scope, map)?.nativeRust;
+  if (!expected || results?.length !== 2) return false;
+  return results.every((result) => result === expected);
+}
+
 export function readChangedCiSelection(base, head, cwd) {
   if ([base, head].some((sha) => !/^[a-f0-9]{40}$/.test(sha ?? ''))) {
     throw new Error('Expected exact base and head commit SHAs.');
@@ -365,14 +395,23 @@ export function readChangedCiAreas(base, head, cwd) {
 }
 
 /**
- * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the three
- * outputs; the evidence table goes to standard error and the step summary.
+ * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the
+ * selection outputs; the evidence table goes to standard error and the step summary.
  */
 export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   if (args[0] === 'gate') {
     if (!ciGatePasses(args[1], args.slice(2))) {
       throw new Error(
         'Selected CI work did not complete successfully, or skip evidence is invalid.'
+      );
+    }
+    return;
+  }
+  if (args[0] === 'gate-rust') {
+    const [, scope, ...results] = args;
+    if (!rustGatePasses(scope, results)) {
+      throw new Error(
+        'Selected native Rust workers did not complete successfully, or skip evidence is invalid.'
       );
     }
     return;
@@ -401,7 +440,10 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
   const selection = readChangedCiSelection(args[0], args[1], cwd);
-  const evidence = renderSelectionEvidence({ base: args[0], head: args[1], ...selection });
+  const officeBrowser = selectOfficeBrowser(selection.paths);
+  const evidence =
+    renderSelectionEvidence({ base: args[0], head: args[1], ...selection }) +
+    `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;
@@ -409,6 +451,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const [firstShard, secondShard] = e2eShardFiles(nativeScope, checks.e2eFiles);
   stdout.write(
     `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
+      `office_browser=${officeBrowser}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
       `e2e_shard_1=${firstShard.join(' ')}\n` +

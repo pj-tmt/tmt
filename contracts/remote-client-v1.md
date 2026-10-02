@@ -395,7 +395,8 @@ messages cannot initiate that handoff. Exact loopback host permission is added f
 integration. Worker restart loads CryptoKey and frozen IDs from IndexedDB, creates a new session and
 recovers operation state before any explicit retry. Never automatically resend.
 
-Remote keeps files only in its own subtree of the normal core-reported data root, with owner-only
+Remote keeps files only in its own subtree of the data root reported by `tmt api` operation
+`storage.root`, with owner-only
 directories, 0600 secret/state files, no-follow bounded regular-file admission and durable atomic
 state replacement. Never rewrite core DB/config or provider settings. Local append-only audit
 records time, client/request/operation IDs, resource UUIDs, digest, grant/window revision, decision

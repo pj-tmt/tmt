@@ -1,0 +1,28 @@
+[package]
+workspace = "../../../../rust"
+name = "tmt-colab"
+version = "0.1.0-alpha.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[package.metadata.dist]
+dist = false
+
+[dependencies]
+clap.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+httparse.workspace = true
+nix.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+signal-hook.workspace = true
+tmt-cli-style.workspace = true
+tmt-invoke.workspace = true
+
+[lints]
+workspace = true

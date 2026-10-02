@@ -118,6 +118,136 @@ describe('squad extension', () => {
     });
   });
 
+  it('delivers a claimed reminder only once and revalidates notes and leadership', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const lead = await identity(sandbox, 'Sol');
+      const member = await identity(sandbox, 'Rin');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'Rin'])).status).toBe(0);
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        config,
+        readFileSync(config, 'utf8') +
+          '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
+      );
+      const notebook = JSON.parse(
+        (await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json'])).stdout
+      ).path;
+      writeFileSync(notebook, 'Current plan');
+      const context = async (identityId = lead) => {
+        const result = await runCli(
+          { ...sandbox, cli: { executable: squadExecutable, args: [] } },
+          ['__tmt-hooks', '1', 'context'],
+          {
+            stdin: JSON.stringify({ version: 1, identityId }),
+          }
+        );
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe('');
+        return JSON.parse(result.stdout).summary as string | null;
+      };
+      sandbox.env.TMT_EXECUTABLE = sandbox.cli.executable;
+      expect(await context()).toBeNull(); // No observation: no core reads or notebook creation.
+      expect((await squad(sandbox, ['ls'])).status).toBe(0);
+      expect(await context()).toBeNull();
+      const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+      const file = path.join(
+        directory,
+        readdirSync(directory).find((name) => name.endsWith('.json'))!
+      );
+      const age = () => {
+        const cache = JSON.parse(readFileSync(file, 'utf8'));
+        cache.notes.sinceMs = Date.now() - 125_000;
+        cache.observedAtMs = cache.notes.sinceMs;
+        writeFileSync(file, JSON.stringify(cache));
+      };
+      age();
+      const before = readFileSync(file, 'utf8');
+      expect(await context(member)).toBeNull();
+      expect(readFileSync(file, 'utf8')).toBe(before);
+      const summary = await context();
+      expect(summary).toContain('Squad product: stale lead notes');
+      expect([...summary!].length).toBeLessThanOrEqual(240);
+      expect(JSON.parse(readFileSync(file, 'utf8')).notes.claimed).toBe(true);
+      expect(await context()).toBeNull();
+      writeFileSync(notebook, 'Updated plan');
+      expect((await squad(sandbox, ['ls'])).status).toBe(0);
+      age();
+      await squad(sandbox, ['lead', 'Rin']);
+      expect(await context(lead)).toBeNull();
+      expect(JSON.parse(readFileSync(file, 'utf8')).notes.claimed).toBe(false);
+    });
+  });
+
+  it('keeps cold and fresh context silent without calling core, and kills timed-out descendants', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const lead = await identity(sandbox, 'Sol');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        config,
+        readFileSync(config, 'utf8') +
+          '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
+      );
+      const notebook = JSON.parse(
+        (await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json'])).stdout
+      ).path;
+      writeFileSync(notebook, 'Current plan');
+      const fake = path.join(sandbox.root, 'slow-core');
+      writeFileSync(
+        fake,
+        '#!/bin/sh\nroot=${0%/*}\nprintf called > "$root/core-called"\n(sleep 0.8; touch "$root/leaked-child") &\nsleep 30\n'
+      );
+      chmodSync(fake, 0o755);
+      sandbox.env.TMT_EXECUTABLE = fake;
+      const context = (deadlineMs = 5_000) =>
+        runCli(
+          { ...sandbox, cli: { executable: squadExecutable, args: [] } },
+          ['__tmt-hooks', '1', 'context'],
+          {
+            stdin: JSON.stringify({ version: 1, identityId: lead }),
+            deadlineMs,
+          }
+        );
+      expect(JSON.parse((await context()).stdout)).toEqual({ summary: null });
+      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(false);
+      await squad(sandbox, ['ls']);
+      expect(JSON.parse((await context()).stdout)).toEqual({ summary: null });
+      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(false);
+      const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+      const file = path.join(
+        directory,
+        readdirSync(directory).find((name) => name.endsWith('.json'))!
+      );
+      const age = () => {
+        const cache = JSON.parse(readFileSync(file, 'utf8'));
+        cache.notes.sinceMs = Date.now() - 125_000;
+        cache.observedAtMs = cache.notes.sinceMs;
+        writeFileSync(file, JSON.stringify(cache));
+      };
+      age();
+      const started = performance.now();
+      const timedOut = await context();
+      expect(timedOut.signal).toBe('SIGKILL');
+      expect(timedOut.stdout).toBe('');
+      expect(performance.now() - started).toBeLessThan(1_000);
+      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(existsSync(path.join(sandbox.root, 'leaked-child'))).toBe(false);
+      expect(JSON.parse(readFileSync(file, 'utf8')).notes.claimed).toBe(false);
+      // The outer runner may have less time than Squad's local 300 ms budget.
+      unlinkSync(path.join(sandbox.root, 'core-called'));
+      await expect(context(200)).rejects.toThrow();
+      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(existsSync(path.join(sandbox.root, 'leaked-child'))).toBe(false);
+    });
+  });
+
   it('reports observed age without changing board metadata or creating missing notes', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -321,6 +451,9 @@ describe('squad extension', () => {
       expect(completions[0].stdout).toBe('set\nskill\n');
       expect(completions[1].stdout).toBe(completions[0].stdout);
       const skill = await runCli(sandbox, ['sq', 'skill', 'show']);
+      expect(skill.stdout).toContain('`ctrl-r` refreshes the board in squad, leads and all views');
+      expect(skill.stdout).toContain('`f5 = "refresh"` binding remains supported');
+      expect(skill.stdout).not.toContain('Ctrl-R');
       expect(skill.stdout).toBe(
         readFileSync(
           fileURLToPath(
@@ -397,7 +530,7 @@ describe('squad extension', () => {
 
       // Hooks on: the rename observation follows the user at once.
       const capabilities = await runCli(sandbox, ['squad', '__tmt-hooks', '1', 'capabilities']);
-      expect(capabilities.stdout).toBe('TMT-HOOKS/1\nlifecycle_observations_v1\n');
+      expect(capabilities.stdout).toBe('TMT-HOOKS/1\nlifecycle_observations_v1\ncontext_v1\n');
       const enabled = await runCli(sandbox, ['extension', 'hooks', 'enable', 'squad', '--json']);
       expect(enabled.status, enabled.stdout + enabled.stderr).toBe(0);
       expect(realpathSync(path.join(bin, 'tmt-squad'))).toBe(realpathSync(squadExecutable));
@@ -909,7 +1042,14 @@ describe('squad extension', () => {
       const documentedFields = [...documented.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
-      expect(documentedFields.sort()).toEqual(Object.keys(rows[0]).sort());
+      expect(documentedFields.sort()).toEqual(
+        Object.keys(rows[0])
+          .filter((key) => key !== 'colors')
+          .sort()
+      );
+      expect(skill).toContain('- A row has the optional `colors` key');
+      expect(rows[0].colors).toEqual({ state: 'blocked' });
+      expect(rows[1].colors).toEqual({ state: 'working' });
       const nested = skill.slice(skill.indexOf('- Every row'), skill.indexOf('- A row with'));
       const ageFields = [...nested.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
@@ -1059,6 +1199,71 @@ describe('squad extension', () => {
       expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
       expect(help.stdout).toMatch(/\n {2}ls +List the members/);
       expect(help.stdout).not.toMatch(/\n {2}status /);
+      // Explicit F5 remains valid while the host preset uses ctrl-r.
+      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        toml,
+        `${readFileSync(toml, 'utf8')}\n[bind]\nctrl-r = "refresh"\nf5 = "refresh"\n`
+      );
+      const rebound = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(rebound.status).toBe(0);
+      expect(rebound.body.sections).toEqual(one.body.sections);
+    });
+  });
+
+  it('publishes opt-in percent and overflow metadata while fitting text and preserving full rows', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'worker');
+      await squad(sandbox, ['init', 'product']);
+      await squad(sandbox, ['add', 'worker']);
+      const task =
+        'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron';
+      await squad(sandbox, ['set', 'worker', `task=${task}`]);
+      const before = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(
+        before.body.columns.every(
+          (column: Record<string, unknown>) => !('overflow' in column) && !('max_lines' in column)
+        )
+      ).toBe(true);
+      writeFileSync(
+        path.join(sandbox.globalDir, 'squad.toml'),
+        [
+          '[squad.product.rows]',
+          'columns = [',
+          '  { name = "member", width = "20%", overflow = "ellipsis" },',
+          '  { name = "task", width = "40%", overflow = "wrap", max_lines = 2 },',
+          ']',
+          '',
+        ].join('\n')
+      );
+      const configured = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(configured.status).toBe(0);
+      expect(configured.body.columns[0]).toMatchObject({
+        field: 'member',
+        width: '20%',
+        overflow: 'ellipsis',
+      });
+      expect(configured.body.columns[0]).not.toHaveProperty('max_lines');
+      expect(configured.body.columns[1]).toMatchObject({
+        field: 'task',
+        width: '40%',
+        overflow: 'wrap',
+        max_lines: 2,
+      });
+      expect(configured.body.columns[1]).not.toHaveProperty('lines');
+      expect(configured.body.sections).toEqual(before.body.sections);
+      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      expect(text.status).toBe(0);
+      const data = text.stdout.split('\n').filter((line) => line.startsWith('  '));
+      expect(data).toHaveLength(2);
+      expect(data[0]).toContain('worker');
+      expect(data[0]).toContain('alpha beta');
+      expect(data[1]).toContain('…');
+      expect(data[1]).not.toContain('worker');
+      expect(configured.body.sections[0].rows[0].fields.task).toBe(task);
+      const after = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(after.body).toEqual(configured.body);
     });
   });
 
@@ -1093,6 +1298,69 @@ describe('squad extension', () => {
         name: 'worker',
         state: 'preparing',
       });
+    });
+  });
+  it('resolves state patterns into the same order and color tokens in JSON and text', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'exact', 'pattern', 'working', 'unknown']) {
+        await identity(sandbox, name);
+      }
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['add', 'exact', 'pattern', 'working', 'unknown']);
+      await squad(sandbox, ['set', 'exact', 'state=blocked']);
+      await squad(sandbox, ['set', 'pattern', 'state=BLOCKED-on-ci']);
+      await squad(sandbox, ['set', 'unknown', 'state=unranked']);
+      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const base = readFileSync(squadToml, 'utf8');
+      const settings = `
+[squad.product.states]
+blocked = { color = "red", sort = 7 }
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "blocked"
+sort = 0
+ignore_case = true
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "review"
+sort = 9
+`;
+      writeFileSync(squadToml, base + settings);
+      for (const sections of [
+        '',
+        '\n[[squad.product.section]]\ntitle = "All"\nsort = ["state"]\n',
+      ]) {
+        writeFileSync(squadToml, base + settings + sections);
+        const listed = await squad(sandbox, ['ls', '--squad', 'product']);
+        expect(listed.status).toBe(0);
+        const rows = listed.body.sections[0].rows;
+        expect(rows.map((row: { name: string }) => row.name)).toEqual([
+          'pattern',
+          'working',
+          'exact',
+          'unknown',
+        ]);
+        expect(rows.map((row: { colors?: { state?: string } }) => row.colors?.state)).toEqual([
+          'blocked',
+          'working',
+          'red',
+          undefined,
+        ]);
+        expect(rows[3]).not.toHaveProperty('colors');
+        const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+        expect(text.status).toBe(0);
+        const order = ['pattern', 'working', 'exact', 'unknown'].map((name) =>
+          text.stdout.indexOf(name)
+        );
+        expect(order.every((offset) => offset >= 0)).toBe(true);
+        expect(order).toEqual([...order].sort((a, b) => a - b));
+        expect(text.stdout).toContain('BLOCKED-on-ci');
+      }
+      writeFileSync(squadToml, base + settings.replace('color = "blocked"', 'color = "pink"'));
+      const refused = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(refused.status).not.toBe(0);
+      expect(JSON.stringify(refused.body)).toContain('squad.product.state_patterns[0].color');
     });
   });
   it('renders user-defined sections from squad.toml and rejects invalid filters', async () => {

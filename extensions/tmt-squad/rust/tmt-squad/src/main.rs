@@ -21,6 +21,7 @@ mod membership;
 mod observe;
 mod playbook;
 mod provider;
+mod reminder;
 mod requests;
 mod rows;
 mod runner;
@@ -864,10 +865,10 @@ fn ls_document(
             squad,
             reminders,
             &providers,
-            observe::Reads {
+            observe::Mode::Read(observe::Reads {
                 metadata: rows.reads_metadata(),
                 notes: false,
-            },
+            }),
         )?;
         if refresh_fields {
             provider::refresh(

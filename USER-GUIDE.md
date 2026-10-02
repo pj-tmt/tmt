@@ -481,14 +481,14 @@ Filters compare text fields of a row: `name`, `presence`, `lifetime`,
 `tmt squad board` opens the terminal board: squad tabs (←/→), one searchable
 list (`/`), the ◆ rows that wait on you first in the crew layout, and each
 member's note under its row. It reloads in the background every 5 seconds
-and re-reads `squad.toml`, so edits apply on the next reload; F5 (the `refresh`
+and re-reads `squad.toml`, so edits apply on the next reload; `ctrl-r` (the `refresh`
 binding) and the board's own actions reload at once. Between those reloads it
 checks every second whether TMT's records (members, requests, rooms, status)
 or `squad.toml` changed, and reloads as soon as they did; a pane opening or
 closing, and an edited notebook, still wait for the interval. `q` or Esc
 closes it. Set the interval with `refresh`, per squad or for every board, as
 whole seconds or minutes from `"1s"` to `"60m"`, or `"off"` to reload only on
-F5 and actions, with no early reloads either; the help overlay (`?`) shows the
+`ctrl-r` and actions, with no early reloads either; the help overlay (`?`) shows the
 one in effect:
 
 ```toml
@@ -501,9 +501,10 @@ refresh = "2s"             # this squad's board
 
 Switching squads never blanks the screen: a squad you already
 visited shows at once while it refreshes, and otherwise the current frame stays
-until the new one is ready, with a small spinner if that takes a moment (row
-actions wait until it arrives). Tabs keep their width, so switching never moves
-them.
+until the new one is ready (row actions wait until it arrives). An uncached
+switch that takes at least 100 ms shows an animated loading indicator on the
+summary line; cached switches show no loading indicator. A newer switch
+preempts the old load. Tabs keep their width, so switching never moves them.
 
 The first header line holds only the tabs. The selected tab is shown in
 reverse. Each tab is colored by what it needs from you: `waiting` when a member
@@ -518,7 +519,7 @@ takes the color of the most pressing tab it hides. Tabs listed in
 `[tabs] pin = [...]` come first, in that order, and stay in view while the rest
 scroll; moving tabs never moves or passes a pin. Selecting or scrolling never
 changes a tab's width. A tab widens or narrows only when its own counts change.
-The second line is the shown squad's summary: `lead sol · 4 members · 1 waiting on you`.
+The second line is the shown squad's summary: `lead sol · 4 members · 1 waiting on you`, or the loading indicator during a slow uncached switch.
 
 Besides one tab per squad, the board has two built-in tabs:
 
@@ -539,7 +540,7 @@ case); Enter opens the chosen tab and Esc closes the list. While a hidden squad
 is shown, it leads the tab line, selected and marked `(hidden)`. If you bind `s`
 yourself, your binding runs instead. The
 leads tab takes its own bindings over `[bind]`. The all tab's rows are squads,
-not members, so it has only its own bindings (Enter and double-click `tab`, F5
+not members, so it has only its own bindings (Enter and double-click `tab`, `ctrl-r`
 `refresh`):
 
 ```toml
@@ -577,16 +578,54 @@ blocked = { color = "blocked", sort = 0 }  # color: default or a theme token;
                                           # sort 0-999 orders states
 ```
 
-A column has a `width`, or `min`/`max` and a `grow` share of what is left;
-`align` (`left`, `right`, `center`); `truncate` at the `end` or the `middle`;
-and a `priority`. On a narrow board columns shrink to their `min` first; if the
-row still does not fit, the column with the highest `priority` steps aside, and
-columns without one never do. A cell never wraps: it is cut with `…` by display
-width. A later line with nothing to show is left out. `lines` defaults to one
-line of every column. The older `[squad.<name>.columns]` table (`show` plus a
-`title` and `width` per field) still works and means the same grid; set one of
-the two, not both. `tmt sq ls` is a list and stays complete: it takes the
-board's fields in order but never drops or cuts a column when piped.
+State colors and order resolve together: an exact entry in
+`[squad.<name>.states]`, including a layout preset, wins entirely. Otherwise the
+first matching pattern in file order wins; otherwise the state has no color and
+sorts after ranked states. A pattern without `sort` also sorts after ranked
+states. An exact entry does not inherit missing settings from a pattern.
+Explicit `sort` values rank before layout defaults with the same number.
+
+```toml
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "blocked"           # required theme token; older names also accepted
+sort = 0                    # optional, 0-999
+ignore_case = true          # optional; defaults to false
+```
+
+Globs match the whole state: `*` matches any run, including an empty run, and
+`?` matches one Unicode scalar. All other characters are literal, including
+`.` and brackets; there is no regex or escape syntax. `ignore_case` compares
+each scalar's Unicode lowercase form. Each squad can have at most 64 patterns,
+and each nonempty `match` has at most 256 UTF-8 bytes. Patterns decorate and
+order the existing state text; they do not rename it or change tab attention.
+The board and `ls` share this resolution, including section sorting by state.
+
+A column's `width` is cells or a percentage such as `"30%"` (1–100%).
+Configured percentages must total at most 100%; `min`/`max` remain cells. Percentages
+use the available data width after borders, row marks and gaps, with largest
+remainders receiving rounding cells before bounds and `grow`. On a narrow
+board columns shrink to their `min` first; if the row still does not fit, the
+highest `priority` steps aside and percentages are recomputed. Columns without
+one never step aside. `align` is `left`, `right` or `center`; `truncate` is
+`end` or `middle`.
+
+`overflow = "ellipsis"` is the default. `overflow = "wrap"` adds visual lines,
+with `max_lines = 2` by default (1–8). Continuations start at the cell's column;
+a cut on the last bounded line ends in `…`, even with `truncate = "middle"`. Fitting uses escaped display width,
+including wide characters. Selection, paging, scrolling and clicks follow
+these visual lines, including existing note and configured row lines. A later configured row line with nothing to show is left
+out. The row-level `lines` defaults to one line of every column; a spanned
+cell uses the first column's fitting options. The older
+`[squad.<name>.columns]` table supports `title`, cell/percentage `width`,
+`overflow` and wrap `max_lines` per field; set one row form, not both.
+
+`tmt sq ls` keeps legacy natural list sizing unless a shown column opts into
+percentage width or `overflow`. Opt-in lists use the same grid solver and fit
+rules. When piped, their width budget is the sum of natural data widths plus
+gaps before priority hiding, so they can truncate, wrap or hide columns.
+`--json` keeps full row values; column metadata publishes percentage strings
+and opted-in overflow settings.
 
 A column shows the member's squad field of its `name` unless `from` binds it to
 the member's own TMT data, read on every refresh with no extra commands:
@@ -629,11 +668,13 @@ that theme token (or one of the older names `red`, `amber`, `green`, `blue`,
 `cyan`, `magenta`), the highest reached winning, with `at` strictly increasing.
 The number compared is the bound value before `format`, or the field's text
 read as a number; text that is not a number, a missing value and a value below
-the first `at` get no color. `state` keeps its state colors. A threshold the
+the first `at` get no color. `state` uses the state resolver above, ignoring
+column thresholds and provider color suggestions. A threshold the
 value reaches wins over a field provider's suggested color. These colors only
 decorate: `ls` text, `mono` and `NO_COLOR` show the same values without them,
 and `ls --json` lists each colored cell's token under the row's `colors`
-(omitted when a row has none).
+(omitted when a row has none). `colors.state` is the resolved state token;
+other keys come from thresholds or providers.
 
 For data TMT does not have, such as a pull request's review state, a field
 provider runs a program of yours for each member and shows its output as a
@@ -732,12 +773,14 @@ it. In a plain terminal, where the board cannot show another pane, Enter opens
 a menu of the row's actions instead. `o` opens the row's link,
 `y` copies it, `t` talks to the member, `r` replies to it, `a` annotates the
 row for the lead, `n` focuses the notes pane and Tab moves to the next pane;
-`?` lists every key. Rebind keys in `squad.toml`, for all squads or for one section's rows:
+`ctrl-r` refreshes without changing text in search or a message composer.
+`?` lists every key. F5 has no default action; you may bind `f5 = "refresh"`
+yourself. Rebind keys in `squad.toml`, for all squads or for one section's rows:
 
 ```toml
 [bind]                               # over the host preset, for every squad
 enter = "open {pr_link}"
-f5    = "refresh"
+ctrl-r = "refresh"
 y     = "copy - [{name}]({pr_link})"
 
 [[squad.product.section]]
