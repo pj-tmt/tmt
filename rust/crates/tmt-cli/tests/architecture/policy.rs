@@ -247,6 +247,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "getrandom",
             "httparse",
             "signal-hook",
+            // Relocated colab door (#1039): poll-bounded accept and reply drain.
+            "nix",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };

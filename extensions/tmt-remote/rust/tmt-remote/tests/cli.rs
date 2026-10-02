@@ -67,7 +67,7 @@ fn help_missing_core_and_invalid_options() {
     assert!(
         !pilot
             .command()
-            .args(["serve", "--window-seconds", "86401"])
+            .args(["serve", "--window-seconds", "60"])
             .output()
             .unwrap()
             .status

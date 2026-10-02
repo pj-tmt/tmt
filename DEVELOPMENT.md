@@ -2097,10 +2097,13 @@ MV3 worker restarts. Pairing, authority and browser integration remain separate.
 
 After building core, put `rust/target/debug` on PATH and run `tmt remote serve`
 (or `--json` for its bound descriptor). Direct invocation requires an absolute
-`TMT_EXECUTABLE`; it never searches for another core. Default hard window is
-one hour (maximum 24 hours); denied traffic cannot reset the 15-minute idle
-deadline, so this interim door closes after at most 15 minutes. Ctrl-C/SIGTERM
-stops it; there is no autostart/LAN/daemon option. Tests use disposable HOME/XDG,
+`TMT_EXECUTABLE`; it never searches for another core. The door has no default
+deadline; Ctrl-C/SIGTERM closes the listener, retained sockets and workers.
+There is no autostart/LAN/daemon option. Door bounds are named in
+`src/limits.rs`: 32 concurrent connections, 20 unauthenticated `/r/` attempts
+per minute, 8 KiB/32 header fields, a 16 KiB pairing body and five-second
+acquisition. The printed `127.0.0.1:<port>` is the only accepted Host.
+Tests use disposable HOME/XDG,
 count startup separately, assert zero request-triggered core calls and run
 socket/process lifecycle acceptance twice. No real model/account/DB is used.
 

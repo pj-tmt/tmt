@@ -3423,12 +3423,22 @@ startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 `rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`. The shared 20 ms `PULSE` bounds stop-flag observation latency; each wait is also bounded by the remaining request deadline.
 
-`http::Door` owns finite IPv4-loopback sockets, strict framing, acquisition,
-connection/rate bounds and shutdown. It has no CoreClient/storage reference.
+`http::Door` is the colab loopback door relocated under remote (#1039). It owns
+IPv4-loopback sockets, joined workers, strict HTTP/1.1 framing, exact numeric
+Host admission (no alias, so DNS rebinding fails), the origin-form target
+grammar that isolates `/r/` from future `/x/<extension>/` prefixes,
+header/connection bounds, absolute acquisition/response deadlines and
+shutdown that closes retained sockets before joining workers. It has no
+CoreClient/storage reference. A `Handler` admits each framed head (route,
+Origin, cookie and body limit) before any body byte is read. `routes::Routes`
+is that handler for the per-run `/r/<prefix>/` binding routes and the
+20-attempt-per-minute unauthenticated budget; `limits` names the binding bounds.
 `transport::Transport` moves append/subscribe/ack envelopes to one message
 owner, which currently denies every request. Startup discovery is not a remote
 operation. The pilot cannot pair, adopt a request, approve, send or subscribe;
-no grant/journal/core DB is created. Denied traffic does not renew the window.
+no grant/journal/core DB is created. The foreground door has no default
+deadline; it runs until interrupted. Colab keeps its own copy of the door
+until its routes mount on the remote door.
 
 `canonical` owns pure decoded-value local-v1 envelope, enrollment and possession
 framing; `crypto` owns strict Ed25519 verification, full HMAC-SHA256 verification
