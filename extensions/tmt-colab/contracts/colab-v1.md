@@ -596,8 +596,8 @@ before atomic application. Panic, timeout, invalid output or cleanup failure
 applies nothing and dispatches nothing; reject the update and flag the stream.
 No repeated launch may bypass unconfirmed cleanup. At most one decoder runs per
 page. The retained hostile corpus uses a one-second per-case deadline and
-45-second suite budget; L2/L4 must pin production deadlines, input/output caps
-and platform memory limits and prove termination/backpressure. #830 established
+45-second suite budget, distinct from the production defaults below. L2/L4
+must prove termination/backpressure at those production bounds. #830 established
 process-time containment, not macOS memory containment. Its fixture budgets
 MUST NOT be advertised as measured production limits.
 Keep the hostile corpus and timeout/cleanup/failure-propagation gates. Minimized
@@ -628,16 +628,25 @@ compaction and revocation cuts need Rust/browser interop evidence. Load cost
 must be bounded and measured in L3/L4 before a performance promise. Compare decoded state-vector client clocks, not
 encoding byte order; declare all schema root types before projection.
 
-| Default limit                       | Value                       |
-| ----------------------------------- | --------------------------- |
-| Exact HTML source / snapshot source | 2 MiB each                  |
-| Message body                        | 16 KiB UTF-8                |
-| Threads per page                    | 1,000                       |
-| Update-envelope plaintext           | 256 KiB                     |
-| Compaction trigger per stream       | 200 updates or 256 KiB tail |
-| Per-device append rate              | 10/s sustained, burst 50    |
-| Per-page decoder concurrency        | 1                           |
-| Spark deletion budget               | 500/page/day                |
+| Default limit                       | Value                        |
+| ----------------------------------- | ---------------------------- |
+| Exact HTML source / snapshot source | 2 MiB each                   |
+| Message body                        | 16 KiB UTF-8                 |
+| Threads per page                    | 1,000                        |
+| Update-envelope plaintext           | 256 KiB                      |
+| Compaction trigger per stream       | 200 updates or 256 KiB tail  |
+| Per-device append rate              | 10/s sustained, burst 50     |
+| Per-page decoder concurrency        | 1                            |
+| Rust decoder batch deadline         | 2 seconds                    |
+| Rust decoder baseline plaintext     | 2 MiB                        |
+| Rust decoder aggregate update batch | 256 KiB, at most 200 updates |
+| Rust decoder input/output streams   | 4 MiB each                   |
+| Linux decoder address-space limit   | 512 MiB                      |
+| Spark deletion budget               | 500/page/day                 |
+
+Linux sets and verifies its address-space limit before reading child input;
+failure rejects the job. On macOS and platforms without enforced memory limits,
+run with deadline/output containment and report `memory limit unavailable`.
 
 These are pinned v1 defaults; tuning MUST preserve cryptographic ceilings and
 bounded admission. Enforce bounds before allocating/decoding, not only after

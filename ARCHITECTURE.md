@@ -3794,6 +3794,31 @@ sockets and joined workers, exact Host/Origin admission, strict HTTP/1.1 framing
 body/header/connection bounds and absolute read/write deadlines. It serves only
 the static placeholder and denies every API/WebSocket upgrade, including forged
 cookies. Shutdown closes retained sockets before joining all workers. Accepted
-WebSocket framing, subscriber queues and slow-subscriber close remain L2b, along
-with sign-in, owner management and the decoder. Tests use real sockets and
-isolated CLI processes, with readiness channels and explicit kill/wait guards.
+WebSocket framing, sign-in and sessions are parked for relocation into the
+Remote application boundary; the merged placeholder/store remain. Tests use real
+sockets and isolated CLI processes, with readiness channels and explicit kill/wait guards.
+
+### Isolated Colab decoder
+
+`decoder::Decoder` is one exclusively owned child runner per page. It accepts
+only caller-admitted plaintext `decoder::UpdateBatch` values, uses `tmt-invoke` with an empty environment
+allowlist, and returns untrusted projection/merged-update bytes for later typed
+authority checks and atomic application. It has no door, core, keyring or store
+handle. The existing ciphertext server never calls it.
+Only `decoder/child.rs` imports pinned yrs 0.28.0 in production, enforced by the
+architecture guard. The private `__decoder` entry runs before CLI/data-root
+routing. It declares namespace roots, checks materialized types and projection
+bounds, and merges only supplied author updates, never the baseline/shared document.
+The caller retains live-log/role/operation admission and owns one runner per page.
+
+The [contract limits](extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)
+are enforced before decoding and before returning output. Linux sets the pinned
+address-space limit in the child before stdin; setrlimit failure rejects the job. Other platforms, including macOS, run with time/output containment and
+report `memory limit unavailable`. This is crash/resource containment with
+residual user filesystem authority, not a network/filesystem sandbox.
+Invoke owns the process group and cleanup. A runner remains reusable when
+`Cleanup::NotStarted` proves no child existed, or after `Cleanup::Confirmed`.
+States where a child may survive block that runner. Invalid output,
+panic or timeout returns no application result. The archived #830 seeded corpus
+and six exact hostile dumps are owned by the decoder tests, which run the corpus
+twice with fixture-specific one-second/45-second budgets and positive controls.

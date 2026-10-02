@@ -16,13 +16,16 @@ clap.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
 httparse.workspace = true
-nix.workspace = true
+nix = { workspace = true, features = ["resource"] }
 rusqlite.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 signal-hook.workspace = true
 tmt-cli-style.workspace = true
 tmt-invoke.workspace = true
+yrs.workspace = true
+base64.workspace = true
+serde.workspace = true
 
 [lints]
 workspace = true

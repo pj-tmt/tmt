@@ -2190,6 +2190,33 @@ process cleanup tests run lifecycle scenarios twice, with no core calls from
 denied traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
 
+### Colab decoder verification
+
+The decoder takes caller-admitted `decoder::UpdateBatch` values through a
+caller-owned library runner and private child entry, with no
+server integration or public decode command. Build the native executable and
+run its real-child tests with an isolated test environment:
+
+```bash
+(cd rust && cargo test --offline --locked -p tmt-colab --test decoder -- --nocapture)
+(cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
+```
+
+The decoder test retains #830 archive provenance and runs 261 seeded cases twice,
+using one second per case and 45 seconds per suite. The six saved timeout/panic
+dumps must match the original generator. Successful child PIDs must be gone;
+timeout/output-limit cleanup must be confirmed before owner reuse. These fixture
+budgets are separate from the two-second production budget. macOS must report
+`memory limit unavailable`; only Linux enforces the child address-space limit.
+Tests cover cleared environment, input/output backpressure, role/namespace and
+projection rejection, dependency/delete-set preservation and writer attribution.
+
+The exact yrs 0.28.0 dependency brings smallstr 0.3.1.
+[RUSTSEC-2026-0215](https://rustsec.org/advisories/RUSTSEC-2026-0215.html) is an
+INFO unmaintained advisory with no patched version. Its disposition is retained
+as maintenance debt for this pinned integration, with decoder containment and
+hostile-corpus gates; it is not a claim that the decoder is safe or sandboxed.
+
 ## Colab model foundation
 
 The private Rust model has no server or CLI. From `rust/`, run

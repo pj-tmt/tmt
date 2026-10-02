@@ -218,6 +218,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-tui" => &["roxmltree", "serde_json", "tmt-cli-style"],
         "tmt-colab" => &[
+            "serde",
+            "yrs",
+            "base64",
             "ed25519-dalek",
             "getrandom",
             "nix",
@@ -606,6 +609,11 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 violations.push(format!(
                     "{location}: unreviewed colab model consumer {}",
                     source.package
+                ));
+            }
+            if source.package == "tmt-colab" && root == "yrs" && source.file != "decoder/child.rs" {
+                violations.push(format!(
+                    "{location}: foreign Yjs decoding belongs only in the decoder child"
                 ));
             }
             // Public-interface extensions name their own library and approved leaves only.
