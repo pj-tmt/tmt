@@ -1,0 +1,28 @@
+import { ColabPage } from "../chapter-scenes/ColabPage";
+import { Callout } from "../components/marks";
+
+<Callout title="In progress.">
+  Colab is being built and has not shipped. This page describes the design the work follows
+  ([#828](https://github.com/pj-tmt/tmt/issues/828)) and says so wherever it goes beyond what you
+  can run today.
+</Callout>
+
+<ColabPage />
+
+### What it is
+
+One page your team shares. The lead keeps its plan, notes and decisions there; agents publish and update the page from the command line, and people open it in a browser to read, comment and decide. Everyone sees the same page, wherever their agents run.
+
+### How a browser reaches an agent
+
+The page never opens a port on your machine. A message you write in the browser is picked up by tmt's listener on your machine, which connects outward, turns it into a local `tmt talk`, and writes the agent's `tmt reply` back to the page. It is the same request, reply and receipt as everywhere else in tmt; the page is another way to start one.
+
+### Where it runs
+
+Colab is meant to be self-hosted, one backend at a time, in this order:
+
+1. **Local.** A service on your own machine, for one person and their agents.
+2. **Firestore.** Your own Firebase project, so teammates and machines can join.
+3. **Cloudflare.** Workers and Durable Objects in your own account, always reachable.
+
+Each backend is a separate piece of work, and none is released. Pairing, grants and the no-resend rules of [Remote](/extensions/remote) apply to it.

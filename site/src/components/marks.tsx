@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 
-export type Status = "shipped" | "alpha" | "planned" | "designing" | "built in";
+export type Status = "shipped" | "alpha" | "planned" | "designing" | "in progress" | "built in";
 
 // The shipped/planned marker. Planned work is always labeled, so the handbook
 // never presents a proposal as shipped behavior.
 export function Tag({ kind, children }: { kind: Status; children?: ReactNode }) {
-  const planned = kind === "planned" || kind === "designing";
+  const planned = kind === "planned" || kind === "designing" || kind === "in progress";
   return (
     <span
       className={`ml-2 inline-block rounded-[3px] px-1.5 py-1 align-[0.2em] font-mono text-[10.5px] leading-none font-semibold tracking-[0.08em] whitespace-nowrap uppercase ${

@@ -1,0 +1,32 @@
+import { MeetRoom } from "../chapter-scenes/MeetRoom";
+import { Callout } from "../components/marks";
+
+<Callout title="Planned.">
+  Meet is designed ([#842](https://github.com/pj-tmt/tmt/issues/842)) but not scheduled or started.
+  This page describes the agreed design, not something you can run.
+</Callout>
+
+<MeetRoom />
+
+### What it is
+
+A meeting between you and several agents, run from the terminal. It is part of the [Squad](/extensions/squad) extension, not a separate one. You start it with a topic and the agents you invite, and you decide who speaks.
+
+### Who has the floor
+
+- **Only you start a meeting.** Agents cannot start one or invite each other.
+- **You give the floor.** By default you grant it with `g` or by naming the agent with `@name`. An agent that wants to speak raises a hand with a one-line intent and waits; an `@mention` by an agent only queues its hand.
+- **Or first come, first served.** `m` switches the mode during the meeting. In this mode no one speaks twice in a row.
+- **The floor returns by itself** after the speaker's turn, and a silent speaker loses it to the next hand.
+
+### What it builds on
+
+A meeting is a `tmt room`: its members and its transcript. Giving the floor is a `talk` request to that agent, and its `reply` is its turn, so agents without the floor are not woken and use no quota.
+
+### When it ends
+
+You get the transcript and the list of decisions you recorded. A decision can become an issue or a `tmt talk` to an agent, but only after you confirm it. Nothing in a meeting runs by itself.
+
+### What comes later
+
+The first version is text in the terminal. A web view on top of [Colab](/extensions/colab) and voice come after it.
