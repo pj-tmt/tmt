@@ -320,6 +320,8 @@ const NATIVE_JOBS = [
   'e2eShard2',
   'runtimeBuild',
   'packedInstall',
+  'macosRuntimeBuild',
+  'macosPackedInstall',
 ];
 const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
 
@@ -331,8 +333,17 @@ const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
  * unknown scope, fails: a selected job that was skipped, cancelled or missing is as
  * wrong as a job that ran when the selector skipped it.
  */
-function expectedNativeResults(scope, map) {
-  if (scope === 'full') return Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'success']));
+function expectedNativeResults(scope, map, event = 'pull_request') {
+  if (!['pull_request', 'merge_group', 'push', 'schedule', 'workflow_dispatch'].includes(event)) {
+    return undefined;
+  }
+  if (scope === 'full') {
+    return {
+      ...Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'success'])),
+      macosRuntimeBuild: event === 'merge_group' ? 'skipped' : 'success',
+      macosPackedInstall: event === 'merge_group' ? 'skipped' : 'success',
+    };
+  }
   if (scope === 'none') return Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'skipped']));
   if (!map.components.some((component) => component.name === scope && component.scopedChecks)) {
     return undefined;
@@ -344,18 +355,20 @@ function expectedNativeResults(scope, map) {
     e2eShard2: 'skipped',
     runtimeBuild: 'skipped',
     packedInstall: 'skipped',
+    macosRuntimeBuild: 'skipped',
+    macosPackedInstall: 'skipped',
   };
 }
 
-function gatePasses(jobs, scope, results, map) {
-  const expected = expectedNativeResults(scope, map);
+function gatePasses(jobs, scope, results, map, event) {
+  const expected = expectedNativeResults(scope, map, event);
   if (!expected || jobs.some((job) => typeof results?.[job] !== 'string')) return false;
   return jobs.every((job) => results[job] === expected[job]);
 }
 
 /** `Native package matrix`: every native job, the two E2E shards included. */
-export function nativeGatePasses(scope, results, map = componentMap()) {
-  return gatePasses(NATIVE_JOBS, scope, results, map);
+export function nativeGatePasses(scope, results, map = componentMap(), event = 'pull_request') {
+  return gatePasses(NATIVE_JOBS, scope, results, map, event);
 }
 
 /** `Docker E2E`: the two shards alone, with the same expectations. */
@@ -427,9 +440,12 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     return;
   }
   if (args[0] === 'gate-native') {
-    const [, scope, ...values] = args;
+    const [, event, scope, ...values] = args;
     const results = Object.fromEntries(NATIVE_JOBS.map((job, index) => [job, values[index]]));
-    if (values.length !== NATIVE_JOBS.length || !nativeGatePasses(scope, results)) {
+    if (
+      values.length !== NATIVE_JOBS.length ||
+      !nativeGatePasses(scope, results, undefined, event ?? '')
+    ) {
       throw new Error(
         'Selected native CI work did not complete successfully, or skip evidence is invalid.'
       );

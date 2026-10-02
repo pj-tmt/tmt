@@ -50,6 +50,8 @@ export interface NativeJobResults {
   readonly e2eShard2: string;
   readonly runtimeBuild: string;
   readonly packedInstall: string;
+  readonly macosRuntimeBuild: string;
+  readonly macosPackedInstall: string;
 }
 
 export interface E2eShardResults {
@@ -75,7 +77,8 @@ export function scopedChecks(
 export function nativeGatePasses(
   scope: string,
   results: NativeJobResults,
-  map?: ComponentMap
+  map?: ComponentMap,
+  event?: string
 ): boolean;
 export function rustGatePasses(
   scope: string,

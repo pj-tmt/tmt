@@ -366,21 +366,17 @@ jobs:
     if: needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
-      # Runner allocation for the four targets owned by dist-workspace.toml.
+      # Linux targets; macOS has separate jobs so its skipped result is observable.
       # These are raw PR executables, not cargo-dist release archives.
       matrix:
         include:
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel
-          - target: aarch64-apple-darwin
-            runner: macos-15
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-latest
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
-    steps:
+    steps: &native-runtime-build-steps
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -416,6 +412,22 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  native-runtime-build-macos:
+    name: Build native runtime (${{ matrix.target }})
+    needs: changes
+    if: github.event_name != 'merge_group' && needs.changes.outputs.native_scope == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-apple-darwin
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps: *native-runtime-build-steps
+
   packed-native-install:
     # Preserve required historical check names while replacing the retired npm
     # product. Each row now executes native linkage/skill/SQLite runtime proof.
@@ -426,14 +438,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS x64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            container: false
-          - label: macOS arm64
-            runner: macos-15
-            target: aarch64-apple-darwin
-            container: false
           - label: Linux glibc x64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
@@ -452,7 +456,7 @@ jobs:
             container: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
-    steps:
+    steps: &packed-native-install-steps
       - name: Check out repository
         uses: actions/checkout@v4
         with:
@@ -498,6 +502,26 @@ jobs:
             --version "$(cat runtime/version.txt)" \
             --skill /verification/skills/tmux-team/SKILL.md
 
+  packed-native-install-macos:
+    name: Packed install (${{ matrix.label }})
+    needs: [changes, native-runtime-build-macos]
+    if: github.event_name != 'merge_group' && needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            container: false
+          - label: macOS arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            container: false
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps: *packed-native-install-steps
+
   native-install-gate:
     name: Native package matrix
     if: ${{ always() && needs.changes.outputs.verify != 'false' }}
@@ -510,6 +534,8 @@ jobs:
         docker-e2e-shard-2,
         native-runtime-build,
         packed-native-install,
+        native-runtime-build-macos,
+        packed-native-install-macos,
       ]
     runs-on: ubuntu-latest
     steps:
@@ -528,5 +554,8 @@ jobs:
           SHARD_2_RESULT: ${{ needs.docker-e2e-shard-2.result }}
           BUILD_RESULT: ${{ needs.native-runtime-build.result }}
           MATRIX_RESULT: ${{ needs.packed-native-install.result }}
+          MACOS_BUILD_RESULT: ${{ needs.native-runtime-build-macos.result }}
+          MACOS_MATRIX_RESULT: ${{ needs.packed-native-install-macos.result }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          node typescript/scripts/ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
+          node typescript/scripts/ci-scope.mjs gate-native "$EVENT_NAME" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"
