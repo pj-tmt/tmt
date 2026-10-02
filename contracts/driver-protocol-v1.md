@@ -9,10 +9,10 @@ repeating it.
 runs one driver call exist. Core uses an approved driver for its host: it
 finds the caller's pane through `caller` and explicit targets through
 `resolve-target`, lists bindings through `snapshot`, keeps markers with
-`publish` and `clear`, and records the server through `server`. Still to come:
+`publish` and `clear`, records the server through `server`, and delivers,
+reads and focuses through `prompt`, `input`, `capture` and `focus`. Still to
+come:
 
-- `input`, `prompt`, `focus` and `capture`, in slice 3b-2b-2 (until then a
-  send to such a binding is unsupported and the request is kept);
 - Herdr moves out as the first driver in slice 4;
 - `tmt driver install|ls|rm` arrives in slice 6.
 
@@ -226,8 +226,12 @@ unchanged in `snapshot` and `probe`. It never interprets the marker.
 | `focus` | `{"socket", "paneId"}` | `{}` |
 
 - **`input`:** the driver pastes `text` literally, then presses Enter when
-  `enter` is true. Core has already applied its delivery policy (`!`
-  protection, staging, size), so the driver adds and interprets nothing.
+  `enter` is true. With `enter: false` it must not submit anything: core
+  stages a message as `input(text, enter: false)`, its delay, then
+  `input("", enter: true)`, and a driver that submitted on the first call
+  would deliver before core's delay. Core has already applied its delivery
+  policy (`!` protection, staging, size), so the driver adds and interprets
+  nothing.
 - **Missing pane:** each of these answers `not_found`.
 
 **Delivery outcome.** An `input` answer tells core whether text reached the

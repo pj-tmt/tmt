@@ -58,7 +58,7 @@ async function waitForInput(fixture: E2EFixture, pid: number, line: string): Pro
   );
 }
 
-describe.sequential('TMT-24 safe transport', () => {
+describe('TMT-24 safe transport', { concurrent: false }, () => {
   it('preserves protected multiline payloads across normal and literal fallback sends', async () => {
     await withE2EFixture(async (fixture) => {
       const normal = await fixture.createMockPane('normal');

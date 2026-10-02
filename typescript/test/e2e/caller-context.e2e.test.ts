@@ -60,7 +60,7 @@ async function seedIdentity(fixture: E2EFixture, name: string, profile: string):
   expect(assigned.code, assigned.stderr || assigned.stdout).toBe(0);
 }
 
-describe.sequential('strict caller context', () => {
+describe('strict caller context', { concurrent: false }, () => {
   it.each([
     ['missing TMUX_PANE', { stripPane: true }],
     ['missing TMUX and TMUX_PANE', { stripTmux: true, stripPane: true }],

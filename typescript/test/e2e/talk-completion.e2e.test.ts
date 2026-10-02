@@ -49,7 +49,7 @@ async function submittedBody(
   return submitted;
 }
 
-describe.sequential('public talk completion and observer lifecycle', () => {
+describe('public talk completion and observer lifecycle', { concurrent: false }, () => {
   it.each(['completed', 'detached', 'timeout'] as const)(
     'keeps human %s output correlated with the durable request and exact final',
     async (mode) => {

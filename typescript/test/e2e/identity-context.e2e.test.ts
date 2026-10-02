@@ -6,7 +6,7 @@ import { durableState } from './identity-state-oracle.js';
 
 const inputLog = { mode: 'input-log' } as const;
 
-describe.sequential('read-only identity context through verified callers', () => {
+describe('read-only identity context through verified callers', { concurrent: false }, () => {
   it('distinguishes a verified empty pane from invalid caller evidence without mutations', async () => {
     await withE2EFixture(async (fixture) => {
       expect((await fixture.runJsonCli(['name', 'Former Reader', '-s'])).code).toBe(0);

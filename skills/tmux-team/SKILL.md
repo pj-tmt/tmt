@@ -126,6 +126,10 @@ with `tmt check <target>` and establish whether work started before deciding
 what to do next. Missing visible output is not proof that nothing executed.
 Successful submission also does not guarantee exactly-once agent processing.
 
+`DELIVERY_AWAITING_APPROVAL` (exit 1) means the recipient's agent is waiting on
+its user, so nothing was sent and the request stays queued. Retry after it
+continues; never type into its pane to get around it.
+
 `talk` waits for the complete durable reply by default. It never treats terminal
 markers, idle output, a summary, or process exit as completion. A cooperating
 recipient must invoke `tmt reply`; otherwise there is no final result yet.
@@ -482,8 +486,14 @@ tmt x ack <request-id> --incoming --revision <revision> --identity reviewer --js
 tmt x ackall --incoming --identity reviewer --json
 ```
 
-`--inbox` accepts one existing non-retired identity, reports `queued`, and never
-attempts or falls back to tmux delivery. Listen returns a trailing-edge debounced
+`--inbox` is for intentional queue-only delivery: it accepts one existing
+non-retired identity, reports `queued`, and never attempts live notification or
+falls back to tmux delivery. The recipient must pull with `tmt inbox`; coming
+online or enrolling a channel does not deliver the backlog. Use plain `talk`
+when you want live notification. Human queue output gives the recipient pull
+and correlated inspection commands; JSON adds `notification:"not_attempted"`
+and `waitingFor:"recipient_inbox_pull"`, preserving exit 0 and the request ID.
+Listen returns a trailing-edge debounced
 unread batch, with a 15-minute hard deadline and 10-second quiet default. An idle
 deadline is successful `reason:"timeout"`. Listening/showing never acknowledges,
 and recipient acknowledgment cannot consume originator response attention. Full

@@ -10,6 +10,7 @@ import DrvCodex from "./drv-codex.mdx";
 import DrvTmux from "./drv-tmux.mdx";
 import Extensions from "./extensions.mdx";
 import Remote from "./remote.mdx";
+import Settings from "./settings.mdx";
 import Squad from "./squad.mdx";
 import Start from "./start.mdx";
 import Threads from "./threads.mdx";
@@ -62,6 +63,14 @@ export const pages: Page[] = [
     crumb: "working",
     title: "Launch, send, get the reply",
     Content: Working,
+  },
+  {
+    path: "/working/settings",
+    window: 2,
+    index: "2.1",
+    crumb: "working / settings",
+    title: "Settings and troubleshooting",
+    Content: Settings,
   },
   { path: "/drivers", window: 3, index: "3", crumb: "drivers", title: "Drivers", Content: Drivers },
   {

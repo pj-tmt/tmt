@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { withE2EFixture } from './harness.js';
 import { installTmuxTrace } from './tmux-trace.js';
 
-describe.sequential('tmux invocation trace', () => {
+describe('tmux invocation trace', { concurrent: false }, () => {
   it.each(['ambient', 'explicit socket'])(
     'traces %s commands without changing multiline or option-like payloads',
     async (selection) => {

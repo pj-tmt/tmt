@@ -8,6 +8,7 @@ pub(in crate::grammar) fn talk() -> Command {
             general(spec!(
                 "talk",
                 "Send a request and wait for its durable reply",
+                details = "Plain talk attempts live notification. Use --inbox only for intentional queue-only delivery: no live notification is attempted, and the recipient must pull with tmt inbox.",
                 [
                     "Send a message and wait for the reply" => "tmt talk worker \"Run the tests\"",
                     "Send and return at once" => "tmt talk --detach worker \"Deploy when green\"",

@@ -9,7 +9,7 @@ interface TalkResult {
   error?: { code: string };
 }
 
-describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
+describe('Docker/Vitest tmux foundation smoke scenarios', { concurrent: false }, () => {
   it('propagates real CLI stdout, stderr, and exit codes', async () => {
     await withE2EFixture(async (fixture) => {
       const version = await fixture.runCli(['--version']);

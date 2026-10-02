@@ -175,6 +175,17 @@ impl fmt::Display for HostError {
     }
 }
 
+/// A host error as the cause of a failed pane input (a driver's `input`).
+impl DeliveryCause for HostError {
+    fn socket_permission_denied(&self) -> bool {
+        HostError::socket_permission_denied(self)
+    }
+
+    fn cleanup_failed(&self) -> bool {
+        HostError::cleanup_failed(self)
+    }
+}
+
 impl std::error::Error for HostError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -572,8 +583,12 @@ impl<R: CommandRunner> Host<R> {
                     .capture_on(&endpoint.server.socket_path, &endpoint.pane_id, lines)?)
             }
             HostKind::Herdr => Err(HerdrError::unsupported("Reading a Herdr pane").into()),
-            // Capture through a driver arrives in slice 3b-2b.
-            HostKind::External(host) => Err(HostError::Unavailable(host.as_str().to_owned())),
+            HostKind::External(host) => self.external.capture(
+                host,
+                &endpoint.server.socket_path,
+                &endpoint.pane_id,
+                u32::try_from(lines).unwrap_or(u32::MAX),
+            ),
         }
     }
 
@@ -590,7 +605,14 @@ impl<R: CommandRunner> Host<R> {
                 &tmt_core::driver::pane_input_text(message),
                 enter_delay,
             ),
-            HostKind::Herdr | HostKind::External(_) => Err(DeliveryError::unsupported()),
+            HostKind::External(host) => self.external.send(
+                host,
+                &endpoint.server.socket_path,
+                &endpoint.pane_id,
+                &tmt_core::driver::pane_input_text(message),
+                enter_delay,
+            ),
+            HostKind::Herdr => Err(DeliveryError::unsupported()),
         }
     }
 
@@ -672,6 +694,7 @@ impl<R: CommandRunner> BindingSession<'_, R> {
     /// Preserve the caller's configured transport delay; it is not routing policy.
     pub fn with_enter_delay(mut self, delay: Duration) -> Self {
         self.tmux = self.tmux.with_enter_delay(delay);
+        self.external = self.external.with_enter_delay(delay);
         self
     }
 

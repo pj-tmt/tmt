@@ -212,6 +212,16 @@ pub struct InputRequest {
     pub enter: bool,
 }
 
+/// Hands `text` to the agent the host recognizes in the pane, which submits
+/// it; core has applied its delivery policy and decides any fallback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptRequest {
+    pub socket: String,
+    pub pane_id: String,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FocusRequest {
@@ -246,6 +256,19 @@ pub enum ErrorCode {
     /// The pane or server is gone, or no longer the one asked about.
     NotFound,
     Failed,
+    /// `prompt` only: the host recognizes no agent in the pane.
+    NoAgent,
+    /// `prompt` only: the agent waits on its user.
+    Blocked,
+    /// `prompt` only: the agent can't take a prompt now.
+    NotReady,
+}
+
+impl ErrorCode {
+    /// The codes valid only as `prompt` answers.
+    pub const fn prompt_only(self) -> bool {
+        matches!(self, Self::NoAgent | Self::Blocked | Self::NotReady)
+    }
 }
 
 impl DriverError {

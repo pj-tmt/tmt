@@ -192,8 +192,16 @@ selects only tooling tests; `office:test` explicitly selects app tests and fails
 on empty discovery. Office uses Oxfmt; tooling and repository docs use the
 `typescript/.prettierrc` Prettier configuration. Run
 `pnpm --filter @tmt/office format` for app formatting, not the tooling formatter.
-Root tooling, native, stress and Docker suites use Vitest 4 alongside the
+Root tooling, native, stress and Docker suites use exact Vitest 5.0.1 alongside the
 extension packages; their separate configurations retain their own test discovery.
+Each test configuration sets `clearMocks: false` to preserve mock history, and
+ordered suites use `{ concurrent: false }`.
+Vitest 5 changes generated `it.each` case labels: `$field` strings lose
+quotes, and percent placeholders use the new value renderer (including signed
+zero and object clipping). Migration parity records each changed label with its
+source template and case index alongside both actual titles and equal statuses;
+unchanged labels remain exact multiset matches. Preserve the raw reports rather
+than silently normalizing these differences.
 Office wire-schema conformance is a nested tooling test. From `typescript`, run
 `corepack pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
 [`extensions/tmt-office/contracts`](extensions/tmt-office/contracts/README.md) for its single source of truth,
@@ -248,20 +256,15 @@ changed path with its owner, rule and selection. A change confined to the Squad 
 runs a Squad scope under the same job names (its Cargo checks and the architecture guard,
 its native tests, its E2E file); the map's Squad `scopedChecks` name the tests, and
 `Native package matrix` expects exactly the scoped results. Shared/unknown paths run both.
-Remote Rust has an explicit rule retaining full native and Office coverage; the full
-Rust checks require nonempty remote test discovery and run locked workspace tests,
-Clippy and builds. A parallel `Native Rust MSRV` job runs
-`cargo +"$MSRV" check --locked --workspace --all-targets` for both full and Squad
-scopes, reading `MSRV` from `workspace.package.rust-version` in `rust/Cargo.toml`.
+The [CI selection and worker model](ARCHITECTURE.md#ci-selection-and-worker-model)
+owns worker responsibilities, scope expectations, fixture handoff and cache policy.
+To reproduce the MSRV check, read `workspace.package.rust-version` from
+`rust/Cargo.toml` into `MSRV`, then run
+`cargo +"$MSRV" check --locked --workspace --all-targets` from `rust/`.
 Rustup resolves the manifest's two-part minimum to its latest patch release,
 rather than duplicating a patch pin in the workflow.
-It replaces the MSRV executable builds and expands Squad MSRV coverage to the
-whole workspace without changing the declared minimum. Its separate
-`native-rust-msrv` cache has one writer, the MSRV job on main; PR and merge-group events only restore.
-`Native Rust contracts` is the fail-closed aggregator of these two workers. It
-requires both to succeed, rejects missing selection, and stays skipped for scope
-`none`, preserving the outer native gate and required-check names.
-The remote TypeScript and browser paths are outside that Rust rule. Code
+Remote Rust retains full native and Office coverage; remote TypeScript and browser
+paths are outside that Rust rule. Code
 quality includes the selector's own focused tests even when native unit jobs are
 unselected, and requires the selected Office check. The native aggregator rejects
 failed, cancelled or unexpectedly skipped selected jobs. The advisory Office browser
@@ -281,6 +284,31 @@ Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
 from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
 [Architecture](ARCHITECTURE.md) owns the event, gate and main-ref cache policy;
 queue/ruleset changes remain a repository-owner operation.
+
+### Merge queue metrics
+
+Collect read-only REST evidence with authenticated `gh` (no GraphQL):
+
+```sh
+node typescript/scripts/merge-queue-metrics.mjs --repo pj-tmt/tmt \
+  --since 2026-10-02T00:00:00Z --until 2026-10-02T08:08:40Z \
+  --boundary 2026-10-02T06:08:40Z --cache /tmp/tmt-queue-metrics-cache \
+  --output /tmp/tmt-queue-metrics.md --json /tmp/tmt-queue-metrics.json
+```
+
+Bounds are UTC, inclusive start/exclusive end; `--boundary` compares cohorts.
+Runs/merge and merges/hour measure queue throughput. Group duration measures
+start to last completed job; job creation-to-start delay includes runner and dependency wait.
+Enqueue latency measures the last recorded queue entry to merge.
+Per-job/event/runner rows measure executions, duration and sole worker failures.
+Tree tags separate confounders; fail/pass pairs identify flake candidates.
+Methodology limits and unknown evidence are described in the script and report.
+`--details` prints all cost rows; repeated `--tag-pr N` overrides #961/#963.
+`--repo OWNER/REPO` defaults to `pj-tmt/tmt`; `--workflow FILE` defaults to `ci.yml`.
+The local cache holds REST responses; `--offline` requires cached evidence.
+`--max-requests N` overrides the 500-request budget; split capped searches into
+smaller windows. Posting is separate. Verify with
+`pnpm exec vitest run test/tooling/merge-queue-metrics.test.ts` from `typescript/`.
 
 Linux CI package installation uses `.github/actions/apt-install`: each apt update
 or install attempt has a 120-second timeout with a 10-second forced-kill grace.
@@ -542,10 +570,10 @@ planned.
 cd site
 pnpm install --frozen-lockfile
 pnpm dev                        # local preview at http://127.0.0.1:5173/tmt/
-pnpm check                      # types, oxlint and oxfmt
+pnpm check                      # types, Vite+ lint/format and MDX imports
 pnpm build                      # dist/ for GitHub Pages, one index.html per route
 SITE_BASE=/ pnpm build          # for a root path, such as a custom domain
-SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vite build   # a preview at an unknown path
+SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # a preview at an unknown path
 ```
 
 `.github/workflows/site.yml` checks and builds the site on pull requests and
@@ -1087,6 +1115,21 @@ TMT_TEST_HERDR=/tmp/hdrbin/herdr pnpm exec vitest run --config test/native/vites
 It starts a headless server on a short private socket with update checks off,
 runs commands inside its panes, and fails if any server process remains.
 
+The Herdr host driver (`tmt-driver-herdr`, not packaged: `dist = false`) has
+its own executable test, which uses the same pinned binary. It runs the protocol
+conformance harness and every declared operation against a private server and
+HOME, and fails if a server process remains. Without `TMT_TEST_HERDR`, only the
+stand-in `herdr` conformance case runs. Its checks:
+
+```bash
+(cd rust && cargo test --locked -p tmt-driver-herdr)
+(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-driver-herdr --test driver)
+(cd rust && cargo clippy --locked -p tmt-driver-herdr --all-targets -- -D warnings)
+(cd rust && cargo test --locked -p tmt-adapters --lib herdr::)
+(cd rust && cargo test --locked -p tmt-cli --test architecture)
+node typescript/scripts/release-please-config.mjs --check
+```
+
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
 local Office board grammar/persistence, managed skills and native installation. It uses bounded process budgets,
@@ -1139,6 +1182,13 @@ evidence returns empty human output or JSON `status: "unavailable"`, successfull
 without initializing configuration, storage or tmux metadata.
 Ordinary `whoami` keeps its existing human output and
 adds `interfaceKind` and `sessionState` to its JSON projection.
+An already admitted provider's verified prompt-submit context adds one incoming
+unacknowledged-attention line with an inbox pull command only when the count is
+nonzero. It reuses the same read-only snapshot; attention is not an unsent count.
+Zero attention and zero extension contributions emit no prompt context, and
+foreign, unadmitted or ended sessions receive none. The
+`identity-context-requests` mock-runtime scenarios verify these gates, unchanged
+request/attention state and cleanup; CLI formatter tests retain the 4 KiB bound.
 
 The `identity-context` and `identity-context-requests` Docker scenarios own bound
 context acceptance. Their independent SQLite snapshots include verification
@@ -1375,6 +1425,22 @@ no-op, core and cross-owner claims, force backup, Office adoption, removal by
 owner (all skills or a named subset) and drift. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
+## Queued release pull requests
+
+Before `release-pr`, `Release` runs `typescript/scripts/release-please-queue.mjs`.
+One GraphQL query checks open PRs whose head starts with
+`release-please--branches--main--` for a `mergeQueueEntry`. If any is queued,
+`release-pr` is skipped with a summary notice, and `github-release` still runs.
+Otherwise the release-please command runs unchanged. Query failures, malformed
+or incomplete results, and all release-please command errors fail the job.
+
+The query uses the release App token in live runs (the workflow token in dry
+runs), never an agent's token, so it does not consume the agents' shared user
+GraphQL quota. A PR queued between the check and the update still fails once,
+and the next main push recovers. Other component
+release PR creation waits until the first main push after the queued PR merges.
+No PR is dequeued and merge checks and publication authorization are unchanged.
+
 ## Project tracking
 
 Progress is read from one place: the `pj-tmt` project
@@ -1588,3 +1654,69 @@ independent namespace/sign-in oracle, use Python with `cryptography` installed:
 `python3 extensions/tmt-colab/contracts/vectors/authority-reference.py` from the
 repository root; add `--write` only after reviewing changed bytes. Fixture keys
 are public test data. This foundation does not satisfy the complete L1 gates.
+
+## Project release tracking
+
+`project-release.yml` records published core `v5.*`, Squad and Office releases in
+the release project ([pj-tmt organization project 1](https://github.com/orgs/pj-tmt/projects/1)).
+The updater mints a per-run installation token with the existing release GitHub
+App using `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` in the `release`
+environment. Ben grants the App **Organization projects: read and write**, plus
+pull-request and issue read access to `pj-tmt/tmt`. The SHA-pinned token action
+requests only those permissions for owner `pj-tmt` and repository `tmt`, revoking
+the token on cleanup. Only the reconciliation step receives it. The separate
+read-only `GITHUB_TOKEN` reads repository release/compare metadata. No PAT or
+`PROJECT_TOKEN` is used. Missing App credentials fail before API reads; missing
+App permissions fail token minting or the API request visibly.
+
+The `release` environment's protection policy allows only branch `main`, with no
+required reviewers or wait timer. No separate environment is needed. Because a
+`release:published` run has a tag ref, the updater uses completion of **Native
+release artifacts**, a daily catch-up at 04:23 UTC, and main-only manual replay.
+CLI, Office and Squad share that actual publishing workflow; `Release` only
+creates drafts. Owner/manual publication (including a manually released hold)
+is picked up by the next publisher completion or daily run while within the
+latest-ten window; use explicit tag replay for immediate tracking or older tags.
+This updater never publishes releases. Missing configuration fails its separate
+workflow without blocking publication. After Ben grants the App permissions,
+the first live run must be a manual dry-run replay of a recent tag; review its
+proposed fields before a write-enabled replay. [Architecture](ARCHITECTURE.md)
+owns the selection and terminal-state contract.
+
+Automatic runs reconcile the latest ten published supported releases, including
+publications followed by failed downstream checks. A publisher run exceeding the ten-release window fails with replay guidance. The window bounds
+recovery from replaced pending workflow runs; older missed tags require replay.
+Manual dispatch defaults to dry-run and requires a published tag:
+
+```bash
+gh workflow run project-release.yml --repo pj-tmt/tmt --ref main \
+  -f tag=tmt-squad-v0.1.0-alpha.9 -f dry_run=true
+# After reviewing the proposed item/field changes, replay the same tag with dry_run=false.
+```
+
+Each run has at most 60 GraphQL requests (reads and writes together), 250 REST
+requests, ten pages per connection and 250 PR references per resolution batch.
+PR queries and field mutations batch up to 25 aliases. Requests have a 30-second
+bound and are not polled or retried; the job has a 15-minute deadline. The script
+checks the remaining write/readback budget before mutation. It reports selected
+releases, resolved PRs/issues, non-project issues, planned/changed fields and exact
+request counts to the log and job summary. Dry-run performs selection and reads
+but no mutations. Replays skip already-recorded release entries and never lower
+Status; text is written before Status so interrupted writes remain retryable.
+Project-wide workflow serialization avoids competing automated appends; avoid
+manual edits to these two fields while a live updater is running.
+
+Release-please's same-repository `/issues/` links are type-checked as merged PRs;
+pre-transfer `wkh237/tmt` links are accepted for this repository. Missing PR notes
+fall back to the preceding published version of the same product and paginated
+commit-associated PRs. A first release without PR references is a visible error,
+not permission to guess issue ownership. The updater never adds missing project
+items. Test locally without credentials or mutations:
+
+```bash
+cd typescript
+corepack pnpm exec vitest run test/tooling/project-release.test.ts
+corepack pnpm check:tooling
+cd ..
+actionlint .github/workflows/project-release.yml
+```

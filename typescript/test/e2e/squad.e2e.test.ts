@@ -62,7 +62,7 @@ async function squadWithMember(fixture: E2EFixture): Promise<string> {
   return member;
 }
 
-describe.sequential('squad on a private tmux server', () => {
+describe('squad on a private tmux server', { concurrent: false }, () => {
   it('loads hotkeys into the running server, refuses a taken key, and unbinds only its own', async () => {
     await withE2EFixture(async (fixture) => {
       await squadWithMember(fixture);

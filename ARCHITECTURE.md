@@ -25,6 +25,56 @@ Any retained `better-sqlite3` use belongs to private developer tooling as an
 independent oracle. It is not a Rust runtime dependency or an alternate owner
 of native schema and application state.
 
+## Repository layout
+
+This section owns the repository layout map; the infra squad reviews layout changes.
+The machine-readable top-level allowlist is
+[`.github/repository-layout.json`](.github/repository-layout.json). It lists permanent
+entries and current exceptions with their removal issues. Component ownership comes
+from [`.github/components.json`](.github/components.json), through `ci-scope.ownerOf`;
+layout permission does not change component ownership, CI selection or release policy.
+
+| Home                      | Responsibility                                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
+| `.agents/`                | Repository contributor procedures.                                                                                                     |
+| `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
+| `rust/`                   | Native CLI, core, adapters and shared Rust leaves; extension crates remain under their extension.                                      |
+| `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
+| `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
+| `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
+| `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
+| `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
+| `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead.                                                                  |
+| `design/`                 | Design tokens (from #901) and, after #998, CLI style guidance.                                                                         |
+
+Current exceptions and moves are **pending**, not shipped:
+
+- #997 (PR B) removes `USER-GUIDE.md` after repointing links to matching handbook
+  chapters and handing off unmatched content. It moves `docs/office/` to
+  `extensions/tmt-office/docs/` and `scripts/art/` to
+  `extensions/tmt-office/scripts/art/`.
+- #998 (PR C, after the queue drains) moves `docs/extension-api.md` to
+  `contracts/extension-api.md`, and `docs/cli-style.md` to `design/cli-style.md`.
+  It renames `contracts/remote-client-v1.md` to `contracts/remote-channel-v1.md`.
+  `REQUEST-RESPONSE.md` is a contract and moves to `contracts/request-response-v1.md`.
+  Release-verification procedures
+  in `docs/native-release-verification.md` fold into DEVELOPMENT's release section.
+- The handbook has resumed (#1000). `docs/` remains a temporary home under #997/#998.
+  `docs/NATIVE-INSTALL.md` and `docs/performance.md` stay there pending their move to
+  `site/` under #998; the directory exception remains until its retained contents move.
+- #996 removes `nx`, `nx.bat`, `nx.json` and `.nx/`. Whichever PR lands second
+  reconciles those exceptions against its merged base.
+
+New homes or exceptions require an infra-reviewed proposal with a component owner
+and bounded responsibility. Update this map and the JSON allowlist together;
+remove an exception when its last tracked entry moves or is deleted. The tooling
+layout test checks every tracked file's component owner and that tracked top-level
+entries are a subset of the allowlist, and rejects temporary exceptions with no
+tracked entry; ignored local outputs are outside that map.
+For add/move review and rename hygiene, use the
+[layout procedure](.agents/skills/tmt-layout/SKILL.md).
+
 ## TypeScript workspace boundary
 
 The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
@@ -570,6 +620,8 @@ or consume retained-pack quotas; custom catalog revisions remain storage-owned.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
+### CI selection and worker model
+
 `.github/components.json` is the one component map: who owns the CLI, Office and Squad
 paths, and the ordered rules that say which CI consumers a path selects and why.
 `typescript/scripts/ci-scope.mjs` reads it and owns conservative affected-area
@@ -595,21 +647,30 @@ weights in `typescript/test/e2e/shard-weights.json` (the first shard also runs t
 tests): it requires both shards when native work is selected, the first alone for a scoped
 component and neither when nothing native is selected, so a skipped, cancelled or missing
 selected shard fails it, and a guard proves every scenario file is in exactly one shard. Existing required check names
-remain; `Native Rust contracts` aggregates the runtime checks and the parallel
-workspace/all-targets MSRV check. Both workers must succeed for full and Squad
-scopes; scope `none` skips the aggregate, while missing scope fails closed.
-`Code quality` gates selected Office verification and `Native package
+remain; `Code quality` gates selected Office verification and `Native package
 matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
-Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) serve `Native
-Rust checks` and the native runtime builds. The parallel MSRV check reads the
-minimum version from the workspace manifest and owns a separate
-`native-rust-msrv` cache. Each cache is saved only by its owning job on a
-`refs/heads/main` push, schedule or manual dispatch; PR and merge-group runs
-only restore. Main pushes that change `Cargo.lock`, `Cargo.toml`, the toolchain file
-or `ci.yml`, weekly schedules and manual dispatch run the seeding jobs. The Rust
-aggregate validates these workers on seeding runs too; the outer merge gates do
-not run. A seeding run has no diff to select from, so it takes the full native scope.
+`Native Rust contracts` aggregates independent fmt/Clippy, workspace test/build,
+Office local-service and native process workers, plus an MSRV worker that reads
+`rust/Cargo.toml` and checks every workspace target. Full scope requires all five;
+Squad requires all except Office, and none skips the aggregate. Missing, failed,
+cancelled or unexpectedly skipped workers fail closed. The native process worker
+consumes the Office fixture producer's local-service executable through a SHA-256
+checked artifact, preserving the fixture bytes without repeating its feature
+verification. The Office check worker consumes the same embedded SPA; other
+fixtures remain independently built in the native worker.
+
+Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) have one
+main-only writer per key: workspace tests write the shared dev dependency cache,
+MSRV writes its toolchain-specific cache, and each native runtime target writes
+its own cache. Every writer uses the single seed-event classification (`verify=false`)
+and the main ref; PR and merge-group runs only restore. Other workers restore
+the shared cache without saving. Dev debug
+information and incremental compilation are disabled across CI; release profiles
+retain their manifest policy. Main cache seeding runs on selected Cargo/workflow
+changes, weekly and manually; feature-branch dispatches only restore. A seeding
+run has no diff and takes full native scope. Its Rust aggregate still checks the
+workers; the outer verification gates remain skipped.
 
 `ci.yml` owns all four required checks: Code quality, Unit tests, Docker E2E and
 Native package matrix. Both pull requests and `merge_group` candidates run those
@@ -1180,10 +1241,12 @@ layout, opening both databases read-only and never through
 reconciles or creates files.
 
 Provider `UserPromptSubmit` hooks use the same generic callback and aggregate
-budget, returning only the attributed extension lines as event-specific
-`additionalContext`. A consent-file capability check returns immediately when no
-extension has consented to context, before host probes or storage reads. Otherwise,
-they require an already running, verified binding whose
+budget, returning attributed extension lines and, only when nonzero, one incoming
+unacknowledged-attention count with an explicit-identity inbox pull command as
+event-specific `additionalContext`. The count reuses the existing read-only
+context snapshot; it is not a count of unsent or unanswered requests. No worker,
+new counter or automatic delivery is created. Zero attention with no extension
+contributions emits nothing. Hooks require an already running, verified binding whose
 provider session and runtime incarnation match the caller, and recheck the
 binding/preferences after callbacks before handing context to the provider.
 They neither admit a session nor replay the SessionStart identity preamble.
@@ -1807,8 +1870,8 @@ uses the existing no-follow path traversal without opening the notebook content
 or creating a notebook. CLI presentation bounds the complete human/JSON output
 to 4 KiB, preserves counts and inspect commands when shortening role/path content,
 and marks truncation. No request IDs, bodies, receipts or notebook contents enter context.
-The extension contribution slot is currently empty; this path neither discovers
-nor executes extensions. Session-only interfaces remain unimplemented as above.
+Consented extension contributions share this bounded context owner as defined
+above. Session-only interfaces remain unimplemented as above.
 Binding SQLite reads and writes reuse `endpoint::valid_process_id` with checked
 signed/unsigned conversion. Invalid stored PIDs fail decoding
 without repair or retirement, and invalid inputs fail before insertion.
@@ -2009,6 +2072,11 @@ the resolved active recipient UUID and settle as `queued`, never `sent`.
 `RequestService::enqueue` prepares the attempt, stores its exact prompt and
 publishes recipient attention in one repository transaction. CLI inbox sends use
 this path; pane effects retain the separate prepare/send/settle lifecycle.
+`talk_command` preserves explicit inbox selection separately from its offline or
+live-wake projection. Pending explicit-inbox output says no notification was
+attempted and recipient pull is required; this presentation never changes the
+route, claims, attention or queue acceptance. The public output contract is in
+[REQUEST-RESPONSE.md](REQUEST-RESPONSE.md).
 Both paths reuse the same preparation and queue-transition policy. Database
 errors roll back all enqueue writes. A recipient found inactive commits a failed,
 non-waiting attempt without recipient attention, matching the prepared queue path.
@@ -2365,6 +2433,22 @@ protocol crate otherwise depends only on `serde` and `serde_json`, so a
 community driver builds against these two small crates alone. The architecture
 guard allows exactly those edges.
 
+`rust/crates/tmt-driver-herdr` is the first driver built this way (#479). The
+`tmt-driver-herdr` executable depends on the protocol crate, `tmt-invoke` (its
+bounded process owner), `serde_json` and `semver`, and never on core or the
+adapters; the architecture guard holds it to those edges. It answers `caller`,
+`server`, `resolve-target`, `snapshot`, `publish` and `clear` through Herdr's
+documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
+environment without `TMT_DRIVER_CALL`. Herdr reports no server pid, so `server`
+names the parent of a pane's shell, and a server with no pane reads as no
+server. `publish` refuses with `not_found` unless the pane still runs `panePid`,
+then reads the marker back. The marker tokens are the built-in Herdr host's,
+byte for byte: both crates test against one fixture
+(`tmt-driver-herdr/src/fixtures/builtin-marker.json`). The driver doesn't yet
+declare `capture`, `input`, `prompt` or `focus`, isn't packaged, and doesn't
+serve `HostKind::Herdr`; the built-in `herdr/` adapter does until the driver
+replaces it.
+
 `tmt-adapters::host::external` holds the core side of that boundary:
 
 - **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
@@ -2405,14 +2489,24 @@ guard allows exactly those edges.
   driver that fails or runs late is a failure (`RECONCILIATION_FAILED`).
   Caller detection stays best-effort: a failing driver is just not the
   caller.
+- **Delivery and inspection:** a driver that declares `input` takes messages.
+  The prompt-first `send` asks its `prompt` when declared and maps the answer
+  as the contract says (`no_agent` or `unsupported` falls back to raw input;
+  `blocked` is `AwaitingApproval`; `not_ready`, `not_found` and `bad_request`
+  were not sent; anything else is uncertain). Raw input is staged like tmux:
+  paste with `enter: false`, core's paste-to-Enter delay, then Enter alone,
+  each call with its operation's own deadline. A pane-addressed message
+  (`Host::send`), `check` (`capture`) and `focus` go through the driver too;
+  focus on an external host needs no tmux client, and its `viewer` names the
+  server whose views moved.
 
 The atomic owner-only replacement of such settings files is `private_file`,
 shared with the extension hook consents. The approved drivers' syntax is
 registered with core at start (see the host section above). Bindings on an
 external host are made from its caller or an explicit target, and read,
-published and cleared through its driver. Input, capture and focus arrive in
-slice 3b-2b-2; until then a send to such a binding is `Unsupported`, the
-request is kept, and `--inbox` queues.
+published, cleared, messaged, captured and focused through its driver. A driver
+without `input` keeps today's behavior: a send is `Unsupported`, the request is
+kept, and `--inbox` queues.
 
 ## Managed skills and native installation
 
@@ -3155,6 +3249,15 @@ must run, and a missing default native build must fail clearly. No Rust coverage
 percentage is compared with the retired TypeScript source or reported as a
 zero-file success.
 
+`typescript/scripts/merge-queue-metrics.mjs` is read-only developer tooling,
+not a CI selector or queue controller. It owns bounded REST evidence collection,
+local cache reuse and metric calculation, using the existing bounded command
+process owner. Its tests own deterministic API/timeline fixtures; production
+job and step evidence stays in local report artifacts. The reporting definitions,
+limits and invocation belong to [DEVELOPMENT](DEVELOPMENT.md#merge-queue-metrics).
+It never changes workflows, rulesets or PR state; unknown causes/inclusion remain
+explicit rather than becoming inferred delivery decisions.
+
 ## Release boundary
 
 `dist-workspace.toml`, `scripts/build-native-artifact.sh`,
@@ -3164,6 +3267,23 @@ workflow builds the four supported cargo-dist targets, creates target-filtered
 third-party notices (including Vite's bundled frontend inventory for Office), and verifies runtime bytes, linkage, checksums, archive
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
+
+`project-release.mjs` owns release-to-Project delivery evidence, separately from
+publication. `project-release.yml` runs on completion of `Native release artifacts`,
+daily catch-up and manual replay. All execute on main so the release environment
+can mint a short-lived release-App token scoped to org-project writes and tmt
+repository reads. Direct release-tag events cannot use that main-only environment. It executes main's tooling, never code
+from release tags or artifacts. Automatic runs reconcile the latest ten published
+supported releases under one project-wide concurrency group, recovering replaced
+pending events. The release-please links or same-product compare range identify
+merged PRs; GitHub's paginated `closingIssuesReferences` is the issue authority.
+Only existing issue items in pj-tmt organization project 1 are updated: distinct component/version
+lines append to `Released in`, then Status becomes terminal `Released`. No issue,
+release, membership or earlier status is written. Replays preserve existing text
+and skip completed entries; partial text writes can be retried before status.
+The full read plan precedes bounded batched mutations and a single readback.
+Request/window caps fail visibly with manual replay guidance, never silent
+truncation. DEVELOPMENT owns token setup, budgets and dry-run commands.
 
 The release workflow is a product-selected preparation, verification and publication
 workflow; publication is authorized by the owner: the standing trunk-based alpha authorization
@@ -3183,6 +3303,12 @@ GitHub App token, created only in that job and only in a live run on `main`, is 
 the release pull requests run the required checks; the job runs in the `release`
 Environment and the App credentials are secrets of that Environment, restricted to `main`.
 Until they exist every push is a dry run that opens, merges, creates and starts nothing.
+`typescript/scripts/release-please-queue.mjs` owns the read-only queue pre-check:
+a workflow-token GraphQL query skips `release-pr` while any open release PR is
+queued, preserving the candidate and continuing `github-release`. Query errors
+and release-please errors remain failures. The check is not atomic with a later
+branch update; [Development](DEVELOPMENT.md#queued-release-pull-requests) owns
+its race, token and recovery behavior.
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
@@ -3307,8 +3433,12 @@ and unreviewed consumers. Envelope syntax/signature success does not establish
 log, session, role, epoch or sequence authority; callers admit those before open.
 The model also owns device/chain syntax, purpose-separated link keys and
 owner-authenticated HPKE Base wraps. Caller-owned live-issuer/history/transition
-policy still gates application. Typed membership/payload schemas, browser client,
-pairing/send/baseline builders and the three-engine harness remain later L1 work. Frozen vectors are contract-owned;
+policy still gates application. Strict bounded operation payloads and owner
+statement hash-chain fencing also belong to the model. Retained heads pin the
+revision-1 editor management member and reject successor reuse of its ID/keys;
+signing derives revision and previous hash from that head. Verification does not
+apply a transition. Browser client, pairing/send/baseline builders and the
+three-engine harness remain later L1 work. Frozen vectors are contract-owned;
 Rust tests read them without Python. Regeneration uses an independent Python
 cryptography oracle; the retained #829 corpus tests all 148 strict policy rows.
 

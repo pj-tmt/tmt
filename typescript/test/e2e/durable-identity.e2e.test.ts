@@ -29,7 +29,7 @@ async function showStoredProfile(fixture: E2EFixture, name: string): Promise<str
   return expectJsonResult(result).role.content;
 }
 
-describe.sequential('durable identity lifecycle', () => {
+describe('durable identity lifecycle', { concurrent: false }, () => {
   it('creates offline, binds, restarts, and rebinds one identity without losing its profile', async () => {
     await withE2EFixture(async (fixture) => {
       // Fullwidth Latin and ASCII spellings are intentionally equivalent after

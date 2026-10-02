@@ -117,13 +117,19 @@ fn envelope<T: DeserializeOwned>(op: Op, output: &[u8]) -> Result<Response<T>, D
             op,
             reason: error.to_string(),
         })?;
-    if let Response::Error(error) = &response
-        && !grammar::plain(&error.message, MESSAGE_MAX)
-    {
-        return Err(DecodeError::Invalid {
-            op,
-            reason: "the error message must be up to 512 bytes of text".into(),
-        });
+    if let Response::Error(error) = &response {
+        if !grammar::plain(&error.message, MESSAGE_MAX) {
+            return Err(DecodeError::Invalid {
+                op,
+                reason: "the error message must be up to 512 bytes of text".into(),
+            });
+        }
+        if error.code.prompt_only() && op != Op::Prompt {
+            return Err(DecodeError::Invalid {
+                op,
+                reason: "no_agent, blocked and not_ready answer only prompt".into(),
+            });
+        }
     }
     Ok(response)
 }
@@ -321,6 +327,18 @@ mod tests {
 
     fn grammar() -> Grammar {
         Grammar::from_capabilities(&herdr_like()).unwrap()
+    }
+
+    #[test]
+    fn agent_answers_belong_to_prompt_alone() {
+        for code in ["no_agent", "blocked", "not_ready"] {
+            let answer = bytes(json!({"error": {"code": code, "message": "agent"}}));
+            let prompted = decode_done(Op::Prompt, &answer).unwrap().unwrap_err();
+            assert!(prompted.code.prompt_only(), "{code}");
+            assert!(decode_done(Op::Input, &answer).is_err(), "{code}");
+        }
+        let failed = bytes(json!({"error": {"code": "failed", "message": "x"}}));
+        assert!(decode_done(Op::Input, &failed).unwrap().is_err());
     }
 
     fn bytes(value: serde_json::Value) -> Vec<u8> {

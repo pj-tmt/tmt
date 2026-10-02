@@ -33,7 +33,7 @@ function configureUserAppearance(fixture: E2EFixture): void {
   fixture.tmux(['set-option', '-w', '-t', fixture.pane, 'pane-border-style', 'fg=green']);
 }
 
-describe.sequential('non-invasive pane badge presentation', () => {
+describe('non-invasive pane badge presentation', { concurrent: false }, () => {
   it('updates recorded run state without changing the theme and clears on the next transition when off', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('badge-run').pane;

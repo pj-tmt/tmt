@@ -22,6 +22,7 @@
   --color-term-edge: var(--c-term-edge);
   /* Inside terminal mockups: always the default dark theme. */
   --color-t-text: var(--t-text);
+  --color-t-muted: var(--t-muted);
   --color-t-dim: var(--t-dim);
   --color-t-accent: var(--t-accent);
   --color-t-waiting: var(--t-waiting);

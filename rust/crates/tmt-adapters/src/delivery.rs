@@ -45,6 +45,9 @@ pub enum Delivery {
     Offline,
     Uncertain,
     Unavailable,
+    /// The recipient's agent waits on its user (an approval or a question):
+    /// nothing was sent, the request is kept, and nothing types around it.
+    AwaitingApproval,
     Transport(crate::host::DeliveryError),
 }
 
@@ -309,7 +312,7 @@ pub fn send(
                         SendFailure::Uncertain(_) => SendFailure::Uncertain(Delivery::Uncertain),
                         SendFailure::Denied(_) => SendFailure::Denied(Delivery::Unavailable),
                         SendFailure::AwaitingApproval(_) => {
-                            SendFailure::AwaitingApproval(Delivery::Unavailable)
+                            SendFailure::AwaitingApproval(Delivery::AwaitingApproval)
                         }
                     }),
                 },
@@ -382,7 +385,9 @@ fn runtime_failure(error: SendFailure<RuntimeError>) -> SendFailure<Delivery> {
         SendFailure::NotSent(error) => SendFailure::NotSent(unavailable(error)),
         SendFailure::Uncertain(_) => SendFailure::Uncertain(Delivery::Uncertain),
         SendFailure::Denied(error) => SendFailure::Denied(unavailable(error)),
-        SendFailure::AwaitingApproval(_) => SendFailure::AwaitingApproval(Delivery::Unavailable),
+        SendFailure::AwaitingApproval(_) => {
+            SendFailure::AwaitingApproval(Delivery::AwaitingApproval)
+        }
     }
 }
 

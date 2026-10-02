@@ -22,8 +22,19 @@ Without setup, every agent still works: tmt talks to it through its pane. `tmt s
 ### The built-in drivers
 
 - [tmux](/drivers/tmux): the host driver. Where agents live and how to type into them.
-- [Claude Code](/drivers/claude-code): a runtime driver, with exact resume and start-of-session context.
+- [Claude Code](/drivers/claude-code): a runtime driver, with exact resume, start-of-session context and an optional message channel.
 - [Codex](/drivers/codex): a runtime driver, safe even when several panes share one Codex server.
+
+### Usage counters
+
+Usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`, `tmt setup codex --usage`) also adds a hook that runs when a turn ends and records how much the agent has used:
+
+- **Context size**, in `resume.usage`: `tokens` is what the next request re-sends, and `windowTokens` is the context window when the provider states it (Codex does, Claude Code doesn't).
+- **Consumption**, in `resume.consumption`: the tokens of completed requests. `inputTokens` includes cached input, `outputTokens` is the output, reasoning included, and the total is input plus output.
+
+Both show in `tmt ls --json` and `tmt identity show --json`, and a [Squad](/extensions/squad) column can show the context size. Only token counts are stored, never the conversation. The hook also lets `session.activity` return to idle when a turn ends; without it, tmt never guesses idle from silence. `tmt setup --no-usage` removes only this hook.
+
+Read the numbers as tokens, not cost. They describe completed requests, not live streaming, and can lag a turn behind. Each counter starts at its first reading and never counts earlier history. A missing counter means unavailable, never zero. A tool that works out rates should start a new baseline on the first reading, when `epoch` changes, when `gap` is true or when a counter goes down.
 
 ### More drivers <Tag kind="planned" />
 

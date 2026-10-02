@@ -156,15 +156,11 @@ fn strict_json_rejects_duplicate_unknown_missing_and_wrong_width_fields() {
     }
     for kind in ["wrap", "chain"] {
         let original = bytes(&v[kind]);
+        let field = if kind == "wrap" { "enc" } else { "version" };
         let duplicate = format!(
-            "{{\"{}\":null,{}",
-            if kind == "wrap" {
-                "enc"
-            } else if kind == "chain" {
-                "version"
-            } else {
-                "payload"
-            },
+            "{{\"{}\":{},{}",
+            field,
+            v[kind][field],
             std::str::from_utf8(&original[1..]).unwrap()
         );
         let mut unknown = v[kind].clone();
@@ -174,6 +170,7 @@ fn strict_json_rejects_duplicate_unknown_missing_and_wrong_width_fields() {
             "chain" => certificate::Chain::from_json(b).is_err(),
             _ => unreachable!(),
         };
+        assert!(!reject(&original));
         assert!(reject(duplicate.as_bytes()));
         assert!(reject(&bytes(&unknown)));
     }

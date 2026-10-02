@@ -60,7 +60,7 @@ function identityId(fixture: E2EFixture, name: string): string {
   }
 }
 
-describe.sequential('foreground identity launch', () => {
+describe('foreground identity launch', { concurrent: false }, () => {
   it('auto-names a launch, names the same live identity, and resumes its hook-recorded session', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('auto-run').pane;
@@ -409,6 +409,11 @@ exec /opt/tmt-tests/claude "$@"
         5000,
         'wrapper and child suspended together'
       );
+      // Stopped processes do not prove Bash has reclaimed the terminal. Its
+      // continuation writes this status only after returning from the stopped job.
+      await waitForFileContent(firstStatus, {
+        description: 'shell continuation after suspension',
+      });
       const rejectedStatus = path.join(fixture.root, 'stopped-conflict.status');
       const forbidden = path.join(fixture.root, 'must-not-launch');
       submit(

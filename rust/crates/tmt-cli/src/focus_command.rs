@@ -60,9 +60,14 @@ fn identity_failure(error: ActionError) -> Failure {
 /// `target` is an identity name or a pane target (such as a previous
 /// `from`); the shared resolver handles both, current server only.
 fn run(target: String) -> Result<Focused, Failure> {
-    let invoker = invoker()?;
     // A focus changes the invoking user's own view: the caller's host.
     let host = Host::for_caller(&CallerEnvironment::current());
+    // A tmux view needs the invoking client; an external host focuses
+    // through its driver, which owns which view moves.
+    let invoker = match host.kind() {
+        tmt_core::host::HostKind::External(_) => None,
+        _ => Some(invoker()?),
+    };
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
@@ -77,8 +82,11 @@ fn run(target: String) -> Result<Focused, Failure> {
         let (Some(identity), binding @ Some(_)) = (observed.identity, observed.binding) else {
             // An unbound pane target has no identity evidence to verify.
             let pane = observed.pane.id;
+            let Some(invoker) = &invoker else {
+                return Err(host_unsupported());
+            };
             return host
-                .focus_pane(&invoker, &pane, OperationOptions::default())
+                .focus_pane(invoker, &pane, OperationOptions::default())
                 .map(|before| Focused {
                     interface: pane.clone(),
                     previous: before.pane,
@@ -87,7 +95,12 @@ fn run(target: String) -> Result<Focused, Failure> {
                 .map_err(|error| pane_failure(error, &pane));
         };
         let entry = BindingEntry { identity, binding };
-        match host.session().with_invoker(invoker).focus(&entry) {
+        let session = host.session();
+        let mut session = match invoker {
+            Some(invoker) => session.with_invoker(invoker),
+            None => session,
+        };
+        match session.focus(&entry) {
             ActionResult::Completed(focused) => Ok(focused),
             ActionResult::Failed(error) => Err(identity_failure(error)),
             _ => Err(host_unsupported()),

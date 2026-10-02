@@ -295,6 +295,14 @@ impl Missing<'_, '_> {
                     enter: false,
                 },
             ),
+            Op::Prompt => self.not_found(
+                op,
+                PromptRequest {
+                    socket,
+                    pane_id: pane,
+                    text: "conformance".into(),
+                },
+            ),
             Op::Focus => self.not_found(
                 op,
                 FocusRequest {

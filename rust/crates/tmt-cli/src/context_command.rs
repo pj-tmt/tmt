@@ -103,14 +103,22 @@ pub(crate) fn render_verified(
     presentation::bounded(verified_document(stored, paths, deadline), false)
 }
 
-/// Prompt hooks carry only consented extension lines, with the same escaping
-/// and aggregate callback budget as the SessionStart context.
-pub(crate) fn render_extensions(identity: &str, paths: &ConfigPaths, deadline: Instant) -> String {
-    presentation::bounded_extensions(&extension_hooks::context_contributions(
-        &paths.global_dir,
-        identity,
-        deadline,
-    ))
+/// An already verified prompt carries incoming attention and consented extension
+/// lines, with the same escaping and aggregate budget as SessionStart context.
+pub(crate) fn render_prompt(
+    stored: &tmt_adapters::storage::IdentityContextSnapshot,
+    paths: &ConfigPaths,
+    deadline: Instant,
+) -> String {
+    presentation::bounded_prompt(
+        stored.requests.incoming,
+        &stored.entry.identity.id,
+        &extension_hooks::context_contributions(
+            &paths.global_dir,
+            &stored.entry.identity.id,
+            deadline,
+        ),
+    )
 }
 
 pub(crate) fn unbound_text() -> io::Result<String> {

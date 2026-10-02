@@ -255,6 +255,17 @@ remain retrievable. Interruption during `--delay`, before preparation, reports
 `INTERRUPTED` (exit 1) without request correlation: no message was sent, so running
 the command again is safe.
 
+Detached explicit `talk --inbox` accepts the queue with exit 0 and JSON
+`{status:"queued",requestId,target,identity,recipientIdentityId,notification:"not_attempted",waitingFor:"recipient_inbox_pull"}`.
+No live notification was attempted, even for an enrolled, ready recipient. The
+recipient must pull; enrollment does not automatically deliver these items.
+Human output states this and supplies `tmt inbox --identity '<recipient UUID>' --json`,
+a correlated `tmt x show <request-id> --incoming --identity '<recipient UUID>' --json`,
+and `tmt result <request-id>`. The recipient commands are for that recipient's
+own identity. A completed response does not carry the pending notification or
+waiting fields. Ordinary offline queueing retains `offline:true`; ordinary live
+and uncertain handoffs do not claim that notification was unattempted.
+
 Detached JSON is `{status:"sent",requestId,target,pane,identity?}`. Completed
 talk returns `status:"completed"`, the same correlation and exact `response`,
 `bodyBytes`, `submittedAtMs`. Timeout uses `status:"timeout"`, request/target/pane
@@ -269,7 +280,10 @@ request or receipt rewrite is made if the runtime ends before input. Confirmed
 full delivery settles recipient attention only, so it does not inflate incoming
 X/listen/context counts. Office's advisory wake does not settle that attention.
 Unavailable or uncertain delivery remains queued; uncertainty still returns
-`DELIVERY_UNCERTAIN`, not permission to resend. Offline recipients produce an
+`DELIVERY_UNCERTAIN`, not permission to resend. A recipient whose host reports
+its agent as waiting on its user (an approval or a question) refuses the
+prompt: `talk` returns `DELIVERY_AWAITING_APPROVAL` (exit 1), nothing reached
+the pane, the request stays queued, and nothing types around the agent. Offline recipients produce an
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake. Explicit
 `--inbox` and unbound direct-pane behavior remain distinct.

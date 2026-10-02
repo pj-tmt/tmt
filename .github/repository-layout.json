@@ -1,0 +1,49 @@
+{
+  "$comment": "Top-level permission only; ARCHITECTURE Repository layout owns responsibilities and pending moves. Component ownership remains in components.json. Temporary entries name their removal issues.",
+  "permanent": [
+    ".agents",
+    ".dockerignore",
+    ".github",
+    ".gitignore",
+    ".release-please-manifest.json",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "CONVENTIONS.md",
+    "DEVELOPMENT.md",
+    "LICENSE",
+    "README.md",
+    "contracts",
+    "design",
+    "dist-workspace.toml",
+    "extensions",
+    "release-please-config.json",
+    "rust",
+    "scripts",
+    "site",
+    "skills",
+    "typescript"
+  ],
+  "temporary": {
+    ".nx": {
+      "removeIn": ["#996"]
+    },
+    "REQUEST-RESPONSE.md": {
+      "removeIn": ["#998"]
+    },
+    "USER-GUIDE.md": {
+      "removeIn": ["#997"]
+    },
+    "docs": {
+      "removeIn": ["#997", "#998"]
+    },
+    "nx": {
+      "removeIn": ["#996"]
+    },
+    "nx.bat": {
+      "removeIn": ["#996"]
+    },
+    "nx.json": {
+      "removeIn": ["#996"]
+    }
+  }
+}

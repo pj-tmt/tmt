@@ -25,7 +25,7 @@ function expectedVirtualizedResponse(token: string): string {
   ].join('\n');
 }
 
-describe.sequential('TMT-39 durable response integrity', () => {
+describe('TMT-39 durable response integrity', { concurrent: false }, () => {
   it('returns the exact full body when the pane renders only a virtualized tail', async () => {
     await withE2EFixture(
       async (fixture) => {

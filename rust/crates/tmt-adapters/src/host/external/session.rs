@@ -10,7 +10,10 @@
 
 use super::{CallError, DriverProcess, caller::ExternalCaller, registry::DriverRecord};
 use crate::{
-    host::{ActionError, DeliveryError, HostError, driver::HostDriver, driver::Unavailable},
+    host::{
+        ActionError, DeliveryError, DeliveryStage, HostError, driver::HostDriver,
+        driver::Unavailable,
+    },
     process::{
         CommandError, CommandRunner,
         runtime::{self, observe_starts},
@@ -32,7 +35,8 @@ use tmt_core::{
     identity::Identity,
 };
 use tmt_driver_protocol::{
-    ClearRequest, ClearResponse, ErrorCode, Marker, Op, Pane, PublishRequest, ServerRequest,
+    CaptureRequest, CaptureResponse, ClearRequest, ClearResponse, DriverError, ErrorCode,
+    FocusRequest, InputRequest, Marker, Op, Pane, PromptRequest, PublishRequest, ServerRequest,
     ServerResponse, SnapshotRequest, SnapshotResponse,
 };
 
@@ -179,6 +183,8 @@ pub(super) fn driver_process<R: CommandRunner>(
 pub struct Session<'a, R> {
     drivers: &'a Drivers<R>,
     deadline: Instant,
+    /// Core's paste-to-Enter delay, the same setting tmux uses.
+    enter_delay: Duration,
     slots: HashMap<HostName, DriverSlot<'a, R>>,
 }
 
@@ -192,8 +198,14 @@ impl<'a, R: CommandRunner> Session<'a, R> {
         Self {
             drivers,
             deadline: Instant::now(),
+            enter_delay: Duration::ZERO,
             slots: HashMap::new(),
         }
+    }
+
+    pub fn with_enter_delay(mut self, delay: Duration) -> Self {
+        self.enter_delay = delay;
+        self
     }
 
     pub fn begin_coordination(&mut self) {
@@ -219,6 +231,7 @@ impl<'a, R: CommandRunner> Session<'a, R> {
     pub fn driver(&mut self, host: HostName) -> &mut dyn HostDriver {
         let drivers = self.drivers;
         let deadline = self.deadline;
+        let enter_delay = self.enter_delay;
         let slot = self
             .slots
             .entry(host)
@@ -229,6 +242,7 @@ impl<'a, R: CommandRunner> Session<'a, R> {
                     runner: &drivers.runner,
                     server: drivers.server.get(),
                     deadline,
+                    enter_delay,
                 })),
                 None => DriverSlot::Missing(Unavailable::of(HostKind::External(host))),
             });
@@ -253,9 +267,64 @@ pub struct ExternalDriver<'a, R> {
     /// The handle's resolved server, when its primary host is this one.
     server: Option<&'a ServerEvidence>,
     deadline: Instant,
+    enter_delay: Duration,
 }
 
 impl<R: CommandRunner> ExternalDriver<'_, R> {
+    /// One `input` or `prompt` call, with that operation's own deadline:
+    /// delivery is not bound by the evidence budget spent before it.
+    fn deliver(
+        &self,
+        op: Op,
+        body: impl serde::Serialize,
+    ) -> Result<Result<(), DriverError>, CallError> {
+        self.process
+            .call_done(op, body, Instant::now() + op.bounds().deadline)
+    }
+
+    /// Paste, core's paste-to-Enter delay, then Enter alone: the same staging
+    /// as tmux, so one delay setting covers every host.
+    fn input_at(&self, socket: &str, pane: &str, message: &str) -> Result<(), DeliveryError> {
+        self.input_stage(socket, pane, message, DeliveryStage::Paste)?;
+        std::thread::sleep(self.enter_delay);
+        self.input_stage(socket, pane, "", DeliveryStage::Submit)
+    }
+
+    /// The staged `input` call `stage`: paste (`enter: false`) or Enter alone.
+    fn input_stage(
+        &self,
+        socket: &str,
+        pane: &str,
+        text: &str,
+        stage: DeliveryStage,
+    ) -> Result<(), DeliveryError> {
+        let request = InputRequest {
+            socket: socket.to_owned(),
+            pane_id: pane.to_owned(),
+            text: text.to_owned(),
+            enter: stage == DeliveryStage::Submit,
+        };
+        let (unsent, cause) = match self.deliver(Op::Input, request) {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(error)) => {
+                let unsent = matches!(
+                    error.code,
+                    ErrorCode::Unsupported | ErrorCode::NotFound | ErrorCode::BadRequest
+                );
+                (unsent, refused(&self.process, error))
+            }
+            Err(error) => (nothing_ran(&error), HostError::Driver(error)),
+        };
+        // A refused paste sent nothing; once a paste may have landed, any
+        // failure (Enter included) is uncertain.
+        let stage = if unsent && stage == DeliveryStage::Paste {
+            DeliveryStage::Prepare
+        } else {
+            stage
+        };
+        Err(DeliveryError::new(stage, cause))
+    }
+
     fn call<T: tmt_driver_protocol::Answer>(
         &self,
         body: impl serde::Serialize,
@@ -445,29 +514,155 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
             .map_err(|error| driver_process(&self.process, error))
     }
 
-    /// Input arrives in slice 3b-2b; until then core uses the inbox.
+    /// A driver without `input` takes no message; core uses the inbox.
     fn has_input(&self) -> bool {
-        false
+        self.process.supports(Op::Input)
     }
 
-    /// The `prompt` operation arrives with input in slice 3b-2b.
+    /// The driver's `prompt`, mapped as the contract says: `no_agent` and
+    /// `unsupported` fall back to raw input, `blocked` awaits approval,
+    /// `not_ready`, `not_found` and `bad_request` were not sent, and anything
+    /// else is uncertain.
     fn prompt(
         &mut self,
-        _: &Binding,
-        _: &str,
+        binding: &Binding,
+        message: &str,
     ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>> {
-        ActionResult::Unsupported
+        if !self.process.supports(Op::Prompt) {
+            return ActionResult::Unsupported;
+        }
+        let request = PromptRequest {
+            socket: binding.server.socket_path.clone(),
+            pane_id: binding.pane_id.clone(),
+            text: message.to_owned(),
+        };
+        let failure = match self.deliver(Op::Prompt, request) {
+            Ok(Ok(())) => return ActionResult::Completed(DeliveryAcceptance::Submitted),
+            Ok(Err(error)) => {
+                let code = error.code;
+                let cause = ActionError::Evidence(refused(&self.process, error));
+                match code {
+                    ErrorCode::Unsupported | ErrorCode::NoAgent => {
+                        return ActionResult::Unsupported;
+                    }
+                    ErrorCode::Blocked => SendFailure::AwaitingApproval(cause),
+                    ErrorCode::NotReady | ErrorCode::NotFound | ErrorCode::BadRequest => {
+                        SendFailure::NotSent(cause)
+                    }
+                    ErrorCode::Unavailable | ErrorCode::Failed => SendFailure::Uncertain(cause),
+                }
+            }
+            Err(error) if nothing_ran(&error) => {
+                SendFailure::NotSent(ActionError::Evidence(HostError::Driver(error)))
+            }
+            Err(error) => SendFailure::Uncertain(ActionError::Evidence(HostError::Driver(error))),
+        };
+        ActionResult::Failed(failure)
     }
 
-    fn input(&mut self, _: &Binding, _: &str) -> Result<(), DeliveryError> {
-        Err(DeliveryError::unsupported())
+    fn input(&mut self, binding: &Binding, message: &str) -> Result<(), DeliveryError> {
+        self.input_at(&binding.server.socket_path, &binding.pane_id, message)
     }
 
     fn focus_preflight(&self, _: Option<&Binding>) -> Result<(), ActionError> {
-        Err(ActionError::HostUnsupported)
+        if self.process.supports(Op::Focus) {
+            Ok(())
+        } else {
+            Err(ActionError::HostUnsupported)
+        }
     }
 
-    fn focus(&mut self, _: &Binding) -> Result<Focused, ActionError> {
-        Err(ActionError::HostUnsupported)
+    /// The host's own focus. Which view moves is the host's (Herdr moves
+    /// every attached client); `viewer` names the server it happened on.
+    fn focus(&mut self, binding: &Binding) -> Result<Focused, ActionError> {
+        let request = FocusRequest {
+            socket: binding.server.socket_path.clone(),
+            pane_id: binding.pane_id.clone(),
+        };
+        match self.call_focus(request) {
+            Ok(()) => Ok(Focused {
+                interface: binding.pane_id.clone(),
+                previous: None,
+                viewer: binding.server.socket_path.clone(),
+            }),
+            Err(error) => Err(ActionError::Evidence(error)),
+        }
+    }
+}
+
+impl<R: CommandRunner> ExternalDriver<'_, R> {
+    fn call_focus(&self, request: FocusRequest) -> Result<(), HostError> {
+        self.process
+            .call_done(
+                Op::Focus,
+                request,
+                Instant::now() + Op::Focus.bounds().deadline,
+            )
+            .map_err(HostError::Driver)?
+            .map_err(|error| refused(&self.process, error))
+    }
+}
+
+impl<R: CommandRunner> Drivers<R> {
+    /// Raw input into an explicit pane (a message addressed by pane, not by
+    /// a binding), staged as a binding's input is.
+    pub(crate) fn send(
+        &self,
+        host: HostName,
+        socket: &str,
+        pane: &str,
+        message: &str,
+        enter_delay: Duration,
+    ) -> Result<(), DeliveryError> {
+        let Some(process) = self
+            .open(host)
+            .filter(|process| process.supports(Op::Input))
+        else {
+            return Err(DeliveryError::unsupported());
+        };
+        ExternalDriver {
+            host,
+            process,
+            runner: &self.runner,
+            server: None,
+            deadline: Instant::now(),
+            enter_delay,
+        }
+        .input_at(socket, pane, message)
+    }
+
+    /// The last `lines` of an explicit pane, through the driver's `capture`.
+    pub(crate) fn capture(
+        &self,
+        host: HostName,
+        socket: &str,
+        pane: &str,
+        lines: u32,
+    ) -> Result<String, HostError> {
+        let Some(process) = self.open(host) else {
+            return Err(HostError::Unavailable(host.as_str().to_owned()));
+        };
+        let request = CaptureRequest {
+            socket: socket.to_owned(),
+            pane_id: pane.to_owned(),
+            lines,
+        };
+        let answer = process
+            .call::<CaptureResponse>(request, Instant::now() + Op::Capture.bounds().deadline)
+            .map_err(HostError::Driver)?
+            .map_err(|error| refused(&process, error))?;
+        Ok(answer.text)
+    }
+}
+
+/// Whether a failed `input` or `prompt` call surely ran nothing: the
+/// executable was refused, or never started.
+fn nothing_ran(error: &CallError) -> bool {
+    match error {
+        CallError::Untrusted { .. } => true,
+        CallError::Process { error, .. } => {
+            matches!(error.kind, crate::process::CommandFailure::Spawn)
+        }
+        CallError::Decode { .. } => false,
     }
 }

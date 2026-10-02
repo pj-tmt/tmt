@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture } from './harness.js';
 
-describe.sequential('capture numeric contract', () => {
+describe('capture numeric contract', { concurrent: false }, () => {
   it('reports invalid loaded config without touching tmux or rewriting its config', async () => {
     await withE2EFixture(async (fixture) => {
       const configFile = path.join(fixture.globalDir, 'config.json');

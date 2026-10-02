@@ -66,7 +66,7 @@ function rows(fixture: E2EFixture) {
   }
 }
 
-describe.sequential('session-aware durable routing', () => {
+describe('session-aware durable routing', { concurrent: false }, () => {
   it('a detached request starts no timeout observer and its reply callback still fires once', async () => {
     await withE2EFixture(
       async (fixture) => {
