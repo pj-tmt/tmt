@@ -1969,7 +1969,9 @@ and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 ## Release PR safety gates
 
 `Code quality` runs `node typescript/scripts/release-pr-safety.mjs notes` for PRs
-(including body edits) and merge groups. A release branch under
+(opened, synchronized or reopened) and merge groups. Body/title edits do not
+restart full CI; the merge-group step re-reads the current PR body over REST
+and gates it at queue time. A release branch under
 `release-please--branches--main--` must resolve to a released component. Its notes
 must compare from that component's newest published tag; each linked commit SHA
 must be a descendant of that tag and an ancestor of the candidate base, excluding
@@ -1991,9 +1993,12 @@ outdated compare anchor or out-of-range note requires release-please regeneratio
 Before release-please runs, `node typescript/scripts/release-pr-safety.mjs draft`
 checks all manifest versions. A matching draft with no exact git tag writes
 `skip=true` and a summary naming the held tag(s). `release-pr` is skipped;
-`github-release` and draft build/publication dispatch continue, including in dry
-runs. Once the tag exists, the next main push resumes release PR creation. This
-pre-check is an observation, not an atomic fence with later publication.
+`github-release` and draft build/publication dispatch continue. The guard needs a
+token that can see draft releases: live mode uses the Release App token. Dry runs
+fall back to `github.token` with `contents: read`, which sees no drafts, so the
+tagless-draft guard does nothing in those runs. Once the tag exists, the next main
+push resumes release PR creation. This pre-check is an observation, not an atomic
+fence with later publication.
 
 Both gates use workflow tokens and REST only, with 30-second command bounds,
 at most ten 100-item pages per list and 60 requests per invocation; queue discovery

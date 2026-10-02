@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
   merge_group:
   # Main pushes, weekly schedules and manual dispatch seed Rust caches.
   # PR and merge-group runs only restore; cache writers require the main ref.

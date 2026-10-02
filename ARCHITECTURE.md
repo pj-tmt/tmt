@@ -3495,16 +3495,17 @@ and release-please errors remain failures. The check is not atomic with a later
 branch update; [Development](DEVELOPMENT.md#queued-release-pull-requests) owns
 its race, token and recovery behavior.
 `release-pr-safety.mjs` owns the read-only release PR safety gates. `Code quality`
-checks PR notes on PR body edits and merge groups: the compare base must be the
+checks PR notes on PR updates and merge groups: the compare base must be the
 component's newest published tag, and each linked commit must descend from that
 tag and be an ancestor of the candidate base, excluding the tag itself. It reuses
 release version/policy owners and does not regenerate or count expected changelog
 entries. Pending squash queue commits have no REST commit/PR associations yet;
 the gate resolves their GitHub-appended PR numbers, verifies PR title/repository/base
-metadata and checks every release candidate in the cumulative pending range.
+metadata and checks every release candidate’s current notes in the cumulative pending range.
+Body/title edits do not restart full PR CI; the merge-group REST read gates the current body.
 Missing or inconsistent anchors, notes, queue data and bounded discovery fail visibly.
 The same owner checks every manifest component version before release-please:
-a matching draft without an exact git tag skips `release-pr`, while `github-release`
+a visible matching draft without an exact git tag skips `release-pr`, while `github-release`
 and build dispatch remain available. Published releases and tagged drafts do not
 hold creation. REST reads use explicit workflow credentials and bounded pages;
 no release or tag is mutated by either gate.

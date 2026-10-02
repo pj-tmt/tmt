@@ -289,12 +289,12 @@ describe('HEADGREEN release PR discovery', () => {
         })
       ).toThrow();
     }));
-  it('checks pull request body-edit events and rejects unsupported/missing event data', () =>
+  it('checks pull request events and rejects unsupported/missing event data', () =>
     fixture(({ reader, base }) => {
       expect(
         verifyReleasePrNotes({
           eventName: 'pull_request',
-          event: { action: 'edited', pull_request: { ...pr(notes(base)), base: { sha: base } } },
+          event: { pull_request: { ...pr(notes(base)), base: { sha: base } } },
           components,
           reader,
         })
@@ -425,8 +425,9 @@ describe('workflow safety wiring', () => {
     .split('\n')
     .map((line) => line.slice(10))
     .join('\n');
-  it('requires notes in Code quality on PR/body edits and cumulative merge groups', () => {
-    expect(ci).toContain('types: [opened, synchronize, reopened, edited]');
+  it('requires notes on PR updates and merge groups without restarting CI on edits', () => {
+    expect(ci).toContain('types: [opened, synchronize, reopened]');
+    expect(ci.split('  pull_request:\n')[1].split('  merge_group:')[0]).not.toContain('edited');
     expect(ci.split('  code-quality:\n')[1]).toContain('fetch-depth: 0');
     expect(ci).toContain('run: node typescript/scripts/release-pr-safety.mjs notes');
     expect(ci).toContain('GITHUB_TOKEN: ${{ github.token }}');
