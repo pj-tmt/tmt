@@ -2589,7 +2589,14 @@ load's members to one fetcher thread that runs due work off the paint path and
 again at the shortest `every`; a save moves the cache directory's stamp, which
 `board::changes` watches, so the board reloads early. The board sizes it with `tmt-cli-style`'s one solver
 (`grid::solve`, `grid::span`, `grid::fit`, `grid::fit_lines`). `rows::Column`
-uses `grid::Basis` for cell or percent widths; bounds stay in cells. The solver
+uses `grid::Basis` for cell or percent widths; bounds stay in cells. `rows::Rows`
+owns positional coverage: cells start at track zero, so the maximum line span
+covers a prefix, including empty cells. `Rows::solve` passes only that prefix to
+the shared solver and pads uncovered trailing positions with `None`, retaining
+span indices. Uncovered columns remain projection sources; their JSON metadata
+adds optional `valueOnly: true`, omitted for covered columns. `Column::display`
+ignores their sizing settings so flat text lists retain natural values. No shared
+solver or all-covered output contract changes. The solver
 resolves percentages against data width after marks/borders/gaps, rounds by
 largest remainder, clamps cell bounds (percent columns default to a four-cell minimum, capped by an explicit max), then grows. Hiding recomputes the shown set.
 `grid::fit_lines` owns escaped, exact-cell-width bounded wrapping, with a final

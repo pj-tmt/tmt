@@ -1382,6 +1382,62 @@ describe('squad extension', () => {
     });
   });
 
+  it('marks uncovered columns value-only while preserving their values and ignoring text sizing', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'worker');
+      await squad(sandbox, ['init', 'checkout']);
+      await squad(sandbox, ['add', 'worker']);
+      await squad(sandbox, [
+        'set',
+        'worker',
+        'task=alpha beta gamma delta epsilon zeta eta theta',
+        'pr_state=OPEN',
+      ]);
+      const example = readFileSync(
+        new URL(
+          '../../../extensions/tmt-squad/rust/tmt-squad/src/rows/fixtures/uncovered-tracks.toml',
+          import.meta.url
+        ),
+        'utf8'
+      );
+      const file = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(file, example);
+      const result = await squad(sandbox, ['ls', '--squad', 'checkout']);
+      expect(result.status).toBe(0);
+      expect(
+        result.body.columns.slice(0, 4).every((c: Record<string, unknown>) => !('valueOnly' in c))
+      ).toBe(true);
+      expect(
+        result.body.columns.slice(4).map((c: Record<string, unknown>) => [c.field, c.valueOnly])
+      ).toEqual([
+        ['ctx', true],
+        ['model', true],
+      ]);
+      expect(result.body.columns[4]).toMatchObject({
+        width: 6,
+        from: 'session.usage.tokens',
+        format: 'tokens',
+      });
+      expect(result.body.lines[3]).toEqual([
+        { field: null, span: 1 },
+        { field: 'ctx', span: 1 },
+        { field: 'model', span: 2 },
+      ]);
+      expect(result.body.sections[0].rows[0].fields.task).toBe(
+        'alpha beta gamma delta epsilon zeta eta theta'
+      );
+      const first = await runCli(sandbox, ['sq', 'ls', '--squad', 'checkout']);
+      writeFileSync(
+        file,
+        example.replace('width = 6', 'width = 200').replace('width = 14', 'width = 200')
+      );
+      const second = await runCli(sandbox, ['sq', 'ls', '--squad', 'checkout']);
+      expect(second.status).toBe(0);
+      expect(second.stdout).toBe(first.stdout);
+    });
+  });
+
   it('keeps several squads apart: ls lists each, changes require a choice', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

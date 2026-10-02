@@ -1066,14 +1066,11 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 .max()
                 .unwrap_or(0)
         };
-        let tracks: Vec<_> = (0..rows.columns.len())
-            .map(|index| rows.columns[index].track(natural(index)))
-            .collect();
         // Two cells for the row mark, and room at the right for the widest age
         // mark when a row has one, unless that would hide a column: then the
         // marks give way.
         let available = usize::from(area.width).saturating_sub(2);
-        let widths = grid::solve(&tracks, Some(available), GAP);
+        let widths = rows.solve(natural, available, GAP);
         let ages = app
             .items()
             .into_iter()
@@ -1085,7 +1082,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             .max();
         let widths = match ages {
             Some(age) => {
-                let reserved = grid::solve(&tracks, Some(available.saturating_sub(age)), GAP);
+                let reserved = rows.solve(natural, available.saturating_sub(age), GAP);
                 let shown = |widths: &[Option<usize>]| widths.iter().flatten().count();
                 if shown(&reserved) == shown(&widths) {
                     reserved
@@ -1312,6 +1309,46 @@ mod tests {
             row[key] = value.clone();
         }
         row
+    }
+
+    #[test]
+    fn uncovered_source_columns_do_not_squeeze_the_drawn_grid() {
+        let config: toml_edit::DocumentMut = include_str!("../rows/fixtures/uncovered-tracks.toml")
+            .parse()
+            .unwrap();
+        let rows =
+            crate::rows::read(config["squad"]["checkout"].as_table_like(), "checkout").unwrap();
+        let task = "long task ".repeat(60);
+        let sections = json!([{"title": null, "rows": [row("worker", "working", &task, json!({
+            "fields": {"state": "working", "task": task, "pr_state": "#42 OPEN", "ctx": "487k", "model": "test-model"}
+        }))]}]);
+        for width in [146, 200] {
+            let mut full = board(sections.clone());
+            full.view.as_mut().unwrap().rows = rows.clone();
+            let mut covered = board(sections.clone());
+            let mut trimmed = rows.clone();
+            trimmed.columns.truncate(4);
+            covered.view.as_mut().unwrap().rows = trimmed;
+            let actual = draw(&full, width, 20);
+            assert_eq!(actual, draw(&covered, width, 20));
+            assert!(
+                actual
+                    .iter()
+                    .any(|line| line.contains("487k") && line.contains("test-model"))
+            );
+            assert_eq!(
+                full.view
+                    .as_ref()
+                    .unwrap()
+                    .derived
+                    .borrow()
+                    .grid
+                    .as_ref()
+                    .unwrap()
+                    .widths[4..],
+                [None, None]
+            );
+        }
     }
 
     /// Explicit crew keeps its original columns and rendering byte for byte.
