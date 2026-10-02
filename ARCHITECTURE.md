@@ -2336,6 +2336,14 @@ an owned core skill. CLI upgrades refresh recorded Office links without creating
 missing integrations. The driver descriptors (see Agent drivers) are the only
 provider inventory. Skill installation does not open application configuration, SQLite
 or tmux, and never silently replaces an unmanaged path.
+Ownership requires a matching known skill name and a link into this TMT home's
+canonical `skill-assets` store. Existing generations retain digest and inventory
+validation; a missing generation is a dangling TMT link, eligible for refresh or
+removal. A real directory, mismatched name, outside link, or modified source is
+preserved as a conflict. Historical bundled Office target intents join owner
+records for explicit extension removal, and completed removal retires those
+intents, including preserved user conflicts, so core refresh cannot resurrect
+or reclaim an integration the user removed.
 
 Extension-owned skills arrive as bytes through the local API
 (`skills.install`/`skills.remove`, both requiring explicit `consent: true` from
@@ -2391,8 +2399,9 @@ facade's `release_verifier` until PR B of #355.
 Removal (`uninstall_extension`, for any extension product) validates ownership
 of every command link, refuses a foreign same-named command, and deactivates the
 links without deleting releases or application data. It is recoverable, not a multi-file atomic deletion:
-a missing command link with a retained activation is reported as invalid and
-explicit uninstall can finish that state.
+a missing command link with a retained activation is reported by `extension ls`
+as `partiallyRemoved` with an exact removal command, and explicit uninstall
+can finish that state. Listing this state does not execute or mutate it.
 
 `tmt extension install|upgrade|rm|ls` (`tmt-cli::extension_install_command`)
 is the public surface for the official extensions over this path. Its facade
@@ -2475,6 +2484,11 @@ version pin; extension verification and skill settlement retain their existing o
 JSON/non-terminal runs without `--yes` report `consentRequired` without mutation.
 Product failures remain independent in the aggregate report; CLI failure stops the
 extension phase, while a pinned CLI permits it. No rollback or second installer exists.
+`NATIVE_UPGRADE_FAILED` includes an explicit diagnostic `cause` in JSON. HTTPS
+failures retain the transport cause or diagnostic class without echoing rejected
+URI/proxy credentials. Managed-skill conflict reports retain the path array and
+provide one shell-quoted backup command per preserved entry; recovery moves the
+entry outside skill discovery without changing its source.
 
 Explicit extension `install --repair` is a separate recovery composition in
 `native_install::repair`, for GitHub and local-archive receipts. `receipt`

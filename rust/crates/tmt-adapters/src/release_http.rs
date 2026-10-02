@@ -202,7 +202,18 @@ fn map_ureq_error(error: ureq::Error) -> io::Error {
         ureq::Error::BodyExceedsLimit(_) => {
             invalid_response("HTTPS response exceeds its size limit")
         }
-        _ => io::Error::other("HTTPS request failed"),
+        ureq::Error::Io(error) => {
+            io::Error::other(format!("HTTPS I/O failed ({:?}): {error}", error.kind()))
+        }
+        // URI/proxy errors can contain credentials from the environment. Keep
+        // their diagnostic class, never the rejected URL or proxy response.
+        ureq::Error::BadUri(_) | ureq::Error::RequireHttpsOnly(_) => {
+            io::Error::other("HTTPS request failed: invalid HTTPS URI")
+        }
+        ureq::Error::ConnectProxyFailed(_) => {
+            io::Error::other("HTTPS request failed: proxy connection refused")
+        }
+        error => io::Error::other(format!("HTTPS request failed: {error}")),
     }
 }
 

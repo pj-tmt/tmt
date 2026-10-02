@@ -143,6 +143,15 @@ impl SkillAssets {
         if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return false;
         }
+        // A removed generation leaves dangling links, not user content. Only
+        // canonical paths inside this home's store qualify; a symlinked store
+        // ancestor escaping the store cannot acquire ownership.
+        if !super::files::exists(version).unwrap_or(true) {
+            return super::files::resolved(self.root()).is_ok_and(|root| {
+                super::files::resolved(source)
+                    .is_ok_and(|resolved| resolved == root.join(expected).join(source_name))
+            });
+        }
         // The current layout, then each earlier one that held this skill.
         let contains = |count: usize| {
             BUNDLED[..count]
