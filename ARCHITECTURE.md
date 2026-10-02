@@ -3263,8 +3263,8 @@ Shared setup lives in `test/support`, while assertions remain in the scenarios.
 The native process suite proves parser, configuration, identity, notes,
 response, exchange, talk, installation and skill contracts through the real executable.
 Docker E2E supplies private tmux, caller, lifecycle, transport and cross-process
-evidence. The Office command and terminal-inspection scenarios are Office-owned
-in the component map; retained-release setup uses the private installer, while
+evidence. The Office command and terminal-inspection scenarios are associated with Office
+through the component map's `selectedBy` entries; retained-release setup uses the private installer, while
 frozen public acquisition refusal is covered by the native Office lifecycle suite. Storage adapter tests prove migrations, transaction rollback,
 contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
