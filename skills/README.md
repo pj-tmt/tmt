@@ -165,5 +165,5 @@ tmt learn --skill
 tmt install claude --json   # A correct existing link reports changed: false
 ```
 
-Use [Working](../site/src/chapters/working.mdx) for the first live exchange,
-recovery and roles, and [Settings](../site/src/chapters/settings.mdx) for configuration.
+Use [Working](https://pj-tmt.github.io/tmt/working) for the first live exchange,
+recovery and roles, and [Settings](https://pj-tmt.github.io/tmt/working/settings) for configuration.
