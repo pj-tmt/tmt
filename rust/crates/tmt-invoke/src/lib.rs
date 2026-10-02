@@ -15,6 +15,24 @@ pub struct Request<'a> {
     pub deadline: Instant,
     /// Independent bound for each captured stream; zero permits no output.
     pub max_stream_bytes: usize,
+    /// Child launch policy; defaults preserve inherited environment and owned group.
+    pub launch: LaunchOptions<'a>,
+}
+
+/// Controls applied through the existing invocation entry point.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LaunchOptions<'a> {
+    pub environment: EnvironmentPolicy<'a>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub enum EnvironmentPolicy<'a> {
+    /// Preserve the caller's complete environment.
+    #[default]
+    Inherit,
+    /// Clear the environment and copy only these named variables from the caller.
+    /// Missing names stay absent; values are not interpreted or converted to UTF-8.
+    ClearAllowlist(&'a [OsString]),
 }
 
 #[derive(Debug)]

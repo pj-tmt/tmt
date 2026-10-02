@@ -303,7 +303,7 @@ remotely callable.
 | Logical operation                                                                 | M1 authority / public core mapping                                                                                                                 |
 | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`                                                                    | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                          |
-| `agents.list`                                                                     | `agents.read`; `tmt list --json` projected to allowed UUID/name/presence only, no pane/address/cwd/process/profile leakage.                        |
+| `agents.list`                                                                     | `agents.read`; `tmt ls --json` projected to allowed UUID/name/presence only, no pane/address/cwd/process/profile leakage.                        |
 | `identities.status`                                                               | `status.read`; restrict input to permitted UUIDs. Self-report is not readiness or completion.                                                      |
 | `dispatch.create`                                                                 | `talk.hold`; one permitted direct request recipient, anonymous originator, frozen intent held until local approval; no fan-out/announcement in M1. |
 | `dispatch.show`, `operation.show`                                                 | `results.own`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                      |
@@ -395,7 +395,8 @@ messages cannot initiate that handoff. Exact loopback host permission is added f
 integration. Worker restart loads CryptoKey and frozen IDs from IndexedDB, creates a new session and
 recovers operation state before any explicit retry. Never automatically resend.
 
-Remote keeps files only in its own subtree of the normal core-reported data root, with owner-only
+Remote keeps files only in its own subtree of the data root reported by `tmt api` operation
+`storage.root`, with owner-only
 directories, 0600 secret/state files, no-follow bounded regular-file admission and durable atomic
 state replacement. Never rewrite core DB/config or provider settings. Local append-only audit
 records time, client/request/operation IDs, resource UUIDs, digest, grant/window revision, decision

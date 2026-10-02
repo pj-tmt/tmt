@@ -4,13 +4,13 @@
 
 use super::*;
 use crate::{
-    host::{ActionError, HostError, driver::HostDriver},
+    host::{ActionError, DeliveryError, HostError, driver::HostDriver},
     process::CommandError,
-    tmux::{DeliveryError, FocusError},
+    tmux::FocusError,
 };
 use tmt_core::{
     binding::{BindingEndpoint, session::RuntimeState},
-    driver::Focused,
+    driver::{ActionResult, DeliveryAcceptance, Focused, SendFailure},
 };
 
 impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
@@ -53,6 +53,15 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
 
     fn has_input(&self) -> bool {
         true
+    }
+
+    /// tmux knows no agents: every message is raw pane input.
+    fn prompt(
+        &mut self,
+        _: &Binding,
+        _: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>> {
+        ActionResult::Unsupported
     }
 
     fn input(&mut self, binding: &Binding, message: &str) -> Result<(), DeliveryError> {
@@ -592,5 +601,132 @@ mod tests {
             1,
             "only the evidence probe ran"
         );
+    }
+
+    /// tmux evidence and transport, behind a host that recognizes agents and
+    /// answers every prompt with `answer`.
+    struct AgentHost<'a, R> {
+        tmux: BindingSession<'a, R>,
+        answer: fn() -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>>,
+        prompts: Vec<String>,
+    }
+
+    impl<R: CommandRunner> HostDriver for AgentHost<'_, R> {
+        fn begin_coordination(&mut self) {
+            HostDriver::begin_coordination(&mut self.tmux)
+        }
+        fn budget_available(&self) -> bool {
+            HostDriver::budget_available(&self.tmux)
+        }
+        fn snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, HostError> {
+            self.tmux.snapshot(panes)
+        }
+        fn probe(
+            &mut self,
+            server: &ServerEvidence,
+            panes: &[String],
+        ) -> Result<EndpointProbe, HostError> {
+            self.tmux.probe(server, panes)
+        }
+        fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), HostError> {
+            HostDriver::publish(&mut self.tmux, binding, identity)
+        }
+        fn clear(&mut self, binding: &Binding) -> Result<bool, HostError> {
+            HostDriver::clear(&mut self.tmux, binding)
+        }
+        fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, CommandError> {
+            self.tmux.observed_runtime(binding)
+        }
+        fn pane_incarnation(&mut self, pane_pid: u64) -> Result<Option<String>, HostError> {
+            HostDriver::pane_incarnation(&mut self.tmux, pane_pid)
+        }
+        fn has_input(&self) -> bool {
+            true
+        }
+        fn prompt(
+            &mut self,
+            _: &Binding,
+            message: &str,
+        ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>> {
+            self.prompts.push(message.into());
+            (self.answer)()
+        }
+        fn input(&mut self, binding: &Binding, message: &str) -> Result<(), DeliveryError> {
+            self.tmux.input(binding, message)
+        }
+        fn focus_preflight(&self, binding: Option<&Binding>) -> Result<(), ActionError> {
+            self.tmux.focus_preflight(binding)
+        }
+        fn focus(&mut self, binding: &Binding) -> Result<Focused, ActionError> {
+            HostDriver::focus(&mut self.tmux, binding)
+        }
+    }
+
+    #[test]
+    fn a_prompt_falls_back_to_raw_input_only_when_unsupported() {
+        type Answer = fn() -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>>;
+        let cases: [(Answer, usize); 6] = [
+            (|| ActionResult::Completed(DeliveryAcceptance::Submitted), 1),
+            (
+                || ActionResult::Failed(SendFailure::AwaitingApproval(ActionError::Unverified)),
+                1,
+            ),
+            (
+                || ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified)),
+                1,
+            ),
+            (
+                || ActionResult::Failed(SendFailure::Uncertain(ActionError::Unverified)),
+                1,
+            ),
+            (
+                || ActionResult::Failed(SendFailure::Denied(ActionError::Unverified)),
+                1,
+            ),
+            // No agent recognized: tmux's own paste, buffer and Enter.
+            (|| ActionResult::Unsupported, 4),
+        ];
+        for (answer, calls) in cases {
+            let entry = entry();
+            let runner = ScriptedRunner::default();
+            runner.push_output(observation(&entry, 654, true), Vec::new());
+            for _ in 0..3 {
+                runner.push_output(Vec::new(), Vec::new());
+            }
+            let tmux = Tmux::new(runner);
+            let mut host = AgentHost {
+                tmux: BindingSession::new(&tmux),
+                answer,
+                prompts: Vec::new(),
+            };
+            let sent = driver::send(&mut host, &entry, "hello!");
+            assert_eq!(host.prompts, ["hello!"]);
+            let expected = match answer() {
+                ActionResult::Unsupported => ActionResult::Completed(DeliveryAcceptance::Submitted),
+                answer => answer,
+            };
+            assert_eq!(format!("{sent:?}"), format!("{expected:?}"));
+            assert_eq!(tmux.runner.calls.borrow().len(), calls, "{expected:?}");
+        }
+    }
+
+    #[test]
+    fn a_runtime_not_verified_running_is_never_prompted() {
+        let mut entry = entry();
+        entry.binding.as_mut().unwrap().session.state = RuntimeState::Ended;
+        let runner = ScriptedRunner::default();
+        runner.push_output(observation(&entry, 654, true), Vec::new());
+        let tmux = Tmux::new(runner);
+        let mut host = AgentHost {
+            tmux: BindingSession::new(&tmux),
+            answer: || ActionResult::Completed(DeliveryAcceptance::Submitted),
+            prompts: Vec::new(),
+        };
+        let sent = driver::send(&mut host, &entry, "hello");
+        assert!(host.prompts.is_empty(), "{sent:?}");
+        assert!(matches!(
+            sent,
+            ActionResult::Failed(SendFailure::NotSent(_))
+        ));
     }
 }

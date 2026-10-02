@@ -52,6 +52,7 @@ impl Fixture {
                 input,
                 deadline: Instant::now() + timeout,
                 max_stream_bytes: limit,
+                launch: Default::default(),
             },
             stop,
         )
@@ -239,6 +240,7 @@ fn failed_spawn_and_expired_request_never_leave_a_child() {
             input: b"",
             deadline: Instant::now(),
             max_stream_bytes: 64,
+            launch: Default::default(),
         },
         None,
     )
@@ -253,6 +255,7 @@ fn failed_spawn_and_expired_request_never_leave_a_child() {
             input: b"",
             deadline: Instant::now() + Duration::from_secs(5),
             max_stream_bytes: 64,
+            launch: Default::default(),
         },
         None,
     )
@@ -353,4 +356,88 @@ fn discovery_child() {
         _ => panic!("unknown discovery fixture"),
     }
     println!("discovery fixture checked");
+}
+
+#[test]
+fn child_environment_policy_does_not_mutate_the_caller() {
+    use std::os::unix::ffi::OsStringExt;
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "tests::environment_policy_child",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("INVOKE_KEEP", "space and 'literal'")
+        .env("INVOKE_SECRET", "excluded-test-secret")
+        .env("INVOKE_BYTES", OsString::from_vec(vec![b'x', 0xff]))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("environment fixture checked"));
+}
+
+#[test]
+#[ignore = "isolated environment fixture launched by the parent test"]
+fn environment_policy_child() {
+    use std::os::unix::ffi::OsStrExt;
+    let snapshot = || {
+        let mut vars: Vec<_> = std::env::vars_os().collect();
+        vars.sort();
+        vars
+    };
+    let before = snapshot();
+    let capture = |environment| {
+        let output = invoke(
+            Request {
+                program: Path::new("/usr/bin/env"),
+                args: &[],
+                input: b"",
+                deadline: Instant::now() + Duration::from_secs(5),
+                max_stream_bytes: 4096,
+                launch: LaunchOptions { environment },
+            },
+            None,
+        )
+        .unwrap();
+        assert!(output.status.success() && output.stderr.is_empty());
+        output.stdout
+    };
+    let inherited = capture(EnvironmentPolicy::default());
+    assert!(
+        inherited
+            .windows(b"INVOKE_SECRET=excluded-test-secret".len())
+            .any(|w| w == b"INVOKE_SECRET=excluded-test-secret")
+    );
+    assert!(capture(EnvironmentPolicy::ClearAllowlist(&[])).is_empty());
+    let names = [
+        "INVOKE_KEEP".into(),
+        "INVOKE_BYTES".into(),
+        "INVOKE_MISSING".into(),
+        "INVOKE_KEEP".into(),
+    ];
+    let allowed = capture(EnvironmentPolicy::ClearAllowlist(&names));
+    let mut lines: Vec<_> = allowed
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .collect();
+    lines.sort();
+    assert_eq!(
+        lines,
+        [
+            b"INVOKE_BYTES=x\xff".as_slice(),
+            b"INVOKE_KEEP=space and 'literal'".as_slice()
+        ]
+    );
+    assert_eq!(
+        std::env::var_os("INVOKE_BYTES").unwrap().as_bytes(),
+        b"x\xff"
+    );
+    assert_eq!(snapshot(), before);
+    println!("environment fixture checked");
 }

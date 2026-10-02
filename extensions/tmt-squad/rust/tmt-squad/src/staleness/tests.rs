@@ -97,6 +97,7 @@ fn member(id: &str, fields: &[(&str, &str)]) -> Member {
         meta: BTreeMap::new(),
         seen: Value::Null,
         numbers: BTreeMap::new(),
+        colors: Default::default(),
         failed: Default::default(),
     }
 }
@@ -475,4 +476,77 @@ fn failed_publication_does_not_return_age_that_was_not_committed() {
                     .contains(".tmp")
             })
     );
+}
+
+#[test]
+fn unchanged_observation_keeps_cache_until_the_watermark_is_due() {
+    let fixture = Fixture::new();
+    let rows = members();
+    let content = notes("one");
+    let start = 1_000;
+    fixture.record(&rows, Some(&content), None, start);
+    let observer = fixture.observer();
+    let path = observer.path.clone().unwrap();
+    drop(observer);
+    let bytes = fs::read(&path).unwrap();
+    let metadata = fs::metadata(&path).unwrap();
+    let before = fixture.record(
+        &rows,
+        Some(&content),
+        None,
+        start + WATERMARK_INTERVAL_MS - 1,
+    );
+    assert_eq!(before.members[MEMBER]["ageMs"], WATERMARK_INTERVAL_MS - 1);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(fs::metadata(&path).unwrap().ino(), metadata.ino());
+    assert_eq!(
+        fs::metadata(&path).unwrap().modified().unwrap(),
+        metadata.modified().unwrap()
+    );
+    let due = fixture.record(&rows, Some(&content), None, start + WATERMARK_INTERVAL_MS);
+    assert_eq!(due.members[MEMBER]["unchangedSinceMs"], start);
+    assert_eq!(due.members[MEMBER]["state"], "stale");
+    let cached = fixture.observer().document;
+    assert_eq!(cached["observedAtMs"], start + WATERMARK_INTERVAL_MS);
+    assert_ne!(fs::read(&path).unwrap(), bytes);
+    let watermark_bytes = fs::read(&path).unwrap();
+    let mut changed = rows.clone();
+    changed[1].fields.insert("task".into(), "new task".into());
+    let update = fixture.record(
+        &changed,
+        Some(&content),
+        None,
+        start + WATERMARK_INTERVAL_MS + 1,
+    );
+    assert_eq!(update.members[MEMBER]["ageMs"], 0);
+    assert_ne!(
+        fs::read(&path).unwrap(),
+        watermark_bytes,
+        "content changes publish immediately"
+    );
+}
+
+#[test]
+fn rollback_crossing_the_persisted_watermark_restarts_grace() {
+    let fixture = Fixture::new();
+    let rows = members();
+    let content = notes("one");
+    let start = 1_000;
+    fixture.record(&rows, Some(&content), None, start);
+    fixture.record(&rows, Some(&content), None, start + WATERMARK_INTERVAL_MS);
+    // This observation is not published, but still computes the current age.
+    fixture.record(
+        &rows,
+        Some(&content),
+        None,
+        start + WATERMARK_INTERVAL_MS + 10,
+    );
+    let rollback_at = start + WATERMARK_INTERVAL_MS - 1;
+    let rollback = fixture.record(&rows, Some(&content), None, rollback_at);
+    assert_eq!(rollback.members[MEMBER], unavailable("unknown"));
+    assert_eq!(rollback.notes, unavailable("unknown"));
+    assert_eq!(fixture.observer().document["observedAtMs"], rollback_at);
+    let next = fixture.record(&rows, Some(&content), None, rollback_at + 1);
+    assert_eq!(next.members[MEMBER]["ageMs"], 1);
+    assert_eq!(next.notes["ageMs"], 1);
 }

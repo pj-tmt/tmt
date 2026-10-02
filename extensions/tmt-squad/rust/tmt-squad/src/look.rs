@@ -2,7 +2,7 @@
 //! squad's own `[squad.<name>.theme]` over it. Squad names no colors of its
 //! own; every color is a design token that tmt-cli-style renders.
 
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use tmt_cli_style::{Depth, Role, Theme, theme::screen};
 
 /// A color named in `squad.toml` or a layout default: a design token, or one
@@ -113,6 +113,17 @@ impl Look {
         screen::style(&self.theme, role, self.depth)
     }
 
+    /// Keep the row's foreground while applying the selection background.
+    /// A terminal without a background color still gets visible selection.
+    pub fn selection(&self) -> Style {
+        let style = self.role(Role::Text).patch(self.role(Role::Selection));
+        if style.bg.is_none() {
+            style.add_modifier(Modifier::REVERSED)
+        } else {
+            style
+        }
+    }
+
     /// A named color: its token's style, or no style for `default` and
     /// anything unknown.
     pub fn named(&self, name: &str) -> Style {
@@ -178,6 +189,27 @@ mod tests {
             theme(&settings(&[("base", "dark")]), &[], "squad.p.theme"),
             Err(Problem::Global(message)) if message.starts_with("`theme.base`")
         ));
+    }
+
+    #[test]
+    fn selection_has_a_background_or_a_visible_reverse_fallback() {
+        for base in tmt_cli_style::Base::ALL {
+            for depth in [Depth::TrueColor, Depth::Ansi16, Depth::None] {
+                let look = Look {
+                    theme: Theme::new(base),
+                    depth,
+                };
+                let selection = look.selection();
+                let background = look.role(Role::Selection).bg;
+                assert_eq!(selection.bg, background);
+                assert_eq!(selection.fg, look.role(Role::Text).fg);
+                assert_eq!(
+                    selection.add_modifier.contains(Modifier::REVERSED),
+                    background.is_none(),
+                    "{base:?} {depth:?}: selection stays visible",
+                );
+            }
+        }
     }
 
     #[test]

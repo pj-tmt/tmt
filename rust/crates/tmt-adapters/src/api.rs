@@ -27,6 +27,7 @@ pub const INPUT_LIMIT: usize = crate::dispatch::INPUT_LIMIT + 4096;
 pub const OUTPUT_LIMIT: usize = 12 * 1_048_576 + 65_536;
 const OPS: &[&str] = &[
     "capabilities",
+    "storage.root",
     "changes.cursor",
     "requests.list",
     "requests.show",
@@ -100,6 +101,8 @@ struct Envelope {
 }
 pub enum Request {
     Capabilities,
+    /// Read-only: the selected data directory, without opening storage.
+    StorageRoot,
     /// Read-only: the durable change cursor.
     ChangeCursor,
     History(HistoryQuery),
@@ -196,6 +199,11 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         {
             Request::Capabilities
         }
+        "storage.root"
+            if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
+        {
+            Request::StorageRoot
+        }
         "changes.cursor"
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
@@ -244,6 +252,13 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     if matches!(request, Request::Capabilities) {
         return Ok(capabilities());
     }
+    if matches!(request, Request::StorageRoot) {
+        let root = crate::config::normalize(
+            &std::path::absolute(&paths.global_dir).map_err(|_| Fault::unavailable())?,
+        );
+        let root = root.to_str().ok_or_else(Fault::unavailable)?;
+        return serde_json::to_vec(&json!({"dataRoot": root})).map_err(|_| Fault::unavailable());
+    }
     if let Request::SkillsInstall {
         owner,
         skills,
@@ -274,6 +289,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     let mut storage = Storage::open(&paths.database).map_err(|_| Fault::unavailable())?;
     let pending = match request {
         Request::Capabilities
+        | Request::StorageRoot
         | Request::Notes(_)
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
@@ -322,6 +338,87 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn storage_root_reports_selected_directory_without_creating_or_opening_state() {
+        let directory = crate::test_support::TestDirectory::new();
+        let selected = directory.path.join("selected-data");
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&selected),
+            Some(&directory.path.join("ignored-xdg")),
+        );
+        let request = || decode(r#"{"version":1,"operation":"storage.root","input":{}}"#).unwrap();
+        let body = execute(&paths, request()).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"dataRoot": selected})
+        );
+        assert!(
+            !selected.exists(),
+            "discovery must not create the data directory"
+        );
+        assert_eq!(std::fs::read_dir(&directory.path).unwrap().count(), 0);
+
+        // Existing invalid core files cannot affect discovery and remain untouched.
+        std::fs::create_dir(&selected).unwrap();
+        std::fs::write(&paths.database, b"not a SQLite database").unwrap();
+        std::fs::write(&paths.global_config, b"not JSON").unwrap();
+        assert_eq!(execute(&paths, request()).unwrap(), body);
+        assert_eq!(
+            std::fs::read(&paths.database).unwrap(),
+            b"not a SQLite database"
+        );
+        assert_eq!(std::fs::read(&paths.global_config).unwrap(), b"not JSON");
+        assert_eq!(std::fs::read_dir(&selected).unwrap().count(), 2);
+        assert!(capabilities_list().contains(&"storage.root".to_owned()));
+        assert!(
+            serde_json::from_slice::<Value>(&capabilities())
+                .unwrap()
+                .get("dataRoot")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn storage_root_requires_empty_input_and_no_originator() {
+        for body in [
+            r#"{"version":1,"operation":"storage.root","input":{"path":"/tmp"}}"#,
+            r#"{"version":1,"operation":"storage.root","input":null}"#,
+            r#"{"version":1,"operation":"storage.root","input":[]}"#,
+            r#"{"version":1,"operation":"storage.root","identity":"Ada","input":{}}"#,
+            r#"{"version":1,"operation":"storage.root","originator":"anonymous","input":{}}"#,
+            r#"{"version":1,"operation":"storage.root","input":{},"extra":true}"#,
+        ] {
+            assert!(
+                matches!(
+                    decode(body),
+                    Err(Fault {
+                        code: "API_INPUT_INVALID",
+                        ..
+                    })
+                ),
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn storage_root_makes_a_selected_relative_path_absolute_without_canonicalizing() {
+        let directory = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(std::path::Path::new("missing-parent/../selected-data")),
+            None,
+        );
+        let body = execute(&paths, Request::StorageRoot).unwrap();
+        let result: Value = serde_json::from_slice(&body).unwrap();
+        let expected = std::env::current_dir().unwrap().join("selected-data");
+        assert_eq!(result, json!({"dataRoot": expected}));
+        assert_eq!(std::fs::read_dir(&directory.path).unwrap().count(), 0);
+    }
 
     #[test]
     fn version_and_nested_admission_preserve_strict_resource_decoders() {

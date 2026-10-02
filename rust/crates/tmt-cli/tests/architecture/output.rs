@@ -11,7 +11,13 @@ use syn::visit::{self, Visit};
 /// Crates whose human output must go through the style layer.
 /// `tmt-cli-style` renders, and `tmt-command-output` is core's output owner
 /// that delegates to it, so both are outside this scope.
-pub const GUARDED: &[&str] = &["tmt-cli", "tmt-office-command", "tmt-squad", "tmt-remote"];
+pub const GUARDED: &[&str] = &[
+    "tmt-cli",
+    "tmt-office-command",
+    "tmt-squad",
+    "tmt-remote",
+    "tmt-colab",
+];
 
 /// A function whose output is an exact byte stream, not styled text. Only
 /// that function is exempt; the rest of its file is still checked.

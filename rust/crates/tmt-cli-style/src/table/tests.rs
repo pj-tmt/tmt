@@ -221,7 +221,7 @@ fn the_shared_solver_lays_out_exactly_as_the_table_did() {
 /// 16-color rendering byte for byte.
 #[test]
 fn styled_cells_follow_the_theme() {
-    use crate::{Base, Depth, Theme};
+    use crate::{Base, Depth, Role, Theme};
     let mut table = Table::new(&[Column::Name, Column::Detail]);
     table.row([
         Cell::styled("ada", Token::Warn),
@@ -238,7 +238,12 @@ fn styled_cells_follow_the_theme() {
         "{truecolor:?}"
     );
     assert!(
-        truecolor.contains("\u{1b}[38;2;86;95;137m"),
+        truecolor.contains(
+            &Theme::default()
+                .style(Role::Dim, Depth::TrueColor)
+                .render()
+                .to_string()
+        ),
         "dim is a color: {truecolor:?}"
     );
     let sixteen = render(

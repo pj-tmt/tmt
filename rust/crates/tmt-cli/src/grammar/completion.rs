@@ -15,12 +15,12 @@ const IDENTITY_OPERANDS: &[(&[&str], &str)] = &[
     (&["talk"], "target"),
     (&["check"], "target"),
     (&["focus"], "target"),
-    (&["list"], "target"),
+    (&["ls"], "target"),
     (&["answer"], "from"),
     (&["identity", "show"], "name"),
     (&["preamble", "show"], "agent"),
     (&["preamble", "set"], "agent"),
-    (&["preamble", "clear"], "agent"),
+    (&["preamble", "rm"], "agent"),
 ];
 
 pub fn generate(shell: &str, output: &mut impl Write) -> io::Result<()> {
@@ -210,8 +210,10 @@ mod tests {
             vec!["preamble", "show", "Al"],
             vec!["preamble", "set", "Al"],
             vec!["preamble", "clear", "Al"],
+            vec!["preamble", "rm", "Al"],
             vec!["check", "Al"],
             vec!["ls", "Al"],
+            vec!["list", "Al"],
             vec!["talk", "Bob", "message", "--identity", "Al"],
             vec!["notes", "path", "--identity=Al"],
         ] {

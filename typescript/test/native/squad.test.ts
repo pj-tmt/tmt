@@ -86,6 +86,38 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('dispatches rm and remove identically while retaining the identity and its other metadata', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const id = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
+      expect(
+        (
+          await runCli(sandbox, [
+            'identity',
+            'meta',
+            'set',
+            'team',
+            'infra',
+            '--identity',
+            'worker',
+          ])
+        ).status
+      ).toBe(0);
+      for (const command of ['rm', 'remove']) {
+        expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+        expect((await squad(sandbox, ['set', 'worker', 'task=Review'])).status).toBe(0);
+        expect((await squad(sandbox, [command, 'worker'])).status).toBe(0);
+        expect(observe(sandbox).members).toEqual([]);
+        expect(observe(sandbox).metadata).toEqual([
+          { identity: 'worker', key: 'team', value: 'infra' },
+        ]);
+        const shown = await runCli(sandbox, ['identity', 'show', 'worker', '--json']);
+        expect(JSON.parse(shown.stdout).identity.id).toBe(id);
+      }
+    });
+  });
+
   it('reports observed age without changing board metadata or creating missing notes', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -289,6 +321,9 @@ describe('squad extension', () => {
       expect(completions[0].stdout).toBe('set\nskill\n');
       expect(completions[1].stdout).toBe(completions[0].stdout);
       const skill = await runCli(sandbox, ['sq', 'skill', 'show']);
+      expect(skill.stdout).toContain('`ctrl-r` refreshes the board in squad, leads and all views');
+      expect(skill.stdout).toContain('`f5 = "refresh"` binding remains supported');
+      expect(skill.stdout).not.toContain('Ctrl-R');
       expect(skill.stdout).toBe(
         readFileSync(
           fileURLToPath(
@@ -877,7 +912,14 @@ describe('squad extension', () => {
       const documentedFields = [...documented.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
-      expect(documentedFields.sort()).toEqual(Object.keys(rows[0]).sort());
+      expect(documentedFields.sort()).toEqual(
+        Object.keys(rows[0])
+          .filter((key) => key !== 'colors')
+          .sort()
+      );
+      expect(skill).toContain('- A row has the optional `colors` key');
+      expect(rows[0].colors).toEqual({ state: 'blocked' });
+      expect(rows[1].colors).toEqual({ state: 'working' });
       const nested = skill.slice(skill.indexOf('- Every row'), skill.indexOf('- A row with'));
       const ageFields = [...nested.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
@@ -1027,6 +1069,71 @@ describe('squad extension', () => {
       expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
       expect(help.stdout).toMatch(/\n {2}ls +List the members/);
       expect(help.stdout).not.toMatch(/\n {2}status /);
+      // Explicit F5 remains valid while the host preset uses ctrl-r.
+      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        toml,
+        `${readFileSync(toml, 'utf8')}\n[bind]\nctrl-r = "refresh"\nf5 = "refresh"\n`
+      );
+      const rebound = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(rebound.status).toBe(0);
+      expect(rebound.body.sections).toEqual(one.body.sections);
+    });
+  });
+
+  it('publishes opt-in percent and overflow metadata while fitting text and preserving full rows', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'worker');
+      await squad(sandbox, ['init', 'product']);
+      await squad(sandbox, ['add', 'worker']);
+      const task =
+        'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron';
+      await squad(sandbox, ['set', 'worker', `task=${task}`]);
+      const before = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(
+        before.body.columns.every(
+          (column: Record<string, unknown>) => !('overflow' in column) && !('max_lines' in column)
+        )
+      ).toBe(true);
+      writeFileSync(
+        path.join(sandbox.globalDir, 'squad.toml'),
+        [
+          '[squad.product.rows]',
+          'columns = [',
+          '  { name = "member", width = "20%", overflow = "ellipsis" },',
+          '  { name = "task", width = "40%", overflow = "wrap", max_lines = 2 },',
+          ']',
+          '',
+        ].join('\n')
+      );
+      const configured = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(configured.status).toBe(0);
+      expect(configured.body.columns[0]).toMatchObject({
+        field: 'member',
+        width: '20%',
+        overflow: 'ellipsis',
+      });
+      expect(configured.body.columns[0]).not.toHaveProperty('max_lines');
+      expect(configured.body.columns[1]).toMatchObject({
+        field: 'task',
+        width: '40%',
+        overflow: 'wrap',
+        max_lines: 2,
+      });
+      expect(configured.body.columns[1]).not.toHaveProperty('lines');
+      expect(configured.body.sections).toEqual(before.body.sections);
+      const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+      expect(text.status).toBe(0);
+      const data = text.stdout.split('\n').filter((line) => line.startsWith('  '));
+      expect(data).toHaveLength(2);
+      expect(data[0]).toContain('worker');
+      expect(data[0]).toContain('alpha beta');
+      expect(data[1]).toContain('…');
+      expect(data[1]).not.toContain('worker');
+      expect(configured.body.sections[0].rows[0].fields.task).toBe(task);
+      const after = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(after.body).toEqual(configured.body);
     });
   });
 
@@ -1061,6 +1168,69 @@ describe('squad extension', () => {
         name: 'worker',
         state: 'preparing',
       });
+    });
+  });
+  it('resolves state patterns into the same order and color tokens in JSON and text', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['Ben', 'exact', 'pattern', 'working', 'unknown']) {
+        await identity(sandbox, name);
+      }
+      await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      await squad(sandbox, ['add', 'exact', 'pattern', 'working', 'unknown']);
+      await squad(sandbox, ['set', 'exact', 'state=blocked']);
+      await squad(sandbox, ['set', 'pattern', 'state=BLOCKED-on-ci']);
+      await squad(sandbox, ['set', 'unknown', 'state=unranked']);
+      const squadToml = path.join(sandbox.globalDir, 'squad.toml');
+      const base = readFileSync(squadToml, 'utf8');
+      const settings = `
+[squad.product.states]
+blocked = { color = "red", sort = 7 }
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "blocked"
+sort = 0
+ignore_case = true
+[[squad.product.state_patterns]]
+match = "blocked*"
+color = "review"
+sort = 9
+`;
+      writeFileSync(squadToml, base + settings);
+      for (const sections of [
+        '',
+        '\n[[squad.product.section]]\ntitle = "All"\nsort = ["state"]\n',
+      ]) {
+        writeFileSync(squadToml, base + settings + sections);
+        const listed = await squad(sandbox, ['ls', '--squad', 'product']);
+        expect(listed.status).toBe(0);
+        const rows = listed.body.sections[0].rows;
+        expect(rows.map((row: { name: string }) => row.name)).toEqual([
+          'pattern',
+          'working',
+          'exact',
+          'unknown',
+        ]);
+        expect(rows.map((row: { colors?: { state?: string } }) => row.colors?.state)).toEqual([
+          'blocked',
+          'working',
+          'red',
+          undefined,
+        ]);
+        expect(rows[3]).not.toHaveProperty('colors');
+        const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
+        expect(text.status).toBe(0);
+        const order = ['pattern', 'working', 'exact', 'unknown'].map((name) =>
+          text.stdout.indexOf(name)
+        );
+        expect(order.every((offset) => offset >= 0)).toBe(true);
+        expect(order).toEqual([...order].sort((a, b) => a - b));
+        expect(text.stdout).toContain('BLOCKED-on-ci');
+      }
+      writeFileSync(squadToml, base + settings.replace('color = "blocked"', 'color = "pink"'));
+      const refused = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(refused.status).not.toBe(0);
+      expect(JSON.stringify(refused.body)).toContain('squad.product.state_patterns[0].color');
     });
   });
   it('renders user-defined sections from squad.toml and rejects invalid filters', async () => {

@@ -1,6 +1,6 @@
 //! The #501 extension guard: no extension source, production or test, names
 //! core's terminal-host port or its binding and endpoint model. Extensions
-//! reach presence through `tmt list --json` and the caller through
+//! reach presence through `tmt ls --json` and the caller through
 //! `tmt whoami`, so host changes (#479) stay inside core. Unlike the other
 //! guards this one reads test code too: a test stand-in that links the host
 //! port breaks with every host change just the same.
@@ -61,7 +61,7 @@ pub fn violations(sources: &[(String, String)]) -> Vec<String> {
                 path == **forbidden || path.starts_with(&format!("{forbidden}::"))
             }) {
                 violations.push(format!(
-                    "extensions/{file}: names {forbidden}; reach core through tmt list --json or tmt whoami"
+                    "extensions/{file}: names {forbidden}; reach core through tmt ls --json or tmt whoami"
                 ));
             }
         }

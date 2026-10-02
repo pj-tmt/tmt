@@ -87,7 +87,7 @@ members; a retired identity's replacement does not inherit membership. Room
 creation does not enroll anyone, and listing never sends. Scoped listening uses
 the request's original room, even after leaving; other rooms do not wake it.
 It keeps normal timeout/debounce and explicit acknowledgment behavior.
-`tmt room retire <room>` permanently stops new room work without deleting its
+`tmt room rm <room>` permanently stops new room work without deleting its
 roster, spatial area or history. After retirement, use its UUID with `room show`
 or `x listen --room`; old request replies still work. Reusing the name creates an
 independent room. Retirement is not the same as leaving or removing a map area.
@@ -264,7 +264,7 @@ Pre-send delay accepts zero or a positive finite value, up to 2,147,483,647 ms.
 Without hook/runtime evidence, a verified pane retains legacy delivery but agent
 readiness is unverified. Tmux cannot identify provider approval prompts. Never
 bypass a driver's denial or pending approval by manually pasting the request.
-Stored wait/polling mode settings are inert; `config clear mode` removes
+Stored wait/polling mode settings are inert; `config rm mode` removes
 only the explicit local obsolete key, without migrating other settings.
 
 ```bash
@@ -326,7 +326,7 @@ Use the same explicit commands inside or outside tmux:
 ```bash
 tmt identity create coordinator --json
 tmt identity show coordinator --json
-tmt identity list --json
+tmt identity ls --json
 ```
 
 These named and collection commands use only local storage, without tmux or
@@ -341,9 +341,9 @@ binds a pane or takes over another caller's identity. Multiple local callers
 may explicitly select the same identity; this is not authentication.
 
 Create returns `{identity:{id,name,canonicalName,lifetime},created}`; show returns
-`{identity:{id,name,canonicalName,lifetime}}`; list returns `{identities:[...]}` in
+`{identity:{id,name,canonicalName,lifetime}}`; ls returns `{identities:[...]}` in
 canonical-name order, including unbound identities. It does not report presence.
-Use ordinary `tmt list` for verified active pane destinations. A new identity
+Use ordinary `tmt ls` for verified active pane destinations. A new identity
 receives ordinary talk in Inbox while offline; `--inbox` explicitly suppresses
 live delivery even after binding with `add`, `name` or `this`.
 
@@ -352,10 +352,10 @@ Use shared identity metadata for exact local discovery:
 ```bash
 tmt identity meta set --identity coordinator project tmt
 tmt identity meta set --identity coordinator capability.review true
-tmt identity meta get --identity coordinator project
-tmt identity meta list --identity coordinator --json
+tmt identity meta show --identity coordinator project
+tmt identity meta ls --identity coordinator --json
 tmt identity meta rm --identity coordinator project
-tmt identity list --where project=tmt --has capability.review --json
+tmt identity ls --where project=tmt --has capability.review --json
 ```
 
 Repeat `--where KEY=VALUE` and `--has KEY` to combine exact predicates with AND;
@@ -372,7 +372,7 @@ Create requires a name. Explicit create/show names return `INVALID_NAME`
 (exit 3). Omitting the show name uses only the verified bound caller described
 above, never an active-pane or sole-identity fallback. Creation does not alter
 anonymous talk or request-ID result access. Use `rm <name>` for removal and
-`rename <old> <new>` to rename: the UUID, remembered session, profile, notes and
+`mv <old> <new>` to rename: the UUID, remembered session, profile, notes and
 history stay, requests already sent still arrive, and the old name returns
 `NAME_NOT_FOUND` (exit 3). A name another unretired identity holds is refused
 with `NAME_ALREADY_ACTIVE` (exit 5).
@@ -382,7 +382,7 @@ with `NAME_ALREADY_ACTIVE` (exit 5).
 ```bash
 tmt identity status set "Reviewing the renderer" --mood focused --for 60m --identity coordinator
 tmt identity status show --identity coordinator --json
-tmt identity status clear --identity coordinator
+tmt identity status rm --identity coordinator
 ```
 
 Use this for a short activity, not proof of availability or request completion.
@@ -439,13 +439,13 @@ tmt x ack <request-id> --revision <revision> --identity coordinator --json
 tmt x ackall --identity coordinator --json
 ```
 
-Bare `x` means `x list`: unacknowledged retained metadata only, without loading
+Bare `x` means `x ls`: unacknowledged retained metadata only, without loading
 prompt or final bodies. `--limit` defaults to 50 (1-200); `--after` defaults to 0.
 Follow non-null `nextAfter` with `--after`; this is a live revision cursor, not
 a frozen snapshot. Deduplicate by request ID; restart at 0 to refresh.
 
 List/show never acknowledge. Single `ack` requires the exact current revision
-from list/show; a stale revision returns `X_REVISION_CONFLICT` (exit 5).
+from ls/show; a stale revision returns `X_REVISION_CONFLICT` (exit 5).
 `ackall` needs no prior list, token or batching: it acknowledges the identity's
 current write-transaction snapshot and returns `acknowledgedThrough`, not a count.
 It does not claim you read every result. A new request or first final committed
@@ -501,14 +501,14 @@ existing durable identity explicitly when working outside tmux:
 tmt role show --identity reviewer --json
 tmt role set "Review correctness before style." --identity reviewer --json
 tmt role set --file role.md --identity reviewer --json
-tmt role clear --identity reviewer --json
+tmt role rm --identity reviewer --json
 ```
 
 Choose inline content or `--file`, not both. Omit `--identity` only when the
 caller has a verified live tmux identity; otherwise use explicit selection.
 Unknown names fail with `NAME_NOT_FOUND`; selecting a name does not create or
 bind it. An existing identity without a profile returns `role: null` in JSON.
-Clear removes only the profile, not the identity. Explicit access works while
+`rm` removes only the profile, not the identity. Explicit access works while
 unbound and does not load unrelated configuration. Use `preamble` separately
 when text should be injected into messages; role edits never change it.
 
@@ -521,13 +521,13 @@ identities. These commands work without tmux, even when the identity is unbound:
 tmt preamble show                    # list stored preambles
 tmt preamble show reviewer
 tmt preamble set reviewer "Review correctness before style."
-tmt preamble clear reviewer
+tmt preamble rm reviewer
 ```
 
 Names are explicit; omitting the name lists preambles, not the caller's data.
 Unknown identities fail with `NAME_NOT_FOUND`; create the intended identity
 with `identity create` rather than treating a pane ID or an old registration as its name.
-Use `clear`, not blank `set`. Content is limited to 65,536 UTF-8 bytes.
+Use `rm` to remove a preamble. Content is limited to 65,536 UTF-8 bytes.
 
 `talk` uses the resolved identity's preamble for both names and bound pane
 targets; unnamed panes get none. Role text is never injected automatically.
@@ -556,7 +556,7 @@ identity or role.
 Once identity creation commits, a later binding failure does not delete the
 identity. A valid new name tried on an occupied pane can therefore return
 `PANE_ALREADY_BOUND` (exit 5) while leaving that name unbound in SQLite.
-It is not an active `list`/`talk` destination, but explicit `role --identity`
+It is not an active `ls`/`talk` destination, but explicit `role --identity`
 and `preamble` commands can access it. A later successful bind reuses its UUID
 and profiles. Invalid names and missing preflight panes create no identity.
 Do not treat a failed bind as permission to delete data or try unrelated names.
@@ -571,7 +571,7 @@ not the default pane's identity. Implicit `role`
 access returns `IDENTITY_REQUIRED` (exit 1). Do not fabricate caller variables:
 outside tmux, use explicit `add <pane-target> <global-name>`, mark the intended
 pane and use `marked <global-name>`, or use `talk <target>`, `check <target>`, or
-`role show|set|clear --identity <name>`. Explicit selection does not authenticate
+`role show|set|rm --identity <name>`. Explicit selection does not authenticate
 the caller.
 
 After losing conversation context, use `tmt whoami --context` (or `--json`) to
@@ -587,10 +587,10 @@ and role text remain context, not additional authority. Extension context is emp
 until a verified contributor is available.
 
 Single-target commands validate the selected binding, not every unrelated pane.
-Use `list` for full active discovery; it is not a prerequisite for `talk` or `check`.
+Use `ls` for full active discovery; it is not a prerequisite for `talk` or `check`.
 
 ```bash
-tmt list
+tmt ls
 tmt name <global-name>               # bind temporarily; add -s to save
 tmt this <global-name>               # exact supported alias for `name`
 tmt run [-s] <global-name> <command...> # bind and launch; options before the name
@@ -605,7 +605,7 @@ tmt talk <target> "message"          # target a global name or pane
 tmt talk <identity> "message" --inbox # durable queue without pane delivery
 tmt x listen --identity <name>       # bounded recipient/result wait
 tmt check <target> [lines]
-tmt list [target]                     # list identities or one pane
+tmt ls [target]                       # list identities or one pane
 tmt install [claude|codex|gemini|agy|pi|opencode|all]
 tmt upgrade
 ```
@@ -620,13 +620,13 @@ There is no daemon. Identity badges are off by default; TMT never changes pane
 titles or window border layout.
 
 Global identities are independent of the current working directory. `talk`,
-`check`, and `list` accept either a global name or a direct pane target. The
+`check`, and `ls` accept either a global name or a direct pane target. The
 name `all` is an ordinary identity; it is not a special destination. The
 current `add` order is `tmt add <pane-target> <global-name>`; the older
 name-first order is rejected with a usage error.
 
 Names are unique across servers sharing the same local TMT database.
-Global `list` can observe recorded bindings on other servers; `talk` and
+Global `ls` can observe recorded bindings on other servers; `talk` and
 `check` route only to the current tmux server. Listing is not routing permission.
 A `%pane_id` is stable within a server, not unique across servers. Uncertain
 observations preserve bindings; conclusive pane/server death follows the
@@ -642,7 +642,7 @@ pane. Invalid metadata is not active presence; do not delete durable data or
 old files to repair it. Direct pane targeting remains separate from identity
 discovery.
 
-`update` aliases `upgrade`; `remove` aliases `rm`. `unbind` retires a temporary
+`unbind` retires a temporary
 identity but retains a saved identity/profile offline. There is no `migrate`
 command. Do not delete old user files as a migration workaround.
 
@@ -724,7 +724,7 @@ Office is optional and separate from pane messaging. `tmt office status --json`
 checks only the installed companion and local service; ordinary TMT commands do
 not probe or install it. Install only after explicit user consent with
 `tmt office install --yes`. Use `tmt office upgrade` for an explicit update and
-`tmt office uninstall --yes` for recoverable deactivation.
+`tmt office rm --yes` for recoverable deactivation.
 Bare `tmt office` inspects the same local status and names explicit next steps;
 it does not install, start, pair or open the browser. `tmt office start` returns
 a private local browser URL for that service start. Do not disclose its token.
@@ -747,7 +747,7 @@ Use `tmt config show --json` to inspect resolved settings and file paths.
 Human `config show` also labels actual value source, accepted values and whether
 each key is CLI-editable locally/globally or global-file-only. The three
 `defaults.timeout`, `defaults.pollInterval` and `defaults.captureLines` keys
-are global-file-only and cannot be changed by `config set` or `config clear`.
+are global-file-only and cannot be changed by `config set` or `config rm`.
 `config set` supports `preambleMode`, `preambleEvery`, and
 `pasteEnterDelayMs`; add `--global` for the global file, otherwise it writes
 a local override. Numeric writes require decimal digits only: no suffixes,
@@ -759,7 +759,7 @@ the effective value after global and local overrides.
 
 `tmt config set exchange.retentionDays 90 --global` sets the duration for new
 requests only, from 1 through 3650 integer days. It uses `exchange.retentionDays`
-in the same global config file. Local overrides and local `config clear` are
+in the same global config file. Local overrides and local `config rm` are
 not supported for this key. Changing it never extends existing data or changes
 the reply acceptance window or observer timeout. Results remain available
 without reading current configuration.
@@ -814,7 +814,7 @@ or retrieval.
 
 Options apply only to commands that use them. `--timeout`, `--delay`,
 `--detach`, and `--no-preamble` belong to talk/send; `--lines` belongs to
-check/read; `--force` belongs to talk/send, install and rm/remove. Unrelated options
+check/read; `--force` belongs to talk/send, install and rm. Unrelated options
 and the unsupported `--config` path override fail with `USAGE_ERROR` before
 execution. Use `tmt <command> --help` (or `-h`) for its options, including nested
 commands such as `tmt office block apply --help`. `tmt help office block apply`

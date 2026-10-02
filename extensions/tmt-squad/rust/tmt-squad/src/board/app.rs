@@ -23,10 +23,10 @@ use std::{
 pub struct View {
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
+    pub(super) derived: RefCell<super::derived::Derived>,
     pub rows: crate::rows::Rows,
-    pub colors: BTreeMap<String, String>,
     pub board: Board,
-    /// The full-reload interval; `None` reloads only on F5 and actions.
+    /// The full-reload interval; `None` reloads only on ctrl-r and actions.
     pub refresh: Option<std::time::Duration>,
     pub notes: Notes,
     pub render: NotesRender,
@@ -244,6 +244,8 @@ pub struct App {
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
+    /// Each record's first visual line in the last rows draw, for paging.
+    pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
     /// The first tab the tab line showed, so it scrolls only as needed.
@@ -370,7 +372,9 @@ impl App {
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
-        self.attention = snapshot.attention;
+        self.attention
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
+        self.attention.extend(snapshot.attention);
         if self.current.is_some() && snapshot.squad != self.current {
             if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
                 self.cache.insert(name, view);
@@ -468,6 +472,7 @@ impl App {
         // Never blank the screen: a visited squad shows from the cache at
         // once; otherwise the current frame stays until the new one arrives.
         if let Some(cached) = self.cache.remove(&next) {
+            self.loading_since = None;
             let previous = self.view.replace(cached);
             if let (Some(previous), Some(name)) = (previous, self.shown.replace(next.clone())) {
                 self.cache.insert(name, previous);
@@ -844,6 +849,14 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
+        // Refresh keeps text inputs intact and uses the same override owner
+        // as ordinary keys; rebinding ctrl-r does not force a refresh.
+        if event_name(key).as_deref() == Some("ctrl-r")
+            && let Some(action) = self.bindings().remove("ctrl-r")
+            && action.verb == Verb::Refresh
+        {
+            return self.perform(&action);
+        }
         if self.input.is_some() {
             return self.input_key(key);
         }
@@ -855,7 +868,12 @@ impl App {
         }
         if self.searching {
             match key.code {
-                KeyCode::Char(character) if !character.is_control() => self.search.push(character),
+                KeyCode::Char(character)
+                    if !character.is_control()
+                        && !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                {
+                    self.search.push(character);
+                }
                 KeyCode::Backspace => {
                     self.search.pop();
                 }
@@ -894,9 +912,9 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.select(self.selected.saturating_sub(1)),
             KeyCode::Down | KeyCode::Char('j') => self.select(self.selected + 1),
             KeyCode::PageUp if !self.bound(key) => {
-                self.select(self.selected.saturating_sub(self.rows_page()));
+                self.page_rows(-1);
             }
-            KeyCode::PageDown if !self.bound(key) => self.select(self.selected + self.rows_page()),
+            KeyCode::PageDown if !self.bound(key) => self.page_rows(1),
             KeyCode::Home if !self.bound(key) => self.select(0),
             KeyCode::End if !self.bound(key) => self.select(usize::MAX),
             KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
@@ -977,9 +995,32 @@ impl App {
         self.follow = true;
     }
 
-    /// Rows one page moves: the rows pane's last viewport, less one.
-    fn rows_page(&self) -> usize {
-        self.scrolls.page_lines(Pane::Rows)
+    /// Page by visual lines; an oversized row can scroll within itself.
+    fn page_rows(&mut self, direction: isize) {
+        let starts = self.row_starts.borrow();
+        if starts.is_empty() {
+            drop(starts);
+            let lines = direction * self.scrolls.page_lines(Pane::Rows) as isize;
+            self.select(self.selected.saturating_add_signed(lines));
+            return;
+        }
+        let origin = starts
+            .get(self.selected)
+            .copied()
+            .unwrap_or(0)
+            .max(self.scrolls.offset(Pane::Rows));
+        let target =
+            origin.saturating_add_signed(direction * self.scrolls.page_lines(Pane::Rows) as isize);
+        let row = starts
+            .partition_point(|start| *start <= target)
+            .saturating_sub(1);
+        drop(starts);
+        if row == self.selected {
+            self.scrolls.scroll(Pane::Rows, Step::Pages(direction));
+            self.follow = false;
+        } else {
+            self.select(row);
+        }
     }
 
     /// The wheel scrolls the pane under the pointer, whichever is focused.
@@ -1072,9 +1113,9 @@ pub(crate) mod tests {
 
     fn view(sections: Value) -> View {
         View {
+            derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
-            colors: BTreeMap::new(),
             refresh: Some(crate::config::DEFAULT_REFRESH),
             board: crate::config::Board::simple(
                 crate::config::BoardMode::Split,
@@ -1119,6 +1160,26 @@ pub(crate) mod tests {
                 Item::Row(row) => row["name"].as_str().unwrap(),
             })
             .collect()
+    }
+
+    #[test]
+    fn paging_without_drawn_row_positions_keeps_record_navigation() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot(
+            "product",
+            json!([{ "title": null, "rows": [
+            row("a", ""), row("b", ""), row("c", ""), row("d", "")
+        ] }]),
+        ));
+        app.selected = 2;
+        assert!(app.row_starts.borrow().is_empty());
+        press(&mut app, KeyCode::PageDown);
+        assert_eq!(app.selected, 3);
+        press(&mut app, KeyCode::PageUp);
+        assert_eq!(app.selected, 2);
+        app.selected = 0;
+        press(&mut app, KeyCode::PageUp);
+        assert_eq!(app.selected, 0);
     }
 
     #[test]
@@ -1552,6 +1613,77 @@ pub(crate) mod tests {
         assert_eq!(app.notice.as_deref(), Some("Nothing to go back to."));
         app.finished(Err("Pane '%5' was not found.".into()));
         assert_eq!(app.notice.as_deref(), Some("Pane '%5' was not found."));
+    }
+
+    #[test]
+    fn ctrl_r_refreshes_without_typing_into_search_or_message_inputs() {
+        for tmux in [false, true] {
+            let mut app = crew(crate::action::preset(tmux), Vec::new());
+            let refresh = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+            assert_eq!(app.key(refresh), Effect::Refresh);
+            assert_eq!(press(&mut app, KeyCode::F(5)), Effect::None);
+            app.searching = true;
+            app.search = "auth".into();
+            assert_eq!(app.key(refresh), Effect::Refresh);
+            assert!(app.searching);
+            assert_eq!(app.search, "auth");
+            app.searching = false;
+            for compose in [
+                Compose::Talk {
+                    to: "auth-fix".into(),
+                },
+                Compose::Annotate {
+                    to: "sol".into(),
+                    row: "auth-fix".into(),
+                },
+                Compose::Reply {
+                    request: "q1".into(),
+                    from: "auth-fix".into(),
+                },
+            ] {
+                app.input = Some(Input {
+                    prompt: "message".into(),
+                    text: "draft".into(),
+                    compose: compose.clone(),
+                    squad: "product".into(),
+                });
+                assert_eq!(app.key(refresh), Effect::Refresh);
+                let input = app.input.as_ref().unwrap();
+                assert_eq!(input.text, "draft");
+                assert_eq!(input.compose, compose);
+            }
+        }
+    }
+
+    #[test]
+    fn ctrl_r_keeps_normalization_and_effective_binding_overrides() {
+        let mut global = crate::action::preset(true);
+        global.extend(bind(&[("ctrl-r", "copy"), ("f5", "refresh")]));
+        let mut app = crew(global, vec![bind(&[("ctrl-r", "refresh")])]);
+        let refresh = KeyEvent::new(
+            KeyCode::Char('R'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        );
+        assert_eq!(event_name(refresh).as_deref(), Some("ctrl-r"));
+        assert_eq!(app.key(refresh), Effect::Refresh, "section wins");
+        app.view.as_mut().unwrap().section_bindings.clear();
+        assert!(matches!(
+            app.key(refresh),
+            Effect::Act(Request::Copy { .. })
+        ));
+        assert_eq!(
+            press(&mut app, KeyCode::F(5)),
+            Effect::Refresh,
+            "explicit F5 works"
+        );
+        app.searching = true;
+        app.search = "auth".into();
+        assert_eq!(
+            app.key(refresh),
+            Effect::None,
+            "rebound ctrl-r does not refresh an input"
+        );
+        assert_eq!(app.search, "auth", "control keys never become search text");
     }
 
     #[test]

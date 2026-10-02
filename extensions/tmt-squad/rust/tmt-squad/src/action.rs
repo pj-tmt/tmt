@@ -247,6 +247,7 @@ pub fn preset(tmux: bool) -> Bindings {
         ("y", "copy"),
         ("n", "notes"),
         ("tab", "next-pane"),
+        ("ctrl-r", "refresh"),
     ]
     .into_iter()
     // Only a host that can show a pane can jump to the lead.
@@ -368,6 +369,15 @@ mod tests {
             "ctrl-c", "ctrl-", "hold", "f13", "", "ab", "é", "q", "j", "k", "/", "?",
         ] {
             assert!(!valid_event(event), "{event}");
+        }
+    }
+
+    #[test]
+    fn both_hosts_default_to_ctrl_r_and_leave_f5_unbound() {
+        for tmux in [false, true] {
+            let bindings = preset(tmux);
+            assert_eq!(bindings["ctrl-r"].verb, Verb::Refresh);
+            assert!(!bindings.contains_key("f5"));
         }
     }
 

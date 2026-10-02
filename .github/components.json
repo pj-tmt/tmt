@@ -13,7 +13,13 @@
     "cli": {
       "package": "tmt-cli",
       "owns": ["."],
-      "excludes": ["extensions/tmt-office", "extensions/tmt-squad", "extensions/tmt-remote"],
+      "excludes": [
+        "extensions/tmt-office",
+        "extensions/tmt-squad",
+        "extensions/tmt-remote",
+        "extensions/tmt-colab",
+        "rust/crates/tmt-tui"
+      ],
       "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
     },
     "office": {
@@ -50,6 +56,14 @@
     },
     "remote-client": {
       "owns": ["extensions/tmt-remote/typescript/remote-client"],
+      "release": false
+    },
+    "tmt-tui": {
+      "owns": ["rust/crates/tmt-tui"],
+      "release": false
+    },
+    "tmt-colab": {
+      "owns": ["extensions/tmt-colab"],
       "release": false
     },
     "tmt-remote": {
@@ -95,6 +109,12 @@
         "extensions/tmt-remote/typescript/browser-addon/**",
         ".github/workflows/browser-addon.yml"
       ]
+    },
+    {
+      "id": "colab-rust",
+      "consumers": ["native", "office"],
+      "why": "Colab Rust retains full workspace checks and existing Office consumers; private release ownership does not narrow CI coverage.",
+      "paths": ["extensions/tmt-colab/rust/**"]
     },
     {
       "id": "remote-rust",

@@ -2,99 +2,12 @@
 
 use super::valid_pane_id;
 use super::{CommandRunner, OPERATION_TIMEOUT, Tmux, TmuxError, TmuxFailure, socket_args};
-use std::{
-    fmt,
-    time::{Duration, Instant},
-};
+use crate::host::{DeliveryError, DeliveryStage};
+use std::time::{Duration, Instant};
 use tmt_core::limits::is_valid_capture_lines;
 
 const SEND_MAX_OUTPUT: usize = 64 * 1024;
 const CAPTURE_MAX_OUTPUT: usize = 4 * 1024 * 1024;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeliveryStage {
-    Prepare,
-    Paste,
-    Literal,
-    Submit,
-}
-
-impl DeliveryStage {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Prepare => "prepare",
-            Self::Paste => "paste",
-            Self::Literal => "literal",
-            Self::Submit => "submit",
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct DeliveryError {
-    pub stage: DeliveryStage,
-    cause: TmuxError,
-    cleanup_error: Option<Box<TmuxError>>,
-}
-
-impl DeliveryError {
-    fn new(stage: DeliveryStage, cause: TmuxError) -> Self {
-        Self {
-            stage,
-            cause,
-            cleanup_error: None,
-        }
-    }
-
-    /// Refused before any pane input: the endpoint's host cannot take input
-    /// yet (Herdr until #479 H4).
-    pub(crate) fn unsupported() -> Self {
-        Self::new(
-            DeliveryStage::Prepare,
-            TmuxError::evidence("This host cannot receive pane input yet"),
-        )
-    }
-
-    pub fn uncertain(&self) -> bool {
-        self.stage != DeliveryStage::Prepare
-    }
-
-    pub fn socket_permission_denied(&self) -> bool {
-        !self.uncertain() && self.cause.socket_permission_denied()
-    }
-
-    pub fn cleanup_failed(&self) -> bool {
-        self.cause.cleanup_failed()
-            || self
-                .cleanup_error
-                .as_ref()
-                .is_some_and(|error| error.cleanup_failed())
-    }
-}
-
-impl fmt::Display for DeliveryError {
-    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.uncertain() {
-            write!(
-                output,
-                "Message delivery is uncertain during {}.",
-                self.stage.as_str()
-            )?;
-        } else {
-            write!(output, "Message preparation failed before pane input.")?;
-        }
-        if self.cleanup_failed() {
-            write!(output, " Subprocess cleanup also failed.")?;
-        }
-        Ok(())
-    }
-}
-
-impl std::error::Error for DeliveryError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.cause)
-    }
-}
 
 fn validate_target(socket: &str, pane: &str) -> Result<(), TmuxError> {
     if socket.is_empty() || socket.contains('\0') || !valid_pane_id(pane) {
@@ -201,21 +114,18 @@ impl<R: CommandRunner> Tmux<R> {
                     pane.into(),
                     "-p".into(),
                 ]) {
-                    let mut error = DeliveryError::new(DeliveryStage::Paste, cause);
-                    error.cleanup_error = cleanup()
-                        .err()
-                        .filter(TmuxError::cleanup_failed)
-                        .map(Box::new);
-                    return Err(error);
+                    return Err(DeliveryError::new(DeliveryStage::Paste, cause)
+                        .with_cleanup_failed(
+                            cleanup().err().is_some_and(|error| error.cleanup_failed()),
+                        ));
                 }
             }
             Err(cause) => {
                 // Only set-buffer failure is safe to fall back from: no pane input was attempted.
-                let cleanup_error = cleanup().err().filter(TmuxError::cleanup_failed);
-                if cause.cleanup_failed() || cleanup_error.is_some() {
-                    let mut error = DeliveryError::new(DeliveryStage::Prepare, cause);
-                    error.cleanup_error = cleanup_error.map(Box::new);
-                    return Err(error);
+                let cleanup_failed = cleanup().err().is_some_and(|error| error.cleanup_failed());
+                if cause.cleanup_failed() || cleanup_failed {
+                    return Err(DeliveryError::new(DeliveryStage::Prepare, cause)
+                        .with_cleanup_failed(cleanup_failed));
                 }
                 run(vec![
                     "send-keys".into(),

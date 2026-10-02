@@ -24,6 +24,18 @@ squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
 the fields each line of a row shows (`{field, span}`, field null for an empty
 cell).
 
+- A column's `width` is null, a cell count or a percentage string such as
+  `"30%"`. Configured percentage widths total at most 100% and resolve against data width
+  after row marks and gaps; `min`/`max` remain cells.
+- A column has `overflow` only when configured: `"ellipsis"` or `"wrap"`.
+  Without it, cells use ellipsis. Wrapped continuations align to the cell start.
+- A wrapped column has `max_lines`, its bounded visual-line count (1–8, default 2).
+  The last line uses an end ellipsis if cut, even with `truncate = "middle"`. This differs from document-level `lines`,
+  which describes the configured row grid.
+- Text `ls` keeps legacy natural sizing unless a shown column opts into percent
+  width or overflow. Opt-in text uses the shared grid and fit rules; a pipe's
+  budget is natural data widths plus gaps before priority hiding, so text may
+  wrap, truncate or hide columns. JSON row values stay full.
 - `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`),
   `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
   `normal`), `waiting` (members that owe the user a decision or wait for an
@@ -51,8 +63,21 @@ cell).
   below for reset and evidence limits.
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
   layout lists it first.
+- A row has the optional `colors` key only when a cell has a color:
+  `{field: theme token}`. `colors.state` holds the resolved state token; other
+  keys come from the user's column thresholds or a field provider's suggestion.
+  Colors only decorate; read the values.
 - States come from the layout: crew uses `working idle blocked review testing
 hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
+  Color and order resolve through exact `[squad.<name>.states]` entries (including
+  layout presets), then the first matching `[[squad.<name>.state_patterns]]`,
+  then the default. Patterns require `match` and `color`; optional `sort` is
+  0-999 and `ignore_case` defaults to false. `*` matches any run, `?` one Unicode
+  scalar, and other characters are literal. Case-insensitive matching compares
+  each scalar's Unicode lowercase form. Limits: 64 patterns per squad and 256
+  UTF-8 bytes per nonempty match. An exact entry wins entirely; unspecified
+  pattern sort ranks after ranked states. State text and tab attention stay the
+  same. Do not change the user's vocabulary without asking.
 
 `presence` is observed by TMT, not reported by the member. `activity` is what
 the member reported about itself.
@@ -60,6 +85,23 @@ the member reported about itself.
 A request tagged `[<squad> · <member>]` from the user is an annotation: a note
 about that row for you to act on. Answer it with `tmt reply` as usual; the
 user's board shows it as ✎ until you do. Never edit the user's notes for it.
+
+## Board appearance
+
+`ctrl-r` refreshes the board in squad, leads and all views, including while
+searching or composing a message, without changing the entered text. The footer
+and `?` help list the effective bindings. Rebind it in `[bind]` (or a section),
+or `[tabs.all.bind]` for all. F5 has no default action; an explicit
+`f5 = "refresh"` binding remains supported.
+
+The board uses the shared TMT design tokens: `muted` for readable tabs, labels
+and key hints, `accent` plus bold for focus, and `dim` for secondary values and
+borders. Attention tabs keep their waiting/blocked color and counts. Selection
+uses the theme's `selection` background while retaining each cell's state or
+provider color; a terminal without a background color uses reverse video,
+including `NO_COLOR`. Colors decorate the words and marks; never infer state
+from color alone. The global theme belongs in `config.json`; per-squad theme
+bases and overrides belong in `[squad.<name>.theme]` in `squad.toml`.
 
 ## Keep it current
 
@@ -73,7 +115,7 @@ tmt squad set <member> pending="approve the token rotation plan"
 tmt squad set <member> pending=               # clear it once answered
 tmt squad set <member> note="needs a login-vs-sweep call"
 tmt squad set <member> pr_link=https://github.com/acme/app/pull/412
-tmt squad remove <name>                       # leaves the squad; the agent keeps running
+tmt squad rm <name>                           # leaves the squad; the agent keeps running
 ```
 
 - `note` is your one-line summary for that member, shown on its row.
