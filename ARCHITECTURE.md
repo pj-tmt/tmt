@@ -3180,9 +3180,9 @@ needed for their own rows before publication.
 
 Squad's `view` command module owns the factory pane-arrangement catalog and
 registers `view ls` (hidden `list` alias), `set` and `rm`; bare `view` lists.
-The catalog uses the existing split/fold grammar: `team` reuses the current
-team arrangement, and `focus`, `notes`, `detail` and `wide` supply arrangements
-and initial fold settings only. `Config::board` resolves a hand-written
+The catalog owns all five arrangements in the existing split/fold grammar:
+`team`, `focus`, `notes`, `detail` and `wide` supply arrangements and initial
+fold settings only. The team workflow reads the same factory arrangement. `Config::board` resolves a hand-written
 per-squad `board.layout` or `panes` first, then per-squad `board.view`, then
 top-level `board.view`, then the workflow layout's own arrangement.
 `Config::resolve_layout` remains the workflow owner, so a view changes no
@@ -3195,7 +3195,27 @@ between rows and notes; it has no width-dependent arrangement resolver.
 Named `Config::set_view` and `remove_view` edit only `view` in the chosen board
 layer through `Config::write`. Scoped set refuses a hand-written layout with a
 manual-removal hint; reset retains custom keys. All-boards choices remain masked
-by custom or scoped arrangements. No core settings writer is introduced.
+by custom or scoped arrangements. Reset drops only a table emptied by that reset
+when its header has no comments; decorated and pre-existing empty tables remain.
+No core settings writer is introduced.
+
+The bindable `view` verb (`l`) opens `board::view_picker`, mirroring the theme
+picker's scope, navigation and save/cancel lifecycle. Its opening Config is the
+save baseline; refresh never replaces that draft. `App::effective_board` is the
+single presentation accessor for preview geometry, fold defaults and focus,
+while the existing per-tab FoldState retains session overrides. Esc restores
+the opening Board and focus with the latest refreshed data, without writing;
+successful save uses the normal changed-Board fold reconciliation. A custom
+arrangement can preview in this-squad scope on a disposable Config copy, but
+scoped save refuses to remove hand-written keys. In all-boards scope a custom
+squad keeps its opening Board, shows the masking note and saves the global
+view for other squad tabs. The reset entry removes only the chosen layer's view key.
+The existing Reload request carries `preview_panes` only while the picker is
+open, acquiring missing notes/replies through the same loader and cancellation
+fence. Closing it preempts preview reads and returns to resolved-pane acquisition;
+no second worker or arrangement resolver is introduced. The built-in leads/all
+tabs keep their opening rows-only Board throughout picker preview, save and
+cancel; they offer all-boards scope, which affects real squad tabs only.
 
 Squad's `theme` command module registers `theme ls` (hidden `list` alias),
 `set` and `rm`; bare `theme` lists. Lists and the board picker consume names and

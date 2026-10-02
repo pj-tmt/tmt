@@ -44,15 +44,15 @@ const KEYS: &[&str] = &[
 
 /// One state label for the effective toggle in footer and help.
 fn toggle_label(app: &App, action: &crate::action::Action) -> Option<String> {
-    let view = app.view.as_ref()?;
-    if view.board.mode != BoardMode::Split {
+    let board = app.effective_board()?;
+    if board.mode != BoardMode::Split {
         return None;
     }
     let panes: Vec<_> = action
         .args
         .iter()
         .filter_map(|arg| arg.literal().and_then(Pane::parse))
-        .filter(|pane| view.board.panes.contains(pane))
+        .filter(|pane| board.panes.contains(pane))
         .collect();
     if panes.is_empty() {
         return None;
@@ -83,6 +83,7 @@ fn hints(app: &App, width: usize) -> String {
         ("d", "d"),
         ("tab", "tab"),
         ("ctrl-r", "ctrl-r"),
+        ("l", "l"),
         ("T", "T"),
         ("w", "w"),
     ]
@@ -170,7 +171,16 @@ fn help_lines(app: &App) -> Vec<String> {
             }
         }
     }
-    for (event, action) in app.bindings() {
+    let bindings = app.bindings();
+    for event in ["l", "L", "T"] {
+        if let Some(action) = bindings.get(event) {
+            lines.push(format!("{event:<11} {}", action.text));
+        }
+    }
+    for (event, action) in bindings {
+        if matches!(event.as_str(), "l" | "L" | "T") {
+            continue;
+        }
         if event == "d" && action.verb == crate::action::Verb::Toggle {
             if let Some(label) = toggle_label(app, &action) {
                 lines.push(format!("d    {label}    fold or unfold (▾ open, ▸ folded)"));
@@ -353,10 +363,10 @@ pub(super) fn time_marks(app: &App, now: u64) -> Vec<String> {
     let Some(view) = &app.view else {
         return Vec::new();
     };
-    let visible = match view.board.mode {
+    let board = app.effective_board().expect("loaded view has a board");
+    let visible = match board.mode {
         BoardMode::Split => {
-            view.board.panes.contains(&Pane::Replies)
-                && !app.collapsed_panes().contains(&Pane::Replies)
+            board.panes.contains(&Pane::Replies) && !app.collapsed_panes().contains(&Pane::Replies)
         }
         BoardMode::Tabs => app.focused() == Pane::Replies,
     };
@@ -847,6 +857,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     if let Some(switcher) = &app.switcher {
         render_switcher(frame, app, switcher, body);
     }
+    if let Some(picker) = &app.view_picker {
+        super::view_picker::render(frame, picker, look, body);
+    }
     if let Some(picker) = &app.theme_picker {
         super::theme_picker::render(frame, picker, look, body);
     }
@@ -916,7 +929,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         render_rows(frame, app, area);
         return;
     };
-    let board = &view.board;
+    let board = app.effective_board().expect("loaded view has a board");
     let focused = app.focused_pane();
     let pane_block = |pane: Pane| {
         let title = match pane {
@@ -2005,6 +2018,25 @@ columns = [{ name = "member", width = "30%" },
         );
         assert!(screen.iter().any(|line| line.contains("backspace back")));
         assert!(draw(&App::new(None), 60, 4)[3].starts_with("/ search"));
+    }
+
+    #[test]
+    fn help_groups_view_lead_and_theme_bindings() {
+        let mut app = board(json!([]));
+        app.view.as_mut().unwrap().bindings = crate::action::preset(true, &[]);
+        let help = help_lines(&app);
+        let at = help
+            .iter()
+            .position(|line| line == "l           view")
+            .unwrap();
+        assert_eq!(
+            &help[at..at + 3],
+            [
+                "l           view",
+                "L           jump lead",
+                "T           theme"
+            ]
+        );
     }
 
     #[test]

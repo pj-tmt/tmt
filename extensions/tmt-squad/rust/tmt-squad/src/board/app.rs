@@ -6,7 +6,7 @@ use super::scroll::{Scrolls, Step, WHEEL_LINES};
 use crate::{
     action::{Action, Bindings, Verb},
     attention::Attention,
-    config::{Board, BoardMode, NotesRender, Pane},
+    config::{Board, BoardMode, Config, NotesRender, Pane},
     effects,
 };
 use ratatui::crossterm::event::{
@@ -138,6 +138,9 @@ pub enum Effect {
     Refresh,
     PickTheme,
     SaveTheme,
+    PickView,
+    SaveView,
+    CancelView,
     Act(Request),
 }
 
@@ -250,6 +253,7 @@ pub struct App {
     pub notice: Option<String>,
     pub help: bool,
     pub menu: Option<Menu>,
+    pub(super) view_picker: Option<super::view_picker::Picker>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
     pub input: Option<Input>,
     /// Index of the focused pane (split) or visible tab (tabs).
@@ -460,7 +464,11 @@ impl App {
                             .collect()
                     })
                     .unwrap_or_default();
-                self.focus = self.focus.min(view.board.panes.len().saturating_sub(1));
+                let panes = self
+                    .view_picker
+                    .as_ref()
+                    .map_or(view.board.panes.len(), |picker| picker.board().panes.len());
+                self.focus = self.focus.min(panes.saturating_sub(1));
                 let changed = self.loading() || self.view.is_none();
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
@@ -571,7 +579,8 @@ impl App {
     }
 
     fn remember_folds(&mut self, key: String, board: &Board) {
-        if !self.tabs.contains(&key) && !self.hidden.contains(&key) {
+        if self.view_picker.is_some() || (!self.tabs.contains(&key) && !self.hidden.contains(&key))
+        {
             return;
         }
         if self
@@ -598,13 +607,55 @@ impl App {
         self.restore_focus();
     }
 
+    /// All geometry consumers see the in-memory draft while the picker is open.
+    pub fn effective_board(&self) -> Option<&Board> {
+        self.view_picker
+            .as_ref()
+            .map(|picker| picker.board())
+            .or_else(|| self.view.as_ref().map(|view| &view.board))
+    }
+
+    pub fn open_view_picker(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
+        let Some(board) = self.effective_board().cloned() else {
+            return Ok(());
+        };
+        let squad = self
+            .current
+            .clone()
+            .filter(|name| !super::tabs::builtin(name));
+        self.view_picker = Some(super::view_picker::Picker::open(
+            config, squad, board, self.focus,
+        )?);
+        self.help = false;
+        Ok(())
+    }
+
+    pub fn close_view_picker(&mut self, saved: bool) {
+        if let Some(picker) = self.view_picker.take() {
+            let board = if saved {
+                picker.board().clone()
+            } else {
+                picker.opening.clone()
+            };
+            if let Some(view) = &mut self.view {
+                view.board = board;
+            }
+            if saved {
+                self.reconcile_folds();
+            } else {
+                self.focus = picker.opening_focus;
+                self.restore_focus();
+            }
+        }
+    }
+
     /// Resolve immutable defaults and user overrides for the board body width.
     pub fn folds_at(&self, width: u16) -> BTreeSet<Pane> {
-        let Some(view) = &self.view else {
+        let Some(board) = self.effective_board() else {
             return BTreeSet::new();
         };
-        let mut collapsed = view.board.collapsed.clone();
-        if let Some(rule) = &view.board.fold_below
+        let mut collapsed = board.collapsed.clone();
+        if let Some(rule) = &board.fold_below
             && width < rule.width
         {
             collapsed.extend(&rule.panes);
@@ -631,16 +682,14 @@ impl App {
     }
 
     pub fn focused_pane(&self) -> Option<Pane> {
-        self.view
-            .as_ref()
-            .and_then(|view| view.board.panes.get(self.focus).copied())
+        self.effective_board()
+            .and_then(|board| board.panes.get(self.focus).copied())
             .filter(|pane| !self.collapsed_panes().contains(pane))
     }
 
     pub fn focused(&self) -> Pane {
-        self.view
-            .as_ref()
-            .and_then(|view| view.board.panes.get(self.focus).copied())
+        self.effective_board()
+            .and_then(|board| board.panes.get(self.focus).copied())
             .unwrap_or(Pane::Rows)
     }
 
@@ -654,9 +703,8 @@ impl App {
             return;
         };
         if let Some(position) = self
-            .view
-            .as_ref()
-            .and_then(|view| view.board.panes.iter().position(|p| *p == pane))
+            .effective_board()
+            .and_then(|board| board.panes.iter().position(|p| *p == pane))
         {
             self.focus = position;
         }
@@ -668,9 +716,8 @@ impl App {
             return;
         }
         if let Some(position) = self
-            .view
-            .as_ref()
-            .and_then(|view| view.board.panes.iter().position(|pane| *pane == Pane::Rows))
+            .effective_board()
+            .and_then(|board| board.panes.iter().position(|pane| *pane == Pane::Rows))
             && !self.collapsed_panes().contains(&Pane::Rows)
         {
             self.focus = position;
@@ -680,12 +727,12 @@ impl App {
     }
 
     fn next_pane(&mut self) {
-        if let Some(view) = &self.view {
+        if let Some(board) = self.effective_board() {
             let collapsed = self.collapsed_panes();
-            let count = view.board.panes.len();
+            let count = board.panes.len();
             if let Some(next) = (1..=count)
                 .map(|step| (self.focus + step) % count)
-                .find(|index| !collapsed.contains(&view.board.panes[*index]))
+                .find(|index| !collapsed.contains(&board.panes[*index]))
             {
                 self.focus = next;
             }
@@ -699,22 +746,21 @@ impl App {
                 self.current.clone().unwrap_or_default()
             ));
         }
-        let Some(view) = &self.view else {
+        let Some(board) = self.effective_board().cloned() else {
             return Effect::None;
         };
-        if view.board.mode != BoardMode::Split {
+        if board.mode != BoardMode::Split {
             return self.say("toggle applies to split mode only.");
         }
         let panes: Vec<_> = panes
             .iter()
-            .filter(|pane| view.board.panes.contains(pane))
+            .filter(|pane| board.panes.contains(pane))
             .copied()
             .collect();
         if panes.is_empty() {
             return Effect::None;
         }
-        let position = view
-            .board
+        let position = board
             .panes
             .iter()
             .position(|pane| Some(pane) == panes.first())
@@ -723,7 +769,6 @@ impl App {
         let Some(key) = self.shown.clone() else {
             return Effect::None;
         };
-        let board = view.board.clone();
         self.remember_folds(key.clone(), &board);
         let collapsed = self.collapsed_panes();
         let expanding = panes.iter().all(|pane| collapsed.contains(pane));
@@ -805,6 +850,7 @@ impl App {
                 return Effect::None;
             }
             Verb::Theme => return Effect::PickTheme,
+            Verb::View => return Effect::PickView,
             Verb::NextPane => {
                 self.next_pane();
                 return Effect::None;
@@ -815,9 +861,8 @@ impl App {
             }
             Verb::Notes => {
                 let position = self
-                    .view
-                    .as_ref()
-                    .and_then(|view| view.board.panes.iter().position(|p| *p == Pane::Notes));
+                    .effective_board()
+                    .and_then(|board| board.panes.iter().position(|p| *p == Pane::Notes));
                 return match position {
                     Some(position) => {
                         if self.loading() && self.collapsed_panes().contains(&Pane::Notes) {
@@ -1126,6 +1171,19 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
+        if let Some(picker) = &mut self.view_picker {
+            return match picker.key(key) {
+                super::view_picker::Input::Preview => {
+                    self.restore_focus();
+                    Effect::None
+                }
+                super::view_picker::Input::Save => Effect::SaveView,
+                super::view_picker::Input::Cancel => {
+                    self.close_view_picker(false);
+                    Effect::CancelView
+                }
+            };
+        }
         if let Some(picker) = &mut self.theme_picker {
             return match picker.key(key) {
                 super::theme_picker::Input::Preview => Effect::None,
@@ -1329,7 +1387,8 @@ impl App {
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
-        if self.theme_picker.is_some()
+        if self.view_picker.is_some()
+            || self.theme_picker.is_some()
             || self.menu.is_some()
             || self.input.is_some()
             || self.help

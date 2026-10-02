@@ -48,10 +48,13 @@ impl ViewName {
             Self::Wide => "three columns, 180+",
         }
     }
-    /// Team reuses the existing preset's data; all others use the same grammar.
+    /// One catalog owns all factory arrangements in the existing split/fold grammar.
     pub fn settings(self) -> &'static dyn toml_edit::TableLike {
         static VIEWS: std::sync::OnceLock<toml_edit::DocumentMut> = std::sync::OnceLock::new();
         VIEWS.get_or_init(|| r#"
+[team]
+fold_below = { width = 100, panes = ["detail", "replies"] }
+layout = { direction = "top-bottom", sizes = [60, 40], panes = [{ direction = "left-right", sizes = [62, 38], panes = ["rows", { direction = "top-bottom", sizes = [50, 50], panes = ["detail", "replies"] }] }, "notes"] }
 [focus]
 layout = { direction = "top-bottom", sizes = [70, 10, 10, 10], panes = ["rows", "detail", "replies", "notes"] }
 collapsed = ["detail", "replies", "notes"]
@@ -196,7 +199,12 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
             ]);
         }
         let note = format!(
-            "workflow: {}",
+            "{}workflow: {}",
+            if document["effective"]["source"] == "custom" {
+                "custom layout; "
+            } else {
+                ""
+            },
             document["effective"]["layout"].as_str().unwrap_or_default()
         );
         let _ = Section {
@@ -287,7 +295,9 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            original.replace("view = 'focus' # own\n", "")
+            original
+                .replace("view = 'focus' # own\n", "")
+                .replace("[squad.product.board]\n", "")
         );
         assert_eq!(
             words(&mut config, &["ls", "--squad", "product"])["effective"]["view"],
@@ -304,6 +314,7 @@ mod tests {
             original
                 .replace("view = 'focus' # own\n", "")
                 .replace("view = 'notes' # retain\n", "")
+                .replace("[squad.product.board]\n", "")
         );
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
@@ -394,6 +405,13 @@ mod tests {
         let (path, mut config) = fixture("custom", original);
         let scope = ViewScope::Squad("product".into());
         assert_eq!(config.view_source("product").unwrap(), (None, "custom"));
+        assert!(
+            text(
+                &words(&mut config, &["ls", "--squad", "product"]),
+                Terminal::PLAIN
+            )
+            .contains("custom layout; workflow: crew")
+        );
         assert_eq!(
             config.board("product").unwrap().panes,
             vec![Pane::Rows, Pane::Notes]
@@ -418,6 +436,23 @@ mod tests {
             "# concurrent edit\n"
         );
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn reset_drops_only_a_table_emptied_by_reset_and_preserves_header_comments() {
+        for (name, original, expected) in [
+            ("plain", "[board]\nview = 'focus'\n", ""),
+            (
+                "decorated",
+                "# user table\n[board] # keep\nview = 'focus'\n",
+                "# user table\n[board] # keep\n",
+            ),
+            ("empty", "[board]\n", "[board]\n"),
+        ] {
+            let (path, mut config) = fixture(name, original);
+            config.remove_view(&ViewScope::Board).unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+            std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        }
     }
     #[test]
     fn invalid_masked_names_fail_before_writing_and_default_matches_team() {

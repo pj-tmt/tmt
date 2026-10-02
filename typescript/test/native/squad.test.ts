@@ -719,7 +719,7 @@ describe('squad extension', () => {
       ).toMatchObject({ view: 'detail', source: 'board' });
       expect((await squad(sandbox, ['view', 'rm'])).status).toBe(0);
       expect(readFileSync(file, 'utf8')).toBe(
-        original.replace("view = 'focus' # own\n", '') + '\n[board]\n'
+        original.replace("view = 'focus' # own\n", '').replace('[squad.product.board]\n', '')
       );
       const custom = original.replace("view = 'focus' # own", "panes = ['rows', 'notes'] # own");
       writeFileSync(file, custom);
