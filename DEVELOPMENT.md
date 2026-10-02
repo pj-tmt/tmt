@@ -647,9 +647,10 @@ list comes from `languageExceptions` in `.github/repository-layout.json`
 page and exported as `frontmatter`.
 
 `.github/workflows/site.yml` checks and builds the site on pull requests and
-`main`. It deploys to GitHub Pages only from a manual run on `main` with
-`deploy` set. The repository is public, so a deploy publishes the site; the
-owner decides when.
+`main`. Every push to `main` that changes `site/**`, `design/tokens/**` or the
+workflow deploys the built site to GitHub Pages, one deployment at a time; a manual
+run on `main` with `deploy` set redeploys. Pull requests never deploy. The
+repository is public, so merging a site change publishes it.
 
 ## Personal-office milestone acceptance
 
