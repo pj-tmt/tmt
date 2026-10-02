@@ -1108,7 +1108,10 @@ byte/depth/node limits, integer utilities, property conflicts and literal theme
 tokens, schema binding, lexical repeats, scoped IDs and exact expansion limits.
 Geometry tests cover flex/grid, native percentages, fr/minmax/span, gaps/padding,
 fractional boundaries, shared text budgets, resize restoration and cut clipping.
-Run the architecture test for dependency changes, and
+Paint tests cover grapheme-safe cuts/wrap/clamp, inherited Theme/Depth roles,
+caller-owned selection, clipped identity precedence, wide edge blanks and
+recorded-width/fractional measure–paint agreement. Run the architecture test for
+dependency changes, and
 `cargo test --locked -p tmt-squad` for its in-memory source adapter and frozen
 board/list parity fixture.
 The parity harness captures the three explicit presets and the team default at
