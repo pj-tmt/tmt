@@ -997,7 +997,7 @@ impl Config {
 
     /// How often the board reloads everything: `[squad.<name>.board] refresh`,
     /// then top-level `[board] refresh`, then [`DEFAULT_REFRESH`]. `None` is
-    /// "off": only F5 and the board's own actions reload.
+    /// "off": only ctrl-r and the board's own actions reload.
     pub fn refresh(&self, squad: &str) -> Result<Option<Duration>, SquadError> {
         let global = match self.document.get("board") {
             None => None,
@@ -1555,8 +1555,9 @@ sort = ["state", "-name"]
         fs::write(&path, "").unwrap();
         let config = Config::read(path.clone()).unwrap();
         for tmux in [true, false] {
+            assert!(!config.bindings(tmux).unwrap().contains_key("f5"));
             assert_eq!(
-                config.bindings(tmux).unwrap()["f5"].verb,
+                config.bindings(tmux).unwrap()["ctrl-r"].verb,
                 crate::action::Verb::Refresh
             );
         }
@@ -1681,7 +1682,10 @@ sort = ["state", "-name"]
             (columns[2].field.as_str(), columns[2].title.as_str()),
             ("note", "WHY")
         );
-        assert_eq!((columns[2].width, columns[2].grow), (Some(30), 0));
+        assert_eq!(
+            (columns[2].width, columns[2].grow),
+            (Some(tmt_cli_style::grid::Basis::Cells(30)), 0)
+        );
         assert_eq!(columns[0].title, "MEMBER");
         let states = config.states("product", Layout::Crew).unwrap();
         assert_eq!(states.color(Some("blocked")).unwrap(), "red");
