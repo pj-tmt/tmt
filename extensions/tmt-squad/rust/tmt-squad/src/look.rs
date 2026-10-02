@@ -127,6 +127,20 @@ impl Look {
         }
     }
 
+    /// A selected reverse row has one foreground; its semantic spans use bold.
+    /// Real selection backgrounds and unselected spans keep their exact style.
+    pub fn row_span(&self, selected: bool, style: Style, emphasize: bool) -> Style {
+        if selected && self.selection().bg.is_none() {
+            Style::new().add_modifier(if emphasize {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            })
+        } else {
+            style
+        }
+    }
+
     /// A named color: its token's style, or no style for `default` and
     /// anything unknown.
     pub fn named(&self, name: &str) -> Style {
@@ -212,6 +226,33 @@ mod tests {
                     background.is_none(),
                     "{base:?} {depth:?}: selection stays visible",
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn row_spans_change_only_for_selected_reverse_fallbacks() {
+        for base in tmt_cli_style::Base::ALL {
+            for depth in [Depth::TrueColor, Depth::Ansi16, Depth::None] {
+                let look = Look {
+                    theme: Theme::new(base),
+                    depth,
+                };
+                for role in Role::ALL {
+                    let original = look.role(role);
+                    for emphasize in [false, true] {
+                        assert_eq!(look.row_span(false, original, emphasize), original);
+                        let selected = look.row_span(true, original, emphasize);
+                        if look.selection().bg.is_some() {
+                            assert_eq!(selected, original);
+                        } else {
+                            assert_eq!(selected.fg, None);
+                            assert_eq!(selected.bg, None);
+                            assert!(!selected.add_modifier.contains(Modifier::DIM));
+                            assert_eq!(selected.add_modifier.contains(Modifier::BOLD), emphasize);
+                        }
+                    }
+                }
             }
         }
     }
