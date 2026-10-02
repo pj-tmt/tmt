@@ -1,0 +1,212 @@
+[
+  {
+    "receiptMs": 0,
+    "document": {
+      "identities": [
+        {
+          "id": "claude-id",
+          "resume": {
+            "driver": "claude",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedInputTokens": 0,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 1,
+              "observedAtMs": 1001,
+              "complete": true,
+              "gap": false
+            }
+          }
+        },
+        {
+          "id": "codex-id",
+          "resume": {
+            "driver": "codex",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 2674657871,
+              "outputTokens": 6910968,
+              "cachedInputTokens": 2624251008,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 1,
+              "observedAtMs": 1001,
+              "complete": true,
+              "gap": false
+            }
+          }
+        }
+      ]
+    },
+    "rate": null
+  },
+  {
+    "receiptMs": 5000,
+    "document": {
+      "identities": [
+        {
+          "id": "claude-id",
+          "resume": {
+            "driver": "claude",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 5415987,
+              "outputTokens": 5609,
+              "cachedInputTokens": 5405674,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 2,
+              "observedAtMs": 1002,
+              "complete": true,
+              "gap": false
+            }
+          }
+        },
+        {
+          "id": "codex-id",
+          "resume": {
+            "driver": "codex",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 2674657871,
+              "outputTokens": 6910978,
+              "cachedInputTokens": 2624251008,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 2,
+              "observedAtMs": 1002,
+              "complete": true,
+              "gap": false
+            }
+          }
+        }
+      ]
+    },
+    "rate": null
+  },
+  {
+    "receiptMs": 10000,
+    "document": {
+      "identities": [
+        {
+          "id": "claude-id",
+          "resume": {
+            "driver": "claude",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 5415987,
+              "outputTokens": 5609,
+              "cachedInputTokens": 5405674,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 2,
+              "observedAtMs": 1002,
+              "complete": true,
+              "gap": false
+            }
+          }
+        },
+        {
+          "id": "codex-id",
+          "resume": {
+            "driver": "codex",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 2674657871,
+              "outputTokens": 6910978,
+              "cachedInputTokens": 2624251008,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 2,
+              "observedAtMs": 1002,
+              "complete": true,
+              "gap": false
+            }
+          }
+        }
+      ]
+    },
+    "rate": 542160.6
+  },
+  {
+    "receiptMs": 60000,
+    "document": {
+      "identities": [
+        {
+          "id": "claude-id",
+          "resume": {
+            "driver": "claude",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 5415987,
+              "outputTokens": 5609,
+              "cachedInputTokens": 5405674,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 2,
+              "observedAtMs": 1002,
+              "complete": true,
+              "gap": false
+            }
+          }
+        },
+        {
+          "id": "codex-id",
+          "resume": {
+            "driver": "codex",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 2674657871,
+              "outputTokens": 6910978,
+              "cachedInputTokens": 2624251008,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 2,
+              "observedAtMs": 1002,
+              "complete": true,
+              "gap": false
+            }
+          }
+        }
+      ]
+    },
+    "rate": 90360.1
+  },
+  {
+    "receiptMs": 65000,
+    "document": {
+      "identities": [
+        {
+          "id": "claude-id",
+          "resume": {
+            "driver": "claude",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 5415987,
+              "outputTokens": 5609,
+              "cachedInputTokens": 5405674,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 2,
+              "observedAtMs": 1002,
+              "complete": true,
+              "gap": false
+            }
+          }
+        },
+        {
+          "id": "codex-id",
+          "resume": {
+            "driver": "codex",
+            "session": "55555555-5555-4555-8555-555555555555",
+            "consumption": {
+              "inputTokens": 2674657871,
+              "outputTokens": 6910978,
+              "cachedInputTokens": 2624251008,
+              "epoch": "00000000-0000-4000-8000-000000000001",
+              "sequence": 2,
+              "observedAtMs": 1002,
+              "complete": true,
+              "gap": false
+            }
+          }
+        }
+      ]
+    },
+    "rate": 0.0
+  }
+]

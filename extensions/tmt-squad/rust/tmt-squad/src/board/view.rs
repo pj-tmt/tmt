@@ -53,10 +53,26 @@ fn hints(app: &App, width: usize) -> String {
         ("tab", "tab"),
         ("ctrl-r", "ctrl-r"),
         ("T", "T"),
+        ("w", "w"),
     ]
     .into_iter()
     .filter_map(|(event, label)| {
         let action = bindings.get(event)?;
+        if event == "w"
+            && !app
+                .meter
+                .as_ref()
+                .is_some_and(|meter| meter.settings.enabled)
+        {
+            return None;
+        }
+        if action.verb == crate::action::Verb::TokenWindow {
+            return app
+                .meter
+                .as_ref()
+                .filter(|meter| meter.settings.enabled)
+                .map(|_| format!("{label} window"));
+        }
         if event == "d" {
             return app
                 .view
@@ -103,6 +119,31 @@ fn help_lines(app: &App) -> Vec<String> {
                 None => "reload      automatic reload is off".to_owned(),
             },
         );
+    }
+    if let Some(rate) = app.view.as_ref().and_then(|view| view.token_rate.as_ref()) {
+        lines.push(format!("tok/s      completed requests observed every {} s; sampled batches, not live throughput", rate.settings.every.as_secs()));
+        lines.push("windows    5s (only with 5 s sampling), 1m, 30m, 1h; labels show covered span until full".into());
+        lines.push(
+            "trend      eight bars: 5s window -> 40s trend, 1m -> 80s, 30m -> 30m, 1h -> 1h".into(),
+        );
+        lines.push("coverage   no data hides; measured zero is 0; ≥ means a reporting member/interval is missing".into());
+        {
+            for id in &app.excluded_counters {
+                let name = app
+                    .view
+                    .as_ref()
+                    .and_then(|view| view.document["sections"].as_array())
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|section| section["rows"].as_array().into_iter().flatten())
+                    .find(|row| row["id"].as_str() == Some(id.as_str()))
+                    .and_then(|row| row["name"].as_str())
+                    .unwrap_or(id);
+                lines.push(format!(
+                    "excluded   {name}: no usage counters at last board refresh"
+                ));
+            }
+        }
     }
     for (event, action) in app.bindings() {
         lines.push(format!("{event:<11} {}", action.text));
@@ -586,6 +627,50 @@ fn summary_line(app: &App) -> Line<'_> {
     Line::from(spans)
 }
 
+/// Reserve a fixed band only when the complete lead/attention summary fits.
+/// The normal ratatui render/diff owns all terminal writes.
+fn meter_region(app: &App, summary: Rect) -> Option<(Rect, super::meter::Layout)> {
+    if app.loading() || app.current.as_deref().is_none_or(super::tabs::builtin) {
+        return None;
+    }
+    let left = summary_line(app).width() + 2;
+    let meter = app.meter.as_ref()?;
+    let layout = meter.layout(usize::from(summary.width).saturating_sub(left))?;
+    let area = Rect {
+        x: summary.right() - layout.width as u16,
+        width: layout.width as u16,
+        ..summary
+    };
+    Some((area, layout))
+}
+
+fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
+    let Some((area, layout)) = meter_region(app, summary) else {
+        return;
+    };
+    let meter = app.meter.as_ref().expect("visible meter");
+    let mut spans = Vec::new();
+    if let Some(label) = layout.label {
+        spans.push(Span::styled(
+            format!("{label:>3} "),
+            app.look().role(Role::Muted),
+        ));
+    }
+    spans.push(Span::raw(format!(
+        "{:>width$}",
+        meter.digits().expect("visible digits"),
+        width = super::meter::NUMBER_WIDTH
+    )));
+    spans.push(Span::styled(layout.unit, app.look().role(Role::Muted)));
+    if layout.spark {
+        spans.push(Span::styled(
+            format!(" {}", meter.sparkline()),
+            app.look().role(Role::Muted),
+        ));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
 pub fn render(frame: &mut Frame, app: &App) {
     let look = app.look();
     app.hits.borrow_mut().clear();
@@ -602,6 +687,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     .areas(frame.area());
     frame.render_widget(Paragraph::new(tab_line(app, tabs)), tabs);
     frame.render_widget(Paragraph::new(summary_line(app)), summary);
+    render_meter(frame, app, summary);
     render_body(frame, app, body);
     let footer_line = if let Some(input) = &app.input {
         Line::from(format!("{} › {}▏", input.prompt, input.text))
@@ -1268,6 +1354,7 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
 
 #[cfg(test)]
 mod tests {
+    mod meter;
     use super::*;
     use crate::board::app::{Effect, Notes, Snapshot, View};
     use crate::config::{BoardMode, Direction, Pane};
@@ -1341,7 +1428,8 @@ mod tests {
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
-                derived: Default::default(),
+                token_rate: None,
+            derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
                 rows: columns(),
                 refresh: Some(crate::config::DEFAULT_REFRESH),
@@ -1417,7 +1505,10 @@ mod tests {
 
     /// Explicit crew keeps its original columns and rendering byte for byte.
     fn preset_board() -> App {
-        let path = std::env::temp_dir().join(format!("squad-golden-{}.toml", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("squad-golden-{}-{serial}.toml", std::process::id()));
         std::fs::write(&path, "[squad.product]\nlayout = \"crew\"\n").unwrap();
         let config = crate::config::Config::read(path.clone()).unwrap();
         std::fs::remove_file(&path).unwrap();
@@ -1824,7 +1915,8 @@ columns = [{ name = "member", width = "30%" },
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
-                derived: Default::default(),
+                token_rate: None,
+            derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
                     {"title": null, "rows": [row("auth-fix", "blocked", "rotate tokens", json!({
                         "pending": "approve the plan", "note": "needs a call", "presence": "active", "state": "blocked",

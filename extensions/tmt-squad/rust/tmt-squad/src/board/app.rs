@@ -20,7 +20,13 @@ use std::{
 };
 
 /// What the refresh worker loaded for one squad.
+pub struct RateView {
+    pub settings: crate::config::TokenRate,
+    pub input: super::rate::Input,
+}
+
 pub struct View {
+    pub token_rate: Option<RateView>,
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
     pub(super) derived: RefCell<super::derived::Derived>,
@@ -223,6 +229,11 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) meter: Option<super::meter::Meter>,
+    meters: BTreeMap<String, super::meter::Meter>,
+    pub(super) token_window: crate::config::TokenWindow,
+    pub(super) excluded_counters: Vec<String>,
+    window_changed: bool,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
     pub pinned: usize,
@@ -392,6 +403,8 @@ impl App {
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
+        self.meters
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.folds
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         if let (Some(key), Ok(view)) = (&snapshot.squad, &snapshot.view) {
@@ -410,6 +423,43 @@ impl App {
         self.loading_since = None;
         match snapshot.view {
             Ok(view) => {
+                let now = Instant::now();
+                match &view.token_rate {
+                    Some(rate) if rate.settings.enabled => {
+                        if !self.window_changed {
+                            self.token_window = rate.settings.window;
+                        }
+                        self.token_window = self.token_window.available(rate.settings.every);
+                        if let Some(meter) = self.meter.as_mut().filter(|meter| {
+                            meter.room == rate.input.room && meter.settings == rate.settings
+                        }) {
+                            if meter.due(now) {
+                                meter.sample(Ok(&rate.input), now);
+                            }
+                        } else {
+                            self.meter =
+                                Some(super::meter::Meter::new(rate.settings, &rate.input, now));
+                        }
+                    }
+                    _ => self.meter = None,
+                }
+                if let Some(meter) = self.meter.as_mut() {
+                    meter.select(self.token_window, now);
+                }
+                // Help belongs to the ordinary immutable roster snapshot, not meter ticks.
+                self.excluded_counters = view
+                    .token_rate
+                    .as_ref()
+                    .zip(self.meter.as_ref())
+                    .map(|(rate, meter)| {
+                        meter
+                            .excluded(&rate.input)
+                            .into_iter()
+                            .filter(|id| !rate.input.resumes[*id]["consumption"].is_object())
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 self.focus = self.focus.min(view.board.panes.len().saturating_sub(1));
                 let changed = self.loading() || self.view.is_none();
                 let previous = self.view.replace(view);
@@ -492,6 +542,17 @@ impl App {
     fn go(&mut self, next: String) -> Effect {
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
+        }
+        // A cached view is not a fresh counter receipt for another squad.
+        if let (Some(key), Some(mut meter)) = (self.current.as_ref(), self.meter.take()) {
+            meter.suspend(Instant::now());
+            if self.tabs.contains(key) || self.hidden.contains(key) {
+                self.meters.insert(key.clone(), meter);
+            }
+        }
+        self.meter = self.meters.remove(&next);
+        if let Some(meter) = self.meter.as_mut() {
+            meter.resume(self.token_window, Instant::now());
         }
         self.current = Some(next.clone());
         self.menu = None;
@@ -671,6 +732,17 @@ impl App {
         {
             bindings.extend(section.clone());
         }
+        let enabled = view
+            .token_rate
+            .as_ref()
+            .is_some_and(|rate| rate.settings.enabled)
+            || self
+                .meter
+                .as_ref()
+                .is_some_and(|meter| meter.settings.enabled);
+        if !enabled {
+            bindings.retain(|_, action| action.verb != Verb::TokenWindow);
+        }
         bindings
     }
 
@@ -696,6 +768,14 @@ impl App {
                     .and_then(Pane::parse)
                     .expect("validated toggle pane");
                 return self.toggle_pane(pane);
+            }
+            Verb::TokenWindow => {
+                if let Some(meter) = self.meter.as_mut() {
+                    self.token_window = self.token_window.next(meter.settings.every);
+                    self.window_changed = true;
+                    meter.select(self.token_window, Instant::now());
+                }
+                return Effect::None;
             }
             Verb::Theme => return Effect::PickTheme,
             Verb::NextPane => {
@@ -749,7 +829,10 @@ impl App {
                     .into_iter()
                     .filter(|(event, action)| {
                         !matches!(event.as_str(), "click" | "double-click")
-                            && !matches!(action.verb, Verb::Menu | Verb::NextPane)
+                            && !matches!(
+                                action.verb,
+                                Verb::Menu | Verb::NextPane | Verb::TokenWindow
+                            )
                     })
                     .map(|(key, action)| MenuEntry {
                         key,
@@ -1330,6 +1413,7 @@ pub(crate) mod tests {
 
     fn view(sections: Value) -> View {
         View {
+            token_rate: None,
             derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
@@ -1503,7 +1587,10 @@ pub(crate) mod tests {
         json!({"name": name, "state": "working", "fields": fields})
     }
 
-    fn crew(bindings: crate::action::Bindings, sections: Vec<crate::action::Bindings>) -> App {
+    pub(super) fn crew(
+        bindings: crate::action::Bindings,
+        sections: Vec<crate::action::Bindings>,
+    ) -> App {
         let mut app = App::new(Some("product".into()));
         let mut snapshot = snapshot(
             "product",
@@ -1520,7 +1607,7 @@ pub(crate) mod tests {
         app
     }
 
-    fn bind(entries: &[(&str, &str)]) -> crate::action::Bindings {
+    pub(super) fn bind(entries: &[(&str, &str)]) -> crate::action::Bindings {
         crate::action::parse_bindings(entries.iter().map(|(e, a)| (*e, Some(*a))), "bind").unwrap()
     }
 
@@ -2199,5 +2286,88 @@ pub(crate) mod tests {
             app.notice.as_deref(),
             Some("The detail pane is not on this board; add it to panes.")
         );
+    }
+}
+
+#[cfg(test)]
+mod token_window_tests {
+    use super::tests::{bind, crew};
+    use super::*;
+    use crate::config::{TokenRate, TokenWindow};
+    fn app() -> App {
+        let mut app = crew(crate::action::preset(false), Vec::new());
+        app.meter = Some(super::super::meter::Meter::new(
+            TokenRate {
+                enabled: true,
+                ..Default::default()
+            },
+            &super::super::rate::tests::input(100),
+            Instant::now(),
+        ));
+        app
+    }
+    #[test]
+    fn window_binding_overrides_and_text_inputs_keep_their_owner() {
+        let mut app = app();
+        let key = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE);
+        assert_eq!(app.key(key), Effect::None);
+        assert_eq!(app.token_window, TokenWindow::HalfHour);
+        app.searching = true;
+        assert_eq!(app.key(key), Effect::None);
+        assert_eq!(app.search, "w");
+        assert_eq!(app.token_window, TokenWindow::HalfHour);
+        app.searching = false;
+        for compose in [
+            Compose::Talk { to: "a".into() },
+            Compose::Reply {
+                request: "q".into(),
+                from: "a".into(),
+            },
+            Compose::Annotate {
+                to: "a".into(),
+                row: "a".into(),
+            },
+        ] {
+            app.input = Some(Input {
+                prompt: "message".into(),
+                text: String::new(),
+                compose,
+                squad: "x".into(),
+            });
+            app.key(key);
+            assert_eq!(app.input.as_ref().unwrap().text, "w");
+            assert_eq!(app.token_window, TokenWindow::HalfHour);
+        }
+        app.input = None;
+        app.search.clear();
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .extend(bind(&[("w", "refresh"), ("v", "token-window")]));
+        assert_eq!(app.key(key), Effect::Refresh);
+        assert_eq!(app.token_window, TokenWindow::HalfHour);
+        app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        assert_eq!(app.token_window, TokenWindow::Hour);
+        app.view.as_mut().unwrap().section_bindings = vec![bind(&[("w", "token-window")])];
+        app.key(key);
+        assert_eq!(app.token_window, TokenWindow::Five);
+    }
+    #[test]
+    fn tab_rings_are_reused_and_pruned_against_configured_tabs() {
+        let mut app = app();
+        app.tabs = vec!["product".into(), "other".into()];
+        app.go("other".into());
+        assert!(app.meter.is_none());
+        assert_eq!(app.meters.len(), 1);
+        app.go("product".into());
+        assert!(app.meter.is_some());
+        assert!(app.meters.is_empty());
+        app.go("other".into());
+        let mut snapshot = super::tests::snapshot("other", serde_json::json!([]));
+        snapshot.tabs = vec!["other".into()];
+        snapshot.hidden.clear();
+        app.apply(snapshot);
+        assert!(app.meters.is_empty());
     }
 }

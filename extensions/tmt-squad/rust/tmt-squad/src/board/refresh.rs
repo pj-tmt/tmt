@@ -27,7 +27,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// How often an idle worker checks for changes between interval reloads.
@@ -112,14 +112,26 @@ impl Worker {
                 |job, generation| {
                     let cancellation = read_generation.cancellation(generation);
                     let reader = core.cancellable(cancellation.clone());
-                    let attention = job.complete(&reader);
-                    cancellation.cancelled()
-                        || events
-                            .send(super::BoardEvent::Attention {
-                                cancellation,
-                                attention,
-                            })
-                            .is_ok()
+                    let event = match job {
+                        Deferred::Attention(job) => super::BoardEvent::Attention {
+                            attention: job.complete(&reader),
+                            cancellation: cancellation.clone(),
+                        },
+                        Deferred::Usage(input) => {
+                            let sample = reader
+                                .json(&["ls", "--room", &input.room])
+                                .ok()
+                                .filter(|listed| listed["identities"].is_array())
+                                .map(|listed| input.listed(&listed))
+                                .ok_or(());
+                            super::BoardEvent::Usage {
+                                cancellation: cancellation.clone(),
+                                room: input.room,
+                                input: sample,
+                            }
+                        }
+                    };
+                    cancellation.cancelled() || events.send(event).is_ok()
                 },
             );
         });
@@ -172,6 +184,12 @@ impl Loaded {
             attention: None,
         }
     }
+}
+
+/// The existing worker's lower-priority work, behind full reloads.
+enum Deferred {
+    Attention(Box<AttentionJob>),
+    Usage(super::rate::Input),
 }
 
 /// Other tabs' attention follows the shown snapshot on the same worker.
@@ -263,19 +281,36 @@ fn serve(
     generation: &AtomicU64,
     mut stamp: impl FnMut(u64) -> Stamp,
     mut load: impl FnMut(Option<String>, u64) -> Loaded,
-    mut attention: impl FnMut(AttentionJob, u64) -> bool,
+    mut deferred: impl FnMut(Deferred, u64) -> bool,
 ) {
     // The squad last loaded, whether it reloads automatically, and the
     // stamp taken just before that load.
     let mut last: Option<(Reload, bool, Stamp)> = None;
+    let mut sampling: Option<(super::rate::Input, Duration, Instant)> = None;
     loop {
-        let mut wanted = match pending.recv_timeout(check_every) {
+        let wait = sampling.as_ref().map_or(check_every, |(_, _, next)| {
+            check_every.min(next.saturating_duration_since(Instant::now()))
+        });
+        let mut wanted = match pending.recv_timeout(wait) {
             Ok(wanted) => wanted,
             Err(RecvTimeoutError::Timeout) => match &last {
                 Some((reload, true, seen)) if seen.moved(&stamp(reload.generation)) => {
                     reload.clone()
                 }
-                _ => continue,
+                _ => {
+                    if let (Some((reload, _, _)), Some((input, every, next))) =
+                        (&last, &mut sampling)
+                        && Instant::now() >= *next
+                    {
+                        if generation.load(Ordering::Acquire) == reload.generation
+                            && !deferred(Deferred::Usage(input.clone()), reload.generation)
+                        {
+                            break;
+                        }
+                        *next = Instant::now() + *every;
+                    }
+                    continue;
+                }
             },
             Err(RecvTimeoutError::Disconnected) => break,
         };
@@ -307,12 +342,25 @@ fn serve(
             automatic,
             seen,
         ));
+        sampling = snapshot
+            .view
+            .as_ref()
+            .ok()
+            .and_then(|view| view.token_rate.as_ref())
+            .filter(|rate| rate.settings.enabled)
+            .map(|rate| {
+                (
+                    rate.input.clone(),
+                    rate.settings.every,
+                    Instant::now() + rate.settings.every,
+                )
+            });
         if !publish(snapshot, wanted.generation) {
             break;
         }
         if let Some(job) = job
             && generation.load(Ordering::Acquire) == wanted.generation
-            && !attention(job, wanted.generation)
+            && !deferred(Deferred::Attention(Box::new(job)), wanted.generation)
         {
             break;
         }
@@ -461,6 +509,11 @@ fn squad_view(
             members: observation.members.clone(),
         });
     }
+    let settings = config.token_rate(&squad.name)?;
+    let token_rate = settings.enabled.then(|| super::app::RateView {
+        settings,
+        input: super::rate::Input::observed(&squad.room_id, &observation.members),
+    });
     let crate::observe::Projected {
         document,
         sent,
@@ -493,6 +546,7 @@ fn squad_view(
         Notes::NotShown
     };
     let view = View {
+        token_rate,
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
@@ -534,6 +588,7 @@ fn leads_view(
     let mut bindings = config.bindings(tmux)?;
     bindings.extend(settings.leads);
     let view = View {
+        token_rate: None,
         derived: Default::default(),
         rows: crate::rows::Rows::leads(),
         render: NotesRender::Markdown,
@@ -588,6 +643,7 @@ fn all_view(
     .expect("the all tab's preset");
     bindings.extend(settings.all);
     let view = View {
+        token_rate: None,
         derived: Default::default(),
         rows: crate::rows::Rows::overview(),
         render: NotesRender::Markdown,
@@ -1235,5 +1291,54 @@ mod tests {
         }
         std::fs::remove_file(path).unwrap();
         std::fs::remove_file(executable).unwrap();
+    }
+    #[test]
+    fn meter_only_sampling_uses_the_selected_roster_after_queued_full_loads() {
+        let (sender, pending) = mpsc::channel();
+        for name in ["old", "new"] {
+            sender
+                .send(Reload {
+                    squad: Some(name.into()),
+                    generation: 0,
+                })
+                .unwrap();
+        }
+        let mut loads = Vec::new();
+        let mut samples = 0;
+        serve(
+            &pending,
+            |_, _| true,
+            Duration::from_millis(1),
+            &AtomicU64::new(0),
+            |_| Stamp::cursor(1),
+            |wanted, _| {
+                loads.push(wanted.clone());
+                let mut snapshot =
+                    crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
+                let view = snapshot.view.as_mut().unwrap();
+                view.refresh = None;
+                view.token_rate = Some(super::super::app::RateView {
+                    settings: crate::config::TokenRate {
+                        enabled: true,
+                        every: Duration::from_millis(2),
+                        reduced_motion: true,
+                        window: crate::config::TokenWindow::Minute,
+                    },
+                    input: super::super::rate::tests::input(100),
+                });
+                Loaded::only(snapshot)
+            },
+            |job, generation| {
+                let Deferred::Usage(input) = job else {
+                    panic!("unexpected attention work")
+                };
+                assert_eq!(generation, 0);
+                assert_eq!(input.resumes.len(), 1);
+                samples += 1;
+                false
+            },
+        );
+        assert_eq!(loads, [Some("new".into())]);
+        assert_eq!(samples, 1);
     }
 }

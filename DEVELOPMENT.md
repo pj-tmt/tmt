@@ -1233,6 +1233,17 @@ tests run with `cargo test --locked -p tmt-squad`. For dependency changes,
 compare `cargo tree -p tmt-cli -e normal,build -f '{p} {f}'` with `main` and the
 package-scoped release `tmt` (see Rust checks) to prove the CLI is unchanged.
 
+For the completed-request meter, `board::rate`, `board::meter` and the view's
+backend recorder cover four-window bucket boundaries, bounded tab retention,
+no-data/zero/gap aging, key overrides/text inputs, easing and
+retargeting, meter-only emitted coordinates, and disabled buffer/ANSI equality.
+Verify both enabled/reduced-motion policies with the normal renderer. Measure
+matched 60-second idle off/on/reduced-motion process CPU time with isolated
+public-command fixtures; incremental usage must stay below 0.5 percentage point
+of one core. Record sampling child counts, emitted-cell coordinates and
+terminal dimensions with the PR's dark/light/NO_COLOR/narrow captures. Timing
+measurements are local evidence, not a flaky CI threshold.
+
 ### Provider setup and lifecycle verification
 
 Setup planning/publication tests use disposable settings files and preserve user

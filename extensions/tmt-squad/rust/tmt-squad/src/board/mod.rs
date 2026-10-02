@@ -5,7 +5,9 @@ mod app;
 mod changes;
 mod derived;
 mod markdown;
+mod meter;
 pub(crate) mod notes;
+mod rate;
 mod refresh;
 mod scroll;
 mod tabs;
@@ -62,6 +64,11 @@ pub(super) enum BoardEvent {
     Snapshot {
         cancellation: crate::runner::Cancellation,
         snapshot: Box<Snapshot>,
+    },
+    Usage {
+        cancellation: crate::runner::Cancellation,
+        room: String,
+        input: Result<rate::Input, ()>,
     },
     Attention {
         cancellation: crate::runner::Cancellation,
@@ -188,6 +195,7 @@ fn session(
             return Ok(Some(signal));
         }
         let now = Instant::now();
+        dirty |= app.meter.as_mut().is_some_and(|meter| meter.tick(now));
         let next_spinner = view::spinner_frame(app, now);
         let next_marks = view::time_marks(app, crate::status::now_ms());
         dirty |= next_spinner != spinner || next_marks != marks;
@@ -202,6 +210,13 @@ fn session(
         let interval = reload_interval(app);
         let mut wait =
             view::spinner_wait(app, Instant::now()).map_or(INPUT_WAIT, |wait| wait.min(INPUT_WAIT));
+        if let Some(motion) = app
+            .meter
+            .as_ref()
+            .and_then(|meter| meter.wait(Instant::now()))
+        {
+            wait = wait.min(motion);
+        }
         if let Some(interval) = interval {
             wait = wait.min(interval.saturating_sub(refreshed.elapsed()));
         }
@@ -212,6 +227,20 @@ fn session(
             }) => {
                 if !cancellation.cancelled() {
                     app.apply(*snapshot);
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Usage {
+                cancellation,
+                room,
+                input,
+            }) => {
+                if !cancellation.cancelled()
+                    && !app.loading()
+                    && let Some(meter) = app.meter.as_mut().filter(|meter| meter.room == room)
+                {
+                    meter.sample(input.as_ref().map_err(|_| ()), Instant::now());
                     dirty = true;
                 }
                 Effect::None

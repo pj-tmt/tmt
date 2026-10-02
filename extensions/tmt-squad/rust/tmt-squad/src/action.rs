@@ -14,6 +14,7 @@ pub enum Verb {
     Copy,
     Notes,
     Refresh,
+    TokenWindow,
     Theme,
     Run,
     NextPane,
@@ -36,6 +37,7 @@ impl Verb {
             "copy" => Self::Copy,
             "notes" => Self::Notes,
             "refresh" => Self::Refresh,
+            "token-window" => Self::TokenWindow,
             "theme" => Self::Theme,
             "run" => Self::Run,
             "next-pane" => Self::NextPane,
@@ -57,6 +59,7 @@ impl Verb {
             Self::Copy => "copy",
             Self::Notes => "notes",
             Self::Refresh => "refresh",
+            Self::TokenWindow => "token-window",
             Self::Theme => "theme",
             Self::Run => "run",
             Self::NextPane => "next-pane",
@@ -261,6 +264,7 @@ pub fn preset(tmux: bool) -> Bindings {
         ("tab", "next-pane"),
         ("d", "toggle detail"),
         ("ctrl-r", "refresh"),
+        ("w", "token-window"),
         ("T", "theme"),
     ]
     .into_iter()
