@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.95"
 license = "MIT"
 publish = false
-repository = "https://github.com/wkh237/tmt"
+repository = "https://github.com/pj-tmt/tmt"
 
 [workspace.dependencies]
 hpke = { version = "=0.14.1", default-features = false, features = ["alloc", "aes", "x25519", "getrandom"] }

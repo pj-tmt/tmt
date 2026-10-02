@@ -1580,7 +1580,7 @@ pre-release published either way (earlier alphas were flagged prereleases) but
 never a stable CLI flagged prerelease, and accepts an extension release only when
 its flag matches whether its version is a pre-release
 (`Product::accepts_prerelease_flag`). After a manual publication, check
-`node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/wkh237/tmt/releases/latest --jq .tag_name)"`. A CLI
+`node typescript/scripts/release-policy.mjs --check-latest "$(gh api repos/pj-tmt/tmt/releases/latest --jq .tag_name)"`. A CLI
 release attaches its four tar.gz archives, final `dist-manifest.json`,
 `tmt-installer.sh` and the byte-identical `install.sh` (the name the one-line
 install uses); an Office release uses the independent `tmt-office-v<version>`

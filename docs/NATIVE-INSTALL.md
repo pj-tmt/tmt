@@ -102,8 +102,8 @@ The distribution manifest supplies archive names, target triples and SHA-256
 checksums. Checksums detect corruption, not compromise of the download origin.
 No local test artifact is authenticated by a published GitHub attestation.
 For a published immutable release, `gh release verify <tag> --repo
-wkh237/tmt` verifies GitHub's release attestation; `gh release verify-asset
-<tag> <downloaded-file> --repo wkh237/tmt` also checks a local asset.
+pj-tmt/tmt` verifies GitHub's release attestation; `gh release verify-asset
+<tag> <downloaded-file> --repo pj-tmt/tmt` also checks a local asset.
 This optional independent check requires GitHub CLI, not the installed TMT
 runtime. Do not describe locally generated checksums as signatures.
 
@@ -312,4 +312,4 @@ or ask it to read the complete `tmt learn --skill`. No historical-session
 continuity or SQLite downgrade is promised; never use the old TypeScript writer
 on a native database.
 
-[public-install]: https://github.com/wkh237/tmt#install
+[public-install]: https://github.com/pj-tmt/tmt#install
