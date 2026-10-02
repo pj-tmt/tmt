@@ -1005,9 +1005,13 @@ board/list parity fixture.
 The parity harness captures the three explicit presets and the team default at
 120×30, 80×30 and 120×30 again,
 including every cell's style/state, hits, row starts and list text/JSON. Its source
-revision is recorded in the fixture. After an explicitly reviewed output change,
-regenerate with `cargo test --locked -p tmt-squad regenerate_markup_parity_fixture -- --ignored`;
-normal tests never write it. Fixtures contain no host paths or clocks.
+revision is recorded in the fixture. Once it is on main, every later board PR
+that intentionally changes captured output must regenerate the baseline in that
+PR, in a separate commit, using
+`cargo test --locked -p tmt-squad regenerate_markup_parity_fixture -- --ignored`.
+Decode the cell/style diff and attribute every change to the PR's approved behavior;
+review hit identities and list bytes too. Unexplained changes block handoff.
+Normal tests never write the fixture; it contains no host paths or clocks.
 
 The internal static subset is `flex`, `flex-row`, `flex-col`, `w-N`, `h-N`,
 `w-full`, `h-full`, `gap-N`, `gap-x-N`, `gap-y-N`, `p-N`, `px-N`, `py-N`,
