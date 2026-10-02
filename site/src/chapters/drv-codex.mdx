@@ -38,4 +38,8 @@ Setup adds Codex's lifecycle hooks for tmt. Codex asks you to trust new hooks th
 
 ### Codex's sandbox
 
-In Codex's workspace-write sandbox, Codex can't write tmt's data directory by default. tmt reports this plainly as storage that isn't writable, not as a crash. It points to the one setting that allows it: adding tmt's data directory to Codex's `writable_roots`. `tmt setup codex` offers to add it for you and only does so with your OK.
+In Codex's workspace-write sandbox, Codex can't write tmt's data directory by default. tmt reports this plainly as `STORAGE_NOT_WRITABLE` with the directory's path, not as a crash. Either allow that directory, for example by adding it to Codex's `writable_roots`, or let Codex run the command with its own escalation. tmt never changes Codex's sandbox settings, and an agent shouldn't change that setting without your OK.
+
+### Usage counters
+
+`tmt setup codex --usage` adds a turn-end hook that records Codex's context size and the tokens its completed requests used; [Usage counters](/drivers#usage-counters) lists the fields. Codex states its context window, so `windowTokens` is filled in. Codex's counters follow the provider's own running totals: the first reading is the starting point, and later turns add to it.

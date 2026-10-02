@@ -52,4 +52,4 @@ The option keeps tmt's former name, tmux-team, so existing configs keep working.
 
 ### When tmux says no
 
-Some agent sandboxes block access to the tmux server. tmt then says exactly that: tmux permission was denied. It doesn't say the pane is missing. It also tells you which sandbox setting to look at.
+Some agent sandboxes block access to the tmux socket. tmt then says so: it can't access the socket, a sandbox may be blocking it, and no input reached any pane. It doesn't report the pane as missing. The fix is on the agent's side: rerun the same command with the agent's own escalation, or allow the socket.

@@ -29,10 +29,28 @@ $ tmt run reviewer claude   # start Claude Code as "reviewer"
 $ tmt resume reviewer       # reopen reviewer's own conversation
 `}</Cmd>
 
-Setup adds Claude Code's start and end hooks for tmt, and nothing else in your settings changes. The hooks never block Claude Code: if tmt is slow or missing, the session starts normally without the summary. `tmt setup claude --remove` takes them out again.
+Setup adds three Claude Code hooks for tmt (session start, session end and prompt submit), and nothing else in your settings changes. The hooks never block Claude Code: if tmt is slow or missing, the session starts normally without the summary. `tmt setup claude --remove` takes them out again.
 
 ### What you get
 
 - **The right conversation on resume**, even when several agents work in the same folder.
 - **A short briefing at start:** the agent's name, its role, and what's waiting for it.
 - **Running or ended** in `tmt ls` and on the pane badge.
+
+### Message channel
+
+By default tmt delivers a request by pasting it into the agent's pane. For Claude Code you can opt in to its message channel instead, when you start it:
+
+<Cmd>{`
+$ tmt run --channel reviewer claude   # the option goes before the name; not with --resume
+`}</Cmd>
+
+It needs Claude Code 2.1.285 or newer in the 2.x line. tmt checks before it starts anything: an older version, or a command it can't plan around, is refused and nothing is launched. A newer build that the channel hasn't been tried on starts with a notice on stderr. Claude shows its own warning about development channels when it starts. tmt adds the channel to this one launch and changes none of your Claude settings.
+
+- **An enrolled pane is never pasted to.** That holds for every command: `talk`, reply notices and a raw pane address all use the channel or stop. If the channel can't carry a request (not ready, unreachable, or its launch has ended), `talk` says nothing was sent and nothing was pasted, and the request waits in the agent's inbox.
+- **No receipt.** Claude doesn't confirm a channel message. When the write goes through, `talk` reports delivery as unconfirmed and keeps waiting for the agent's `tmt reply`. tmt never resends it.
+- **A crashed launch can leave its record behind.** If tmt can't tell whether that Claude still runs in the pane, `talk` refuses to paste and names the file to remove, once you've checked that no Claude of that launch is left.
+
+### Usage counters
+
+`tmt setup claude --usage` adds a turn-end hook that records Claude's context size and the tokens its completed requests used; [Usage counters](/drivers#usage-counters) lists the fields. Claude Code doesn't state its context window, so `windowTokens` stays empty. Claude's counters start at the end of the conversation file when the hook first sees it, count each new request once, and never count earlier turns.
