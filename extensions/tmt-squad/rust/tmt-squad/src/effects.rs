@@ -23,6 +23,7 @@ fn unfinished(program: &str, error: RunError) -> String {
         RunError::Timeout => format!("{program} did not finish in time."),
         RunError::OutputLimit => format!("{program} printed more than expected."),
         RunError::Io => format!("Could not talk to {program}."),
+        RunError::Cancelled => format!("{program} was cancelled."),
     }
 }
 

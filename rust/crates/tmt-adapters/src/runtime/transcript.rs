@@ -1,8 +1,9 @@
 //! The one place a driver reads its own provider's transcript, and only for
 //! usage numbers (#519). The path comes from hook input, so it is trusted only
 //! as a regular `.jsonl` file under the driver's own tree, opened without
-//! following a final symlink or blocking on a FIFO, and read from the end
-//! within a fixed bound. The formats are unofficial: anything unexpected
+//! following a final symlink or blocking on a FIFO. Tail and incremental reads
+//! share this trust boundary and each have a fixed byte bound. The formats
+//! are unofficial: anything unexpected
 //! yields nothing, never a guess.
 
 use std::{
@@ -18,7 +19,39 @@ pub const TAIL_LIMIT: u64 = 1024 * 1024;
 /// The newest line of `path` that `parse` accepts, searching back through the
 /// last [`TAIL_LIMIT`] bytes. A line cut by the window is skipped.
 pub fn latest<T>(root: &Path, path: &Path, parse: impl Fn(&str) -> Option<T>) -> Option<T> {
-    let tail = read_tail(root, path)?;
+    let mut file = open(root, path)?;
+    let end = file.metadata().ok()?.len();
+    latest_at(&mut file, end, parse)
+}
+
+/// Read the captured file/end together, so later appends or path replacement
+/// cannot mismatch a consumption cursor with the evidence it describes.
+pub(super) fn latest_at<T>(
+    file: &mut File,
+    end: u64,
+    parse: impl Fn(&str) -> Option<T>,
+) -> Option<T> {
+    let tail = read_tail(file, end)?;
+    parse_latest(&tail, parse)
+}
+
+/// Completed JSONL evidence only, retaining whether the captured tail ends
+/// in a partial record. Consumers must not label that snapshot complete.
+pub(super) fn latest_complete_at<T>(
+    file: &mut File,
+    end: u64,
+    parse: impl Fn(&str) -> Option<T>,
+) -> Option<(T, bool)> {
+    let mut tail = read_tail(file, end)?;
+    let complete = tail.last() == Some(&b'\n');
+    if !complete {
+        tail.truncate(tail.iter().rposition(|byte| *byte == b'\n')? + 1);
+    }
+    std::str::from_utf8(&tail).ok()?;
+    Some((parse_latest(&tail, parse)?, complete))
+}
+
+fn parse_latest<T>(tail: &[u8], parse: impl Fn(&str) -> Option<T>) -> Option<T> {
     tail.split(|byte| *byte == b'\n')
         .rev()
         .filter_map(|line| std::str::from_utf8(line).ok())
@@ -26,7 +59,8 @@ pub fn latest<T>(root: &Path, path: &Path, parse: impl Fn(&str) -> Option<T>) ->
         .find_map(parse)
 }
 
-fn read_tail(root: &Path, path: &Path) -> Option<Vec<u8>> {
+/// The shared provider-tree trust boundary for tail and appended-record reads.
+pub(super) fn open(root: &Path, path: &Path) -> Option<File> {
     if !path.is_absolute()
         || path
             .extension()
@@ -42,7 +76,7 @@ fn read_tail(root: &Path, path: &Path) -> Option<Vec<u8>> {
         return None;
     }
     let flags = nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK;
-    let mut file = File::options()
+    let file = File::options()
         .read(true)
         .custom_flags(flags.bits())
         .open(path)
@@ -51,10 +85,17 @@ fn read_tail(root: &Path, path: &Path) -> Option<Vec<u8>> {
     if !metadata.is_file() {
         return None;
     }
-    let start = metadata.len().saturating_sub(TAIL_LIMIT);
+    Some(file)
+}
+
+fn read_tail(file: &mut File, end: u64) -> Option<Vec<u8>> {
+    let start = end.saturating_sub(TAIL_LIMIT);
     file.seek(SeekFrom::Start(start)).ok()?;
     let mut tail = Vec::new();
-    file.take(TAIL_LIMIT).read_to_end(&mut tail).ok()?;
+    file.take(end - start).read_to_end(&mut tail).ok()?;
+    if tail.len() as u64 != end - start {
+        return None;
+    }
     if start > 0 {
         // The window began inside a line; that fragment is not a line.
         let first = tail.iter().position(|byte| *byte == b'\n')?;
@@ -121,6 +162,22 @@ mod tests {
         ] {
             assert_eq!(latest(root.path.as_path(), &path, number), None, "{path:?}");
         }
+    }
+
+    #[test]
+    fn captured_descriptor_and_end_exclude_later_appends_and_replacement() {
+        let root = TestDirectory::new();
+        let path = root.path.join("session.jsonl");
+        fs::write(&path, "{\"n\":1}\n").unwrap();
+        let mut file = open(&root.path, &path).unwrap();
+        let end = file.metadata().unwrap().len();
+        let mut writer = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(writer, "{{\"n\":2}}").unwrap();
+        let replacement = root.path.join("replacement.jsonl");
+        fs::write(&replacement, "{\"n\":3}\n").unwrap();
+        fs::rename(replacement, &path).unwrap();
+        assert_eq!(latest_at(&mut file, end, number), Some(1));
+        assert_eq!(latest(&root.path, &path, number), Some(3));
     }
 
     #[test]

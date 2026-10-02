@@ -2,10 +2,18 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { Ajv } from 'ajv';
+import {
+  attributeReleaseConsumption,
+  assertReleasePleaseApi,
+  executeReleasePlease,
+  loadPinnedReleasePlease,
+} from '../../scripts/release-please-run.mjs';
 import { ownerOf, parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
   generateReleasePleaseConfig,
   readWorkspace,
+  releaseConsumption,
   renderReleasePleaseConfig,
   type ReleasePleaseConfig,
   type Workspace,
@@ -20,6 +28,7 @@ const { releasePolicy } = (await import(
 
 const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
 const readJson = (file: string) => JSON.parse(read(file));
+const releasePlease = loadPinnedReleasePlease();
 
 const components = () => parseComponentMap(read('.github/components.json')).components;
 
@@ -209,9 +218,11 @@ describe('release-please configuration generator', () => {
 
   it('keeps every package in the alpha line: a false prerelease would graduate it to a stable version', () => {
     const config = generate();
-    expect(config).toMatchObject({ prerelease: true, 'prerelease-type': 'alpha' });
-    for (const entry of Object.values(config.packages))
+    expect(config).toMatchObject({ prerelease: true });
+    for (const entry of Object.values(config.packages)) {
       expect(entry).not.toHaveProperty('prerelease');
+      expect(entry['prerelease-type']).toBe('alpha');
+    }
   });
 
   it('updates the workspace version once, in the package that owns the workspace manifest', () => {
@@ -444,7 +455,6 @@ describe('committed release-please configuration', () => {
       'separate-pull-requests': true,
       'include-v-in-tag': true,
       versioning: 'prerelease',
-      'prerelease-type': 'alpha',
       // Also the version line: without it the CLI would graduate from 5.0.0-alpha.8 to 5.0.0.
       prerelease: true,
     });
@@ -497,6 +507,32 @@ describe('pinned release-please CLI', () => {
   const pinned = readJson('.github/release-please/package.json');
   const lock = read('.github/release-please/pnpm-lock.yaml');
 
+  it('loads the release job pin for both the wrapper and real Manifest tests', () => {
+    expect(releasePlease.VERSION).toBe(pinned.dependencies['release-please']);
+    expect(readJson('typescript/package.json').devDependencies).not.toHaveProperty(
+      'release-please'
+    );
+    expect(() => assertReleasePleaseApi(releasePlease)).not.toThrow();
+    for (const broken of [
+      { ...releasePlease, VERSION: '18.0.0' },
+      { ...releasePlease, GitHub: { create() {}, prototype: {} } },
+      { ...releasePlease, GitHub: { create() {}, prototype: { mergeCommitIterator() {} } } },
+    ])
+      expect(() => assertReleasePleaseApi(broken)).toThrow('Unsupported release-please API');
+  });
+
+  it('passes the pinned config schema, which has no additional-paths option', () => {
+    const validate = new Ajv({ strict: false, validateFormats: false }).compile(
+      releasePlease.configSchema
+    );
+    expect(validate(readJson('release-please-config.json')), JSON.stringify(validate.errors)).toBe(
+      true
+    );
+    expect(
+      releasePlease.configSchema.definitions.ReleaserConfigOptions.properties
+    ).not.toHaveProperty('additional-paths');
+  });
+
   it('is one exact version, locked with an integrity hash for every package', () => {
     expect(pinned.dependencies).toEqual({
       'release-please': expect.stringMatching(/^\d+\.\d+\.\d+$/),
@@ -508,5 +544,199 @@ describe('pinned release-please CLI', () => {
     expect(resolutions.length).toBeGreaterThan(50);
     for (const line of resolutions)
       expect(line, line).toMatch(/resolution: \{integrity: sha512-[A-Za-z0-9+/=]+\}$/);
+  });
+});
+
+describe('private leaf release attribution with pinned release-please', () => {
+  const squadPath = 'extensions/tmt-squad';
+  const leafPath = 'rust/crates/tmt-tui';
+  const commit = (sha: string, files: string[], message = 'fix: correct bound text') => ({
+    sha,
+    files,
+    message,
+  });
+
+  it('keeps source ownership private and validates declared consumers before running', () => {
+    const map = components();
+    expect(releaseConsumption(map)).toEqual([{ source: leafPath, target: squadPath }]);
+    expect(
+      ownerOf(`${leafPath}/src/binding.rs`, parseComponentMap(read('.github/components.json')))
+    ).toBe('tmt-tui');
+    for (const changed of [
+      map.map((c) => (c.name === 'tmt-tui' ? { ...c, release: true } : c)),
+      map.map((c) => (c.name === 'tmt-tui' ? { ...c, releaseConsumers: ['missing'] } : c)),
+      map.map((c) => (c.name === 'squad' ? { ...c, release: false } : c)),
+      map.map((c) => (c.name === 'tmt-tui' ? { ...c, releaseConsumers: ['cli'] } : c)),
+    ])
+      expect(() => releaseConsumption(changed)).toThrow();
+  });
+
+  it('plans both commands in dry mode without calling mutation methods', async () => {
+    const calls: string[] = [];
+    const manifest = {
+      async buildPullRequests() {
+        calls.push('plan-pr');
+        return [];
+      },
+      async buildReleases() {
+        calls.push('plan-release');
+        return [];
+      },
+      async createPullRequests() {
+        calls.push('write-pr');
+        return [];
+      },
+      async createReleases() {
+        calls.push('write-release');
+        return [];
+      },
+    };
+    for (const command of ['release-pr', 'github-release']) {
+      await executeReleasePlease(manifest, command, false);
+    }
+    expect(calls).toEqual(['plan-pr', 'plan-release']);
+    for (const command of ['release-pr', 'github-release']) {
+      await executeReleasePlease(manifest, command, true);
+    }
+    expect(calls).toEqual(['plan-pr', 'plan-release', 'write-pr', 'write-release']);
+    await expect(executeReleasePlease(manifest, 'unknown', false)).rejects.toThrow('Unknown');
+    expect(calls).toHaveLength(4);
+  });
+
+  // Only SCM acquisition is a fixture. Manifest splitting, excludes, per-product cutoffs,
+  // conventional commits, version planning and PR updates are the real pinned implementation.
+  async function candidates(
+    changes: ReturnType<typeof commit>[],
+    wrapped = true,
+    legacyAlpha = false
+  ) {
+    const config = readJson('release-please-config.json');
+    if (legacyAlpha) {
+      config['prerelease-type'] = 'alpha';
+      for (const entry of Object.values(config.packages) as Record<string, unknown>[])
+        delete entry['prerelease-type'];
+    }
+    const versions = { '.': '5.0.0-alpha.8', [squadPath]: '0.1.0-alpha.8' };
+    const github = await releasePlease.GitHub.create({
+      owner: 'fixture',
+      repo: 'fixture',
+      defaultBranch: 'main',
+    });
+    github.getFileContentsOnBranch = async (file) => {
+      const parsedContent = JSON.stringify(
+        file === 'release-please-config.json' ? config : versions
+      );
+      return {
+        parsedContent,
+        content: Buffer.from(parsedContent).toString('base64'),
+        sha: 'fixture',
+        mode: '100644',
+      };
+    };
+    github.releaseIterator = async function* () {
+      yield {
+        id: 1,
+        url: 'https://example.test/squad',
+        name: 'Squad',
+        tagName: 'tmt-squad-v0.1.0-alpha.8',
+        sha: 'squad-release',
+        notes: '',
+      };
+      yield {
+        id: 2,
+        url: 'https://example.test/cli',
+        name: 'CLI',
+        tagName: 'v5.0.0-alpha.8',
+        sha: 'cli-release',
+        notes: '',
+      };
+    };
+    github.mergeCommitIterator = async function* (_branch, _options = {}) {
+      yield* changes;
+    };
+    if (wrapped) attributeReleaseConsumption(github, components());
+    const manifest = await releasePlease.Manifest.fromManifest(github, 'main');
+    return manifest.buildPullRequests();
+  }
+
+  const history = (files: string[]) => [
+    commit('fix', files),
+    commit('squad-release', [`${squadPath}/Cargo.toml`], 'chore: release squad'),
+    commit('cli-release', ['rust/Cargo.toml'], 'chore: release cli'),
+  ];
+
+  it('proposes only Squad for a TUI-only fix and fails without the attribution step', async () => {
+    const changes = history([`${leafPath}/src/binding.rs`]);
+    expect(await candidates(changes, false)).toEqual([]);
+    const proposed = await candidates(changes);
+    expect(proposed).toHaveLength(1);
+    expect(proposed[0].title.toString()).toContain('tmt-squad');
+    expect(proposed[0].version?.toString()).toBe('0.1.0-alpha.9');
+    const updates = proposed[0].updates.map(({ path }) => path);
+    expect(updates).toContain('extensions/tmt-squad/rust/tmt-squad/Cargo.toml');
+    expect(updates).not.toContain('rust/Cargo.toml');
+    expect(changes[0].files).toEqual([`${leafPath}/src/binding.rs`]);
+  });
+
+  it('preserves candidate versions when alpha moves from the schema-invalid root into packages', async () => {
+    const changes = history([`${leafPath}/src/binding.rs`, 'rust/crates/tmt-core/src/lib.rs']);
+    const current = await candidates(changes);
+    const legacy = await candidates(changes, true, true);
+    // Cover every active release component, not merely whichever candidates happen to appear.
+    expect(current).toHaveLength(
+      Object.keys(readJson('release-please-config.json').packages).length
+    );
+    expect(current.map((pr) => pr.version?.toString()).sort()).toEqual([
+      '0.1.0-alpha.9',
+      '5.0.0-alpha.9',
+    ]);
+    expect(current.map((pr) => pr.version?.toString())).toEqual(
+      legacy.map((pr) => pr.version?.toString())
+    );
+  });
+
+  it('leaves core-only proposals unchanged and unrelated private leaves unpublished', async () => {
+    for (const file of [
+      'rust/crates/tmt-core/src/lib.rs',
+      'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
+      `${leafPath}-other/src/lib.rs`,
+    ]) {
+      const plain = await candidates(history([file]), false);
+      const wrapped = await candidates(history([file]));
+      expect(wrapped.map((pr) => pr.title.toString())).toEqual(
+        plain.map((pr) => pr.title.toString())
+      );
+      if (file.startsWith('extensions/tmt-remote/')) expect(wrapped).toEqual([]);
+    }
+  });
+
+  it('does not replay a TUI fix older than the Squad release even when CLI history extends further', async () => {
+    const changes = [
+      commit('squad-release', [`${squadPath}/Cargo.toml`], 'chore: release squad'),
+      commit('old-fix', [`${leafPath}/src/binding.rs`]),
+      commit('cli-release', ['rust/Cargo.toml'], 'chore: release cli'),
+    ];
+    expect(await candidates(changes)).toEqual([]);
+  });
+
+  it('retains both proposals when a commit also changes core and deduplicates Squad attribution', async () => {
+    const proposed = await candidates(
+      history([
+        `${leafPath}/src/binding.rs`,
+        `${squadPath}/src/view.rs`,
+        'rust/crates/tmt-core/src/lib.rs',
+      ])
+    );
+    expect(proposed).toHaveLength(2);
+    expect(proposed.map((pr) => pr.version?.toString()).sort()).toEqual([
+      '0.1.0-alpha.9',
+      '5.0.0-alpha.9',
+    ]);
+  });
+
+  it('fails loudly for absent backfilled commit files', async () => {
+    const changes = history([]);
+    Reflect.deleteProperty(changes[0], 'files');
+    await expect(candidates(changes)).rejects.toThrow('missing valid backfilled files');
   });
 });

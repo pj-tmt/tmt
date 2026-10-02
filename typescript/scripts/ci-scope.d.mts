@@ -9,6 +9,7 @@ export interface ComponentMap {
     readonly name: string;
     readonly package?: string;
     readonly release?: boolean;
+    readonly releaseConsumers: readonly string[];
     readonly owns: readonly string[];
     readonly excludes: readonly string[];
     readonly migrations: readonly string[];
@@ -50,6 +51,8 @@ export interface NativeJobResults {
   readonly e2eShard2: string;
   readonly runtimeBuild: string;
   readonly packedInstall: string;
+  readonly macosRuntimeBuild: string;
+  readonly macosPackedInstall: string;
 }
 
 export interface E2eShardResults {
@@ -66,6 +69,7 @@ export function explainCiSelection(
   map?: ComponentMap
 ): readonly CiSelectionRow[];
 export function selectCiAreas(paths: readonly string[], map?: ComponentMap): CiAreas;
+export function selectOfficeBrowser(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectNativeScope(paths: readonly string[], map?: ComponentMap): string;
 export function scopedChecks(
   scope: string,
@@ -74,6 +78,12 @@ export function scopedChecks(
 export function nativeGatePasses(
   scope: string,
   results: NativeJobResults,
+  macos: string,
+  map?: ComponentMap
+): boolean;
+export function rustGatePasses(
+  scope: string,
+  results: readonly string[],
   map?: ComponentMap
 ): boolean;
 export function e2eGatePasses(scope: string, results: E2eShardResults, map?: ComponentMap): boolean;
@@ -84,8 +94,14 @@ export function renderSelectionEvidence(input: {
   readonly areas: CiAreas;
   readonly digest: string;
   readonly nativeScope?: string;
+  readonly range?: '..' | '...';
 }): string;
-export function readChangedCiSelection(base: string, head: string, cwd: string): CiSelection;
+export function readChangedCiSelection(
+  base: string,
+  head: string,
+  cwd: string,
+  range?: '..' | '...'
+): CiSelection;
 export function readChangedCiAreas(base: string, head: string, cwd: string): CiAreas;
 export function runCiScope(
   args: readonly string[],

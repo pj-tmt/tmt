@@ -13,8 +13,9 @@ use std::{
 };
 
 use tmt_adapters::{
+    host::DeliveryError,
     process::{CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner},
-    tmux::{CallerEnvironment, DeliveryError, OperationOptions, Tmux, TmuxError},
+    tmux::{CallerEnvironment, OperationOptions, Tmux, TmuxError},
 };
 use tmt_core::endpoint::{
     BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence,
@@ -154,7 +155,9 @@ fn run(args: &[String], tmux: &Tmux<CountingRunner>) -> Result<serde_json::Value
     };
     match mode {
         "send" if args.len() == 4 => {
-            tmux.send_on(&args[1], &args[2], &args[3], Duration::ZERO)?;
+            // As production sends: core's pane input policy, then the transport.
+            let text = tmt_core::driver::pane_input_text(&args[3]);
+            tmux.send_on(&args[1], &args[2], &text, Duration::ZERO)?;
             Ok(serde_json::json!({"sent": true}))
         }
         "capture" if args.len() == 4 => {

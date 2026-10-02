@@ -426,6 +426,25 @@ describe('checkUpgrade', () => {
     }
     expect(checkUpgrade({ result: 'success', outcome: '' }).ok).toBe(false);
   });
+
+  it('puts the cause the failed hosts name in front of the run, and still cites the run without one', () => {
+    const cause =
+      'Packed command failed (exited 1, expected 0): tmt extension install squad: unrecognized subcommand squad';
+    expect(
+      checkUpgrade({
+        result: 'failure',
+        outcome: 'proved',
+        reason: cause,
+        url: 'https://example.test/run',
+      }).reason
+    ).toBe(`the upgrade proof failure: ${cause} (https://example.test/run)`);
+    expect(checkUpgrade({ result: 'failure', outcome: 'proved', reason: cause }).reason).toBe(
+      `the upgrade proof failure: ${cause}`
+    );
+    expect(checkUpgrade({ result: 'failure', outcome: 'proved' }).reason).toBe(
+      'the upgrade proof failure'
+    );
+  });
 });
 
 describe('runGates', () => {

@@ -20,9 +20,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod preflight;
+pub use preflight::candidates;
+
 const FILE_LIMIT: u64 = 512 * 1024;
 const MEMBERS_LIMIT: usize = 128;
 const VERSION: u64 = 1;
+/// Unchanged observations advance the persisted rollback watermark at most
+/// once per minute. Content/evidence changes always publish immediately.
+const WATERMARK_INTERVAL_MS: u64 = 60_000;
 
 fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -84,6 +90,23 @@ impl Snapshot {
     }
 }
 
+/// Inputs shared by ordinary observation and a reminder claim.
+pub struct Input<'a> {
+    pub members: &'a [Member],
+    pub providers: &'a [provider::Provider],
+    pub fields: &'a provider::Cache,
+    pub notes: Option<&'a Value>,
+    pub room: Option<&'a Window>,
+    pub now: u64,
+}
+
+/// Exactly the generations committed as claimed, before context handoff.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Reminder {
+    pub members: Vec<String>,
+    pub notes: bool,
+}
+
 /// Owns one nonblocking lock from before reading the roster through publication.
 /// A competing invocation returns unknown, and does no optional core reads.
 pub struct Observer {
@@ -96,6 +119,17 @@ pub struct Observer {
 impl Observer {
     pub fn begin(config: &Path, squad: &Squad, settings: Reminders) -> Self {
         Self::at(config, squad, settings, cache::directory("staleness"))
+    }
+
+    /// Isolates an observer's lock and publication in a fixture-owned cache.
+    #[cfg(test)]
+    pub(crate) fn in_directory(
+        config: &Path,
+        squad: &Squad,
+        settings: Reminders,
+        directory: PathBuf,
+    ) -> Self {
+        Self::at(config, squad, settings, Some(directory))
     }
 
     fn at(config: &Path, squad: &Squad, settings: Reminders, directory: Option<PathBuf>) -> Self {
@@ -140,6 +174,9 @@ impl Observer {
         };
         observer.document =
             read_cache(&path).unwrap_or_else(|| json!({"version": VERSION, "members": {}}));
+        observer.document["source"] = json!({
+            "config": config.to_str(), "squad": squad.name, "roomId": squad.room_id,
+        });
         observer.path = Some(path);
         observer._lock = Some(lock);
         observer
@@ -154,7 +191,7 @@ impl Observer {
     /// the public notes.read result, and `room` the existing bounded history.
     /// Caller decides which effects to run; this owner computes and publishes.
     pub fn record(
-        mut self,
+        self,
         members: &[Member],
         providers: &[provider::Provider],
         fields: &provider::Cache,
@@ -162,15 +199,49 @@ impl Observer {
         room: Option<&Window>,
         now: u64,
     ) -> Snapshot {
+        self.record_inner(
+            Input {
+                members,
+                providers,
+                fields,
+                notes,
+                room,
+                now,
+            },
+            false,
+        )
+        .0
+    }
+
+    /// The caller has already verified the hook identity; the current roster
+    /// must independently establish that it is this squad's only lead.
+    pub fn record_for_reminder(self, input: Input<'_>, lead: &str) -> (Snapshot, Option<Reminder>) {
+        let mut leaders = input.members.iter().filter(|member| member.is_lead());
+        if !leaders.next().is_some_and(|member| member.id == lead) || leaders.next().is_some() {
+            return (Snapshot::unavailable("unknown"), None);
+        }
+        self.record_inner(input, true)
+    }
+
+    fn record_inner(mut self, input: Input<'_>, claim: bool) -> (Snapshot, Option<Reminder>) {
+        let Input {
+            members,
+            providers,
+            fields,
+            notes,
+            room,
+            now,
+        } = input;
         if !self.settings.enabled {
-            return Snapshot::unavailable("disabled");
+            return (Snapshot::unavailable("disabled"), None);
         }
         let Some(path) = self.path.as_ref() else {
-            return Snapshot::unavailable("unknown");
+            return (Snapshot::unavailable("unknown"), None);
         };
         if members.len() > MEMBERS_LIMIT {
-            return Snapshot::unavailable("unknown");
+            return (Snapshot::unavailable("unknown"), None);
         }
+        let previous = self.document.clone();
         let rollback = self.document["observedAtMs"]
             .as_u64()
             .is_some_and(|previous| previous > now);
@@ -199,12 +270,16 @@ impl Observer {
             };
             let mut reasons = if same
                 && old["reasons"].as_array().is_some_and(|items| {
-                    items.len() <= 4
+                    items.len() <= 5
                         && items.iter().all(|reason| {
                             matches!(
                                 reason.as_str(),
                                 Some(
-                                    "pr_link_changed" | "pr_opened" | "pr_merged" | "member_final"
+                                    "pr_link_changed"
+                                        | "pr_opened"
+                                        | "pr_merged"
+                                        | "member_final"
+                                        | "member_idle"
                                 )
                             )
                         })
@@ -247,6 +322,19 @@ impl Observer {
                 }
                 states.insert(field, state.into());
             }
+            // Only ls/board supply this public, runtime-verified projection.
+            // The roster-only hook retains the reason; it never probes a pane
+            // or infers idle from self-reported status or offline presence.
+            let idle = &member.seen["session"]["activity"];
+            if same
+                && idle["state"] == "idle"
+                && idle["sinceMs"]
+                    .as_u64()
+                    .zip(idle["lastActivityMs"].as_u64())
+                    .is_some_and(|(at, last)| at > since && at <= last && last <= now)
+            {
+                add_reason(&mut reasons, "member_idle");
+            }
             if room.is_some_and(|room| {
                 room.items.iter().any(|item| {
                     item["kind"] == "request"
@@ -273,11 +361,13 @@ impl Observer {
             retained.insert(
                 member.id.clone(),
                 json!({"fingerprint": fingerprint, "sinceMs": since,
-                "prLink": link, "prStates": states, "reasons": reasons}),
+                "prLink": link, "prStates": states, "reasons": reasons,
+                "claimed": same && old["claimed"] == true}),
             );
         }
         self.document["members"] = Value::Object(retained);
         let lead = members.iter().find(|member| member.is_lead());
+        self.document["leadId"] = lead.map(|member| member.id.clone()).into();
         if let Some(lead) = lead {
             if let Some(notes) = notes
                 .filter(|notes| notes["identityId"] == lead.id)
@@ -295,8 +385,8 @@ impl Observer {
                 } else {
                     now
                 };
-                self.document["notes"] =
-                    json!({"leadId": lead.id, "fingerprint": fingerprint, "sinceMs": since});
+                self.document["notes"] = json!({"leadId": lead.id, "fingerprint": fingerprint, "sinceMs": since,
+                        "claimed": same && old["claimed"] == true});
                 snapshot.notes = if rollback || future {
                     unavailable("unknown")
                 } else {
@@ -308,16 +398,48 @@ impl Observer {
         } else {
             self.document["notes"] = Value::Null;
         }
+        let reminder = claim
+            .then(|| claim_generations(&mut self.document, &snapshot))
+            .flatten();
+        let watermark_due = previous["observedAtMs"]
+            .as_u64()
+            .is_none_or(|at| now.saturating_sub(at) >= WATERMARK_INTERVAL_MS);
+        let changed = self.document != previous;
+        if !changed && !watermark_due && !rollback {
+            return (snapshot, None);
+        }
         self.document["observedAtMs"] = now.into();
         let bytes = self.document.to_string();
         if bytes.len() as u64 > FILE_LIMIT {
-            return Snapshot::unavailable("unknown");
+            return (Snapshot::unavailable("unknown"), None);
         }
         if cache::replace(path, bytes.as_bytes()).is_err() {
-            return Snapshot::unavailable("unknown");
+            return (Snapshot::unavailable("unknown"), None);
         }
-        snapshot
+        (snapshot, reminder)
     }
+}
+
+fn claim_generations(document: &mut Value, snapshot: &Snapshot) -> Option<Reminder> {
+    let mut reminder = Reminder {
+        members: Vec::new(),
+        notes: false,
+    };
+    for (id, age) in &snapshot.members {
+        if age["state"] == "stale"
+            && age["activityAfterUpdate"] == true
+            && document["members"][id]["claimed"] != true
+        {
+            document["members"][id]["claimed"] = true.into();
+            reminder.members.push(id.clone());
+        }
+    }
+    // Notes need no activity evidence; stale member rows do.
+    if snapshot.notes["state"] == "stale" && document["notes"]["claimed"] != true {
+        document["notes"]["claimed"] = true.into();
+        reminder.notes = true;
+    }
+    (!reminder.members.is_empty() || reminder.notes).then_some(reminder)
 }
 
 fn add_reason(reasons: &mut Value, reason: &str) {

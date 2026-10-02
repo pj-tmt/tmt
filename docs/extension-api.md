@@ -26,6 +26,7 @@ Clients must tolerate additive response fields.
 | Operation                | Input                                                                     | Result                                                                                                                                                            |
 | ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`           | `{}`                                                                      | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
+| `storage.root`           | `{}`                                                                      | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
 | `changes.cursor`         | `{}`                                                                      | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
 | `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`              | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                               | Request detail including retained prompt/final state                                                                                                              |
@@ -43,6 +44,14 @@ Clients must tolerate additive response fields.
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                       | `owner`, `removed` and `kept` targets                                                                                                                             |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                              | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
+
+`storage.root` reports the data directory selected by the invoking core, including
+its normal explicit-home/XDG/legacy selection. Extensions MUST use this operation
+rather than infer configuration paths, and keep their files under
+`<dataRoot>/<extension>/`. The extension owns creation and lifecycle of its
+subtree, with 0700 directories and 0600 secret/state files; it MUST NOT open or
+modify core's database/configuration or provider settings. Discovery does not
+create the root or read its files. `capabilities` remains a constant document.
 
 IDs are canonical UUIDs, except request IDs, which use TMT's `req_...` format.
 `dispatch.create.kind` defaults to `request`; `announcement` does not expect a
@@ -85,7 +94,7 @@ confused with a failed lookup; more than 256 IDs or a non-canonical UUID is
 in input order. Core applies expiry: `status.stale` is computed at read time, and an
 expired status is still returned (stale) so a client can show it as such. Unknown IDs
 are `{id, found:false}` entries, not errors. It never reports presence; join it with
-`tmt list --json`, which verifies tmux endpoints.
+`tmt ls --json`, which verifies tmux endpoints.
 
 `changes.cursor` tells a client cheaply whether anything it may read has
 changed, so it can reload only then. The cursor advances with every committed
@@ -113,7 +122,7 @@ unchanged as the next request's `before`. Concurrent new requests above that cur
 will appear on a fresh first page; final-state changes can appear when detail is
 reread. This is not a live change feed. Reads never mark incoming work as read.
 Use `tmt x` and its revision cursor for attention, and the ordinary JSON commands
-for identity, presence, room list/show/retire, reply and result. Notes accepts a
+for identity, presence, room ls/show/retire, reply and result. Notes accepts a
 saved identity UUID, never a caller-selected path, and does not initialize a file.
 
 Identity hooks are durable identity-retirement subscriptions. A consumer
@@ -190,6 +199,16 @@ Missing proof gives unknown. Timestamps are local accepted observation times;
 extras are currently empty. The opt-in `tmt setup --usage` Stop hook supplies end
 events; absent end events never cause an inferred idle transition. Extensions
 must use this public projection rather than inspect core state.
+
+Public `ls --json` also exposes the remembered driver's optional
+`resume.consumption`: cumulative completed-request input/output, cached input as
+a subset, epoch/sequence, observation time and explicit completeness/gap.
+It is separate from `resume.usage` (context size). Consumers baseline on first,
+epoch-change, gap or decreasing-counter observations; absent evidence is
+unavailable. Counter times are not heartbeats and no in-flight usage is exposed.
+See [the runtime contract](../ARCHITECTURE.md#identity-names-and-bindings) for exact fields, provider
+normalization and bounded-source limitations. Extensions read these public
+projections, never provider transcripts or private driver state.
 
 Provider prompt submission also requests this context for an already verified
 current session. The provider receives only extension summaries in

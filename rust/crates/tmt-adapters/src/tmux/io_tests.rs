@@ -65,6 +65,7 @@ fn full_environment() -> CallerEnvironment {
         tmux: Some("/tmp/private.sock,321,0".into()),
         pane: Some("%9".into()),
         process_id: 900,
+        driver_env: Default::default(),
         herdr_pane: None,
         herdr_socket: None,
     }
@@ -124,6 +125,7 @@ fn absent_mark_is_distinct_from_invalid_selected_server_evidence() {
         tmux: Some("malformed".into()),
         pane: None,
         process_id: 900,
+        driver_env: Default::default(),
         herdr_pane: None,
         herdr_socket: None,
     };
@@ -144,6 +146,7 @@ fn malformed_explicit_environment_and_scopes_never_spawn() {
             tmux: Some(context.into()),
             pane: Some(pane.into()),
             process_id: 900,
+            driver_env: Default::default(),
             herdr_pane: None,
             herdr_socket: None,
         };
@@ -173,6 +176,7 @@ fn ancestry_and_snapshot_share_one_deadline_and_reject_ambient_panes() {
         tmux: None,
         pane: None,
         process_id: 900,
+        driver_env: Default::default(),
         herdr_pane: None,
         herdr_socket: None,
     };
@@ -200,11 +204,7 @@ fn unavailable_observations_do_not_hide_failed_cleanup() {
 
         let tmux = Tmux::new(ScriptedRunner::new([Err(failure(failed_cleanup))]));
         let target = tmux.resolve_target("10.3", OperationOptions::default());
-        if failed_cleanup {
-            assert!(target.unwrap_err().cleanup_failed());
-        } else {
-            assert_eq!(target.unwrap(), None);
-        }
+        assert_eq!(target.unwrap_err().cleanup_failed(), failed_cleanup);
 
         let tmux = Tmux::new(ScriptedRunner::new([Err(failure(failed_cleanup))]));
         let probe = tmux.probe(
@@ -255,6 +255,7 @@ fn ancestry_requires_one_coherent_candidate_after_grouped_row_deduplication() {
             tmux: None,
             pane: None,
             process_id: 900,
+            driver_env: Default::default(),
             herdr_pane: None,
             herdr_socket: None,
         };
@@ -270,6 +271,7 @@ fn partial_caller_evidence_cannot_override_explicit_socket_or_pane() {
             tmux: Some("/different.sock,321,0".into()),
             pane: None,
             process_id: 900,
+            driver_env: Default::default(),
             herdr_pane: None,
             herdr_socket: None,
         },
@@ -277,6 +279,7 @@ fn partial_caller_evidence_cannot_override_explicit_socket_or_pane() {
             tmux: None,
             pane: Some("%10".into()),
             process_id: 900,
+            driver_env: Default::default(),
             herdr_pane: None,
             herdr_socket: None,
         },
@@ -304,6 +307,7 @@ fn ancestry_cycle_stops_before_any_pane_query() {
         tmux: None,
         pane: None,
         process_id: 900,
+        driver_env: Default::default(),
         herdr_pane: None,
         herdr_socket: None,
     };
@@ -664,4 +668,87 @@ fn server_id_reads_back_after_successful_initialization() {
         SERVER_ID
     );
     assert_eq!(tmux.runner.calls.borrow().len(), 3);
+}
+
+#[test]
+fn explicit_target_resolution_preserves_execution_failures() {
+    for kind in [
+        CommandFailure::Timeout,
+        CommandFailure::Io,
+        CommandFailure::Spawn,
+        CommandFailure::OutputLimit,
+        CommandFailure::Exit {
+            code: None,
+            signal: Some(15),
+        },
+    ] {
+        let tmux = Tmux::new(ScriptedRunner::new([Err(CommandError::new(kind))]));
+        let error = tmux
+            .resolve_target("10.3", OperationOptions::default())
+            .unwrap_err();
+        assert_eq!(error.kind, TmuxFailure::Command);
+        assert_eq!(error.cause.unwrap().kind, kind);
+        assert_eq!(tmux.runner.calls.borrow().len(), 1);
+
+        let tmux = Tmux::new(ScriptedRunner::new([Err(CommandError::new(kind))]));
+        assert_eq!(tmux.caller_pane(&full_environment()).unwrap(), None);
+    }
+}
+
+#[test]
+fn explicit_target_resolution_keeps_missing_success_and_permission_distinct() {
+    for (output, expected) in [("%9\n", Some("%9")), ("", None), ("invalid", None)] {
+        let tmux = Tmux::new(ScriptedRunner::new([Ok(output)]));
+        assert_eq!(
+            tmux.resolve_target("10.3", OperationOptions::default())
+                .unwrap()
+                .as_deref(),
+            expected
+        );
+    }
+    for (stderr, denied) in [
+        ("can't find window: 10\n", false),
+        (
+            "error connecting to /tmp/private.sock (Permission denied)\n",
+            true,
+        ),
+        (
+            "error connecting to /tmp/private.sock (Operation not permitted)\n",
+            true,
+        ),
+    ] {
+        let mut error = CommandError::new(CommandFailure::Exit {
+            code: Some(1),
+            signal: None,
+        });
+        error.output = Some(CommandOutput {
+            stdout: Vec::new(),
+            stderr: stderr.as_bytes().to_vec(),
+        });
+        let tmux = Tmux::new(ScriptedRunner::new([Err(error)]));
+        let target = tmux.resolve_target("10.3", OperationOptions::default());
+        if denied {
+            assert!(target.unwrap_err().socket_permission_denied());
+        } else {
+            assert_eq!(target.unwrap(), None);
+        }
+    }
+}
+
+#[test]
+fn missing_target_exit_does_not_hide_failed_cleanup() {
+    let tmux = Tmux::new(ScriptedRunner::new([Err(
+        crate::scripted_runner::failure_with_kind(
+            CommandFailure::Exit {
+                code: Some(1),
+                signal: None,
+            },
+            true,
+        ),
+    )]));
+    assert!(
+        tmux.resolve_target("10.3", OperationOptions::default())
+            .unwrap_err()
+            .cleanup_failed()
+    );
 }

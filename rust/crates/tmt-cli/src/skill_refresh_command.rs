@@ -2,11 +2,35 @@
 
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    path::Path,
+};
 use tmt_adapters::{
     config::ConfigPaths,
     skill_installation::{self, RefreshReport},
 };
+
+/// One recovery line per preserved target. Move the entry, never its source,
+/// into a fresh backup outside provider discovery before retrying the update.
+pub(crate) fn conflict_hint(target: &Path) -> String {
+    let parent = target
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or(Path::new("."));
+    let backups = parent.join(".tmt-skill-backups");
+    let template = backups.join("upgrade-conflict.XXXXXXXX");
+    let name = target.file_name().unwrap_or_default().to_string_lossy();
+    let quote = crate::output::shell_word;
+    format!(
+        "User-owned or modified skill preserved at {}; back up this entry with: mkdir -p {} && backup=$(mktemp -d {}) && mv {} \"$backup\"/{}; then repeat the original upgrade command",
+        target.display(),
+        quote(&backups.to_string_lossy()),
+        quote(&template.to_string_lossy()),
+        quote(&target.to_string_lossy()),
+        quote(&name)
+    )
+}
 
 fn document(report: &RefreshReport) -> Value {
     json!({
@@ -66,6 +90,15 @@ pub fn execute(mode: OutputMode) -> io::Result<u8> {
         let mut value = document(&report);
         if let Some(failure) = &failure {
             value["error"] = failure.document()["error"].clone();
+            if !report.conflicts.is_empty() {
+                value["error"]["suggestion"] = report
+                    .conflicts
+                    .iter()
+                    .map(|target| conflict_hint(target))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .into();
+            }
         }
         writeln!(output, "{value}")?;
     } else {
@@ -81,11 +114,7 @@ pub fn execute(mode: OutputMode) -> io::Result<u8> {
             writeln!(output, "Skipped missing skill at {}", target.display())?;
         }
         for target in &report.conflicts {
-            writeln!(
-                output,
-                "Preserved conflicting skill at {}",
-                target.display()
-            )?;
+            writeln!(output, "{}", conflict_hint(target))?;
         }
         if !report.refreshed.is_empty() {
             tmt_cli_style::message::hint(

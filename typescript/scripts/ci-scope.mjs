@@ -62,6 +62,10 @@ export function parseComponentMap(text) {
     name,
     package: component.package,
     release: component.release,
+    releaseConsumers:
+      component.releaseConsumers === undefined
+        ? []
+        : nonEmptyStrings(component.releaseConsumers, `components.${name}.releaseConsumers`),
     owns: nonEmptyStrings(component.owns, `components.${name}.owns`),
     excludes: component.excludes ?? [],
     migrations:
@@ -197,9 +201,9 @@ function consumedByNativeOffice(path) {
 /**
  * What each changed path selects and why, for the run summary. The first
  * matching rule of the component map decides `native` and `office`; a path no
- * rule matches fails closed to both. `nativeOffice` schedules the advisory
- * native Office browser shards only for Office itself or the core surfaces it
- * consumes.
+ * rule matches fails closed to both. `nativeOffice` retains the local Office
+ * verification impact of core surfaces it consumes; advisory PR scheduling
+ * uses the separate ownership-only selectOfficeBrowser policy.
  */
 export function explainCiSelection(paths, map = componentMap()) {
   return paths.map((path) => {
@@ -229,6 +233,29 @@ export function selectCiAreas(paths, map = componentMap()) {
   };
 }
 
+// Office-local browser harnesses/build files are already component-owned. These
+// are the browser-specific machinery inputs outside that component; shared
+// dependency and generic fixture changes rely on the weekly/manual safety net.
+const OFFICE_BROWSER_INPUTS = new Set([
+  '.github/workflows/office-browser.yml',
+  '.dockerignore',
+  'typescript/scripts/verify-office-emulators.mjs',
+]);
+
+/**
+ * Parked Office browser PRs follow ownership plus browser-specific machinery,
+ * not shared inputs or core dependencies. Weekly/manual runs cover every partition.
+ * Empty or unknown paths select no browser work; required CI stays conservative.
+ */
+export function selectOfficeBrowser(paths, map = componentMap()) {
+  return paths.some(
+    (path) =>
+      ownerOf(path, map) === 'office' ||
+      path.startsWith('docs/office/') ||
+      OFFICE_BROWSER_INPUTS.has(path)
+  );
+}
+
 /**
  * How much of the native work a change needs. `none`: nothing native is selected.
  * A component name (only `squad` declares `scopedChecks`): every path that selects
@@ -253,7 +280,15 @@ export function scopedChecks(scope, map = componentMap()) {
 const EVIDENCE_ROWS = 100;
 
 /** Markdown for `$GITHUB_STEP_SUMMARY` and the log: one row per changed path. */
-export function renderSelectionEvidence({ base, head, rows, areas, digest, nativeScope }) {
+export function renderSelectionEvidence({
+  base,
+  head,
+  rows,
+  areas,
+  digest,
+  nativeScope,
+  range = '...',
+}) {
   const selects = (row) =>
     [row.native && 'native', row.office && 'office', row.nativeOffice && 'native_office']
       .filter(Boolean)
@@ -261,7 +296,7 @@ export function renderSelectionEvidence({ base, head, rows, areas, digest, nativ
   const lines = [
     '### CI selection',
     '',
-    `Diff \`${base.slice(0, 12)}...${head.slice(0, 12)}\`, ${rows.length} changed path(s), component map \`sha256:${digest}\`.`,
+    `Diff \`${base.slice(0, 12)}${range}${head.slice(0, 12)}\`, ${rows.length} changed path(s), component map \`sha256:${digest}\`.`,
     '',
     `Selected: native=${areas.native}, office=${areas.office}, native_office=${areas.nativeOffice}` +
       (nativeScope ? `, native scope ${nativeScope}.` : '.'),
@@ -297,6 +332,8 @@ const NATIVE_JOBS = [
   'e2eShard2',
   'runtimeBuild',
   'packedInstall',
+  'macosRuntimeBuild',
+  'macosPackedInstall',
 ];
 const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
 
@@ -308,8 +345,14 @@ const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
  * unknown scope, fails: a selected job that was skipped, cancelled or missing is as
  * wrong as a job that ran when the selector skipped it.
  */
-function expectedNativeResults(scope, map) {
-  if (scope === 'full') return Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'success']));
+function expectedNativeResults(scope, map, macos = 'true') {
+  if (scope === 'full') {
+    return {
+      ...Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'success'])),
+      macosRuntimeBuild: macos === 'false' ? 'skipped' : 'success',
+      macosPackedInstall: macos === 'false' ? 'skipped' : 'success',
+    };
+  }
   if (scope === 'none') return Object.fromEntries(NATIVE_JOBS.map((job) => [job, 'skipped']));
   if (!map.components.some((component) => component.name === scope && component.scopedChecks)) {
     return undefined;
@@ -321,18 +364,21 @@ function expectedNativeResults(scope, map) {
     e2eShard2: 'skipped',
     runtimeBuild: 'skipped',
     packedInstall: 'skipped',
+    macosRuntimeBuild: 'skipped',
+    macosPackedInstall: 'skipped',
   };
 }
 
-function gatePasses(jobs, scope, results, map) {
-  const expected = expectedNativeResults(scope, map);
+function gatePasses(jobs, scope, results, map, macos) {
+  const expected = expectedNativeResults(scope, map, macos);
   if (!expected || jobs.some((job) => typeof results?.[job] !== 'string')) return false;
   return jobs.every((job) => results[job] === expected[job]);
 }
 
 /** `Native package matrix`: every native job, the two E2E shards included. */
-export function nativeGatePasses(scope, results, map = componentMap()) {
-  return gatePasses(NATIVE_JOBS, scope, results, map);
+export function nativeGatePasses(scope, results, macos, map = componentMap()) {
+  if (!['true', 'false'].includes(macos)) return false;
+  return gatePasses(NATIVE_JOBS, scope, results, map, macos);
 }
 
 /** `Docker E2E`: the two shards alone, with the same expectations. */
@@ -340,13 +386,21 @@ export function e2eGatePasses(scope, results, map = componentMap()) {
   return gatePasses(E2E_JOBS, scope, results, map);
 }
 
-export function readChangedCiSelection(base, head, cwd) {
+/** `Native Rust contracts`: runtime checks and MSRV, selected together. */
+export function rustGatePasses(scope, results, map = componentMap()) {
+  const expected = expectedNativeResults(scope, map)?.nativeRust;
+  if (!expected || results?.length !== 2) return false;
+  return results.every((result) => result === expected);
+}
+
+export function readChangedCiSelection(base, head, cwd, range = '...') {
+  if (!['..', '...'].includes(range)) throw new Error('Unknown diff range.');
   if ([base, head].some((sha) => !/^[a-f0-9]{40}$/.test(sha ?? ''))) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
   const changed = runPackedCommand(
     'git',
-    ['diff', '--no-renames', '--name-only', '-z', `${base}...${head}`, '--'],
+    ['diff', '--no-renames', '--name-only', '-z', `${base}${range}${head}`, '--'],
     { cwd, env: process.env }
   );
   const paths = changed.split('\0').filter(Boolean);
@@ -365,14 +419,23 @@ export function readChangedCiAreas(base, head, cwd) {
 }
 
 /**
- * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the three
- * outputs; the evidence table goes to standard error and the step summary.
+ * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the
+ * selection outputs; the evidence table goes to standard error and the step summary.
  */
 export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   if (args[0] === 'gate') {
     if (!ciGatePasses(args[1], args.slice(2))) {
       throw new Error(
         'Selected CI work did not complete successfully, or skip evidence is invalid.'
+      );
+    }
+    return;
+  }
+  if (args[0] === 'gate-rust') {
+    const [, scope, ...results] = args;
+    if (!rustGatePasses(scope, results)) {
+      throw new Error(
+        'Selected native Rust workers did not complete successfully, or skip evidence is invalid.'
       );
     }
     return;
@@ -388,20 +451,44 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     return;
   }
   if (args[0] === 'gate-native') {
-    const [, scope, ...values] = args;
+    const [, macos, scope, ...values] = args;
     const results = Object.fromEntries(NATIVE_JOBS.map((job, index) => [job, values[index]]));
-    if (values.length !== NATIVE_JOBS.length || !nativeGatePasses(scope, results)) {
+    if (values.length !== NATIVE_JOBS.length || !nativeGatePasses(scope, results, macos)) {
       throw new Error(
         'Selected native CI work did not complete successfully, or skip evidence is invalid.'
       );
     }
     return;
   }
-  if (args.length !== 2) {
+  const full = args.length === 1 && args[0] === 'full';
+  const queue = args[0] === 'merge-group';
+  if (!full && !queue && args.length !== 2) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
-  const selection = readChangedCiSelection(args[0], args[1], cwd);
-  const evidence = renderSelectionEvidence({ base: args[0], head: args[1], ...selection });
+  const [base, head] = queue ? args.slice(1) : args;
+  const range = queue ? '..' : '...';
+  let fallback;
+  let selection;
+  if (!full) {
+    try {
+      if (queue && args.length !== 3) throw new Error('Expected merge-group base and head SHAs.');
+      selection = readChangedCiSelection(base, head, cwd, range);
+      if (queue && selection.paths.length === 0) {
+        fallback = 'Merge-group diff is empty; using full verification.';
+        selection = null;
+      }
+    } catch (error) {
+      if (!queue) throw error;
+      fallback = `Merge-group diff unreadable; using full verification. ${error.message}`;
+    }
+  }
+  selection ??= { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) };
+  const officeBrowser = selectOfficeBrowser(selection.paths);
+  const evidence =
+    (full || fallback
+      ? `### CI selection\n\n${fallback ?? 'Full verification; no path filtering.'}\n`
+      : renderSelectionEvidence({ base, head, range, ...selection })) +
+    `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;
@@ -409,6 +496,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const [firstShard, secondShard] = e2eShardFiles(nativeScope, checks.e2eFiles);
   stdout.write(
     `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
+      `office_browser=${officeBrowser}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
       `e2e_shard_1=${firstShard.join(' ')}\n` +

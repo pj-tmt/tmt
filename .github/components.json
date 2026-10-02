@@ -7,13 +7,20 @@
     "migrations: the source files that list a component's SQLite migrations; outside the alpha channel a release that has more entries in one than the last published release of that component is held for the owner, while an alpha only reports them (typescript/scripts/publication-gates.mjs).",
     "scopedChecks: a component that cannot affect the others (only Squad) lists the native test files and E2E files its own scope runs; ci-scope.mjs turns that into the native_scope outputs.",
     "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class.",
+    "releaseConsumers: a private leaf may name released components whose release-please commit attribution includes changes under the leaf root; ownership, CI scope and version updates remain independent.",
     "A private component may declare release:false, with or without a Cargo package; it owns files but gets no release. Binary targets require explicit package.metadata.dist.dist=false; library-only crates need no opt-out. A crate that inherits the workspace version keeps its Cargo.lock entry in the release of the component that owns rust/Cargo.toml, whoever owns the crate."
   ],
   "components": {
     "cli": {
       "package": "tmt-cli",
       "owns": ["."],
-      "excludes": ["extensions/tmt-office", "extensions/tmt-squad", "extensions/tmt-remote"],
+      "excludes": [
+        "extensions/tmt-office",
+        "extensions/tmt-squad",
+        "extensions/tmt-remote",
+        "extensions/tmt-colab",
+        "rust/crates/tmt-tui"
+      ],
       "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
     },
     "office": {
@@ -33,6 +40,7 @@
       "owns": ["extensions/tmt-squad"],
       "selectedBy": [
         "typescript/test/e2e/squad.e2e.test.ts",
+        "typescript/test/e2e/squad-reminder.e2e.test.ts",
         "typescript/test/native/squad.test.ts"
       ],
       "scopedChecks": {
@@ -41,7 +49,7 @@
           "extension-install.test.ts",
           "extension-upgrade-proof.test.ts"
         ],
-        "e2eFiles": ["squad.e2e.test.ts"]
+        "e2eFiles": ["squad.e2e.test.ts", "squad-reminder.e2e.test.ts"]
       }
     },
     "browser-addon": {
@@ -50,6 +58,15 @@
     },
     "remote-client": {
       "owns": ["extensions/tmt-remote/typescript/remote-client"],
+      "release": false
+    },
+    "tmt-tui": {
+      "owns": ["rust/crates/tmt-tui"],
+      "releaseConsumers": ["squad"],
+      "release": false
+    },
+    "tmt-colab": {
+      "owns": ["extensions/tmt-colab"],
       "release": false
     },
     "tmt-remote": {
@@ -95,6 +112,12 @@
         "extensions/tmt-remote/typescript/browser-addon/**",
         ".github/workflows/browser-addon.yml"
       ]
+    },
+    {
+      "id": "colab-rust",
+      "consumers": ["native", "office"],
+      "why": "Colab Rust retains full workspace checks and existing Office consumers; private release ownership does not narrow CI coverage.",
+      "paths": ["extensions/tmt-colab/rust/**"]
     },
     {
       "id": "remote-rust",

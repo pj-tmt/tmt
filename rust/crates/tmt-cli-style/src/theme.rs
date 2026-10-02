@@ -233,6 +233,16 @@ impl Base {
         }
     }
 
+    /// A short description shared by theme lists and pickers.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Tmt => "soft truecolor for dark terminals",
+            Self::TmtLight => "the same palette for light terminals",
+            Self::Terminal => "your terminal's own 16 colors",
+            Self::Mono => "bold and dim only",
+        }
+    }
+
     pub fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|base| base.name() == name)
     }
@@ -243,7 +253,7 @@ impl Base {
         match role {
             Role::Text => Paint::Plain,
             Role::Muted => Paint::Ansi(AnsiColor::White),
-            Role::Dim => Paint::Ansi(AnsiColor::BrightBlack),
+            Role::Dim => Paint::Dimmed,
             Role::Accent => Paint::Ansi(AnsiColor::Blue),
             Role::Waiting => Paint::Ansi(AnsiColor::Yellow),
             Role::Working => Paint::Ansi(AnsiColor::Green),
@@ -259,13 +269,13 @@ impl Base {
         let (dark, bright) = match role {
             Role::Text => ((0xC0, 0xCA, 0xF5), (0x34, 0x3B, 0x58)),
             Role::Muted => ((0x9A, 0xA5, 0xCE), (0x5A, 0x63, 0x90)),
-            Role::Dim => ((0x56, 0x5F, 0x89), (0x89, 0x90, 0xB3)),
-            Role::Accent => ((0x7A, 0xA2, 0xF7), (0x2E, 0x7D, 0xE9)),
-            Role::Waiting => ((0xFF, 0x9E, 0x64), (0xB1, 0x5C, 0x00)),
-            Role::Working => ((0x9E, 0xCE, 0x6A), (0x58, 0x75, 0x39)),
+            Role::Dim => ((0x7A, 0x83, 0xAE), (0x68, 0x70, 0x9A)),
+            Role::Accent => ((0x7A, 0xA2, 0xF7), (0x1F, 0x5F, 0xBF)),
+            Role::Waiting => ((0xFF, 0x9E, 0x64), (0x96, 0x50, 0x27)),
+            Role::Working => ((0x9E, 0xCE, 0x6A), (0x4F, 0x6A, 0x33)),
             Role::Review => ((0xBB, 0x9A, 0xF7), (0x78, 0x47, 0xBD)),
-            Role::Blocked => ((0xF7, 0x76, 0x8E), (0xC0, 0x30, 0x3F)),
-            Role::Link => ((0x7D, 0xCF, 0xFF), (0x00, 0x71, 0x97)),
+            Role::Blocked => ((0xF7, 0x76, 0x8E), (0xB6, 0x2C, 0x3B)),
+            Role::Link => ((0x7D, 0xCF, 0xFF), (0x00, 0x6B, 0x8F)),
             Role::Selection => ((0x28, 0x34, 0x57), (0xD5, 0xE0, 0xF5)),
         };
         let (r, g, b) = if light { bright } else { dark };

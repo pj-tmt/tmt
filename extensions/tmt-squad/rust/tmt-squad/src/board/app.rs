@@ -6,7 +6,7 @@ use super::scroll::{Scrolls, Step, WHEEL_LINES};
 use crate::{
     action::{Action, Bindings, Verb},
     attention::Attention,
-    config::{Board, NotesRender, Pane},
+    config::{Board, BoardMode, NotesRender, Pane},
     effects,
 };
 use ratatui::crossterm::event::{
@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{
 use serde_json::Value;
 use std::{
     cell::RefCell,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
 
@@ -23,10 +23,10 @@ use std::{
 pub struct View {
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
+    pub(super) derived: RefCell<super::derived::Derived>,
     pub rows: crate::rows::Rows,
-    pub colors: BTreeMap<String, String>,
     pub board: Board,
-    /// The full-reload interval; `None` reloads only on F5 and actions.
+    /// The full-reload interval; `None` reloads only on ctrl-r and actions.
     pub refresh: Option<std::time::Duration>,
     pub notes: Notes,
     pub render: NotesRender,
@@ -130,6 +130,8 @@ pub enum Effect {
     /// Load this squad now (a squad switch).
     Load(String),
     Refresh,
+    PickTheme,
+    SaveTheme,
     Act(Request),
 }
 
@@ -207,6 +209,18 @@ pub struct Hit {
     pub row: usize,
 }
 
+/// Config is immutable; only this session presentation set changes on a toggle.
+struct FoldState {
+    board: Board,
+    overrides: BTreeMap<Pane, bool>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TitleHit {
+    pub pane: Pane,
+    pub area: ratatui::layout::Rect,
+}
+
 #[derive(Default)]
 pub struct App {
     pub tabs: Vec<String>,
@@ -225,6 +239,7 @@ pub struct App {
     pub notice: Option<String>,
     pub help: bool,
     pub menu: Option<Menu>,
+    pub(super) theme_picker: Option<super::theme_picker::Picker>,
     pub input: Option<Input>,
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
@@ -244,8 +259,14 @@ pub struct App {
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
+    /// Each record's first visual line in the last rows draw, for paging.
+    pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
+    /// Only titles actually painted in the last frame can toggle.
+    pub title_hits: RefCell<Vec<TitleHit>>,
+    folds: BTreeMap<String, FoldState>,
+    body_width: u16,
     /// The first tab the tab line showed, so it scrolls only as needed.
     pub tab_start: std::cell::Cell<usize>,
     /// The tab a left button went down on, until it is released.
@@ -356,6 +377,7 @@ impl App {
         self.selected = 0;
         self.scrolls = Scrolls::default();
         self.follow = true;
+        self.reconcile_folds();
         self.clamp();
     }
 
@@ -370,7 +392,14 @@ impl App {
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
-        self.attention = snapshot.attention;
+        self.folds
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
+        if let (Some(key), Ok(view)) = (&snapshot.squad, &snapshot.view) {
+            self.remember_folds(key.clone(), &view.board);
+        }
+        self.attention
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
+        self.attention.extend(snapshot.attention);
         if self.current.is_some() && snapshot.squad != self.current {
             if let (Some(name), Ok(view)) = (snapshot.squad, snapshot.view) {
                 self.cache.insert(name, view);
@@ -393,6 +422,8 @@ impl App {
                 }
                 if changed {
                     self.shown_changed();
+                } else {
+                    self.reconcile_folds();
                 }
                 self.error = None;
             }
@@ -468,6 +499,7 @@ impl App {
         // Never blank the screen: a visited squad shows from the cache at
         // once; otherwise the current frame stays until the new one arrives.
         if let Some(cached) = self.cache.remove(&next) {
+            self.loading_since = None;
             let previous = self.view.replace(cached);
             if let (Some(previous), Some(name)) = (previous, self.shown.replace(next.clone())) {
                 self.cache.insert(name, previous);
@@ -475,6 +507,77 @@ impl App {
             self.shown_changed();
         }
         Effect::Load(next)
+    }
+
+    fn remember_folds(&mut self, key: String, board: &Board) {
+        if !self.tabs.contains(&key) && !self.hidden.contains(&key) {
+            return;
+        }
+        if self
+            .folds
+            .get(&key)
+            .is_none_or(|state| state.board != *board)
+        {
+            self.folds.insert(
+                key,
+                FoldState {
+                    board: board.clone(),
+                    overrides: BTreeMap::new(),
+                },
+            );
+        }
+    }
+
+    fn reconcile_folds(&mut self) {
+        if let (Some(key), Some(view)) = (&self.shown, &self.view) {
+            let key = key.clone();
+            let board = view.board.clone();
+            self.remember_folds(key, &board);
+        }
+        if self.focused_pane().is_none() {
+            self.next_pane();
+        }
+    }
+
+    /// Resolve immutable defaults and user overrides for the board body width.
+    pub fn folds_at(&self, width: u16) -> BTreeSet<Pane> {
+        let Some(view) = &self.view else {
+            return BTreeSet::new();
+        };
+        let mut collapsed = view.board.collapsed.clone();
+        if let Some(rule) = &view.board.fold_below
+            && width < rule.width
+        {
+            collapsed.extend(&rule.panes);
+        }
+        if let Some(state) = self.shown.as_ref().and_then(|key| self.folds.get(key)) {
+            for (pane, folded) in &state.overrides {
+                if *folded {
+                    collapsed.insert(*pane);
+                } else {
+                    collapsed.remove(pane);
+                }
+            }
+        }
+        collapsed
+    }
+
+    pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
+        self.folds_at(self.body_width)
+    }
+
+    pub fn set_body_width(&mut self, width: u16) {
+        self.body_width = width;
+        if self.focused_pane().is_none() {
+            self.next_pane();
+        }
+    }
+
+    pub fn focused_pane(&self) -> Option<Pane> {
+        self.view
+            .as_ref()
+            .and_then(|view| view.board.panes.get(self.focus).copied())
+            .filter(|pane| !self.collapsed_panes().contains(pane))
     }
 
     pub fn focused(&self) -> Pane {
@@ -486,7 +589,11 @@ impl App {
 
     /// Focuses the pane drawn under the pointer, if any.
     fn focus_at(&mut self, column: u16, row: u16) {
-        let Some(pane) = self.scrolls.pane_at(column, row) else {
+        let Some(pane) = self
+            .scrolls
+            .pane_at(column, row)
+            .filter(|pane| !self.collapsed_panes().contains(pane))
+        else {
             return;
         };
         if let Some(position) = self
@@ -500,8 +607,54 @@ impl App {
 
     fn next_pane(&mut self) {
         if let Some(view) = &self.view {
-            self.focus = (self.focus + 1) % view.board.panes.len().max(1);
+            let collapsed = self.collapsed_panes();
+            let count = view.board.panes.len();
+            if let Some(next) = (1..=count)
+                .map(|step| (self.focus + step) % count)
+                .find(|index| !collapsed.contains(&view.board.panes[*index]))
+            {
+                self.focus = next;
+            }
         }
+    }
+
+    fn toggle_pane(&mut self, pane: Pane) -> Effect {
+        if self.loading() {
+            return self.say(format!(
+                "Loading {}…",
+                self.current.clone().unwrap_or_default()
+            ));
+        }
+        let Some(view) = &self.view else {
+            return Effect::None;
+        };
+        if view.board.mode != BoardMode::Split {
+            return self.say("toggle applies to split mode only.");
+        }
+        let Some(position) = view.board.panes.iter().position(|p| *p == pane) else {
+            return self.say(format!(
+                "The {} pane is not on this board; add it to panes.",
+                pane.title()
+            ));
+        };
+        let had_focus = self.focused_pane().is_some();
+        let Some(key) = self.shown.clone() else {
+            return Effect::None;
+        };
+        let board = view.board.clone();
+        self.remember_folds(key.clone(), &board);
+        let expanding = self.collapsed_panes().contains(&pane);
+        let Some(state) = self.folds.get_mut(&key) else {
+            return Effect::None;
+        };
+        state.overrides.insert(pane, !expanding);
+        if expanding && !had_focus {
+            self.focus = position;
+        } else if self.focused_pane().is_none() {
+            self.next_pane();
+        }
+        self.last_click = None;
+        Effect::None
     }
 
     /// The selected row's effective bindings: its section's, over `[bind]`
@@ -535,6 +688,16 @@ impl App {
             return self.say(format!("Loading {loading}…"));
         }
         match action.verb {
+            Verb::Toggle => {
+                let pane = action
+                    .args
+                    .first()
+                    .and_then(|arg| arg.literal())
+                    .and_then(Pane::parse)
+                    .expect("validated toggle pane");
+                return self.toggle_pane(pane);
+            }
+            Verb::Theme => return Effect::PickTheme,
             Verb::NextPane => {
                 self.next_pane();
                 return Effect::None;
@@ -550,6 +713,15 @@ impl App {
                     .and_then(|view| view.board.panes.iter().position(|p| *p == Pane::Notes));
                 return match position {
                     Some(position) => {
+                        if self.loading() && self.collapsed_panes().contains(&Pane::Notes) {
+                            return self.say(format!(
+                                "Loading {}…",
+                                self.current.clone().unwrap_or_default()
+                            ));
+                        }
+                        if self.collapsed_panes().contains(&Pane::Notes) {
+                            self.toggle_pane(Pane::Notes);
+                        }
                         self.focus = position;
                         Effect::None
                     }
@@ -844,6 +1016,24 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
+        if let Some(picker) = &mut self.theme_picker {
+            return match picker.key(key) {
+                super::theme_picker::Input::Preview => Effect::None,
+                super::theme_picker::Input::Save => Effect::SaveTheme,
+                super::theme_picker::Input::Cancel => {
+                    self.theme_picker = None;
+                    Effect::None
+                }
+            };
+        }
+        // Refresh keeps text inputs intact and uses the same override owner
+        // as ordinary keys; rebinding ctrl-r does not force a refresh.
+        if event_name(key).as_deref() == Some("ctrl-r")
+            && let Some(action) = self.bindings().remove("ctrl-r")
+            && action.verb == Verb::Refresh
+        {
+            return self.perform(&action);
+        }
         if self.input.is_some() {
             return self.input_key(key);
         }
@@ -855,7 +1045,12 @@ impl App {
         }
         if self.searching {
             match key.code {
-                KeyCode::Char(character) if !character.is_control() => self.search.push(character),
+                KeyCode::Char(character)
+                    if !character.is_control()
+                        && !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                {
+                    self.search.push(character);
+                }
                 KeyCode::Backspace => {
                     self.search.pop();
                 }
@@ -867,6 +1062,21 @@ impl App {
                 _ => {}
             }
             self.clamp();
+            return Effect::None;
+        }
+        if self.focused_pane().is_none()
+            && !self.bound(key)
+            && matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::Char('j' | 'k')
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End
+            )
+        {
             return Effect::None;
         }
         match key.code {
@@ -894,9 +1104,9 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.select(self.selected.saturating_sub(1)),
             KeyCode::Down | KeyCode::Char('j') => self.select(self.selected + 1),
             KeyCode::PageUp if !self.bound(key) => {
-                self.select(self.selected.saturating_sub(self.rows_page()));
+                self.page_rows(-1);
             }
-            KeyCode::PageDown if !self.bound(key) => self.select(self.selected + self.rows_page()),
+            KeyCode::PageDown if !self.bound(key) => self.page_rows(1),
             KeyCode::Home if !self.bound(key) => self.select(0),
             KeyCode::End if !self.bound(key) => self.select(usize::MAX),
             KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
@@ -977,16 +1187,44 @@ impl App {
         self.follow = true;
     }
 
-    /// Rows one page moves: the rows pane's last viewport, less one.
-    fn rows_page(&self) -> usize {
-        self.scrolls.page_lines(Pane::Rows)
+    /// Page by visual lines; an oversized row can scroll within itself.
+    fn page_rows(&mut self, direction: isize) {
+        let starts = self.row_starts.borrow();
+        if starts.is_empty() {
+            drop(starts);
+            let lines = direction * self.scrolls.page_lines(Pane::Rows) as isize;
+            self.select(self.selected.saturating_add_signed(lines));
+            return;
+        }
+        let origin = starts
+            .get(self.selected)
+            .copied()
+            .unwrap_or(0)
+            .max(self.scrolls.offset(Pane::Rows));
+        let target =
+            origin.saturating_add_signed(direction * self.scrolls.page_lines(Pane::Rows) as isize);
+        let row = starts
+            .partition_point(|start| *start <= target)
+            .saturating_sub(1);
+        drop(starts);
+        if row == self.selected {
+            self.scrolls.scroll(Pane::Rows, Step::Pages(direction));
+            self.follow = false;
+        } else {
+            self.select(row);
+        }
     }
 
     /// The wheel scrolls the pane under the pointer, whichever is focused.
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
-        if self.menu.is_some() || self.input.is_some() || self.help || self.switcher.is_some() {
+        if self.theme_picker.is_some()
+            || self.menu.is_some()
+            || self.input.is_some()
+            || self.help
+            || self.switcher.is_some()
+        {
             return Effect::None;
         }
         let lines = match event.kind {
@@ -995,7 +1233,11 @@ impl App {
             _ => None,
         };
         if let Some(lines) = lines {
-            if let Some(pane) = self.scrolls.pane_at(event.column, event.row) {
+            if let Some(pane) = self
+                .scrolls
+                .pane_at(event.column, event.row)
+                .filter(|pane| !self.collapsed_panes().contains(pane))
+            {
                 self.scrolls.scroll(pane, Step::Lines(lines));
                 if pane == Pane::Rows {
                     self.follow = false;
@@ -1027,11 +1269,24 @@ impl App {
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;
         }
+        let title = self
+            .title_hits
+            .borrow()
+            .iter()
+            .find(|hit| {
+                hit.area
+                    .contains(ratatui::layout::Position::new(event.column, event.row))
+            })
+            .map(|hit| hit.pane);
+        if let Some(pane) = title {
+            self.notice = None;
+            return self.toggle_pane(pane);
+        }
         self.focus_at(event.column, event.row);
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
-        let Some(hit) = hit else {
+        let Some(hit) = hit.filter(|_| !self.collapsed_panes().contains(&Pane::Rows)) else {
             return Effect::None;
         };
         self.notice = None;
@@ -1050,10 +1305,13 @@ impl App {
     /// How the board draws now: the shown squad's theme, or the default
     /// one before the first load.
     pub fn look(&self) -> crate::look::Look {
-        self.view.as_ref().map_or_else(
+        let saved = self.view.as_ref().map_or_else(
             || crate::look::Look::new(tmt_cli_style::Theme::default()),
             |view| view.look,
-        )
+        );
+        self.theme_picker
+            .as_ref()
+            .map_or(saved, |picker| picker.preview(saved.depth))
     }
 
     pub fn selected_row(&self) -> Option<&Value> {
@@ -1072,9 +1330,9 @@ pub(crate) mod tests {
 
     fn view(sections: Value) -> View {
         View {
+            derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
-            colors: BTreeMap::new(),
             refresh: Some(crate::config::DEFAULT_REFRESH),
             board: crate::config::Board::simple(
                 crate::config::BoardMode::Split,
@@ -1119,6 +1377,26 @@ pub(crate) mod tests {
                 Item::Row(row) => row["name"].as_str().unwrap(),
             })
             .collect()
+    }
+
+    #[test]
+    fn paging_without_drawn_row_positions_keeps_record_navigation() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot(
+            "product",
+            json!([{ "title": null, "rows": [
+            row("a", ""), row("b", ""), row("c", ""), row("d", "")
+        ] }]),
+        ));
+        app.selected = 2;
+        assert!(app.row_starts.borrow().is_empty());
+        press(&mut app, KeyCode::PageDown);
+        assert_eq!(app.selected, 3);
+        press(&mut app, KeyCode::PageUp);
+        assert_eq!(app.selected, 2);
+        app.selected = 0;
+        press(&mut app, KeyCode::PageUp);
+        assert_eq!(app.selected, 0);
     }
 
     #[test]
@@ -1555,6 +1833,77 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn ctrl_r_refreshes_without_typing_into_search_or_message_inputs() {
+        for tmux in [false, true] {
+            let mut app = crew(crate::action::preset(tmux), Vec::new());
+            let refresh = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+            assert_eq!(app.key(refresh), Effect::Refresh);
+            assert_eq!(press(&mut app, KeyCode::F(5)), Effect::None);
+            app.searching = true;
+            app.search = "auth".into();
+            assert_eq!(app.key(refresh), Effect::Refresh);
+            assert!(app.searching);
+            assert_eq!(app.search, "auth");
+            app.searching = false;
+            for compose in [
+                Compose::Talk {
+                    to: "auth-fix".into(),
+                },
+                Compose::Annotate {
+                    to: "sol".into(),
+                    row: "auth-fix".into(),
+                },
+                Compose::Reply {
+                    request: "q1".into(),
+                    from: "auth-fix".into(),
+                },
+            ] {
+                app.input = Some(Input {
+                    prompt: "message".into(),
+                    text: "draft".into(),
+                    compose: compose.clone(),
+                    squad: "product".into(),
+                });
+                assert_eq!(app.key(refresh), Effect::Refresh);
+                let input = app.input.as_ref().unwrap();
+                assert_eq!(input.text, "draft");
+                assert_eq!(input.compose, compose);
+            }
+        }
+    }
+
+    #[test]
+    fn ctrl_r_keeps_normalization_and_effective_binding_overrides() {
+        let mut global = crate::action::preset(true);
+        global.extend(bind(&[("ctrl-r", "copy"), ("f5", "refresh")]));
+        let mut app = crew(global, vec![bind(&[("ctrl-r", "refresh")])]);
+        let refresh = KeyEvent::new(
+            KeyCode::Char('R'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        );
+        assert_eq!(event_name(refresh).as_deref(), Some("ctrl-r"));
+        assert_eq!(app.key(refresh), Effect::Refresh, "section wins");
+        app.view.as_mut().unwrap().section_bindings.clear();
+        assert!(matches!(
+            app.key(refresh),
+            Effect::Act(Request::Copy { .. })
+        ));
+        assert_eq!(
+            press(&mut app, KeyCode::F(5)),
+            Effect::Refresh,
+            "explicit F5 works"
+        );
+        app.searching = true;
+        app.search = "auth".into();
+        assert_eq!(
+            app.key(refresh),
+            Effect::None,
+            "rebound ctrl-r does not refresh an input"
+        );
+        assert_eq!(app.search, "auth", "control keys never become search text");
+    }
+
+    #[test]
     fn section_bindings_win_over_bind_which_wins_over_the_preset() {
         let mut global = crate::action::preset(true);
         global.extend(bind(&[("o", "open {pr_link}"), ("f5", "refresh")]));
@@ -1686,5 +2035,169 @@ pub(crate) mod tests {
             app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
             Effect::Quit
         ));
+    }
+    fn folding_snapshot(squad: &str) -> Snapshot {
+        let mut snapshot = snapshot(squad, json!([]));
+        let view = snapshot.view.as_mut().unwrap();
+        view.board = Board::simple(
+            BoardMode::Split,
+            crate::config::Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail, Pane::Notes],
+            &[40, 30, 30],
+        );
+        snapshot
+    }
+
+    #[test]
+    fn fold_focus_skips_hidden_bodies_and_recovers_from_every_pane_folded() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(folding_snapshot("product"));
+        app.focus = 1;
+        // No selected row is needed: d goes through the normal binding path.
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        app.perform(&Action::parse("toggle rows").unwrap());
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        app.perform(&Action::parse("toggle notes").unwrap());
+        assert_eq!(app.focused_pane(), None);
+        for key in [KeyCode::Tab, KeyCode::Down, KeyCode::End, KeyCode::PageDown] {
+            press(&mut app, key);
+            assert_eq!(app.selected, 0);
+            assert_eq!(app.focused_pane(), None);
+        }
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(app.focused_pane(), Some(Pane::Detail));
+        press(&mut app, KeyCode::Char('n'));
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        assert!(!app.collapsed_panes().contains(&Pane::Notes));
+        assert!(
+            app.view.as_ref().unwrap().board.collapsed.is_empty(),
+            "configured board remains immutable"
+        );
+    }
+
+    #[test]
+    fn fold_state_survives_refresh_and_cached_switch_but_config_change_resets_it() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(folding_snapshot("product"));
+        press(&mut app, KeyCode::Char('d'));
+        app.apply(folding_snapshot("product"));
+        assert!(app.collapsed_panes().contains(&Pane::Detail));
+        app.apply(folding_snapshot("infra"));
+        app.go("infra".into());
+        assert!(app.collapsed_panes().is_empty());
+        app.go("product".into());
+        assert!(app.collapsed_panes().contains(&Pane::Detail));
+        let mut changed = folding_snapshot("product");
+        changed
+            .view
+            .as_mut()
+            .unwrap()
+            .board
+            .collapsed
+            .insert(Pane::Rows);
+        app.apply(changed);
+        assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Rows]));
+        let mut removed = folding_snapshot("product");
+        removed.tabs = vec!["product".into()];
+        app.apply(removed);
+        assert!(!app.folds.contains_key("infra"));
+    }
+
+    #[test]
+    fn responsive_folds_respect_toggles_resize_focus_and_config_reset() {
+        let responsive = || {
+            let mut snapshot = folding_snapshot("product");
+            snapshot.view.as_mut().unwrap().board.fold_below = Some(crate::config::FoldBelow {
+                width: 100,
+                panes: [Pane::Detail].into(),
+            });
+            snapshot
+        };
+        let mut app = App::new(Some("product".into()));
+        app.set_body_width(120);
+        app.apply(responsive());
+        assert!(app.collapsed_panes().is_empty());
+        app.focus = 1;
+        app.set_body_width(80);
+        assert_eq!(app.collapsed_panes(), [Pane::Detail].into());
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        app.set_body_width(120);
+        assert!(app.collapsed_panes().is_empty());
+        assert_eq!(
+            app.focused_pane(),
+            Some(Pane::Notes),
+            "widening never steals focus"
+        );
+        app.set_body_width(80);
+        app.toggle_pane(Pane::Detail);
+        assert!(
+            app.collapsed_panes().is_empty(),
+            "explicit expansion wins below threshold"
+        );
+        app.set_body_width(120);
+        app.apply(responsive());
+        assert!(
+            app.collapsed_panes().is_empty(),
+            "override survives refresh and widening"
+        );
+        app.toggle_pane(Pane::Detail);
+        assert!(
+            app.collapsed_panes().contains(&Pane::Detail),
+            "explicit collapse wins above threshold"
+        );
+        app.set_body_width(80);
+        app.set_body_width(200);
+        assert!(app.collapsed_panes().contains(&Pane::Detail));
+        let mut changed = responsive();
+        changed
+            .view
+            .as_mut()
+            .unwrap()
+            .board
+            .fold_below
+            .as_mut()
+            .unwrap()
+            .width = 90;
+        app.apply(changed);
+        assert!(
+            app.collapsed_panes().is_empty(),
+            "changed board clears overrides"
+        );
+        assert!(app.view.as_ref().unwrap().board.collapsed.is_empty());
+        app.apply(folding_snapshot("product"));
+        for width in [80, 120, 200] {
+            app.set_body_width(width);
+            assert!(
+                app.collapsed_panes().is_empty(),
+                "no rule keeps the original presentation"
+            );
+        }
+    }
+
+    #[test]
+    fn folding_refuses_a_stale_frame_tabs_and_an_absent_pane() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(folding_snapshot("product"));
+        app.go("infra".into());
+        press(&mut app, KeyCode::Char('d'));
+        assert!(app.collapsed_panes().is_empty());
+        assert_eq!(app.notice.as_deref(), Some("Loading infra…"));
+        let mut tabs = folding_snapshot("infra");
+        tabs.view.as_mut().unwrap().board.mode = BoardMode::Tabs;
+        app.apply(tabs);
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("toggle applies to split mode only.")
+        );
+        app.apply(snapshot("infra", json!([])));
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("The detail pane is not on this board; add it to panes.")
+        );
     }
 }

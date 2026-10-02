@@ -6,13 +6,17 @@ not build in, for example Herdr. This document owns the wire format. The
 repeating it.
 
 **Status:** the format, the crate, the approval registry and the client that
-runs one driver call exist. `tmt` does not use a driver for any host yet:
+runs one driver call exist. Core uses an approved driver for its host: it
+finds the caller's pane through `caller` and explicit targets through
+`resolve-target`, lists bindings through `snapshot`, keeps markers with
+`publish` and `clear`, and records the server through `server`. Still to come:
 
-- slice 3b connects approved drivers to hosts;
+- `input`, `prompt`, `focus` and `capture`, in slice 3b-2b-2 (until then a
+  send to such a binding is unsupported and the request is kept);
 - Herdr moves out as the first driver in slice 4;
 - `tmt driver install|ls|rm` arrives in slice 6.
 
-Until then, the behavior described below for core is the contract those
+The behavior described below for those operations is the contract those
 slices implement, not current behavior.
 
 ## Invocation
@@ -31,6 +35,8 @@ tmt-driver-<name> __tmt-driver <protocol> <op>
   `TMT_DRIVER_CALL` runs no command except help and `--version`; anything
   else fails with `DRIVER_CALL_REFUSED` before any effect. A driver that runs
   `tmt` can therefore neither recurse into itself nor change TMT's state.
+  `TMT_DRIVER_CALL` belongs to the call only: a driver must not pass it to a
+  process that outlives the call, such as a host server it starts.
 
 ## Answers
 
@@ -50,6 +56,12 @@ Error codes:
 | `unavailable` | The host server cannot be reached. |
 | `not_found` | The pane or server is gone, or is no longer the one asked about. |
 | `failed` | Anything else. |
+| `no_agent` | `prompt` only: the host recognizes no agent in the pane. Nothing was written. |
+| `blocked` | `prompt` only: the agent waits on its user, for an approval or an answer. Nothing was written. |
+| `not_ready` | `prompt` only: the agent can't take a prompt now, for example because it isn't in the foreground or is still starting. Nothing was written. |
+
+`no_agent`, `blocked` and `not_ready` are answers of `prompt` alone. From any
+other operation they are a failure.
 
 - `message` is at most 512 bytes and contains no control characters. Core shows
   it as untrusted text.
@@ -64,7 +76,7 @@ driver that runs past its operation's deadline.
 | `capabilities` | 1 s | 4 KiB |
 | `caller`, `server`, `resolve-target`, `publish`, `clear`, `focus` | 300 ms | 4 KiB |
 | `snapshot`, `probe`, `capture` | 2 s | 1 MiB |
-| `input` | 2 s | 4 KiB |
+| `input`, `prompt` | 2 s | 4 KiB |
 
 Requests are at most 1 MiB.
 
@@ -134,8 +146,11 @@ checks itself.
 - **Answer:** `{"server": {"socket", "pid", "startTime"}}`, or `{"server": null}`
   when no server runs there.
 
-Core gives each incarnation (socket, pid, start time) its own server UUID. A
-restarted server is a new incarnation.
+Core gives each incarnation its own server UUID. The incarnation is the
+socket plus core's own observation of `pid`: the process's start, as core
+reads it. `startTime` is advisory; core never stores it or sends it back. A
+server whose process core cannot observe stays unresolved, and a restarted
+server is a new incarnation.
 
 ### `resolve-target`
 
@@ -172,6 +187,13 @@ A `Pane`:
 
 `dead` means the incarnation is gone. Core believes it only when its own check
 of the recorded server process agrees, and treats it as `unknown` otherwise.
+
+`probe` is optional. Core leads every probe itself and doesn't call this
+operation: it checks the recorded server process. If that process is gone, or
+another process now has its pid, the server is dead. If it is the same
+process, the driver's `snapshot` of the scoped panes on that socket decides
+which panes are live. If core can't tell, the probe is `unknown`. Unknown
+never proves loss.
 
 ### `publish` and `clear`
 
@@ -220,12 +242,50 @@ pane:
   `DELIVERY_UNCERTAIN` and never retries.
 
 A driver never retries an `input` itself: a second paste could duplicate the
-message.
+message. A driver that also lists `prompt` gets an `input` only after a
+`prompt` answered `no_agent` or `unsupported`.
 
 **Paste, then Enter.** Core may paste and press Enter in one call
 (`enter: true`). Core may also stage them: `input(text, enter: false)`, then
 after its paste-to-Enter delay `input("", enter: true)`. The delay stays core
 policy, and a driver adds no delay of its own.
+
+### `prompt`
+
+| Operation | Request | Answer |
+|---|---|---|
+| `prompt` | `{"socket", "paneId", "text"}` | `{}` |
+
+`prompt` is optional. Core calls it only when `capabilities.ops` lists it.
+
+- **What it does:** the driver hands `text` to the agent the host recognizes in
+  the pane, and the host submits it, pasting and pressing Enter in one step.
+  Core has already applied its delivery policy (`!` protection, size), so the
+  driver adds and interprets nothing, as for `input`. There is no `enter`
+  member and no staging.
+- **Size:** `text` is bound by the same limits as `input`'s `text`: core's
+  message size policy and the 1 MiB request bound.
+- **Order:** core sends a `prompt` only after the evidence and runtime checks it
+  makes before an `input`. It falls back to `input` only when the answer is
+  `no_agent` or `unsupported`.
+
+**Delivery outcome.** A `prompt` answer tells core whether the agent got the
+text:
+
+- **Sent:** the answer is `{}`.
+- **Not sent, core falls back to `input`:** the answer is `no_agent` or
+  `unsupported`.
+- **Not sent, final:** the answer is `blocked` (core reports the agent as
+  awaiting approval), `not_ready`, `not_found` or `bad_request`. Core never
+  types around an agent that refused.
+- **Uncertain:** anything else. That covers `failed`, `unavailable`, a timeout,
+  a killed driver, and an answer that doesn't decode. Core reports
+  `DELIVERY_UNCERTAIN` and never retries.
+
+A driver never retries a `prompt` itself and never falls back to raw input on
+its own. Falling back is core's decision, because only core holds the runtime
+evidence. Each request makes one attempt; a `blocked` agent is not prompted
+again until a new request.
 
 ## Trust boundary
 
@@ -234,8 +294,15 @@ strictly, and checks every ID, pid and string against the declared grammar
 before use. Core also decides from its own evidence:
 
 - a pane is bound only when core's check of the process identity matches;
+- the server's and each pane shell's incarnation are core-observed: core takes
+  its own start token for the pid a driver names and never stores or compares
+  a driver's `startTime`;
 - runtime and liveness come from core's own process inspection of the pane's
   shell (status is not a driver operation);
+- a server's loss is proved only by core's own process check. A pane is lost
+  only when a snapshot of that same, core-verified server omits it or shows
+  another shell. A driver that is missing, changed, failing or out of time
+  leaves a binding Unknown, never retired;
 - deliveries are accepted only through core's receipt logic.
 
 **What a driver receives:** it never receives tokens, receipts, requests or

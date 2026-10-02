@@ -158,6 +158,11 @@ fn connect_refusal_is_before_any_delivery_write() {
     )
     .unwrap();
     let address = SocketAddrV4::from(getsockname::<SockaddrIn>(reserved.as_raw_fd()).unwrap());
+    assert_eq!(
+        TcpListener::bind(address).unwrap_err().kind(),
+        std::io::ErrorKind::AddrInUse,
+        "the refusal fixture must retain exclusive ownership of its port"
+    );
     let endpoint = Endpoint::new(address, "fixture".into()).unwrap();
     assert!(matches!(
         Client::connect(&endpoint, Instant::now() + Duration::from_secs(1)),

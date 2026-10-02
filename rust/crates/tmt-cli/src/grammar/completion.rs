@@ -15,12 +15,12 @@ const IDENTITY_OPERANDS: &[(&[&str], &str)] = &[
     (&["talk"], "target"),
     (&["check"], "target"),
     (&["focus"], "target"),
-    (&["list"], "target"),
+    (&["ls"], "target"),
     (&["answer"], "from"),
     (&["identity", "show"], "name"),
     (&["preamble", "show"], "agent"),
     (&["preamble", "set"], "agent"),
-    (&["preamble", "clear"], "agent"),
+    (&["preamble", "rm"], "agent"),
 ];
 
 pub fn generate(shell: &str, output: &mut impl Write) -> io::Result<()> {
@@ -75,6 +75,13 @@ pub fn generate(shell: &str, output: &mut impl Write) -> io::Result<()> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Context {
     Static,
+    Launch {
+        prefix: String,
+    },
+    LaunchCommand {
+        first: OsString,
+        offset: usize,
+    },
     Identities {
         prefix: String,
         remembered: bool,
@@ -142,6 +149,15 @@ pub fn context(words: &[OsString]) -> Context {
             if tail.len() > 1 {
                 return if remembered {
                     Context::Static
+                } else if tail[0].to_str().is_some_and(|first| {
+                    tmt_core::driver::ALL
+                        .iter()
+                        .any(|driver| driver.executables.contains(&first))
+                }) {
+                    Context::LaunchCommand {
+                        first: tail[0].to_owned(),
+                        offset: words.len() - tail.len(),
+                    }
                 } else {
                     Context::Command {
                         offset: words.len() - tail.len() + 1,
@@ -149,6 +165,11 @@ pub fn context(words: &[OsString]) -> Context {
                 };
             }
             if !current.starts_with('-') {
+                if !remembered {
+                    return Context::Launch {
+                        prefix: current.into(),
+                    };
+                }
                 return Context::Identities {
                     prefix: current.into(),
                     remembered,
@@ -197,9 +218,6 @@ mod tests {
     #[test]
     fn grammar_selects_identity_operands_and_aliases() {
         for words in [
-            vec!["run", "Al"],
-            vec!["run", "-s", "Al"],
-            vec!["run", "--save", "Al"],
             vec!["this", "Al"],
             vec!["rm", "Al"],
             vec!["remove", "Al"],
@@ -210,8 +228,10 @@ mod tests {
             vec!["preamble", "show", "Al"],
             vec!["preamble", "set", "Al"],
             vec!["preamble", "clear", "Al"],
+            vec!["preamble", "rm", "Al"],
             vec!["check", "Al"],
             vec!["ls", "Al"],
+            vec!["list", "Al"],
             vec!["talk", "Bob", "message", "--identity", "Al"],
             vec!["notes", "path", "--identity=Al"],
         ] {
@@ -229,6 +249,25 @@ mod tests {
             Context::Identities {
                 prefix: "".into(),
                 remembered: true
+            }
+        );
+    }
+
+    #[test]
+    fn unnamed_launch_completion_keeps_the_command_at_the_first_operand() {
+        for words in [vec!["run", "Al"], vec!["run", "--save", "Al"]] {
+            assert_eq!(
+                inspect(&words),
+                Context::Launch {
+                    prefix: "Al".into()
+                }
+            );
+        }
+        assert_eq!(
+            inspect(&["run", "--channel", "claude", "--model", ""]),
+            Context::LaunchCommand {
+                first: "claude".into(),
+                offset: 2
             }
         );
     }

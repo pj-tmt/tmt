@@ -467,7 +467,7 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                     output,
                     terminal,
                     &format!(
-                        "{} reads as a pane target; rename it: tmt rename {} <name>",
+                        "{} reads as a pane target; rename it: tmt mv {} <name>",
                         row.presence.identity.name,
                         crate::output::shell_word(&row.presence.identity.name)
                     ),

@@ -18,7 +18,7 @@ type Artifact = Awaited<ReturnType<typeof createArtifact>>;
 // same commands for both extensions.
 describe('extension upgrade proof against the real CLI', () => {
   it(
-    'upgrades Squad through `tmt extension install` and `tmt extension list` only',
+    'upgrades Squad through `tmt extension install` and `tmt extension ls` only',
     async () => {
       await withSandbox(async (sandbox) => {
         const log = path.join(sandbox.root, 'driver commands.log');

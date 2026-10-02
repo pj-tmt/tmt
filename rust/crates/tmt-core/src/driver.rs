@@ -45,6 +45,15 @@ pub enum DeliveryAcceptance {
     Unacknowledged,
 }
 
+/// A message as it is typed into an agent's pane, as raw input or a prompt,
+/// on every host. Coding-agent shells can read an ASCII `!` as a bash-mode
+/// shortcut before the text reaches the agent, so each becomes a fullwidth
+/// `！`. This is delivery policy, not output rewriting: stored requests keep
+/// the original text.
+pub fn pane_input_text(message: &str) -> String {
+    message.replace('!', "\u{ff01}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SendFailure<E> {
     NotSent(E),
@@ -200,6 +209,16 @@ pub fn observe_driver_hook<O: HookObserver>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pane_input_turns_every_ascii_bang_fullwidth_and_nothing_else() {
+        // Non-ASCII fixture text is intentional Unicode transport data.
+        assert_eq!(
+            pane_input_text("! if (!ready)!\n尾 ！ --x \"q\" $v `c`"),
+            "！ if (！ready)！\n尾 ！ --x \"q\" $v `c`"
+        );
+        assert_eq!(pane_input_text(""), "");
+    }
 
     struct Unsupported;
     impl Driver for Unsupported {

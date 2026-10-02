@@ -111,12 +111,18 @@ pub(super) fn listing(
         .filter(|product| *product != Product::Cli)
     {
         let name = product.as_str();
-        let state = match installed(product, prefix) {
-            Ok(true) => native_install::inspect_product_prefix(product, prefix)
-                .map(|installation| Some(installation.state))
-                .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?,
-            Ok(false) => None,
-            Err(error) => return Err(error),
+        let partial = partial_removal(product, prefix)
+            .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
+        let state = if partial {
+            None
+        } else {
+            match installed(product, prefix) {
+                Ok(true) => native_install::inspect_product_prefix(product, prefix)
+                    .map(|installation| Some(installation.state))
+                    .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?,
+                Ok(false) => None,
+                Err(error) => return Err(error),
+            }
         };
         let shadowed = shadowing_in(product, prefix, search);
         // Only an explicit --check touches the network; unreachable is unknown.
@@ -147,17 +153,29 @@ pub(super) fn listing(
         if let Some(update) = update {
             row["update"] = update.into();
         }
-        let status = match &state {
-            Some(state) => format!(
-                "{}{}",
-                state.version,
-                state
-                    .pinned_version
-                    .as_ref()
-                    .map(|pinned| format!(" (pinned {pinned})"))
-                    .unwrap_or_default()
-            ),
-            None => "not installed".into(),
+        let hint = format!(
+            "tmt extension rm {name} --yes --prefix {}",
+            crate::output::shell_word(&prefix.to_string_lossy())
+        );
+        if partial {
+            row["status"] = "partiallyRemoved".into();
+            row["hint"] = hint.clone().into();
+        }
+        let status = if partial {
+            format!("partially removed; finish with: {hint}")
+        } else {
+            match &state {
+                Some(state) => format!(
+                    "{}{}",
+                    state.version,
+                    state
+                        .pinned_version
+                        .as_ref()
+                        .map(|pinned| format!(" (pinned {pinned})"))
+                        .unwrap_or_default()
+                ),
+                None => "not installed".into(),
+            }
         };
         lines.push(ExtensionListRow {
             name: name.into(),
@@ -171,6 +189,20 @@ pub(super) fn listing(
         json!({"extensions": rows}),
         extension_list(&lines, env::home_dir().as_deref()),
     ))
+}
+
+/// A retained activation with any missing command link is recoverable partial
+/// removal. Listing reports it without inspecting a missing execution path.
+fn partial_removal(product: Product, prefix: &Path) -> io::Result<bool> {
+    if !exists(&prefix.join(product.namespace()).join("current"))? {
+        return Ok(false);
+    }
+    for name in product.links() {
+        if !exists(&prefix.join("bin").join(name))? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Every other `tmt-<name>` command on PATH that does not resolve to this
@@ -203,4 +235,12 @@ pub(super) fn shadowing_in(
         }
     }
     found
+}
+
+fn exists(path: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
 }

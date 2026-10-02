@@ -6,7 +6,9 @@
 //! bookkeeping boundary between cooperating installers, not a security one.
 
 use super::catalog::{Catalog, Group};
-use super::{ProviderEnvironment, assets::SkillAssets, files, managed_link, optional_roots};
+use super::{
+    ProviderEnvironment, assets::SkillAssets, files, managed_link, optional_roots, registry,
+};
 use crate::bounded_file;
 use crate::drivers::{DriverDefinition, Registry};
 use serde_json::{Map, Value, json};
@@ -232,6 +234,28 @@ fn owned_source(assets: &SkillAssets, source: &Path) -> Option<(String, String)>
     if owner_directory.parent()? != assets.root().join("owners") || digest.len() != 64 {
         return None;
     }
+    if !valid_owner(owner) || !valid_name(name) || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let expected = files::resolved(assets.root())
+        .ok()?
+        .join("owners")
+        .join(owner)
+        .join(digest)
+        .join(name);
+    if files::resolved(source).ok()? != expected {
+        return None;
+    }
+    if !files::exists(version).ok()? {
+        // A recorded name may outlive its old generation. The record supplies
+        // the claim; the canonical store path supplies link ownership.
+        let recorded = read_owners(assets.root().parent()?).ok()?;
+        return recorded
+            .skills
+            .get(name)
+            .is_some_and(|entry| entry.owner == owner)
+            .then(|| (owner.to_owned(), name.to_owned()));
+    }
     let files = read_tree(source).ok()?;
     (skill_digest(name, &files) == digest).then(|| (owner.to_owned(), name.to_owned()))
 }
@@ -262,7 +286,9 @@ fn prior(target: &Path, assets: &SkillAssets) -> io::Result<Prior> {
                 .expect("skill target parent")
                 .join(fs::read_link(target)?),
         );
-        if let Some((owner, _)) = owned_source(assets, &source) {
+        if source.file_name() == target.file_name()
+            && let Some((owner, _)) = owned_source(assets, &source)
+        {
             return Ok(Prior::Owned { owner, source });
         }
     }
@@ -567,12 +593,62 @@ fn validate_selection(only: &[String]) -> Result<(), Refusal> {
     Ok(())
 }
 
+/// The legacy core bundle published Office before extension owner records
+/// existed. Its recorded targets are publication evidence, not overwrite
+/// authority: removal reclassifies every entry under the same lock.
+fn legacy_targets(
+    environment: Option<&ProviderEnvironment>,
+    global: &Path,
+    owner: &str,
+) -> io::Result<BTreeMap<String, Vec<PathBuf>>> {
+    let mut targets = BTreeMap::<String, Vec<PathBuf>>::new();
+    if owner == "office" {
+        let catalog = Catalog::bundled();
+        let names = catalog.names(Group::Office);
+        let mut candidates = registry::read(global)?;
+        if let Some(env) = environment {
+            let assets = SkillAssets::new(global);
+            let mut roots: Vec<PathBuf> = Registry::builtin()
+                .iter()
+                .map(|driver| env.locations(driver).skills)
+                .collect();
+            roots.push(env.universal_skills());
+            for root in roots {
+                for name in &names {
+                    let target = root.join(name);
+                    // Without a record, only the exact old-layout link into
+                    // this store proves publication; a user directory or an
+                    // outside link never enters the removal plan.
+                    if fs::symlink_metadata(&target).is_ok_and(|entry| entry.is_symlink()) {
+                        let source = files::resolved(&root.join(fs::read_link(&target)?))?;
+                        if source.file_name() == target.file_name()
+                            && source.parent().and_then(Path::parent) == Some(assets.root())
+                        {
+                            candidates.insert(target);
+                        }
+                    }
+                }
+            }
+        }
+        for target in candidates {
+            if let Some(name) = target.file_name().and_then(|name| name.to_str())
+                && names.contains(name)
+            {
+                targets.entry(name.to_owned()).or_default().push(target);
+            }
+        }
+    }
+    Ok(targets)
+}
+
 /// Removes an owner's links: only targets that still point into that owner's
 /// store. Anything else at a recorded target is kept and reported. `only`
 /// limits removal to those of the owner's skills; a name the owner does not
 /// hold (including one held by another owner) is nothing to remove, like a
-/// repeated removal.
+/// repeated removal. An explicit extension removal supplies its captured
+/// provider environment to find legacy links whose intent record is missing.
 pub fn remove_owned(
+    environment: Option<&ProviderEnvironment>,
     global: &Path,
     owner: &str,
     only: Option<&[String]>,
@@ -591,27 +667,51 @@ pub fn remove_owned(
         let assets = SkillAssets::new(&global);
         files::with_lock(&global, || {
             let mut owners = read_owners(&global)?;
-            let names: Vec<String> = owners
-                .skills
-                .iter()
-                .filter(|(name, entry)| {
-                    entry.owner == owner && only.is_none_or(|only| only.contains(name))
-                })
-                .map(|(name, _)| name.clone())
-                .collect();
-            for name in &names {
-                for target in owners.skills[name].targets.clone() {
+            let legacy = legacy_targets(environment, &global, owner)?;
+            let mut targets = legacy.clone();
+            for (name, entry) in &owners.skills {
+                if entry.owner == owner {
+                    targets
+                        .entry(name.clone())
+                        .or_default()
+                        .extend(entry.targets.clone());
+                } else {
+                    // A later owner claim wins over the old bundle's intent.
+                    targets.remove(name);
+                }
+            }
+            targets.retain(|name, _| only.is_none_or(|only| only.contains(name)));
+            let mut retired = Vec::new();
+            for (name, entries) in targets {
+                let mut seen = std::collections::BTreeSet::new();
+                for target in entries {
+                    retired.push(target.clone());
+                    if !seen.insert(files::entry_location(&target)?) {
+                        continue;
+                    }
+                    files::safe_target(assets.root(), &target)?;
                     match prior(&target, &assets)? {
                         Prior::Owned { owner: holder, .. } if holder == owner => {
                             fs::remove_file(&target)?;
-                            report.removed.push(target);
+                            report.removed.push(target.clone());
+                        }
+                        Prior::Core
+                            if legacy
+                                .get(&name)
+                                .is_some_and(|entries| entries.contains(&target)) =>
+                        {
+                            fs::remove_file(&target)?;
+                            report.removed.push(target.clone());
                         }
                         Prior::Absent => {}
-                        _ => report.kept.push(target),
+                        _ => report.kept.push(target.clone()),
                     }
                 }
-                owners.skills.remove(name);
+                owners.skills.remove(&name);
             }
+            // Forget intent before dropping owner records. A retry after a
+            // returned failure can still find every uncompleted owner target.
+            registry::forget(&global, &retired)?;
             write_owners(&global, &owners)
         })
     })();
@@ -665,13 +765,25 @@ pub fn owned_roots(env: &ProviderEnvironment, global: &Path) -> io::Result<Vec<P
 }
 
 /// The skills an owner holds and each one's recorded targets.
-pub fn owned_by(global: &Path, owner: &str) -> io::Result<BTreeMap<String, Vec<PathBuf>>> {
-    Ok(read_owners(&files::resolved(global)?)?
-        .skills
-        .into_iter()
-        .filter(|(_, entry)| entry.owner == owner)
-        .map(|(name, entry)| (name, entry.targets))
-        .collect())
+pub fn owned_by(
+    environment: Option<&ProviderEnvironment>,
+    global: &Path,
+    owner: &str,
+) -> io::Result<BTreeMap<String, Vec<PathBuf>>> {
+    let global = files::resolved(global)?;
+    let mut targets = legacy_targets(environment, &global, owner)?;
+    for (name, entry) in read_owners(&global)?.skills {
+        if entry.owner == owner {
+            targets.entry(name).or_default().extend(entry.targets);
+        } else {
+            targets.remove(&name);
+        }
+    }
+    for entries in targets.values_mut() {
+        entries.sort();
+        entries.dedup();
+    }
+    Ok(targets)
 }
 
 /// Links recorded owned skills at new targets to each owner's current

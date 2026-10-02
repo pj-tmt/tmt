@@ -1,0 +1,16 @@
+# Redacted configuration supplied by Ben for #965; no provider or user state.
+[squad.checkout.rows]
+columns = [
+  { name = "member", width = 30, truncate = "middle" },
+  { name = "state", width = 10, overflow = "wrap", max_lines = 4 },
+  { name = "task", width = "62%", min = 20, title = "WORK", overflow = "wrap", max_lines = 3 },
+  { name = "pr_state", width = "26%", min = 10, title = "PR", priority = 2 },
+  { name = "ctx", from = "session.usage.tokens", format = "tokens", width = 6, title = "" },
+  { name = "model", from = "session.model", width = 14, title = "" },
+]
+lines = [
+  ["member", "state", "task", "pr_state"],
+  ["", { field = "pending", span = 3 }],
+  ["", { field = "note", span = 3 }],
+  ["", { field = "ctx" }, { field = "model", span = 2 }],
+]

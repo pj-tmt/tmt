@@ -33,6 +33,7 @@ fn member(id: &str, fields: &[(&str, &str)]) -> Member {
         meta: BTreeMap::new(),
         seen: Value::Null,
         numbers: BTreeMap::new(),
+        colors: Default::default(),
         failed: Default::default(),
     }
 }
@@ -580,4 +581,60 @@ fn only_current_successful_github_preset_states_are_activity_evidence() {
         1000,
     );
     assert!(cache.github_pr_states(&text, &linked, 2000).is_empty());
+}
+
+/// A provider's color is untrusted output: a theme token's name suggests a
+/// color, anything else none, and a failed or empty run clears it. The value
+/// is shown either way.
+#[test]
+fn a_provider_suggests_a_color_only_by_a_theme_tokens_name() {
+    let dir = scratch("colors");
+    let mut cache = Cache::at(Some(dir.join("p.json")));
+    let providers = gh();
+    let linked = member("R", &[("pr_link", "https://example.com/pull/1")]);
+    let job = due(&providers, std::slice::from_ref(&linked), &cache, 0).remove(0);
+    let shown_with = |cache: &Cache| {
+        let mut shown = vec![linked.clone()];
+        apply(&providers, &mut shown, cache);
+        shown.remove(0)
+    };
+    for (color, expected) in [
+        (Some("review"), Some("review")),
+        (Some("magenta"), Some("magenta")),
+        (Some("#ff0000"), None),
+        (Some("\u{1b}[31m"), None),
+        (Some("default"), None),
+        (Some("orange"), None),
+        (None, None),
+    ] {
+        cache.record(
+            &job,
+            &Outcome::Value {
+                value: "OPEN".into(),
+                color: color.map(str::to_owned),
+                pr_state: None,
+            },
+            1_000,
+        );
+        let shown = shown_with(&cache);
+        assert_eq!(shown.fields["pr_state"], "OPEN", "{color:?}");
+        assert_eq!(
+            shown.colors.get("pr_state").map(String::as_str),
+            expected,
+            "{color:?}"
+        );
+    }
+    cache.record(&job, &Outcome::Failed, 2_000);
+    assert!(
+        shown_with(&cache).colors.is_empty(),
+        "a failed run has no color"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn github_pr_never_schedules_a_missing_or_empty_link() {
+    let read = providers("[squad.p.fields.pr]\npreset = \"github-pr\"\n").unwrap();
+    let members = [member("missing", &[]), member("empty", &[("pr_link", "")])];
+    assert!(due(&read, &members, &Cache::at(None), 1_000).is_empty());
 }

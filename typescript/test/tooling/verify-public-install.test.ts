@@ -1,6 +1,8 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   installerUrl,
@@ -27,9 +29,10 @@ interface Fake {
   /** Body of `tmt upgrade`'s JSON: the fields to override. */
   upgrade?: Record<string, unknown>;
   upgradeStderr?: string;
+  upgradeStdout?: string;
   installerStatus?: number;
   withoutBinary?: boolean;
-  /** An extension: whether the CLI has the command, what it installs, and whether it links the CLI. */
+  /** An extension: whether the CLI has `tmt extension`, what it installs and lists, and whether it links the CLI. */
   extension?: { command?: boolean; installs?: string; reports?: string; link?: boolean };
 }
 
@@ -73,13 +76,14 @@ case "$*" in
   --version) echo '${fake.installed ?? version}' ;;
   "upgrade --channel alpha --json")
     count=$(cat "$HOME/upgrade-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/upgrade-count"
-    ${fake.upgradeStderr ? `echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
-  "squad install --help") ${extension.command === false ? 'echo "error: unrecognized subcommand \'squad\'" >&2; exit 2' : 'echo usage'} ;;
-  squad\\ install\\ *)
+    ${fake.upgradeStderr ? `printf '%s' '${fake.upgradeStdout ?? ''}'; echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
+  "extension install squad "*)
+    ${extension.command === false ? 'echo "error: unrecognized subcommand \'extension\'" >&2; exit 2' : 'true'}
     prefix=$(echo "$*" | sed 's/.*--prefix //')
     mkdir -p "$prefix/lib" ${extension.link ? '"$prefix/bin" && : > "$prefix/bin/tmt"' : ''}
-    printf '{"installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
-  squad\\ status\\ *) printf '{"version":"%s"}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
+    printf '{"extension":"squad","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
+  "extension list --json --prefix "*)
+    printf '{"extensions":[{"name":"office","installed":false},{"name":"squad","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 TMT
@@ -265,6 +269,75 @@ describe('the public installer smoke of a CLI release', () => {
   });
 });
 
+describe('failed command diagnostics', () => {
+  it('keeps both bounded streams in the run log and result file after retries', () => {
+    const root = path.join(base, 'diagnostic-cli');
+    const source = path.join(root, 'source');
+    for (const [name, text] of Object.entries({ 'tmux-team': SKILL, 'tmt-inbox': INBOX })) {
+      mkdirSync(path.join(source, 'skills', name), { recursive: true });
+      writeFileSync(path.join(source, 'skills', name, 'SKILL.md'), text);
+    }
+    const preload = path.join(root, 'fetch.mjs');
+    writeFileSync(
+      preload,
+      `globalThis.fetch = async () => ({ ok: true, text: async () => ${JSON.stringify(
+        installerText({
+          upgradeStdout: 'stdout-cause-' + 'x'.repeat(4000),
+          upgradeStderr: 'stderr-cause-' + 'y'.repeat(4000),
+        })
+      )} });`
+    );
+    // No real network or retry sleeps: timers are immediate only in this isolated test process.
+    writeFileSync(preload, '\nglobalThis.setTimeout = (fn) => { fn(); return 0; };\n', {
+      flag: 'a',
+    });
+    const resultFile = path.join(root, 'result.json');
+    const process = spawnSync(
+      globalThis.process.execPath,
+      [
+        '--import',
+        preload,
+        fileURLToPath(new URL('../../scripts/verify-public-install.mjs', import.meta.url)),
+        '--product',
+        'cli',
+        '--tag',
+        'v5.0.0-alpha.12',
+        '--source',
+        source,
+        '--target',
+        'aarch64-apple-darwin',
+        '--result-file',
+        resultFile,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 20_000,
+        env: { ...globalThis.process.env, GITHUB_REPOSITORY: 'pj-tmt/tmt' },
+      }
+    );
+    expect(process.error).toBeUndefined();
+    expect(process.status).toBe(1);
+    const result = JSON.parse(readFileSync(resultFile, 'utf8'));
+    expect(result.target).toBe('aarch64-apple-darwin');
+    expect(result.failed).toHaveLength(1);
+    const failure = result.failed[0];
+    expect(failure.check).toBe('tmt upgrade');
+    expect(failure.reason.length).toBeLessThanOrEqual(500);
+    expect(failure.detail.length).toBeLessThanOrEqual(6000);
+    for (const text of [
+      'failed after 3 attempts',
+      'stdout: stdout-cause-',
+      'stderr: stderr-cause-',
+      '(4013 characters)',
+    ]) {
+      expect(failure.detail).toContain(text);
+      expect(process.stderr).toContain(text);
+    }
+    expect(failure.detail).not.toContain('x'.repeat(2001));
+    expect(failure.detail).not.toContain('y'.repeat(2001));
+  });
+});
+
 describe('the public installer smoke of an extension release', () => {
   const tag = 'tmt-squad-v0.1.0-alpha.4';
   const smoke = (extension: Fake['extension'] = {}) =>
@@ -277,9 +350,8 @@ describe('the public installer smoke of an extension release', () => {
       ['install', true],
       ['PATH selects the installed tmt', true],
       ['installed version', true],
-      ['squad command', true],
       ['squad install', true],
-      ['squad status', true],
+      ['squad list', true],
     ]);
     // The installer's version is the CLI's, not the extension tag's, and nothing checks the skills.
     expect(results.find(({ check }) => check === 'installed version')?.reason).toBe(
@@ -287,23 +359,23 @@ describe('the public installer smoke of an extension release', () => {
     );
   });
 
-  it('says that the newest published CLI has no install command for the extension', async () => {
+  it('names an install through a CLI without `tmt extension`, and never uses a command of the extension itself', async () => {
     const results = await smoke({ command: false });
-    expect(results.at(-1)).toMatchObject({ check: 'squad command', ok: false });
-    expect(results.at(-1)?.reason).toBe(
-      'the newest published CLI (5.0.0-alpha.12) has no `squad install` command, so it cannot install tmt-squad-v0.1.0-alpha.4'
-    );
+    expect(results.at(-1)).toMatchObject({ check: 'squad install', ok: false });
+    expect(results.at(-1)?.reason).toContain("unrecognized subcommand 'extension'");
+    // The fake knows no `tmt squad ...`: a verifier that used one would fail the passing case.
+    expect((await smoke()).every(({ ok }) => ok)).toBe(true);
   });
 
-  it('fails an install of another version, a status that disagrees and a CLI link', async () => {
+  it('fails an install of another version, a list that disagrees and a CLI link', async () => {
     expect((await smoke({ installs: '0.1.0-alpha.3' })).at(-1)?.reason).toBe(
       'it installed 0.1.0-alpha.3, not 0.1.0-alpha.4'
     );
     expect((await smoke({ reports: '0.1.0-alpha.3' })).at(-1)?.reason).toBe(
-      'status reports 0.1.0-alpha.3, not 0.1.0-alpha.4'
+      'the list reports 0.1.0-alpha.3, not 0.1.0-alpha.4'
     );
     const linked = await smoke({ link: true });
-    expect(linked.at(-1)).toMatchObject({ check: 'squad status', ok: false });
+    expect(linked.at(-1)).toMatchObject({ check: 'squad list', ok: false });
     expect(linked.at(-1)?.reason).toContain('must not create the CLI link');
   });
 });

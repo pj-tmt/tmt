@@ -2,10 +2,9 @@ name: CI
 
 on:
   pull_request:
-  # Cache seeding: the Rust caches are written only outside pull requests (see
-  # `save-if` below), so `main` runs the two cache-writing jobs when the inputs
-  # that key the caches change, weekly (GitHub evicts caches unused for 7 days)
-  # and on demand. A pull request restores them and never writes.
+  merge_group:
+  # Main pushes, weekly schedules and manual dispatch seed Rust caches.
+  # PR and merge-group runs only restore; cache writers require the main ref.
   push:
     branches: [main]
     paths:
@@ -32,13 +31,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      native: ${{ steps.scope.outputs.native || steps.seed.outputs.native }}
-      office: ${{ steps.scope.outputs.office || steps.seed.outputs.office }}
-      native_scope: ${{ steps.scope.outputs.native_scope || steps.seed.outputs.native_scope }}
-      scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests }}
-      e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 }}
-      e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 }}
+      verify: ${{ steps.event.outputs.verify }}
+      macos: ${{ steps.event.outputs.macos }}
+      native: ${{ steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
+      office: ${{ steps.scope.outputs.office || steps.queue.outputs.office || steps.seed.outputs.office }}
+      native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
+      scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
+      e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
+      e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
     steps:
+      - name: Classify verification and seed events
+        id: event
+        env:
+          VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+          MACOS: ${{ github.event_name != 'merge_group' }}
+        run: printf 'verify=%s\nmacos=%s\n' "$VERIFY" "$MACOS" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -47,10 +54,17 @@ jobs:
         with:
           node-version: 22.23.2
       - name: Select the cache-seeding jobs
-        if: github.event_name != 'pull_request'
+        if: steps.event.outputs.verify != 'true'
         id: seed
         # A seeding run builds the whole workspace, so its scope is the full one.
         run: printf 'native=true\noffice=false\nnative_scope=full\n' >> "$GITHUB_OUTPUT"
+      - name: Select consumers from the cumulative merge-group diff
+        if: github.event_name == 'merge_group'
+        id: queue
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: node typescript/scripts/ci-scope.mjs merge-group "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
       - name: Select consumers from both sides of the diff
         if: github.event_name == 'pull_request'
         id: scope
@@ -75,7 +89,7 @@ jobs:
   code-quality:
     name: Code quality
     needs: [changes, office]
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -88,6 +102,9 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
+      - name: Install pinned release-config test API
+        working-directory: .github/release-please
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Run code quality checks
         working-directory: typescript
         run: |
@@ -107,12 +124,13 @@ jobs:
           pnpm --filter @tmt/remote-client --fail-if-no-match check
           pnpm --filter @tmt/remote-client --fail-if-no-match test
 
-  native-rust:
-    name: Native Rust contracts
+  native-rust-checks:
+    name: Native Rust checks
     needs: changes
     if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Retain the measured serial budget until the remaining checks are split (#851).
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -121,13 +139,12 @@ jobs:
       - name: Install pinned Rust toolchains
         run: |
           rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
-          rustup toolchain install 1.88.0 --profile minimal
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: rust
           shared-key: native-rust
-          save-if: ${{ github.event_name != 'pull_request' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
       - name: Verify Squad quality and locked builds
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
@@ -136,7 +153,6 @@ jobs:
           cargo clippy --locked -p tmt-squad --all-targets -- -D warnings
           cargo test --locked -p tmt-squad
           cargo test --locked -p tmt-cli --test architecture
-          cargo +1.88.0 build --locked -p tmt-squad
       - name: Build Squad process fixtures
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
@@ -160,7 +176,6 @@ jobs:
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
           cargo test --locked --workspace
-          cargo +1.88.0 build --locked --workspace
           cargo build --locked --workspace
           cargo build --locked --example storage-probe
       - name: Build independent native process fixtures
@@ -212,10 +227,58 @@ jobs:
           # shellcheck disable=SC2086
           pnpm test:native --reporter=verbose $SCOPED_NATIVE_TESTS
 
+  native-msrv:
+    name: Native Rust MSRV
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read the declared minimum Rust version
+        run: |
+          msrv="$(python3 -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["rust-version"])')"
+          printf 'MSRV=%s\nRUSTUP_TOOLCHAIN=%s\n' "$msrv" "$msrv" >> "$GITHUB_ENV"
+      - name: Install the declared minimum Rust version
+        run: rustup toolchain install "$MSRV" --profile minimal
+      - name: Restore Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust-msrv
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+      - name: Check all workspace targets at MSRV
+        working-directory: rust
+        run: cargo +"$MSRV" check --locked --workspace --all-targets
+
+  native-rust:
+    name: Native Rust contracts
+    needs: [changes, native-rust-checks, native-msrv]
+    # Preserve the outer gate's skipped result for scope none. Missing selection
+    # must still reach this gate and fail, even when both workers were skipped.
+    if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Require every selected Rust worker
+        env:
+          NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
+          CHECKS_RESULT: ${{ needs.native-rust-checks.result }}
+          MSRV_RESULT: ${{ needs.native-msrv.result }}
+        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CHECKS_RESULT" "$MSRV_RESULT"
+
   unit-tests:
     name: Unit tests
     needs: [changes, native-runtime-build]
-    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -232,6 +295,9 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
+      - name: Install pinned release-config test API
+        working-directory: .github/release-please
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Download the native executable for tooling tests
         uses: actions/download-artifact@v4
         with:
@@ -250,7 +316,7 @@ jobs:
   docker-e2e-shard-1:
     name: Docker E2E shard 1/2
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -276,7 +342,7 @@ jobs:
   docker-e2e-shard-2:
     name: Docker E2E shard 2/2
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -287,7 +353,7 @@ jobs:
   docker-e2e:
     name: Docker E2E
     needs: [changes, docker-e2e-shard-1, docker-e2e-shard-2]
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -311,21 +377,17 @@ jobs:
     if: needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
-      # Runner allocation for the four targets owned by dist-workspace.toml.
+      # Linux targets; macOS has separate jobs so its skipped result is observable.
       # These are raw PR executables, not cargo-dist release archives.
       matrix:
         include:
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel
-          - target: aarch64-apple-darwin
-            runner: macos-15
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-latest
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
-    steps:
+    steps: &native-runtime-build-steps
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -341,7 +403,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: runtime-${{ matrix.target }}
-          save-if: ${{ github.event_name != 'pull_request' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
       - name: Build the reviewed native runtime
         working-directory: rust
         env:
@@ -361,24 +423,32 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  native-runtime-build-macos:
+    name: Build native runtime (${{ matrix.target }})
+    needs: changes
+    if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.native_scope == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-apple-darwin
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps: *native-runtime-build-steps
+
   packed-native-install:
     # Preserve required historical check names while replacing the retired npm
     # product. Each row now executes native linkage/skill/SQLite runtime proof.
     name: Packed install (${{ matrix.label }})
     needs: [changes, native-runtime-build]
-    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - label: macOS x64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            container: false
-          - label: macOS arm64
-            runner: macos-15
-            target: aarch64-apple-darwin
-            container: false
           - label: Linux glibc x64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
@@ -397,7 +467,7 @@ jobs:
             container: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
-    steps:
+    steps: &packed-native-install-steps
       - name: Check out repository
         uses: actions/checkout@v4
         with:
@@ -443,9 +513,29 @@ jobs:
             --version "$(cat runtime/version.txt)" \
             --skill /verification/skills/tmux-team/SKILL.md
 
+  packed-native-install-macos:
+    name: Packed install (${{ matrix.label }})
+    needs: [changes, native-runtime-build-macos]
+    if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            container: false
+          - label: macOS arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            container: false
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps: *packed-native-install-steps
+
   native-install-gate:
     name: Native package matrix
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     needs:
       [
         changes,
@@ -455,6 +545,8 @@ jobs:
         docker-e2e-shard-2,
         native-runtime-build,
         packed-native-install,
+        native-runtime-build-macos,
+        packed-native-install-macos,
       ]
     runs-on: ubuntu-latest
     steps:
@@ -473,5 +565,8 @@ jobs:
           SHARD_2_RESULT: ${{ needs.docker-e2e-shard-2.result }}
           BUILD_RESULT: ${{ needs.native-runtime-build.result }}
           MATRIX_RESULT: ${{ needs.packed-native-install.result }}
+          MACOS_BUILD_RESULT: ${{ needs.native-runtime-build-macos.result }}
+          MACOS_MATRIX_RESULT: ${{ needs.packed-native-install-macos.result }}
+          MACOS_SELECTED: ${{ needs.changes.outputs.macos }}
         run: |
-          node typescript/scripts/ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
+          node typescript/scripts/ci-scope.mjs gate-native "$MACOS_SELECTED" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"

@@ -1,8 +1,7 @@
 # Agent skill installation
 
-Install the native alpha using the [README instructions](../README.md), then run
-`tmt install`. Use the installer asset from a published release; the README
-supplies the verified version URL when one is available. No plugin, marketplace
+Install the native alpha using the [README](../README.md) command, then run
+`tmt install`. Use the installer asset from a published release. No plugin, marketplace
 or separate slash-command package is required. The native executable embeds the
 canonical [tmux-team skill](tmux-team/SKILL.md), focused
 [tmt-inbox skill](tmt-inbox/SKILL.md), optional
@@ -166,5 +165,5 @@ tmt learn --skill
 tmt install claude --json   # A correct existing link reports changed: false
 ```
 
-Use [the quick start](../README.md#quick-start) for the first live exchange and
-[the user guide](../USER-GUIDE.md) for recovery, roles, and configuration.
+Use [the user guide](../USER-GUIDE.md) for the first live exchange, recovery,
+roles, and configuration.

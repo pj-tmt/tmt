@@ -57,6 +57,10 @@ mod actions;
 impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     type Error = TmuxError;
 
+    fn current_host(&self) -> tmt_core::host::HostKind {
+        tmt_core::host::HostKind::Tmux
+    }
+
     fn begin_coordination(&mut self) {
         self.deadline = Instant::now() + Duration::from_secs(3);
     }

@@ -13,6 +13,7 @@ use tmt_core::{
 };
 
 pub mod channel;
+pub mod consumption;
 pub mod driver_state;
 pub(crate) mod evidence;
 pub mod hook_protocol;
@@ -361,6 +362,15 @@ impl RuntimeRegistry {
     pub fn remembered_usage(&self, session: &RememberedSession) -> Option<driver_state::Usage> {
         self.lifecycle(&session.harness)?
             .state_usage(session.state.as_ref()?)
+    }
+
+    /// Completed-request counters projected by the remembered driver.
+    pub fn remembered_consumption(
+        &self,
+        session: &RememberedSession,
+    ) -> Option<consumption::Consumption> {
+        self.lifecycle(&session.harness)?
+            .state_consumption(session.state.as_ref()?)
     }
 
     /// Harness IDs with a registration, for purging sessions of removed drivers.

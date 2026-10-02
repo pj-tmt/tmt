@@ -37,7 +37,10 @@ pub fn resolve(storage: &mut Storage, host: &Host, input: &str) -> Result<PaneId
             })?;
         return binding::pane_presence(storage, &mut endpoint, &pane).map_err(binding_failure);
     }
-    // A name resolves through its stored binding, probed on its own host.
+    // A name routes only to a binding on the caller's own server; one on
+    // another host or socket reads as not active. That server is resolved
+    // first, as for a pane (a no-op on tmux).
+    host.resolve_servers(storage).map_err(endpoint_failure)?;
     binding::current_name_presence(storage, &mut host.session(), input)
         .map_err(binding_failure)?
         .ok_or_else(|| {

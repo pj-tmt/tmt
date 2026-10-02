@@ -206,7 +206,8 @@ pub fn pane_presence<R: BindingRepository, O: BindingEndpoint>(
 }
 
 /// Routing is scoped to the current server, unlike global presence reporting.
-/// Lookup does not impose creation-name validation or probe a foreign server.
+/// Lookup does not impose creation-name validation or probe a foreign server;
+/// a binding on another host or socket reads as not active.
 pub fn current_name_presence<R: BindingRepository, O: BindingEndpoint>(
     repository: &mut R,
     endpoint: &mut O,
@@ -223,6 +224,11 @@ pub fn current_name_presence<R: BindingRepository, O: BindingEndpoint>(
         let Some(binding) = &entry.binding else {
             return Ok(None);
         };
+        // Another host's pane is not the caller host's to look up. Another
+        // socket of the same host fails closed in `reconcile` instead.
+        if binding.server.host != endpoint.current_host() {
+            return Ok(None);
+        }
         let snapshot = endpoint
             .current_snapshot(std::slice::from_ref(&binding.pane_id))
             .map_err(BindingError::Endpoint)?;
