@@ -6,16 +6,23 @@ import { describe, expect, it } from 'vitest';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { installTmuxTripwire } from './tmux-tripwire.js';
 
-// A real Herdr server (#479 H3). CI does not ship Herdr yet (H4 adds it to
-// the E2E image), so this runs only when TMT_TEST_HERDR names a pinned,
-// digest-checked `herdr` binary. The server gets its own short socket and
-// HOME; teardown fails the test if any of its processes remain.
+// A real Herdr server, reached through the approved `tmt-driver-herdr`
+// (#479, #1082). CI does not ship Herdr yet, so this runs only when
+// TMT_TEST_HERDR names a pinned, digest-checked `herdr` binary. The server
+// gets its own short socket and HOME; teardown fails the test if any of its
+// processes remain.
 const HERDR = process.env.TMT_TEST_HERDR;
+// The build before #1082, whose Herdr host was built in: an absolute `tmt`
+// built from that revision in its own worktree and target directory.
+const PREVIOUS_TMT = process.env.TMT_TEST_PREVIOUS_TMT;
+const HERDR_HINT = 'Herdr panes need the Herdr driver: tmt driver install herdr';
 
 interface Herdr {
   readonly root: string;
   readonly env: NodeJS.ProcessEnv;
   json(args: readonly string[]): Record<string, any>;
+  /** Run a Herdr command that prints no document. */
+  command(args: readonly string[]): void;
   /** Run a shell command in a pane; returns its stdout, stderr and status. */
   inPane(
     pane: string,
@@ -77,6 +84,10 @@ async function startHerdr(sandbox: Sandbox): Promise<Herdr> {
       expect(result.status, `${args.join(' ')}: ${result.stderr}`).toBe(0);
       return JSON.parse(result.stdout);
     },
+    command(args) {
+      const result = run(args);
+      expect(result.status, `${args.join(' ')}: ${result.stderr}`).toBe(0);
+    },
     async inPane(pane, command) {
       const tag = path.join(root, `run-${(sequence += 1)}`);
       const result = run([
@@ -124,12 +135,37 @@ function tmt(sandbox: Sandbox): string {
   return [sandbox.cli.executable, ...sandbox.cli.args].map((word) => `'${word}'`).join(' ');
 }
 
+/** Approves the Herdr driver built beside the tested `tmt`, by its path. */
+async function approveHerdrDriver(sandbox: Sandbox): Promise<void> {
+  const driver = path.join(path.dirname(sandbox.cli.executable), 'tmt-driver-herdr');
+  const approved = await runCli(sandbox, ['driver', 'install', driver, '--yes']);
+  expect(approved.status, approved.stderr).toBe(0);
+}
+
+/** The stored bindings and host servers, as the database holds them. */
+function storedEndpoints(sandbox: Sandbox): { bindings: unknown[]; servers: unknown[] } {
+  const database = new Database(sandbox.database, { readonly: true });
+  try {
+    return {
+      bindings: database
+        .prepare('SELECT id, transport, server_id, pane_id FROM bindings ORDER BY id')
+        .all(),
+      servers: database
+        .prepare('SELECT server_id, host, socket_path FROM host_servers ORDER BY server_id')
+        .all(),
+    };
+  } finally {
+    database.close();
+  }
+}
+
 describe.skipIf(!HERDR)('Herdr host (real server)', () => {
   it('binds, lists, renames, unbinds and removes identities, and loses them with the server', async () => {
     await withSandbox(async (sandbox) => {
       const tmuxLog = installTmuxTripwire(sandbox);
       const herdr = await startHerdr(sandbox);
       try {
+        await approveHerdrDriver(sandbox);
         herdr.json(['workspace', 'create', '--cwd', sandbox.cwd]);
         herdr.json(['workspace', 'create', '--cwd', sandbox.cwd]);
         const panes = herdr.json(['pane', 'list']).result.panes as { pane_id: string }[];
@@ -204,11 +240,125 @@ describe.skipIf(!HERDR)('Herdr host (real server)', () => {
   }, 60_000);
 });
 
+describe.skipIf(!HERDR || !PREVIOUS_TMT)(
+  'Herdr binding from the built-in host (real server)',
+  () => {
+    it('waits for the driver, then carries over with its server ID', async () => {
+      await withSandbox(async (sandbox) => {
+        const tmuxLog = installTmuxTripwire(sandbox);
+        // Panes inherit the server's PATH: `claude` there is a stand-in agent
+        // that records one prompt (Herdr pastes it bracketed) and exits.
+        const agents = path.join(sandbox.root, 'agents');
+        const received = path.join(sandbox.root, 'agent-received.log');
+        mkdirSync(agents);
+        writeFileSync(
+          path.join(agents, 'claude'),
+          [
+            '#!/bin/sh',
+            "printf '\\033[?2004h'",
+            'stty -echo',
+            'while IFS= read -r line; do',
+            `  printf '%s\\n' "$line" >> '${received}'`,
+            "  case $line in *'[201~'*) break ;; esac",
+            'done',
+            // Restore the terminal for the shell before handing it back.
+            'stty echo',
+            "printf '\\033[?2004l'",
+            `echo exited >> '${received}'`,
+            '',
+          ].join('\n'),
+          { mode: 0o755 }
+        );
+        sandbox.env.PATH = `${agents}${path.delimiter}${sandbox.env.PATH}`;
+        const herdr = await startHerdr(sandbox);
+        const previous = { ...sandbox, cli: { executable: PREVIOUS_TMT!, args: [] } };
+        try {
+          herdr.json(['workspace', 'create', '--cwd', sandbox.cwd]);
+          // The previous build binds through its built-in Herdr host.
+          const named = await herdr.inPane('w1:p1', `${tmt(previous)} name --save worker`);
+          expect(named.status, named.stderr).toBe(0);
+          const before = storedEndpoints(sandbox);
+          expect(before.bindings).toMatchObject([
+            { transport: 'herdr', pane_id: expect.any(String) },
+          ]);
+          expect(before.servers).toHaveLength(1);
+          const marker = herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens;
+          expect(marker).toMatchObject({ tmt_name: 'worker' });
+
+          // This build without an approved driver: the binding waits, nothing is
+          // deleted, and a command in the pane says how to approve one.
+          const waiting = await runCli(sandbox, ['ls', '--json']);
+          expect(waiting.status, waiting.stderr).toBe(0);
+          const { identities } = parseWholeStdout(waiting) as {
+            identities: { presence: string }[];
+          };
+          const presence = identities[0].presence;
+          expect(presence).not.toBe('active');
+          expect(presence).not.toBe('offline');
+          expect(storedEndpoints(sandbox)).toEqual(before);
+          expect(herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens).toEqual(marker);
+          const hinted = await herdr.inPane('w1:p1', `${tmt(sandbox)} whoami`);
+          expect(hinted.stderr).toContain(HERDR_HINT);
+
+          // Approved: the same binding is active on the same server ID.
+          await approveHerdrDriver(sandbox);
+          const listed = await runCli(sandbox, ['ls', '--json']);
+          expect(parseWholeStdout(listed)).toMatchObject({
+            identities: [{ name: 'worker', presence: 'active', target: 'w1:p1' }],
+          });
+          expect(storedEndpoints(sandbox)).toEqual(before);
+          const whoami = await herdr.inPane('w1:p1', `${tmt(sandbox)} whoami`);
+          expect(whoami.stdout).toBe('worker (saved) on pane w1:p1\n');
+          expect(whoami.stderr).not.toContain(HERDR_HINT);
+
+          // A message from another pane on the same server reaches the agent
+          // in the binding's pane through the driver's prompt (a name routes
+          // on the caller's own server).
+          herdr.command(['pane', 'run', 'w1:p1', 'claude']);
+          await until(
+            () => herdr.json(['pane', 'get', 'w1:p1']).result.pane.agent === 'claude',
+            'Herdr to see the agent'
+          );
+          herdr.json(['workspace', 'create', '--cwd', sandbox.cwd]);
+          const talked = await herdr.inPane(
+            'w2:p1',
+            `${tmt(sandbox)} talk worker --detach carried-over-hello`
+          );
+          expect(talked.status, talked.stdout + talked.stderr).toBe(0);
+          await until(
+            () =>
+              existsSync(received) && readFileSync(received, 'utf8').includes('carried-over-hello'),
+            'the message at the agent'
+          );
+          await until(
+            () => readFileSync(received, 'utf8').endsWith('exited\n'),
+            'the agent to exit'
+          ).catch((error) => {
+            throw new Error(
+              `${error.message}; received ${JSON.stringify(readFileSync(received, 'utf8'))}`
+            );
+          });
+
+          // Unbind from the pane clears the marker.
+          const unbound = await herdr.inPane('w1:p1', `${tmt(sandbox)} unbind`);
+          expect(unbound.status, unbound.stderr).toBe(0);
+          expect(herdr.json(['pane', 'get', 'w1:p1']).result.pane.tokens ?? {}).toEqual({});
+          expect(existsSync(tmuxLog)).toBe(false);
+        } finally {
+          await stopHerdr(herdr);
+        }
+      });
+    }, 60_000);
+  }
+);
+
 // Runs without Herdr: `ls <text>` decides name-versus-target once, from
-// storage, before any host is resolved (#498 decision 1).
+// storage, before any host is resolved (#498 decision 1). Herdr's targets
+// are its driver's syntax, known once the driver is approved.
 describe('ls with Herdr target-shaped text', () => {
   it('lists an existing identity that holds the name without running Herdr', async () => {
     await withSandbox(async (sandbox) => {
+      await approveHerdrDriver(sandbox);
       const tmuxLog = installTmuxTripwire(sandbox);
       const herdrLog = path.join(sandbox.root, 'herdr-invocations.log');
       const tripwire = path.join(sandbox.root, 'herdr-tripwire');
@@ -218,6 +368,10 @@ describe('ls with Herdr target-shaped text', () => {
         `#!/bin/sh\nprintf "%s\\n" "$*" >> '${herdrLog}'\nexit 97\n`,
         { mode: 0o755 }
       );
+      // macOS delays a new executable's first run past a driver call's
+      // deadline; run it once so the driver's call is the one recorded.
+      spawnSync(path.join(tripwire, 'herdr'), ['warm-up']);
+      rmSync(herdrLog, { force: true });
       sandbox.env.PATH = `${tripwire}${path.delimiter}${sandbox.env.PATH}`;
       delete sandbox.env.HERDR_PANE_ID;
       delete sandbox.env.HERDR_SOCKET_PATH;

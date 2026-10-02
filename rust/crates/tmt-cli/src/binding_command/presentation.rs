@@ -458,7 +458,8 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
         Report::Listed { rows, scope } => {
             let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
             write_listing(output, terminal, rows, scope.all, home.as_deref())?;
-            // A name kept from before Herdr that now reads as a pane target.
+            // A name kept from before a host's driver was approved that now
+            // reads as one of its pane targets.
             match rows
                 .iter()
                 .find(|row| tmt_core::names::is_pane_target(&row.presence.identity.name))

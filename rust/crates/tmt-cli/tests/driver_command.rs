@@ -55,9 +55,14 @@ impl Fixture {
     }
 
     fn tmt(&self, args: &[&str]) -> Output {
+        self.tmt_with(args, &[])
+    }
+
+    fn tmt_with(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_tmt"))
             .args(args)
             .env_clear()
+            .envs(env.iter().copied())
             .env("HOME", self.root.join("home"))
             .env("TMUX_TEAM_HOME", self.root.join("state"))
             .env("XDG_CONFIG_HOME", self.root.join("xdg"))
@@ -165,7 +170,7 @@ fn a_refused_driver_is_refused_before_any_question() {
     let fixture = Fixture::new("refused");
     let not_driver = fixture.driver("broken", "not json");
     // A built-in host's name: refused even with consent.
-    let builtin = fixture.driver("builtin", &capabilities("herdr", "hd-", "h{n}"));
+    let builtin = fixture.driver("builtin", &capabilities("tmux", "tm-", "t{n}"));
     let unsafe_driver = fixture.driver("open", &capabilities("open", "open-", "o{n}"));
     fs::set_permissions(&unsafe_driver, fs::Permissions::from_mode(0o777)).unwrap();
     for (driver, code) in [
@@ -292,4 +297,59 @@ fn a_first_party_name_outside_a_managed_install_is_refused_with_the_path_form() 
         "{message}"
     );
     assert!(!fixture.registry().exists());
+}
+
+const HERDR_HINT: &str = "Herdr panes need the Herdr driver: tmt driver install herdr";
+
+#[test]
+fn a_herdr_pane_without_its_driver_gets_the_hint_once_a_day() {
+    let fixture = Fixture::new("hint");
+    let pane = |id: &'static str| [("HERDR_PANE_ID", id), ("HERDR_SOCKET_PATH", "/tmp/h.sock")];
+    let plain = fixture.tmt(&["whoami"]);
+    let first = fixture.tmt_with(&["whoami"], &pane("w1:p1"));
+    // The command's own result is unchanged; the hint follows it.
+    assert_eq!(first.status.code(), plain.status.code(), "{first:?}");
+    assert_eq!(first.stdout, plain.stdout);
+    let stderr = text(&first.stderr);
+    assert!(stderr.starts_with(&text(&plain.stderr)), "{stderr}");
+    assert_eq!(stderr.matches(HERDR_HINT).count(), 1, "{stderr}");
+    // Once a day for each pane.
+    let again = fixture.tmt_with(&["whoami"], &pane("w1:p1"));
+    assert_eq!(again.stderr, plain.stderr);
+    let other = fixture.tmt_with(&["whoami"], &pane("w1:p2"));
+    assert!(text(&other.stderr).contains(HERDR_HINT), "{other:?}");
+    // Off, machine output and driver management never show it.
+    for (args, env) in [
+        (&["whoami"][..], &[("TMT_HINTS", "off")][..]),
+        (&["whoami", "--json"][..], &[][..]),
+        (&["driver", "ls"][..], &[][..]),
+    ] {
+        let mut env = env.to_vec();
+        env.extend(pane("w2:p1"));
+        let output = fixture.tmt_with(args, &env);
+        assert!(
+            !printed(&output).contains(HERDR_HINT),
+            "{args:?}: {output:?}"
+        );
+    }
+    assert!(
+        text(&fixture.tmt_with(&["whoami"], &pane("w2:p1")).stderr).contains(HERDR_HINT),
+        "still due after the silenced runs"
+    );
+}
+
+#[test]
+fn an_approved_herdr_driver_silences_the_hint() {
+    let fixture = Fixture::new("hint-approved");
+    let driver = fixture.driver("herdr", &capabilities("herdr", "term_", "w{n}:p{n}"));
+    let approved = fixture.tmt(&["driver", "install", path(&driver), "--yes"]);
+    assert!(approved.status.success(), "{approved:?}");
+    let output = fixture.tmt_with(
+        &["whoami"],
+        &[
+            ("HERDR_PANE_ID", "w1:p1"),
+            ("HERDR_SOCKET_PATH", "/tmp/h.sock"),
+        ],
+    );
+    assert!(!printed(&output).contains(HERDR_HINT), "{output:?}");
 }

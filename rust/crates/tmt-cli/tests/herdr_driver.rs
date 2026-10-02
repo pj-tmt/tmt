@@ -334,8 +334,10 @@ fn the_driver_reads_and_marks_a_real_herdr_server() {
     );
 
     // The built-in host's fixture marker, published and read back as stored.
-    let fixture: Value =
-        serde_json::from_str(include_str!("../src/fixtures/builtin-marker.json")).unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../tmt-driver-herdr/src/fixtures/builtin-marker.json"
+    ))
+    .unwrap();
     let marker = fixture["marker"].clone();
     let publish = |pane_pid: u64| {
         call(

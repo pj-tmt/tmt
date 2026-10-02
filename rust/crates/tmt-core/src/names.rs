@@ -79,9 +79,10 @@ pub fn validate_name(value: &str) -> Result<ValidatedName, NameError> {
     Ok(name)
 }
 
-/// A name an existing identity may already hold. A host added later (Herdr's
-/// `wN:pM`, #479) makes some earlier names look like targets; such names stay
-/// valid for the identities that hold them and are refused only as new names.
+/// A name an existing identity may already hold. A host whose driver is
+/// approved later (Herdr's `wN:pM`, #479) makes some earlier names look like
+/// targets; such names stay valid for the identities that hold them and are
+/// refused only as new names.
 pub fn validate_existing_name(value: &str) -> Result<ValidatedName, NameError> {
     let display_name = value.trim_matches(ecmascript_space);
     if display_name.is_empty() || display_name.chars().any(|c| c < '\u{20}' || c == '\u{7f}') {

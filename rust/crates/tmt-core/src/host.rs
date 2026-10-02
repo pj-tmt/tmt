@@ -7,14 +7,13 @@ use crate::names::ecmascript_space;
 use std::sync::OnceLock;
 pub use tmt_host_grammar::{HostGrammar, HostName};
 
-/// A terminal host. tmux and Herdr are built in; any other host is named by
-/// the driver that serves it (#570). A host is only its name, so stored rows
+/// A terminal host. tmux is built in; any other host, Herdr included, is
+/// named by the driver that serves it (#570). A host is only its name, so stored rows
 /// and JSON read without knowing which drivers are installed; whether one is
 /// belongs to the adapters that run drivers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum HostKind {
     Tmux,
-    Herdr,
     /// A host an out-of-process driver serves. Its syntax is known only
     /// once that driver is registered; until then no pane ID or target is
     /// its own.
@@ -93,7 +92,7 @@ pub fn builtin_conflict(grammar: &HostGrammar) -> Option<String> {
 
 impl HostKind {
     /// The built-in hosts.
-    pub const ALL: [Self; 2] = [Self::Tmux, Self::Herdr];
+    pub const ALL: [Self; 1] = [Self::Tmux];
 
     /// The built-in hosts, then the registered external ones.
     pub fn all() -> impl Iterator<Item = Self> {
@@ -108,7 +107,6 @@ impl HostKind {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Tmux => "tmux",
-            Self::Herdr => "herdr",
             Self::External(name) => name.as_str(),
         }
     }
@@ -132,18 +130,11 @@ impl HostKind {
         Self::of_pane_id(id).map_or(id, |host| host.pane_address(id, target))
     }
 
-    /// A pane ID in this host's own syntax. Herdr's is the terminal ID
-    /// (`term_…`): it follows a pane through moves, and a server restart
-    /// replaces it, while the public `wN:pM` is reused after a restart.
+    /// A pane ID in this host's own syntax; an external host's is the one
+    /// its driver declared.
     pub fn is_pane_id(self, value: &str) -> bool {
         match self {
             Self::Tmux => value.strip_prefix('%').is_some_and(all_digits),
-            Self::Herdr => value.strip_prefix("term_").is_some_and(|rest| {
-                (1..=MAX_TERMINAL_SUFFIX).contains(&rest.len())
-                    && rest
-                        .bytes()
-                        .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
-            }),
             Self::External(name) => {
                 external_grammar(name).is_some_and(|grammar| grammar.is_pane_id(value))
             }
@@ -164,11 +155,6 @@ impl HostKind {
                         && window_pane(pane)
                 })
             }
-            // Herdr's public pane ID; a terminal ID is never a target.
-            Self::Herdr => canonical
-                .strip_prefix('w')
-                .and_then(|rest| rest.split_once(":p"))
-                .is_some_and(|(workspace, pane)| all_digits(workspace) && all_digits(pane)),
             Self::External(name) => {
                 external_grammar(name).is_some_and(|grammar| grammar.is_target(canonical))
             }
@@ -176,23 +162,21 @@ impl HostKind {
     }
 
     /// Whether names shaped like this host's targets were refused from the
-    /// start. Herdr's `wN:pM` arrived later (#479), as does every external
-    /// host: an identity created before may hold such a name, and keeps it.
+    /// start. Every external host's arrived later (#479, #570): an identity
+    /// created before may hold such a name, and keeps it.
     pub const fn targets_never_named_identities(self) -> bool {
         matches!(self, Self::Tmux)
     }
 
     /// How a user names a live pane of this host: its pane ID on tmux, its
-    /// public target on Herdr and external hosts, whose IDs are opaque.
+    /// public target on external hosts, whose IDs are opaque.
     pub fn pane_address<'a>(self, id: &'a str, target: Option<&'a str>) -> &'a str {
         match self {
             Self::Tmux => id,
-            Self::Herdr | Self::External(_) => target.unwrap_or(id),
+            Self::External(_) => target.unwrap_or(id),
         }
     }
 }
-
-const MAX_TERMINAL_SUFFIX: usize = 64;
 
 fn all_digits(value: &str) -> bool {
     !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
@@ -205,7 +189,8 @@ fn window_pane(value: &str) -> bool {
         .is_some_and(|(window, pane)| all_digits(window) && all_digits(pane))
 }
 
-/// One running server of a host that keeps no server-level store (Herdr),
+/// One running server of a host that keeps no server-level store (any
+/// external host),
 /// named by its socket and its server process's incarnation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostServerIncarnation<'a> {
@@ -237,12 +222,11 @@ mod tests {
 
     #[test]
     fn each_host_round_trips_its_token() {
-        assert_eq!(HostKind::ALL, [HostKind::Tmux, HostKind::Herdr]);
+        assert_eq!(HostKind::ALL, [HostKind::Tmux]);
         for host in HostKind::ALL {
             assert_eq!(HostKind::parse(host.as_str()), Some(host));
         }
         assert_eq!(HostKind::Tmux.as_str(), "tmux");
-        assert_eq!(HostKind::Herdr.as_str(), "herdr");
         for other in ["TMUX", "Herdr", "", "tmux ", "9host", "a_b"] {
             assert_eq!(HostKind::parse(other), None, "{other:?}");
         }
@@ -261,13 +245,26 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_herdr_token_reads_as_its_drivers_host() {
+        // Herdr was built in until #1082; its stored token, pane IDs and
+        // server rows now belong to the host its driver serves.
+        let herdr = HostKind::parse("herdr").unwrap();
+        assert_eq!(herdr, HostKind::External(HostName::new("herdr").unwrap()));
+        assert_eq!(herdr.as_str(), "herdr");
+        assert!(!herdr.is_pane_id("term_1") && !herdr.is_target("w1:p2"));
+        assert_eq!(HostKind::of_pane_id("term_1"), None);
+        assert_eq!(herdr.pane_address("term_1", Some("w1:p2")), "w1:p2");
+        assert_eq!(herdr.pane_address("term_1", None), "term_1");
+    }
+
+    #[test]
     fn hosts_order_by_name_with_built_ins_first() {
         let mut hosts =
             ["zeta", "herdr", "alpha", "tmux"].map(|name| HostKind::parse(name).unwrap());
         hosts.sort();
         assert_eq!(
             hosts.iter().map(HostKind::as_str).collect::<Vec<_>>(),
-            ["tmux", "herdr", "alpha", "zeta"]
+            ["tmux", "alpha", "herdr", "zeta"]
         );
     }
 
@@ -277,12 +274,9 @@ mod tests {
             builtin_conflict(&HostGrammar::new(name, prefix, target).unwrap())
         };
         assert!(conflict("tmux", "tm-", None).is_some());
-        assert!(conflict("other", "term_", None).is_some(), "Herdr's IDs");
-        assert!(
-            conflict("other", "ot-", Some("w{n}:p{n}")).is_some(),
-            "Herdr's targets"
-        );
         assert!(conflict("other", "ot-", Some("s{n}")).is_none());
+        // Herdr's driver declares what was the built-in Herdr syntax.
+        assert!(conflict("herdr", "term_", Some("w{n}:p{n}")).is_none());
     }
 
     #[test]
@@ -302,63 +296,10 @@ mod tests {
     }
 
     #[test]
-    fn herdr_owns_its_terminal_id_and_public_pane_syntax() {
-        for id in [
-            "term_65ca1161edc141",
-            "term_0",
-            &format!("term_{}", "a".repeat(64)),
-        ] {
-            assert!(HostKind::Herdr.is_pane_id(id), "{id}");
-        }
-        for not_id in [
-            "term_",
-            "term_65CA",
-            "term_6-5",
-            "w1:p1",
-            "%1",
-            "",
-            &format!("term_{}", "a".repeat(65)),
-        ] {
-            assert!(!HostKind::Herdr.is_pane_id(not_id), "{not_id}");
-        }
-        for target in ["w1:p1", "w12:p340"] {
-            assert!(HostKind::Herdr.is_target(target), "{target}");
-        }
-        for not_target in [
-            "w1:p",
-            "w:p1",
-            "w1p1",
-            "1:p1",
-            "w1:p1:",
-            "w+1:p1",
-            "worker",
-            "term_65ca1161edc141",
-            "%3",
-            "1.2",
-        ] {
-            assert!(!HostKind::Herdr.is_target(not_target), "{not_target}");
-        }
-        // No text is a target of both hosts.
-        for text in ["%3", "1.2", "s:1.2", "w1:p1"] {
-            let hosts = HostKind::ALL
-                .into_iter()
-                .filter(|host| host.is_target(text));
-            assert_eq!(hosts.count(), 1, "{text}");
-        }
-    }
-
-    #[test]
-    fn a_herdr_pane_is_addressed_by_its_public_id() {
+    fn a_tmux_pane_is_addressed_by_its_id() {
         assert_eq!(HostKind::Tmux.pane_address("%3", Some("s:1.2")), "%3");
-        assert_eq!(
-            HostKind::Herdr.pane_address("term_1", Some("w1:p2")),
-            "w1:p2"
-        );
-        assert_eq!(HostKind::Herdr.pane_address("term_1", None), "term_1");
         assert_eq!(HostKind::of_pane_id("%3"), Some(HostKind::Tmux));
-        assert_eq!(HostKind::of_pane_id("term_1"), Some(HostKind::Herdr));
-        assert_eq!(HostKind::of_pane_id("w1:p2"), None);
-        assert_eq!(HostKind::label("term_1", Some("w1:p2")), "w1:p2");
         assert_eq!(HostKind::label("%3", Some("s:1.2")), "%3");
+        assert_eq!(HostKind::label("term_1", Some("w1:p2")), "term_1");
     }
 }

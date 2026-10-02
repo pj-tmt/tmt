@@ -47,6 +47,7 @@ tmt-colab-model = { path = "../extensions/tmt-colab/rust/tmt-colab-model" }
 tmt-adapters = { path = "crates/tmt-adapters" }
 tmt-command-output = { path = "crates/tmt-command-output" }
 tmt-driver-protocol = { path = "crates/tmt-driver-protocol" }
+tmt-driver-herdr = { path = "crates/tmt-driver-herdr" }
 tmt-cli-style = { path = "crates/tmt-cli-style" }
 tmt-tui = { path = "crates/tmt-tui" }
 tmt-invoke = { path = "crates/tmt-invoke" }

@@ -95,6 +95,7 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
   await verifyNativeRuntime({
     executable: path.join(artifactRoot, executable),
     product: values.product,
+    herdrDriver: values.product === 'cli' ? path.join(artifactRoot, 'tmt-driver-herdr') : undefined,
     target: metadata.target,
     version: metadata.version,
     skill,
@@ -111,7 +112,7 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
   console.log(
     `Verified native archive ${metadata.name}: ${
       {
-        cli: 'linkage, version, skill bundle, managed install, SQLite persistence',
+        cli: 'linkage, version, skill bundle, Herdr driver, managed install, SQLite persistence',
         office: 'linkage, exact Office handshake, no application state',
         squad: 'linkage, version, exact skills tree, no application state',
       }[values.product]

@@ -113,12 +113,13 @@ fn pane_classification_and_name_rejection_share_exact_target_forms() {
 }
 
 #[test]
-fn herdr_target_names_are_refused_only_as_new_names() {
+fn herdr_shaped_names_are_names_while_no_driver_claims_them() {
+    // Herdr's targets belong to its driver (#1082): with none approved in
+    // this process they are ordinary names, new or existing.
     for name in ["w1:p2", "W1:P2", "ｗ１:ｐ２"] {
-        assert!(is_pane_target(name), "{name:?}");
-        assert_eq!(validate_name(name), Err(NameError::PaneTarget), "{name:?}");
-        let existing = validate_existing_name(name).expect("an existing identity keeps it");
-        assert_eq!(existing.canonical_name(), "w1:p2");
+        assert!(!is_pane_target(name), "{name:?}");
+        assert!(validate_name(name).is_ok(), "{name:?}");
+        assert!(validate_existing_name(name).is_ok(), "{name:?}");
     }
     // tmux targets were never names, so no existing identity holds one.
     for target in ["%14", "10.3", "session:2.1"] {

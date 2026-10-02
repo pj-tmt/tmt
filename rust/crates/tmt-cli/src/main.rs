@@ -101,6 +101,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     tmt_adapters::core_executable::declare_core();
     appearance::configure(parsed.mode.json);
     let inspect_drift = skill_reminder::eligible_for_drift(&parsed);
+    let driver_hint = skill_reminder::eligible_for_driver_hint(&parsed);
     let mode = parsed.mode;
     // This process may observe lifecycle changes for enabled extension hooks;
     // delivery runs after the command's own effects and output.
@@ -108,6 +109,11 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     let code = dispatch(parsed);
     tmt_adapters::extension_hooks::deliver_pending();
     let code = code?;
+    // A Herdr pane without its driver: whatever the result, say how to
+    // approve one. It replaces the passive drift line.
+    if driver_hint && skill_reminder::present_driver_hint() {
+        return Ok(code);
+    }
     if code == 0 && inspect_drift {
         skill_reminder::present(skill_reminder::Outcome::None, mode, true);
     }

@@ -3,7 +3,14 @@ import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path';
 import * as tar from 'tar';
 
-const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
+// The archive's file list has one owner, the artifact policy the release
+// verifiers use; fixtures build from it rather than copying it.
+const { runtimeFiles, companionFiles } = (await import(
+  new URL('../../scripts/native-artifact-policy.mjs', import.meta.url).href
+)) as unknown as {
+  runtimeFiles: (product?: 'cli' | 'office' | 'squad') => string[];
+  companionFiles: (product?: 'cli' | 'office' | 'squad') => string[];
+};
 
 export type ArtifactFixture = {
   readonly archive: string;
@@ -14,7 +21,11 @@ export type ArtifactFixture = {
 
 export type ArtifactSources = {
   readonly root: string;
-  readonly cli?: { readonly executable: string };
+  readonly cli?: {
+    readonly executable: string;
+    /** Where the build's companions are; by default beside `executable`. */
+    readonly companions?: string;
+  };
 };
 
 export function nativeTarget(): string {
@@ -65,6 +76,13 @@ export async function createArtifact(
   writeFileSync(path.join(root, 'LICENSE'), 'MIT\n');
   writeFileSync(path.join(root, 'NATIVE-INSTALL.md'), 'Native local installation fixture.\n');
   writeFileSync(path.join(root, 'THIRD-PARTY-NOTICES.txt'), 'Synthetic test notice fixture.\n');
+  // A companion (the CLI's Herdr driver) comes from the same build as the
+  // executable, as in a release archive.
+  for (const companion of companionFiles(product)) {
+    const built = sources.cli?.companions ?? path.dirname(source);
+    copyFileSync(path.join(built, companion), path.join(root, companion));
+    chmodSync(path.join(root, companion), 0o755);
+  }
   for (const [file, content] of Object.entries(skills)) {
     mkdirSync(path.dirname(path.join(root, 'skills', file)), { recursive: true });
     writeFileSync(path.join(root, 'skills', file), content);
@@ -82,7 +100,7 @@ export async function createArtifact(
           checksums: { sha256: checksum },
           // cargo-dist declares an included directory as one asset.
           assets: [
-            ...REQUIRED_FILES.map((file) => (file === 'tmt' ? executableName : file)),
+            ...runtimeFiles(product),
             ...(Object.keys(skills).length > 0 ? ['skills'] : []),
           ].map((file) => ({ path: file })),
         },

@@ -105,8 +105,9 @@ impl Op {
         Self::ALL.into_iter().find(|op| op.as_str() == name)
     }
 
-    /// Operations on a provider hook's path get 300 ms; those that read
-    /// every pane or paste text get 2 s.
+    /// Operations on a provider hook's path get 1 s: each call is a fresh
+    /// process, and a cold exec alone can take 300 ms on a busy machine.
+    /// Those that read every pane or paste text get 2 s.
     pub const fn bounds(self) -> OpLimits {
         let (millis, max_output_bytes) = match self {
             Self::Capabilities => (1000, SMALL),
@@ -115,7 +116,7 @@ impl Op {
             | Self::ResolveTarget
             | Self::Publish
             | Self::Clear
-            | Self::Focus => (300, SMALL),
+            | Self::Focus => (1000, SMALL),
             Self::Snapshot | Self::Probe | Self::Capture => (2000, LARGE),
             Self::Input | Self::Prompt => (2000, SMALL),
         };
@@ -143,7 +144,7 @@ mod tests {
     #[test]
     fn hook_path_ops_are_short_and_small() {
         for op in [Op::Caller, Op::Server, Op::Publish, Op::Clear] {
-            assert_eq!(op.bounds().deadline, Duration::from_millis(300));
+            assert_eq!(op.bounds().deadline, Duration::from_millis(1000));
             assert_eq!(op.bounds().max_output_bytes, 4096);
         }
         assert_eq!(Op::Snapshot.bounds().max_output_bytes, 1024 * 1024);

@@ -33,7 +33,11 @@ describe('extension upgrade proof against the real CLI', () => {
 
         const artifact = (name: string, version: string, product: 'cli' | 'squad') =>
           createArtifact(
-            { root: path.join(sandbox.root, name), cli: { executable: wrapper } },
+            {
+              root: path.join(sandbox.root, name),
+              // The wrapper stands in for tmt; its companions are the build's.
+              cli: { executable: wrapper, companions: path.dirname(sandbox.cli.executable) },
+            },
             version,
             new Uint8Array(),
             product,

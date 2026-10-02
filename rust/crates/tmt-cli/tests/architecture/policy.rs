@@ -22,6 +22,7 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli", "toml_edit", None),             // audited unsafe-boundary manifest policy
     ("tmt-cli", "syn", None),                   // architecture AST checks
     ("tmt-cli", "tmt-office-model", None),      // Office parser fixtures
+    ("tmt-cli", "tmt-driver-protocol", None),   // Herdr driver conformance harness
     ("tmt-cli", "nix", Some("cfg(unix)")),      // stdin signal and observer readiness fixtures
     ("tmt-cli", "rusqlite", Some("cfg(unix)")), // request-observer SQL oracle
     ("tmt-cli-style", "crossterm", None),       // table terminal-style assertions
@@ -104,6 +105,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-cli" => &[
             "tmt-office-command",
+            "tmt-driver-herdr",
             "tmt-command-output",
             "tmt-cli-style",
             "tmt-core",
@@ -672,6 +674,15 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 violations.push(format!(
                     "{location}: Office model cannot acquire core runtime responsibilities via {}",
                     path.join("::")
+                ));
+            }
+            // The Herdr driver runs only as its own executable: tmt-cli
+            // depends on it to host that bin, never to call it in-process.
+            if root == "tmt_driver_herdr"
+                && !(source.package == "tmt-cli" && source.file == "tmt-driver-herdr.rs")
+            {
+                violations.push(format!(
+                    "{location}: tmt_driver_herdr belongs only to the tmt-driver-herdr bin"
                 ));
             }
             if root == "tmt_office_model"

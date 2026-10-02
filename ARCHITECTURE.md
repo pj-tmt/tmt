@@ -1552,9 +1552,9 @@ from a host's or driver's text.
   observed value that differ as a reused pid, which is `EndpointLost`. NULL, or a
   failed observation, is unknown and proves neither loss nor sameness; the pid
   and marker rules decide as before.
-- **Read paths don't observe:** on macOS one `ps` costs about 110 ms, so tmux and
-  Herdr reads (`ls`, status, send) leave the observed value unknown and never
-  compare; their pane IDs are already unique within a server incarnation.
+- **Read paths don't observe:** on macOS one `ps` costs about 110 ms, so tmux
+  reads (`ls`, status, send) leave the observed value unknown and never
+  compare; its pane IDs are already unique within a server incarnation.
 - **Cost:** recording costs one `ps` per new binding.
 - **External hosts:** pane IDs are declared by the driver, so external hosts will
   observe on verification, scoped to the binding's pane.
@@ -1880,7 +1880,7 @@ ancestry inspection. It takes one PID/parent/command snapshot and walks it in
 memory, reading arguments only for Codex ancestors. Both caller and runtime-start
 observations share the fixed-path/locale `process::ps` runner and its missing-only
 executable fallback. Tmux continues to own server, pane and marker verification.
-Selected multi-process start observations and Herdr pane-parent observations use
+Selected multi-process start observations use
 `process::process_info` through optional evidence methods on `CommandRunner`.
 The real runners acquire macOS BSD info through `tmt-sys::bsd_info` or Linux
 bounded `/proc/<pid>/stat` reads. Start tokens retain the UTC, second-resolution
@@ -1937,7 +1937,7 @@ the bounded `process::runtime` observer before input. It uses a fixed-locale,
 fixed-timezone `ps` start identity (second resolution), not a PID alone or provider
 transcript. `tmt_core::endpoint::ProcessIncarnation` (a PID and that opaque start
 token, from core's own inspection) is the one value for comparing a local process:
-runtimes, launch owners, notification waiters and Herdr servers use it, each with
+runtimes, launch owners, notification waiters and external host servers use it, each with
 its own stored columns and lifecycle. Process disappearance, zombie state or a changed start identity reports
 ended. Stopped/traced processes remain unknown rather than ended, allowing later
 resumption without sending input to the shell meanwhile. Inconclusive checks also
@@ -2310,13 +2310,14 @@ The CLI and the `delivery` and `pane_badge` adapters reach the terminal host
 only through `tmt-adapters::host::Host`. Extensions never do: they read presence
 from `tmt ls --json` and the caller from `tmt whoami`, and the architecture
 guard rejects any extension source, test code included, that names the host
-port, the tmux or Herdr module, or core's `binding`, `endpoint` or `host`
+port, the tmux module, or core's `binding`, `endpoint` or `host`
 model. The host port holds the binding session (the core `BindingEndpoint`
 and `Driver` ports), caller and target resolution, snapshots, capture, send,
-focus and pane cosmetics, over two hosts: `tmt-adapters::tmux` and
-`tmt-adapters::herdr` (#479). A handle has a primary host; its session observes
+focus and pane cosmetics, over the built-in `tmt-adapters::tmux` and every
+external host through its approved driver (`host::external`, #570); Herdr is
+one of those since #1082. A handle has a primary host; its session observes
 new panes there, and probes, marks and clears every stored binding on that
-binding's own host, so presence is complete from either host. Each host
+binding's own host, so presence is complete from any host. Each host
 implements `host::driver::HostDriver`: snapshot, probe, publish, clear, the
 runtime in a pane, input and focus, at the driver protocol's granularity
 (#570). The session picks the driver of an entry's host and runs one binding
@@ -2334,27 +2335,24 @@ whether text may have reached the pane, and the host's own cause. The
 out-of-process client of #570 slice 3 implements the same trait. `HostError` and
 the host `ActionError` wrap each host's error and read exactly as it. The
 architecture guard rejects production references to the host modules outside
-`host.rs` and their own directories.
+`host.rs` and their own directories. Post-commit pane cosmetics are tmux's
+badge and marker refresh; on an external host only the marker's name is kept
+current after a rename (`host::driver::refresh_marker_name`, which republishes
+only this binding's stale marker). A caller's external pane is labeled by the
+public target the driver's `snapshot` reports for it (`Host::caller_label`),
+read without resolving or recording a server.
 
-Herdr is reached only through its documented CLI (`herdr <group> <command>`,
-JSON out) under the bounded process owner, on the socket a caller's
-`HERDR_SOCKET_PATH` or a stored server names, and refuses servers older than
-0.9.1 in semantic-version order (so a 0.9.1 pre-release is refused). A Herdr pane ID is the terminal ID, which follows a pane through moves
-while the public `wN:pM` (its target and display address) is reused after a
-restart. A caller's Herdr pane counts only when its shell is an ancestor of the
-caller (`process::ancestry`, shared with tmux); inside both hosts the nearer
-pane wins. A Herdr server incarnation is its server process (the parent of
-every pane shell) as a `ProcessIncarnation` core observes; Herdr keeps no server-level store,
-so TMT's UUID for it comes from core's `HostServerIds` port, implemented by
-`Storage` (`host_servers`) and resolved by `Host::resolve_servers` before any
-binding transaction opens, so the transaction only sees resolved evidence. A
-stored Herdr server is live only as the same incarnation; otherwise it is lost
-only when its recorded process is conclusively gone. The marker is pane tokens
-under source `tmt` (a long name spans continuation keys) and proves nothing
-unless its IDs match storage. Herdr merges a report into the source's tokens
-key by key, so each publish also clears the marker keys it does not set. Herdr delivery, capture, focus, badges and hook
-context are not implemented yet: `send` is unsupported so core falls through to
-the Inbox, a pane route refuses before input, and `check` and `focus` refuse.
+Herdr was a built-in host until #1082. Its stored token, pane IDs (terminal
+IDs), markers and `host_servers` rows are unchanged: the token parses as
+`HostKind::External(herdr)`, whose server rows key on the same host, socket,
+server pid and start, so bindings made by the built-in host carry over with no
+migration once its driver is approved. Until then such a binding is unknown,
+never lost, and nothing is deleted. A command run in a Herdr pane
+(`HERDR_PANE_ID` and `HERDR_SOCKET_PATH` set) while no approved driver serves
+Herdr keeps its result and adds the hint `Herdr panes need the Herdr driver:
+tmt driver install herdr` on stderr, once a day for each pane
+(`hint_cadence`, `<global>/hints.json`); `TMT_HINTS=off`, `--json`, completion,
+driver management and installation plumbing never show it.
 
 Endpoint identity is opaque to everything but its host. `tmt-core::host::HostKind`
 is the pure-data list of hosts, like the driver descriptors: each owns its stored
@@ -2364,7 +2362,7 @@ carries its host, so bindings, target evidence and request fences do too; core
 stores and compares pane IDs as opaque strings. Evidence from another host is
 `Unknown`, never proof of loss, and presence is grouped and scoped by host and
 socket (`ServerSelector`). Storage writes `bindings.transport` and new request
-fences' `host` from the endpoint. A stored host is only its name: tmux, Herdr, or
+fences' `host` from the endpoint. A stored host is only its name: tmux, or
 `HostKind::External` for any other valid host name, which reads whether or not
 its driver is installed, and a NULL fence host is tmux. An external host's
 pane-ID and target syntax come from the approved drivers, which the CLI
@@ -2375,11 +2373,13 @@ drivers, not stored in the core type. A `Host` handle states why it was chosen:
 `for_caller` (a caller-scoped command), `for_server` (a stored binding or request
 endpoint) or `for_target` (an explicit pane target); its methods take endpoints,
 never loose socket or pane strings. Only `tmt-core/src/host.rs`,
-`tmt-adapters/src/host.rs`, `tmux/` and `herdr/` may spell a host's name, which
+`tmt-adapters/src/host.rs` and `tmux/` may spell a built-in host's name, which
 the architecture guard enforces for every crate but Squad (its tmux-only hotkeys
-and clipboard are extension features). Names that a later host reads as targets
-(Herdr's `wN:pM`) are refused only as new names: an identity that already holds
-one keeps it for lookup and marker checks, and explicit resolution prefers it.
+and clipboard are extension features). Names that an approved driver's host
+reads as targets (Herdr's `wN:pM`) are refused only as new names: an identity
+that already holds one keeps it for lookup and marker checks, and explicit
+resolution prefers it. A process with no Herdr driver approved doesn't reserve
+`wN:pM`: such text is an ordinary name, new or existing.
 
 `tmux` uses explicit socket/server evidence, bounded command budgets,
 owned buffers and no ambient host fallback. Explicit target resolution preserves
@@ -2640,16 +2640,19 @@ community driver builds against these two small crates alone. The architecture
 guard allows exactly those edges.
 
 `rust/crates/tmt-driver-herdr` is the first driver built this way (#479). The
-`tmt-driver-herdr` executable depends on the protocol crate, `tmt-invoke` (its
-bounded process owner), `serde_json` and `semver`, and never on core or the
-adapters; the architecture guard holds it to those edges. It answers `caller`,
+library depends on the protocol crate, `tmt-invoke` (its bounded process
+owner), `serde_json` and `semver`, and never on core or the adapters; the
+architecture guard holds it to those edges. Its executable is the
+`tmt-driver-herdr` bin of `tmt-cli` (`tmt_driver_herdr::serve_call`, the only
+`tmt-cli -> tmt-driver-herdr` edge), so the CLI release archive carries it as
+a companion (see native installation). It answers `caller`,
 `server`, `resolve-target`, `snapshot`, `publish`, `clear`, `capture`, `input`
 and `prompt` through Herdr's documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
 environment without `TMT_DRIVER_CALL`. Herdr reports no server pid, so `server`
 names the parent of a pane's shell, and a server with no pane reads as no
 server. `publish` refuses with `not_found` unless the pane still runs `panePid`,
-then reads the marker back. The marker tokens are the built-in Herdr host's,
-byte for byte: both crates test against one fixture
+then reads the marker back. The marker tokens are the former built-in Herdr
+host's, byte for byte, as its fixture recorded them
 (`tmt-driver-herdr/src/fixtures/builtin-marker.json`). `input` takes one
 line: Herdr's `send-text` types raw, so a line break would submit before core's
 Enter, and text with CR or LF is refused as `bad_request` before any effect. A
@@ -2660,9 +2663,7 @@ the whole text (bracketed when the agent enabled it) and submits it. Its
 pass the text as the last argument: Herdr reads it literally even when it
 looks like an option, and it has no `--` separator. A plain
 pane gets single-line input, otherwise the inbox. The driver doesn't declare
-`focus` (Herdr has no command that focuses a pane by ID). It
-isn't packaged and doesn't serve `HostKind::Herdr`; the built-in `herdr/`
-adapter does until the driver replaces it.
+`focus` (Herdr has no command that focuses a pane by ID).
 
 `tmt-adapters::host::external` holds the core side of that boundary:
 
@@ -2731,8 +2732,7 @@ adapter does until the driver replaces it.
   approved drivers declare for `caller` (`driver_env`). A driver's `caller`
   names a pane; core counts it only when that pane's shell is an ancestor of
   the caller (`process::ancestry`), and the nearest verified pane wins across
-  tmux, Herdr and external hosts. Without a verified external pane the choice
-  is exactly the built-in one. The handle then keeps that pane and its socket
+  tmux and external hosts. Without a verified external pane the host is tmux. The handle then keeps that pane and its socket
   for `caller_pane`, server resolution and `resolve-target`. `Host::for_target`
   picks the host whose registered grammar reads the text as a target (tmux, the
   broadest, is the default), and an external target resolves through the
@@ -2894,9 +2894,13 @@ holds, from every target, because a skill that points at a removed command is
 broken guidance; its single consent prompt names the skills and targets.
 
 A release may also carry a companion executable beside its own
-(`Product::companions()`): the CLI may carry `tmt-driver-herdr`, the
-first-party Herdr host driver (#479). A companion is optional, so a release
-from before it existed still verifies:
+(`Product::companions()`): the CLI carries `tmt-driver-herdr`, the
+first-party Herdr host driver (#479). Releases built from this repository
+always carry it; `typescript/scripts/native-artifact-policy.mjs` mirrors the
+list, requires the file and its execute bit, and the artifact verifier runs
+it (`capabilities`: name `herdr`, the CLI's version, system-only linkage).
+The installer treats a companion as optional, so a release from before it
+existed still verifies:
 
 - the manifest may declare it once, and the archive must then hold it as an
   executable regular file; an archived companion that isn't declared, or a

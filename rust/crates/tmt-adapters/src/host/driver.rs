@@ -82,6 +82,40 @@ pub trait HostDriver {
     fn focus(&mut self, binding: &Binding) -> Result<Focused, ActionError>;
 }
 
+/// After a committed rename, rewrites this binding's own marker so the pane
+/// carries the stored name. A pane another binding owns, or one the host
+/// can't show, is left alone.
+pub fn refresh_marker_name(
+    driver: &mut dyn HostDriver,
+    binding: &Binding,
+    identity: &Identity,
+) -> Result<super::PaneRefresh, HostError> {
+    use super::PaneRefresh;
+    if identity.id != binding.identity_id {
+        return Ok(PaneRefresh::Absent);
+    }
+    let EndpointProbe::Live(snapshot) =
+        driver.probe(&binding.server, std::slice::from_ref(&binding.pane_id))?
+    else {
+        return Ok(PaneRefresh::Absent);
+    };
+    let Some(marker) = snapshot
+        .panes
+        .into_iter()
+        .find(|pane| pane.id == binding.pane_id)
+        .and_then(|pane| pane.marker)
+    else {
+        return Ok(PaneRefresh::Absent);
+    };
+    if marker.binding_id != binding.id {
+        return Ok(PaneRefresh::Absent);
+    }
+    if marker.name != identity.name || marker.canonical_name != identity.canonical_name {
+        driver.publish(binding, identity)?;
+    }
+    Ok(PaneRefresh::Updated)
+}
+
 /// Presence from the host's evidence, and runtime from the pane's process
 /// tree when present.
 pub fn status(

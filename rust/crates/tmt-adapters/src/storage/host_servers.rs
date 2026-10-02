@@ -78,7 +78,7 @@ mod tests {
 
     fn herdr<'a>(pid: u64, started: &'a str) -> HostServerIncarnation<'a> {
         HostServerIncarnation {
-            host: tmt_core::host::HostKind::Herdr,
+            host: tmt_core::host::HostKind::parse("herdr").unwrap(),
             socket_path: "/tmp/herdr.sock",
             server_pid: pid,
             server_start_time: started,
