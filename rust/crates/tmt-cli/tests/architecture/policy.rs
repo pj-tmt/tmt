@@ -64,6 +64,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Adapters run host drivers through the protocol crate (#570).
         "tmt-adapters" => &[
+            // Safe macOS process inspection and UTC formatting of legacy ps tokens.
+            "libproc",
+            "time",
             // Provider-local synchronous WebSocket framing; no core/TLS/async use.
             "tungstenite",
             "tmt-driver-protocol",

@@ -14,6 +14,8 @@ repository = "https://github.com/wkh237/tmt"
 hpke = { version = "=0.14.1", default-features = false, features = ["alloc", "aes", "x25519", "getrandom"] }
 aes-gcm = "=0.11.1"
 x25519-dalek = "=3.0.0"
+libproc = "=0.14.11"
+time = { version = "=0.3.55", default-features = false }
 roxmltree = "=0.20.0"
 tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
 getrandom = "=0.4.3"

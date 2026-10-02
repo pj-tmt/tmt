@@ -1801,6 +1801,15 @@ ancestry inspection. It takes one PID/parent/command snapshot and walks it in
 memory, reading arguments only for Codex ancestors. Both caller and runtime-start
 observations share the fixed-path/locale `process::ps` runner and its missing-only
 executable fallback. Tmux continues to own server, pane and marker verification.
+Selected multi-process start observations and Herdr pane-parent observations use
+`process::process_info` through optional evidence methods on `CommandRunner`.
+The real runners acquire macOS BSD info with safe `libproc::pidinfo` or Linux
+bounded `/proc/<pid>/stat` reads. Start tokens retain the UTC, second-resolution
+`ps-v1` representation; Linux combines boot seconds and process clock ticks.
+Native acquisition is deadline-checked, not cached. If any selected native read
+is unavailable, the entire batch uses its existing bounded ps fallback, retaining
+batch-wide failure and cleanup semantics. Scripted runners default to that
+fallback. Individual runtime checks and whole-table ancestry scans still use ps.
 A shared app-server's inherited pane is not evidence of the invoking conversation.
 A positively observed shared app-server rejects required implicit attribution
 before binding/configuration effects. No Codex ancestor means Unsupported even
@@ -2547,8 +2556,8 @@ replaces it.
   advisory and never stored. A probe is decided by core: the recorded server
   process gone or replaced is Dead, the same process plus the driver's snapshot
   is Live, anything else is Unknown. The driver's optional `probe` operation is
-  not called. One batched `ps` (`process::runtime::observe_starts`) covers the
-  server and the scoped pane shells.
+  not called. `process::runtime::observe_starts` covers the server and scoped
+  pane shells using native process evidence, with a bounded batched ps fallback.
 - **Caller and targets:** `CallerEnvironment` carries only the variables
   approved drivers declare for `caller` (`driver_env`). A driver's `caller`
   names a pane; core counts it only when that pane's shell is an ancestor of

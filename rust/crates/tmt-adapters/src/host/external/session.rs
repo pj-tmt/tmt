@@ -335,7 +335,7 @@ impl<R: CommandRunner> ExternalDriver<'_, R> {
     }
 
     /// The driver's panes on `socket`, scoped to `panes`, with each shell's
-    /// incarnation and the server's from one `ps`.
+    /// incarnation and the server's from one bounded process observation.
     fn observe(
         &self,
         socket: &str,

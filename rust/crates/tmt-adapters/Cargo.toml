@@ -7,6 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+time.workspace = true
 tungstenite.workspace = true
 serde.workspace = true
 ureq.workspace = true
@@ -23,8 +24,11 @@ flate2.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 subprocess.workspace = true
-nix.workspace = true
+nix = { workspace = true, features = ["feature"] }
 signal-hook.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libproc.workspace = true
 
 [dev-dependencies]
 # Only the legacy prop-pack migration test decodes Office packs.
