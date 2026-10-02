@@ -248,9 +248,12 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 .to_owned();
             let resume = flag(m, "resume");
             let command = values[1..].to_vec();
-            if command
-                .first()
-                .is_some_and(|word| word.as_encoded_bytes().starts_with(b"-"))
+            if !tmt_core::driver::ALL
+                .iter()
+                .any(|driver| driver.executables.contains(&name.as_str()))
+                && command
+                    .first()
+                    .is_some_and(|word| word.as_encoded_bytes().starts_with(b"-"))
             {
                 return Err("The command must not start with '-'. TMT options go before the name: tmt run -s Alice <command>.".into());
             }

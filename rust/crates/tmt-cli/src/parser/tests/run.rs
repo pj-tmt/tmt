@@ -120,3 +120,17 @@ fn the_hidden_channel_server_takes_four_operands_and_is_not_public() {
     );
     assert!(parse(&args(&["__channel-server", "claude"])).is_err());
 }
+
+#[test]
+fn a_known_agent_tail_preserves_provider_flags_without_a_name() {
+    assert_eq!(
+        parsed(&["run", "--save", "claude", "--model", "opus", "--help"]).invocation,
+        Invocation::Run {
+            name: "claude".into(),
+            command: ["--model", "opus", "--help"].map(OsString::from).to_vec(),
+            resume: false,
+            save: true,
+            channel: false
+        }
+    );
+}

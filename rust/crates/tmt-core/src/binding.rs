@@ -11,8 +11,9 @@ pub use observation::{
     current_name_presence, evaluate_binding, list_presence, name_presence, pane_presence,
 };
 pub use operations::{
-    bind_identity, bind_identity_at, bind_identity_with_creation, bind_identity_with_creation_at,
-    remove_identity, rename_identity, unbind_identity,
+    bind_auto_identity, bind_identity, bind_identity_at, bind_identity_with_creation,
+    bind_identity_with_creation_at, name_auto_identity, remove_identity, rename_identity,
+    retire_failed_auto_launch, unbind_identity,
 };
 
 use crate::{
@@ -141,6 +142,9 @@ pub struct UnboundIdentity {
 }
 
 pub trait BindingRecords: IdentityReader {
+    fn is_auto_named(&self, identity_id: &str) -> Result<bool, Self::Error>;
+    fn save_identity(&mut self, identity: &Identity) -> Result<Identity, Self::Error>;
+
     fn session_preferences(
         &self,
         identity_id: &str,

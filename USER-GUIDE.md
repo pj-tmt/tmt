@@ -248,7 +248,29 @@ Outside tmux, or when no client shows your session, both fail with
 
 ## Launch a command with an identity
 
-Inside a tmux pane, use `run` to bind an identity and start a foreground command:
+Inside a tmux pane, start a registered agent immediately and name it later:
+
+```bash
+tmt run claude --model sonnet
+# From inside the agent's shell tool:
+tmt this reviewer
+```
+
+TMT creates a temporary identity such as `claude-12ab34cd56ef` and prints one
+line explaining how to name it. `this` (alias of `name`) renames that verified
+auto-named identity in place: its UUID, binding, session and channel stay the same.
+Naming does not save it. Use `tmt this --save reviewer` to retain it after pane
+loss, or start with `tmt run --save claude` to save the generated identity immediately.
+A normal child exit keeps the pane binding; unbind or conclusive pane loss retires
+a temporary identity. A failed spawn retires only its newly created temporary identity.
+
+If an identity already holds the executable's name, the ambiguous shorthand
+refuses with explicit alternatives: `tmt run claude claude` launches the identity
+named `claude`; `tmt run reviewer claude` selects another name. Naming cannot merge
+with an existing identity. Ordinary already-named panes keep their binding conflict
+rules; use `tmt mv` for an intentional later rename.
+
+For a chosen name or any other foreground command:
 
 ```bash
 tmt run reviewer claude --model sonnet
@@ -257,8 +279,10 @@ tmt run coordinator
 tmt resume coordinator
 ```
 
-TMT options go before the name. Everything after it is the command and its exact
-arguments; no `--` separator is needed. TMT does not insert a provider session ID
+TMT options go before the first operand. In the named form, everything after
+the name is the command and its exact arguments; in the agent shorthand,
+everything after the executable belongs to the agent. No `--` separator is needed.
+TMT does not insert a provider session ID
 or store arguments, secrets or executable paths. A new identity is
 temporary unless `-s`/`--save` is supplied; an existing saved identity stays saved.
 The ordinary binding conflict rules still apply.
@@ -288,9 +312,12 @@ cannot resume it, the command reports why and ends with
 
 Provider hooks (`tmt setup`) record the session, runtime mode and reported model
 whenever the provider starts a session, and `/clear` makes the new session the
-one to resume. A model is kept only when the provider reports it. `run` alone
-records nothing, and a launch under a different runtime drops the previous
-runtime's session. Retiring an identity clears its remembered session.
+one to resume. A model is kept only when the provider reports it. `run` records
+the harness without inventing a provider session ID, and a launch under a
+different runtime drops the previous runtime's session. Retiring an identity clears its remembered session.
+An auto-named launch already records its harness and admits provider hooks; after
+`tmt this reviewer`, `tmt resume reviewer` uses those same recorded coordinates.
+Save the identity to retain them across pane loss. Naming never guesses a session.
 
 A resume that exits with an error before the provider confirms the session
 marks it stale. This happens only when the provider's TMT hooks are installed,

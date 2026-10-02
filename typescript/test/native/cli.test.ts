@@ -40,7 +40,7 @@ describe('native grammar process contract', () => {
       const tmuxBaseline = readFileSync(tripwire, 'utf8');
       const empty = await runCli(sandbox, ['__complete', '--', 'run', '']);
       expect(empty.status, empty.stderr).toBe(0);
-      expect(empty.stdout).toBe('identities\n');
+      expect(empty.stdout).toBe('identities\nclaude\ncodex\n');
       expect(empty.stderr).toBe('');
       expect(fileSnapshot(sandbox.root)).toEqual(before);
       expect(existsSync(sandbox.database)).toBe(false);
@@ -57,7 +57,9 @@ describe('native grammar process contract', () => {
       ]) {
         const result = await runCli(sandbox, ['__complete', '--', ...args]);
         expect(result.status, result.stderr).toBe(0);
-        expect(result.stdout).toBe('identities\nAlice Example\nZulu\n');
+        expect(result.stdout).toBe(
+          `identities\nAlice Example\nZulu\n${args[0] === 'run' ? 'claude\ncodex\n' : ''}`
+        );
         expect(result.stderr).toBe('');
       }
       const resume = await runCli(sandbox, ['__complete', '--', 'run', '--resume', '']);

@@ -82,7 +82,7 @@ fn upgrade_rolls_back_on_history_failure_and_never_materializes_a_layout_on_open
     observer.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 42);
+    assert_eq!(storage.health().unwrap().schema_version, 43);
     assert_eq!(legacy_row(storage.connection().unwrap()), before_row);
     // Reading and saving the retained layout is the Office store's contract;
     // see tmt-office-storage's legacy world tests.

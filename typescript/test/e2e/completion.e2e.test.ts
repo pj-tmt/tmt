@@ -50,7 +50,7 @@ describe.sequential('interactive shell completion', () => {
           shell === 'bash'
             ? `${common}
 _fixture_provider() { COMPREPLY=(--provider-choice); }
-complete -F _fixture_provider fake
+complete -F _fixture_provider fake claude
 bind -x ${quote(`"\\C-x":${captureAction}`)}
 export TMT_E2E_FORBID_TMUX=1 TMT_E2E_FORBIDDEN_TMUX_LOG=${quote(forbidden)}
 printf ready > ${quote(ready)}
@@ -60,7 +60,7 @@ printf ready > ${quote(ready)}
 compinit -D
 ${common}
 _fixture_provider() { compadd -- --provider-choice; }
-compdef _fixture_provider fake
+compdef _fixture_provider fake claude
 _fixture_capture() { print -rn -- "$BUFFER" > ${quote(pendingCapture)} && ${publishCapture}; }
 zle -N _fixture_capture
 bindkey '^X' _fixture_capture
@@ -69,6 +69,7 @@ printf ready > ${quote(ready)}
 `
               : `${common}
 complete -c fake -f -a --provider-choice
+complete -c claude -f -a --provider-choice
 bind \\cx ${quote(`commandline > ${quote(pendingCapture)}; and ${publishCapture}`)}
 set -gx TMT_E2E_FORBID_TMUX 1
 set -gx TMT_E2E_FORBIDDEN_TMUX_LOG ${quote(forbidden)}
@@ -90,6 +91,8 @@ printf ready > ${quote(ready)}
         fixture.tmux(['send-keys', '-t', pane, 'Enter']);
         await fixture.waitFor(() => existsSync(ready), 5000, `${shell} completion initialization`);
         for (const [input, expected] of [
+          ['tmt run clau', 'tmt run claude'],
+          ['tmt run claude --prov', 'tmt run claude --provider-choice'],
           ['tmt run Al', 'tmt run Alice\\ Example'],
           ['tmt this Al', 'tmt this Alice\\ Example'],
           ['tmt talk Bob message --identity Al', 'tmt talk Bob message --identity Alice\\ Example'],

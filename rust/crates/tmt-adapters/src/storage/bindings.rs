@@ -99,6 +99,23 @@ impl IdentityReader for BindingRows<'_> {
 }
 
 impl BindingRecords for BindingRows<'_> {
+    fn is_auto_named(&self, identity_id: &str) -> Result<bool, Self::Error> {
+        self.0
+            .query_row(
+                "SELECT auto_named FROM identities WHERE id = ? AND retired_at_ms IS NULL",
+                [identity_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| classify(error, "Read automatic name provenance"))
+    }
+
+    fn save_identity(&mut self, identity: &Identity) -> Result<Identity, Self::Error> {
+        tmt_core::identity::IdentityWriter::save_identity(
+            &mut super::identities::IdentityRecords(self.0),
+            identity,
+        )
+    }
+
     fn session_preferences(
         &self,
         identity_id: &str,
@@ -290,7 +307,7 @@ impl BindingRecords for BindingRows<'_> {
         // arbiter; the service checks first to report which name is taken.
         self.0
             .query_row(
-                "UPDATE identities SET name = ?, canonical_name = ?,
+                "UPDATE identities SET name = ?, canonical_name = ?, auto_named = 0,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                  WHERE id = ? AND retired_at_ms IS NULL
                  RETURNING id, name, canonical_name, lifetime, created_at, updated_at",

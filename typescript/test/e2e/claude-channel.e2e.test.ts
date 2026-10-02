@@ -57,7 +57,7 @@ function launcher(fixture: E2EFixture): string {
 function start(
   fixture: E2EFixture,
   name: string,
-  options: { channel: boolean; env?: Record<string, string>; pane?: string }
+  options: { channel: boolean; env?: Record<string, string>; pane?: string; unnamed?: boolean }
 ): Session {
   const pane = options.pane ?? fixture.createShellPane(`claude-${name}`).pane;
   const log = path.join(fixture.root, `${name}.log`);
@@ -71,6 +71,7 @@ function start(
     MOCK_AUTOREPLY: '1',
     ...options.env,
   };
+  launcher(fixture);
   const command = [
     'env',
     ...Object.entries(env).map(([key, value]) => `${key}=${value}`),
@@ -79,8 +80,7 @@ function start(
     'run',
     ...(options.channel ? ['--channel'] : []),
     '-s',
-    name,
-    launcher(fixture),
+    ...(options.unnamed ? ['claude'] : [name, launcher(fixture)]),
   ]
     .map(quote)
     .join(' ');
@@ -287,6 +287,42 @@ function pauseBeforeAdmission(fixture: E2EFixture, name: string): void {
 }
 
 describe.sequential('Claude channel delivery', () => {
+  it('names an automatic identity without changing the live channel enrollment', async () => {
+    await withE2EFixture(async (fixture) => {
+      const worker = start(fixture, 'auto-channel', { channel: true, unnamed: true });
+      await ready(fixture, worker, 'auto-channel');
+      await waitForReady(fixture, 1);
+      const before = enrollment(fixture);
+      const old = expectJsonResult(
+        await fixture.runJsonCli<{ id: string; name: string }>(['whoami'], { pane: worker.pane })
+      );
+      expect(old.name).toMatch(/^claude-[0-9a-f]{12}$/);
+      const renamed = expectJsonResult(
+        await fixture.runJsonCli<{ id: string; name: string; lifetime: string }>(
+          ['this', 'Channel Reviewer'],
+          { pane: worker.pane }
+        )
+      );
+      expect(renamed).toMatchObject({ id: old.id, name: 'Channel Reviewer', lifetime: 'saved' });
+      expect(enrollment(fixture)).toEqual(before);
+      const completed = await talk(fixture, 'Channel Reviewer', 'after naming', [
+        '--timeout',
+        '20s',
+      ]);
+      expect(completed.code, completed.stderr || completed.stdout).toBe(0);
+      expect(completed.json).toMatchObject({ status: 'completed', response: 'channel-ok' });
+      expect(contents(worker)).toHaveLength(1);
+      expect(contents(worker)[0]).toContain('after naming');
+      expect(named(worker, 'paste')).toEqual([]);
+      expect(await quit(worker)).toBe('0');
+      await fixture.waitFor(
+        () => channelFiles(fixture).length === 0 && leakedServers(fixture).length === 0,
+        10_000,
+        'renamed channel cleanup'
+      );
+    });
+  }, 60_000);
+
   it('delivers to an enrolled session through the channel only, records uncertainty and completes on the durable reply', async () => {
     await withE2EFixture(async (fixture) => {
       const worker = start(fixture, 'Worker', { channel: true });
