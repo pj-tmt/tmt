@@ -1,7 +1,7 @@
 import { text } from './strings.js';
 
-/** This smaller preview cap is a local renderer limit, not a wire/object quota. */
-export const MAX_RENDER_SOURCE_BYTES = 1024 * 1024;
+/** Exact HTML source byte limit, owned by colab-v1 Resource bounds. */
+export const MAX_RENDER_SOURCE_BYTES = 2 * 1024 * 1024;
 export const RENDER_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'";
 export type RenderState = 'ready' | 'navigation' | 'failed';

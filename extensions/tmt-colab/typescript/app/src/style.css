@@ -22,9 +22,10 @@ a {
 button {
   color: var(--c-text);
   background: var(--c-sheet);
-  border: 1px solid var(--c-rule);
+  border: 2px solid var(--c-text);
+  box-shadow: 3px 3px 0 var(--c-text);
   padding: 7px 12px;
-  border-radius: 6px;
+  border-radius: 0;
   cursor: pointer;
 }
 button:hover,
@@ -118,8 +119,9 @@ footer {
   align-items: flex-start;
   gap: 20px;
   background: var(--c-sheet);
-  border: 1px solid var(--c-rule);
-  border-radius: 8px;
+  border: 2px solid var(--c-text);
+  box-shadow: 5px 5px 0 var(--c-text);
+  border-radius: 0;
   padding: 24px;
 }
 .pages a:hover {
@@ -137,10 +139,10 @@ footer {
 }
 .chip {
   font: 11px var(--f-mono);
-  border: 1px solid var(--c-rule);
+  border: 1.5px solid var(--c-text);
   color: var(--c-muted);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: 0;
   white-space: nowrap;
 }
 .open {
@@ -187,16 +189,15 @@ footer {
 .canvas {
   position: relative;
   min-width: 0;
+  border: 1px solid var(--c-rule);
+  box-shadow: 6px 6px 0 var(--c-accent);
 }
 .boundary {
-  border: 1px dashed var(--c-rule);
-  border-bottom: none;
+  border-bottom: 1px solid var(--c-rule);
   padding: 10px 16px;
 }
 .frame-host {
   height: 600px;
-  border: 1px dashed var(--c-rule);
-  border-top: none;
   background: var(--c-sheet);
 }
 .frame-host iframe {
@@ -209,8 +210,9 @@ footer {
 .source {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--c-rule);
-  border-radius: 6px;
+  border: 2px solid var(--c-text);
+  box-shadow: 5px 5px 0 var(--c-text);
+  border-radius: 0;
   overflow: hidden;
 }
 .source > span {

@@ -21,7 +21,7 @@ export const text = {
   blocked: 'Preview stopped',
   navigation: 'The page navigated. Reopen it to continue.',
   failed: 'The renderer could not start. Reopen the page to try again.',
-  limit: 'This preview accepts pages up to 1 MiB of HTML.',
+  limit: 'This preview accepts pages up to 2 MiB of HTML.',
   warning:
     'Page scripts run inside an isolated frame. A page can navigate its own frame; complete exfiltration prevention is not guaranteed.',
   adapter: 'This preview uses local sample pages. It is not connected to a remote space.',

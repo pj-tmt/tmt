@@ -88,6 +88,7 @@ test('space home opens a local page, scripts run, source stays in trusted chrome
   await expect(frame.getByRole('button', { name: 'Try the page: 1' })).toBeVisible();
   await expect(page.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts');
   await expect(page.locator('iframe')).toHaveAttribute('referrerpolicy', 'no-referrer');
+  await page.screenshot({ path: '/tmp/1187-page-view.png', fullPage: true });
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.getByRole('textbox')).toHaveAttribute('readonly', '');
   await page.screenshot({ path: '/tmp/1187-page-light.png', fullPage: true });
@@ -95,6 +96,14 @@ test('space home opens a local page, scripts run, source stays in trusted chrome
   await page.getByRole('button', { name: 'Change color theme' }).click();
   await expect(frame.getByRole('button', { name: 'Try the page: 1' })).toBeVisible();
   await expect(page.locator('iframe')).toHaveAttribute('data-render-id', renderId!);
+  // Wait for the child compositor to paint after the parent theme update.
+  await frame.getByRole('button', { name: 'Try the page: 1' }).evaluate(
+    (button) =>
+      new Promise<void>((resolve) => {
+        const view = button.ownerDocument.defaultView!;
+        view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve()));
+      }),
+  );
   await page.screenshot({ path: '/tmp/1187-page-dark.png', fullPage: true });
   await page.getByRole('link', { name: 'Space home', exact: true }).click();
   await expect(page.locator('iframe')).toHaveCount(0);

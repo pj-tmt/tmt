@@ -22,5 +22,13 @@ it('binds fresh render IDs to the exact UTF-8 bytes, not a state vector', async 
   expect(a.renderId.endsWith(':' + a.sourceDigest)).toBe(true);
   expect(a.renderId).not.toBe(b.renderId);
   expect((await captureRender(source + ' ')).sourceDigest).not.toBe(a.sourceDigest);
-  await expect(captureRender('x'.repeat(MAX_RENDER_SOURCE_BYTES + 1))).rejects.toThrow();
+});
+it('accepts the contract 2 MiB boundary and rejects excess UTF-8 bytes', async () => {
+  expect(MAX_RENDER_SOURCE_BYTES).toBe(2 * 1024 * 1024);
+  await expect(captureRender('x'.repeat(MAX_RENDER_SOURCE_BYTES))).resolves.toHaveProperty(
+    'sourceDigest',
+  );
+  await expect(captureRender('é'.repeat(MAX_RENDER_SOURCE_BYTES / 2) + 'x')).rejects.toThrow(
+    'Page exceeds preview limit',
+  );
 });
