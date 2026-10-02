@@ -1560,7 +1560,15 @@ fn tui_admission_is_an_internal_presentation_leaf() {
         );
     }
 
-    for name in ["roxmltree", "serde_json", "tmt-cli-style", "taffy"] {
+    for name in [
+        "roxmltree",
+        "serde_json",
+        "tmt-cli-style",
+        "taffy",
+        "ratatui",
+        "unicode-width",
+        "unicode-segmentation",
+    ] {
         assert!(
             policy::dependency_violations(&package(
                 "tmt-tui",
