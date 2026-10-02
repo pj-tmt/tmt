@@ -2579,17 +2579,29 @@ adapter does until the driver replaces it.
   `commit` checks the conflicts again against the registry as it is then and
   writes the record. `state` reports an approved driver as `ok`, `changed`
   (fingerprint, ownership or digest no longer as approved) or `missing`.
+  A record's `source` is `path` (the default, not written) or `firstParty`.
+  A path approval is pinned to its digest. A first-party approval
+  (`inspect_first_party`) is of the driver the running release ships as a
+  companion, whose bytes must match the receipt digest. It follows that
+  release: `current_first_party` uses the record while the release ships
+  the approved digest, and after an upgrade describes the new driver (its
+  receipt digest and one `capabilities` probe) and records it under the same
+  approval, asking nothing. A release that ships none, a driver that no
+  longer calls itself by the approved name, or one that would now collide
+  reads as unavailable. `state` checks a first-party driver against the
+  receipt of the release that ships it.
 - **`tmt driver` (`tmt-cli/src/driver_command.rs`):** the registry's front
   end. A record is written only with explicit consent, never by install or
-  upgrade. `install <path>` refuses before asking, then shows a detail view
+  upgrade. `install <path>`, or `install <name>` for a first-party driver
+  (a bare name with no `/`), refuses before asking, then shows a detail view
   (`detail::write`) of the version, protocol, executable, SHA-256,
   operations and the environment `caller` reads, and asks `Approve host driver <name>? [y/N]` through the
   shared consent prompt. `--yes` skips the question. A run that can't ask
   (no terminal, or `--json`) refuses with `DRIVER_CONSENT_REQUIRED` and writes
   nothing. `ls` is one `HOST DRIVERS` list section: a row per driver with
   its state mark (`●` ok, `✗` changed, `○` missing), name, version, state
-  and path, and `tmt driver install <path>` as the trailing action of a
-  changed or missing one. `rm` withdraws an approval without asking; an
+  and path, and `tmt driver install <path>` (or `<name>` for a first-party
+  one) as the trailing action of a changed or missing one. `rm` withdraws an approval without asking; an
   unknown name is `DRIVER_NOT_FOUND`. Bindings on a removed driver's host
   stay stored and read as unavailable.
 - **`DriverProcess`:** runs one operation through the bounded process owner,
@@ -2766,6 +2778,25 @@ remove, by name, those the new release dropped, so other skills the owner holds
 (such as playbooks) are untouched. `uninstall` removes every skill the owner
 holds, from every target, because a skill that points at a removed command is
 broken guidance; its single consent prompt names the skills and targets.
+
+A release may also carry a companion executable beside its own
+(`Product::companions()`): the CLI may carry `tmt-driver-herdr`, the
+first-party Herdr host driver (#479). A companion is optional, so a release
+from before it existed still verifies:
+
+- the manifest may declare it once, and the archive must then hold it as an
+  executable regular file; an archived companion that isn't declared, or a
+  declared one that isn't archived, rejects the release;
+- publication writes it beside the executable (0755);
+- the receipt records its digest exactly when the release carries it, and
+  inspection re-verifies it. A file without a recorded digest, a recorded
+  digest without the file, a changed file or a lost execute bit fails closed.
+
+The running tmt verifies and publishes an upgrade, so readers learn a
+companion one published release before any archive carries it.
+`native_install::active_companion` names a companion of the running, active
+CLI release and its receipt digest by reading only the receipt, cheap enough
+for every command; whoever runs the companion checks its bytes.
 
 An extension release (never the CLI) may carry a bounded agent-skills tree,
 `skills/<name>/<path>` (`native_install::skills_tree`). It has the binaries'

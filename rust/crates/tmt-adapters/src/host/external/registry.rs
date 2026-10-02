@@ -34,6 +34,43 @@ pub struct DriverRecord {
     pub protocol: u32,
     pub capabilities: Capabilities,
     pub approved_at_ms: u64,
+    /// Where the approved executable comes from. A path approval is pinned
+    /// to its digest; a first-party one follows the release that ships it.
+    /// Written only when not `Path`, so a registry of path approvals reads
+    /// the same in a tmt from before sources existed.
+    #[serde(default, skip_serializing_if = "DriverSource::is_path")]
+    pub source: DriverSource,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DriverSource {
+    /// `tmt driver install <path>`: exactly that executable, pinned to its
+    /// digest; any change needs approval again.
+    #[default]
+    Path,
+    /// `tmt driver install <name>`: the driver shipped with tmt as a
+    /// companion of the active release. It stays approved across upgrades
+    /// while it matches the SHA-256 that release's receipt records.
+    FirstParty,
+}
+
+impl DriverSource {
+    fn is_path(&self) -> bool {
+        *self == Self::Path
+    }
+}
+
+/// Whether `name` names a first-party driver some tmt release may ship.
+pub fn is_first_party(name: &str) -> bool {
+    tmt_core::native_install::Product::Cli
+        .companions()
+        .contains(&first_party_file(name).as_str())
+}
+
+/// The companion file a first-party driver named `name` ships as.
+pub fn first_party_file(name: &str) -> String {
+    format!("tmt-driver-{name}")
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -150,16 +187,70 @@ pub fn inspect(
     executable: &Path,
     runner: &impl CommandRunner,
 ) -> Result<DriverRecord, RegistryError> {
+    let record = described(executable, DriverSource::Path, None, runner)?;
+    admissible(&record, &read(global_dir)?)?;
+    Ok(record)
+}
+
+/// [`inspect`] for the first-party driver `name` that the running `tmt`
+/// (`executable`) ships as a companion of its active release. The file must
+/// match the SHA-256 the release's receipt records, and the driver must call
+/// itself `name`.
+pub fn inspect_first_party(
+    global_dir: &Path,
+    name: &str,
+    tmt: &Path,
+    runner: &impl CommandRunner,
+) -> Result<DriverRecord, RegistryError> {
+    let companion = crate::native_install::active_companion(tmt, &first_party_file(name))
+        .map_err(|error| {
+            RegistryError::Refused(format!(
+                "The {name} driver ships only with a managed native installation ({error}). Approve a driver executable with: tmt driver install <path>"
+            ))
+        })?
+        .ok_or_else(|| {
+            RegistryError::Refused(format!("This tmt release ships no {name} driver."))
+        })?;
+    let record = described(
+        &companion.path,
+        DriverSource::FirstParty,
+        Some(&companion.sha256),
+        runner,
+    )?;
+    if record.name != name {
+        return Err(RegistryError::Refused(format!(
+            "The shipped {name} driver calls itself {}.",
+            record.name
+        )));
+    }
+    admissible(&record, &read(global_dir)?)?;
+    Ok(record)
+}
+
+/// The record approving `executable` would write: ownership, the digest
+/// (equal to `expected` when one is given), and one `capabilities` probe.
+fn described(
+    executable: &Path,
+    source: DriverSource,
+    expected: Option<&str>,
+    runner: &impl CommandRunner,
+) -> Result<DriverRecord, RegistryError> {
     let executable = fs::canonicalize(executable)?;
     let metadata = executable_trust::verify_ownership(&executable)?;
     let digest = executable_trust::digest(&executable)?;
+    if expected.is_some_and(|expected| expected != digest) {
+        return Err(RegistryError::Unsafe(format!(
+            "{} does not match its release receipt.",
+            executable.display()
+        )));
+    }
     let (capabilities, _) = process::probe(runner, &executable).map_err(|reason| {
         RegistryError::Refused(format!(
             "{} is not a host driver: {reason}",
             executable.display()
         ))
     })?;
-    let record = DriverRecord {
+    Ok(DriverRecord {
         name: capabilities.name.clone(),
         path: executable,
         digest,
@@ -167,9 +258,8 @@ pub fn inspect(
         protocol: PROTOCOL,
         capabilities,
         approved_at_ms: 0,
-    };
-    admissible(&record, &read(global_dir)?)?;
-    Ok(record)
+        source,
+    })
 }
 
 /// Records an inspected driver, after checking again against the registry
@@ -247,8 +337,22 @@ impl ApprovalState {
 }
 
 /// The state a driver would be found in when next run: the same ownership,
-/// fingerprint and digest checks a call makes.
-pub fn state(record: &DriverRecord) -> ApprovalState {
+/// fingerprint and digest checks a call makes. A first-party driver is
+/// checked against the release that ships it now, so an upgrade keeps it
+/// `ok` and only a file that doesn't match its receipt is `changed`.
+pub fn state(record: &DriverRecord, tmt: &Path) -> ApprovalState {
+    if record.source == DriverSource::FirstParty {
+        let Ok(Some(companion)) =
+            crate::native_install::active_companion(tmt, &first_party_file(&record.name))
+        else {
+            return ApprovalState::Missing;
+        };
+        return match executable_trust::digest(&companion.path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => ApprovalState::Missing,
+            Ok(digest) if digest == companion.sha256 => ApprovalState::Ok,
+            _ => ApprovalState::Changed,
+        };
+    }
     match fs::symlink_metadata(&record.path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return ApprovalState::Missing,
         _ => {}
@@ -260,6 +364,45 @@ pub fn state(record: &DriverRecord) -> ApprovalState {
     } else {
         ApprovalState::Changed
     }
+}
+
+/// A first-party record as the running release ships it. Unchanged while the
+/// shipped driver is the approved one. After an upgrade the release ships a
+/// new one: it is described again (its receipt digest, one `capabilities`
+/// probe) and recorded under the same approval, nothing asked. `None` when
+/// the release ships no such driver, it no longer calls itself by the
+/// approved name, or it would now collide with another host; it then reads
+/// as unavailable until approved again.
+pub fn current_first_party(
+    global_dir: &Path,
+    record: &DriverRecord,
+    tmt: &Path,
+    runner: &impl CommandRunner,
+) -> Option<DriverRecord> {
+    let companion = crate::native_install::active_companion(tmt, &first_party_file(&record.name))
+        .ok()
+        .flatten()?;
+    if companion.sha256 == record.digest && companion.path == record.path {
+        return Some(record.clone());
+    }
+    let mut current = described(
+        &companion.path,
+        DriverSource::FirstParty,
+        Some(&companion.sha256),
+        runner,
+    )
+    .ok()?;
+    if current.name != record.name {
+        return None;
+    }
+    current.approved_at_ms = record.approved_at_ms;
+    let mut drivers = read(global_dir).ok()?;
+    admissible(&current, &drivers).ok()?;
+    drivers.retain(|existing| existing.name != current.name);
+    drivers.push(current.clone());
+    drivers.sort_by(|left, right| left.name.cmp(&right.name));
+    write(global_dir, &drivers).ok()?;
+    Some(current)
 }
 
 /// Removes an approval; whether there was one.

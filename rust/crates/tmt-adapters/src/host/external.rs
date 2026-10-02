@@ -34,12 +34,26 @@ pub fn register_approved() {
     debug_assert!(registered.is_ok(), "external hosts are registered once");
 }
 /// The drivers the user approved, best effort: a registry that can't be
-/// read approves nothing.
+/// read approves nothing. A first-party driver is the one the running
+/// release ships (`registry::current_first_party`), or none.
 pub fn approved() -> Vec<registry::DriverRecord> {
-    ConfigPaths::discover()
-        .ok()
-        .and_then(|paths| registry::read(&paths.global_dir).ok())
-        .unwrap_or_default()
+    let Ok(paths) = ConfigPaths::discover() else {
+        return Vec::new();
+    };
+    let records = registry::read(&paths.global_dir).unwrap_or_default();
+    let tmt = std::env::current_exe().ok();
+    records
+        .into_iter()
+        .filter_map(|record| match record.source {
+            registry::DriverSource::Path => Some(record),
+            registry::DriverSource::FirstParty => registry::current_first_party(
+                &paths.global_dir,
+                &record,
+                tmt.as_deref()?,
+                &crate::process::UnixCommandRunner,
+            ),
+        })
+        .collect()
 }
 
 /// Set on every driver call; a `tmt` that sees it runs no command.

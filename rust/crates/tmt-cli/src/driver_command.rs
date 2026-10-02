@@ -85,15 +85,27 @@ enum Human {
 /// The JSON document and the human output.
 type Answer = (serde_json::Value, Human);
 
+/// The running `tmt`, whose release ships the first-party drivers.
+fn running_tmt() -> Result<std::path::PathBuf, Failure> {
+    std::env::current_exe().map_err(|error| {
+        Failure::new("DRIVER_IO_ERROR", "Could not locate tmt.", 1).caused_by(error)
+    })
+}
+
 fn install(
     paths: &ConfigPaths,
     path: &str,
     yes: bool,
     mode: OutputMode,
 ) -> Result<Answer, Failure> {
-    // Every refusal comes before the question.
-    let record = registry::inspect(&paths.global_dir, Path::new(path), &UnixCommandRunner)
-        .map_err(failure)?;
+    // Every refusal comes before the question. A bare name (no `/`) names
+    // a first-party driver shipped with this tmt; anything else is a path.
+    let record = if !path.contains('/') && registry::is_first_party(path) {
+        registry::inspect_first_party(&paths.global_dir, path, &running_tmt()?, &UnixCommandRunner)
+    } else {
+        registry::inspect(&paths.global_dir, Path::new(path), &UnixCommandRunner)
+    }
+    .map_err(failure)?;
     let name = &record.name;
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     if !mode.json {
@@ -132,10 +144,11 @@ fn install(
 
 fn list_approved(paths: &ConfigPaths) -> Result<Answer, Failure> {
     let records = registry::read(&paths.global_dir).map_err(failure)?;
+    let tmt = running_tmt()?;
     let rows: Vec<(DriverRecord, registry::ApprovalState)> = records
         .into_iter()
         .map(|record| {
-            let state = registry::state(&record);
+            let state = registry::state(&record, &tmt);
             (record, state)
         })
         .collect();
@@ -204,10 +217,11 @@ fn write_listing(
             table.row(cells);
         } else {
             // Approving it again is the one thing to do.
-            table.row_with_action(
-                cells,
-                &format!("tmt driver install {}", record.path.display()),
-            );
+            let again = match record.source {
+                registry::DriverSource::FirstParty => record.name.clone(),
+                registry::DriverSource::Path => record.path.display().to_string(),
+            };
+            table.row_with_action(cells, &format!("tmt driver install {again}"));
         }
     }
     list::write(

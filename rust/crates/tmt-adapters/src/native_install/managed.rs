@@ -97,6 +97,40 @@ pub fn with_active_product<T>(
     Ok(operation(&observed))
 }
 
+/// A companion executable of the running release, and the SHA-256 its
+/// receipt records for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Companion {
+    pub path: PathBuf,
+    pub sha256: String,
+}
+
+/// The companion `name` that the active CLI release carries, when
+/// `executable` is that release's own `tmt`. Cheap enough for every command:
+/// it reads the receipt, not the release's files; whoever runs the companion
+/// checks its bytes against `sha256`. `None` when the release carries no such
+/// companion; an error when `executable` is not the active managed release.
+pub fn active_companion(executable: &Path, name: &str) -> io::Result<Option<Companion>> {
+    if !Product::Cli.companions().contains(&name) {
+        return Ok(None);
+    }
+    let executable = fs::canonicalize(executable)?;
+    let prefix = executable.ancestors().nth(5).ok_or_else(unmanaged)?;
+    let layout = Layout::existing_product(prefix, Product::Cli).map_err(|_| unmanaged())?;
+    let (release, id) = layout.current_directory()?.ok_or_else(unmanaged)?;
+    if executable != release.join(Product::Cli.executable()) {
+        return Err(invalid(
+            "This executable is not the active managed release. Run the current native installation, or update using its original package manager.",
+        ));
+    }
+    let receipt =
+        super::receipt::Receipt::read_metadata(Product::Cli, &release, &layout.prefix, id)?;
+    Ok(receipt.file_hashes.get(name).map(|sha256| Companion {
+        path: release.join(name),
+        sha256: sha256.clone(),
+    }))
+}
+
 fn unmanaged() -> io::Error {
     invalid(
         "This executable is not a managed native installation. Use its original package manager (for example brew upgrade tmux-team), or install the official native release into a separate prefix. Do not overwrite npm/pnpm/brew files.",

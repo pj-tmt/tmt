@@ -228,3 +228,166 @@ fn a_driver_file_and_its_receipt_disagreeing_fails_closed() {
         "{error}"
     );
 }
+
+/// A driver the probe accepts: it answers `capabilities` as Herdr.
+const HERDR_DRIVER: &[u8] = br#"#!/bin/sh
+printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"herdr","version":"0.0.0-test","ops":["snapshot"],"paneId":{"prefix":"term_"},"target":"w{n}:p{n}","callerEnv":[]}}'
+"#;
+
+mod first_party {
+    use super::*;
+    use crate::host::external::registry::{self, ApprovalState, DriverSource};
+    use crate::native_install::{Companion, active_companion};
+
+    /// A 4-file release upgraded to one that ships a working Herdr driver.
+    fn shipped() -> (crate::test_support::TestDirectory, PathBuf, PathBuf) {
+        let (directory, layout, old) = published_layout();
+        let old_executable = layout
+            .root
+            .join("releases")
+            .join(old.id.to_string())
+            .join("tmt");
+        let report = upgrade_to(
+            &old_executable,
+            None,
+            serving("1.2.4", &[(DRIVER, HERDR_DRIVER)]),
+        );
+        let release = report
+            .installation
+            .active_executable
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        (directory, report.installation.active_executable, release)
+    }
+
+    #[test]
+    fn the_active_release_names_its_driver_and_receipt_digest() {
+        let (_directory, active, release) = shipped();
+        assert_eq!(
+            active_companion(&active, DRIVER).unwrap(),
+            Some(Companion {
+                path: fs::canonicalize(&release).unwrap().join(DRIVER),
+                sha256: crate::native_install::artifact::digest(HERDR_DRIVER),
+            })
+        );
+        // Not a companion name, or a release that carries none: nothing.
+        assert_eq!(active_companion(&active, "tmt-driver-other").unwrap(), None);
+        let (_directory, layout, old) = published_layout();
+        let four_files = layout
+            .root
+            .join("releases")
+            .join(old.id.to_string())
+            .join("tmt");
+        assert_eq!(active_companion(&four_files, DRIVER).unwrap(), None);
+    }
+
+    #[test]
+    fn first_party_approval_follows_the_receipt_and_respects_the_built_in_host() {
+        let (directory, active, release) = shipped();
+        let global = directory.path.join("global");
+        fs::create_dir_all(&global).unwrap();
+        // Until #479 6-1b removes the built-in Herdr host, the shipped driver
+        // matches its receipt and answers, but its name stays the built-in's.
+        let error = registry::inspect_first_party(
+            &global,
+            "herdr",
+            &active,
+            &crate::process::UnixCommandRunner,
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), "DRIVER_REFUSED", "{error}");
+        assert!(error.to_string().contains("can't be installed"), "{error}");
+        // A shipped file that doesn't match its receipt is never run.
+        fs::write(release.join(DRIVER), b"#!/bin/sh\necho swapped\n").unwrap();
+        let error = registry::inspect_first_party(
+            &global,
+            "herdr",
+            &active,
+            &crate::process::UnixCommandRunner,
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), "DRIVER_UNSAFE", "{error}");
+        // A release that ships none says so.
+        let (_directory, layout, old) = published_layout();
+        let four_files = layout
+            .root
+            .join("releases")
+            .join(old.id.to_string())
+            .join("tmt");
+        let error = registry::inspect_first_party(
+            &global,
+            "herdr",
+            &four_files,
+            &crate::process::UnixCommandRunner,
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("ships no herdr driver"),
+            "{error}"
+        );
+    }
+
+    /// A first-party record as approval would have written it.
+    fn record(path: &Path, digest: &str) -> registry::DriverRecord {
+        registry::DriverRecord {
+            name: "herdr".into(),
+            path: path.to_owned(),
+            digest: digest.into(),
+            fingerprint: crate::executable_trust::Fingerprint::of(
+                &fs::metadata(path).unwrap(),
+            ),
+            protocol: 1,
+            capabilities: serde_json::from_value(serde_json::json!({"protocols":[1],"kind":"host","name":"herdr","version":"0.0.0-test","ops":["snapshot"],"paneId":{"prefix":"term_"},"target":"w{n}:p{n}","callerEnv":[]})).unwrap(),
+            approved_at_ms: 1,
+            source: DriverSource::FirstParty,
+        }
+    }
+
+    #[test]
+    fn a_first_party_driver_is_ok_while_it_matches_its_receipt() {
+        let (directory, active, release) = shipped();
+        let path = fs::canonicalize(&release).unwrap().join(DRIVER);
+        let approved = record(
+            &path,
+            &crate::native_install::artifact::digest(HERDR_DRIVER),
+        );
+        assert_eq!(registry::state(&approved, &active), ApprovalState::Ok);
+        // The shipped driver is the approved one: used as recorded, nothing
+        // written.
+        let global = directory.path.join("global");
+        fs::create_dir_all(&global).unwrap();
+        assert_eq!(
+            registry::current_first_party(
+                &global,
+                &approved,
+                &active,
+                &crate::process::UnixCommandRunner
+            ),
+            Some(approved.clone())
+        );
+        assert!(!global.join(registry::REGISTRY_FILE).exists());
+        fs::write(&path, b"#!/bin/sh\necho swapped\n").unwrap();
+        assert_eq!(registry::state(&approved, &active), ApprovalState::Changed);
+        // A release that ships none: missing, and unavailable at run time.
+        let (_directory, layout, old) = published_layout();
+        let four_files = layout
+            .root
+            .join("releases")
+            .join(old.id.to_string())
+            .join("tmt");
+        assert_eq!(
+            registry::state(&approved, &four_files),
+            ApprovalState::Missing
+        );
+        assert_eq!(
+            registry::current_first_party(
+                &global,
+                &approved,
+                &four_files,
+                &crate::process::UnixCommandRunner
+            ),
+            None
+        );
+    }
+}
