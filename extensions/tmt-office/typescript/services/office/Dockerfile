@@ -51,9 +51,9 @@ RUN --network=none pnpm office:check && pnpm office:test \
   && pnpm --filter @tmt/office type:check:e2e \
   && pnpm --filter @tmt/office test:browser:partitions \
   && pnpm office:build:local \
-  && pnpm --filter @tmt/office exec vite build --outDir dist-preview \
-  && pnpm --filter @tmt/office exec vite build --mode emulator \
-  && pnpm --filter @tmt/office exec vite build --mode cloud --outDir dist-cloud
+  && pnpm --filter @tmt/office exec vp build --outDir dist-preview \
+  && pnpm --filter @tmt/office exec vp build --mode emulator \
+  && pnpm --filter @tmt/office exec vp build --mode cloud --outDir dist-cloud
 
 FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073 AS native-office
 WORKDIR /workspace

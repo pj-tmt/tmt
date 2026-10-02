@@ -21,7 +21,7 @@ export default defineConfig({
     toHaveScreenshot: { animations: 'disabled', caret: 'hide', maxDiffPixels: 0 },
   },
   webServer: {
-    command: 'pnpm exec vite --mode offline --host 127.0.0.1 --port 4176 --strictPort',
+    command: 'pnpm exec vp dev --mode offline --host 127.0.0.1 --port 4176 --strictPort',
     url: 'http://127.0.0.1:4176/local',
     reuseExistingServer: false,
   },

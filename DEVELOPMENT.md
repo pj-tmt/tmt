@@ -222,7 +222,9 @@ Root tooling, native, stress, Docker and extension suites run through exact
 Vite+ 1.0.0 with bundled Vitest 5.0.1. Their separate configurations retain their
 own test discovery and are selected explicitly with `--config`. Use
 `pnpm test:watch` for watch mode; `vp test` runs once by default. The workspace
-Vite override makes retained build scripts and plugins share the aliased core.
+Vite override makes Office/addon build, dev and preview commands and their plugins
+share the aliased core. The alias exposes no `vite` executable; those commands use
+`vp build`, `vp dev` and `vp preview` with their existing compiler steps and flags.
 Each test configuration sets `clearMocks: false` to preserve mock history, and
 ordered suites use `{ concurrent: false }`.
 Vitest 5 changes generated `it.each` case labels: `$field` strings lose

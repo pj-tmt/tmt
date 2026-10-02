@@ -96,9 +96,9 @@ The two Office packages live under `extensions/tmt-office/typescript` as
 parent-relative members of that same workspace and lockfile. They resolve only
 their declared dependencies, never root-hoisted tooling packages; Office browser
 specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
-Vite+ owns workspace test entry points and supplies one Vitest runner and aliased
-Vite core. Each suite keeps its separate configuration; the override also supplies
-that core to retained Office/addon build scripts and plugins. Site and release
+Vite+ owns workspace test and Office/addon Vite build, dev and preview entry points.
+It supplies one Vitest runner and aliased Vite core. Each suite keeps its separate
+configuration; the override also supplies that core to the existing plugins. Site and release
 tooling remain outside this workspace lockfile. Compiler, lint and formatter
 commands retain their existing owners.
 Rust, root shell launchers, shared contracts and canonical skills remain outside

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vp build",
     "check": "tsc --noEmit && oxlint --deny-warnings src e2e *.ts && prettier --check .",
     "test": "vp test run --config vite.config.ts",
     "test:browser": "playwright test"

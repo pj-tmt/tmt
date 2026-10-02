@@ -12,23 +12,23 @@ export default defineConfig({
   webServer: [
     {
       command:
-        'pnpm exec vite preview --host 127.0.0.1 --port 4175 --strictPort --outDir dist-cloud',
+        'pnpm exec vp preview --host 127.0.0.1 --port 4175 --strictPort --outDir dist-cloud',
       url: 'http://127.0.0.1:4175',
       reuseExistingServer: false,
     },
     {
-      command: 'pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort',
+      command: 'pnpm exec vp preview --host 127.0.0.1 --port 4173 --strictPort',
       url: 'http://127.0.0.1:4173',
       reuseExistingServer: false,
     },
     {
       command:
-        'pnpm exec vite preview --host 127.0.0.1 --port 4174 --strictPort --outDir dist-preview',
+        'pnpm exec vp preview --host 127.0.0.1 --port 4174 --strictPort --outDir dist-preview',
       url: 'http://127.0.0.1:4174',
       reuseExistingServer: false,
     },
     {
-      command: 'pnpm exec vite --mode offline --host 127.0.0.1 --port 4176 --strictPort',
+      command: 'pnpm exec vp dev --mode offline --host 127.0.0.1 --port 4176 --strictPort',
       url: 'http://127.0.0.1:4176/local',
       reuseExistingServer: false,
     },

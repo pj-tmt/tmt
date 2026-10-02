@@ -23,7 +23,7 @@
     "office:dev": "pnpm --filter @tmt/office --fail-if-no-match dev",
     "office:install": "cd ../extensions/tmt-office/typescript/apps/office && pnpm install --ignore-workspace --lockfile-dir \"$PWD/../../../../../typescript\" --frozen-lockfile",
     "office:build": "pnpm --filter @tmt/office --fail-if-no-match build",
-    "office:build:local": "pnpm --filter @tmt/office --fail-if-no-match exec vite build --mode offline --outDir ../../../../../target/office-spa --emptyOutDir",
+    "office:build:local": "pnpm --filter @tmt/office --fail-if-no-match exec vp build --mode offline --outDir ../../../../../target/office-spa --emptyOutDir",
     "office:local:e2e": "pnpm --filter @tmt/office --fail-if-no-match test:browser:native",
     "office:test": "pnpm --filter @tmt/office --fail-if-no-match test",
     "office:check": "pnpm --filter @tmt/office --fail-if-no-match check",
