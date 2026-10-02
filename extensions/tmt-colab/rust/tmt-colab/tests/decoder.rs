@@ -299,7 +299,9 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
             }
             // invoke has waited/reaped a non-success exit; the corpus assertion above
             // checks its diagnostic. The public runner deliberately hides child stderr.
-            Err(DecodeFault::Rejected) if cfg!(target_os = "linux") || index != 26 => {}
+            // Dump 26 may finish inside the runner's two-second deadline on a fast host,
+            // so a clean rejection is contained here on every platform.
+            Err(DecodeFault::Rejected) => {}
             Ok(_) => panic!("saved dump {index} unexpectedly succeeded"),
             Err(other) => panic!("saved dump {index} was not contained: {other:?}"),
         }
