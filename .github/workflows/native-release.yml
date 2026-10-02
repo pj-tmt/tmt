@@ -88,7 +88,7 @@ jobs:
           node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"
           if [ "$PREPARE" = true ]; then
             if [ -n "$RETRY" ] || [ -n "$HOLD" ] || [ -n "$RERUN" ]; then
-              echo 'A retry and a released hold need prepare turned off. A rerun also needs prepare turned off.' >&2
+              echo 'retry, hold and rerun need prepare turned off.' >&2
               exit 1
             fi
             # One pipeline for this main commit, no draft release.

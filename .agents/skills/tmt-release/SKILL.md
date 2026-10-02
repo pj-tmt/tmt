@@ -195,10 +195,7 @@ gates, the markers and the procedures; this section owns who may publish what.
   skips only the gate the marker names. An owner-authorized `rerun` instead re-proves
   every gate with current main tooling against the draft's existing assets and release-source
   expectations, preserving the marker on failure and removing it only after all pass.
-  **Rerun dispatch authorization is an OWNER decision still pending Ben's decision.**
-  Until Ben decides otherwise, agents must obtain explicit owner authorization for rerun;
-  re-proving a gate does not itself grant dispatch authority. `hold` continues to require
-  the owner's explicit OK.
+  `rerun` requires the owner's explicit authorization, like `hold`.
 - After it publishes, the pipeline reads the release back (public, immutable, the policy's
   flags, the tag on the release commit, GitHub's attestation for the release and every asset).
   A failed check opens an issue and fails the run; nothing is rolled back, and a repair is a new

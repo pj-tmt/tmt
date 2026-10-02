@@ -1800,8 +1800,8 @@ all gates, including the gate named in `publication-held.json`; it skips none. `
 product draft with a commit target. The gates validate the marker's tag, SHA and known
 gate, and finish refuses a changed gate. Any failed gate leaves the original marker
 unchanged; only after all gates pass is it removed, followed by normal publication,
-attestation and public-install smoke checks. Rerun dispatch authorization is an owner
-decision still pending Ben's decision; agents require explicit owner authorization.
+attestation and public-install smoke checks. The
+[release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization.
 
 Rerun uses the main commit selected by the dispatch for verifier scripts and their
 locked dependencies. Archives, manifest, version and digests come from the draft;

@@ -61,9 +61,7 @@ describe('per-product release run (native-release.yml)', () => {
       /prepare:\n {8}description:[^\n]*\n {8}required: true\n {8}default: true\n {8}type: boolean/
     );
     expect(job(run, 'plan')).toContain(`'matrix={"include":[{"tag":"","sha":""}]}'`);
-    expect(job(run, 'plan')).toContain(
-      'A retry and a released hold need prepare turned off. A rerun also needs prepare turned off.'
-    );
+    expect(job(run, 'plan')).toContain('retry, hold and rerun need prepare turned off.');
   });
 
   it('refuses parked Office before preparation or draft planning, retaining released products', () => {

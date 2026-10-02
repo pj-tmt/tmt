@@ -3825,7 +3825,7 @@ with a separate release-SHA checkout for CLI expected skills and migration count
 archives, manifest, version and recorded digests remain unchanged. The existing planner
 shares held-draft validation with `hold`, but rerun skips no gate; failed reruns preserve
 the marker and finish validates its tag, SHA and gate before clearing it after all gates pass.
-Rerun dispatch remains owner-authorized pending Ben's decision (the release skill). When a draft's bundle is
+The [release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization. When a draft's bundle is
 attached the pipeline evaluates the publication gates (channel, commit, immutability,
 monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release
 commit's data; a failed gate leaves `publication-held.json` on the draft. A draft that

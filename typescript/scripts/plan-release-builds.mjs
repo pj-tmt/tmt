@@ -45,9 +45,7 @@ export function planReleaseBuilds({
   released = true,
 }) {
   if ([retry, hold, rerun].filter(Boolean).length > 1) {
-    throw new Error(
-      'A retry and a released hold are separate runs; rerun is separate too; give one of them.'
-    );
+    throw new Error('retry, hold and rerun are separate runs; give one of them.');
   }
   const drafts = releases.filter(
     (release) => release.draft === true && productOfTag(release.tag_name) === product
