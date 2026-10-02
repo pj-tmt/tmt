@@ -30,6 +30,7 @@
       "migrations": ["extensions/tmt-office/rust/tmt-office-storage/src/schema.rs"],
       "selectedBy": [
         "typescript/test/native/office-*",
+        "typescript/test/stress/office-*",
         "typescript/test/e2e/office-*",
         "typescript/test/tooling/office-*",
         "typescript/test/support/office-*"

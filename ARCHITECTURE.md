@@ -3466,8 +3466,11 @@ owns execution, platform-specific baselines and explicit visual-review updates.
 Geometry, gesture history and native durability retain their existing test owners.
 
 Retained tests are organized under `typescript/test/native/`, `typescript/test/e2e/`,
-`typescript/test/tooling/` and `typescript/test/support/`, with Rust unit/integration tests beside
-their owners. The CLI's `tests/support` module owns the isolated environment and
+`typescript/test/tooling/`, `typescript/test/stress/` and `typescript/test/support/`, with Rust unit/integration tests beside
+their owners. Office real-companion stress cases use `office-*` filenames and the
+component map's stress `selectedBy` glob; retained-release setup uses the private
+installer, while public acquisition refusal stays in the native lifecycle suite.
+The CLI's `tests/support` module owns the isolated environment and
 direct-child lifetime shared by its stdin-signal and request-observer fixtures;
 [Development](DEVELOPMENT.md#native-process-and-shared-tests) owns the isolation contract.
 They use independent SQL/schema oracles for SQLite behavior and

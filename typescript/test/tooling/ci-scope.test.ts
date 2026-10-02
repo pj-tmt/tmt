@@ -166,6 +166,7 @@ describe('CI area selection', () => {
     'extensions/tmt-office/skills/tmt-office/SKILL.md',
     'typescript/test/native/office-board.test.ts',
     'typescript/test/e2e/office-command.e2e.test.ts',
+    'typescript/test/stress/office-native-installation-capacity.test.ts',
     'typescript/test/support/office-world.ts',
     'extensions/tmt-office/typescript/services/office/firestore.rules',
     'extensions/tmt-office/typescript/apps/office-other/file.ts',
@@ -1123,6 +1124,30 @@ describe('frozen Office process selection', () => {
       expect(globToRegExp(exclude!).test(file), file).toBe(true);
       expect(ownerOf('typescript/' + file, map), file).toBe('office');
     }
+  });
+
+  it('keeps companion stress discovery aligned with Office ownership and native exclusion', () => {
+    const map = parseComponentMap(
+      readFileSync(path.join(repository, '.github/components.json'), 'utf8')
+    );
+    const stressGlobs = map.components
+      .find((component) => component.name === 'office')!
+      .selectedBy.filter(({ glob }) => glob.startsWith('typescript/test/stress/'));
+    expect(stressGlobs.map(({ glob }) => glob)).toEqual(['typescript/test/stress/office-*']);
+    const config = readFileSync(
+      path.join(repository, 'typescript/test/stress/vitest.config.ts'),
+      'utf8'
+    );
+    expect(config).toContain("include: ['test/stress/**/*.test.ts']");
+    expect(config).not.toContain('passWithNoTests');
+    const file = 'test/stress/office-native-installation-capacity.test.ts';
+    const exclude = /--exclude '([^']+)'/.exec(script)![1];
+    expect(globToRegExp(exclude.replace('native/', 'stress/')).test(file)).toBe(true);
+    expect(globToRegExp('test/stress/**/*.test.ts').test(file)).toBe(true);
+    expect(ownerOf('typescript/' + file, map)).toBe('office');
+    expect(readdirSync(path.join(repository, 'typescript/test/stress'))).toContain(
+      path.basename(file)
+    );
   });
 
   it.each(['true', 'false'])('runs a nonempty native selection with Office=%s', (selected) => {
