@@ -1577,3 +1577,55 @@ fn colab_persistence_keeps_core_remote_and_office_isolated() {
         assert!(!policy::source_violations(&[syntax("tmt-colab", "lib.rs", code)]).is_empty());
     }
 }
+
+#[test]
+fn colab_model_has_only_fixed_crypto_and_no_runtime_authority() {
+    for name in [
+        "x25519-dalek",
+        "aes-gcm",
+        "base64",
+        "ed25519-dalek",
+        "getrandom",
+        "hmac",
+        "serde",
+        "serde_json",
+        "sha2",
+    ] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-colab-model",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+    }
+    for name in ["tmt-core", "tmt-adapters", "tmt-remote", "hpke", "rusqlite"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-colab-model",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .len(),
+            1
+        );
+    }
+    for path in [
+        "std::fs::read",
+        "std::io::stdin",
+        "std::env::var",
+        "std::thread::spawn",
+        "std::net::TcpStream",
+        "std::process::Command",
+        "tmt_core::Identity",
+    ] {
+        assert_eq!(
+            policy::source_violations(&[syntax(
+                "tmt-colab-model",
+                "lib.rs",
+                &format!("use {path};")
+            )])
+            .len(),
+            1
+        );
+    }
+}

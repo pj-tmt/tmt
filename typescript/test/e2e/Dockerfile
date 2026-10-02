@@ -9,6 +9,7 @@ COPY extensions/tmt-office/skills/ ../extensions/tmt-office/skills/
 COPY extensions/tmt-squad/ ../extensions/tmt-squad/
 COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ ../extensions/tmt-colab/rust/
+COPY extensions/tmt-colab/contracts/ ../extensions/tmt-colab/contracts/
 ARG TMT_NATIVE_PROFILE=dev
 RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \

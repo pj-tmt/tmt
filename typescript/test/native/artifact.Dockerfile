@@ -16,6 +16,7 @@ COPY extensions/tmt-office/skills/ extensions/tmt-office/skills/
 COPY extensions/tmt-squad/ extensions/tmt-squad/
 COPY extensions/tmt-remote/rust/ extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ extensions/tmt-colab/rust/
+COPY extensions/tmt-colab/contracts/ extensions/tmt-colab/contracts/
 COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE ./
 COPY docs/NATIVE-INSTALL.md docs/NATIVE-INSTALL.md
