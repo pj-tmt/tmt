@@ -631,3 +631,10 @@ fn a_provider_suggests_a_color_only_by_a_theme_tokens_name() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn github_pr_never_schedules_a_missing_or_empty_link() {
+    let read = providers("[squad.p.fields.pr]\npreset = \"github-pr\"\n").unwrap();
+    let members = [member("missing", &[]), member("empty", &[("pr_link", "")])];
+    assert!(due(&read, &members, &Cache::at(None), 1_000).is_empty());
+}

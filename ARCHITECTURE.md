@@ -2656,7 +2656,8 @@ board refresh and reminder timing. Callers retain their accepted units, numeric
 forms, ranges and key-specific error messages; refresh alone wraps `"off"`.
 
 Optional `[squad.<name>.reminders]` config is parsed by
-`Config::reminders`: disabled by default, 30 minutes, whole `s`/`m`/`h` values
+`Config::reminders`: enabled for the `team` layout, disabled for the
+other layouts, 30 minutes, whole `s`/`m`/`h` values
 from 1 minute through 24 hours. `staleness` owns observed raw task/state and
 exact lead-notebook content age, separate from providers and column bindings.
 `observe` is the one read sequence for a squad's status, used by `ls` and the
@@ -2745,7 +2746,20 @@ runs only when `tmt_cli_style::Interaction::view()` is `Interactive` (decided
 once in `main`); otherwise it is `ls`. `tmt squad` with no command is `board`. Consent for hotkeys and playbooks is
 likewise a `Consent` decided in `main` from `--yes` and `prompt()`. `[squad.<name>.board]` selects
 split or tabs panes (rows, notes, detail, replies) over a per-layout preset,
-validated before raw mode. `split` owns how panes sit: a tree of row and column
+validated before raw mode. Squads with no layout key use team unless they set the simple board form, which keeps crew. Explicit
+`crew`, `pr-queue` and `minimal` retain their presets. `Config::resolve_layout`
+owns the shared decision for the layout and board readers. The `team` preset uses the same `Layout`/`Board::preset` and ordinary config readers: a
+60/40 top-bottom split, rows beside detail/replies at 62/38 in the top, detail
+above replies at 50/50, and full-width lead notes underneath. Its crew states,
+pending-first ordering, member/state/task/pr/model grid with a pending line,
+60-second `github-pr` field and 30-minute observed-age default are all
+configurable; existing presets keep their defaults. A user `rows` or legacy
+`columns` table replaces the grid, `fields.<name>` replaces that provider's
+whole table, additional provider names retain `pr`, and reminder keys override
+individually. The nested board requires a full `layout` or `panes` override;
+partial `direction`/`sizes` overrides are rejected. Model reads the existing
+session projection, and providers remain on the existing fetcher path.
+`split` owns how panes sit: a tree of row and column
 splits whose children have a percentage or a grow share (ratatui `Percentage`
 and `Fill`), nested up to three levels; `layout` is its full form and the
 `direction`/`panes`/`sizes` keys its one-level form, and split solves either
@@ -2756,7 +2770,12 @@ folded subtree propagates its title footprint. Expanded siblings divide the
 remaining space by their configured percentage/grow shares. An empty fold set
 uses the original constraints. The configured Board/Split never changes during
 a toggle. `Config::board` strictly validates the initial `collapsed` pane list
-for split mode; `App` owns bounded per-tab session fold sets, preserving them
+for split mode, plus `fold_below = { width, panes }` with width 1–1000 and
+panes present in the resolved layout. Team sets width 100 for detail and replies.
+`App` resolves the effective fold set from board body width and immutable defaults;
+per-pane user overrides win at either width. The terminal draw owner supplies the
+full-width body measurement before rendering; the view only passes the resulting
+set to `Split::solve`. `App` owns bounded per-tab session overrides, preserving them
 through unchanged refreshes and cached switches, resetting them on changed board
 configuration, and dropping removed tabs. Restarting uses config again. The
 existing `action` parser/dispatcher owns `toggle <pane>` (`d` defaults to detail).

@@ -36,7 +36,7 @@ cell).
   width or overflow. Opt-in text uses the shared grid and fit rules; a pipe's
   budget is natural data widths plus gaps before priority hiding, so text may
   wrap, truncate or hide columns. JSON row values stay full.
-- `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`),
+- `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue`, `minimal` or `team`),
   `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
   `normal`), `waiting` (members that owe the user a decision or wait for an
   answer) and `blocked` (members in the `blocked` state). The board colors the
@@ -62,12 +62,12 @@ cell).
   labels stale rows and notes with their age. See the reminder configuration
   below for reset and evidence limits.
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
-  layout lists it first.
+  and team layouts list it first.
 - A row has the optional `colors` key only when a cell has a color:
   `{field: theme token}`. `colors.state` holds the resolved state token; other
   keys come from the user's column thresholds or a field provider's suggestion.
   Colors only decorate; read the values.
-- States come from the layout: crew uses `working idle blocked review testing
+- States come from the layout: crew and team use `working idle blocked review testing
 hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
   Color and order resolve through exact `[squad.<name>.states]` entries (including
   layout presets), then the first matching `[[squad.<name>.state_patterns]]`,
@@ -203,9 +203,41 @@ Record the agreement in your notes (`tmt notes path` prints your notebook's
 path), or propose a `squad.toml` change for the user to apply. Squad never
 starts members, worktrees or windows; that is yours to arrange with the user.
 
+## Team board preset
+
+Squads with no layout key use team unless they set the simple board form, which keeps crew. Set `layout = "crew"`, `"pr-queue"`
+or `"minimal"` to retain those presets. The top 60% contains rows beside a right column (62/38), with
+detail above replies (50/50). The lead's notes fill the bottom 40%.
+
+Below 100 columns of board body width, team folds detail and replies into title
+bars: `board.fold_below = { width = 100, panes = ["detail", "replies"] }`.
+`d` toggles detail; click either title to toggle its pane. User toggles win at
+both narrow and wide widths until the board configuration changes or the session
+restarts. Widening restores automatic panes without moving focus. Custom split
+boards can set `fold_below` with width 1–1000 and panes present in their layout.
+
+Member, state, PR and model use percentage widths (22%, 14%, 24%, 16%);
+task grows into the remaining space. Model yields first when space is short,
+then PR; member/state/task remain. Values truncate with the existing ellipsis.
+
+Team uses crew states and pending-first ordering. Rows show member, state,
+task, PR and model (`session.model` from the existing presence read); pending
+text has its own line under task. Its `pr` field uses `preset = "github-pr"`
+from `pr_link`, refreshed at most every 60 seconds per member. A missing link
+never runs `gh`; unavailable or failed provider results follow the normal
+missing/`?` rules. A `rows` or legacy `columns` table replaces the whole grid;
+`fields.<name>` replaces that provider's whole table, other provider names add
+to `pr`, and reminder keys override individually. Set a full `board.layout`
+or `board.panes` to replace the nested pane arrangement; `direction` or `sizes`
+alone is refused. Host bindings and theme selection are unchanged.
+
+Team enables observed age at 30 minutes. Other layouts keep it disabled by
+default; `[squad.<name>.reminders] enabled = false` disables it for team too.
+
 ## Optional observed age
 
-The user can enable observation per squad; defaults are disabled and 30 minutes:
+The user can configure observation per squad; the threshold defaults to 30
+minutes. Team enables it by default; the other layouts disable it:
 
 ```toml
 [squad.product.reminders]

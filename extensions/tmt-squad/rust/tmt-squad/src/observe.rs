@@ -298,6 +298,10 @@ esac
                 member("RIN", json!({"squad.p.state": "working"})),
             ]),
         );
+        // Explicit crew preserves the original disabled-observation contract.
+        fs::write(fixture.config.path(), "[squad.p]\nlayout = \"crew\"\n").unwrap();
+        let mut fixture = fixture;
+        fixture.config = Config::read(fixture.config.path().to_owned()).unwrap();
         // `ls`: with reminders off nothing is observed, so neither the notes
         // nor the room history is read for it.
         let listed = fixture.read(false);
