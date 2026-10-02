@@ -76,6 +76,12 @@
   },
   "rules": [
     {
+      "id": "design-tokens",
+      "consumers": ["native"],
+      "why": "Shared tokens are read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
+      "paths": ["design/tokens/**"]
+    },
+    {
       "id": "consumed-docs",
       "consumers": ["native", "office"],
       "why": "Read by build and test inputs: docs/cli-style.md by the CLI and Squad style tests, docs/NATIVE-INSTALL.md by the release archive and onboarding checks.",

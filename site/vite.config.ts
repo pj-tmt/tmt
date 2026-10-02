@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import remarkGfm from "remark-gfm";
 import { defineConfig, lazyPlugins } from "vite-plus";
-import { designTokens } from "./src/design/tokens-plugin.ts";
+import { designTokens } from "../design/tokens/tokens-plugin.ts";
 
 // GitHub Pages serves a project site under /<repo>/. SITE_BASE switches it,
 // for example to "/" for a custom domain or a local preview.
