@@ -1351,9 +1351,9 @@ uses its own Prettier configuration; shared docs use the tooling formatter.
 
 The local-build-only remote crate is a foreground deny-all door. It performs
 one public startup capabilities read, then refuses every remote application
-request. Pairing, signing, grants, approval, sends and journal/SDK integration
-are not implemented. The [client contract](contracts/remote-client-v1.md) is
-proposed; [the separately owned browser shell](#browser-add-on-shell)
+request. Pairing, signing, grants, hold, sends, extension mounting/relay and
+journal/SDK integration are not implemented. The
+[channel contract](contracts/remote-client-v1.md) is proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 
 ```bash
