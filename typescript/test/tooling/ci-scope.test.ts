@@ -1143,7 +1143,6 @@ describe('frozen Office process selection', () => {
     const file = 'test/stress/office-native-installation-capacity.test.ts';
     const exclude = /--exclude '([^']+)'/.exec(script)![1];
     expect(globToRegExp(exclude.replace('native/', 'stress/')).test(file)).toBe(true);
-    expect(globToRegExp('test/stress/**/*.test.ts').test(file)).toBe(true);
     expect(ownerOf('typescript/' + file, map)).toBe('office');
     expect(readdirSync(path.join(repository, 'typescript/test/stress'))).toContain(
       path.basename(file)

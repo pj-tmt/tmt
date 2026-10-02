@@ -147,7 +147,7 @@ describe('retained developer tooling boundaries', () => {
       ['support', '../native/cli.test.js'],
       ['support', '../e2e/harness.js'],
       ['support', '../tooling/cli-process.test.js'],
-      ['support', '../stress/native-installation-capacity.test.js'],
+      ['support', '../stress/office-native-installation-capacity.test.js'],
       ['native', '../tooling/cli-process.test.js'],
       ['e2e', '../native/cli.test.js'],
       ['e2e', '../tooling/cli-process.test.js'],
