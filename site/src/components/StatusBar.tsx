@@ -1,9 +1,10 @@
-import { Link } from "@tanstack/react-router";
 import { useAtom } from "jotai";
 import { useEffect, useState } from "react";
 import { windows, type Page } from "../chapters";
 import { themeAtom, type ThemeChoice } from "../state/theme";
 import { ChapterTree } from "./ChapterTree";
+import { LanguageSwitcher } from "./LanguageSwitcher";
+import { LocalLink } from "./LocalLink";
 
 const THEMES: ThemeChoice[] = ["system", "light", "dark"];
 
@@ -73,7 +74,7 @@ export function StatusBar({ current }: { current: Page }) {
         {windows.map((window) => {
           const on = window.n === current.window;
           return (
-            <Link
+            <LocalLink
               key={window.n}
               to={window.path}
               aria-current={on ? "page" : undefined}
@@ -84,10 +85,13 @@ export function StatusBar({ current }: { current: Page }) {
               {window.n}
               <span className="hidden sm:inline">:{window.name}</span>
               <span className="sm:hidden">:</span>
-            </Link>
+            </LocalLink>
           );
         })}
         <span className="ml-auto flex items-stretch">
+          <span className="hidden sm:flex">
+            <LanguageSwitcher variant="bar" />
+          </span>
           <button
             type="button"
             onClick={() => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
@@ -121,6 +125,9 @@ export function StatusBar({ current }: { current: Page }) {
             id="chapter-menu"
             className="absolute top-full left-0 max-h-[calc(100dvh-48px)] w-max max-w-full min-w-64 overflow-y-auto border-r border-b border-term-edge bg-term px-4 py-3 text-t-text"
           >
+            <div className="mb-2 border-b border-term-edge pb-2 sm:hidden">
+              <LanguageSwitcher variant="menu" onPick={() => setMenuOpen(false)} />
+            </div>
             <ChapterTree current={current} onPick={() => setMenuOpen(false)} />
           </div>
         </>

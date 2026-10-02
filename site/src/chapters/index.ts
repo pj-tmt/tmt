@@ -37,6 +37,9 @@ export type Page = {
   crumb: string;
   title: string;
   status?: { kind: Status; label: string };
+  // The English chapter file (src/chapters/<file>.mdx); a translation of the
+  // page has the same name under src/i18n/<lang>/.
+  file: string;
   Content: MDXContent;
 };
 
@@ -46,6 +49,7 @@ export const pages: Page[] = [
     window: 0,
     crumb: "home",
     title: "One channel for all your agents",
+    file: "start",
     Content: Start,
   },
   {
@@ -54,6 +58,7 @@ export const pages: Page[] = [
     index: "1",
     crumb: "concepts",
     title: "Four words cover almost everything",
+    file: "concepts",
     Content: Concepts,
   },
   {
@@ -62,6 +67,7 @@ export const pages: Page[] = [
     index: "2",
     crumb: "working",
     title: "Launch, send, get the reply",
+    file: "working",
     Content: Working,
   },
   {
@@ -70,9 +76,18 @@ export const pages: Page[] = [
     index: "2.1",
     crumb: "working / settings",
     title: "Settings and troubleshooting",
+    file: "settings",
     Content: Settings,
   },
-  { path: "/drivers", window: 3, index: "3", crumb: "drivers", title: "Drivers", Content: Drivers },
+  {
+    path: "/drivers",
+    window: 3,
+    index: "3",
+    crumb: "drivers",
+    title: "Drivers",
+    file: "drivers",
+    Content: Drivers,
+  },
   {
     path: "/drivers/tmux",
     window: 3,
@@ -80,6 +95,7 @@ export const pages: Page[] = [
     crumb: "drivers / tmux",
     title: "tmux: where your agents live",
     status: { kind: "built in", label: "built in" },
+    file: "drv-tmux",
     Content: DrvTmux,
   },
   {
@@ -89,6 +105,7 @@ export const pages: Page[] = [
     crumb: "drivers / claude code",
     title: "Claude Code",
     status: { kind: "built in", label: "built in" },
+    file: "drv-claude",
     Content: DrvClaude,
   },
   {
@@ -98,6 +115,7 @@ export const pages: Page[] = [
     crumb: "drivers / codex",
     title: "Codex",
     status: { kind: "built in", label: "built in" },
+    file: "drv-codex",
     Content: DrvCodex,
   },
   {
@@ -106,6 +124,7 @@ export const pages: Page[] = [
     index: "4",
     crumb: "extensions",
     title: "Extensions add commands, not special cases",
+    file: "extensions",
     Content: Extensions,
   },
   {
@@ -115,6 +134,7 @@ export const pages: Page[] = [
     crumb: "extensions / squad",
     title: "Squad: leads, members and one board",
     status: { kind: "alpha", label: "alpha" },
+    file: "squad",
     Content: Squad,
   },
   {
@@ -124,6 +144,7 @@ export const pages: Page[] = [
     crumb: "extensions / threads",
     title: "Threads: your team's conversations in one window",
     status: { kind: "planned", label: "coming later" },
+    file: "threads",
     Content: Threads,
   },
   {
@@ -133,6 +154,7 @@ export const pages: Page[] = [
     crumb: "extensions / remote",
     title: "Remote: your agents, on every machine",
     status: { kind: "designing", label: "designing" },
+    file: "remote",
     Content: Remote,
   },
   {
@@ -141,6 +163,7 @@ export const pages: Page[] = [
     index: "5.1",
     crumb: "develop / extensions",
     title: "Build an extension",
+    file: "dev-extension",
     Content: DevExtension,
   },
   {
@@ -150,6 +173,7 @@ export const pages: Page[] = [
     crumb: "develop / drivers",
     title: "Build a driver",
     status: { kind: "planned", label: "planned" },
+    file: "dev-driver",
     Content: DevDriver,
   },
   {
@@ -158,6 +182,7 @@ export const pages: Page[] = [
     index: "6",
     crumb: "design",
     title: "One look, everywhere",
+    file: "design",
     Content: Design,
   },
 ];

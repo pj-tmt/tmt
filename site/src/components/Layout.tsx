@@ -1,14 +1,25 @@
-import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
+import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useAtom } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { legacyAnchors, pages, type Page } from "../chapters";
+import { languageOf, withLang } from "../lang/languages";
+import { readLangPreference } from "../lang/preference";
+import { localize } from "../lang/translations";
+import { useLang } from "../lang/useLang";
 import { applyTheme, themeAtom } from "../state/theme";
+import { LocalLink } from "./LocalLink";
 import { Tag } from "./marks";
 import { StatusBar } from "./StatusBar";
 
-export function pageFor(pathname: string): Page {
-  const path = pathname.replace(/\/+$/, "") || "/";
+// The page for a language-free path (see splitLang), or the home page.
+export function pageFor(path: string): Page {
   return pages.find((page) => page.path === path) ?? pages[0];
+}
+
+function useCurrent() {
+  const { lang, path } = useLang();
+  const current = pageFor(path);
+  return { lang, current, ...localize(lang, current) };
 }
 
 function Toc({ current }: { current: Page }) {
@@ -69,6 +80,7 @@ function Toc({ current }: { current: Page }) {
 }
 
 function Pager({ current }: { current: Page }) {
+  const { lang } = useLang();
   const at = pages.indexOf(current);
   const previous = pages[at - 1];
   const next = pages[at + 1];
@@ -81,20 +93,22 @@ function Pager({ current }: { current: Page }) {
       className="mt-14 grid grid-cols-1 gap-3.5 border-t border-rule pt-5 sm:grid-cols-2"
     >
       {previous ? (
-        <Link to={previous.path} className={card}>
+        <LocalLink to={previous.path} className={card}>
           <small className={small}>← previous</small>
           <span className="font-display text-[15px] leading-snug font-semibold">
-            {previous.title}
+            {localize(lang, previous).title}
           </span>
-        </Link>
+        </LocalLink>
       ) : (
         <span className="hidden sm:block" />
       )}
       {next && (
-        <Link to={next.path} className={`${card} sm:text-right`}>
+        <LocalLink to={next.path} className={`${card} sm:text-right`}>
           <small className={small}>next →</small>
-          <span className="font-display text-[15px] leading-snug font-semibold">{next.title}</span>
-        </Link>
+          <span className="font-display text-[15px] leading-snug font-semibold">
+            {localize(lang, next).title}
+          </span>
+        </LocalLink>
       )}
     </nav>
   );
@@ -103,26 +117,44 @@ function Pager({ current }: { current: Page }) {
 export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const current = pageFor(location.pathname);
+  const { lang, current, title } = useCurrent();
   const [theme] = useAtom(themeAtom);
 
   useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => {
+    document.documentElement.lang = languageOf(lang).htmlLang;
+  }, [lang]);
+
+  // A reader who chose a language before lands in it when opening an English
+  // address. Only the first load does this, so choosing EN afterwards sticks.
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (arrived.current) return;
+    arrived.current = true;
+    const saved = readLangPreference();
+    if (lang === "en" && saved && saved !== "en")
+      void navigate({
+        to: withLang(saved, current.path),
+        hash: location.hash || undefined,
+        replace: true,
+      });
+  }, [lang, current, location.hash, navigate]);
 
   // Old single-page links (#squad, #drv-codex, …) land on their new pages.
   useEffect(() => {
     const anchor = location.hash;
     if (current.path === "/" && anchor && legacyAnchors[anchor]) {
       const [to, hash] = legacyAnchors[anchor].split("#");
-      void navigate({ to, hash, replace: true });
+      void navigate({ to: withLang(lang, to), hash, replace: true });
     }
-  }, [current, location.hash, navigate]);
+  }, [current, lang, location.hash, navigate]);
 
   useEffect(() => {
-    document.title = current.path === "/" ? "tmt Handbook" : `${current.title} · tmt Handbook`;
+    document.title = current.path === "/" ? "tmt Handbook" : `${title} · tmt Handbook`;
     const target = location.hash && document.getElementById(location.hash);
     if (target) target.scrollIntoView();
     else window.scrollTo(0, 0);
-  }, [current, location.hash]);
+  }, [current, title, location.hash]);
 
   return (
     <>
@@ -140,11 +172,12 @@ export function Layout() {
 
 // The page body: the chapter's border rule and title, then its content.
 export function Chapter() {
-  const current = pageFor(useLocation().pathname);
-  const { Content } = current;
+  const { lang, current, title, Content, translated } = useCurrent();
+  const note = lang !== "en" && !translated && <NotTranslated />;
   if (current.path === "/")
     return (
       <section className="pt-14 pb-2">
+        {note}
         <Content />
       </section>
     );
@@ -156,9 +189,22 @@ export function Chapter() {
         {current.status && <Tag kind={current.status.kind}>{current.status.label}</Tag>}
       </div>
       <h2 className="mt-4.5 mb-3.5 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance">
-        {current.title}
+        {title}
       </h2>
+      {note}
       <Content />
     </section>
+  );
+}
+
+// Shown above an English page read under /ja or /zh until its translation lands.
+function NotTranslated() {
+  return (
+    <p
+      lang="en"
+      className="mb-5 rounded-md border border-rule bg-sheet px-3.5 py-2.5 font-mono text-[13px] leading-normal text-muted"
+    >
+      Not yet translated. This page is shown in English.
+    </p>
   );
 }

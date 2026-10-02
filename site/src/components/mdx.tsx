@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { LocalLink } from "./LocalLink";
 import type { MDXComponents } from "mdx/types";
 import type { ComponentProps, ReactNode } from "react";
 
@@ -23,9 +23,9 @@ export function A({ href = "", children, ...rest }: ComponentProps<"a">) {
   if (href.startsWith("/")) {
     const [to, hash] = href.split("#");
     return (
-      <Link to={to} hash={hash} className="text-accent underline underline-offset-[3px]">
+      <LocalLink to={to} hash={hash} className="text-accent underline underline-offset-[3px]">
         {children}
-      </Link>
+      </LocalLink>
     );
   }
   return (

@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
 import { pages, windows, type Page } from "../chapters";
+import { LocalLink } from "./LocalLink";
 
 // The chapter tree, drawn like `tmux choose-tree`. It lives in the status
 // bar's menu, which is always dark like the bar, so it uses the terminal colors.
@@ -21,15 +21,15 @@ export function ChapterTree({ current, onPick }: { current: Page; onPick: () => 
             );
         return (
           <div key={window.n}>
-            <Link
+            <LocalLink
               to={window.path}
               onClick={onPick}
               className={`${row} ${tone(!develop && current.path === window.path)}`}
             >
               {last ? "└─" : "├─"} {window.n}: {window.name}
-            </Link>
+            </LocalLink>
             {items.map((page, s) => (
-              <Link
+              <LocalLink
                 key={page.path}
                 to={page.path}
                 onClick={onPick}
@@ -37,7 +37,7 @@ export function ChapterTree({ current, onPick }: { current: Page; onPick: () => 
               >
                 {last ? "   " : "│  "}
                 {s === items.length - 1 ? "└─" : "├─"} {page.crumb.split(" / ")[1]}
-              </Link>
+              </LocalLink>
             ))}
           </div>
         );

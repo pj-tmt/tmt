@@ -561,6 +561,13 @@ The sticky status bar at the top is the chapter navigation: one tmux-style windo
 chapter group (`windows` in the same file), with the `[tmt]` button opening the full page tree.
 Animated scenes are declarative frames in `site/src/scenes/` (`Window`, `TmuxBar`, `useFrames`): they
 advance only while on screen and rest on one complete frame under `prefers-reduced-motion`.
+Every page exists in English at its path and under `/ja/` and `/zh/`. A translation is
+`site/src/i18n/<lang>/<chapter file>.mdx`, named like the English chapter in `site/src/chapters/` and
+exporting its front matter as `frontmatter` (`title` is the page title). A page without a file shows the
+English page with a "not yet translated" note. The language switcher in the status bar (and in the `[tmt]`
+menu on a narrow screen) keeps the page, remembers the choice in the browser and sets `<html lang>`
+(`zh` is `zh-Hant`). `scripts/spa-routes.mjs` writes each language's route files with their `<html lang>`
+and `hreflang` alternates; set `SITE_ORIGIN` to make the alternates absolute.
 Colors, fonts and marks come from `design/tokens/tokens.json`, which the
 stylesheet and the design page read. Anything not in a release is marked
 planned.

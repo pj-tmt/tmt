@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { LocalLink } from "../components/LocalLink";
 import { Tag } from "../components/marks";
 import { BoardScene } from "./BoardScene";
 
@@ -30,16 +30,16 @@ export function Hero() {
             machine; the row below shows what runs today and what is on the way.
           </p>
           <p className="mt-5 mb-0 font-mono text-sm">
-            <Link
+            <LocalLink
               to="/"
               hash="install"
               className="rounded-md bg-accent px-3.5 py-2.5 font-semibold text-paper no-underline"
             >
               Install
-            </Link>
-            <Link to="/" hash="start" className="ml-4 text-accent">
+            </LocalLink>
+            <LocalLink to="/" hash="start" className="ml-4 text-accent">
               Start with one message ↓
-            </Link>
+            </LocalLink>
           </p>
         </div>
         <BoardScene />
