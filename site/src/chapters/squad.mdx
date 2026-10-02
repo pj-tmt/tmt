@@ -337,3 +337,43 @@ $ tmt sq rm auth-fix                  # leaves the squad; the agent keeps runnin
 `tmt sq` is short for `tmt squad`. With more than one squad, add `--squad <name>`.
 
 </More>
+
+### Reference: tabs, refresh and bindings
+
+The full configuration contract is in the Squad skill, which `tmt sq skill show` prints and which lives [in the repository](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-squad/skills/tmt-squad/SKILL.md). These are the settings people reach for most.
+
+**Tabs.** Beyond `order` and `hide`, `pin` and `colors` shape the tab line:
+
+<Code>{`
+[tabs]
+pin = ["all"]                # first, in this order, and always in view
+
+[tabs.colors]
+waiting = "waiting" # the color of a tab with a member waiting on you
+blocked = "blocked" # and of one with a blocked member
+`}</Code>
+
+A pinned tab keeps its place when the tab line scrolls, and the other tabs can't be moved past it. A pinned tab that is hidden or missing is skipped. A color is `default` or a theme token. `squad:<name>` names a squad that shares its name with a built-in tab, such as one called `all`. A hidden squad that you open by name or from the switcher leads the tab line, marked `(hidden)`.
+
+**Refresh.** The board reloads on an interval: 5 seconds unless you set `refresh` under `[board]` for every board, or under `[squad.<name>.board]` for one. Use whole seconds or minutes from `"1s"` to `"60m"`, or `"off"` to reload only on **ctrl-r** and the board's own actions.
+
+**Bindings.** A binding is `event = "action"`. An event is a printable key as you type it (`o` and `O` differ), `enter`, `space`, `tab`, `backspace`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1` to `f12`, `ctrl-<letter>` (not `ctrl-c`, which always quits), or the mouse: `click` and `double-click`. The keys `q`, `j`, `k`, `/` and `?` are reserved. A section's bindings win over `[bind]`, which wins over the host's defaults. The **leads** and **all** tabs take their own from `[tabs.leads.bind]` and `[tabs.all.bind]`.
+
+| Action                         | What it does                                                     |
+| ------------------------------ | ---------------------------------------------------------------- |
+| `jump` · `jump lead`           | go to the row's member, or to its squad's lead                   |
+| `back`                         | return to where you were                                         |
+| `talk` · `reply`               | write to the member · answer what it waits on                    |
+| `annotate` · `annotate member` | note for the lead (the default) or for the member                |
+| `open` · `open {field}`        | open the row's link, or the link in that field                   |
+| `copy` · `copy <template>`     | copy a line; the default is `{name}: {task} ({state})`           |
+| `run <program> [args…]`        | start a program; each `{field}` fills exactly one argument       |
+| `notes`                        | unfold and focus the notes pane                                  |
+| `refresh`                      | reload now                                                       |
+| `theme`                        | open the theme picker                                            |
+| `next-pane`                    | focus the next pane                                              |
+| `toggle <pane>`                | fold or unfold `rows`, `notes`, `detail` or `replies`            |
+| `menu`                         | open the row's action menu, which Enter does in a plain terminal |
+| `tab`                          | open the row's squad tab, which Enter does on the **all** tab    |
+
+Press `?` on the board for the keys and bindings in effect.

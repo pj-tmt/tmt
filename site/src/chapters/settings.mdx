@@ -1,7 +1,7 @@
 import { Cmd, Code } from "../components/Cmd";
 import { Callout } from "../components/marks";
 
-tmt has few settings, and each one has a default. This page covers changing them, tab completion, the pane badge's extras and the fixes for the problems people hit most.
+tmt has few settings, and each one has a default. This page covers changing them, updating tmt, tab completion, the pane badge's extras and the fixes for the problems people hit most.
 
 ### `tmt config`
 
@@ -31,6 +31,19 @@ $ tmt config rm pasteEnterDelayMs                 # drop this folder's override
 Numbers are written as plain digits: no units, signs or decimals. A change to `exchange.retentionDays` applies to new requests only.
 
 Colors come from a theme, which you also choose in the global file. The command line uses your terminal's own 16 colors until you pick one. [Colors and themes](/extensions/squad#colors-and-themes) has the choices.
+
+### Update tmt
+
+`tmt upgrade`, also spelled `tmt update`, updates the CLI, its skills and your installed [extensions](/extensions) on the channel you installed from, `stable` or `alpha`.
+
+<Cmd>{`
+$ tmt upgrade                        # the latest on your channel
+$ tmt upgrade --channel stable       # switch channel
+$ tmt upgrade --to 5.0.0-alpha.8     # an exact version, which pins the CLI there
+$ tmt upgrade --unpin                # follow the channel again
+`}</Cmd>
+
+`--channel` and `--to` choose the CLI's version only. Extensions keep their own channel and pin, and a pinned CLI doesn't hold them back. Extension updates ask once, listing the version changes, and `--yes` answers for you. With no terminal, or with `--json`, and without `--yes`, tmt applies none of them: each pending extension is reported as `consentRequired`, with the command to run again. An extension that fails to update makes the command fail but doesn't undo the others.
 
 ### Shell completion
 
@@ -99,4 +112,5 @@ Allow that directory or socket, or let the agent run the same command with the p
 
 - `TIMEOUT` ends only your waiting. Fetch the reply later with `tmt result`; see [`tmt talk` and `tmt reply`](/working#tmt-talk-and-tmt-reply).
 - `DELIVERY_UNCERTAIN` means the text may have reached the pane. Look with `tmt check` before you decide anything; see [Delivery details](/working#delivery-details).
+- `DELIVERY_AWAITING_APPROVAL` means the agent is waiting on its user, so nothing was sent. The request stays queued. Retry after the agent has continued, and never type into its pane to get around it; see [Delivery details](/working#delivery-details).
 - `CHANNEL_NOT_READY`, `CHANNEL_UNREACHABLE` and `CHANNEL_ENROLLMENT_ENDED` come from Claude's [message channel](/drivers/claude-code#message-channel): nothing was sent and nothing was pasted.
