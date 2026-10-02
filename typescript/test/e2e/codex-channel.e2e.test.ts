@@ -365,10 +365,11 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       const first = start(f, 'HookModel', 'default', { MOCK_HOOK_MODEL: 'fixture-first-model' });
       await ready(f, first);
       const original = records(f)[0].record.ready.thread;
+      const trace = installTmuxTrace(f);
       const exerciseHook = async (s: Session, model: string) => {
         const [{ record }] = records(f);
         const foreground = record.foreground.process!;
-        const trace = installTmuxTrace(f);
+        trace.clear();
         expect((await talk(f, 'HookModel', 'observe hook model')).code).toBe(0);
         await f.waitFor(
           () => events(s, 'hook').length === 1,

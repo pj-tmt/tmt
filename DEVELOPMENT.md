@@ -1585,6 +1585,9 @@ Docker scenario imports use the `typescript/test/e2e/harness.ts` facade; the
 fixture, readiness, cleanup and type modules live under
 `typescript/test/e2e/harness/`. The
 [architecture map](ARCHITECTURE.md#testing-and-evidence-boundaries) defines their ownership.
+Synchronous fixture tmux calls fail after five seconds and kill the client;
+scenario timeouts remain required. Install a fixture's tmux trace once, then
+reuse its `clear()` method between actions; a second installation is refused.
 
 Shared cross-suite utilities belong in `typescript/test/support/`; suite-only harness,
 assertions and observers stay with their suite. Focused helper tests belong in

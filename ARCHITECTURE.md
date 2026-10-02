@@ -3614,6 +3614,11 @@ diagnostics in its run log and result artifact; the packed runner owns stream ca
 
 Docker E2E `harness.ts` retains scenario imports; `harness/fixture.ts` owns
 fixture resources and process registries.
+Its synchronous tmux client calls have a five-second SIGKILL bound, so a stuck
+wrapper cannot block the scenario timer. The suite-local tmux tracer refuses a
+second installation before replacing its delegate; scenarios reuse and clear
+one trace per fixture. Tooling regressions verify refusal, wrapper preservation
+and termination of a nonresponsive client without starting host tmux.
 `harness/readiness.ts` observes caller-supplied events, panes and process state;
 `harness/cleanup.ts` stops and checks owned process groups and clients. Unknown
 group inspection remains pending within the one-second cleanup bound; unresolved
