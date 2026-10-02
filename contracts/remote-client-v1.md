@@ -500,10 +500,11 @@ authorize retries or reveal grants.
 Remote offers extensions five parts. Each is consumed through remote; an extension never
 reimplements one.
 
-**Device context.** Every request, upgrade and relay frame that reaches an extension carries the
-authenticated device context: `{deviceId, kind, origin, name, owner:true, grantRevision}` for a
-paired owner device, or `{principal, owner:false}` for a non-owner principal that the backend edge
-authenticated for that extension only (below). Extensions query the current principal from the CLI
+**Device context.** A request, upgrade or relay frame from a paired owner device reaches the
+extension with the authenticated device context `{deviceId, kind, origin, name, owner:true,
+grantRevision}`. A cloud edge attributes a non-owner principal it authenticated for that extension
+as `{principal, owner:false}`; on the local door a non-owner request arrives without a device
+context and the extension authenticates it (below). Extensions query the current principal from the CLI
 and browser SDK and subscribe to device revocation and renaming events (for example to rotate page
 epochs). An extension that needs its own keys generates them on the device and asks the device key
 to certify them: the device signs LP(`tmt-ext-cert-v1`) || LP(extension) || LP(purpose) ||
@@ -525,9 +526,9 @@ their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/
 Operations are append with create-only per-stream sequence (an exact retry returns the original
 receipt), subscribe from a scoped opaque cursor with bounded catch-up paging, ack as a cursor
 checkpoint only, an object store keyed by object ID with chunked transfer, and an ephemeral
-awareness lane that is never stored. Before accepting an append or subscription, remote calls the
-extension's synchronous admission hook with the device context and frame metadata; the extension
-decides membership, role, epoch and writer checks. Revocation terminates live subscriptions. Remote
+awareness lane that is never stored. Before accepting an append, subscription, object transfer or
+awareness frame, remote calls the extension's synchronous admission hook with the device context
+and frame metadata; the extension decides membership, role, epoch and writer checks. Revocation terminates live subscriptions. Remote
 enforces per-object size caps and per-namespace quotas and expiry declared by the extension. Relay
 ack is never core X acknowledgment, task completion or send.
 
@@ -542,9 +543,13 @@ or Worker admission fragments for their namespaces, TTL fields, indexes, blob st
 provisions and deploys them with its own resources, as below.
 
 Principals stay separate. Owner devices are paired through remote and are the only principals that
-can call operations. People an extension shares with (page members, link holders) are authenticated
-by the backend edge and the extension's admission hook, reach only the relay namespaces the
-extension admits, and never receive operation scopes.
+can call operations. People an extension shares with (page members, link holders) are never paired
+by remote. On a cloud backend the edge and the extension's admission fragments authenticate them. On
+the local door, a mounted-route request without an owner-device session is forwarded to the
+extension without a device context; the extension authenticates it itself (for example by link-key
+possession or a member device signature) and attributes it as `{principal, owner:false}`. Either
+way they reach only the routes and relay namespaces the extension admits, never the remote
+operation routes, and never receive operation scopes.
 
 ## Backends and deploy
 
