@@ -1,4 +1,5 @@
 import { useEffect, useState, type RefObject } from "react";
+import { prefersReducedMotion } from "../scenes/motion";
 
 export type Sleep = (ms: number) => Promise<boolean>;
 
@@ -10,14 +11,6 @@ type Script<F> = {
   // cancelled, when a newer step took over.
   animate: (k: number, emit: (frame: F) => void, sleep: Sleep) => Promise<boolean>;
   hold: (k: number) => number;
-};
-
-const reducedMotion = () => {
-  try {
-    return matchMedia("(prefers-reduced-motion: reduce)").matches;
-  } catch {
-    return false;
-  }
 };
 
 // A step-by-step walkthrough that starts when it scrolls into view, loops,
@@ -47,7 +40,7 @@ class Controller<F> {
       new Promise((resolve) => setTimeout(() => resolve(mine === this.token), ms));
     this.index = k;
     this.step(k);
-    if (animate && !reducedMotion()) {
+    if (animate && !prefersReducedMotion()) {
       const finished = await this.script.animate(
         k,
         (frame) => mine === this.token && this.draw(frame),
@@ -90,7 +83,7 @@ class Controller<F> {
 export function useStepPlayer<F>(script: Script<F>, root: RefObject<HTMLDivElement | null>) {
   const [frame, setFrame] = useState<F>(() => script.still(0));
   const [index, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(() => !reducedMotion());
+  const [playing, setPlaying] = useState(() => !prefersReducedMotion());
   const [controller] = useState(
     () => new Controller(script, playing, setFrame, setIndex, setPlaying),
   );

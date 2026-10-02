@@ -559,6 +559,8 @@ Tailwind and MDX), with its own lockfile outside the TypeScript workspace.
 Chapters are `site/src/chapters/*.mdx`, registered in `site/src/chapters/index.ts`.
 The sticky status bar at the top is the chapter navigation: one tmux-style window per
 chapter group (`windows` in the same file), with the `[tmt]` button opening the full page tree.
+Animated scenes are declarative frames in `site/src/scenes/` (`Window`, `TmuxBar`, `useFrames`): they
+advance only while on screen and rest on one complete frame under `prefers-reduced-motion`.
 Colors, fonts and marks come from `design/tokens/tokens.json`, which the
 stylesheet and the design page read. Anything not in a release is marked
 planned.
