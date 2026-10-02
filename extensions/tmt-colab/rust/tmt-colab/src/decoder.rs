@@ -84,7 +84,7 @@ impl Decoder {
         })
     }
     /// Exclusive mutable ownership prevents concurrent children through this page owner.
-    /// Failed invocations can be reused only after invoke reports Confirmed cleanup.
+    /// Reuse requires no started child or confirmed cleanup; possible survivors block it.
     pub fn decode(
         &mut self,
         batch: Batch<'_>,
@@ -142,12 +142,13 @@ impl Decoder {
                 max_stream_bytes: STREAM_BYTES,
                 launch: LaunchOptions {
                     environment: EnvironmentPolicy::ClearAllowlist(&[]),
+                    ..Default::default()
                 },
             },
             stop,
         )
         .map_err(|e| {
-            self.blocked = !matches!(e.cleanup, Cleanup::Confirmed);
+            self.blocked = cleanup_blocks(&e.cleanup);
             DecodeFault::Invoke(e)
         })?;
         if !output.status.success() {
@@ -172,6 +173,9 @@ impl Decoder {
             child_pid: reply.pid,
         })
     }
+}
+fn cleanup_blocks(cleanup: &Cleanup) -> bool {
+    !matches!(cleanup, Cleanup::NotStarted | Cleanup::Confirmed)
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -225,15 +229,21 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             }
         }
         Namespace::Own => {
+            let Some(threads) = roots.get("threads").and_then(Value::as_object) else {
+                return Err(DecodeFault::InvalidOutput);
+            };
+            let Some(messages) = roots.get("messages").and_then(Value::as_object) else {
+                return Err(DecodeFault::InvalidOutput);
+            };
             if roots.len() != 4
                 || ["threads", "messages", "intents", "replies"]
                     .iter()
                     .any(|k| !roots.get(*k).is_some_and(Value::is_object))
-                || roots["threads"].as_object().unwrap().len() > 1000
+                || threads.len() > 1000
             {
                 return Err(DecodeFault::InvalidOutput);
             }
-            for message in roots["messages"].as_object().unwrap().values() {
+            for message in messages.values() {
                 if message
                     .get("body")
                     .is_some_and(|v| v.as_str().is_none_or(|v| v.len() > 16 * 1024))

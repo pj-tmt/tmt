@@ -1,6 +1,6 @@
 use super::*;
 #[test]
-fn input_role_and_failed_launch_cannot_start_another_child() {
+fn input_role_denial_and_missing_program_leave_no_child() {
     let mut decoder = Decoder::new("/definitely-missing-tmt-colab".into()).unwrap();
     let bytes = vec![0; UPDATE_BYTES + 1];
     let updates = [bytes.as_slice()];
@@ -50,7 +50,7 @@ fn input_role_and_failed_launch_cannot_start_another_child() {
             Role::Editor,
             None
         ),
-        Err(DecodeFault::Invoke(_))
+        Err(DecodeFault::Invoke(e)) if matches!(e.cleanup, Cleanup::NotStarted)
     ));
     assert!(matches!(
         decoder.decode(
@@ -62,8 +62,16 @@ fn input_role_and_failed_launch_cannot_start_another_child() {
             Role::Editor,
             None
         ),
-        Err(DecodeFault::CleanupBlocked)
+        Err(DecodeFault::Invoke(e)) if matches!(e.cleanup, Cleanup::NotStarted)
     ));
+}
+#[test]
+fn cleanup_blocks_only_when_a_child_may_survive() {
+    assert!(!cleanup_blocks(&Cleanup::NotStarted));
+    assert!(!cleanup_blocks(&Cleanup::Confirmed));
+    assert!(cleanup_blocks(&Cleanup::Unconfirmed(
+        std::io::Error::other("wait failed")
+    )));
 }
 #[test]
 fn child_projection_rejects_namespace_type_and_size_substitution() {

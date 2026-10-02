@@ -202,16 +202,22 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
                     max_stream_bytes: STREAM_BYTES,
                     launch: LaunchOptions {
                         environment: EnvironmentPolicy::ClearAllowlist(&[]),
+                        ..Default::default()
                     },
                 },
                 None,
             ) {
                 Ok(output) => {
+                    assert_ne!(index, 26, "saved timeout did not hit its deadline");
                     assert!(
                         !output.status.success(),
                         "fixture schema cannot be admitted: {index}"
                     );
-                    if output.stderr.windows(13).any(|v| v == b"decoder panic") {
+                    let panicked = output.stderr.windows(13).any(|v| v == b"decoder panic");
+                    if [60, 106, 147, 157, 192].contains(&index) {
+                        assert!(panicked, "saved panic was not reproduced: {index}");
+                    }
+                    if panicked {
                         panic += 1;
                     }
                     if !cfg!(target_os = "linux") {
@@ -222,6 +228,10 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
                     }
                 }
                 Err(e) => {
+                    assert!(
+                        ![60, 106, 147, 157, 192].contains(&index),
+                        "saved panic timed out instead: {index}"
+                    );
                     assert!(
                         matches!(e.cleanup, Cleanup::Confirmed),
                         "cleanup failed at {index}: {e}"
@@ -237,6 +247,22 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
             start.elapsed()
         );
     }
+    let mut decoder = owner();
+    assert!(matches!(decoder.decode(Batch {
+        namespace: Namespace::Content, baseline: &[], updates: &[&corpus[26]]
+    }, Role::Editor, None), Err(DecodeFault::Invoke(e)) if e.kind == FailureKind::Deadline && matches!(e.cleanup, Cleanup::Confirmed)));
+    let reply = decoder
+        .decode(
+            Batch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    gone(reply.child_pid);
 }
 
 struct FixtureProgram {

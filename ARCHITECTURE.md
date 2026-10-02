@@ -3724,8 +3724,9 @@ are enforced before decoding and before returning output. Linux sets the pinned
 address-space limit in the child before stdin; setrlimit failure rejects the job. Other platforms, including macOS, run with time/output containment and
 report `memory limit unavailable`. This is crash/resource containment with
 residual user filesystem authority, not a network/filesystem sandbox.
-Invoke owns the process group and cleanup. Failed invocation reuse requires
-`Cleanup::Confirmed`; other cleanup states block that runner. Invalid output,
+Invoke owns the process group and cleanup. A runner remains reusable when
+`Cleanup::NotStarted` proves no child existed, or after `Cleanup::Confirmed`.
+States where a child may survive block that runner. Invalid output,
 panic or timeout returns no application result. The archived #830 seeded corpus
 and six exact hostile dumps are owned by the decoder tests, which run the corpus
 twice with fixture-specific one-second/45-second budgets and positive controls.
