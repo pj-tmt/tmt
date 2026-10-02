@@ -3738,8 +3738,8 @@ and authority definition owner.
 
 ## Colab extension proposal
 
-**Status: persistence and foreground deny-all executable and model foundation implemented;
-authentication, sync, decoder, browser and backend work remains proposed.** The local-build-only pilot lives under
+**Status: persistence, foreground deny-all executable, isolated decoder and model foundation implemented;
+authentication, sync, browser and backend work remains proposed.** The local-build-only pilot lives under
 `extensions/tmt-colab/`. Its [normative colab-v1 contract](extensions/tmt-colab/contracts/colab-v1.md)
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
@@ -3832,7 +3832,7 @@ owner-log caller.
 Per-page capacity returns an error instead of evicting history. Envelope
 signatures, identity grammar, roles and owner-transition authorization belong
 to the future model/admission caller; this library creates no network authority.
-Tests own isolated directories and SQLite oracles. Sync, authentication, decoder and further model integration remain later slices.
+Tests own isolated directories and SQLite oracles. Sync, authentication and further model integration remain later slices.
 The executable depends on the reviewed invoke/style leaves and pinned
 storage/network/crypto primitives, never core, adapter, Remote or Office crates. Its component is excluded from release;
 workspace checks and Docker build contexts include its manifest.
