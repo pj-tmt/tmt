@@ -57,10 +57,7 @@ export const components: MDXComponents = {
   ol: (props) => <ol className="mb-3.5 pl-[1.3em] [&>li]:mb-1.5 [&>li]:list-decimal" {...props} />,
   a: A,
   code: (props) => (
-    <code
-      className="rounded-[3px] bg-accent-soft px-[.35em] py-[.12em] font-mono text-[.84em]"
-      {...props}
-    />
+    <code className="bg-accent-soft px-[.35em] py-[.12em] font-mono text-[.84em]" {...props} />
   ),
   table: (props) => (
     <div className="term-scroll my-4 w-full">

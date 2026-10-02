@@ -144,15 +144,12 @@ export function DemoControls({
   toggle: () => void;
 }) {
   const button =
-    "cursor-pointer rounded-md border border-rule bg-sheet px-3 py-2 font-mono text-[13px] leading-none text-text hover:border-accent";
+    "cursor-pointer border border-rule bg-sheet px-3 py-2 font-mono text-[13px] leading-none text-text hover:border-accent";
   return (
     <>
       <div className="mt-2 flex gap-1.5" aria-hidden="true">
         {Array.from({ length: count }, (_, k) => (
-          <i
-            key={k}
-            className={`h-[3px] w-[18px] rounded-sm ${k <= index ? "bg-accent" : "bg-rule"}`}
-          />
+          <i key={k} className={`h-[3px] w-[18px] ${k <= index ? "bg-accent" : "bg-rule"}`} />
         ))}
       </div>
       <div className="mt-2.5 flex items-center gap-2">

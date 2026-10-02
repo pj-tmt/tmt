@@ -110,7 +110,7 @@ function KeyBar() {
   );
 }
 
-const sketch = "my-6 w-full overflow-hidden rounded-md bg-term text-t-text";
+const sketch = "my-6 w-full overflow-hidden bg-term text-t-text";
 const pre = "term-scroll m-0 px-3.5 pt-3 pb-3.5 font-mono text-[12.5px] leading-[1.6]";
 
 export function BoardSketch() {

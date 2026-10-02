@@ -6,7 +6,7 @@ import { useStrings } from "../lang/useStrings";
 // journey adds a layer to the same foundation at every step.
 
 const mini =
-  "min-w-0 overflow-hidden rounded-md border border-term-edge bg-term p-3 font-mono text-[12.5px] leading-[1.55] text-t-text";
+  "min-w-0 overflow-hidden border border-term-edge bg-term p-3 font-mono text-[12.5px] leading-[1.55] text-t-text";
 
 function Pane({
   name,
@@ -37,7 +37,7 @@ const Arrow = ({ children }: { children: ReactNode }) => (
 );
 
 const New = ({ children }: { children: ReactNode }) => (
-  <span className="ml-1.5 rounded-[3px] bg-t-accent px-1.5 py-0.5 text-[10px] font-semibold text-term-bar">
+  <span className="ml-1.5 bg-t-accent px-1.5 py-0.5 text-[10px] font-semibold text-term-bar">
     {children}
   </span>
 );
@@ -109,7 +109,7 @@ export function BoardStepScene() {
 
 function Machine({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <div className="min-w-0 overflow-hidden rounded-lg border border-term-edge bg-term font-mono text-xs leading-[1.55] text-t-text">
+    <div className="min-w-0 overflow-hidden border border-term-edge bg-term font-mono text-xs leading-[1.55] text-t-text">
       <div className="flex justify-between bg-term-bar px-2.5 py-1.5 font-semibold text-t-muted">
         <span>{name}</span>
         <span className="text-t-working">●</span>
@@ -144,11 +144,11 @@ export function ColabScene() {
       <div className="col-span-full text-center font-mono text-[11px] font-semibold text-muted">
         ⇣ {scenes.sharedPage} <New>{scenes.inProgress}</New>
       </div>
-      <div className="col-span-full overflow-hidden rounded-lg border border-rule bg-sheet text-text">
+      <div className="col-span-full overflow-hidden border border-rule bg-sheet text-text">
         <div className="flex items-center gap-1.5 bg-rule px-2.5 py-1.5 font-mono text-[11px] text-muted">
-          <i className="size-2 rounded-full bg-dim" />
-          <i className="size-2 rounded-full bg-dim" />
-          <i className="size-2 rounded-full bg-dim" />
+          <i className="size-2 bg-dim" />
+          <i className="size-2 bg-dim" />
+          <i className="size-2 bg-dim" />
           <span className="ml-1.5">{scenes.pageTitle}</span>
         </div>
         <div className="grid grid-cols-1 gap-3 p-3 text-[13px] leading-normal sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import tokens from "../../../design/tokens/tokens.json";
 
-const termBlock = "my-5 w-full overflow-hidden rounded-md bg-term text-t-text";
+const termBlock =
+  "my-5 w-full overflow-hidden border border-term-edge bg-term text-t-text shadow-[6px_6px_0_var(--c-accent)]";
 
 export function LsSample() {
   const dm = "text-t-dim";
@@ -85,11 +86,11 @@ export function DriverCard({
   spec: [string, ReactNode][];
 }) {
   return (
-    <article className="my-6 overflow-hidden rounded-md border border-rule bg-sheet">
+    <article className="my-6 overflow-hidden border border-rule bg-sheet">
       <header className="flex flex-wrap items-baseline gap-x-3.5 gap-y-1.5 border-b border-rule px-4.5 py-3.5">
         <h3 className="m-0 font-display text-xl font-extrabold">{name}</h3>
         <span className="font-mono text-xs text-muted">{kind}</span>
-        <span className="ml-auto rounded-[3px] bg-accent-soft px-1.5 py-1 font-mono text-[10.5px] leading-none font-semibold tracking-[0.08em] text-accent uppercase">
+        <span className="ml-auto bg-accent-soft px-1.5 py-1 font-mono text-[10.5px] leading-none font-semibold tracking-[0.08em] text-accent uppercase">
           built in
         </span>
       </header>
@@ -172,7 +173,7 @@ export function Spaces() {
 
 function Space({ title, rows }: { title: string; rows: [string, string, string][] }) {
   return (
-    <div className="rounded-lg border border-rule bg-sheet px-3.5 py-3">
+    <div className="border border-rule bg-sheet px-3.5 py-3">
       <h4 className="m-0 mb-2 font-mono text-[10.5px] leading-none font-semibold tracking-[0.08em] text-muted uppercase">
         {title}
       </h4>
@@ -193,7 +194,7 @@ type Rendering = { use: string; dark: string; light: string; terminal?: string }
 function Swatch({ color }: { color: string }) {
   return (
     <span
-      className="mr-1 inline-block size-[0.9em] rounded-[2px] border border-rule align-[-0.1em]"
+      className="mr-1 inline-block size-[0.9em] border border-rule align-[-0.1em]"
       style={{ background: color }}
     />
   );
@@ -249,7 +250,7 @@ export function TokenPreview() {
     pick: (value: Rendering) => string,
     note: string,
   ) => (
-    <div className="min-w-0 overflow-hidden rounded-md border border-rule" style={{ background }}>
+    <div className="min-w-0 overflow-hidden border border-rule" style={{ background }}>
       <div
         className="px-3 pt-2.5 pb-1 font-mono text-[10.5px] font-semibold tracking-[0.08em] uppercase"
         style={{ color: pick(tokens.color.muted) }}

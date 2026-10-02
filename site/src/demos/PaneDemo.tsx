@@ -28,7 +28,7 @@ type Frame = { focus: number; panes: PaneFrame[] };
 const LOOK = {
   claude: {
     head: (
-      <div className="mx-2 mt-1.5 mb-1 flex-none rounded border border-[#E0AF68]/55 px-2 py-1 leading-[1.45]">
+      <div className="mx-2 mt-1.5 mb-1 flex-none border border-[#E0AF68]/55 px-2 py-1 leading-[1.45]">
         <span className="text-[#E0AF68]">✻</span> Welcome to <b>Claude Code</b>
         <br />
         <span className="text-t-dim">cwd: ~/web</span>
@@ -51,7 +51,7 @@ const LOOK = {
   },
   codex: {
     head: (
-      <div className="mx-2 mt-1.5 mb-1 flex-none rounded border border-term-edge px-2 py-1 leading-[1.45]">
+      <div className="mx-2 mt-1.5 mb-1 flex-none border border-term-edge px-2 py-1 leading-[1.45]">
         <b>&gt;_ OpenAI Codex</b>
         <br />
         <span className="text-t-dim">model: gpt-5 medium · directory: ~/web</span>
@@ -274,7 +274,10 @@ export function PaneDemo({
   const step = steps[player.index];
   return (
     <div ref={root} className="my-5 w-full" role="group" aria-label={label}>
-      <div aria-hidden="true" className="overflow-hidden rounded-md bg-term">
+      <div
+        aria-hidden="true"
+        className="overflow-hidden border border-term-edge bg-term shadow-[6px_6px_0_var(--c-accent)]"
+      >
         <FitWidth width={640}>
           <div className="grid h-[400px] grid-cols-2 grid-rows-2 font-mono text-xs leading-[1.55] text-t-text">
             {layout.map((pane, index) => {

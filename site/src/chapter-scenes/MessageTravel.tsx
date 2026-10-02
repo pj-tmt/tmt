@@ -41,7 +41,7 @@ export function MessageTravel() {
       <div
         role="img"
         aria-label={travel.label}
-        className="relative overflow-hidden rounded-lg border border-term-edge"
+        className="relative overflow-hidden border border-term-edge shadow-[6px_6px_0_var(--c-accent)]"
       >
         <div aria-hidden="true" className="grid grid-cols-1 gap-px bg-term-edge md:grid-cols-3">
           <Pane name={travel.lead} tag="claude" tone="text-t-review" rows={leadRows} step={index} />
@@ -63,7 +63,7 @@ export function MessageTravel() {
         <span
           aria-hidden="true"
           style={{ left: PACKET[Math.min(index, 2)] }}
-          className={`pointer-events-none absolute top-[58%] hidden -translate-x-1/2 rounded bg-t-waiting px-2 py-0.5 font-mono text-[11px] font-semibold text-term-bar transition-[left,opacity] duration-700 ease-in-out motion-reduce:transition-none md:block ${
+          className={`pointer-events-none absolute top-[58%] hidden -translate-x-1/2 bg-t-waiting px-2 py-0.5 font-mono text-[11px] font-semibold text-term-bar transition-[left,opacity] duration-700 ease-in-out motion-reduce:transition-none md:block ${
             index < REST ? "opacity-100" : "opacity-0"
           }`}
         >

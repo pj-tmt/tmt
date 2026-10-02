@@ -48,7 +48,7 @@ export function Journey() {
               type="button"
               aria-pressed={k === index}
               onClick={() => choose(k)}
-              className={`grid w-full cursor-pointer gap-0.5 rounded-md border-0 px-3 py-2.5 text-left font-body text-[13px] leading-snug ${
+              className={`grid w-full cursor-pointer gap-0.5 border-0 px-3 py-2.5 text-left font-body text-[13px] leading-snug ${
                 k === index ? "bg-sheet text-text" : "bg-transparent text-muted hover:text-text"
               }`}
             >
@@ -63,7 +63,7 @@ export function Journey() {
           </li>
         ))}
       </ol>
-      <div className="flex min-h-[360px] items-center overflow-hidden rounded-xl border border-rule bg-paper p-4.5 [background-image:radial-gradient(circle_at_1px_1px,var(--c-rule)_1px,transparent_0)] [background-size:18px_18px]">
+      <div className="flex min-h-[360px] items-center overflow-hidden border border-rule bg-paper p-4.5 [background-image:radial-gradient(circle_at_1px_1px,var(--c-rule)_1px,transparent_0)] [background-size:18px_18px]">
         <div
           key={step.id}
           className="w-full animate-[grow_0.45s_ease-out] motion-reduce:animate-none"
@@ -79,7 +79,7 @@ export function Journey() {
           return (
             <div
               key={name}
-              className={`flex justify-between gap-2.5 rounded-md border px-3 py-1.5 font-mono text-xs font-semibold transition-colors motion-reduce:transition-none ${
+              className={`flex justify-between gap-2.5 border px-3 py-1.5 font-mono text-xs font-semibold transition-colors motion-reduce:transition-none ${
                 base
                   ? "border-accent bg-accent text-paper"
                   : on

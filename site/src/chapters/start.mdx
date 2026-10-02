@@ -5,12 +5,15 @@ import { PaneDemo, basicLoop, resumeAfterReboot } from "../demos/PaneDemo";
 import { Concepts } from "../home/Concepts";
 import { Hero } from "../home/Hero";
 import { Journey } from "../home/Journey";
+import { BandHead, Showcase } from "../home/Showcase";
 
 <Hero />
 
+<BandHead name="start" />
+
 <h2
   id="start"
-  className="mt-16 mb-3 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance"
+  className="mt-2.5 mb-3 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance"
 >
   {"Start with "}
   <em className="text-accent not-italic">one message</em>
@@ -22,6 +25,10 @@ import { Journey } from "../home/Journey";
 Start with the talk, reply and receipt in step 1. Board, colab and meet all sit on that same foundation, and you can stop at any step: what you have still works.
 
 <Journey />
+
+<Showcase />
+
+<BandHead name="install" />
 
 ### Install
 
