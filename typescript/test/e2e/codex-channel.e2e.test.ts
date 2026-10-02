@@ -711,7 +711,8 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       expect(fs.readFileSync(file, 'utf8')).toBe(before);
       const plain = start(f, 'Bystander', false, { MOCK_AUTOREPLY: '0' });
       await ready(f, plain);
-      const trace = installTmuxTrace(f);
+      const trace = retainedTrace;
+      trace.clear();
       const blocked = await talk(f, old.pane, 'unknown must not paste');
       // A saved offline identity may queue its durable inbox without touching
       // this terminal. The identity-less pane guard is exercised below separately.
