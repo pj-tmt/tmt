@@ -37,7 +37,7 @@ export function LanguageSwitcher({
             className={
               bar
                 ? `flex items-center px-2 no-underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-t-waiting ${
-                    on ? "bg-term-bar text-t-accent" : "text-term-bar hover:bg-term-bar/15"
+                    on ? "bg-term-bar text-t-accent" : "text-paper hover:bg-term-bar/15"
                   }`
                 : `px-2.5 py-1.5 font-mono text-[13px] no-underline ${
                     on ? "font-semibold text-t-accent" : "text-t-dim hover:text-t-text"
