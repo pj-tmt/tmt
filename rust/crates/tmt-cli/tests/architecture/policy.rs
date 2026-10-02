@@ -124,6 +124,10 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // The driver protocol carries no TMT behavior: a community driver
         // builds against it alone, so its only workspace crate is the grammar.
         "tmt-driver-protocol" => &["serde", "serde_json", "tmt-host-grammar"],
+        // The Herdr driver is built like a community driver: the protocol
+        // crate alone, with tmt-invoke as its bounded process owner. It never
+        // reaches core or the adapters.
+        "tmt-driver-herdr" => &["semver", "serde_json", "tmt-driver-protocol", "tmt-invoke"],
         // A host's pane-ID and target syntax, defined once for core and the
         // driver protocol; it depends on nothing.
         "tmt-host-grammar" => &[],

@@ -1,8 +1,9 @@
 //! The #491 host guard: production code spells a terminal host's name only in
 //! its core descriptor (`tmt-core/src/host.rs`), the host port
-//! (`tmt-adapters/src/host.rs`) and the host's own adapter module (`tmux/`,
-//! `herdr/`). Human prose that mentions a host is not a literal equal to its
-//! name and stays.
+//! (`tmt-adapters/src/host.rs`), the host's own adapter module (`tmux/`,
+//! `herdr/`) and its out-of-process driver crate (`tmt-driver-herdr`), which
+//! reaches TMT only through the protocol and so has no `HostKind`. Human prose
+//! that mentions a host is not a literal equal to its name and stays.
 //!
 //! Squad is outside this guard: its hotkeys and clipboard are tmux-only
 //! extension features that it reaches through tmux itself, and the Herdr
@@ -10,11 +11,12 @@
 
 use super::{driver_names::owned_literals, source::Source};
 
-const OWNERS: [(&str, &str); 5] = [
+const OWNERS: [(&str, &str); 6] = [
     ("tmt-core", "host.rs"),
     ("tmt-adapters", "host.rs"),
     ("tmt-adapters", "tmux/"),
     ("tmt-adapters", "herdr/"),
+    ("tmt-driver-herdr", ""),
     ("tmt-squad", ""),
 ];
 

@@ -1080,6 +1080,21 @@ TMT_TEST_HERDR=/tmp/hdrbin/herdr pnpm exec vitest run --config test/native/vites
 It starts a headless server on a short private socket with update checks off,
 runs commands inside its panes, and fails if any server process remains.
 
+The Herdr host driver (`tmt-driver-herdr`, not packaged: `dist = false`) has
+its own executable test, which uses the same pinned binary. It runs the protocol
+conformance harness and every declared operation against a private server and
+HOME, and fails if a server process remains. Without `TMT_TEST_HERDR`, only the
+stand-in `herdr` conformance case runs. Its checks:
+
+```bash
+(cd rust && cargo test --locked -p tmt-driver-herdr)
+(cd rust && TMT_TEST_HERDR=/tmp/hdrbin/herdr cargo test --locked -p tmt-driver-herdr --test driver)
+(cd rust && cargo clippy --locked -p tmt-driver-herdr --all-targets -- -D warnings)
+(cd rust && cargo test --locked -p tmt-adapters --lib herdr::)
+(cd rust && cargo test --locked -p tmt-cli --test architecture)
+node typescript/scripts/release-please-config.mjs --check
+```
+
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
 local Office board grammar/persistence, managed skills and native installation. It uses bounded process budgets,
