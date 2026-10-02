@@ -23,8 +23,6 @@ $ tmt extension rm squad          # your data stays
 
 `tmt upgrade` also updates the official extensions you installed, each on its own channel and pin, and asks once for all of them; `--yes` skips the question. It never installs a missing extension, and one that fails doesn't undo the others. `tmt extension upgrade <name> --unpin` clears a pin.
 
-Office is frozen and kept internal, and no new Office releases are published. `tmt extension install office`, with or without `--repair`, and `tmt extension upgrade office` stop at once with an `office is frozen` message (`EXTENSION_FROZEN` in `--json`), before they ask or download anything, and `tmt upgrade` skips it. An Office you already installed stays as it is: `tmt extension ls` lists it as `(frozen)`, and `tmt extension rm office` removes its commands and keeps its releases and your data. An Office you never installed isn't listed.
-
 If an extension comes with skills for your agents, install asks once whether to add them; `--skills` adds them without asking. To write your own extension, see [Build an extension](/develop/extensions). Any `tmt-<name>` on your PATH works without `tmt extension`.
 
 ### Known extensions
