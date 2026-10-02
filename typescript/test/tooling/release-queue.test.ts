@@ -44,9 +44,33 @@ const release = (
   headRefName,
   mergeQueueEntry: queued ? { id: 'queue-entry' } : null,
 });
+const coveredNotes = async () => ({ tag: 'fixture', linkedCommits: 0 });
+function queryExecute(response: unknown) {
+  return (command: string, args: string[]) => {
+    if (command === 'git') return 'a'.repeat(40);
+    if (args[1] === 'graphql') return JSON.stringify(response);
+    const candidate = (
+      response as ReturnType<typeof connection>
+    ).data.repository.pullRequests.nodes.find(
+      (node) => (node as ReturnType<typeof release>).number === Number(args[1].split('/').at(-1))
+    ) as ReturnType<typeof release>;
+    return JSON.stringify({
+      number: candidate.number,
+      state: 'open',
+      head: {
+        sha: candidate.headRefOid,
+        ref: candidate.headRefName,
+        repo: { full_name: 'pj-tmt/tmt' },
+      },
+      base: { ref: 'main', repo: { full_name: 'pj-tmt/tmt' } },
+    });
+  };
+}
 function decision(response: unknown) {
-  return releasePrQueued({ repository: 'pj-tmt/tmt', token: 'app-token' }, () =>
-    JSON.stringify(response)
+  return releasePrQueued(
+    { repository: 'pj-tmt/tmt', token: 'app-token' },
+    queryExecute(response),
+    coveredNotes
   );
 }
 function execute(
@@ -57,18 +81,72 @@ function execute(
     live = 'true',
     teeFails = false,
     unknownMergeability = false,
+    staleNotes = false,
   } = {}
 ) {
   const directory = mkdtempSync(path.join(tmpdir(), 'tmt-release-queue-'));
   try {
     writeFileSync(path.join(directory, 'query.json'), JSON.stringify(response));
+    const candidate = (
+      response as ReturnType<typeof connection>
+    ).data.repository.pullRequests.nodes.find(
+      (node) =>
+        (node as ReturnType<typeof release>).mergeQueueEntry !== null &&
+        (node as ReturnType<typeof release>).headRefName.startsWith(
+          'release-please--branches--main--'
+        )
+    ) as ReturnType<typeof release> | undefined;
+    const tag = candidate?.headRefName.endsWith('tmt-squad')
+      ? 'tmt-squad-v0.1.0-alpha.8'
+      : 'v5.0.0-alpha.34';
+    writeFileSync(
+      path.join(directory, 'pr.json'),
+      JSON.stringify({
+        number: candidate?.number,
+        state: 'open',
+        head: {
+          sha: candidate?.headRefOid,
+          ref: candidate?.headRefName,
+          repo: { full_name: 'pj-tmt/tmt' },
+        },
+        base: { ref: 'main', repo: { full_name: 'pj-tmt/tmt' } },
+        body: `## [next](https://github.com/pj-tmt/tmt/compare/${tag}...next)`,
+      })
+    );
+    writeFileSync(
+      path.join(directory, 'releases.json'),
+      JSON.stringify([{ tag_name: tag, draft: false, published_at: '2026-10-02T01:00:00Z' }])
+    );
+    // Anchor equals main HEAD: complete coverage is empty, with no history commands needed.
+    writeExecutable(
+      path.join(directory, 'git'),
+      `#!/bin/sh
+case "$1" in
+  rev-parse)
+    if [ "$STALE_NOTES" = true ] && [ "$3" = origin/main ]; then printf '%s' '${'b'.repeat(40)}';
+    else printf '%s' '${'a'.repeat(40)}'; fi ;;
+  merge-base) ;;
+  rev-list) if [ "$STALE_NOTES" = true ]; then printf '%s' '${'b'.repeat(40)}'; fi ;;
+  log) if [ "$STALE_NOTES" = true ]; then printf '%s\\000fix(core): late change\\000' '${'b'.repeat(40)}'; fi ;;
+  diff-tree) printf 'rust/crates/tmt-core/src/lib.rs\\000' ;;
+  show) cat '${fileURLToPath(new URL('../../../release-please-config.json', import.meta.url))}' ;;
+  *) exit 25 ;;
+esac
+`,
+      0o700
+    );
     writeExecutable(
       path.join(directory, 'gh'),
       `#!/bin/sh
 printf '%s\\n' "$1 $2" >> "$RUNNER_TEMP/queries"
 if [ "$GH_TOKEN" != 'fixture-app' ]; then exit 22; fi
 if [ "$QUERY_FAILS" = true ]; then echo 'query unavailable' >&2; exit 21; fi
-cat "$RUNNER_TEMP/query.json"
+case "$2" in
+  graphql) cat "$RUNNER_TEMP/query.json" ;;
+  */pulls/*) cat "$RUNNER_TEMP/pr.json" ;;
+  */releases*) cat "$RUNNER_TEMP/releases.json" ;;
+  *) exit 24 ;;
+esac
 `,
       0o700
     );
@@ -134,6 +212,7 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
         GH_TOKEN: 'wrong-user-token',
         FAIL_COMMAND: failCommand,
         UNKNOWN_MERGEABILITY: String(unknownMergeability),
+        STALE_NOTES: String(staleNotes),
         RELEASE_WRAPPER: new URL('../../scripts/release-please-run.mjs', import.meta.url).href,
         QUERY_FAILS: String(queryFails),
       },
@@ -154,11 +233,13 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
 }
 
 describe('release PR queue pre-check', () => {
-  it('uses exactly one GraphQL query with the workflow token, not inherited agent credentials', () => {
+  it('uses workflow credentials for discovery and notes reads, not inherited agent credentials', async () => {
     let calls = 0;
-    const queued = releasePrQueued(
+    const response = connection([release(true)]);
+    const queued = await releasePrQueued(
       { repository: 'pj-tmt/tmt', token: 'app-token', env: { GH_TOKEN: 'user-token' } },
       (command, args, options) => {
+        if (command !== 'gh' || args[1] !== 'graphql') return queryExecute(response)(command, args);
         calls += 1;
         expect(command).toBe('gh');
         expect(args.slice(0, 2)).toEqual(['api', 'graphql']);
@@ -167,14 +248,15 @@ describe('release PR queue pre-check', () => {
         expect(args[3]).toContain('states: OPEN');
         expect(args[3]).toContain('mergeQueueEntry { id }');
         expect(options.env.GH_TOKEN).toBe('app-token');
-        return JSON.stringify(connection([release(true)]));
-      }
+        return JSON.stringify(response);
+      },
+      coveredNotes
     );
     expect(queued).toBe(true);
     expect(calls).toBe(1);
   });
 
-  it('skips release-pr when any release PR is queued, preserving github-release', () => {
+  it('skips release-pr when queued notes cover main HEAD, preserving github-release', () => {
     const result = execute(
       connection([
         release(false),
@@ -184,7 +266,56 @@ describe('release PR queue pre-check', () => {
     expect(result.status).toBe(0);
     expect(result.summary).toContain(QUEUED_NOTICE);
     expect(result.commands).toBe('github-release\n');
-    expect(result.queries).toBe('api graphql\n');
+    expect(result.queries).toMatch(
+      /^api graphql\napi repos\/pj-tmt\/tmt\/pulls\/\d+\napi repos\/pj-tmt\/tmt\/releases/
+    );
+  });
+
+  it('refreshes stale queued notes in the same run and keeps github-release', () => {
+    const result = execute(connection([release(true)]), { staleNotes: true });
+    expect(result.status).toBe(0);
+    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.summary).not.toContain(QUEUED_NOTICE);
+  });
+
+  it('fails visibly when notes acquisition fails rather than treating the candidate as covered', async () => {
+    const response = connection([release(true)]);
+    const acquire = queryExecute(response);
+    await expect(
+      releasePrQueued(
+        { repository: 'pj-tmt/tmt', token: 'app' },
+        (command, args) => {
+          if (command === 'gh' && args[1] !== 'graphql') throw new Error('REST notes unavailable');
+          return acquire(command, args);
+        },
+        coveredNotes
+      )
+    ).rejects.toThrow('REST notes unavailable');
+  });
+
+  it('rejects a PR head race before checking its notes', async () => {
+    const response = connection([release(true)]);
+    const acquire = queryExecute(response);
+    await expect(
+      releasePrQueued(
+        { repository: 'pj-tmt/tmt', token: 'app' },
+        (command, args) => {
+          const value = acquire(command, args);
+          if (command === 'gh' && args[1] !== 'graphql') {
+            const pr = JSON.parse(value);
+            pr.head.sha = 'b'.repeat(40);
+            return JSON.stringify(pr);
+          }
+          return value;
+        },
+        coveredNotes
+      )
+    ).rejects.toThrow('changed during discovery');
+  });
+
+  it('fetches full history and tags using the Code quality checkout pattern', () => {
+    const job = workflow.split('  release-stall:')[0];
+    expect(job).toMatch(/persist-credentials: false\n          fetch-depth: 0/);
   });
 
   it('runs both commands unchanged when release PRs are not queued', () => {
@@ -244,17 +375,17 @@ describe('release PR queue pre-check', () => {
     connection([null]),
     connection([{ headRefName: 'release-please--branches--main--x', mergeQueueEntry: {} }]),
     connection([release(false)], true),
-  ])('rejects malformed, partial or incomplete query data %#', (response) => {
-    expect(() => decision(response)).toThrow(/query/);
+  ])('rejects malformed, partial or incomplete query data %#', async (response) => {
+    await expect(decision(response)).rejects.toThrow(/query/);
   });
 
-  it('may safely skip on incomplete discovery once a queued release PR is proven', () => {
-    expect(decision(connection([release(true)], true, 'next'))).toBe(true);
+  it('requires complete discovery even when a queued release PR is found', async () => {
+    await expect(decision(connection([release(true)], true, 'next'))).rejects.toThrow(/invalid PR/);
   });
 
-  it('does not mistake a prefix look-alike or another target branch for main releases', () => {
+  it('does not mistake a prefix look-alike or another target branch for main releases', async () => {
     expect(
-      decision(
+      await decision(
         connection([
           release(true, 'release-please--branches--main-other'),
           release(true, 'release-please--branches--v4--x'),
@@ -263,22 +394,22 @@ describe('release PR queue pre-check', () => {
     ).toBe(false);
   });
 
-  it('refuses missing workflow credentials or malformed repository before running gh', () => {
+  it('refuses missing workflow credentials or malformed repository before running gh', async () => {
     const unexpected = () => {
       throw new Error('must not execute');
     };
-    expect(() => releasePrQueued({ repository: 'pj-tmt/tmt' }, unexpected)).toThrow(
+    await expect(releasePrQueued({ repository: 'pj-tmt/tmt' }, unexpected)).rejects.toThrow(
       'RELEASE_TOKEN'
     );
-    expect(() =>
+    await expect(
       releasePrQueued({ repository: 'pj-tmt/tmt/extra', token: 'app' }, unexpected)
-    ).toThrow('GITHUB_REPOSITORY');
+    ).rejects.toThrow('GITHUB_REPOSITORY');
   });
 });
 
 describe('paginated release discovery', () => {
   const options = { repository: 'pj-tmt/tmt', token: 'app-token' };
-  it.each([true, false])('finds a queued release beyond 100 unrelated PRs: %s', (queued) => {
+  it.each([true, false])('finds a queued release beyond 100 unrelated PRs: %s', async (queued) => {
     const pages = [
       connection(
         Array.from({ length: 100 }, () => release(true, 'feature')),
@@ -289,26 +420,32 @@ describe('paginated release discovery', () => {
     ];
     let calls = 0;
     expect(
-      releasePrQueued(options, (_command, args, config) => {
-        expect(config.env.GH_TOKEN).toBe('app-token');
-        if (calls === 1) expect(args).toContain('cursor=after-100');
-        return JSON.stringify(pages[calls++]);
-      })
+      await releasePrQueued(
+        options,
+        (_command, args, config) => {
+          if (_command !== 'gh' || args[1] !== 'graphql')
+            return queryExecute(pages[1])(_command, args);
+          expect(config.env.GH_TOKEN).toBe('app-token');
+          if (calls === 1) expect(args).toContain('cursor=after-100');
+          return JSON.stringify(pages[calls++]);
+        },
+        coveredNotes
+      )
     ).toBe(queued);
     expect(calls).toBe(2);
   });
-  it('fails on a second-page API error rather than permitting a rewrite', () => {
+  it('fails on a second-page API error rather than permitting a rewrite', async () => {
     const pages = [connection([release(false)], true, 'next'), { errors: [{ message: 'denied' }] }];
-    expect(() => releasePrQueued(options, () => JSON.stringify(pages.shift()))).toThrow(
+    await expect(releasePrQueued(options, () => JSON.stringify(pages.shift()))).rejects.toThrow(
       'GraphQL errors'
     );
   });
-  it('rejects cursor cycles, duplicate PRs and exhausted discovery before enabling', () => {
+  it('rejects cursor cycles, duplicate PRs and exhausted discovery before enabling', async () => {
     const pr = release(false);
     let calls = 0;
-    expect(() =>
+    await expect(
       releasePrQueued(options, () => JSON.stringify(connection([release(false)], true, 'cycle')))
-    ).toThrow('pagination cursor');
+    ).rejects.toThrow('pagination cursor');
     expect(() =>
       enableReleaseAutoMerge(options, () => JSON.stringify(connection([pr], true, 'next')))
     ).toThrow('invalid PR');

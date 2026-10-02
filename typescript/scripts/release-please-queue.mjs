@@ -1,7 +1,15 @@
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { runPackedCommand } from './packed-command.mjs';
 
+import { parseComponentMap } from './ci-scope.mjs';
+import {
+  checkReleaseNotes,
+  createSafetyReader,
+  ReleaseNotesRefreshRequiredError,
+} from './release-pr-safety.mjs';
+
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const PREFIX = 'release-please--branches--main--';
 const MAX_PAGES = 20;
 const QUERY = `query($owner: String!, $repo: String!, $cursor: String) {
@@ -19,7 +27,7 @@ const QUERY = `query($owner: String!, $repo: String!, $cursor: String) {
   }
 }`;
 export const QUEUED_NOTICE =
-  'A release PR is in the merge queue; skipping release-pr. It refreshes on the first main push after it merges.';
+  'Queued release PR notes cover main HEAD; skipping release-pr and preserving the checked head.';
 
 function workflowOptions({ repository, token, env = process.env }) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? ''))
@@ -29,7 +37,7 @@ function workflowOptions({ repository, token, env = process.env }) {
   return { repository, env: { ...env, GH_TOKEN: token }, timeoutMs: 30_000, cwd: process.cwd() };
 }
 
-/** Discovery is complete before enabling auto-merge; a proven queued PR can safely stop a pre-check. */
+/** Discovery must complete before either generation or auto-merge enabling. */
 function* releasePullRequests(options, execute) {
   const [owner, repo] = options.repository.split('/');
   const cursors = new Set();
@@ -106,11 +114,41 @@ function* releasePullRequests(options, execute) {
   throw new Error(`Release queue query exceeds ${MAX_PAGES} pages; refusing incomplete discovery.`);
 }
 
-export function releasePrQueued(options, execute = runPackedCommand) {
-  for (const pr of releasePullRequests(workflowOptions(options), execute)) {
-    if (pr.mergeQueueEntry !== null) return true;
+/** Skip only when every queued release candidate passes the shared notes gate at main HEAD. */
+export async function releasePrQueued(
+  options,
+  execute = runPackedCommand,
+  checkNotes = checkReleaseNotes
+) {
+  const pulls = [...releasePullRequests(workflowOptions(options), execute)];
+  const queued = pulls.filter((pr) => pr.mergeQueueEntry !== null);
+  if (!queued.length) return false;
+  const reader = createSafetyReader(options, execute);
+  const base = reader.git(['rev-parse', '--verify', 'origin/main']);
+  const components = parseComponentMap(
+    readFileSync(`${ROOT}.github/components.json`, 'utf8')
+  ).components;
+  let covered = true;
+  for (const queuedPr of queued) {
+    const pr = reader.get(`pulls/${queuedPr.number}`);
+    if (
+      pr?.number !== queuedPr.number ||
+      pr.head?.sha !== queuedPr.headRefOid ||
+      pr.head?.ref !== queuedPr.headRefName ||
+      pr.head?.repo?.full_name !== options.repository ||
+      pr.base?.ref !== 'main' ||
+      pr.base?.repo?.full_name !== options.repository ||
+      pr.state !== 'open'
+    )
+      throw new Error('Queued release PR changed during discovery; retry the run.');
+    try {
+      await checkNotes({ pr, base, components, reader });
+    } catch (error) {
+      if (!(error instanceof ReleaseNotesRefreshRequiredError)) throw error;
+      covered = false;
+    }
   }
-  return false;
+  return covered;
 }
 
 /** Workflow concurrency serializes this owner. External enqueues are not coordinated by it. */
@@ -156,7 +194,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     } else {
       if (process.argv[2] !== undefined)
         throw new Error('Usage: release-please-queue.mjs [enable]');
-      const queued = releasePrQueued(options);
+      const queued = await releasePrQueued(options);
       if (queued) {
         if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('GITHUB_STEP_SUMMARY is required.');
         appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${QUEUED_NOTICE}\n`);

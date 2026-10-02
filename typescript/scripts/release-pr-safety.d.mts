@@ -14,6 +14,7 @@ export function createSafetyReader(
     options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number }
   ) => string
 ): SafetyReader;
+export class ReleaseNotesRefreshRequiredError extends Error {}
 export function checkReleaseNotes(input: {
   pr: unknown;
   base?: string;
