@@ -13,6 +13,8 @@ use tmt_remote::{
     mount::{Mounts, NoSessions},
     routes::Routes,
     site::Site,
+    state::{Layout, MachineKey},
+    store::Store,
 };
 const ROOT: CommandSpec = CommandSpec {
     name: "remote",
@@ -84,7 +86,12 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
                 )
             })? as usize;
         let root = core.storage_root(&stop)?;
-        let routes = Routes::new(input_limit)?;
+        let layout = Layout::open(&root)?;
+        let _serving = layout.serve_lock()?;
+        // Published on first serve; pairing receipts carry its public key.
+        let _machine_key = MachineKey::open(&layout)?;
+        let machine = Store::open(&layout)?.machine()?;
+        let routes = Routes::new(input_limit, machine.route_prefix.clone())?;
         let door = Door::bind(*serve.get_one::<u16>("port").unwrap())?;
         let address = format!("{}{}", door.origin, routes.prefix());
         let site = Arc::new(Site {
@@ -97,7 +104,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             writeln!(
                 output,
                 "{}",
-                json!({"profile":"local-v1","binding":"loopback-http","state":"closed","address":address,"startupCoreCalls":2})
+                json!({"profile":"local-v1","binding":"loopback-http","state":"closed","address":address,"machineId":machine.id,"startupCoreCalls":2})
             )?;
         } else {
             let terminal = output.terminal();

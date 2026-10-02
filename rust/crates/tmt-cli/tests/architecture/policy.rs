@@ -259,8 +259,11 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "getrandom",
             "httparse",
             "signal-hook",
-            // Relocated colab door (#1039): poll-bounded accept and reply drain.
+            // Relocated colab door (#1039): poll-bounded accept and reply drain,
+            // and owner-only state files and locks.
             "nix",
+            // Remote's own state database under <dataRoot>/remote/ (#1039).
+            "rusqlite",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };

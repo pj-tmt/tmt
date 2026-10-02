@@ -154,7 +154,7 @@ impl Mounted {
         fs::create_dir(&root).unwrap();
         fs::create_dir(root.join("colab")).unwrap();
         fs::set_permissions(root.join("colab"), fs::Permissions::from_mode(0o700)).unwrap();
-        let routes = Routes::new(1024).unwrap();
+        let routes = Routes::new(1024, "/r/00112233445566778899aabbccddeeff".into()).unwrap();
         let prefix = routes.prefix().to_owned();
         let door = Door::bind(0).unwrap();
         let addr = door.socket_addr().unwrap();

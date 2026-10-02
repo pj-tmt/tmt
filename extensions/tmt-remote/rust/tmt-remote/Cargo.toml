@@ -22,6 +22,7 @@ serde_json.workspace = true
 getrandom.workspace = true
 httparse.workspace = true
 nix.workspace = true
+rusqlite.workspace = true
 tmt-invoke.workspace = true
 signal-hook.workspace = true
 tmt-cli-style.workspace = true
