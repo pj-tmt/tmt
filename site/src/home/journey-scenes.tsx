@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { MeetScreen } from "../chapter-scenes/MeetScreen";
 import { useStrings } from "../lang/useStrings";
 
 // The four scenes of the start journey. Each is one complete picture; the
@@ -174,58 +175,13 @@ export function ColabScene() {
   );
 }
 
-function Seat({
-  initial,
-  name,
-  tone,
-  talking,
-  hand,
-  speaking,
-}: {
-  initial: string;
-  name: string;
-  tone: string;
-  talking?: boolean;
-  hand?: string;
-  speaking?: string;
-}) {
-  return (
-    <div
-      className={`relative rounded-lg border bg-term p-3 text-center font-mono text-xs text-t-text ${
-        talking ? "border-(--t-accent) ring-4 ring-t-accent/25" : "border-term-edge"
-      }`}
-    >
-      {hand && <span className="absolute top-1.5 right-2 font-bold text-t-waiting">{hand}</span>}
-      <div
-        className={`mx-auto mb-1.5 grid size-9 place-items-center rounded-full text-[15px] font-bold text-term-bar ${tone}`}
-      >
-        {initial}
-      </div>
-      {name}
-      {talking && (
-        <>
-          <br />
-          <span className="text-t-working">{speaking}</span>
-        </>
-      )}
-    </div>
-  );
-}
-
+// The planned meeting, drawn as the terminal view of the Meet page: phase 1 is
+// terminal-only. The script frame with two raised hands is the one shown.
 export function MeetScene() {
   const { scenes } = useStrings().journey;
   return (
     <div className="grid content-center gap-3">
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
-        <Seat initial="Y" name={scenes.youHost} tone="bg-t-text" />
-        <Seat initial="L" name="lead" tone="bg-t-review" />
-        <Seat initial="B" name="builder" tone="bg-t-link" talking speaking={scenes.speaking} />
-        <Seat initial="R" name="reviewer" tone="bg-t-review" hand="↑1" />
-        <Seat initial="M" name="Mei" tone="bg-t-working" hand="↑2" />
-      </div>
-      <div className="rounded-lg border border-term-edge bg-term px-3 py-2.5 font-mono text-[13px] leading-[1.55] text-t-text">
-        <b className="text-t-accent">builder</b> · {scenes.meetSays}
-      </div>
+      <MeetScreen index={0} mode="host" />
       <div className="text-center font-mono text-xs font-semibold text-waiting">
         {scenes.meetArrow} <New>{scenes.planned}</New>
       </div>

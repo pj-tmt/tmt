@@ -103,7 +103,6 @@ export const english = {
       hands: "hands",
       noHands: "no hands",
       inRoom: "in the room",
-      wait: "wait",
       keys: "g grant  @name grant  m mode",
       script: [
         {
@@ -210,10 +209,7 @@ export const english = {
       decide: "decide",
       reviewerSays: "diff is small, ok to ship",
       meiSays: "can we wait for the docs fix?",
-      youHost: "you · host",
-      speaking: "speaking",
-      meetSays: "Tests pass on both machines. Who decides the release window?",
-      meetArrow: "raised hands wait their turn · you give the floor",
+      meetArrow: "raised hands (↑) wait their turn · you give the floor",
       planned: "planned",
     },
   },
