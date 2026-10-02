@@ -113,6 +113,9 @@ export type StringsOverride<T = Strings> = T extends string
     ? StringsOverride<U>[]
     : { [K in keyof T]?: StringsOverride<T[K]> };
 
+// A strings.json also carries a reserved top-level "$source" object ({ source,
+// sourceRevision }) for the translation staleness check. It is not a string key:
+// overlay walks the English keys only, so it is never merged.
 // Overlays a language's strings on the English ones. The JSON is not typed by
 // the compiler, so only a value of the same kind (text, list or group) as the
 // English one is taken; anything else, and any unknown key, is ignored.

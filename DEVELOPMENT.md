@@ -571,7 +571,8 @@ and `hreflang` alternates; `SITE_ORIGIN` makes the alternates fully qualified, a
 `.github/workflows/site.yml` sets it to the Pages origin next to the default `/tmt/` base path.
 The words of the site's own components (home page, status bar, notes around a page) are typed data in
 `site/src/lang/strings.ts`; a language overrides any of them, key by key, in
-`site/src/i18n/<lang>/strings.json`, and what it leaves out stays English.
+`site/src/i18n/<lang>/strings.json`, and what it leaves out stays English. The reserved `$source` key of that
+file is for the staleness check and is never merged.
 Colors, fonts and marks come from `design/tokens/tokens.json`, which the
 stylesheet and the design page read. Anything not in a release is marked
 planned.
