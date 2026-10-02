@@ -463,6 +463,18 @@ fn the_driver_reads_and_marks_a_real_herdr_server() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(read().contains("033   [   2   0   0   ~   o   n   e"));
+    // Option-like text is the message, not an option of Herdr's command:
+    // typed and prompted intact (Herdr 0.9.1 has no `--` separator).
+    assert_eq!(input("-h --version", false), json!({"ok": {}}));
+    until("option-like text", &|text| text.contains("-h --version"));
+    assert_eq!(input("", true), json!({"ok": {}}));
+    assert_eq!(prompt(&agent_pane, "--wait"), json!({"ok": {}}));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    // `-`, `-`, `w`: the stand-in's raw bytes of the pasted `--wait`.
+    while !read().contains("-   -   w   a   i   t") {
+        assert!(Instant::now() < deadline, "no --wait paste:\n{}", read());
+        std::thread::sleep(Duration::from_millis(50));
+    }
     // An agent waiting on its user refuses, and nothing more is typed.
     server.run(&[
         "pane",

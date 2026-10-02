@@ -2525,7 +2525,9 @@ Enter, and text with CR or LF is refused as `bad_request` before any effect. A
 message reaches an agent pane through `prompt`: Herdr's `agent prompt` pastes
 the whole text (bracketed when the agent enabled it) and submits it. Its
 `agent_not_found`, `agent_blocked` and `agent_not_ready` become `no_agent`,
-`blocked` and `not_ready`, and no other operation answers those codes. A plain
+`blocked` and `not_ready`, and no other operation answers those codes. Both
+pass the text as the last argument: Herdr reads it literally even when it
+looks like an option, and it has no `--` separator. A plain
 pane gets single-line input, otherwise the inbox. The driver doesn't declare
 `focus` (Herdr has no command that focuses a pane by ID). It
 isn't packaged and doesn't serve `HostKind::Herdr`; the built-in `herdr/`

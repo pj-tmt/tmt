@@ -397,6 +397,8 @@ impl<R: Runner> Handler for HerdrDriver<R> {
             .find(socket, pane_id, deadline)
             .map_err(HerdrError::into_driver)?
             .ok_or_else(|| DriverError::new(ErrorCode::NotFound, "the pane is gone"))?;
+        // The text is the last argument, as is: Herdr reads it literally even
+        // when it looks like an option, and has no `--` separator.
         if !text.is_empty() {
             self.herdr
                 .act(

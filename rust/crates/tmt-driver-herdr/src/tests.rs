@@ -663,3 +663,24 @@ fn a_prompt_goes_to_the_agent_herdr_recognizes_and_maps_its_refusals() {
     );
     assert_eq!(error_code(&answer), "failed");
 }
+
+/// Herdr 0.9.1 reads the argument after the target as the text, whatever it
+/// looks like, and has no `--` separator (`agent prompt` refuses one, and
+/// `send-text` would type it). So the text is passed as the one last argv
+/// entry, as is; the real-Herdr test shows option-like text arrives intact.
+#[test]
+fn option_like_text_is_the_last_argument_with_no_separator() {
+    for text in ["-h", "--version", "--wait", "--", "- item"] {
+        let runner = Scripted::default();
+        let panes = || list(vec![pane("w1:p1", "term_a1", None)]);
+        runner.json(panes()).text("").json(panes()).text("");
+        assert_eq!(serve(&runner, "input", input(text, false)), json!({}));
+        let request = json!({"socket": SOCKET, "paneId": "term_a1", "text": text});
+        assert_eq!(serve(&runner, "prompt", request), json!({}));
+        let calls = runner.calls.borrow();
+        assert_eq!(calls[1].args, ["pane", "send-text", "w1:p1", text]);
+        assert_eq!(calls[3].args, ["agent", "prompt", "w1:p1", text]);
+        drop(calls);
+        runner.done();
+    }
+}
