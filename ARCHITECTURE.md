@@ -3200,8 +3200,10 @@ single presentation accessor for preview geometry, fold defaults and focus,
 while the existing per-tab FoldState retains session overrides. Esc restores
 the opening Board and focus with the latest refreshed data, without writing;
 successful save uses the normal changed-Board fold reconciliation. A custom
-arrangement can preview on a disposable Config copy, but save refuses to remove
-hand-written keys. The reset entry removes only the chosen layer's view key.
+arrangement can preview in this-squad scope on a disposable Config copy, but
+scoped save refuses to remove hand-written keys. In all-boards scope a custom
+squad keeps its opening Board, shows the masking note and saves the global
+view for other squad tabs. The reset entry removes only the chosen layer's view key.
 The existing Reload request carries `preview_panes` only while the picker is
 open, acquiring missing notes/replies through the same loader and cancellation
 fence. Closing it preempts preview reads and returns to resolved-pane acquisition;

@@ -83,7 +83,10 @@ impl Picker {
     }
     pub fn masked(&self) -> Option<String> {
         let name = self.squad.as_deref()?;
-        if self.scope == ViewScope::Board && self.config.view_source(name).ok()?.1 == "squad" {
+        if self.scope == ViewScope::Board && self.custom {
+            Some(format!("squad {name} keeps its custom layout"))
+        } else if self.scope == ViewScope::Board && self.config.view_source(name).ok()?.1 == "squad"
+        {
             Some(format!("squad {name} keeps its own view"))
         } else {
             None
@@ -113,7 +116,8 @@ impl Picker {
             }
             _ => return Input::Preview,
         }
-        if self.squad.is_none() {
+        if self.squad.is_none() || (self.custom && self.scope == ViewScope::Board) {
+            self.preview = self.opening.clone();
             return Input::Preview;
         }
         let preview = match self.selected {
@@ -140,7 +144,9 @@ impl Picker {
     pub fn save(&mut self) -> Result<bool, SquadError> {
         let changed = match self.selected {
             Choice::Reset => self.config.remove_view(&self.scope),
-            Choice::View(view) if !self.custom => self.config.set_view(&self.scope, view),
+            Choice::View(view) if !self.custom || self.scope == ViewScope::Board => {
+                self.config.set_view(&self.scope, view)
+            }
             _ => Err(SquadError::hinted(
                 "SQUAD_VIEW_CUSTOM",
                 "This squad has a custom layout",
@@ -403,7 +409,7 @@ mod tests {
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
     #[test]
-    fn custom_can_preview_but_only_reset_can_write_and_keep_custom_bytes() {
+    fn custom_previews_and_refuses_scoped_save_but_masks_and_saves_all_boards() {
         let original = "[squad.product.board]\npanes = ['rows', 'notes'] # own\nview = 'focus'\n";
         let (path, config, mut app) = fixture("custom", original);
         app.open_view_picker(config).unwrap();
@@ -413,12 +419,45 @@ mod tests {
         let picker = app.view_picker.as_mut().unwrap();
         assert_eq!(picker.save().unwrap_err().code, "SQUAD_VIEW_CUSTOM");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
-        picker.scope = ViewScope::Squad("product".into());
+        picker.key(key(KeyCode::Tab));
+        assert_eq!(picker.scope, ViewScope::Board);
+        assert_eq!(
+            picker.masked().as_deref(),
+            Some("squad product keeps its custom layout")
+        );
+        assert_eq!(picker.board(), &picker.opening);
+        picker.key(key(KeyCode::Down)); // focus
+        assert_eq!(
+            picker.board(),
+            &picker.opening,
+            "global preview keeps the custom arrangement"
+        );
+        assert!(picker.save().unwrap());
+        let global = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(global, format!("{original}\n[board]\nview = \"focus\"\n"));
+        assert_eq!(
+            picker.board(),
+            &picker.opening,
+            "global save keeps the custom arrangement"
+        );
+        assert_eq!(
+            Config::read(path.clone())
+                .unwrap()
+                .view_source("other")
+                .unwrap()
+                .0,
+            Some(ViewName::Focus)
+        );
+        picker.key(key(KeyCode::Tab));
+        assert_eq!(picker.scope, ViewScope::Squad("product".into()));
+        assert_eq!(picker.board().panes.len(), 4);
+        assert_eq!(picker.save().unwrap_err().code, "SQUAD_VIEW_CUSTOM");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), global);
         picker.selected = Choice::Reset;
         assert!(picker.save().unwrap());
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            original.replace("view = 'focus'\n", "")
+            global.replace("view = 'focus'\n", "")
         );
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }

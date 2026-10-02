@@ -188,7 +188,9 @@ opening arrangement and runtime folds without writing. Data keeps refreshing.
 The leads/all tabs offer all-boards scope only and stay rows-only during preview,
 save and cancel; views apply to squad tabs. The default entry removes only
 the chosen layer's view key. A custom entry identifies hand-written layout;
-preview works, but saving a factory view is refused with a manual-removal hint.
+this-squad preview works, but scoped save is refused with a manual-removal hint.
+An all-boards choice saves while this squad keeps its custom layout; the picker
+names that masking setting.
 A failed or stale save stays open; cancel and reopen to read the changed file.
 `l` (view), `L` (jump lead on a tmux host) and `T` (theme) appear together in help.
 Agents change views only when requested.

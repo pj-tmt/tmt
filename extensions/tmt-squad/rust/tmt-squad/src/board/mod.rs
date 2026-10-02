@@ -184,7 +184,7 @@ fn session(
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool, bool),
     mut act: impl FnMut(Request) -> Result<String, String>,
-    mut theme_config: impl FnMut() -> Result<Config, String>,
+    mut load_config: impl FnMut() -> Result<Config, String>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
     let mut refreshed = Instant::now();
@@ -284,7 +284,7 @@ fn session(
                 refreshed = Instant::now();
             }
             Effect::PickView => {
-                match theme_config()
+                match load_config()
                     .and_then(|config| app.open_view_picker(config).map_err(|error| error.message))
                 {
                     Ok(()) => {
@@ -314,7 +314,7 @@ fn session(
             }
             Effect::PickTheme => {
                 let squad = app.current.clone().filter(|name| !tabs::builtin(name));
-                match theme_config().and_then(|config| {
+                match load_config().and_then(|config| {
                     theme_picker::Picker::open(config, squad).map_err(|error| error.message)
                 }) {
                     Ok(picker) => {
@@ -595,7 +595,7 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
-    fn no_theme_config() -> Result<Config, String> {
+    fn no_load_config() -> Result<Config, String> {
         panic!("unexpected config read")
     }
 
@@ -676,7 +676,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 no_actions,
-                no_theme_config,
+                no_load_config,
                 |_| Ok(()),
             )
             .unwrap()
@@ -717,7 +717,7 @@ mod tests {
                     jumps += 1;
                     outcome.clone()
                 },
-                no_theme_config,
+                no_load_config,
                 |_| Ok(()),
             )
             .unwrap();
@@ -740,7 +740,7 @@ mod tests {
             &input,
             |_, _, _| {},
             no_actions,
-            no_theme_config,
+            no_load_config,
             |_| Err(io::Error::other("terminal gone")),
         )
         .unwrap_err();
@@ -764,7 +764,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 no_actions,
-                no_theme_config,
+                no_load_config,
                 |app| {
                     painted
                         .send((app.selected, app.view.as_ref().unwrap().document.clone()))
@@ -822,7 +822,7 @@ mod tests {
                         requested.send(squad).unwrap();
                     },
                     no_actions,
-                    no_theme_config,
+                    no_load_config,
                     |_| {
                         painted.send(()).unwrap();
                         Ok(())
@@ -863,7 +863,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 no_actions,
-                no_theme_config,
+                no_load_config,
                 |_| {
                     painted.send(()).unwrap();
                     Ok(())
@@ -916,7 +916,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 no_actions,
-                no_theme_config,
+                no_load_config,
                 |_| {
                     frames += 1;
                     Ok(())
@@ -955,7 +955,7 @@ mod tests {
                 &input,
                 |_, _, _| panic!("automatic refresh was turned off by the snapshot"),
                 no_actions,
-                no_theme_config,
+                no_load_config,
                 |_| Ok(())
             )
             .unwrap(),
