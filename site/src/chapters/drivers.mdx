@@ -25,6 +25,17 @@ Without setup, every agent still works: tmt talks to it through its pane. `tmt s
 - [Claude Code](/drivers/claude-code): a runtime driver, with exact resume, start-of-session context and an optional message channel.
 - [Codex](/drivers/codex): a runtime driver, safe even when several panes share one Codex server.
 
+### Herdr: ships with tmt, approve once
+
+The Herdr host driver comes with tmt, but it runs only after you approve it. `tmt driver install herdr` shows what it will run and asks first:
+
+<Cmd>{`
+$ tmt driver install herdr   # shows what it will run, then asks
+$ tmt driver ls              # herdr: ok, changed or missing
+`}</Cmd>
+
+The approval carries over when tmt upgrades, as long as the new driver asks for nothing more. If it asks for more, `tmt driver ls` shows it as changed, with the reason, and `tmt driver install herdr` approves it again. Until you approve it, commands run in a Herdr pane print a hint once a day, and Herdr bindings wait without being deleted.
+
 ### Usage counters
 
 Usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`, `tmt setup codex --usage`) also adds a hook that runs when a turn ends and records how much the agent has used:
@@ -41,16 +52,15 @@ Read the numbers as tokens, not cost. They describe completed requests, not live
 Every other driver will be its own package with its own version, installed and updated like an extension. Anyone can publish one: a driver is a program named `tmt-driver-<name>` that answers tmt's driver protocol, and the built-in drivers sit behind the same interface. A driver you install can also take over from a built-in one, for example a Claude Code driver with extra features. `tmt driver ls` then always shows which driver handles which program.
 
 <Cmd>{`
-$ tmt driver install ./tmt-driver-herdr   # shows what it will run, then asks
+$ tmt driver install ./tmt-driver-screen  # shows what it will run, then asks
 $ tmt driver ls                          # approved host drivers: ok, changed or missing
-$ tmt driver rm herdr
+$ tmt driver rm screen
 `}</Cmd>
 
 The first ones planned:
 
 <Soon
   items={[
-    ["Herdr", "host"],
     ["Pi", "runtime"],
     ["Cursor Agent", "runtime"],
     ["agy", "runtime"],

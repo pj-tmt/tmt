@@ -11,7 +11,7 @@ export function Hero() {
     { name: "Claude Code" },
     { name: "Codex" },
     { name: "tmux" },
-    { name: "Herdr", note: home.planned },
+    { name: "Herdr" },
     { name: home.yourHarness, note: home.planned },
     { name: home.yourServer, note: home.designing },
   ];
