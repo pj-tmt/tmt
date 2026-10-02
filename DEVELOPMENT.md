@@ -990,7 +990,8 @@ and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
 and embedded service tests remain separate required checks; process deadlines
 and assertions are unchanged. Local selection still defaults to the debug CLI.
 
-The CLI version expectation uses the shared workspace reader once per suite, running bounded
+CLI version expectations and Office installation/hook fixtures use the shared workspace reader
+once per suite, selecting the relevant crate by name and running bounded
 `cargo metadata --no-deps --offline --locked`. The reader also reads `rust/Cargo.lock` and
 lists tracked files with `git ls-files -z`, so the suite needs a Git checkout. Cargo, the
 lockfile and workspace resolution inputs must remain available even when selecting an explicit
