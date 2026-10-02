@@ -339,9 +339,10 @@ Squad keeps its roster and board fields in tmt, with optional observed ages in a
 ### Jumping between members
 
 <Callout title="tmux only, for now.">
-  This section needs a host that can switch panes: tmux today, with cmux and Herdr planned. In a
-  plain terminal everything else on the board works the same, and Enter opens the row's actions
-  instead of jumping. You can skip this section.
+  This section needs a host that can switch panes, which today is tmux. Herdr panes (after `tmt
+  driver install herdr`) show on the board and receive messages, but Herdr can't focus a pane by ID,
+  so there Enter opens the row's actions, as in a plain terminal. cmux is not supported yet.
+  Everything else on the board works the same. You can skip this section.
 </Callout>
 
 A layout that works well: leads in one place you keep open, members in another, one window and worktree per piece of work. You talk to leads and read the board, and only drop into a member when it needs you. From the board, Enter takes you to that member's screen, even in another session, and `⌫` brings you back.
@@ -362,8 +363,7 @@ To reach a lead without opening the board, `tmt sq jump --lead` jumps to the lea
 | Host           | Jump and back                                 | Where the board opens          |
 | -------------- | --------------------------------------------- | ------------------------------ |
 | tmux           | to the member's pane, even in another session | a popup on a hotkey, or a pane |
-| cmux           | to the member's workspace                     | any pane                       |
-| Herdr          | to the member's tab                           | any pane                       |
+| Herdr          | none; Enter opens the row's actions           | any pane                       |
 | plain terminal | none; Enter opens the row's actions           | full screen                    |
 
 <More summary="More commands">
