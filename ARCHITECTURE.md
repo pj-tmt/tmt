@@ -3227,8 +3227,14 @@ bodies produce no row/scroll hits. Collapsing focus advances to the next expande
 pane; with every pane folded there is no body focus. Expanding from that state
 focuses the expanded pane. The notes action expands notes before focusing it.
 Single expanded panes keep their existing borderless rendering; their folded
-title is clickable to expand. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane reads the lead's notebook only through
-`tmt api notes.read` (bounded, never creating a file); `board::notes` removes
+title is clickable to expand. The detail pane appends full projected `row.fields` values for board columns not already represented by its header, task, note, activity or links, in column order; it escapes and wraps them without grid fitting, source lookups or provider calls. The notes pane shows the squad lead's own saved-identity notebook, read-only;
+there is no separate squad notebook. `observe` selects the member with
+`Member::is_lead` and reads its UUID through public `tmt api notes.read`
+(bounded, never creating a file), the same notebook that
+`tmt notes path --identity <lead>` discovers. `board::refresh::lead_notes`
+maps a missing saved notebook to `(no notes yet)`; a temporary lead's
+`NOTEBOOK_SAVED_IDENTITY_REQUIRED` error is displayed as failure text.
+`board::notes` removes
 every escape sequence, control character and hidden bidi/format character before
 display, since notes are agent-written. `board::markdown` is a thin
 pulldown-cmark view over that sanitized text: it styles headings, lists,
