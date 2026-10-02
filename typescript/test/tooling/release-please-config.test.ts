@@ -8,6 +8,7 @@ import {
   assertReleasePleaseApi,
   executeReleasePlease,
   loadPinnedReleasePlease,
+  holdTaglessDraftCandidates,
   preserveUnchangedReleasePullRequests,
 } from '../../scripts/release-please-run.mjs';
 import { ownerOf, parseComponentMap } from '../../scripts/ci-scope.mjs';
@@ -606,10 +607,11 @@ describe('private leaf release attribution with pinned release-please', () => {
 
   // Only SCM acquisition is a fixture. Manifest splitting, excludes, per-product cutoffs,
   // conventional commits, version planning and PR updates are the real pinned implementation.
-  async function candidates(
+  async function candidateManifest(
     changes: ReturnType<typeof commit>[],
     wrapped = true,
-    legacyAlpha = false
+    legacyAlpha = false,
+    taglessPaths: string[] = []
   ) {
     const config = readJson('release-please-config.json');
     if (legacyAlpha) {
@@ -623,6 +625,9 @@ describe('private leaf release attribution with pinned release-please', () => {
       repo: 'fixture',
       defaultBranch: 'main',
     });
+    github.getGitHubApi().octokit.hook.before('request', () => {
+      throw new Error('Unexpected SCM request in release candidate fixture');
+    });
     github.getFileContentsOnBranch = async (file) => {
       const parsedContent = JSON.stringify(
         file === 'release-please-config.json' ? config : versions
@@ -635,28 +640,40 @@ describe('private leaf release attribution with pinned release-please', () => {
       };
     };
     github.releaseIterator = async function* () {
-      yield {
-        id: 1,
-        url: 'https://example.test/squad',
-        name: 'Squad',
-        tagName: 'tmt-squad-v0.1.0-alpha.8',
-        sha: 'squad-release',
-        notes: '',
-      };
-      yield {
-        id: 2,
-        url: 'https://example.test/cli',
-        name: 'CLI',
-        tagName: 'v5.0.0-alpha.8',
-        sha: 'cli-release',
-        notes: '',
-      };
+      if (!taglessPaths.includes(squadPath))
+        yield {
+          id: 1,
+          url: 'https://example.test/squad',
+          name: 'Squad',
+          tagName: 'tmt-squad-v0.1.0-alpha.8',
+          sha: 'squad-release',
+          notes: '',
+        };
+      if (!taglessPaths.includes('.'))
+        yield {
+          id: 2,
+          url: 'https://example.test/cli',
+          name: 'CLI',
+          tagName: 'v5.0.0-alpha.8',
+          sha: 'cli-release',
+          notes: '',
+        };
     };
+    github.tagIterator = async function* () {};
     github.mergeCommitIterator = async function* (_branch, _options = {}) {
       yield* changes;
     };
     if (wrapped) attributeReleaseConsumption(github, components());
     const manifest = await releasePlease.Manifest.fromManifest(github, 'main');
+    return { github, manifest };
+  }
+
+  async function candidates(
+    changes: ReturnType<typeof commit>[],
+    wrapped = true,
+    legacyAlpha = false
+  ) {
+    const { manifest } = await candidateManifest(changes, wrapped, legacyAlpha);
     return manifest.buildPullRequests();
   }
 
@@ -665,6 +682,92 @@ describe('private leaf release attribution with pinned release-please', () => {
     commit('squad-release', [`${squadPath}/Cargo.toml`], 'chore: release squad'),
     commit('cli-release', ['rust/Cargo.toml'], 'chore: release cli'),
   ];
+
+  it.each([
+    { held: [squadPath], retained: ['tmt-cli'] },
+    { held: ['.'], retained: ['tmt-squad'] },
+    { held: ['.', squadPath], retained: [] },
+    { held: [], retained: ['tmt-cli', 'tmt-squad'] },
+  ])('holds only $held while regenerating/updating $retained', async ({ held, retained }) => {
+    const { github, manifest } = await candidateManifest(
+      [
+        ...history(['rust/crates/tmt-core/src/lib.rs', `${squadPath}/src/config.rs`]),
+        commit(
+          'old-fix',
+          ['rust/crates/tmt-core/src/lib.rs', `${squadPath}/src/config.rs`],
+          'fix: old history'
+        ),
+      ],
+      true,
+      false,
+      held
+    );
+    const original = await manifest.buildPullRequests();
+    expect(original).toHaveLength(2);
+    const existing = original.map((candidate, index) => ({
+      number: 100 + index,
+      title: 'stale title',
+      body: candidate.body.toString(),
+      headBranchName: candidate.headRefName,
+      baseBranchName: 'main',
+      labels: ['autorelease: pending'],
+      files: [],
+      sha: 'a'.repeat(40),
+    }));
+    github.pullRequestIterator = async function* (_branch, state) {
+      if (state === 'OPEN') yield* existing;
+    };
+    vi.spyOn(github, 'createPullRequest').mockImplementation(async () => {
+      throw new Error('Expected an existing release PR update');
+    });
+    const update = vi
+      .spyOn(github, 'updatePullRequest')
+      .mockImplementation(async (number, candidate) => ({
+        ...existing[0],
+        number,
+        title: candidate.title.toString(),
+        body: candidate.body.toString(),
+        headBranchName: candidate.headRefName,
+      }));
+    holdTaglessDraftCandidates(manifest, held);
+    const planned = await manifest.buildPullRequests();
+    expect(
+      planned.map((candidate) => candidate.headRefName.split('--components--')[1]).sort()
+    ).toEqual([...retained].sort());
+    for (const candidate of planned) {
+      expect(candidate.body.toString()).not.toContain('old history');
+      expect(candidate.version?.toString()).toBe(
+        candidate.headRefName.endsWith('tmt-cli') ? '5.0.0-alpha.9' : '0.1.0-alpha.9'
+      );
+      expect(candidate.updates.some(({ path }) => path === '.release-please-manifest.json')).toBe(
+        true
+      );
+    }
+    await manifest.createPullRequests();
+    expect(
+      update.mock.calls
+        .map(([, candidate]) => candidate.headRefName.split('--components--')[1])
+        .sort()
+    ).toEqual([...retained].sort());
+  });
+
+  it('rejects malformed/unknown hold paths and missing candidate path evidence', async () => {
+    const { manifest } = await candidateManifest(history(['rust/crates/tmt-core/src/lib.rs']));
+    for (const held of [null, '.', [null], ['unknown']])
+      expect(() => holdTaglessDraftCandidates(manifest, held)).toThrow('manifest paths');
+    const [candidate] = await manifest.buildPullRequests();
+    holdTaglessDraftCandidates(manifest, ['.']);
+    await expect(
+      manifest.plugins[0].run([
+        { path: 'unknown', pullRequest: candidate, config: manifest.repositoryConfig['.'] },
+      ])
+    ).rejects.toThrow('candidate path');
+    const { manifest: combined } = await candidateManifest(
+      history(['rust/crates/tmt-core/src/lib.rs'])
+    );
+    Object.defineProperty(combined, 'separatePullRequests', { value: false });
+    expect(() => holdTaglessDraftCandidates(combined, ['.'])).toThrow('separate release PR');
+  });
 
   it('proposes only Squad for a TUI-only fix and fails without the attribution step', async () => {
     const changes = history([`${leafPath}/src/binding.rs`]);

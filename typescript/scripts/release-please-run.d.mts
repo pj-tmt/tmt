@@ -1,4 +1,7 @@
-import type { GitHub, Manifest } from '../../.github/release-please/node_modules/release-please/build/src/index.js';
+import type {
+  GitHub,
+  Manifest,
+} from '../../.github/release-please/node_modules/release-please/build/src/index.js';
 import type { ComponentMap } from './ci-scope.mjs';
 
 export function loadPinnedReleasePlease(): typeof import('../../.github/release-please/node_modules/release-please/build/src/index.js');
@@ -22,3 +25,5 @@ export function preserveUnchangedReleasePullRequests(
   github: GitHub,
   fileNotFoundError: typeof import('../../.github/release-please/node_modules/release-please/build/src/index.js').Errors.FileNotFoundError
 ): GitHub;
+
+export function holdTaglessDraftCandidates(manifest: Manifest, heldPaths: unknown): Manifest;

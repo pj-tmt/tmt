@@ -368,7 +368,7 @@ describe('tagless manifest draft skip', () => {
           components,
           reader: draftReader(tags.map((tag_name) => ({ tag_name, draft: true }))),
         })
-      ).toEqual(tags);
+      ).toEqual(tags.map((tag) => (tag === draftTags[0] ? '.' : squadRoot)));
   });
   it('runs for tagged drafts, unrelated versions, and published releases', () => {
     for (const releases of [
@@ -398,7 +398,7 @@ describe('tagless manifest draft skip', () => {
           [{ ref: `refs/tags/${draftTags[0]}0`, object: { sha: 'a'.repeat(40) } }]
         ),
       })
-    ).toEqual([draftTags[0]]);
+    ).toEqual(['.']);
   });
   it('fails closed on incomplete manifest, release and tag data', () => {
     for (const candidate of [null, {}, { '.': 'bad' }, { ...manifest, '.': 'bad' }])
@@ -501,16 +501,25 @@ describe('workflow safety wiring', () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
-  it('runs the real draft adapter with fixture REST data and writes durable outputs', () => {
+  it.each([
+    { heldPaths: ['.'] },
+    { heldPaths: [squadRoot] },
+    { heldPaths: ['.', squadRoot] },
+    { heldPaths: [] },
+  ])('reports held manifest paths $heldPaths with real draft adapter outputs', ({ heldPaths }) => {
     const directory = mkdtempSync(path.join(tmpdir(), 'tmt-release-draft-cli-'));
     try {
       const current = JSON.parse(
         readFileSync(path.join(root, '.release-please-manifest.json'), 'utf8')
       ) as Record<string, string>;
-      const tag = `v${current['.']}`;
+      const drafts = heldPaths.map((path) => ({
+        tag_name: `${path === '.' ? 'v' : 'tmt-squad-v'}${current[path]}`,
+        draft: true,
+      }));
+      const allHeld = heldPaths.length === Object.keys(current).length;
       writeFileSync(
         path.join(directory, 'gh'),
-        `#!${process.execPath}\nif (process.env.GH_TOKEN !== 'fixture') process.exit(23);\nconsole.log(JSON.stringify(process.argv[3].includes('/releases?') ? [{tag_name:${JSON.stringify(tag)},draft:true}] : []));\n`,
+        `#!${process.execPath}\nif (process.env.GH_TOKEN !== 'fixture') process.exit(23);\nconsole.log(JSON.stringify(process.argv[3].includes('/releases?') ? ${JSON.stringify(drafts)} : []));\n`,
         { mode: 0o700 }
       );
       const output = path.join(directory, 'output'),
@@ -533,9 +542,11 @@ describe('workflow safety wiring', () => {
         }
       );
       expect(result.status).toBe(0);
-      expect(result.stdout).toBe('skip\n');
-      expect(readFileSync(output, 'utf8')).toBe('skip=true\n');
-      expect(readFileSync(summary, 'utf8')).toContain(tag);
+      expect(result.stdout).toBe(allHeld ? 'skip\n' : 'run\n');
+      expect(readFileSync(output, 'utf8')).toBe(
+        `skip=${allHeld}\nheld_paths=${JSON.stringify(heldPaths)}\n`
+      );
+      if (heldPaths.length) expect(readFileSync(summary, 'utf8')).toContain(heldPaths.join(', '));
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

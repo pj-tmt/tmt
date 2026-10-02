@@ -86,6 +86,7 @@ jobs:
           RELEASE_TOKEN: ${{ steps.app.outputs.token || github.token }}
           LIVE: ${{ steps.mode.outputs.live }}
           TAGLESS_DRAFT: ${{ steps.draft.outputs.skip }}
+          TAGLESS_DRAFT_PATHS: ${{ steps.draft.outputs.held_paths }}
         run: |
           set -o pipefail
           dry=" (dry run)"

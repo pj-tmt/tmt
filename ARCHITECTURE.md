@@ -3745,8 +3745,11 @@ cumulative pending range. Ordinary PR metadata mismatches do not fail this gate.
 Body/title edits do not restart full PR CI; the merge-group REST read gates the current body.
 Missing or inconsistent anchors, notes, queue data and bounded discovery fail visibly.
 The same owner checks every manifest component version before release-please:
-a visible matching draft without an exact git tag skips `release-pr`, while `github-release`
-and build dispatch remain available. Published releases and tagged drafts do not
+a visible matching draft without an exact git tag holds only its manifest path.
+The workflow passes held paths to the pinned wrapper, whose ManifestPlugin hook
+filters those path-aware candidates before separate PRs are emitted or updated.
+Unheld components regenerate normally; only all-held paths skip `release-pr`.
+`github-release` and build dispatch remain available. Published releases and tagged drafts do not
 hold creation. REST reads use explicit workflow credentials and bounded pages;
 no release or tag is mutated by either gate.
 
