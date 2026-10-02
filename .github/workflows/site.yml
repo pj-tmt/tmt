@@ -1,8 +1,8 @@
-# The handbook website (site/): checked on pull requests and main, and
-# deployed to GitHub Pages only by a manual run with deploy=true.
-# The repository is public, so a deploy publishes the site publicly; the owner
-# decides when (#584). The build job is read-only; only the deploy job holds
-# the Pages permissions.
+# The handbook website (site/): checked on pull requests and main. Every push
+# to main that changes the site deploys it to GitHub Pages; a manual run with
+# deploy=true redeploys. The repository is public, so a deploy publishes the
+# site publicly; the owner chose publish-on-merge. The build job is read-only;
+# only the deploy job holds the Pages permissions. Pull requests never deploy.
 name: Site
 
 on:
@@ -47,7 +47,7 @@ jobs:
         working-directory: site
         run: SITE_ORIGIN=https://pj-tmt.github.io pnpm build
       - name: Upload the Pages artifact
-        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
         uses: actions/upload-pages-artifact@v3
         with:
           path: site/dist
@@ -55,7 +55,12 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    if: github.event_name == 'workflow_dispatch' && inputs.deploy && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
+    # One Pages deployment at a time; a newer main queues behind it rather than
+    # cancelling a deployment in progress.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
