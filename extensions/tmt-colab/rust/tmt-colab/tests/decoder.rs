@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_colab::decoder::{
-    DecodeFault, Decoder, MemoryLimit, Namespace, Role, STREAM_BYTES, UpdateBatch,
+    BaselineInput, DecodeFault, Decoder, MemoryLimit, Namespace, Role, STREAM_BYTES, UpdateBatch,
 };
 use tmt_invoke::{Cleanup, EnvironmentPolicy, FailureKind, LaunchOptions, Request};
 use yrs::{
@@ -512,4 +512,272 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
         ),
         Err(DecodeFault::Rejected)
     ));
+}
+
+fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
+    use sha2::{Digest, Sha256};
+    BaselineInput {
+        source,
+        title,
+        source_digest: Sha256::digest(source).into(),
+    }
+}
+fn apply_baseline(doc: &Doc, update: &[u8]) {
+    doc.get_or_insert_text("html");
+    doc.get_or_insert_map("meta");
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(update).unwrap())
+        .unwrap();
+}
+#[test]
+fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
+    let vectors: serde_json::Value =
+        serde_json::from_str(include_str!("../../../contracts/vectors/baseline-v1.json")).unwrap();
+    for vector in vectors.as_array().unwrap() {
+        let source = vector["source"].as_str().unwrap();
+        let title = vector["title"].as_str().unwrap();
+        let update = URL_SAFE_NO_PAD
+            .decode(vector["update"].as_str().unwrap())
+            .unwrap();
+        let commitment: [u8; 32] = URL_SAFE_NO_PAD
+            .decode(vector["commitment"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let mut decoder = owner();
+        let verified = decoder
+            .verify_baseline(view(source.as_bytes(), title), &update, commitment, None)
+            .unwrap();
+        assert_eq!(verified.update, update);
+        gone(verified.child_pid);
+        let produced = decoder
+            .produce_baseline(view(source.as_bytes(), title), None)
+            .unwrap();
+        gone(produced.child_pid);
+        // Both clients start from the identical owner-produced struct identity.
+        let a = Doc::with_client_id(41);
+        let b = Doc::with_client_id(42);
+        apply_baseline(&a, &produced.update);
+        apply_baseline(&b, &produced.update);
+        for doc in [&a, &b] {
+            let html = doc.get_or_insert_text("html");
+            let meta = doc.get_or_insert_map("meta");
+            let txn = doc.transact();
+            assert_eq!(html.get_string(&txn), source);
+            assert_eq!(meta.get(&txn, "title").unwrap().to_string(&txn), title);
+        }
+        let change = |doc: &Doc, text: &str| {
+            let html = doc.get_or_insert_text("html");
+            let mut txn = doc.transact_mut();
+            html.insert(&mut txn, 0, text);
+            txn.encode_update_v1()
+        };
+        let first = change(&a, "A");
+        let second = change(&b, "B");
+        apply_baseline(&a, &second);
+        apply_baseline(&b, &first);
+        // Replay the baseline never independently inserts or duplicates source.
+        apply_baseline(&a, &produced.update);
+        apply_baseline(&b, &produced.update);
+        assert_eq!(a.transact().state_vector(), b.transact().state_vector());
+        let actual = a.get_or_insert_text("html").get_string(&a.transact());
+        assert_eq!(
+            actual,
+            b.get_or_insert_text("html").get_string(&b.transact())
+        );
+        assert_eq!(actual, format!("AB{source}"));
+    }
+}
+#[test]
+fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() {
+    use sha2::{Digest, Sha256};
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_baseline(view(b"exact", "title"), None)
+        .unwrap();
+    gone(baseline.child_pid);
+    let wrong_digest = BaselineInput {
+        source: b"exact",
+        title: "title",
+        source_digest: [0; 32],
+    };
+    assert!(matches!(
+        decoder.produce_baseline(wrong_digest, None),
+        Err(DecodeFault::InvalidInput)
+    ));
+    assert!(matches!(
+        decoder.verify_baseline(view(b"exact", "title"), &baseline.update, [0; 32], None),
+        Err(DecodeFault::Rejected)
+    ));
+    assert!(matches!(
+        decoder.verify_baseline(
+            view(b"exact", "different title"),
+            &baseline.update,
+            baseline.commitment,
+            None
+        ),
+        Err(DecodeFault::Rejected)
+    ));
+    let changed_source = b"other";
+    // Valid hashes for the changed claim cannot substitute materialized text.
+    let framed = tmt_colab_model::framing::frame(&[
+        b"tmt-colab-baseline-v1",
+        b"1",
+        changed_source,
+        &baseline.update,
+    ])
+    .unwrap();
+    assert!(matches!(
+        decoder.verify_baseline(
+            view(changed_source, "title"),
+            &baseline.update,
+            Sha256::digest(framed).into(),
+            None
+        ),
+        Err(DecodeFault::Rejected)
+    ));
+    for update in [&[255u8; 32][..], &[0u8, 0][..]] {
+        let framed =
+            tmt_colab_model::framing::frame(&[b"tmt-colab-baseline-v1", b"1", b"exact", update])
+                .unwrap();
+        assert!(matches!(
+            decoder.verify_baseline(
+                view(b"exact", "title"),
+                update,
+                Sha256::digest(framed).into(),
+                None
+            ),
+            Err(DecodeFault::Rejected)
+        ));
+    }
+    // A normal child remains usable after every clean rejection.
+    let checked = decoder
+        .verify_baseline(
+            view(b"exact", "title"),
+            &baseline.update,
+            baseline.commitment,
+            None,
+        )
+        .unwrap();
+    gone(checked.child_pid);
+}
+#[test]
+fn baseline_bounds_and_cleanup_use_the_existing_runner() {
+    use tmt_colab::decoder::{BASELINE_BYTES, BASELINE_TITLE_BYTES};
+    let mut decoder = owner();
+    let source = vec![b'x'; BASELINE_BYTES];
+    let produced = decoder
+        .produce_baseline(view(&source, "title"), None)
+        .unwrap();
+    gone(produced.child_pid);
+    assert!(produced.update.len() > BASELINE_BYTES);
+    assert!(matches!(
+        decoder.produce_baseline(view(&vec![b'x'; BASELINE_BYTES + 1], "title"), None),
+        Err(DecodeFault::InvalidInput)
+    ));
+    assert!(matches!(
+        decoder.produce_baseline(view(&[255], "title"), None),
+        Err(DecodeFault::InvalidInput)
+    ));
+    assert!(matches!(
+        decoder.produce_baseline(view(b"", &"x".repeat(BASELINE_TITLE_BYTES + 1)), None),
+        Err(DecodeFault::InvalidInput)
+    ));
+    let checked = decoder
+        .verify_baseline(
+            view(&source, "title"),
+            &produced.update,
+            produced.commitment,
+            None,
+        )
+        .unwrap();
+    assert_eq!(checked.update, produced.update);
+    gone(checked.child_pid);
+    for body in [
+        "exec /bin/sleep 60",
+        "exec /usr/bin/head -c 4194305 /dev/zero",
+        "cat >/dev/null; printf '{}'",
+    ] {
+        let fixture = FixtureProgram::new(body);
+        let mut decoder = Decoder::new(fixture.script.clone()).unwrap();
+        let error = decoder
+            .produce_baseline(view(&source, "title"), None)
+            .err()
+            .unwrap();
+        if body == "cat >/dev/null; printf '{}'" {
+            assert!(matches!(error, DecodeFault::InvalidOutput));
+        } else {
+            assert!(
+                matches!(error, DecodeFault::Invoke(ref e) if matches!(e.cleanup, Cleanup::Confirmed) && matches!(e.kind, FailureKind::Deadline|FailureKind::OutputLimit(_)))
+            );
+        }
+        match fixture.recorded_pid() {
+            Some(pid) => gone(pid),
+            None => assert!(
+                matches!(error, DecodeFault::Invoke(ref e) if e.kind == FailureKind::Deadline),
+                "no pid without a deadline"
+            ),
+        }
+        fixture.actual();
+        let produced = decoder
+            .produce_baseline(view(b"reusable", "title"), None)
+            .unwrap();
+        gone(produced.child_pid);
+    }
+    let stop = AtomicBool::new(true);
+    assert!(
+        matches!(decoder.produce_baseline(view(b"", ""), Some(&stop)), Err(DecodeFault::Invoke(e)) if e.kind == FailureKind::Interrupted)
+    );
+}
+
+#[test]
+fn baseline_private_child_rejects_digest_and_strict_wire_mutations() {
+    use sha2::{Digest, Sha256};
+    let valid = serde_json::json!({"version":1,"source":URL_SAFE_NO_PAD.encode(b"exact"),
+        "title":"title", "source_digest":URL_SAFE_NO_PAD.encode(Sha256::digest(b"exact")),
+        "action":{"mode":"produce"}});
+    let run = |input: &[u8]| {
+        let program = program();
+        let args = ["__decoder".into(), "baseline".into()];
+        tmt_invoke::invoke(
+            Request {
+                program: &program,
+                args: &args,
+                input,
+                deadline: Instant::now() + Duration::from_secs(2),
+                max_stream_bytes: STREAM_BYTES,
+                launch: LaunchOptions {
+                    environment: EnvironmentPolicy::ClearAllowlist(&[]),
+                    ..Default::default()
+                },
+            },
+            None,
+        )
+        .unwrap()
+    };
+    let control = run(&serde_json::to_vec(&valid).unwrap());
+    assert!(control.status.success());
+    let reply: serde_json::Value = serde_json::from_slice(&control.stdout).unwrap();
+    gone(reply["pid"].as_u64().unwrap() as u32);
+    for (field, value) in [
+        (
+            "source_digest",
+            serde_json::json!(URL_SAFE_NO_PAD.encode([0; 32])),
+        ),
+        ("version", serde_json::json!(2)),
+        ("extra", serde_json::json!(true)),
+        ("source", serde_json::json!("ZXhhY3Q=")),
+        ("action", serde_json::json!({"mode":"produce","extra":true})),
+    ] {
+        let mut changed = valid.clone();
+        changed[field] = value;
+        let rejected = run(&serde_json::to_vec(&changed).unwrap());
+        assert!(!rejected.status.success(), "accepted mutation {field}");
+        assert!(rejected.stdout.is_empty(), "rejected input returned bytes");
+    }
+    let mut raw = serde_json::to_string(&valid).unwrap();
+    raw.insert_str(1, "\"version\":1,");
+    let rejected = run(raw.as_bytes());
+    assert!(!rejected.status.success());
+    assert!(rejected.stdout.is_empty());
 }

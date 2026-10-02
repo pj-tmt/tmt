@@ -513,6 +513,19 @@ bytes/commitment, cross-client convergence, old-epoch denial and digest mismatch
 The baseline is an explicit epoch reset, not a checkpoint reattributing others'
 old updates to the owner.
 
+The implemented decoder library producer/verifier for #1159 uses the existing
+isolated child. Source admission is 2 MiB, title admission is 256 KiB, and
+update-v1 admission is 2 MiB + 256 KiB + 1 KiB framing. The existing 4 MiB
+serialized stream cap applies to both modes. Verification sends update bytes,
+authenticated source digest and title once; the child reconstructs source and
+checks its digest and the commitment. Production checks its generated update
+inside the child without transmitting both copies as input. Descriptor signing, encrypted publication, owner folds
+and atomic epoch transitions remain caller-owned, later integration work.
+[Baseline vectors](vectors/baseline-v1.json) pin update-v1 bytes and commitment
+with a test-only fixed client ID; production uses a fresh identity. Their
+[independent oracle](vectors/baseline-reference.py) covers only the fresh
+`html`/`meta.title` schema and requires no third-party libraries.
+
 A page's history mode is `shared` by default. A member joining a `shared` page
 receives, in the same owner transition as `member.add`, owner-signed wraps of
 every retained earlier epoch key of that page; no epoch advance is needed, and
