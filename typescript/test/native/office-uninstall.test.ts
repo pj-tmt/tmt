@@ -16,14 +16,24 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
         });
       const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
       try {
-        const installedOffice = await office([
-          'install',
-          '--yes',
-          '--archive',
-          artifact.archive,
-          '--manifest',
-          artifact.manifest,
-        ]);
+        const installedOffice = await runCli(
+          tmt,
+          [
+            '__native-install',
+            '--product',
+            'office',
+            '--channel',
+            'alpha',
+            '--prefix',
+            prefix,
+            '--json',
+            '--archive',
+            artifact.archive,
+            '--manifest',
+            artifact.manifest,
+          ],
+          { deadlineMs: INSTALL_BUDGET_MS }
+        );
         expect(installedOffice.status, installedOffice.stdout + installedOffice.stderr).toBe(0);
         const started = await office(['start']);
         expect(started.status, started.stdout + started.stderr).toBe(0);

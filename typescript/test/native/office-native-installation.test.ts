@@ -227,14 +227,24 @@ describe('native installation process contract', () => {
             deadlineMs: 30_000,
             outputLimitBytes,
           });
-        const installed = await office([
-          'install',
-          '--yes',
-          '--archive',
-          fixture.archive,
-          '--manifest',
-          fixture.manifest,
-        ]);
+        const installed = await runCli(
+          sandbox,
+          [
+            '__native-install',
+            '--product',
+            'office',
+            '--channel',
+            'alpha',
+            '--prefix',
+            prefix,
+            '--json',
+            '--archive',
+            fixture.archive,
+            '--manifest',
+            fixture.manifest,
+          ],
+          { deadlineMs: 30_000 }
+        );
         expect(installed.status, installed.stdout + installed.stderr).toBe(0);
         expect((await runCli(sandbox, ['identity', 'create', 'Alice', '--json'])).status).toBe(0);
         const created = parseWholeStdout(

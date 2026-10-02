@@ -8,10 +8,11 @@ import { oldLayout } from '../support/legacy-extension-skills.js';
 async function installOffice(sandbox: Sandbox, prefix: string) {
   const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
   const args = [
-    'extension',
-    'install',
+    '__native-install',
+    '--product',
     'office',
-    '--yes',
+    '--channel',
+    'alpha',
     '--prefix',
     prefix,
     '--archive',

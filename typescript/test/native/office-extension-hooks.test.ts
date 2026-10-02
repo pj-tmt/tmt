@@ -15,9 +15,14 @@ describe('consented extension hooks', () => {
       const prefix = path.join(sandbox.root, 'isolated office');
       const office = (args: string[]) => cli(sandbox, ['office', '--prefix', prefix, ...args]);
       const artifact = await createArtifact(sandbox, officeVersion, new Uint8Array(), 'office');
-      await office([
-        'install',
-        '--yes',
+      await cli(sandbox, [
+        '__native-install',
+        '--product',
+        'office',
+        '--channel',
+        'alpha',
+        '--prefix',
+        prefix,
         '--archive',
         artifact.archive,
         '--manifest',

@@ -3200,6 +3200,10 @@ fixture files for diagnosis. Sandbox disposal cancels outstanding runs before
 removing files. This is not containment of descendants that create new sessions,
 and does not replace the separate Docker harness or release verifier.
 
+Real-companion native scenarios live in Office-owned `office-*.test.ts` suites;
+core-only uninstall, legacy skill recovery and hook cases stay in their core suites.
+Shared setup lives in `test/support`, while assertions remain in the scenarios.
+
 The native process suite proves parser, configuration, identity, notes,
 response, exchange, talk, installation and skill contracts through the real executable.
 Docker E2E supplies private tmux, caller, lifecycle, transport and cross-process
