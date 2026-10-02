@@ -16,9 +16,11 @@
       "include-component-in-tag": false,
       "exclude-paths": [
         "extensions/tmt-office/contracts",
+        "extensions/tmt-office/docs",
         "extensions/tmt-office/rust/tmt-office",
         "extensions/tmt-office/rust/tmt-office-pairing",
         "extensions/tmt-office/rust/tmt-office-storage",
+        "extensions/tmt-office/scripts",
         "extensions/tmt-office/skills",
         "extensions/tmt-office/typescript",
         "extensions/tmt-squad",
