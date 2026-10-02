@@ -403,8 +403,9 @@ it.each(['signal', 'probe'])(
       expect(probeDenied).toBe(denial === 'probe');
       expect(fs.existsSync(sandboxRoot)).toBe(true);
       const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
-      expect(alive(child)).toBe(true);
-      expect(alive(-group)).toBe(true);
+      // Group cleanup failed, but the independent cwd guard still stops sandbox residents.
+      expect(alive(child)).toBe(false);
+      expect(alive(-group)).toBe(false);
     } finally {
       probe.mockRestore();
       await cleanup(f.marker);

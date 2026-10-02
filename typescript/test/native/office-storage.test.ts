@@ -134,16 +134,16 @@ it(
       // Retired after the move: the service reconciles before serving.
       const retired = await runCli(sandbox, ['rm', 'Bea', '--force', '--json']);
       expect(retired.status, retired.stdout).toBe(0);
-      const started = await office(['start']);
-      const marker = new Database(officeDatabase, { readonly: true });
       try {
-        expect(marker.prepare('SELECT identity_id FROM office_retired_identities').all()).toEqual([
-          { identity_id: beaId },
-        ]);
-      } finally {
-        marker.close();
-      }
-      try {
+        const started = await office(['start']);
+        const marker = new Database(officeDatabase, { readonly: true });
+        try {
+          expect(marker.prepare('SELECT identity_id FROM office_retired_identities').all()).toEqual(
+            [{ identity_id: beaId }]
+          );
+        } finally {
+          marker.close();
+        }
         const url = new URL(started.url as string);
         const token = new URLSearchParams(url.hash.slice(1)).get('token');
         const response = await fetch(new URL('/api/v1/local/board/threads/show', url.origin), {
