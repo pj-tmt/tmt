@@ -134,8 +134,8 @@ struct Tunnels {
     running: Vec<(TcpStream, JoinHandle<()>)>,
 }
 /// One reserved tunnel slot, released when its splice ends.
-struct Slot(Arc<AtomicUsize>);
-impl Drop for Slot {
+struct TunnelSlot(Arc<AtomicUsize>);
+impl Drop for TunnelSlot {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
     }
@@ -178,17 +178,17 @@ impl Mounts {
             let _ = thread.join();
         }
     }
-    fn reserve(&self, index: usize) -> Option<Slot> {
+    fn reserve(&self, index: usize) -> Option<TunnelSlot> {
         let active = &self.active[index];
         active
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 (n < self.extensions[index].tunnels).then_some(n + 1)
             })
             .ok()?;
-        Some(Slot(Arc::clone(active)))
+        Some(TunnelSlot(Arc::clone(active)))
     }
     /// Run a splice on its own thread so it leaves the door's edge sockets.
-    fn adopt(&self, client: TcpStream, extension: UnixStream, slot: Slot, idle: Duration) {
+    fn adopt(&self, client: TcpStream, extension: UnixStream, slot: TunnelSlot, idle: Duration) {
         let Ok(mut tunnels) = self.tunnels.lock() else {
             return;
         };
