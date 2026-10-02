@@ -1,5 +1,6 @@
 import type { MDXContent } from "mdx/types";
 import type { Status } from "../components/marks";
+import Colab from "./colab.mdx";
 import Concepts from "./concepts.mdx";
 import Design from "./design.mdx";
 import DevDriver from "./dev-driver.mdx";
@@ -9,11 +10,11 @@ import DrvClaude from "./drv-claude.mdx";
 import DrvCodex from "./drv-codex.mdx";
 import DrvTmux from "./drv-tmux.mdx";
 import Extensions from "./extensions.mdx";
+import Meet from "./meet.mdx";
 import Remote from "./remote.mdx";
 import Settings from "./settings.mdx";
 import Squad from "./squad.mdx";
 import Start from "./start.mdx";
-import Threads from "./threads.mdx";
 import Working from "./working.mdx";
 
 // A window in the status bar, like a tmux window: one per chapter group.
@@ -138,19 +139,29 @@ export const pages: Page[] = [
     Content: Squad,
   },
   {
-    path: "/extensions/threads",
+    path: "/extensions/colab",
     window: 4,
     index: "4.2",
-    crumb: "extensions / threads",
-    title: "Threads: your team's conversations in one window",
-    status: { kind: "planned", label: "coming later" },
-    file: "threads",
-    Content: Threads,
+    crumb: "extensions / colab",
+    title: "Colab: one page your whole team shares",
+    status: { kind: "in progress", label: "in progress" },
+    file: "colab",
+    Content: Colab,
+  },
+  {
+    path: "/extensions/meet",
+    window: 4,
+    index: "4.3",
+    crumb: "extensions / meet",
+    title: "Meet: a room for you and your agents",
+    status: { kind: "planned", label: "planned" },
+    file: "meet",
+    Content: Meet,
   },
   {
     path: "/extensions/remote",
     window: 4,
-    index: "4.3",
+    index: "4.4",
     crumb: "extensions / remote",
     title: "Remote: your agents, on every machine",
     status: { kind: "designing", label: "designing" },
@@ -202,7 +213,7 @@ export const legacyAnchors: Record<string, string> = {
   "squad-layout": "/extensions/squad#layout-rows-lines-and-panes",
   "squad-themes": "/extensions/squad#colors-and-themes",
   "squad-hosts": "/extensions/squad#jumping-between-members",
-  threads: "/extensions/threads",
+  threads: "/extensions",
   remote: "/extensions/remote",
   "dev-extension": "/develop/extensions",
   "dev-driver": "/develop/drivers",

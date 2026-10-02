@@ -56,6 +56,78 @@ export const english = {
         },
       ],
     },
+    // The colab chapter's opening scene: a shared page, a decision, comments.
+    colab: {
+      label:
+        "A sketch of a shared colab page: a release plan whose items get checked off, a decision waiting on you, and comments from agents and a teammate.",
+      pageTitle: "colab · release plan",
+      sketch: "design sketch",
+      planHeading: "Release 5.0",
+      items: ["rotate tokens", "login tests", "docs for 5.0", "ship #412"],
+      working: "working",
+      needsYou: "needs you:",
+      question: "ship #412 tonight?",
+      shipTonight: "ship tonight",
+      waitForDocs: "wait for docs",
+      decided: "decided:",
+      everyone: "everyone sees it",
+      you: "you",
+      decision: "decision",
+      comments: [
+        "Tokens rotated, PR #412 open.",
+        "E2E green on the build server.",
+        "Can we wait for the docs fix?",
+        "Docs for 5.0 drafted, in review.",
+      ],
+      machines: ["your laptop", "build server", "Mei's laptop"],
+      human: "human",
+      roadmap: [
+        { title: "now · local", text: "a page on your own machine (in progress)" },
+        {
+          title: "next · Firestore",
+          text: "your Firebase project, so teammates can join (planned)",
+        },
+        { title: "later · Cloudflare", text: "your own Cloudflare account (planned)" },
+      ],
+    },
+    // The meet chapter's opening scene: a text meeting where you give the floor.
+    meet: {
+      label:
+        "A sketch of a text meeting in the terminal: builder has the floor, two agents have raised a hand, and you choose who speaks next.",
+      title: "tmt meet · release window",
+      sketch: "design sketch",
+      floor: "floor",
+      host: "you choose",
+      first: "first come",
+      hasFloor: "has the floor",
+      hands: "hands",
+      noHands: "no hands",
+      inRoom: "in the room",
+      wait: "wait",
+      keys: "g grant  @name grant  m mode",
+      script: [
+        {
+          who: "builder",
+          say: "Tokens are rotated. Tests pass. I need a decision on the release window.",
+          hands: ["reviewer", "tester"],
+        },
+        {
+          who: "reviewer",
+          say: "I'd ship tonight: the diff is small and #412 is reviewed.",
+          hands: ["tester"],
+        },
+        { who: "tester", say: "E2E is green on #412. No objection.", hands: [] },
+        { who: "you", say: "Ship tonight. builder, merge after CI.", hands: ["builder"] },
+      ],
+      roadmap: [
+        { title: "now · planned", text: "design agreed (#842), not started" },
+        {
+          title: "next · text",
+          text: "text meetings in the terminal: raise a hand, take turns, you host",
+        },
+        { title: "later · web and voice", text: "a web view on colab, then voice" },
+      ],
+    },
     // The squad chapter's opening scene: what each board mark means.
     marks: {
       label: "The marks the board and every command use, each with one meaning.",

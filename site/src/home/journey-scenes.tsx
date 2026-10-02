@@ -192,7 +192,7 @@ function Seat({
   return (
     <div
       className={`relative rounded-lg border bg-term p-3 text-center font-mono text-xs text-t-text ${
-        talking ? "border-t-accent ring-4 ring-t-accent/25" : "border-term-edge"
+        talking ? "border-(--t-accent) ring-4 ring-t-accent/25" : "border-term-edge"
       }`}
     >
       {hand && <span className="absolute top-1.5 right-2 font-bold text-t-waiting">{hand}</span>}
