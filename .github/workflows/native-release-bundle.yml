@@ -35,6 +35,12 @@ on:
         default: false
         type: boolean
 
+      rerun:
+        description: Rerun every gate of a held draft with current main tooling
+        required: false
+        default: false
+        type: boolean
+
 permissions:
   contents: read
 
@@ -354,7 +360,7 @@ jobs:
   gates:
     name: Publication gates for ${{ inputs.tag }}
     needs: [check, attach]
-    if: ${{ !cancelled() && inputs.tag != '' && needs.check.result == 'success' && ((needs.check.outputs.todo == 'true' && needs.attach.result == 'success') || inputs.hold || needs.check.outputs.awaiting == 'true') }}
+    if: ${{ !cancelled() && inputs.tag != '' && needs.check.result == 'success' && ((needs.check.outputs.todo == 'true' && needs.attach.result == 'success') || inputs.hold || inputs.rerun || needs.check.outputs.awaiting == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -365,6 +371,7 @@ jobs:
     outputs:
       held: ${{ steps.gates.outputs.held }}
       skip: ${{ steps.gates.outputs.skip }}
+      rerun_gate: ${{ steps.gates.outputs.rerun_gate }}
     steps:
       # This repository's own ref with its whole history: the gates read the release commit's
       # data through git and the API and never run its code.
@@ -382,9 +389,12 @@ jobs:
           PRODUCT: ${{ inputs.product }}
           RELEASE_TAG: ${{ inputs.tag }}
           HOLD: ${{ inputs.hold }}
+          RERUN: ${{ inputs.rerun }}
         run: |
           if [ "$HOLD" = true ]; then
             node typescript/scripts/publication-gates.mjs early --product "$PRODUCT" --tag "$RELEASE_TAG" --release-hold
+          elif [ "$RERUN" = true ]; then
+            node typescript/scripts/publication-gates.mjs early --product "$PRODUCT" --tag "$RELEASE_TAG" --rerun
           else
             node typescript/scripts/publication-gates.mjs early --product "$PRODUCT" --tag "$RELEASE_TAG"
           fi
@@ -401,6 +411,7 @@ jobs:
       product: ${{ inputs.product }}
       tag: ${{ inputs.tag }}
       sha: ${{ inputs.sha }}
+      current-tooling: ${{ inputs.rerun }}
 
   finish:
     name: Decide the publication of ${{ inputs.tag }}
@@ -429,10 +440,11 @@ jobs:
           UPGRADE_OUTCOME: ${{ needs.upgrade.outputs.outcome }}
           UPGRADE_REASON: ${{ needs.upgrade.outputs.reason }}
           SKIP: ${{ needs.gates.outputs.skip }}
+          RERUN_GATE: ${{ needs.gates.outputs.rerun_gate }}
         run: |
           node typescript/scripts/publication-gates.mjs finish --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --upgrade-result "$UPGRADE_RESULT" --upgrade-outcome "$UPGRADE_OUTCOME" \
-            --upgrade-reason "$UPGRADE_REASON" --skip "$SKIP"
+            --upgrade-reason "$UPGRADE_REASON" --skip "$SKIP" --rerun-gate "$RERUN_GATE"
 
   # The one job that publishes. It runs only when `finish` ran and held nothing, which takes every
   # gate to have passed, and the script reads the draft again before it acts. Like the gates it

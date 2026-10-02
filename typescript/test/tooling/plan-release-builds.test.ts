@@ -235,6 +235,38 @@ describe('release build plan', () => {
     ).toThrow('separate runs');
   });
 
+  it('plans only the bundled held draft for a rerun and refuses missing hold evidence', () => {
+    const releases = [
+      draft('v5.0.0-alpha.9', '1', [BUNDLE_ASSET, HOLD_ASSET]),
+      draft('v5.0.0-alpha.10', '2', [BUNDLE_ASSET]),
+      draft('v5.0.0-alpha.11', '3', [HOLD_ASSET]),
+      draft('v5.0.0-alpha.12', '4', [BUNDLE_ASSET, HOLD_ASSET], { target_commitish: 'main' }),
+    ];
+    expect(tags(planReleaseBuilds({ product: 'cli', releases, rerun: 'v5.0.0-alpha.9' }))).toEqual([
+      'v5.0.0-alpha.9',
+    ]);
+    for (const tag of ['v5.0.0-alpha.10', 'v5.0.0-alpha.11']) {
+      expect(() => planReleaseBuilds({ product: 'cli', releases, rerun: tag })).toThrow(
+        'has no bundle held'
+      );
+    }
+    expect(() => planReleaseBuilds({ product: 'cli', releases, rerun: 'v5.0.0-alpha.12' })).toThrow(
+      'not a commit'
+    );
+    expect(() =>
+      planReleaseBuilds({ product: 'squad', releases, rerun: 'v5.0.0-alpha.9' })
+    ).toThrow('not a draft');
+  });
+
+  it.each([{ retry: 'v5.0.0-alpha.9' }, { hold: 'v5.0.0-alpha.9' }])(
+    'refuses rerun combined with %o',
+    (mode) => {
+      expect(() =>
+        planReleaseBuilds({ product: 'cli', releases: [], rerun: 'v5.0.0-alpha.9', ...mode })
+      ).toThrow('separate runs');
+    }
+  );
+
   it('renders the held drafts and a released hold in the run summary', () => {
     const held = renderPlanSummary({
       product: 'cli',
@@ -309,6 +341,7 @@ describe('release build plan', () => {
     for (const extra of [
       { retry: 'tmt-office-v0.1.0-alpha.4' },
       { hold: 'tmt-office-v0.1.0-alpha.4' },
+      { rerun: 'tmt-office-v0.1.0-alpha.4' },
     ]) {
       expect(() =>
         planReleaseBuilds({ product: 'office', released: false, releases, ...extra })

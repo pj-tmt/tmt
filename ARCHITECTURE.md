@@ -3831,7 +3831,13 @@ additional workflow restarts full PR CI for this feedback.
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
-assets, and read-only jobs run the release commit's scripts on them. When a draft's bundle is
+assets, and read-only jobs normally run the release commit's scripts on them. A held-draft
+`rerun` instead uses the dispatch's current main commit for scripts and locked dependencies,
+with a separate release-SHA checkout for CLI expected skills and migration counts. Draft
+archives, manifest, version and recorded digests remain unchanged. The existing planner
+shares held-draft validation with `hold`, but rerun skips no gate; failed reruns preserve
+the marker and finish validates its tag, SHA and gate before clearing it after all gates pass.
+The [release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization. When a draft's bundle is
 attached the pipeline evaluates the publication gates (channel, commit, immutability,
 monotonic, migration, upgrade) in write-token jobs that run `main`'s code and only read the release
 commit's data; a failed gate leaves `publication-held.json` on the draft. A draft that

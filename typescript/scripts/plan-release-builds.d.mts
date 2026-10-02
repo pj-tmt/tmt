@@ -34,6 +34,7 @@ export function planReleaseBuilds(input: {
   product: string;
   retry?: string;
   hold?: string;
+  rerun?: string;
   released?: boolean;
 }): ReleasePlan;
 export function renderPlanSummary(
@@ -44,6 +45,7 @@ export function renderPlanSummary(
     product: string;
     retry?: string;
     hold?: string;
+    rerun?: string;
   }
 ): string;
 export function releasesFrom(parsed: readonly unknown[]): ReleaseObject[];

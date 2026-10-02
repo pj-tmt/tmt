@@ -6,7 +6,7 @@
 // while it waited for its concurrency group, or one that stopped before it published, loses
 // nothing: the run that follows plans the same drafts.
 //   gh api --paginate --slurp repos/OWNER/REPO/releases \
-//     | node plan-release-builds.mjs --product cli [--retry TAG | --hold TAG] [--components FILE]
+//     | node plan-release-builds.mjs --product cli [--retry TAG | --hold TAG | --rerun TAG] [--components FILE]
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -36,15 +36,22 @@ const oldestFirst = (left, right) =>
  * each oldest first. A `retry` tag plans exactly that draft, ignoring its failure marker, and
  * refuses a tag that is not an unbundled draft of the product.
  */
-export function planReleaseBuilds({ releases, product, retry = '', hold = '', released = true }) {
-  if (retry !== '' && hold !== '') {
-    throw new Error('A retry and a released hold are separate runs; give one of them.');
+export function planReleaseBuilds({
+  releases,
+  product,
+  retry = '',
+  hold = '',
+  rerun = '',
+  released = true,
+}) {
+  if ([retry, hold, rerun].filter(Boolean).length > 1) {
+    throw new Error('retry, hold and rerun are separate runs; give one of them.');
   }
   const drafts = releases.filter(
     (release) => release.draft === true && productOfTag(release.tag_name) === product
   );
   if (!released) {
-    if (retry !== '' || hold !== '') {
+    if (retry !== '' || hold !== '' || rerun !== '') {
       throw new Error(`${product} is not released (release: false in .github/components.json).`);
     }
     return {
@@ -80,22 +87,22 @@ export function planReleaseBuilds({ releases, product, retry = '', hold = '', re
     return { builds: [named(release)], awaiting: [], blocked: [], held: [] };
   }
 
-  if (hold !== '') {
-    const release = drafts.find(({ tag_name: tag }) => tag === hold);
+  if (hold !== '' || rerun !== '') {
+    const tag = hold || rerun;
+    const action = rerun ? 'rerun the gates of' : 'release the hold of';
+    const release = drafts.find(({ tag_name }) => tag_name === tag);
     if (!release) {
       throw new Error(
-        `Cannot release the hold of ${hold}: it is not a draft release of the ${product} product.`
+        `Cannot ${action} ${tag}: it is not a draft release of the ${product} product.`
       );
     }
     const assets = assetNames(release);
     if (!assets.has(BUNDLE_ASSET) || !assets.has(HOLD_ASSET)) {
-      throw new Error(
-        `Cannot release the hold of ${hold}: it has no bundle held by ${HOLD_ASSET}.`
-      );
+      throw new Error(`Cannot ${action} ${tag}: it has no bundle held by ${HOLD_ASSET}.`);
     }
     if (!COMMIT.test(release.target_commitish)) {
       throw new Error(
-        `Cannot release the hold of ${hold}: its target ${release.target_commitish} is not a commit.`
+        `Cannot ${action} ${tag}: its target ${release.target_commitish} is not a commit.`
       );
     }
     return { builds: [named(release)], awaiting: [], blocked: [], held: [] };
@@ -149,10 +156,13 @@ export function renderPlanSummary({
   unreleased = [],
   retry = '',
   hold = '',
+  rerun = '',
 }) {
   const lines = [`### Release run for ${product}`, ''];
   if (retry !== '') lines.push(`Retrying ${retry} by dispatch.`, '');
   if (hold !== '') lines.push(`Releasing the hold of ${hold} by dispatch.`, '');
+  if (rerun !== '')
+    lines.push(`Rerunning every gate of ${rerun} by owner-authorized dispatch.`, '');
   lines.push(
     builds.length === 0
       ? 'No draft release needs a build.'
@@ -197,12 +207,13 @@ function main(argv, stdin) {
       product: { type: 'string' },
       retry: { type: 'string', default: '' },
       hold: { type: 'string', default: '' },
+      rerun: { type: 'string', default: '' },
       components: { type: 'string', default: COMPONENTS },
     },
   });
   if (!values.product) {
     throw new Error(
-      'Usage: plan-release-builds.mjs --product <product> [--retry <tag> | --hold <tag>]'
+      'Usage: plan-release-builds.mjs --product <product> [--retry <tag> | --hold <tag> | --rerun <tag>]'
     );
   }
   const releases = releasesFrom(JSON.parse(stdin));
@@ -212,12 +223,14 @@ function main(argv, stdin) {
     product: values.product,
     retry: values.retry,
     hold: values.hold,
+    rerun: values.rerun,
     released: isReleased(map, values.product),
   });
   const summary = renderPlanSummary({
     product: values.product,
     retry: values.retry,
     hold: values.hold,
+    rerun: values.rerun,
     ...plan,
   });
   process.stderr.write(summary);

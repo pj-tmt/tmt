@@ -1799,6 +1799,30 @@ product, `prepare` off and `hold` set to the tag: the run evaluates the gates ag
 the one gate the marker names (never another, and never `channel`), removes the marker when
 they pass and then publishes the draft as below.
 
+An owner-authorized `rerun=<tag>` dispatch on main with `prepare` off instead re-proves
+all gates, including the gate named in `publication-held.json`; it skips none. `retry`,
+`hold` and `rerun` are mutually exclusive. The selected tag must be a bundled, held
+product draft with a commit target. The gates validate the marker's tag, SHA and known
+gate, and finish refuses a changed gate. Any failed gate leaves the original marker
+unchanged; only after all gates pass is it removed, followed by normal publication,
+attestation and public-install smoke checks. The
+[release skill](.agents/skills/tmt-release/SKILL.md#automated-alpha-publication) owns rerun authorization.
+
+Rerun uses the main commit selected by the dispatch for verifier scripts and their
+locked dependencies. Archives, manifest, version and digests come from the draft;
+CLI expected skill bytes and migration counts come from a separate read-only checkout
+of its release SHA (`release-source`). No scripts from that checkout run in rerun.
+Ordinary upgrade proof retains release-commit tooling. This separates repaired tooling
+from the unchanged candidate under test without rebuilding or replacing its assets.
+
+Fixture-only verification (no dispatch or Docker):
+
+```bash
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/plan-release-builds.test.ts test/tooling/publication-gates-script.test.ts test/tooling/release-upgrade.test.ts test/tooling/release-workflow.test.ts)
+(cd typescript && corepack pnpm check:tooling)
+actionlint .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml
+```
+
 Publication is authorized by the owner. The owner chose a trunk-based alpha channel, and that
 choice is the standing authorization, recorded in the release skill, for the release pipeline
 to publish an alpha draft that passes every gate above; everything a gate holds, every stable
