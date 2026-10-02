@@ -344,16 +344,16 @@ const b1: Pane = { ui: "codex", launch: "tmt run codex", lines: [] };
 const a2: Pane = {
   ui: "claude",
   badge: { n: R, s: "on" },
-  lines: [{ u: "!tmt this reviewer" }, { r: "Named this pane reviewer." }],
+  lines: [{ u: "!tmt name reviewer" }, { r: "✓ Bound temporary identity 'reviewer' on pane %0" }],
 };
 const b2: Pane = {
   ui: "codex",
   badge: { n: B, s: "on" },
   lines: [
-    { u: "!tmt this builder" },
-    { r: "Named this pane builder." },
+    { u: "!tmt name builder" },
+    { r: "✓ Bound temporary identity 'builder' on pane %1" },
     { u: "!tmt add 0.3 server-log" },
-    { r: "Named pane 0.3 server-log." },
+    { r: "✓ Bound temporary identity 'server-log' on pane %2" },
   ],
 };
 const a3: Pane = {
@@ -362,7 +362,6 @@ const a3: Pane = {
     ...a2.lines!,
     { u: "Ask builder to fix the flaky login test." },
     { t: 'tmt talk builder "Fix the flaky login test"' },
-    { r: "waiting for builder…" },
   ],
 };
 const b3lines: Item[] = [
@@ -378,7 +377,7 @@ const b4: Pane = {
   lines: [
     ...b3lines,
     { t: 'tmt reply req_4f36… --receipt v2_… --message "Fixed"' },
-    { r: "Submitted response." },
+    { r: "✓ Submitted response for request req_4f36…" },
     { k: "Worked for 41s" },
   ],
 };
@@ -386,6 +385,8 @@ const a4: Pane = {
   ...a2,
   lines: [
     ...a3.lines!,
+    { r: "✓ Completed request req_4f36… for builder (%1)" },
+    { r: "Fixed" },
     { a: "builder fixed it: the redirect is now" },
     { d: "  awaited, and 20/20 runs pass." },
     { k: "Churned for 48s" },
@@ -421,12 +422,12 @@ export const basicLoop = {
     {
       focus: 0,
       panes: [a2, b1, log0],
-      cap: "Inside Claude Code, press ! for shell mode and run tmt this reviewer. The pane gets its name and badge.",
+      cap: "Inside Claude Code, press ! for shell mode and run tmt name reviewer. The pane gets its name and badge.",
     },
     {
       focus: 1,
       panes: [a2, b2, logNamed],
-      cap: "Same in Codex: ! tmt this builder, then ! tmt add 0.3 server-log names the log pane. Any pane can have a name.",
+      cap: "Same in Codex: ! tmt name builder, then ! tmt add 0.3 server-log names the log pane. Any pane can have a name.",
     },
     {
       focus: 0,
