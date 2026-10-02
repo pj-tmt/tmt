@@ -2848,7 +2848,18 @@ product endpoint under one metadata byte budget and deadline; incomplete discove
 fails closed. DEVELOPMENT owns page/request bounds and verification cases.
 GitHub's latest pointer cannot select stable: CLI alphas are normal releases marked
 latest. Acquisition retains the existing immutable release, product prerelease
-flag, asset digest and manifest checks before installation.
+flag, asset digest and manifest checks before installation. The shared
+`release_http::Https` adapter classifies API 403/429 responses only when primary
+rate-limit headers report zero remaining requests with a reset header, or a
+secondary limit supplies Retry-After. It permits one jittered wait and retry per
+client under the caller's unchanged absolute deadline, including all metadata,
+asset and redirect requests. Invalid timing, a wait beyond that deadline or a
+second limit fails with a sanitized reset/earliest-retry diagnostic. Optional
+`GITHUB_TOKEN` authorization is rebuilt per hop only for `api.github.com`; asset
+hosts never receive it. Discovery and installation policy remain with their
+existing owners. The generated shell bootstrap downloads fixed-version assets
+without API discovery and retains its unauthenticated download policy.
+
 Downloaded bytes feed the same bounded artifact verifier directly; there is no
 extra download-to-disk/read-back stage. Publication runs the caller's release
 verifier on the written candidate before its receipt, so a rejection keeps the

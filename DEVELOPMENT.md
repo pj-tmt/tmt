@@ -2002,7 +2002,28 @@ metadata path makes exactly two requests (refs and the highest candidate's relea
 Confirmed missing releases and explicit drafts are the exceptions that require another
 tag lookup, capped at 32 lookups per invocation. Distinct published versions with equal
 precedence fail. Shared deadlines stay at ten seconds for metadata-only checks and
-60 seconds for acquisition, with existing bounded HTTPS redirects and no new retries.
+60 seconds for acquisition, with existing bounded HTTPS redirects. The shared
+HTTPS client permits only one rate-limit wait/retry across its requests, inside
+that same deadline. API 403/429 responses require primary evidence (zero
+`x-ratelimit-remaining` plus `x-ratelimit-reset`) or secondary `retry-after`.
+The wait honors applicable timing constraints plus positive jitter; an invalid
+header, a wait beyond the remaining deadline or another rate limit fails clearly
+with the reset/earliest-retry time when available and an optional `GITHUB_TOKEN`
+hint. This adds at most one retry request without expanding discovery bounds.
+A provided token is sent only to `api.github.com`, rebuilt per redirect hop;
+missing/empty tokens keep acquisition unauthenticated. Post-publication smoke
+remains token-free. The fixed-version shell bootstrap makes no API discovery
+requests and does not send tokens to its asset downloads.
+
+Deterministic local HTTPS rate-limit fixtures run with
+`cargo test --locked -p tmt-adapters release_http`: primary reset and secondary
+Retry-After followed by success, deadline refusal, malformed timing, ordinary
+permission 403, repeated limits, a retry allowance shared across calls, and
+API-only token scope through an asset-host redirect. Test-only wait injection
+avoids real rate-limit sleeps; real TLS, headers, response bodies and request
+counts remain observable. Existing deadline, redirect and size controls still
+run. Production has no test endpoint or TLS bypass.
+
 Incomplete ref discovery or an exhausted candidate scan fails with the unchanged
 `Release discovery exceeds its bound; select an exact version with --to.` error
 (`InvalidData`, surfaced as `NATIVE_UPGRADE_FAILED` by CLI upgrade); an extension check
