@@ -185,7 +185,12 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         Some("anonymous") => true,
         Some(_) => return Err(invalid()),
     };
-    if writing != (wire.identity.is_some() != anonymous)
+    let valid_originator = if writing {
+        wire.identity.is_some() != anonymous
+    } else {
+        wire.identity.is_none() && !anonymous
+    };
+    if !valid_originator
         || wire
             .identity
             .as_ref()
@@ -885,6 +890,60 @@ mod tests {
     }
 
     #[test]
+    fn unattributed_operations_reject_either_or_both_originator_fields() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let hook = json!({"consumer": "extension", "identityId": id, "reference": "scope"});
+        for (operation, input) in [
+            ("capabilities", json!({})),
+            ("storage.root", json!({})),
+            ("changes.cursor", json!({})),
+            ("requests.list", json!({"recipientId": id})),
+            ("requests.show", json!({"requestId": format!("req_{id}")})),
+            ("dispatch.show", json!({"operationId": id})),
+            ("rooms.roster", json!({"room": id})),
+            ("notes.read", json!({"identityId": id})),
+            ("references.resolve", json!({"identityIds": [id]})),
+            ("identities.status", json!({"identityIds": [id]})),
+            ("identityHooks.register", hook.clone()),
+            (
+                "identityHooks.pending",
+                json!({"consumer": "extension", "limit": 1}),
+            ),
+            ("identityHooks.attempt", hook.clone()),
+            ("identityHooks.ack", hook),
+            (
+                "skills.install",
+                json!({"owner": "extension", "consent": true,
+                "skills": [{"name": "extension", "files": [{"path": "SKILL.md", "content": "skill"}]}]}),
+            ),
+            (
+                "skills.remove",
+                json!({"owner": "extension", "consent": true}),
+            ),
+        ] {
+            let envelope = json!({"version": 1, "operation": operation, "input": input});
+            assert!(decode(&envelope.to_string()).is_ok(), "{envelope}");
+            for extra in [
+                json!({"identity": "Ada"}),
+                json!({"originator": "anonymous"}),
+                json!({"identity": "Ada", "originator": "anonymous"}),
+            ] {
+                let mut body = envelope.clone();
+                for (key, value) in extra.as_object().unwrap() {
+                    body[key] = value.clone();
+                }
+                let fault = decode(&body.to_string()).err().expect("originator refused");
+                assert_eq!(
+                    serde_json::from_slice::<Value>(&fault.encode()).unwrap(),
+                    json!({"error": {"code": "API_INPUT_INVALID",
+                        "message": "Invalid operation, fields or bounded input."}}),
+                    "{body}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn writes_name_exactly_one_originator_and_anonymous_stores_no_identity() {
         let directory = crate::test_support::TestDirectory::new();
         let paths = ConfigPaths::resolve(
@@ -914,7 +973,12 @@ mod tests {
             }
             decode(&envelope.to_string())
         };
-        for (operation, input) in [("dispatch.create", &dispatch), ("rooms.write", &room_write)] {
+        let room_retire = json!({"roomId": room, "expectedRevision": 1});
+        for (operation, input) in [
+            ("dispatch.create", &dispatch),
+            ("rooms.write", &room_write),
+            ("rooms.retire", &room_retire),
+        ] {
             assert!(decode_with(operation, json!({"originator": "anonymous"}), input).is_ok());
             assert!(decode_with(operation, json!({"identity": "Ada"}), input).is_ok());
             for extra in [
