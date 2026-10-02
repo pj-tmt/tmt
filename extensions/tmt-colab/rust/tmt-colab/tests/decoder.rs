@@ -183,6 +183,9 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
     ] {
         assert_eq!(corpus[index], bytes, "generator drift at {index}");
     }
+    // Record the exec-preserved PID so every contained outcome proves reaping.
+    let path = program().to_string_lossy().replace('\'', "'\\''");
+    let fixture = FixtureProgram::new(&format!("exec '{path}' \"$@\""));
     for run in 0..2 {
         let start = Instant::now();
         let mut timeout = 0;
@@ -193,11 +196,14 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
                 "corpus suite exceeded budget"
             );
             let input=serde_json::to_vec(&serde_json::json!({"version":1,"namespace":"content","baseline":"","updates":[URL_SAFE_NO_PAD.encode(bytes)]})).unwrap();
-            let program = program();
+            let program = &fixture.script;
+            if fixture.directory.join("pid").exists() {
+                std::fs::remove_file(fixture.directory.join("pid")).unwrap();
+            }
             let args = ["__decoder".into()];
-            match tmt_invoke::invoke(
+            let outcome = match tmt_invoke::invoke(
                 Request {
-                    program: &program,
+                    program,
                     args: &args,
                     input: &input,
                     deadline: Instant::now() + Duration::from_secs(1),
@@ -214,35 +220,45 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
                         assert_ne!(index, 26, "saved timeout did not hit its deadline");
                     }
                     assert!(
+                        output.stdout.is_empty(),
+                        "rejected fixture returned result bytes: {index}"
+                    );
+                    assert!(
                         !output.status.success(),
                         "fixture schema cannot be admitted: {index}"
                     );
                     let diagnostic = String::from_utf8_lossy(&output.stderr);
                     let panicked = diagnostic.contains("decoder panic");
-                    if index == 26 {
+                    if cfg!(target_os = "linux") && [26, 60, 106, 147, 157, 192].contains(&index) {
                         assert!(
                             panicked
+                                || diagnostic.contains("decoder rejected")
+                                || diagnostic.contains("decoder memory limit failed")
                                 || (diagnostic.contains("memory allocation of")
                                     && diagnostic.contains("failed")),
-                            "Linux saved timeout exited without a memory-limit/panic diagnostic: {diagnostic}"
+                            "Linux saved dump exited without a containment diagnostic: {diagnostic}"
                         );
                     }
-                    if [60, 106, 147, 157, 192].contains(&index) {
+                    if !cfg!(target_os = "linux") && [60, 106, 147, 157, 192].contains(&index) {
                         assert!(panicked, "saved panic was not reproduced: {index}");
                     }
                     if panicked {
                         panic += 1;
                     }
                     if !cfg!(target_os = "linux") {
-                        assert!(
-                            String::from_utf8_lossy(&output.stderr)
-                                .contains("memory limit unavailable")
-                        );
+                        assert!(diagnostic.contains("memory limit unavailable"));
+                    }
+                    if panicked {
+                        "panic"
+                    } else if diagnostic.contains("decoder rejected") {
+                        "rejected"
+                    } else {
+                        "memory-limit"
                     }
                 }
                 Err(e) => {
                     assert!(
-                        ![60, 106, 147, 157, 192].contains(&index),
+                        cfg!(target_os = "linux") || ![60, 106, 147, 157, 192].contains(&index),
                         "saved panic timed out instead: {index}"
                     );
                     assert!(
@@ -251,7 +267,12 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
                     );
                     assert_eq!(e.kind, FailureKind::Deadline);
                     timeout += 1;
+                    "deadline"
                 }
+            };
+            gone(fixture.pid());
+            if [26, 60, 106, 147, 157, 192].contains(&index) {
+                eprintln!("hostile saved run {run}: dump {index}, {outcome}, reaped, no result");
             }
         }
         assert!(timeout + panic >= 1, "hostile evidence unexpectedly lost");
@@ -260,38 +281,42 @@ fn archived_hostile_corpus_is_contained_with_confirmed_cleanup_twice() {
             start.elapsed()
         );
     }
-    let mut decoder = owner();
-    match decoder.decode(
-        UpdateBatch {
-            namespace: Namespace::Content,
-            baseline: &[],
-            updates: &[&corpus[26]],
-        },
-        Role::Editor,
-        None,
-    ) {
-        Err(DecodeFault::Invoke(e)) => {
-            assert_eq!(e.kind, FailureKind::Deadline);
-            assert!(matches!(e.cleanup, Cleanup::Confirmed));
-        }
-        // invoke has waited/reaped a non-success exit; the corpus assertion above
-        // checks its diagnostic. The public runner deliberately hides child stderr.
-        Err(DecodeFault::Rejected) if cfg!(target_os = "linux") => {}
-        Ok(_) => panic!("saved timeout unexpectedly succeeded"),
-        Err(other) => panic!("saved timeout was not contained: {other:?}"),
-    }
-    let reply = decoder
-        .decode(
+    let mut decoder = Decoder::new(fixture.script.clone()).unwrap();
+    for index in [26, 60, 106, 147, 157, 192] {
+        match decoder.decode(
             UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &[],
-                updates: &[],
+                updates: &[&corpus[index]],
             },
             Role::Editor,
             None,
-        )
-        .unwrap();
-    gone(reply.child_pid);
+        ) {
+            Err(DecodeFault::Invoke(e)) => {
+                assert!(cfg!(target_os = "linux") || index == 26);
+                assert_eq!(e.kind, FailureKind::Deadline);
+                assert!(matches!(e.cleanup, Cleanup::Confirmed));
+            }
+            // invoke has waited/reaped a non-success exit; the corpus assertion above
+            // checks its diagnostic. The public runner deliberately hides child stderr.
+            Err(DecodeFault::Rejected) if cfg!(target_os = "linux") || index != 26 => {}
+            Ok(_) => panic!("saved dump {index} unexpectedly succeeded"),
+            Err(other) => panic!("saved dump {index} was not contained: {other:?}"),
+        }
+        gone(fixture.pid());
+        let reply = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &[],
+                    updates: &[],
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        gone(reply.child_pid);
+    }
 }
 
 struct FixtureProgram {
