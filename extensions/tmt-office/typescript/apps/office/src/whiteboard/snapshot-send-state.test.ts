@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { createSnapshotSendState } from './snapshot-send-state.js';
 
 it('composes a replyable question with the exact immutable snapshot reference and reader commands', () => {

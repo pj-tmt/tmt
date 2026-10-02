@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { useState } from 'react';
 import { MeetingCreationForm } from './meeting-creation-form.js';
 import type { MeetingRoom, RoomPort } from '../local/room-contract.js';

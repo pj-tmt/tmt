@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { createPairingPort } from './pairing-transport.js';
 import { pairingEndpoint } from '../auth/firebase-config.js';
 import type { PairingRequest } from './pairing-contract.js';

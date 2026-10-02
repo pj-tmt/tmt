@@ -3,7 +3,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 
 const roots: string[] = [];
 

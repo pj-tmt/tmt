@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import type { DispatchInput, DispatchPort, DispatchReceipt } from './dispatch-contract.js';
 import { DispatchRejected, RoomRosterChanged } from './dispatch-contract.js';
 import { createDispatchComposerState } from './dispatch-composer-state.js';

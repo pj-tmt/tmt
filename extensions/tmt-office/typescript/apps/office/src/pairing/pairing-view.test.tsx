@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import { createMemoryHistory } from '@tanstack/react-router';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { createSession } from '../auth/session.js';
 import type { SessionUser } from '../auth/session.js';
 import { createWorldState } from '../worlds/world-state.js';

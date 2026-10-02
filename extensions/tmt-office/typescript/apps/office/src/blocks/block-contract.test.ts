@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/block-v1.vectors.json' with { type: 'json' };
 import propVectors from '../../../../../contracts/prop-block-vectors.json' with { type: 'json' };
 import {

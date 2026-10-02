@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { runCli, withSandbox } from '../support/cli-process.js';
 
 const launcher = fileURLToPath(new URL('../../../scripts/tmt-dev.sh', import.meta.url));

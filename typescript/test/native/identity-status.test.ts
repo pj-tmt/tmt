@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import {
   expectError,
   parseWholeStdout,

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { useWhiteboardPanel } from './use-whiteboard-panel.js';
 import type { WhiteboardLeaveState } from './editor-state.js';
 

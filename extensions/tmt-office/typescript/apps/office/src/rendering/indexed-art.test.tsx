@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { indexedRuns, tintPalette } from './indexed-art.js';
 import { IndexedRaster } from './indexed-raster.js';
 

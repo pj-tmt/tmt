@@ -3,7 +3,7 @@ import os from 'node:os';
 import type { CliExecutables } from '../support/cli-executable.mjs';
 import { assertBenchmarkHelp } from '../support/performance-contract.mjs';
 import { performance } from 'node:perf_hooks';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { durableState } from './identity-state-oracle.js';
 import { withE2EFixture, type CliResult, type E2EFixture, type MockEvent } from './harness.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';

@@ -1,7 +1,7 @@
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
 
 describe('consented provider setup and bounded hook boundary', () => {

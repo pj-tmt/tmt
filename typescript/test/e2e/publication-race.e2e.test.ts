@@ -1,6 +1,6 @@
 import { unknownActivity, withoutAddress } from './cli-assertions.js';
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { E2EFixture, withE2EFixture, type CliProcess, type CliResult } from './harness.js';

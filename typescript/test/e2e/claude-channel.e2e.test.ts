@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
 import { requestAttempts } from './request-state-oracle.js';

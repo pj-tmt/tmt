@@ -1,4 +1,4 @@
-import { expect } from 'vitest';
+import { expect } from 'vite-plus/test';
 import type { CliResult } from './harness.js';
 
 /** Assert the E2E JSON envelope; each scenario still owns its payload assertions. */

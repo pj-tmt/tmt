@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { webcrypto } from 'node:crypto';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { startLocalRuntime } from './local-runtime.js';
 import { propDocumentDigest } from '../props/prop-catalog-contract.js';
 import { decodePropPack, WORKSHOP_DIGEST } from '../props/prop-contract.js';

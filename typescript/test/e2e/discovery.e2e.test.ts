@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture } from './harness.js';
 
 describe('outcome-aware CLI discovery on a private tmux server', () => {

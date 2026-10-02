@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { defaultCatalog, validLayout } from './block-contract.js';
 import { resolvePlacedProp } from '../props/prop-contract.js';
 import { WORKSHOP_STARTERS, workshopStarter } from './workshop-starter.js';

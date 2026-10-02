@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { expectJsonResult } from '../e2e/cli-assertions.js';
 
 describe('E2E JSON result assertion', () => {

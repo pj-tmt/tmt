@@ -2,7 +2,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createSandbox, runCli, withSandbox } from '../support/cli-process.js';
 
 const roots: string[] = [];

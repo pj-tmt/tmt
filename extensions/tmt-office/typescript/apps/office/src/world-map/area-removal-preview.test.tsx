@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { officePopulation } from '../local/office-population.js';
 import { AreaRemovalPreview } from './area-removal-preview.js';

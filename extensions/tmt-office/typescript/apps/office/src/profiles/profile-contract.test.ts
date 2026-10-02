@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/profile-v1.vectors.json';
 import {
   PROFILE_CATALOG,

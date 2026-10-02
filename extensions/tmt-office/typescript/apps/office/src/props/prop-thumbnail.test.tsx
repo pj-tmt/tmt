@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { BUILTIN_PACK } from './prop-contract.js';
 import type { PropDefinition } from './prop-contract.js';
 import { PropThumbnail } from './prop-thumbnail.js';

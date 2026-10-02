@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { installTmuxTripwire } from './tmux-tripwire.js';
 

@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { E2EFixture, withE2EFixture } from './harness.js';
 
 function processGroupIsRunning(pid: number): boolean {

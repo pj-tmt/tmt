@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { BlockContext } from '../blocks/block-view.js';
 import { builtinFurniture } from '../blocks/block-contract.js';
 import type { Block, BlockPort } from '../blocks/block-contract.js';

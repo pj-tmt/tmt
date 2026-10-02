@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { BUILTIN_DIGEST, BUILTIN_PACK } from '../props/prop-contract.js';
 import { useCatalogDrag } from './use-catalog-drag.js';
 import type { WorldObject } from './world-contract.js';

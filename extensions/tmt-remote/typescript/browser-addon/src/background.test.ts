@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 vi.mock('./capture.js', () => ({
   captureTab: vi.fn(async () => ({ selection: 'chosen', url: 'https://x', title: 'title' })),
 }));

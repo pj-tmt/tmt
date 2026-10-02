@@ -1,5 +1,5 @@
 import { getApps } from 'firebase/app';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { startOfficeRuntime } from './firebase-session.js';
 
 describe('Firebase activation boundary', () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/avatar-pack-vectors.json';
 import detailed from '../../../../../contracts/avatar-pack-v2-sample.tmtavatar.json';
 import robots from '../../../../../contracts/modular-robots-v2.tmtavatar.json';

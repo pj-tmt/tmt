@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "check": "tsc --noEmit && oxlint --deny-warnings src test e2e vitest.config.ts vite.config.ts playwright.config.ts && prettier --check .",
-    "test": "python3 test/reference.py --check && vitest run",
+    "test": "python3 test/reference.py --check && vp test run --config vitest.config.ts",
     "test:browser": "playwright test"
   },
   "devDependencies": {
@@ -19,6 +19,6 @@
     "prettier": "^3.7.4",
     "typescript": "^5.3.0",
     "vite": "8.2.2",
-    "vitest": "5.0.1"
+    "vite-plus": "1.0.0"
   }
 }

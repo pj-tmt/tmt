@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import type { DecodedIdToken } from 'firebase-admin/auth';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { APPROVAL_MS, GRANT_MS, RENEWAL_WINDOW_MS } from '../src/pairing-contract.js';
 import { createPairingStore } from '../src/pairing-store.js';
 import type { PairingAuthentication } from '../src/pairing-service.js';

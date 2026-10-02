@@ -2,7 +2,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createSandbox, runCli } from '../support/cli-process.js';
 
 describe('Docker wrapper executable forwarding', () => {

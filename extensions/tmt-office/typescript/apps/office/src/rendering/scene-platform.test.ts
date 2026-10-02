@@ -1,5 +1,5 @@
 import { Container, Sprite, Texture, TextureSource, TilingSprite } from 'pixi.js';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { PLATFORM_FRAMES } from './platform-art.js';
 import type { PlatformTextures } from './platform-art.js';
 import { drawPlatformEdge, platformContour, PLATFORM_ART_SCALE } from './scene-platform.js';

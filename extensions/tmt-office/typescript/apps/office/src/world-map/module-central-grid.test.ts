@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/modules-central-grid-vectors.json';
 import { decodeModuleMap } from './module-contract.js';
 import { moduleBounds, projectModules, officeExpansionPassages } from './module-geometry.js';

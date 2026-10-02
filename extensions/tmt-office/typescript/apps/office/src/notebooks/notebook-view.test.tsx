@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { NotebookView } from './notebook-view.js';
 import type { Notebook } from './notebook-contract.js';
 import { LocalHttpError } from '../local/local-runtime.js';

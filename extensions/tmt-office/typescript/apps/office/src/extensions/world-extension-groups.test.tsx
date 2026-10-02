@@ -1,6 +1,6 @@
 import { mapGeometry } from '../world-map/map-source.js';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import {
   officeWorldFixture,
   WORLD_LOBBY_ID,

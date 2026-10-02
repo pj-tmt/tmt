@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { createSceneApplication } from './scene-application.js';
 
 const calls = vi.hoisted(() => ({

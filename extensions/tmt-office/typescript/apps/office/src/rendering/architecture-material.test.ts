@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { architectureTone, recolorArchitecture } from './architecture-material.js';
 import { ARCHITECTURE_SOURCE_SIZE } from './architecture-art.js';
 

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, webcrypto } from 'node:crypto';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import {
   decodePropCatalogPage,
   decodePropInstallReceipt,

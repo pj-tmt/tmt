@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
 import { workspaceVersion } from '../support/workspace-version.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';

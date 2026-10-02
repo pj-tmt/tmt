@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/map-v1-vectors.json';
 import { decodeMapDocument, MAP_LIMITS } from './map-contract.js';
 import { projectMap } from './map-geometry.js';

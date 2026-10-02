@@ -1,6 +1,6 @@
 import { durableIdentity } from './identity-state-oracle.js';
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';

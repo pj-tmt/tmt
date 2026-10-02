@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import scene from '../../../../../contracts/whiteboard-scene-v1.json';
 import { decodeWhiteboardCapture, decodeWhiteboardSnapshot } from './snapshot-contract.js';
 

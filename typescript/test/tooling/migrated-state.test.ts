@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vite-plus/test';
 import type { StateSnapshot } from '../../scripts/migrated-state.mjs';
 
 // vite-node of Vitest 1 cannot resolve `node:sqlite`, so Node loads the module (which imports it)

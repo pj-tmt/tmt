@@ -1,6 +1,5 @@
 import react from '@vitejs/plugin-react';
-import { loadEnv } from 'vite';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, loadEnv } from 'vite-plus';
 import { officeDeployment } from './src/auth/firebase-config.js';
 
 export default defineConfig(({ mode }) => {

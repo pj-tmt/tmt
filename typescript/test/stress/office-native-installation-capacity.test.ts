@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { createArtifact } from '../support/native-artifact.js';
 

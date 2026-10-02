@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { conversationCue } from './conversation-cue.js';
 import type { ConversationState } from './conversation-state.js';
 import type { HistorySummary } from './request-history-contract.js';

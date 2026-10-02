@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import examples from '../../../extensions/tmt-office/contracts/examples.json' with { type: 'json' };
 import scenarios from '../../../extensions/tmt-office/contracts/scenarios.json' with { type: 'json' };
 

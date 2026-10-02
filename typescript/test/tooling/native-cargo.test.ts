@@ -2,7 +2,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 
 const wrapper = fileURLToPath(new URL('../../../scripts/native-cargo.sh', import.meta.url));

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { formatMessage, visibleText, isCapture } from './message.js';
 describe('selection message', () => {
   it('preserves every byte of selection, title, URL and optional note', () => {

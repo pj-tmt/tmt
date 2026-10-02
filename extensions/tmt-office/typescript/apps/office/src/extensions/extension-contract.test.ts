@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import vectors from '../../../../../contracts/extension-vectors.json';
 import pairs from '../../../../../contracts/extension-pair-vectors.json';
 import definitionDocument from '../../../../../contracts/discussion-extension-v1.json';

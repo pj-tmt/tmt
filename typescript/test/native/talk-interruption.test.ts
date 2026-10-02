@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import path from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { installTmuxTripwire } from './tmux-tripwire.js';
 

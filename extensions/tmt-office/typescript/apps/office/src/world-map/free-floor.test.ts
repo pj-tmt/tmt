@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { freeFloorRows, floorRectangleIntervals } from './free-floor.js';
 
 it('merges adjacent segments, subtracts obstacles and intersects every required row without mutating input', () => {

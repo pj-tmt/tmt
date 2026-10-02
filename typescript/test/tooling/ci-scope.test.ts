@@ -11,7 +11,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import {
   RUST_WORKERS,
@@ -418,7 +418,7 @@ describe('component map', () => {
       'typescript/test/tooling/release-please-config.test.ts',
       'typescript/test/tooling/release-stall.test.ts',
     ];
-    const qualityCommand = /vitest run ([^\n]+)/.exec(
+    const qualityCommand = /vp test run ([^\n]+)/.exec(
       readFileSync(path.join(repository, '.github/workflows/ci.yml'), 'utf8')
     )?.[1];
     for (const file of alwaysRun) {

@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { fitNameplateText } from './scene-nameplate.js';
 
 const measure = (text: string) => Array.from(text).length * 6;

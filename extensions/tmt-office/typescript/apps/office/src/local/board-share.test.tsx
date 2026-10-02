@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { StrictMode } from 'react';
 import { BoardReferenceActions, BoardShare } from './board-share.js';
 import type { BoardEntry } from './board-contract.js';

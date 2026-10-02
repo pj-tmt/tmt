@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { startLocalRuntime } from './local-runtime.js';
 import { NOTEBOOK_ENVELOPE_BYTES } from '../notebooks/notebook-contract.js';
 

@@ -7,11 +7,11 @@
   "scripts": {
     "tmt": "sh ../scripts/tmt-dev.sh",
     "test": "pnpm test:run",
-    "test:watch": "vitest",
+    "test:watch": "vp test watch --config vitest.config.ts",
     "test:e2e": "node scripts/run-e2e.mjs",
-    "test:native": "vitest run --config test/native/vitest.config.ts",
-    "test:stress:native": "vitest run --config test/stress/vitest.config.ts",
-    "test:run": "vitest run",
+    "test:native": "vp test run --config test/native/vitest.config.ts",
+    "test:stress:native": "vp test run --config test/stress/vitest.config.ts",
+    "test:run": "vp test run --config vitest.config.ts",
     "lint": "oxlint test/ scripts/*.mjs",
     "docs:format:check": "prettier --config .prettierrc --check --ignore-path ../.gitignore ../AGENTS.md ../ARCHITECTURE.md ../CONVENTIONS.md ../DEVELOPMENT.md ../rust/archive/NATIVE-INSTALL.md ../contracts/extension-api.md ../contracts/request-response-v1.md \"../.agents/skills/**/SKILL.md\" ../.github/pull_request_template.md \"../extensions/tmt-office/docs/**/*.md\" ../extensions/tmt-office/typescript/services/office/README.md \"../extensions/tmt-office/contracts/*.md\" \"../extensions/tmt-colab/contracts/*.md\"",
     "lint:fix": "pnpm lint --fix",
@@ -54,6 +54,6 @@
     "prettier": "^3.7.4",
     "tar": "7.5.22",
     "typescript": "^5.3.0",
-    "vitest": "5.0.1"
+    "vite-plus": "1.0.0"
   }
 }

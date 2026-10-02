@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { execFileSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { EXPECTED_NATIVE_SCHEMA_VERSION, initializeHistoricalDatabase } from './storage-fixture.js';
 import { installTmuxTripwire } from './tmux-tripwire.js';
 import {

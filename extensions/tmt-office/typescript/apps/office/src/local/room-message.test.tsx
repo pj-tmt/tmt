@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { LocalRuntimeContext, startLocalRuntime } from './local-runtime.js';
 import { useRoomMessage } from './room-message.js';
 

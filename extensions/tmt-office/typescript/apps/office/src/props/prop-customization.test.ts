@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/prop-customization-vectors.json';
 import { decodePropPack } from './prop-contract.js';
 import { encodeLayout, localLayoutValue, validLocalLayout } from '../blocks/block-contract.js';

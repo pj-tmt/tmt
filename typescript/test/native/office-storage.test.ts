@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { createArtifact } from '../support/native-artifact.js';
 

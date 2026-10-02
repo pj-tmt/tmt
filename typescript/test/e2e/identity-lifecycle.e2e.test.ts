@@ -1,5 +1,5 @@
 import { unknownActivity, withoutAddress } from './cli-assertions.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';

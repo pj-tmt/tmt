@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DecodedIdToken } from 'firebase-admin/auth';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { createPairingStore } from '../src/pairing-store.js';
 import type { RevocationActor } from '../src/pairing-store.js';
 import { createPairingService } from '../src/pairing-service.js';

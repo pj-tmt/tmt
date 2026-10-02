@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
 import { preambleCounters, requestAttempts } from './request-state-oracle.js';

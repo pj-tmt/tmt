@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { NotebookAttachment } from './notebook-attachment.js';
 import { PROFILE_CATALOG } from '../profiles/profile-contract.js';

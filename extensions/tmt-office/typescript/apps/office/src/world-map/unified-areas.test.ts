@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/modules-unified-vectors.json';
 import old from '../../../../../contracts/modules-island-vectors.json';
 import { decodeModuleMap } from './module-contract.js';

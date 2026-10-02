@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { readRasterCells } from '../../../../../../../typescript/test/support/indexed-raster.js';
 import { avatarArt } from './avatar-art.js';
 import { Avatar } from './avatar.js';

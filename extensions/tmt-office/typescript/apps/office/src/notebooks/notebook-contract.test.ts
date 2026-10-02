@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { decodeNotebook, NOTEBOOK_READ_BYTES } from './notebook-contract.js';
 
 const notebook = { identityId: '11111111-1111-4111-8111-111111111111', name: 'Alice', content: '' };

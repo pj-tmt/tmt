@@ -955,12 +955,12 @@ returns to the moment the backup was taken.
   when needed. It is not installed without a consumer. Firestore streams need a
   single subscription/cache owner; do not mirror authoritative snapshots in both
   Query and Jotai or create a second request lifecycle.
-- Use the VoidZero component tools: Vite (Rolldown), Vitest, Oxlint and Oxfmt.
-  This does not require adopting Vite+'s runtime/package-manager management.
-  Office uses its own current Vitest configuration; the established native and
-  tooling suites keep their existing runner contract pending a scoped migration.
-  One pnpm lockfile records both. Root tooling/docs retain Prettier, Office uses
-  Oxfmt, and no file has competing formatter owners.
+- Vite+ supplies the workspace test runner and aliased Vite (Rolldown) core.
+  Office retains its own test configuration and React plugin; native and tooling
+  suites retain their separate discovery and execution rules. One pnpm lockfile
+  records these consumers. This does not adopt Vite+ runtime/package-manager
+  management. Root tooling/docs retain Prettier, Office retains Oxlint/Oxfmt,
+  and no file has competing formatter owners.
 - Drawing dependencies are allowed. Compare a library's actual map/drag/board
   functionality, accessibility, bundle cost, maintenance and license before
   adding one. The scaffold needs no canvas engine, sprites or

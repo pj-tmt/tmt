@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { WhiteboardCanvas } from './editor-canvas.js';
 import type { WhiteboardTool } from './editor-canvas.js';
 import { decodeWhiteboardScene } from './scene-contract.js';

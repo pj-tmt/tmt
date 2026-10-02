@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { validWorldId, validWorldName, WORLD_ID_PATTERN } from './world-contract.js';
 
 describe('world ID contract', () => {

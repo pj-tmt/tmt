@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { Container } from 'pixi.js';
 import { drawSceneComponents } from './scene-components.js';
 import type { SceneComponent } from './scene-component-geometry.js';

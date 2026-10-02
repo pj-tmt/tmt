@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createSceneTextures } from './scene-textures.js';
 import detailed from '../../../../../contracts/avatar-pack-v2-sample.tmtavatar.json';
 import { avatarRaster, decodeAvatarPack } from '../avatars/avatar-contract.js';

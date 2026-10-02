@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import vectors from '../../../../../contracts/external-link-vectors.json';
 import definition from '../../../../../contracts/link-extension-v1.json';
 import { externalLink } from './external-link.js';
