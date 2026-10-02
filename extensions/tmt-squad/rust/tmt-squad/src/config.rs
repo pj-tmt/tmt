@@ -219,8 +219,9 @@ enabled = true
 stale_after = "30m"
 "#;
 
-fn team() -> DocumentMut {
-    TEAM.parse().expect("the team preset is valid TOML")
+fn team() -> &'static DocumentMut {
+    static PRESET: std::sync::OnceLock<DocumentMut> = std::sync::OnceLock::new();
+    PRESET.get_or_init(|| TEAM.parse().expect("the team preset is valid TOML"))
 }
 
 /// `[tabs]`: see [`Config::tabs`]. Entries are tab keys: a squad name, or
