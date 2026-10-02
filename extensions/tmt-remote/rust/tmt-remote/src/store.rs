@@ -94,13 +94,135 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 1] = [(
-    "machine",
-    "CREATE TABLE machine(
-         singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-         machine_id TEXT NOT NULL,
-         route_prefix TEXT NOT NULL)",
-)];
+const MIGRATIONS: [(&str, &str); 2] = [
+    (
+        "machine",
+        "CREATE TABLE machine(
+             singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+             machine_id TEXT NOT NULL,
+             route_prefix TEXT NOT NULL)",
+    ),
+    (
+        "grants",
+        "CREATE TABLE grants(
+             client_id TEXT PRIMARY KEY,
+             public_key BLOB NOT NULL CHECK(length(public_key) = 32),
+             kind TEXT NOT NULL CHECK(kind IN ('addon', 'browser', 'cli')),
+             origin TEXT NOT NULL,
+             name TEXT NOT NULL,
+             agents TEXT NOT NULL,
+             scopes TEXT NOT NULL,
+             mode TEXT NOT NULL CHECK(mode IN ('direct', 'hold')),
+             issued_at_ms INTEGER NOT NULL,
+             expires_at_ms INTEGER,
+             revision INTEGER NOT NULL CHECK(revision > 0),
+             disabled INTEGER NOT NULL CHECK(disabled IN (0, 1)));
+         -- One live grant per device key; a revoked key may pair again.
+         CREATE UNIQUE INDEX grants_live_key ON grants(public_key) WHERE disabled = 0;",
+    ),
+];
+/// Default scopes, sorted bytewise.
+pub const DEFAULT_SCOPES: [&str; 5] = [
+    "agents.read",
+    "check.read",
+    "results.read",
+    "status.read",
+    "talk",
+];
+/// A trusted device grant as the channel contract names its fields.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Grant {
+    pub client_id: String,
+    pub public_key: [u8; 32],
+    pub kind: String,
+    pub origin: String,
+    pub name: String,
+    /// `"all"`; owner-chosen allowlists are later work.
+    pub agents: String,
+    pub scopes: Vec<String>,
+    pub mode: String,
+    pub issued_at_ms: u64,
+    pub expires_at_ms: Option<u64>,
+    pub revision: u64,
+    pub disabled: bool,
+}
+impl Store {
+    /// Insert one grant in its own transaction. A live grant for the same
+    /// device key refuses, and a failure leaves no partial grant.
+    pub fn insert_grant(&mut self, grant: &Grant) -> Result<(), RemoteError> {
+        let millis = |value: u64| {
+            i64::try_from(value)
+                .ok()
+                .filter(|v| *v < (1 << 53))
+                .ok_or_else(|| database("time out of range"))
+        };
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        transaction
+            .execute(
+                "INSERT INTO grants VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                rusqlite::params![
+                    grant.client_id,
+                    grant.public_key.as_slice(),
+                    grant.kind,
+                    grant.origin,
+                    grant.name,
+                    grant.agents,
+                    grant.scopes.join(" "),
+                    grant.mode,
+                    millis(grant.issued_at_ms)?,
+                    grant.expires_at_ms.map(millis).transpose()?,
+                    i64::try_from(grant.revision).map_err(database)?,
+                    grant.disabled,
+                ],
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::SqliteFailure(f, _)
+                    if f.code == rusqlite::ErrorCode::ConstraintViolation =>
+                {
+                    RemoteError::new(
+                        "REMOTE_ALREADY_PAIRED",
+                        "This device key already has a live grant.",
+                    )
+                }
+                other => database(other),
+            })?;
+        transaction.commit().map_err(database)
+    }
+    pub fn grant(&self, client_id: &str) -> Result<Option<Grant>, RemoteError> {
+        let row = self.connection.query_row(
+            "SELECT client_id, public_key, kind, origin, name, agents, scopes, mode,
+                    issued_at_ms, expires_at_ms, revision, disabled
+             FROM grants WHERE client_id = ?1",
+            [client_id],
+            |r| {
+                let key: Vec<u8> = r.get(1)?;
+                let scopes: String = r.get(6)?;
+                Ok(Grant {
+                    client_id: r.get(0)?,
+                    public_key: key.try_into().unwrap_or([0; 32]),
+                    kind: r.get(2)?,
+                    origin: r.get(3)?,
+                    name: r.get(4)?,
+                    agents: r.get(5)?,
+                    scopes: scopes.split(' ').map(str::to_owned).collect(),
+                    mode: r.get(7)?,
+                    issued_at_ms: r.get::<_, i64>(8)? as u64,
+                    expires_at_ms: r.get::<_, Option<i64>>(9)?.map(|v| v as u64),
+                    revision: r.get::<_, i64>(10)? as u64,
+                    disabled: r.get(11)?,
+                })
+            },
+        );
+        match row {
+            Ok(grant) => Ok(Some(grant)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(database(e)),
+        }
+    }
+}
 fn migrate(connection: &mut Connection) -> Result<(), RemoteError> {
     connection
         .execute_batch(

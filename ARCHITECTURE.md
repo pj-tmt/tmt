@@ -3724,8 +3724,8 @@ is that handler for the machine's stable `/r/<prefix>/` binding routes and the
 20-attempt-per-minute unauthenticated budget; `limits` names the binding bounds.
 `transport::Transport` moves append/subscribe/ack envelopes to one message
 owner, which currently denies every request. Startup discovery is not a remote
-operation. The pilot cannot pair, adopt a request, approve, send or subscribe;
-no grant, journal or core DB is created. The foreground door has no default
+operation. Apart from pairing, the pilot cannot adopt a request, approve, send
+or subscribe; no journal or core DB is created. The foreground door has no default
 deadline; it runs until interrupted. Colab keeps its own copy of the door
 until its routes mount on the remote door.
 
@@ -3736,15 +3736,39 @@ following symlinks, a lock-guarded create-only Ed25519 machine key
 serve lock per data root. `store::Store` owns `remote.db` (SQLite) and opens only
 with the `state::Serving` proof that the serve lock is held: while serve runs it
 is the database's only opener and writer, and every other path (pairing, device
-management) reaches remote state only through serve, over the owner-only control socket that pairing adds. Its
+management) reaches remote state only through serve, over its owner-only control socket. Its
 schema history uses core's `_migrations` table (append-only, recorded names must
 match, a newer history refuses) with `foreign_keys=ON`. Unlike core's shared
 WAL database it keeps `journal_mode=DELETE`, since there is no concurrent
 reader, and `synchronous=FULL`, so committed grants and receipts survive power
 loss. Schema 1 creates the machine identity once: a UUIDv4 machine ID and the
 `/r/<32 lowercase hex>` route prefix, both stable across restarts and neither a
-credential. Unsafe state fails closed before the door binds. Colab keeps its own
-copy of the layout code until a shared leaf exists (#1041).
+credential. Schema 2 adds `grants`, with one live grant per device key. Unsafe
+state fails closed before the door binds. Colab keeps its own copy of the layout
+code until a shared leaf exists (#1041).
+
+`control::Control` binds `<dataRoot>/remote/control.sock` (0600, in the 0700
+state directory) under the serve lock and speaks one JSON object per line; a
+stale socket from an earlier serve is replaced, anything else refuses. `tmt
+remote pair` is its only client today. `pairing::Pairing` owns the single offer
+of the current run (window): a random 16-byte code and 128-bit challenge held only
+in serve's memory, a ten-minute deadline, and its phase (open, pinned candidate,
+confirmed). `/pair` admits strict enrollment JSON (exactly the contract fields,
+strict base64url, the request Origin equal to a browser/add-on's proposed origin
+and absent for `cli`, and a `browser` origin equal to this door's own origin),
+verifies the full HMAC and the possession signature, pins
+the first valid candidate and reports it to the pairing client with its four
+fingerprint words. Identical candidates coalesce and competing ones refuse;
+three failed code proofs, owner refusal, the pairing client leaving, expiry, a
+replacing offer and stop end the offer and erase the code. A `/pair` request
+waits for the owner up to 20 seconds, then answers 202 `{"state":"pending"}`
+so the device retries the exact candidate; every refusal is a generic 404.
+Confirmation inserts the default grant (all agents, the default scopes,
+`direct`, no expiry) in one transaction under the offer lock, derives
+`K_response` and `serverProof` over the exact receipt JSON, erases the code and
+keeps only the candidate, receipt and proof for exact-retry recovery until the
+original deadline. A failed grant write ends the offer with no grant. The
+browser pairing page and door sessions are later slices.
 
 `site::Site` is the door's handler: `/x/` paths go to `mount::Mounts`, all
 others to the `/r/` binding. Mounts forward `/x/<extension>/` to
@@ -3774,7 +3798,8 @@ extension reply 502. Mounted traffic makes no core call and never reaches `/r/`.
 
 `canonical` owns pure decoded-value local-v1 envelope framing and the
 `tmt-device-pair-v1` device enrollment and possession framing (kinds `addon`,
-`browser` with the door's exact loopback origin, and `cli`; the device proposes
+`browser` with a loopback door origin, which `Pairing` binds to this door, and
+`cli`; the device proposes
 no agents, scopes, mode or expiry), the pairing-code text codec (26 base32
 symbols, separators limited to ASCII spaces and hyphens) and the four-word key
 fingerprint over the pinned BIP-39 English list in

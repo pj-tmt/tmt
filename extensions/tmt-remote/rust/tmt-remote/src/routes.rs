@@ -1,13 +1,16 @@
 //! Remote binding routes on the door. Every `/r/` request is refused until pairing lands.
 use crate::{
+    canonical,
     error::RemoteError,
     http::{Handler, Head, Reply, Request},
     limits,
+    pairing::{Pairing, Submission},
     transport::{LoopbackTransport, Transport},
 };
+use serde_json::json;
 use std::{
     net::TcpStream,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -15,6 +18,8 @@ const ROUTES: [&str; 4] = ["/append", "/subscribe", "/ack", "/pair"];
 
 pub struct Routes {
     prefix: String,
+    /// Present while serve can pair; without it `/pair` refuses like any route.
+    pairing: Option<Arc<Pairing>>,
     body_limit: usize,
     transport: LoopbackTransport,
     attempts: Mutex<Attempts>,
@@ -38,6 +43,7 @@ impl Routes {
         }
         Ok(Self {
             prefix,
+            pairing: None,
             body_limit: 4 * (input_limit + limits::METADATA_BYTES).div_ceil(3)
                 + limits::METADATA_BYTES,
             transport: LoopbackTransport::default(),
@@ -46,6 +52,10 @@ impl Routes {
                 reset: Instant::now() + Duration::from_secs(60),
             }),
         })
+    }
+    pub fn with_pairing(mut self, pairing: Arc<Pairing>) -> Self {
+        self.pairing = Some(pairing);
+        self
     }
     /// Route prefix; not a credential.
     pub fn prefix(&self) -> &str {
@@ -97,6 +107,32 @@ impl Handler for Routes {
             Some("/append") => self.transport.append(&request.body),
             Some("/subscribe") => self.transport.subscribe(&request.body),
             Some("/ack") => self.transport.ack(&request.body),
+            Some("/pair") => {
+                let Some(pairing) = &self.pairing else {
+                    return Some(Reply::empty(404));
+                };
+                return Some(
+                    match pairing.submit(request.origin.as_deref(), &request.body) {
+                        Submission::Receipt { receipt, proof } => {
+                            let mut reply = Reply::empty(200);
+                            reply.body = json!({
+                                "receipt": canonical::base64url(&receipt),
+                                "serverProof": canonical::base64url(&proof),
+                            })
+                            .to_string()
+                            .into_bytes();
+                            reply
+                        }
+                        Submission::Pending => {
+                            let mut reply = Reply::empty(202);
+                            reply.body = br#"{"state":"pending"}"#.to_vec();
+                            reply
+                        }
+                        // Pre-auth refusals are generic and reveal nothing.
+                        Submission::Refused => Reply::empty(404),
+                    },
+                );
+            }
             _ => return Some(Reply::empty(404)),
         };
         // No successful admission exists in this slice. Fail closed if it changes.

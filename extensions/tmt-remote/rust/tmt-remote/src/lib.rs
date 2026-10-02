@@ -1,11 +1,13 @@
 //! Extension-only remote door. Core is reached only by fixed public commands.
 pub mod canonical;
+pub mod control;
 pub mod core;
 pub mod crypto;
 pub mod error;
 pub mod http;
 pub mod limits;
 pub mod mount;
+pub mod pairing;
 pub mod routes;
 pub mod site;
 pub mod state;

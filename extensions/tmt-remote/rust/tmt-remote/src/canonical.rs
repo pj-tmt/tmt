@@ -259,9 +259,13 @@ const BASE64URL: GeneralPurpose = GeneralPurpose::new(
 pub fn base64url(bytes: &[u8]) -> String {
     BASE64URL.encode(bytes)
 }
+/// Decode strict base64url of any length.
+pub fn base64url_decode(text: &str) -> Result<Vec<u8>> {
+    BASE64URL.decode(text).map_err(|_| InvalidBytes)
+}
 /// Decode exactly `length` bytes of strict base64url.
 pub fn base64url_bytes(text: &str, length: usize) -> Result<Vec<u8>> {
-    let bytes = BASE64URL.decode(text).map_err(|_| InvalidBytes)?;
+    let bytes = base64url_decode(text)?;
     require(bytes.len() == length)?;
     Ok(bytes)
 }

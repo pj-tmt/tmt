@@ -512,14 +512,14 @@ LP(raw extension public key) || LP(decimal issuedAtMs), where purpose is `sign` 
 certificate binds an extension key to a device; it grants no remote authority by itself, and
 extension cryptography stays owned by the extension.
 
-**Route mounting.** The door mounts each enabled, owner-installed extension under
-`/x/<extension>/`, forwarding HTTP requests, static assets and WebSocket upgrades to the extension
-process over an owner-only local socket in the extension's data subtree, together with the device
-context. Remote owns Host, Origin and CSRF admission, framing, connection/body limits and TLS; the
-extension owns its responses, content security policy and headers. All mounted extensions share one
-browser origin and therefore one browser trust domain; mounting is limited to owner-installed
-extensions, and untrusted content renders only in sandboxed opaque-origin frames. Plain HTTP is
-loopback-only; an opt-in non-loopback bind requires HTTPS and WSS with a user-supplied certificate.
+**Route mounting.** The door mounts each enabled, owner-installed extension under `/x/<extension>/`,
+forwarding HTTP requests, static assets and WebSocket upgrades to the extension process over an
+owner-only local socket in the extension's data subtree, together with the device context. Remote
+owns Host, Origin and CSRF admission, framing and connection/body limits; the extension owns its
+responses, content security policy and headers. All mounted extensions share one browser origin and
+therefore one browser trust domain; mounting is limited to owner-installed extensions, and untrusted
+content renders only in sandboxed opaque-origin frames. The door is loopback-only; other machines
+reach it only through cloud backends.
 Upgraded WebSocket tunnels do not use the door's edge connections, so open pages cannot starve
 remote operations, pairing or page loads. Each mounted extension has its own tunnel cap and idle
 bound: a tunnel with no bytes in either direction for the idle bound is closed, and an upgrade
@@ -581,11 +581,11 @@ Miniflare only.
 | `firestore`  | Append envelope and relay documents per machine/namespace; subscribe from cursor via snapshot listeners; ack through a device-scoped checkpoint. Rules deny unauthorized writes at the edge. Rules cannot verify arbitrary Ed25519 signatures: the owner machine verifies every operation envelope before effects, and the edge admission design must be specified here before use. |
 | `cloudflare` | Append to a per-machine Durable Object (and per-namespace objects for relay) through a Worker; subscribe from opaque cursor over WebSocket; ack a scoped prefix. The Worker rejects unsigned/unknown traffic with HTTP 404 before forwarding. Message-layer authorization remains authoritative.                                                                                     |
 
-The owner machine connects outward to a cloud backend and stays authoritative for operations; an
-edge only limits abuse. Operation payloads crossing a cloud backend must be end-to-end encrypted to
-the machine key under a reviewed encryption profile added to this contract; relay payloads are
-already encrypted by their extension. Until both the edge admission and that encryption profile are
-specified, `firestore` and `cloudflare` are not permitted.
+The owner machine connects outward to a cloud backend and stays authoritative for operations; the
+edge terminates TLS and only limits abuse. Operation payloads crossing a cloud backend must be
+end-to-end encrypted to the machine key under a reviewed encryption profile added to this contract;
+relay payloads are already encrypted by their extension. Until both the edge admission and that
+encryption profile are specified, `firestore` and `cloudflare` are not permitted.
 
 ## Provisioning on start and pair
 
@@ -646,8 +646,10 @@ fingerprints over the pinned list (bitcoin/bips `ce1862ac` `bip-0039/english.txt
 verification and `K_response`/`serverProof` derivation in Rust, and the matching TypeScript
 builders. Their fixtures
 are regenerated from the independent oracle (#1039); the superseded M1 enrollment vectors are
-removed and envelope bytes are unchanged. Grants, receipts and the pairing ceremony are not yet
-implemented.
+removed and envelope bytes are unchanged. The pairing ceremony is implemented through
+`tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
+grant and the receipt with `serverProof` (#1039). The remote-served browser pairing page, door
+sessions and device management are not yet implemented.
 
 Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
 local door, device sign-in and relay where it meets this contract, rather than being rewritten.
