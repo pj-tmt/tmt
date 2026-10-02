@@ -323,3 +323,120 @@ fn machine_identity_and_route_prefix_survive_restart_and_one_serve_per_root() {
             .contains("REMOTE_STATE_UNSAFE")
     );
 }
+/// Read one JSON line from a child's stdout within a bound.
+fn line(reader: &std::sync::mpsc::Receiver<String>) -> Value {
+    serde_json::from_str(&reader.recv_timeout(Duration::from_secs(10)).unwrap()).unwrap()
+}
+#[test]
+fn pair_json_confirms_one_device_through_the_running_serve() {
+    use ed25519_dalek::{Signer, SigningKey};
+    use tmt_remote::{
+        canonical::{self, Enrollment},
+        crypto,
+    };
+    let pilot = Pilot::new();
+    // Without a running serve there is nothing to pair with.
+    let idle = pilot.command().args(["pair", "--json"]).output().unwrap();
+    assert!(!idle.status.success());
+    assert!(
+        String::from_utf8(idle.stdout)
+            .unwrap()
+            .contains("REMOTE_NOT_RUNNING")
+    );
+    // A non-terminal without --json cannot show the owner a confirmation.
+    let plain = pilot
+        .command()
+        .arg("pair")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!plain.status.success());
+    let (server, descriptor) = serve(&pilot);
+    let address = descriptor["address"].as_str().unwrap().to_owned();
+    let (origin, prefix) = address.split_at(address.find("/r/").unwrap());
+    let socket = origin.strip_prefix("http://").unwrap().to_owned();
+    let mut pair = pilot
+        .command()
+        .args(["pair", "--json"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = pair.stdout.take().unwrap();
+    let (tx, events) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            if tx.send(line.unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+    let offer = line(&events);
+    assert_eq!(offer["event"], "offer");
+    let d = &offer["descriptor"];
+    let code = canonical::pairing_code(offer["code"].as_str().unwrap()).unwrap();
+    let key = SigningKey::from_bytes(&[5; 32]);
+    let public = key.verifying_key().to_bytes();
+    let mut challenge = [0; 16];
+    for (i, pair) in d["serverChallenge"]
+        .as_str()
+        .unwrap()
+        .as_bytes()
+        .chunks(2)
+        .enumerate()
+    {
+        challenge[i] = u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap();
+    }
+    let enrollment = canonical::enrollment(&Enrollment {
+        machine_id: d["machineId"].as_str().unwrap(),
+        window_id: d["windowId"].as_str().unwrap(),
+        offer_id: d["offerId"].as_str().unwrap(),
+        server_challenge: &challenge,
+        client_nonce: &[1; 16],
+        kind: "cli",
+        origin: "cli",
+        name: "Other machine",
+        public_key: &public,
+    })
+    .unwrap();
+    let mac = crypto::enrollment_mac(&code, &enrollment);
+    let signature = key.sign(&canonical::possession(&enrollment, &mac).unwrap());
+    let body = serde_json::json!({
+        "profile": "local-v1", "machineId": d["machineId"], "windowId": d["windowId"],
+        "offerId": d["offerId"], "serverChallenge": d["serverChallenge"],
+        "clientNonce": "01".repeat(16), "kind": "cli", "origin": "cli", "name": "Other machine",
+        "publicKey": canonical::base64url(&public), "mac": canonical::base64url(&mac),
+        "signature": canonical::base64url(&signature.to_bytes()),
+    })
+    .to_string();
+    let device = {
+        let (socket, prefix) = (socket.clone(), prefix.to_owned());
+        std::thread::spawn(move || {
+            exchange(
+                &socket,
+                &format!(
+                    "POST {prefix}/pair HTTP/1.1\r\nHost: {socket}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                ),
+            )
+        })
+    };
+    let candidate = line(&events);
+    assert_eq!(candidate["event"], "candidate");
+    assert_eq!(
+        candidate["words"],
+        serde_json::json!(canonical::fingerprint_words(&public).unwrap())
+    );
+    pair.stdin.take().unwrap().write_all(b"confirm\n").unwrap();
+    let ended = line(&events);
+    assert_eq!(ended["reason"], "paired");
+    assert!(pair.wait().unwrap().success());
+    assert!(device.join().unwrap().starts_with("HTTP/1.1 200"));
+    terminate(server);
+    let grants: i64 = rusqlite::Connection::open(pilot.root.join("state/remote/remote.db"))
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM grants", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(grants, 1);
+    assert!(!pilot.root.join("state/remote/control.sock").exists());
+}

@@ -646,8 +646,10 @@ fingerprints over the pinned list (bitcoin/bips `ce1862ac` `bip-0039/english.txt
 verification and `K_response`/`serverProof` derivation in Rust, and the matching TypeScript
 builders. Their fixtures
 are regenerated from the independent oracle (#1039); the superseded M1 enrollment vectors are
-removed and envelope bytes are unchanged. Grants, receipts and the pairing ceremony are not yet
-implemented.
+removed and envelope bytes are unchanged. The pairing ceremony is implemented through
+`tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
+grant and the receipt with `serverProof` (#1039). The remote-served browser pairing page, door
+sessions and device management are not yet implemented.
 
 Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
 local door, device sign-in and relay where it meets this contract, rather than being rewritten.

@@ -2189,7 +2189,12 @@ two public startup reads (capabilities and `storage.root`), creates or reopens
 its private `<dataRoot>/remote/` state (0700 directory; 0600 machine key,
 SQLite database and locks), then refuses every remote application request. The
 `/r/` route prefix and machine ID persist across restarts, and a second serve
-on the same data root fails with `REMOTE_ALREADY_SERVING`. It mounts colab under `/x/colab/` while
+on the same data root fails with `REMOTE_ALREADY_SERVING`. With serve running,
+`tmt remote pair` prints a pairing link and code, shows the device's kind,
+origin, name and four words, and asks once on the terminal; `tmt remote pair
+--json` streams one event per line and reads `confirm` or `refuse` from stdin,
+which is how the process tests drive it. Pairing and state tests use short
+roots under `/tmp`, because Unix socket paths are limited to about 100 bytes. It mounts colab under `/x/colab/` while
 `<dataRoot>/colab/door.sock` exists as an owner-only socket in a 0700
 directory; mounted requests carry no device context until pairing lands.
 Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
