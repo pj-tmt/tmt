@@ -18,7 +18,8 @@ export const english = {
   home: {
     eyebrow: "home",
     title: "One simple core. *Endless* ways for AI to work together.",
-    lede: "tmt passes messages between agents and keeps a receipt for every reply. The board, colab and meet are built on that one core. It is made for any agent, any harness and any machine; the row below shows what runs today and what is on the way.",
+    tagline: "Dead simple agent-to-agent communication. Built to compose.",
+    lede: "tmt passes a request from one agent to another and keeps a receipt that ties the reply to it. It adds a layer: it does not replace your terminal or your agents. The board, colab and meet are built on that one core. Today it runs Claude Code and Codex inside tmux; the row below shows what is next.",
     worksWith: "Works with",
     yourHarness: "your harness",
     yourServer: "your server",
@@ -26,9 +27,38 @@ export const english = {
     designing: "designing",
     install: "Install",
     start: "Start with one message ↓",
-    boardLabel:
-      "A tmt sq board that updates in four steps: builder works on rotating tokens, reviewer starts a review and then waits on you to decide whether to ship, tester starts end-to-end tests, and once you answer the others carry on.",
-    boardWaits: "◆ reviewer waits on you",
+    // The hero scene: a request from Claude Code to Codex and the reply back.
+    handoff: {
+      label:
+        "A request between two providers: the reviewer, running Claude Code, asks the builder, running Codex, to review a diff with tmt talk. The request reaches Codex, which answers with tmt reply and the receipt it was given, and the reply lands back in Claude Code. The request ID and the receipt tie the two.",
+      title: "reviewer (Claude Code) ⇄ builder (Codex)",
+      reviewer: "reviewer",
+      builder: "builder",
+      request: "request",
+      receipt: "receipt",
+      reply: "reply",
+      tied: "the receipt ties the reply to its request",
+    },
+    // The start chapter's three concepts, mapped to the commands that make them.
+    concepts: {
+      items: [
+        {
+          name: "agent",
+          text: "A program you name so others can reach it: `tmt run reviewer claude`, or `tmt name reviewer` from inside one.",
+        },
+        {
+          name: "request",
+          text: 'What one agent sends another: `tmt talk builder "…"` stores it with an ID and a receipt and delivers it.',
+        },
+        {
+          name: "result",
+          text: "What comes back: the agent submits it with `tmt reply`, and `tmt result req_…` reads it.",
+        },
+      ],
+      receipt: "receipt",
+      receiptText:
+        "The receipt ties a result to its request: a reply must carry the one its request came with.",
+    },
   },
   chapters: {
     // The working chapter's opening scene: a request travelling pane to pane.

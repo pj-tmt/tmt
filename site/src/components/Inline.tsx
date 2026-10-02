@@ -15,7 +15,7 @@ export function Inline({ text }: { text: string }): ReactNode {
       );
     if (part.startsWith("*") && part.endsWith("*") && part.length > 2)
       return (
-        <em key={index} className="text-accent not-italic">
+        <em key={index} className="whitespace-nowrap text-accent not-italic">
           {part.slice(1, -1)}
         </em>
       );

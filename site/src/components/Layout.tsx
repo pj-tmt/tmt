@@ -121,7 +121,7 @@ function Pager({ current }: { current: Page }) {
 export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { lang, current, title } = useCurrent();
+  const { lang, current, title, translated } = useCurrent();
   const [theme] = useAtom(themeAtom);
 
   useEffect(() => applyTheme(theme), [theme]);
@@ -154,11 +154,14 @@ export function Layout() {
   }, [current, lang, location.hash, navigate]);
 
   useEffect(() => {
-    document.title = current.path === "/" ? "tmt Handbook" : `${title} · tmt Handbook`;
+    // The home page is plain "tmt Handbook" in English; a translated one
+    // (or any other page) names itself by its own title.
+    const named = current.path !== "/" || (lang !== "en" && translated);
+    document.title = named ? `${title} · tmt Handbook` : "tmt Handbook";
     const target = location.hash && document.getElementById(location.hash);
     if (target) target.scrollIntoView();
     else window.scrollTo(0, 0);
-  }, [current, title, location.hash]);
+  }, [current, title, lang, translated, location.hash]);
 
   return (
     <>
