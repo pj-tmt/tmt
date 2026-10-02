@@ -189,6 +189,20 @@ CLI tests for thread admission, foreground identity and terminal routing.
 
 ## Consumer lifecycle
 
+A fresh channel's first app-server lifecycle hook may establish remembered
+session/model without an existing remembered preference. Its
+`LifecycleObservation::verified_binding` locator comes only from the parsed
+private enrollment record, with the matching generation, exact ready thread
+and known foreground. The shared hook caller uses this locator only to select a
+read-only stored binding snapshot. All existing active host, exact app-server,
+live owner/foreground/thread and transactional checks remain required before
+context is returned or preferences change. A missing, stale, mismatched or
+unconfirmed record grants no locator authority. The hook still owns session and
+reported model persistence; admission never invents remembered history or model.
+Ordinary shared hooks and prompt/turn hooks keep their exact remembered-session
+lookup. A guard confines the locator to this driver and binding selection to
+the shared `verified_caller` owner.
+
 The provider record persists the claimed identity and pane address before spawn:
 host/server UUID, socket path, server PID/start, pane ID and pane PID. The launcher
 supplies this evidence from its existing binding, without another binding write.
@@ -275,3 +289,7 @@ E2E-only Rust example using the existing WebSocket library, never a provider,
 model, release artifact or production fallback. These scenarios complement the
 native provider-local ownership tests; neither replaces the live attachment
 proof or the shared launcher's wait-error tests.
+The opt-in first-hook scenario invokes the real lifecycle command from its
+fixture-owned app-server, asserts remembered session/model and preserved
+foreground incarnation, and verifies queued delivery without paste plus owned
+app-server cleanup. It uses no SQL preference seeding or provider credentials.

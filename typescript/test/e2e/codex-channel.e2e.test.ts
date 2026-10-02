@@ -51,9 +51,14 @@ function start(
   const executable = path.join(f.wrapperDir, 'codex');
   if (!fs.existsSync(executable)) {
     // A short-lived writer prevents inherited writable descriptors / ETXTBSY.
-    execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 755 "$1"', 'sh', executable], {
-      input: `#!/bin/sh\nexec ${quote(mock)} "$@"\n`,
-    });
+    if (extra.MOCK_HOOK_MODEL) {
+      // This scenario needs real Codex-named app-server ancestry for its hooks.
+      execFileSync('/bin/sh', ['-c', 'cp "$1" "$2" && chmod 755 "$2"', 'sh', mock, executable]);
+    } else {
+      execFileSync('/bin/sh', ['-c', 'cat > "$1" && chmod 755 "$1"', 'sh', executable], {
+        input: `#!/bin/sh\nexec ${quote(mock)} "$@"\n`,
+      });
+    }
   }
   const home = path.join(f.root, `home-${name}-${run}`);
   fs.mkdirSync(home);
@@ -153,6 +158,53 @@ function gone(pid: number): boolean {
 }
 
 describe('Codex native channel product routing', { concurrent: false }, () => {
+  it('first opt-in channel hook remembers its session and model without replacing foreground admission', async () => {
+    await withE2EFixture(async (f) => {
+      const worker = start(f, 'HookModel', true, { MOCK_HOOK_MODEL: 'fixture-hook-model' });
+      await ready(f, worker);
+      const [{ record }] = records(f);
+      const foreground = record.foreground.process!;
+      const trace = installTmuxTrace(f);
+      expect((await talk(f, 'HookModel', 'observe first hook model')).code).toBe(0);
+      await f.waitFor(() => events(worker, 'hook').length === 1, 10000, 'real first enrolled hook');
+      const result = events(worker, 'hook')[0];
+      expect(result.ok).toBe(true);
+      expect(result.stderr).toBe('');
+      expect(JSON.parse(result.stdout as string).hookSpecificOutput.additionalContext).toContain(
+        'HookModel'
+      );
+      const saved = sql(f, (db) =>
+        db
+          .prepare(
+            `SELECT b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id, p.provider_session_id, p.driver_state FROM bindings b JOIN identity_session_preferences p ON b.identity_id=p.identity_id JOIN identities i ON i.id=b.identity_id WHERE i.name='HookModel'`
+          )
+          .get()
+      ) as {
+        runtime_pid: number;
+        runtime_start_identity: string;
+        observed_provider_session_id: string;
+        provider_session_id: string;
+        driver_state: string;
+      };
+      expect(saved.runtime_pid).toBe(foreground.pid);
+      expect(saved.runtime_start_identity).toBe(foreground.start);
+      expect(saved.runtime_pid).not.toBe(record.ready.server.pid);
+      expect(saved.observed_provider_session_id).toBe(record.ready.thread);
+      expect(saved.provider_session_id).toBe(record.ready.thread);
+      expect(JSON.parse(saved.driver_state).model).toBe('fixture-hook-model');
+      expect(records(f)[0].record.foreground.process).toEqual(foreground);
+      expect(events(worker, 'queue')).toHaveLength(1);
+      expect(events(worker, 'paste')).toEqual([]);
+      expect(writes(trace, worker.pane)).toEqual([]);
+      await quit(worker);
+      await f.waitFor(
+        () => gone(record.ready.server.pid) && records(f).length === 0,
+        5000,
+        'owned app-server and enrollment gone after first hook'
+      );
+    });
+  });
+
   it('queue receipt is delivery only; durable reply completes and name/raw sends never paste', async () => {
     await withE2EFixture(async (f) => {
       const worker = start(f, 'Worker', true, { MOCK_AUTOREPLY: '0' });

@@ -31,6 +31,49 @@ fn assert_exact(sources: &[source::Source], expected: &[&str]) {
 }
 
 #[test]
+fn private_hook_binding_lookup_and_locator_have_one_owner_each() {
+    assert_exact(
+        &[syntax(
+            "tmt-cli",
+            "provider_hook_command.rs",
+            "fn verified_caller() { Storage::context_by_binding(); }",
+        )],
+        &[],
+    );
+    for code in [
+        "fn other() { Storage::context_by_binding(); }",
+        "use storage::context_by_binding as context; fn other() { context(); }",
+        "fn verified_caller() { fn nested() { Storage::context_by_binding(); } }",
+        "fn verified_caller() { impl Other { fn nested() { Storage::context_by_binding(); } } }",
+    ] {
+        let failures =
+            policy::source_violations(&[syntax("tmt-cli", "provider_hook_command.rs", code)]);
+        assert!(
+            failures
+                .iter()
+                .any(|v| v.contains("belongs only to verified_caller"))
+        );
+    }
+    let valid = "impl LifecycleObservation for ChannelObservation { fn verified_binding(&self) -> Option<&str> { Some(\"binding\") } }";
+    assert_exact(
+        &[syntax(
+            "tmt-adapters",
+            "drivers/codex/channel_hooks.rs",
+            valid,
+        )],
+        &[],
+    );
+    for file in ["drivers/claude.rs", "extra.rs"] {
+        let failures = policy::source_violations(&[syntax("tmt-adapters", file, valid)]);
+        assert!(
+            failures
+                .iter()
+                .any(|v| v.contains("belongs only to Codex ChannelObservation"))
+        );
+    }
+}
+
+#[test]
 fn office_command_edges_are_confined_to_the_reserved_facade() {
     for package in ["tmt-core", "tmt-adapters", "tmt-cli"] {
         let violations = policy::source_violations(&[syntax(

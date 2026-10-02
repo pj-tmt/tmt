@@ -32,10 +32,13 @@ pub fn decode(payload: &[u8]) -> Option<Box<dyn LifecycleObservation>> {
         let directory = crate::config::ConfigPaths::discover()
             .ok()?
             .channel_directory();
-        let record = Store::at(&directory).read(&binding).ok()??;
-        (record.generation == generation).then_some(record)
+        scoped_record(&directory, &binding, &generation)
     })();
     Some(Box::new(ChannelObservation { event, record }))
+}
+fn scoped_record(directory: &std::path::Path, binding: &str, generation: &str) -> Option<Record> {
+    let record = Store::at(directory).read(binding).ok()??;
+    (record.generation == generation).then_some(record)
 }
 struct ChannelObservation {
     event: CodexObservation,
@@ -47,6 +50,13 @@ impl LifecycleObservation for ChannelObservation {
     }
     fn starting(&self) -> bool {
         self.event.starting
+    }
+    fn verified_binding(&self) -> Option<&str> {
+        let record = self.record.as_ref()?;
+        let ready = record.ready.as_ref()?;
+        (ready.thread == self.event.session.as_str()
+            && matches!(record.foreground, Foreground::Known(_)))
+        .then_some(record.binding_id.as_str())
     }
     fn driver_state(&self, previous: Option<&DriverState>, now_ms: u64) -> Option<DriverState> {
         self.event.driver_state(previous, now_ms)

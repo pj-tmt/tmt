@@ -2444,6 +2444,16 @@ selects the one terminal route before provider preference. Both the identity and
 raw-pane paste boundaries query provider evidence, including reply notifications.
 The shared launcher owns admission and confirmed-only withdrawal; the provider
 owns its endpoint, record, foreground planning and one-shot queue transport.
+For its first lifecycle hook, `ChannelObservation::verified_binding` selects
+stored binding evidence from the private record's exact ready thread and known
+foreground. `provider_hook_command::verified_caller` alone uses the read-only
+`Storage::context_by_binding` snapshot, then retains the existing host probe,
+server/owner/foreground/thread checks and transactional compare-and-set before
+context or persistence. Hooks own remembered sessions and reported models;
+launcher admission seeds only the live binding key. Ordinary shared hooks and
+prompt/turn hooks still require the remembered-session lookup. The architecture
+guard confines this locator to Codex's private channel observation and this
+storage selector to `verified_caller`.
 The contract distinguishes accepted provider attachment evidence from the real
 CLI/router tests. Permission options configure the owned thread and server,
 not remote resume; unsupported forms fail in enroll before any spawn.

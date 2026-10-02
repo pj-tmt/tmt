@@ -26,6 +26,36 @@ fn fixture() -> (TestDirectory, std::path::PathBuf, String) {
 }
 
 #[test]
+fn enrolled_binding_selection_needs_no_remembered_history_and_is_read_only() {
+    let (_directory, path, id) = fixture();
+    let before = fs::read(&path).unwrap();
+    assert_eq!(
+        Storage::context_by_binding(&path, "binding", 10)
+            .unwrap()
+            .unwrap()
+            .entry
+            .identity
+            .id,
+        id
+    );
+    assert!(
+        Storage::context_by_binding(&path, "absent", 10)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(fs::read(&path).unwrap(), before);
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute("UPDATE identities SET retired_at_ms=1", [])
+        .unwrap();
+    assert!(
+        Storage::context_by_binding(&path, "binding", 10)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn shared_mapping_requires_current_driver_session_and_refuses_ambiguity() {
     let (_directory, path, id) = fixture();
     let connection = Connection::open(&path).unwrap();

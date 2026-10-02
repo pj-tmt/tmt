@@ -29,6 +29,27 @@ pub struct IdentityContextSnapshot {
 }
 
 impl Storage {
+    /// Read-only selection by a driver's private enrollment locator. This is
+    /// stored evidence only; the hook caller must still prove host, process,
+    /// session and binding authority before context or persistence is permitted.
+    pub fn context_by_binding(
+        path: &Path,
+        binding: &str,
+        now_ms: u64,
+    ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+        read_context(path, now_ms, |connection| {
+            let identity: Option<String> = connection
+                .query_row(
+                    "SELECT identity_id FROM bindings WHERE id = ?",
+                    [binding],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| classify(error, "Find enrolled binding context"))?;
+            identity.map_or(Ok(None), |id| BindingRows(connection).entry_by_id(&id))
+        })
+    }
+
     /// No create, migration, permission changes, acknowledgment or retention
     /// writes. Missing/incompatible storage is an error for the caller to map
     /// to a quiet unavailable context, never an invitation to initialize it.

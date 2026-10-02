@@ -35,6 +35,12 @@ pub struct LifecycleUnavailable;
 pub trait LifecycleObservation {
     fn session(&self) -> &ProviderSessionId;
     fn starting(&self) -> bool;
+    /// A binding locator held by a driver's private enrollment record for this
+    /// exact session. Only such drivers may supply it. This selects stored
+    /// evidence; fresh host/process proof and `propose` still authorize context.
+    fn verified_binding(&self) -> Option<&str> {
+        None
+    }
     /// Optional persistence: the driver state to keep after this starting
     /// event, given the same driver's previous state and the wall time. Only
     /// fields the provider reported count; without them the driver returns
