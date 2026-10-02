@@ -512,3 +512,93 @@ fn existing_space_keeps_model_id_owner_seed_and_ciphertext_on_reopen() {
         Accepted::Replay
     );
 }
+
+#[test]
+fn namespace_read_pages_resolve_checkpoint_tail_and_reject_pruned_or_substituted_cursors() {
+    use tmt_colab::store::NamespaceCursor;
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page("page").unwrap();
+    store.append(&envelope(1, Namespace::Content)).unwrap();
+    store.append(&envelope(2, Namespace::Own)).unwrap();
+    store.append(&envelope(3, Namespace::Content)).unwrap();
+    let checkpoint = Envelope {
+        hash: [8; 32],
+        previous: [2; 32],
+        bytes: b"checkpoint",
+        ..envelope(2, Namespace::Content)
+    };
+    store.checkpoint(&checkpoint).unwrap();
+    assert_eq!(
+        store.namespaces("page", 1).unwrap(),
+        vec![
+            ("device".into(), Namespace::Content),
+            ("device".into(), Namespace::Own)
+        ]
+    );
+    let first = store
+        .namespace_next(scope(), Namespace::Content, NamespaceCursor::default())
+        .unwrap()
+        .unwrap();
+    assert!(first.checkpoint);
+    assert_eq!(first.bytes, b"checkpoint");
+    let tail = store
+        .namespace_next(scope(), Namespace::Content, first.cursor)
+        .unwrap()
+        .unwrap();
+    assert!(!tail.checkpoint);
+    assert_eq!(tail.cursor.seq, 3);
+    assert!(
+        store
+            .namespace_next(scope(), Namespace::Content, tail.cursor)
+            .unwrap()
+            .is_none()
+    );
+    for (ns, cursor) in [
+        (
+            Namespace::Content,
+            NamespaceCursor {
+                seq: 1,
+                hash: [1; 32],
+            },
+        ),
+        (Namespace::Own, first.cursor),
+        (
+            Namespace::Content,
+            NamespaceCursor {
+                seq: 3,
+                hash: [9; 32],
+            },
+        ),
+    ] {
+        assert!(matches!(
+            store.namespace_next(scope(), ns, cursor),
+            Err(Fault::ResyncRequired)
+        ));
+    }
+    let own = store
+        .namespace_next(scope(), Namespace::Own, NamespaceCursor::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(own.cursor.seq, 2);
+    let oracle = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    oracle
+        .execute(
+            "UPDATE receipts SET payload=zeroblob(?) WHERE seq=?",
+            rusqlite::params![
+                (tmt_colab::limits::OBJECT_BYTES + 1) as i64,
+                "00000000000000000003"
+            ],
+        )
+        .unwrap();
+    assert!(matches!(
+        store.namespace_next(scope(), Namespace::Content, first.cursor),
+        Err(Fault::Capacity)
+    ));
+    store.advance_epoch("page", 1).unwrap();
+    assert!(matches!(
+        store.namespace_next(scope(), Namespace::Content, first.cursor),
+        Err(Fault::StaleEpoch)
+    ));
+}

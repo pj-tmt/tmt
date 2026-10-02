@@ -914,74 +914,121 @@ operations are:
 | `awareness` | `device, data`; bounded ephemeral presence, never persisted or authority                                            |
 | `error`     | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                      |
 
-### Implemented stream subset (#1156)
+### Implemented stream subset (#1156, #1166)
 
-The externally driven local sync module implements the strict subset below.
-The complete catchup/chunk protocol remains proposed under #1166; registration
-is #1162. Remote owns upgrade admission and supplies the authenticated principal.
-The module takes an already-upgraded nonblocking duplex stream, not HTTP headers.
+The externally driven local sync module implements the strict operations below.
+Registration is #1162; socket wiring is #1119. Remote owns upgrade admission and
+supplies the authenticated principal. The module takes an already-upgraded
+nonblocking duplex stream, not HTTP headers.
 
 Every client message is one UTF-8 JSON object with exactly the common fields
 `version:1, type, space, page, epoch` and the operation fields listed below.
 Epoch is a positive canonical decimal string. Duplicate/unknown fields, nulls,
-wrong types, noncanonical values and unsupported operations reject. There are no
-optional fields in these implemented variants.
+wrong types, noncanonical values and unsupported operations reject.
 
-| Client type | Exact additional fields                 | Implemented behavior                                                                              |
-| ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `hello`     | `device, cursors`                       | Check principal/page and cursor syntax, then `RESYNC_REQUIRED` until #1166.                       |
-| `subscribe` | `cursors`                               | Empty list starts live delivery; nonempty list returns `RESYNC_REQUIRED`.                         |
-| `append`    | `streamId, seq, envelopeHash, envelope` | Inline update only; verify and durably append before receipt.                                     |
-| `ack`       | `cursors`                               | Empty list is a no-op; nonempty list returns `RESYNC_REQUIRED`.                                   |
-| `awareness` | `device, data`                          | Device must match principal; data is at most 4 KiB of canonical base64url bytes, never persisted. |
+| Client type | Exact additional fields                       | Implemented behavior                                                                                            |
+| ----------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `hello`     | `device, cursors`                             | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery. |
+| `subscribe` | `cursors`                                     | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.         |
+| `append`    | `streamId, seq, envelopeHash, envelope`       | Inline update or object reference; verify complete exact bytes and durably append before receipt.               |
+| `chunk`     | `objectId, envelopeHash, index, count, bytes` | Complete the connection's pending referenced append; no standalone upload or partial append.                    |
+| `ack`       | `cursors`                                     | Resolve retained scoped positions; no deletion, core acknowledgment or application authority.                   |
+| `awareness` | `device, data`                                | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                   |
 
-`cursors` has at most 256 strict cursor objects, unique by stream/namespace.
-Sequence zero is allowed only as an empty cursor sentinel with zero32 hash.
-Inline `envelope` is canonical base64url of the exact frozen model envelope JSON;
-retries preserve these bytes. `append.seq` is positive canonical decimal text,
-`streamId` equals the authenticated device and signed author, and `envelopeHash`
-is the canonical base64url 32-byte model envelope hash. Signed space/page/epoch,
-sequence and kind must match; this slice accepts only `update`. Header namespace,
-role and membership revision are admitted through current caller-owned policy,
-then the model's strict signature verifier runs. The server never opens ciphertext.
+`cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
+unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
+requires zero32 hash; an omitted namespace also bootstraps. A nonzero cursor must
+match an exact retained update or checkpoint in that namespace. Unknown, wrong-
+namespace, hash-substituted and pruned cursors return `RESYNC_REQUIRED`; a retained
+receipt alone is insufficient after its payload is pruned. A client restarts with
+zero/omitted cursors to receive the latest namespace checkpoint and retained tail.
+If compaction invalidates a cursor during catchup, catchup stops with
+`RESYNC_REQUIRED` instead of silently skipping data. Store preserves the durable
+receipt ledger, so pruning never permits accepting a sequence again.
+
+`append.seq` is positive canonical decimal text. `streamId` equals the principal
+and signed author. `envelopeHash` is canonical base64url hash32. `envelope` is either
+canonical base64url of the exact frozen model envelope JSON or the strict object
+`{objectId}` (canonical 64-character lowercase hex). These alternatives have no
+optional fields. Signed scope, sequence, object ID, hash and `update` kind must
+match. Current caller-owned namespace/role/revision admission precedes the model
+signature verifier. The server never opens ciphertext or decodes Yjs.
 
 Server `receipt` has `streamId, seq, envelopeHash`; `broadcast` additionally has
-`envelope`. Both use the same common fields. New appends broadcast to admitted
-subscribers, including the sender if subscribed; exact retries return the original
-receipt fields without a second broadcast. Server awareness has `device, data`.
-Scoped operation errors have `code` from the table above. Malformed, oversized,
-binary or unsupported client frames close with code 1008 and reason `INVALID`.
-Chunks, object references and inbound server-only frames are unsupported here.
-An append whose resulting broadcast exceeds the frame cap returns `CAPACITY`
-before persistence. Capacity never evicts accepted receipts or payloads.
+`envelope` in the same inline/reference shape. Both use the common fields.
+New appends broadcast to admitted subscribers, including the subscribed sender;
+exact retries return the original receipt without a second broadcast. Server
+awareness has `device, data`. Scoped errors have `code` from the table above.
+Malformed, oversized, binary or inbound server-only frames close with code 1008
+and reason `INVALID`. Capacity never evicts accepted receipts or payloads.
+
+### Implemented catchup and chunk protocol
+
+Catchup is server-driven. One hello produces a first `catchup` page with
+`membershipHead, baseline, streams, more`. `membershipHead` is exactly
+`{revision, statementHash}`: positive decimal revision and canonical base64url
+hash32 of the highest locally retained verified owner statement. The Admission
+implementation supplies it through `Store::owner_head`; sync cannot manufacture
+membership authority. `baseline` is null when the epoch has no reset baseline yet,
+or canonical base64url of exact model baseline-descriptor JSON, bounded to 8 KiB.
+The descriptor's page/epoch must match and its membership revision cannot exceed
+the retained head. The caller verifies its signed-log binding. Baseline production,
+persistence and object retrieval remain #1157; this slice carries the descriptor.
+
+The first page has empty `streams` and `more:true`. Later pages contain only
+`streams, more` in addition to common fields. Each stream entry is exactly
+`{streamId, namespace, checkpoint, tail}`. A checkpoint is null or
+`{seq, envelopeHash, envelope}`; tail is a list of those same entries. A page
+contains at most one object: either the latest namespace checkpoint for bootstrap,
+or the next update after the resolved cursor/checkpoint. The final page has
+empty streams and `more:false`. Clients do not re-request pages. Clients verify
+all log, envelope and chain/namespace bindings before applying an object; a page
+or receipt is not that verification. A stream sequences namespaces together,
+so namespace-tail sequence numbers may interleave rather than being consecutive.
+
+Pages are generated only when that peer's outbound queue is empty and its buffered
+write is complete. Store reads use a transaction, current-epoch fencing, SQL-side
+payload-length checks and a bounded inventory of at most 256 stream/namespace
+pairs per page scope. A larger inventory returns `CAPACITY`, without eviction.
+Every page rescans the inventory: appends to already visited namespaces and newly
+created streams are included before completion. Under the same server lock that
+observes no remaining objects and queues the final page, the peer becomes a live
+subscriber. Appends after that boundary broadcast behind the final page. Callers
+must serialize authority transitions and sync writes through that server owner.
+An empty-cursor subscribe remains live-only and makes no historical-data claim.
+
+Large catchup/broadcast envelopes reference `{objectId}` with their outer
+`envelopeHash`, followed by server `chunk` frames using the same common scope
+and exactly `{objectId, envelopeHash, index, count, bytes}`. Envelope JSON over
+32 KiB uses chunks. Raw `bytes` are canonical base64url, nonempty and at most
+32 KiB; every nonfinal chunk is exactly 32 KiB. `index` and `count` are JSON
+integers: consecutive zero-based index, positive bounded count, index below count.
+Transfer scope, object ID, envelope hash and count cannot change. Consumers retain
+only one bounded incomplete object and apply nothing until exact reassembly,
+model hash/signature and application admission succeed; abnormal close discards it.
+
+Inbound append references reserve one transfer per connection. Its two-second
+absolute acquisition deadline starts at the reference and never renews per chunk.
+The serialized update cap is `(256 KiB + 2 KiB) * 4 / 3 + 2 KiB` bytes (integer
+arithmetic), at most 11 chunks. Oversized aggregate bytes return `CAPACITY`;
+invalid count/order/identity returns `INVALID` and discards the transfer. Deadline
+expiry closes `INVALID`, including when no more input arrives. Completion alone
+passes the full original append admission/signature/create-only checks; partial
+bytes never reach Store or broadcast. Error, revocation, disconnect and drop
+release incomplete bytes. The outbound object cap remains Store's 16 MiB + 2 KiB,
+at most 513 chunks. No all-chunks-in-memory frame list is generated.
 
 Both WebSocket frame and assembled-message payload caps are 64 KiB. The outbound
-queue holds at most eight frames including one buffered write; overflow clears
-pending delivery and closes with reason `RESYNC_REQUIRED`. A blocked write has a
-one-second deadline driven by the caller. A transport that cannot send the close
-without flushing blocked ciphertext is dropped instead. Clients must resync on
-any abnormal close. Authority is rechecked on every operation, delivery and
-caller-applied authority change. Previously written bytes cannot be recalled.
-An empty-cursor live subscription makes no claim about missed historical data.
-
-### Planned catchup and chunk protocol
-
-A cursor is `{streamId, namespace, seq, envelopeHash}`, scoped by the frame's
-space/page/epoch. The namespace checkpoint and retained update-chain hashes
-resolve it; unknown or pruned cursors require checkpoint/tail resync rather than
-assuming a trusted head. A hello cannot select a different writer identity than
-its authenticated session. Control/awareness are unsigned hints, never log
-authority. Chunk transfer uses `{type:"chunk", version:1, space, page, epoch,
-objectId, envelopeHash, index, count, bytes}` with consecutive zero-based index,
-positive bounded count and immutable transfer identity. Reassembly must respect
-object/operation caps, deadline and queue budget, then verify the exact envelope;
-partial data cannot apply. Large envelopes in append/catchup/broadcast reference
-`objectId, envelopeHash` until bounded chunk assembly completes. No stream
-sequence is accepted twice merely because payloads were pruned.
-
-The control-frame grammar above is a C0 proposal derived from the #830 wire
-recommendation, not tested canonical production framing. L1/L2 must freeze its
-strict nested decoders, independent bytes and operation-specific errors.
+queue holds at most eight entries including a buffered write; a lazy object
+transfer reserves an entry and emits one bounded frame per turn. Transfer bytes
+are immutable/shared across broadcasts and bounded by the object cap per entry.
+Overflow clears pending delivery and closes `RESYNC_REQUIRED`; catchup pages
+larger than the queue budget are emitted lazily, never enqueued all at once.
+A blocked write has a one-second deadline driven by the caller (`poll` or
+`poll_at`). A transport that cannot close without flushing blocked ciphertext is
+dropped. Authority is rechecked on every operation, delivery and caller-applied
+change; previously written bytes cannot be recalled. Clients resync on abnormal
+close. The foreground executable is not yet wired to this sync library.
 
 The #830 fixture used 64 KiB frames/messages, queue 8, receipt/tail capacity 64,
 16 sockets, ten-second connection lifetime, two-second handshake reads and

@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
-use tmt_colab_model::{crypto, object, values};
+use tmt_colab_model::{crypto, object, payload, statement, values};
 use tungstenite::{
     Message, WebSocket,
     protocol::{CloseFrame, Role, WebSocketConfig, frame::coding::CloseCode},
@@ -44,6 +44,7 @@ impl From<store::Fault> for Code {
             store::Fault::Gap => Self::Gap,
             store::Fault::Conflict => Self::Conflict,
             store::Fault::Capacity => Self::Capacity,
+            store::Fault::ResyncRequired => Self::ResyncRequired,
             _ => Self::Invalid,
         }
     }
@@ -56,7 +57,21 @@ pub enum Access<'a> {
     Read,
     Append(&'a object::Context),
 }
+/// Caller-verified bootstrap metadata. The head comes from owner_head through
+/// the admission implementation. None means this epoch has no reset baseline.
+pub struct CatchupContext {
+    pub membership_head: statement::Head,
+    /// Exact model baseline descriptor JSON, not reconstructed signing bytes.
+    pub baseline: Option<Vec<u8>>,
+}
 pub trait Admission: Send {
+    fn catchup_context(
+        &self,
+        principal: &str,
+        scope: &SyncScope,
+        store: &Store,
+    ) -> Result<CatchupContext, Code>;
+
     fn authorize(
         &self,
         principal: &str,
@@ -68,24 +83,129 @@ struct Peer {
     principal: String,
     scope: Option<SyncScope>,
     subscribed: bool,
-    queue: VecDeque<String>,
-    in_flight: bool,
+    queue: VecDeque<Delivery>,
+    hello: bool,
+    catchup: Option<HashMap<(String, String), store::NamespaceCursor>>,
+    incoming: Option<Incoming>,
+    buffered_slot: bool,
     terminal: Option<Code>,
 }
 impl Peer {
     fn end(&mut self, code: Code) {
         self.queue.clear();
+        self.catchup = None;
+        self.incoming = None;
         self.terminal = Some(code);
     }
     fn push(&mut self, text: String) {
+        self.enqueue(Delivery::Frame(text));
+    }
+    fn enqueue(&mut self, delivery: Delivery) {
         if self.terminal.is_some() {
             return;
         }
-        if self.queue.len() + usize::from(self.in_flight) >= limits::SEND_QUEUE_FRAMES {
+        if self.queue.len() + usize::from(self.buffered_slot) >= limits::SEND_QUEUE_FRAMES {
             self.end(Code::ResyncRequired);
         } else {
-            self.queue.push_back(text);
+            self.queue.push_back(delivery);
         }
+    }
+}
+/// A transfer reserves one queue slot and emits only one bounded frame per
+/// poll. Arc shares frozen broadcast bytes; no eager list of chunk frames exists.
+#[derive(Clone)]
+enum Delivery {
+    Frame(String),
+    Transfer {
+        scope: SyncScope,
+        object_id: String,
+        hash: String,
+        bytes: Arc<Vec<u8>>,
+        index: usize,
+    },
+}
+impl Delivery {
+    fn next(&mut self) -> Result<(String, bool), Code> {
+        match self {
+            Self::Frame(text) => Ok((text.clone(), true)),
+            Self::Transfer {
+                scope,
+                object_id,
+                hash,
+                bytes,
+                index,
+            } => {
+                let count = bytes.len().div_ceil(limits::CHUNK_BYTES);
+                let start = *index * limits::CHUNK_BYTES;
+                let end = (start + limits::CHUNK_BYTES).min(bytes.len());
+                let text = wire::output(
+                    scope,
+                    "chunk",
+                    serde_json::json!({"objectId":object_id,"envelopeHash":hash,"index":index,"count":count,"bytes":values::encode_binary(&bytes[start..end])}),
+                )?;
+                *index += 1;
+                Ok((text, *index == count))
+            }
+        }
+    }
+}
+struct AppendRequest {
+    stream: String,
+    seq: String,
+    hash: String,
+    bytes: Vec<u8>,
+    object_id: Option<String>,
+}
+struct Incoming {
+    stream: String,
+    seq: String,
+    hash: String,
+    object_id: String,
+    count: Option<usize>,
+    next: usize,
+    bytes: Vec<u8>,
+    started: Instant,
+}
+fn namespace(name: &str) -> Result<store::Namespace, Code> {
+    match name {
+        "content" => Ok(store::Namespace::Content),
+        "own" => Ok(store::Namespace::Own),
+        _ => Err(Code::Invalid),
+    }
+}
+/// Returns an inline payload or a reference plus a lazy transfer. Validate exact
+/// stored bytes before disclosure; this does not replace client log verification.
+fn delivery(
+    scope: &SyncScope,
+    hash: [u8; 32],
+    bytes: Vec<u8>,
+) -> Result<(serde_json::Value, Option<Delivery>), Code> {
+    if bytes.is_empty() || bytes.len() > limits::OBJECT_BYTES {
+        return Err(Code::Capacity);
+    }
+    let decoded = object::Envelope::from_json(&bytes)?;
+    let header = object::Header::decode(decoded.header())?;
+    if decoded.hash()? != hash
+        || header.context.space != scope.space
+        || header.context.page != scope.page
+        || header.context.epoch != scope.epoch
+    {
+        return Err(Code::Invalid);
+    }
+    // Leave room for catchup metadata and routing fields, even in the first page.
+    if bytes.len() <= limits::CHUNK_BYTES {
+        Ok((serde_json::json!(values::encode_binary(&bytes)), None))
+    } else {
+        Ok((
+            serde_json::json!({"objectId":header.object_id}),
+            Some(Delivery::Transfer {
+                scope: scope.clone(),
+                object_id: header.object_id,
+                hash: values::encode_binary(&hash),
+                bytes: Arc::new(bytes),
+                index: 0,
+            }),
+        ))
     }
 }
 struct State<A> {
@@ -142,7 +262,10 @@ impl<A: Admission> Server<A> {
                 scope: None,
                 subscribed: false,
                 queue: VecDeque::new(),
-                in_flight: false,
+                hello: false,
+                catchup: None,
+                incoming: None,
+                buffered_slot: false,
                 terminal: None,
             },
         );
@@ -176,7 +299,7 @@ impl<A: Admission> State<A> {
             }
         }
     }
-    fn fanout(&mut self, scope: &SyncScope, text: String) {
+    fn fanout(&mut self, scope: &SyncScope, text: String, transfer: Option<Delivery>) {
         self.recheck();
         for peer in self
             .peers
@@ -184,9 +307,12 @@ impl<A: Admission> State<A> {
             .filter(|p| p.subscribed && p.scope.as_ref() == Some(scope))
         {
             peer.push(text.clone());
+            if let Some(transfer) = &transfer {
+                peer.enqueue(transfer.clone());
+            }
         }
     }
-    fn process(&mut self, id: u64, frame: Frame) -> Result<(), Code> {
+    fn process(&mut self, id: u64, frame: Frame, now: Instant) -> Result<(), Code> {
         let scope = frame.scope()?;
         let peer = self.peers.get(&id).ok_or(Code::Denied)?;
         if peer.scope.as_ref().is_some_and(|old| old != &scope) {
@@ -204,16 +330,27 @@ impl<A: Admission> State<A> {
                     return Err(Code::Denied);
                 }
                 wire::cursors(&cursors)?;
-                // Catchup and membership/baseline paging are the explicitly separate #1166 slice.
-                return Err(Code::ResyncRequired);
+                if self.peers[&id].hello {
+                    return Err(Code::Invalid);
+                }
+                self.start_catchup(id, &scope, &principal, &cursors)?;
+                self.peers.get_mut(&id).ok_or(Code::Denied)?.hello = true;
             }
             Frame::Subscribe { cursors, .. } | Frame::Ack { cursors, .. } => {
                 wire::cursors(&cursors)?;
-                if !cursors.as_slice().is_empty() {
-                    return Err(Code::ResyncRequired);
-                }
-                if subscribing {
-                    self.peers.get_mut(&id).ok_or(Code::Denied)?.subscribed = true;
+                if subscribing && !cursors.as_slice().is_empty() {
+                    self.start_catchup(id, &scope, &principal, &cursors)?;
+                } else {
+                    for c in cursors.as_slice() {
+                        self.resolve(&scope, c)?;
+                    }
+                    if subscribing {
+                        let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+                        if peer.catchup.is_some() {
+                            return Err(Code::Invalid);
+                        }
+                        peer.subscribed = true;
+                    }
                 }
             }
             Frame::Awareness { device, data, .. } => {
@@ -228,6 +365,7 @@ impl<A: Admission> State<A> {
                         "awareness",
                         serde_json::json!({"device":device,"data":data}),
                     )?,
+                    None,
                 );
             }
             Frame::Append {
@@ -237,58 +375,321 @@ impl<A: Admission> State<A> {
                 envelope,
                 ..
             } => {
+                if self.peers[&id].incoming.is_some() {
+                    return Err(Code::Invalid);
+                }
                 if stream_id != principal {
                     return Err(Code::Denied);
                 }
-                let sequence = values::decimal(&seq, false)?;
-                let hash = wire::hash(&envelope_hash)?;
-                let bytes = values::binary(&envelope, limits::WS_FRAME_BYTES)?;
-                let decoded = object::Envelope::from_json(&bytes)?;
-                let header = object::Header::decode(decoded.header())?;
-                let c = &header.context;
-                if c.space != scope.space
-                    || c.page != scope.page
-                    || c.epoch != scope.epoch
-                    || c.author_device != principal
-                    || c.stream_seq != seq
-                    || c.kind != "update"
-                    || decoded.hash()? != hash
+                values::decimal(&seq, false)?;
+                wire::hash(&envelope_hash)?;
+                match envelope {
+                    wire::Payload::Inline(envelope) => {
+                        let bytes = values::binary(&envelope, limits::UPDATE_BYTES)?;
+                        self.append(
+                            id,
+                            &scope,
+                            &principal,
+                            AppendRequest {
+                                stream: stream_id,
+                                seq,
+                                hash: envelope_hash,
+                                bytes,
+                                object_id: None,
+                            },
+                        )?;
+                    }
+                    wire::Payload::Reference(reference) => {
+                        values::object_id(&reference.object_id)?;
+                        self.peers.get_mut(&id).ok_or(Code::Denied)?.incoming = Some(Incoming {
+                            stream: stream_id,
+                            seq,
+                            hash: envelope_hash,
+                            object_id: reference.object_id,
+                            count: None,
+                            next: 0,
+                            bytes: Vec::new(),
+                            started: now,
+                        });
+                    }
+                }
+            }
+            Frame::Chunk {
+                object_id,
+                envelope_hash,
+                index,
+                count,
+                bytes,
+                ..
+            } => {
+                values::object_id(&object_id)?;
+                wire::hash(&envelope_hash)?;
+                let mut incoming = self
+                    .peers
+                    .get_mut(&id)
+                    .ok_or(Code::Denied)?
+                    .incoming
+                    .take()
+                    .ok_or(Code::Invalid)?;
+                if now.saturating_duration_since(incoming.started) >= limits::ACQUISITION
+                    || object_id != incoming.object_id
+                    || envelope_hash != incoming.hash
+                    || index != incoming.next
+                    || count == 0
+                    || count > limits::UPDATE_BYTES.div_ceil(limits::CHUNK_BYTES)
+                    || index >= count
+                    || incoming.count.is_some_and(|old| old != count)
                 {
                     return Err(Code::Invalid);
                 }
-                let key = self
-                    .admission
-                    .authorize(&principal, &scope, Access::Append(c))?;
-                crypto::verify_signature(&key, &decoded.signature_input()?, decoded.signature())?;
-                // Prove every broadcast fits before durable acceptance.
-                let fields = serde_json::json!({"streamId":stream_id,"seq":seq,"envelopeHash":envelope_hash,"envelope":envelope});
-                let broadcast = wire::output(&scope, "broadcast", fields)?;
-                let receipt = wire::output(
-                    &scope,
-                    "receipt",
-                    serde_json::json!({"streamId":stream_id,"seq":seq,"envelopeHash":envelope_hash}),
-                )?;
-                let accepted = self.store.append(&store::Envelope {
-                    scope: StreamScope {
-                        page: &scope.page,
-                        epoch: values::decimal(&scope.epoch, false)?,
-                        stream: &principal,
-                    },
-                    namespace: if c.namespace == "content" {
-                        store::Namespace::Content
-                    } else {
-                        store::Namespace::Own
-                    },
-                    seq: sequence,
-                    hash,
-                    previous: c.prev_hash,
-                    bytes: &bytes,
-                })?;
-                self.peers.get_mut(&id).ok_or(Code::Denied)?.push(receipt);
-                if accepted == Accepted::New {
-                    self.fanout(&scope, broadcast);
+                let chunk = values::binary(&bytes, limits::CHUNK_BYTES)?;
+                if chunk.is_empty() || (index + 1 < count && chunk.len() != limits::CHUNK_BYTES) {
+                    return Err(Code::Invalid);
+                }
+                if incoming.bytes.len() + chunk.len() > limits::UPDATE_BYTES {
+                    return Err(Code::Capacity);
+                }
+                incoming.count = Some(count);
+                incoming.next += 1;
+                incoming.bytes.extend_from_slice(&chunk);
+                if incoming.next == count {
+                    self.append(
+                        id,
+                        &scope,
+                        &principal,
+                        AppendRequest {
+                            stream: incoming.stream,
+                            seq: incoming.seq,
+                            hash: incoming.hash,
+                            bytes: incoming.bytes,
+                            object_id: Some(object_id),
+                        },
+                    )?;
+                } else {
+                    self.peers.get_mut(&id).ok_or(Code::Denied)?.incoming = Some(incoming);
                 }
             }
+        }
+        Ok(())
+    }
+    fn resolve(&self, scope: &SyncScope, cursor: &wire::SyncCursor) -> Result<(), Code> {
+        self.store.resolve_cursor(
+            StreamScope {
+                page: &scope.page,
+                epoch: values::decimal(&scope.epoch, false)?,
+                stream: &cursor.stream_id,
+            },
+            namespace(&cursor.namespace)?,
+            store::NamespaceCursor {
+                seq: values::decimal(&cursor.seq, true)?,
+                hash: wire::hash(&cursor.envelope_hash)?,
+            },
+        )?;
+        Ok(())
+    }
+    fn start_catchup(
+        &mut self,
+        id: u64,
+        scope: &SyncScope,
+        principal: &str,
+        cursors: &tmt_colab_model::bounded::List<wire::SyncCursor, 256>,
+    ) -> Result<(), Code> {
+        if self.peers[&id].catchup.is_some() {
+            return Err(Code::Invalid);
+        }
+        wire::cursors(cursors)?;
+        let mut positions = HashMap::new();
+        for c in cursors.as_slice() {
+            self.resolve(scope, c)?;
+            positions.insert(
+                (c.stream_id.clone(), c.namespace.clone()),
+                store::NamespaceCursor {
+                    seq: values::decimal(&c.seq, true)?,
+                    hash: wire::hash(&c.envelope_hash)?,
+                },
+            );
+        }
+        let context = self
+            .admission
+            .catchup_context(principal, scope, &self.store)?;
+        if context.membership_head.revision == 0 {
+            return Err(Code::Invalid);
+        }
+        let baseline = match context.baseline {
+            None => serde_json::Value::Null,
+            Some(bytes) => {
+                if bytes.len() > limits::SYNC_CONTEXT_BYTES {
+                    return Err(Code::Capacity);
+                }
+                let descriptor = payload::decode_baseline(&bytes)?;
+                if descriptor.page_id != scope.page
+                    || descriptor.epoch != scope.epoch
+                    || values::decimal(&descriptor.membership_revision, false)?
+                        > context.membership_head.revision
+                {
+                    return Err(Code::Invalid);
+                }
+                serde_json::json!(values::encode_binary(&bytes))
+            }
+        };
+        let text = wire::output(
+            scope,
+            "catchup",
+            serde_json::json!({
+                "membershipHead":{"revision":context.membership_head.revision.to_string(),"statementHash":values::encode_binary(&context.membership_head.hash)},
+                "baseline":baseline,"streams":[],"more":true
+            }),
+        )?;
+        let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+        peer.subscribed = false;
+        peer.catchup = Some(positions);
+        peer.push(text);
+        Ok(())
+    }
+    /// Scan all namespaces anew each turn. An append to an already visited
+    /// namespace is included before the empty final page; no snapshot/live gap.
+    fn catchup_page(&mut self, id: u64) -> Result<(), Code> {
+        let peer = self.peers.get(&id).ok_or(Code::Denied)?;
+        let Some(positions) = &peer.catchup else {
+            return Ok(());
+        };
+        if !peer.queue.is_empty() || peer.buffered_slot {
+            return Ok(());
+        }
+        let scope = peer.scope.clone().ok_or(Code::Denied)?;
+        let epoch = values::decimal(&scope.epoch, false)?;
+        let mut next = None;
+        for (stream, ns) in self.store.namespaces(&scope.page, epoch)? {
+            let name = if ns == store::Namespace::Content {
+                "content"
+            } else {
+                "own"
+            };
+            let key = (stream.clone(), name.to_owned());
+            let cursor = positions.get(&key).copied().unwrap_or_default();
+            if let Some(object) = self.store.namespace_next(
+                StreamScope {
+                    page: &scope.page,
+                    epoch,
+                    stream: &stream,
+                },
+                ns,
+                cursor,
+            )? {
+                next = Some((key, object));
+                break;
+            }
+        }
+        if let Some(((stream, ns), object)) = next {
+            let decoded = object::Envelope::from_json(&object.bytes)?;
+            let header = object::Header::decode(decoded.header())?;
+            if header.context.author_device != stream
+                || header.context.namespace != ns
+                || values::decimal(&header.context.stream_seq, false)? != object.cursor.seq
+                || header.context.kind
+                    != if object.checkpoint {
+                        "checkpoint"
+                    } else {
+                        "update"
+                    }
+            {
+                return Err(Code::Invalid);
+            }
+            let (envelope, transfer) = delivery(&scope, object.cursor.hash, object.bytes)?;
+            let entry = serde_json::json!({"seq":object.cursor.seq.to_string(),"envelopeHash":values::encode_binary(&object.cursor.hash),"envelope":envelope});
+            let text = wire::output(
+                &scope,
+                "catchup",
+                serde_json::json!({"streams":[{
+                "streamId":stream,"namespace":ns,"checkpoint":if object.checkpoint { entry.clone() } else { serde_json::Value::Null },
+                "tail":if object.checkpoint { Vec::<serde_json::Value>::new() } else { vec![entry] }
+            }],"more":true}),
+            )?;
+            let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+            peer.catchup
+                .as_mut()
+                .ok_or(Code::Invalid)?
+                .insert((stream, ns), object.cursor);
+            peer.push(text);
+            if let Some(transfer) = transfer {
+                peer.enqueue(transfer);
+            }
+        } else {
+            let text = wire::output(
+                &scope,
+                "catchup",
+                serde_json::json!({"streams":[],"more":false}),
+            )?;
+            let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+            peer.push(text);
+            peer.catchup = None;
+            peer.subscribed = true;
+        }
+        Ok(())
+    }
+    fn append(
+        &mut self,
+        id: u64,
+        scope: &SyncScope,
+        principal: &str,
+        request: AppendRequest,
+    ) -> Result<(), Code> {
+        let AppendRequest {
+            stream,
+            seq,
+            hash: envelope_hash,
+            bytes,
+            object_id,
+        } = request;
+        let sequence = values::decimal(&seq, false)?;
+        let hash = wire::hash(&envelope_hash)?;
+        let decoded = object::Envelope::from_json(&bytes)?;
+        let header = object::Header::decode(decoded.header())?;
+        let c = &header.context;
+        if c.space != scope.space
+            || c.page != scope.page
+            || c.epoch != scope.epoch
+            || c.author_device != principal
+            || stream != principal
+            || c.stream_seq != seq
+            || c.kind != "update"
+            || decoded.hash()? != hash
+            || object_id.as_ref().is_some_and(|id| id != &header.object_id)
+        {
+            return Err(Code::Invalid);
+        }
+        let key = self
+            .admission
+            .authorize(principal, scope, Access::Append(c))?;
+        crypto::verify_signature(&key, &decoded.signature_input()?, decoded.signature())?;
+        let ns = namespace(&c.namespace)?;
+        let previous = c.prev_hash;
+        let receipt = wire::output(
+            scope,
+            "receipt",
+            serde_json::json!({"streamId":stream,"seq":seq,"envelopeHash":envelope_hash}),
+        )?;
+        let (envelope, transfer) = delivery(scope, hash, bytes.clone())?;
+        let broadcast = wire::output(
+            scope,
+            "broadcast",
+            serde_json::json!({"streamId":stream,"seq":seq,"envelopeHash":envelope_hash,"envelope":envelope}),
+        )?;
+        let accepted = self.store.append(&store::Envelope {
+            scope: StreamScope {
+                page: &scope.page,
+                epoch: values::decimal(&scope.epoch, false)?,
+                stream: principal,
+            },
+            namespace: ns,
+            seq: sequence,
+            hash,
+            previous,
+            bytes: &bytes,
+        })?;
+        self.peers.get_mut(&id).ok_or(Code::Denied)?.push(receipt);
+        if accepted == Accepted::New {
+            self.fanout(scope, broadcast, transfer);
         }
         Ok(())
     }
@@ -329,13 +730,26 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
     /// One inbound application message and one outbound queued frame per call.
     /// A blocked write retains tungstenite's exact buffered bytes; never resend.
     pub fn poll(&mut self) -> Progress {
+        self.poll_at(Instant::now())
+    }
+    /// The caller supplies a monotonic clock instant for deadlines and tests.
+    pub fn poll_at(&mut self, now: Instant) -> Progress {
         if self.socket.is_none() {
             return Progress::Closed;
         }
         let terminal = match self.server.0.lock() {
             Ok(mut state) => {
                 state.recheck();
-                state.peers.get(&self.id).and_then(|p| p.terminal)
+                state.peers.get(&self.id).and_then(|p| {
+                    p.terminal.or_else(|| {
+                        p.incoming
+                            .as_ref()
+                            .filter(|i| {
+                                now.saturating_duration_since(i.started) >= limits::ACQUISITION
+                            })
+                            .map(|_| Code::Invalid)
+                    })
+                })
             }
             Err(_) => Some(Code::Denied),
         };
@@ -344,7 +758,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
         }
         if self
             .blocked_since
-            .is_some_and(|t| t.elapsed() >= limits::RESPONSE)
+            .is_some_and(|t| now.saturating_duration_since(t) >= limits::RESPONSE)
         {
             return self.close(Code::ResyncRequired);
         }
@@ -358,11 +772,11 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             match self.socket.as_mut().expect("checked socket").flush() {
                 Ok(()) => {
                     self.blocked_since = None;
-                    peer.in_flight = false;
+                    peer.buffered_slot = false;
                     Ok(true)
                 }
                 Err(e) if would_block(&e) => {
-                    self.blocked_since.get_or_insert_with(Instant::now);
+                    self.blocked_since.get_or_insert(now);
                     Ok(false)
                 }
                 Err(_) => Err(Code::ResyncRequired),
@@ -388,12 +802,14 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
                     .0
                     .lock()
                     .map_err(|_| Code::Denied)
-                    .and_then(|mut state| state.process(self.id, frame));
+                    .and_then(|mut state| state.process(self.id, frame, now));
                 if let Err(code) = result {
                     let message = wire::output(&scope, "error", serde_json::json!({"code":code}));
                     if let (Ok(text), Ok(mut state)) = (message, self.server.0.lock())
                         && let Some(peer) = state.peers.get_mut(&self.id)
                     {
+                        peer.incoming = None;
+                        peer.catchup = None;
                         peer.push(text);
                     }
                 }
@@ -409,23 +825,39 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
         let outgoing = (|| -> Result<bool, Code> {
             let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
             state.recheck();
+            if let Err(code) = state.catchup_page(self.id) {
+                let peer = state.peers.get_mut(&self.id).ok_or(Code::Denied)?;
+                peer.catchup = None;
+                peer.subscribed = false;
+                peer.push(wire::output(
+                    peer.scope.as_ref().ok_or(Code::Denied)?,
+                    "error",
+                    serde_json::json!({"code":code}),
+                )?);
+            }
             let peer = state.peers.get_mut(&self.id).ok_or(Code::Denied)?;
             if let Some(code) = peer.terminal {
                 return Err(code);
             }
-            let Some(text) = peer.queue.pop_front() else {
+            let Some(mut delivery) = peer.queue.pop_front() else {
                 return Ok(false);
             };
-            peer.in_flight = true;
+            let (text, done) = delivery.next()?;
+            if !done {
+                peer.queue.push_front(delivery);
+            }
+            // An unfinished transfer already reserves its buffered chunk through
+            // the continuation entry; only a completed delivery needs another slot.
+            peer.buffered_slot = done;
             match self
                 .socket
                 .as_mut()
                 .expect("checked socket")
                 .send(Message::Text(text.into()))
             {
-                Ok(()) => peer.in_flight = false,
+                Ok(()) => peer.buffered_slot = false,
                 Err(e) if would_block(&e) => {
-                    self.blocked_since.get_or_insert_with(Instant::now);
+                    self.blocked_since.get_or_insert(now);
                 }
                 Err(_) => return Err(Code::ResyncRequired),
             }

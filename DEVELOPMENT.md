@@ -2751,10 +2751,21 @@ The transport accepts already-upgraded nonblocking streams and a caller-supplied
 readiness and the one-second blocked-write deadline, drop connections on shutdown,
 and supply current verified membership/device policy. Model statement/certificate
 verification remains that caller's responsibility; a successful upgrade is not
-page authority. Until #1166, `hello` and nonempty cursors return
-`RESYNC_REQUIRED`, and chunks/large-object references are refused. An empty-cursor
-subscription is live-only, not a substitute for catchup. Owner registration is
-#1162. No two-browser catchup or mounted authentication acceptance is claimed.
+page authority. The admission implementation supplies the verified retained owner
+head through `Store::owner_head` and an optional baseline descriptor (baseline
+persistence/production/object retrieval is #1157). One hello starts lazy catchup;
+its final page enables live delivery under the server lock. Unknown/pruned cursors
+return `RESYNC_REQUIRED`. An empty-cursor subscription remains live-only. Large
+updates use one bounded, deadline-limited inbound transfer before append verification;
+large broadcasts/catchup objects stream chunks lazily. Tests cover more pages/chunks
+than queue slots, concurrent appends during catchup, namespace checkpoints,
+exact reassembly/replay, partial-byte isolation and transfer failure/cleanup.
+Run the Store read cases with `cargo test --offline --locked -p tmt-colab --test
+state`. The caller drives acquisition and blocked-write deadlines even without
+socket input; `Connection::poll_at` accepts a monotonic instant for deterministic
+verification. Exact wire shapes and budgets are owned by colab-v1. Owner
+registration is #1162. No two-browser catchup or mounted authentication acceptance
+is claimed.
 
 The only dependency change for this slice is the existing workspace tungstenite
 0.30.0 edge in `tmt-colab` (default features disabled, handshake enabled); there
