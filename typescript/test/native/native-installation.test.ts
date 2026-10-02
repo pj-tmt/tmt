@@ -6,6 +6,7 @@ import {
   readlinkSync,
   readdirSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -41,6 +42,38 @@ function artifactChecksum(fixture: ArtifactFixture): string {
 }
 
 describe('native installation process contract', () => {
+  it('prints the requested command path even through an aliased prefix ancestor', async () => {
+    await withSandbox(async (sandbox) => {
+      const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+      const fixture = await createArtifact(sandbox, version);
+      const physical = path.join(sandbox.root, 'physical');
+      const alias = path.join(sandbox.root, 'alias');
+      mkdirSync(physical);
+      symlinkSync(physical, alias);
+      const prefix = path.join(alias, 'prefix');
+      const args = [
+        '__native-install',
+        '--archive',
+        fixture.archive,
+        '--manifest',
+        fixture.manifest,
+        '--prefix',
+        prefix,
+        '--channel',
+        'alpha',
+      ];
+      for (const verb of ['Installed', 'Current']) {
+        const result = await runCli(sandbox, args, { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain(
+          `${verb} tmt ${version} at ${path.join(prefix, 'bin', 'tmt')}`
+        );
+        expect(result.stdout).not.toContain(realpathSync(physical));
+        expect(result.stderr).toBe('');
+      }
+    });
+  });
+
   it('retains a generated operation ID across a companion storage uncertainty and replay', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = installPrefix(sandbox);

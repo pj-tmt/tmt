@@ -191,7 +191,9 @@ describe('global identities across isolated tmux servers', { concurrent: false }
 
       const foreignTalk = await a.runJsonCli(['talk', 'Remote', 'must-not-cross-servers']);
       expect(foreignTalk.code).toBe(3);
-      expect(foreignTalk.json).toMatchObject({ error: { code: 'NAME_NOT_FOUND' } });
+      expect(foreignTalk.json).toMatchObject({
+        error: { code: 'NAME_NOT_FOUND', message: "Identity 'Remote' is not active." },
+      });
       const message = 'local-server-only';
       const talk = expectJsonResult(
         await a.runJsonCli<{ status: string; response: string }>([

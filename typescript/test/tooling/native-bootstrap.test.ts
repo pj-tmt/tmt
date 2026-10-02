@@ -327,6 +327,7 @@ describe('native curl bootstrap', () => {
 
         expect(run.result.status).toBe(0);
         expect(run.result.stderr).toBe('');
+        expect(run.result.stdout).toContain(`Native tmt is installed at ${prefix}/bin/tmt.`);
         expect(run.result.stdout).toContain(`${prefix}/bin is not in PATH yet.`);
         expect(run.result.stdout).not.toContain('another installation');
         expect(run.log).toContain('command=__native-install');

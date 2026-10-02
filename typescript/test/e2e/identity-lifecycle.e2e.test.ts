@@ -425,7 +425,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
       ]);
       expect(nameNotFound.code).toBe(3);
       expect(json(nameNotFound)).toEqual({
-        error: { code: 'NAME_NOT_FOUND', message: "Identity 'Gone' is not active." },
+        error: { code: 'NAME_NOT_FOUND', message: "Identity 'Gone' was not found." },
       });
 
       const paneNotFound = await fixture.runJsonCli<CommandError>(['check', gone.pane]);
@@ -485,7 +485,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
       ]);
       expect(staleName.code).toBe(3);
       expect(json(staleName)).toEqual({
-        error: { code: 'NAME_NOT_FOUND', message: "Identity 'BeforeRestart' is not active." },
+        error: { code: 'NAME_NOT_FOUND', message: "Identity 'BeforeRestart' was not found." },
       });
 
       const rebound = await fixture.runJsonCli(['add', restarted.pane, 'AfterRestart']);

@@ -111,6 +111,10 @@ Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
 x64/arm64 with a static musl runtime. Refer to the release's verification evidence
 for tested host OS versions; a deployment target is not testing on every OS.
 
+Successful human installer output names `<requested-prefix>/bin/tmt`, matching
+the bootstrap summary even when a prefix ancestor is a symlink. Installation
+validation, receipts and JSON reports retain canonical paths.
+
 ## Official extensions
 
 `tmt extension` installs, updates and removes the official extensions (`office`

@@ -258,7 +258,7 @@ describe('global identity and runtime routing', { concurrent: false }, () => {
       const unknown = await fixture.runJsonCli<CommandError>(['talk', 'all', 'must not broadcast']);
       expect(unknown.code).toBe(3);
       expect(unknown.json).toEqual({
-        error: { code: 'NAME_NOT_FOUND', message: "Identity 'all' is not active." },
+        error: { code: 'NAME_NOT_FOUND', message: "Identity 'all' was not found." },
       });
 
       const stale = await fixture.runJsonCli<CommandError>(['check', '%99999']);

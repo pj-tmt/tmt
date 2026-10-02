@@ -82,7 +82,10 @@ pub fn execute(
             "{} {} at {}",
             product.executable(),
             report.version,
-            report.executable.display()
+            Path::new(prefix)
+                .join("bin")
+                .join(product.executable())
+                .display()
         );
         if report.changed {
             tmt_cli_style::message::success(&mut stdout, terminal, &format!("Installed {what}"))?;
