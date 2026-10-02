@@ -118,6 +118,8 @@ ask when resolution would require an undecided product or authorization choice.
 
 ## Code organization
 
+Follow the [layout procedure](.agents/skills/tmt-layout/SKILL.md) when adding or moving repository files.
+
 - Prefer fixes that simplify ownership and data flow over accumulating defensive patches. Before adding flags, counters, branches or abstractions, check whether moving responsibility to its natural owner or removing redundant state eliminates the defect. Judge simplicity across the affected flow, not by the smallest diff. Keep necessary trust-boundary validation and behavior tests; this is not permission for unrelated rewrites.
 - Before launch, breaking refactors are allowed within the agreed scope. Do not retain obsolete APIs, commands or compatibility layers solely to preserve an unreleased design. Update callers, tests and guidance together; this does not authorize discarding user data or uncommitted work.
 - Keep production behavior, test infrastructure, fixtures, and scenario assertions in clearly separated modules.

@@ -657,6 +657,8 @@ describe('component map', () => {
       'typescript/test/tooling/ci-scope.test.ts': 'path fixtures for the selector tests',
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
       '.github/components.json': 'the map names the prose in its own rules',
+      '.github/repository-layout.json':
+        'top-level names only; the layout guard never reads listed prose',
       'rust/crates/tmt-adapters/src/skill_installation/owned_tests.rs':
         'a fixture file name, not the repository README',
       'site/src/chapters/dev-extension.mdx': 'the handbook site links to the contract on GitHub',
