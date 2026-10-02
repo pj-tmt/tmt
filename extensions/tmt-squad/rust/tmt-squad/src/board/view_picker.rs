@@ -113,6 +113,9 @@ impl Picker {
             }
             _ => return Input::Preview,
         }
+        if self.squad.is_none() {
+            return Input::Preview;
+        }
         let preview = match self.selected {
             Choice::Custom => {
                 self.preview = self.opening.clone();
@@ -145,7 +148,9 @@ impl Picker {
                 "remove board.layout or panes from squad.toml to use a view",
             )),
         }?;
-        self.preview = self.config.board(self.squad.as_deref().unwrap_or(""))?;
+        if let Some(squad) = &self.squad {
+            self.preview = self.config.board(squad)?;
+        }
         Ok(changed)
     }
     fn inherited(&self) -> Result<String, SquadError> {
@@ -188,6 +193,7 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: crate::look::Look
     let height = (picker.choices().len() as u16
         + 8
         + u16::from(picker.masked().is_some())
+        + u16::from(picker.squad.is_none())
         + notice.len() as u16)
         .min(body.height);
     let area = Rect {
@@ -265,6 +271,12 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: crate::look::Look
         "Pane arrangement and fold defaults only",
         muted,
     ));
+    if picker.squad.is_none() {
+        lines.push(Line::styled(
+            "leads and all stay rows only; views apply to squad tabs",
+            muted,
+        ));
+    }
     for line in notice {
         lines.push(Line::styled(line, look.role(Role::Waiting)));
     }
@@ -410,6 +422,43 @@ mod tests {
         );
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
+    #[test]
+    fn aggregate_boards_keep_their_geometry_through_preview_save_and_cancel() {
+        for tab in [crate::board::ALL, crate::board::LEADS] {
+            let (path, config, mut app) = fixture(tab, "# preserve\n");
+            let board = Board::simple(
+                crate::config::BoardMode::Split,
+                crate::config::Direction::TopBottom,
+                vec![crate::config::Pane::Rows],
+                &[100],
+            );
+            app.current = Some(tab.into());
+            let mut snapshot = crate::board::app::tests::snapshot(tab, json!([]));
+            snapshot.view.as_mut().unwrap().board = board.clone();
+            app.apply(snapshot);
+            app.open_view_picker(config).unwrap();
+            app.key(key(KeyCode::Down)); // focus
+            app.key(key(KeyCode::Down)); // notes
+            assert_eq!(app.effective_board(), Some(&board));
+            assert!(app.view_picker.as_mut().unwrap().save().unwrap());
+            app.close_view_picker(true);
+            assert_eq!(app.effective_board(), Some(&board));
+            let config = Config::read(path.clone()).unwrap();
+            assert_eq!(
+                config.view_source("product").unwrap().0,
+                Some(ViewName::Notes)
+            );
+            let saved = std::fs::read(&path).unwrap();
+            app.open_view_picker(config).unwrap();
+            app.key(key(KeyCode::Down)); // detail
+            assert_eq!(app.effective_board(), Some(&board));
+            assert_eq!(app.key(key(KeyCode::Esc)), Effect::CancelView);
+            assert_eq!(app.effective_board(), Some(&board));
+            assert_eq!(std::fs::read(&path).unwrap(), saved);
+            std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        }
+    }
+
     #[test]
     fn overlay_isolates_keys_mouse_and_builtin_scope_and_renders_each_depth() {
         let (path, config, mut app) = fixture("isolation", "");

@@ -185,7 +185,8 @@ has no comments; existing empty tables remain. On the board, `l` opens the view
 picker (`view` is bindable). Arrow keys or j/k preview only in memory, Tab
 switches all-boards/this-squad scope, Enter saves once, and Esc restores the
 opening arrangement and runtime folds without writing. Data keeps refreshing.
-The leads/all tabs offer all-boards scope only. The default entry removes only
+The leads/all tabs offer all-boards scope only and stay rows-only during preview,
+save and cancel; views apply to squad tabs. The default entry removes only
 the chosen layer's view key. A custom entry identifies hand-written layout;
 preview works, but saving a factory view is refused with a manual-removal hint.
 A failed or stale save stays open; cancel and reopen to read the changed file.

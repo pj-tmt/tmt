@@ -3205,7 +3205,9 @@ hand-written keys. The reset entry removes only the chosen layer's view key.
 The existing Reload request carries `preview_panes` only while the picker is
 open, acquiring missing notes/replies through the same loader and cancellation
 fence. Closing it preempts preview reads and returns to resolved-pane acquisition;
-no second worker or arrangement resolver is introduced.
+no second worker or arrangement resolver is introduced. The built-in leads/all
+tabs keep their opening rows-only Board throughout picker preview, save and
+cancel; they offer all-boards scope, which affects real squad tabs only.
 
 Squad's `theme` command module registers `theme ls` (hidden `list` alias),
 `set` and `rm`; bare `theme` lists. Lists and the board picker consume names and
