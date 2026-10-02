@@ -3,12 +3,15 @@
 //! Two crypto-only OS-entropy uses: seal object IDs and HPKE ephemeral keys;
 //! no filesystem, process or network access, and no long-term key-generation RNG.
 pub mod auth;
+pub mod bounded;
 pub mod certificate;
 pub mod crypto;
 pub mod framing;
 pub mod keys;
 pub mod link;
 pub mod object;
+pub mod payload;
+pub mod statement;
 pub mod stream_cut;
 pub mod values;
 pub mod wrap;
