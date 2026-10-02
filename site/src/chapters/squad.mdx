@@ -89,7 +89,7 @@ reduced_motion = false
 
 The first line of the board holds its tabs: one per squad, plus two built in. **leads** lists every squad's lead in one place, and **all** has one row per squad with its lead, its member count and what needs you. Enter on a row in **all** opens that squad's tab.
 
-A tab is colored by what it needs from you: amber when a member waits on you, red when one is blocked. Counts follow the name, such as `product ◆2 ✗1` (waiting on you, blocked), so the state never depends on color alone. The tab you're on has the selection background and keeps its color. ← and → switch tabs, and **s** opens a switcher over every tab, hidden ones included, that narrows as you type. When there are more tabs than fit, the line scrolls to keep the current one in view and counts the tabs off each end (`‹ 3`, `5 ›`), colored by the most pressing one it hides.
+Every tab starts with a two-cell mark: `◆` when a member waits on you, `✗` when one is blocked, or blank. The count follows the name, such as `◆ product 2`, and a blocked count is added when both apply: `◆ product 2 ✗1`. Only the mark and the `✗` count carry the attention colors, so the state never depends on color alone. The tab you're on keeps its accent name and count, and the selection background covers the whole tab; other tabs' names and counts are muted. ← and → switch tabs, and **s** opens a switcher over every tab, hidden ones included, that narrows as you type. When there are more tabs than fit, the line scrolls to keep the current one in view and counts the tabs off each end (`‹ 3`, `5 ›`), colored by the most pressing one it hides.
 
 A tab you've opened before shows at once and refreshes in the background. One you haven't opened keeps the previous view until the new one is ready, and if that takes more than a moment, `⠋ loading` appears on the summary line. Switch again and the old load is dropped.
 
@@ -284,7 +284,7 @@ Or press **T** on the board: ↑ and ↓ preview each theme live, **Tab** switch
 
 `auto` works in both `squad.toml` layers and in the picker, where it comes first. Only `config.json` refuses it: with `"base": "auto"` there, `tmt config show` prints `error: theme.base auto only works for the board, not in config.json` with the hint `tmt sq theme set auto`, and the board ignores that setting.
 
-State colors on rows and tabs are these tokens too: `blocked = { color = "blocked" }`. The older names `red`, `amber`, `green`, `blue`, `cyan` and `magenta` still work. If the command-line theme has a mistake, the board ignores it and says so on its summary line.
+State colors on rows and tab marks are these tokens too: `blocked = { color = "blocked" }`. The older names `red`, `amber`, `green`, `blue`, `cyan` and `magenta` still work. If the command-line theme has a mistake, the board ignores it and says so on its summary line.
 
 ### Skills for your lead
 
@@ -370,7 +370,7 @@ The full configuration contract is in the Squad skill, which `tmt sq skill show`
 pin = ["all"]                # first, in this order, and always in view
 
 [tabs.colors]
-waiting = "waiting" # the color of a tab with a member waiting on you
+waiting = "waiting" # the color of a tab mark when a member waits on you
 blocked = "blocked" # and of one with a blocked member
 `}</Code>
 
