@@ -557,6 +557,8 @@ and token expiry must not stand in for that value.
 The handbook is a static site in `site/` (Vite, React, TanStack Router, Jotai,
 Tailwind and MDX), with its own lockfile outside the TypeScript workspace.
 Chapters are `site/src/chapters/*.mdx`, registered in `site/src/chapters/index.ts`.
+The sticky status bar at the top is the chapter navigation: one tmux-style window per
+chapter group (`windows` in the same file), with the `[tmt]` button opening the full page tree.
 Colors, fonts and marks come from `design/tokens/tokens.json`, which the
 stylesheet and the design page read. Anything not in a release is marked
 planned.
