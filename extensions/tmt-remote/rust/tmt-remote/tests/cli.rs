@@ -12,6 +12,10 @@ use std::{
 mod executable_fixture;
 
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-remote");
+/// Bound on a `serve` child reporting readiness. Startup runs freshly written
+/// fake-core executables, whose first exec waits behind the same assessment
+/// queue as the fixture probe.
+const STARTUP: Duration = executable_fixture::COMPLETION_WINDOW;
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 struct Pilot {
     root: PathBuf,
@@ -108,8 +112,7 @@ fn startup_is_one_public_read_remote_calls_are_zero_and_sigterm_reaps() {
             BufReader::new(pipe).read_line(&mut line).unwrap();
             let _ = tx.send(line);
         });
-        let descriptor: Value =
-            serde_json::from_str(&rx.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        let descriptor: Value = serde_json::from_str(&rx.recv_timeout(STARTUP).unwrap()).unwrap();
         reader.join().unwrap();
         assert_eq!(descriptor["state"], "closed");
         assert_eq!(descriptor["startupCoreCalls"], 1);
