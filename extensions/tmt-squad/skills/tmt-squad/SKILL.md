@@ -17,6 +17,12 @@ same command as `tmt squad`.
 tmt squad ls --json [--squad <name>]
 ```
 
+`tmt sq ls --tab leads` and `--tab all` return one built-in board tab's document,
+with the same rows, sections, attention, columns and lines as the board. Hidden
+squads remain included. `leads` lists each squad lead; `all` lists squad summaries.
+`--tab` cannot be combined with `--squad` or `--refresh-fields`. An unknown tab
+returns `SQUAD_TAB_NOT_FOUND`; an empty tab has an empty rows array.
+
 With `--squad <name>` the document is that squad's; without it, it is always
 `{squads: [...], you}`, one document per squad in name order (even for one
 squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and

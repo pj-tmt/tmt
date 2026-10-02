@@ -3376,11 +3376,12 @@ earlier and owns reaping. Ordinary Core calls retain their existing independent
 groups and allowances. No resident worker or core Squad concept is introduced.
 The extension guide owns the observed-age, claim-loss and cache-loss limits.
 
-`board::tabs` owns the tab
+`tabs` owns the tab
 keys: a squad's name, or a built-in key starting with `@` (`@leads`, `@all`),
-which no squad name can. `[tabs] order` and `hide` arrange them. The leads tab's view is
-built by the same worker from each squad's roster document, joined with one
-`ls` read for presence. Its rows carry their squad, so talk goes to that
+which no squad name can. `[tabs] order` and `hide` arrange them. `tab_view` owns cross-squad roster acquisition and the leads/all documents,
+called by the board worker and `ls --tab leads|all`. Both receive the same
+projected rows, attention and row-grid metadata; `status::text` renders the list
+from that document. The leads tab joins one global `ls` read for presence. Its rows carry their squad, so talk goes to that
 squad's room and a jump is the ordinary `tmt focus`. The all tab's rows are
 squads, not members: their `tab` action opens the squad's tab, and member
 bindings don't apply there. `jump lead` (`L` in the tmux preset) resolves a

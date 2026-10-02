@@ -140,6 +140,54 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('lists built-in tabs with their board rows, including hidden and empty squads', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const tab of ['leads', 'all']) {
+        const empty = await squad(sandbox, ['ls', '--tab', tab]);
+        expect(empty.status).toBe(0);
+        expect(empty.body.sections).toEqual([{ title: null, rows: [] }]);
+      }
+      for (const name of ['Ben', 'Sol', 'worker']) await identity(sandbox, name);
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol', '--squad', 'product'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker', '--squad', 'product'])).status).toBe(0);
+      expect((await squad(sandbox, ['init', 'quiet'])).status).toBe(0);
+      writeFileSync(
+        path.join(sandbox.globalDir, 'squad.toml'),
+        'me = "Ben"\n[tabs]\norder = ["all", "product", "leads"]\nhide = ["quiet"]\n'
+      );
+      const leads = await squad(sandbox, ['ls', '--tab', 'leads']);
+      expect(leads.status).toBe(0);
+      expect(leads.body.sections[0].rows).toMatchObject([
+        { name: 'Sol', squad: 'product', fields: { squad: 'product' } },
+      ]);
+      expect(leads.body.columns.map((column: { field: string }) => column.field)).toEqual([
+        'squad',
+        'member',
+        'state',
+        'task',
+      ]);
+      const all = await squad(sandbox, ['ls', '--tab', 'all']);
+      expect(all.status).toBe(0);
+      expect(all.body.sections[0].rows).toMatchObject([
+        { name: 'product', fields: { lead: 'Sol', members: '1' } },
+        { name: 'quiet', fields: { lead: null, members: '0' } },
+      ]);
+      const text = await runCli(sandbox, ['sq', 'ls', '--tab', 'all']);
+      expect(text.status).toBe(0);
+      expect(text.stdout).toContain('product');
+      expect(text.stdout).toContain('Sol');
+      expect(text.stdout).toContain('quiet');
+      const missing = await squad(sandbox, ['ls', '--tab', 'missing']);
+      expect(missing.status).not.toBe(0);
+      expect(missing.body.error.code).toBe('SQUAD_TAB_NOT_FOUND');
+      for (const option of [['--squad', 'product'], ['--refresh-fields']]) {
+        expect((await squad(sandbox, ['ls', '--tab', 'all', ...option])).status).not.toBe(0);
+      }
+    });
+  });
+
   it('reports the resolved default layout in ls JSON for team and legacy simple boards', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -1530,7 +1578,7 @@ describe('squad extension', () => {
       }
       const help = await runCli(sandbox, ['sq', '--help']);
       expect(help.stdout).toContain('Usage: tmt squad [OPTIONS] [COMMAND]');
-      expect(help.stdout).toMatch(/\n {2}ls +List the members/);
+      expect(help.stdout).toMatch(/\n {2}ls +List members or a board tab/);
       expect(help.stdout).not.toMatch(/\n {2}status /);
       // Explicit F5 remains valid while the host preset uses ctrl-r.
       const toml = path.join(sandbox.globalDir, 'squad.toml');

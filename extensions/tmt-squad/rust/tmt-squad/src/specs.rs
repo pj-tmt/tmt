@@ -96,9 +96,10 @@ pub const SET: &CommandSpec = spec!(
 
 pub const LS: &CommandSpec = spec!(
     "ls",
-    "List the members as text, or JSON with --json",
+    "List members or a board tab as text, or JSON with --json",
     [
         "List every member and what needs you" => "tmt squad ls",
+        "List every squad lead" => "tmt squad ls --tab leads",
         "Read the squad from a script" => "tmt squad ls --json",
     ]
 );
