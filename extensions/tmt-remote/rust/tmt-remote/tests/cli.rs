@@ -255,7 +255,7 @@ fn serve(pilot: &Pilot) -> (Child, Value) {
         BufReader::new(pipe).read_line(&mut line).unwrap();
         let _ = tx.send(line);
     });
-    let line = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let line = rx.recv_timeout(STARTUP).unwrap();
     (child, serde_json::from_str(&line).unwrap())
 }
 fn terminate(mut child: Child) {
@@ -325,7 +325,7 @@ fn machine_identity_and_route_prefix_survive_restart_and_one_serve_per_root() {
 }
 /// Read one JSON line from a child's stdout within a bound.
 fn line(reader: &std::sync::mpsc::Receiver<String>) -> Value {
-    serde_json::from_str(&reader.recv_timeout(Duration::from_secs(10)).unwrap()).unwrap()
+    serde_json::from_str(&reader.recv_timeout(STARTUP).unwrap()).unwrap()
 }
 #[test]
 fn pair_json_confirms_one_device_through_the_running_serve() {
