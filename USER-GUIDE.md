@@ -1,8 +1,7 @@
 # tmux-team user guide
 
-This guide covers the common v5 native alpha workflows. Start with the
-[README](README.md) for the current installation status and verified release
-URL, then use
+This guide covers the common v5 native alpha workflows. Install from the
+latest release (see the [README](README.md)), then use
 [`skills/README.md`](skills/README.md) for provider-specific installation and
 [`skills/tmux-team/SKILL.md`](skills/tmux-team/SKILL.md) for canonical agent
 guidance. Optional Office workflows have canonical
