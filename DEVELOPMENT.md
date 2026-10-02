@@ -2904,6 +2904,27 @@ are public test data. This foundation does not satisfy the complete L1 gates.
 
 ### Colab browser verification
 
+The private local page app has its own package and Chromium isolation suite:
+
+```sh
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app install --frozen-lockfile --ignore-scripts
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match check
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match test
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match build
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app exec playwright install chromium
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match test:browser
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match dev
+```
+
+The dev server binds loopback and serves in-process sample pages, independent of
+`colab serve` and Remote. The parent displays read-only source; no sign-in, sync,
+live editing or page persistence is implemented. The browser suite proves opaque
+origin isolation, CSP request blocking, source-digest/window binding and teardown.
+It also records the permitted self-navigation request before teardown rather than
+claiming complete exfiltration prevention. App Chromium evidence does not replace
+the primitive library's three-engine conformance gate below. Code quality runs
+filtered frozen install, check, unit tests and build; renderer tests run locally.
+
 The private browser primitives use the existing frozen pnpm workspace. From the
 repository root:
 

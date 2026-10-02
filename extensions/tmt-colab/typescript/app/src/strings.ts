@@ -1,0 +1,28 @@
+/** English chrome catalog; page content and fixture text are not UI strings. */
+export const text = {
+  product: 'Colab',
+  local: 'Local preview',
+  pages: 'Pages',
+  home: 'Space home',
+  intro: 'A place for pages you share.',
+  open: 'Open page',
+  empty: 'No pages in this space yet.',
+  private: 'Private',
+  link: 'Link',
+  public: 'Public',
+  theme: 'Change color theme',
+  source: 'Source',
+  preview: 'Preview',
+  loading: 'Opening page…',
+  loaded: 'Live preview',
+  boundary: 'Page content',
+  error: 'Page unavailable',
+  retry: 'Return to space',
+  blocked: 'Preview stopped',
+  navigation: 'The page navigated. Reopen it to continue.',
+  failed: 'The renderer could not start. Reopen the page to try again.',
+  limit: 'This preview accepts pages up to 1 MiB of HTML.',
+  warning:
+    'Page scripts run inside an isolated frame. A page can navigate its own frame; complete exfiltration prevention is not guaranteed.',
+  adapter: 'This preview uses local sample pages. It is not connected to a remote space.',
+} as const;

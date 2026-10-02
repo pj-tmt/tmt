@@ -157,6 +157,16 @@ jobs:
           pnpm --filter @tmt/colab-client --fail-if-no-match check
           pnpm --filter @tmt/colab-client --fail-if-no-match test
 
+      - name: Install locked colab app tools
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app install --frozen-lockfile --ignore-scripts
+      - name: Verify colab app on every pull request
+        working-directory: typescript
+        run: |
+          pnpm --filter @tmt/colab-app --fail-if-no-match check
+          pnpm --filter @tmt/colab-app --fail-if-no-match test
+          pnpm --filter @tmt/colab-app --fail-if-no-match build
+
   native-clippy:
     name: Native Rust clippy
     needs: changes

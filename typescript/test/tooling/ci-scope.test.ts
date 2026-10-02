@@ -66,6 +66,25 @@ describe('CI area selection', () => {
       expect(workflow).toContain(`pnpm --filter @tmt/colab-client --fail-if-no-match ${command}`);
   });
 
+  it('owns the private colab app and checks it without selecting frozen Office', () => {
+    const file = 'extensions/tmt-colab/typescript/app/src/renderer.ts';
+    expect(ownerOf(file)).toBe('colab-app');
+    const map = parseComponentMap(
+      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+    );
+    expect(isReleased(map, 'colab-app')).toBe(false);
+    expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/ci.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workflow).toContain(
+      'pnpm --filter @tmt/colab-app install --frozen-lockfile --ignore-scripts'
+    );
+    for (const command of ['check', 'test', 'build'])
+      expect(workflow).toContain(`pnpm --filter @tmt/colab-app --fail-if-no-match ${command}`);
+  });
+
   it('selects the add-on workflow only for shell/tool inputs without narrowing look-alikes', () => {
     expect(selectCiAreas(['extensions/tmt-remote/typescript/browser-addon/src/popup.ts'])).toEqual({
       native: false,
