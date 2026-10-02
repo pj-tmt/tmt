@@ -682,7 +682,8 @@ terminal output and code. A translated heading keeps the English slug as an expl
 id (`<h3 id="install">安裝</h3>`), because links, the home page and the on-this-page
 list use it and `slug()` drops non-Latin text. Chinese (`zh`) is Traditional Chinese
 with Taiwan usage; it also keeps `agent`, `driver`, `harness`, `board`, `colab` and
-`meet`, and uses 窗格 for pane, 終端機 for terminal and 擴充套件 for extension.
+`meet`, and uses 窗格 for pane, 終端機 for terminal, 擴充套件 for extension, 卡住 for blocked and
+恢復 for resume.
 
 `.github/workflows/site.yml` checks and builds the site on pull requests and
 `main`. Every push to `main` that changes `site/**`, `design/tokens/**` or the
