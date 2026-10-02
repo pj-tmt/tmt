@@ -192,6 +192,11 @@ pub fn present(outcome: Outcome, mode: OutputMode, inspect_drift: bool) {
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
+        "Herdr panes need the Herdr driver: tmt driver install herdr",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
         "receive work for this saved identity with tmt x listen --identity <name>",
         &[""],
         &[],
