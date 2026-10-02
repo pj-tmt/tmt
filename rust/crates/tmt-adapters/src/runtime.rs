@@ -236,6 +236,17 @@ impl RuntimeRegistry {
         Ok(merged)
     }
 
+    /// Every registered channel with its driver, in registration order. Recovery
+    /// asks each one, since an enrollment names its driver only in its own record.
+    pub fn channels(&self) -> impl Iterator<Item = (&HarnessId, &dyn channel::RuntimeChannel)> {
+        self.registrations.iter().filter_map(|entry| {
+            entry
+                .channel
+                .as_deref()
+                .map(|channel| (&entry.harness, channel))
+        })
+    }
+
     /// The harness's channel, if its driver offers one.
     pub fn channel(&self, harness: &HarnessId) -> Option<&dyn channel::RuntimeChannel> {
         self.registrations

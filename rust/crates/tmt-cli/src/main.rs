@@ -4,6 +4,7 @@ mod appearance;
 mod binding_command;
 mod binding_error;
 mod caller_context;
+mod channel_command;
 mod channel_server_command;
 mod check_command;
 mod completion;
@@ -186,6 +187,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             directory,
         } => {
             return channel_server_command::execute(&harness, &binding_id, &generation, &directory);
+        }
+        Invocation::Channel(request) => {
+            return channel_command::execute(request, parsed.mode);
         }
         Invocation::Resume {
             name,

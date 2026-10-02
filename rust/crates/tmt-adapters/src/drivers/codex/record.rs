@@ -194,6 +194,18 @@ pub struct Store {
     directory: PathBuf,
 }
 
+/// What `Store::recover` did.
+pub enum Removal<T> {
+    /// No record is on file.
+    Absent,
+    /// The record on file is no longer the observed one; nothing was touched.
+    Changed,
+    /// `cleanup` could not remove this path, so the record was kept and the same
+    /// recovery can run again.
+    Retained(PathBuf),
+    Removed(T),
+}
+
 impl Store {
     /// Existing private directories are verified, never chmodded into trust.
     pub fn open(channels: &Path) -> io::Result<Self> {
@@ -220,7 +232,7 @@ impl Store {
         }
     }
 
-    fn path(&self, binding: &str) -> io::Result<PathBuf> {
+    pub(super) fn path(&self, binding: &str) -> io::Result<PathBuf> {
         uuid::Uuid::parse_str(binding).map_err(io::Error::other)?;
         Ok(self.directory.join(format!("{binding}.json")))
     }
@@ -347,6 +359,32 @@ impl Store {
         Ok(true)
     }
 
+    /// User-requested recovery of the exact `observed` record: under the record lock
+    /// and only while the record on file is still exactly it, runs `cleanup` (for
+    /// the generation directory) and then removes the record, unless `cleanup`
+    /// names a path it could not remove: the record then stays. The caller has
+    /// already proven every recorded process gone; an exact incarnation that is
+    /// gone never returns, so an unchanged record keeps that proof valid.
+    pub fn recover<T>(
+        &self,
+        observed: &Record,
+        cleanup: impl FnOnce() -> Result<T, PathBuf>,
+    ) -> io::Result<Removal<T>> {
+        let _lock = self.lock(&observed.binding_id)?;
+        match self.read(&observed.binding_id)? {
+            None => return Ok(Removal::Absent),
+            Some(current) if current != *observed => return Ok(Removal::Changed),
+            Some(_) => {}
+        }
+        let cleaned = match cleanup() {
+            Ok(cleaned) => cleaned,
+            Err(path) => return Ok(Removal::Retained(path)),
+        };
+        fs::remove_file(self.path(&observed.binding_id)?)?;
+        fs::File::open(&self.directory)?.sync_all()?;
+        Ok(Removal::Removed(cleaned))
+    }
+
     /// Only enrollment mutates ended records. Read-only pane queries never prune.
     /// Unknown survives even after server cleanup; observe again under each
     /// record lock and leave replacements or unreadable records untouched.
@@ -405,7 +443,8 @@ impl Store {
     }
 }
 
-/// This is guidance only. Delivery never executes recovery or pastes afterward.
+/// This is guidance only. Delivery never executes recovery or pastes afterward;
+/// `tmt channel recover` applies the contract's recovery rule.
 pub fn recovery(path: &Path, record: &Record) -> String {
     let pane = record.attribution.as_ref().map_or_else(
         || "the original pane (attribution is unavailable)".to_owned(),
@@ -428,15 +467,12 @@ pub fn recovery(path: &Path, record: &Record) -> String {
             process.pid, process.start
         ),
     };
-    let action = match path.to_str() {
-        Some(path) => format!("Only after verification, remove this exact record with: rm -- {}", shell_quote(path)),
-        None => "After verification, remove only this exact named record using a tool that preserves its non-UTF-8 path.".into(),
-    };
     format!(
-        "Enrollment record {path:?}. Verify {pane} no longer runs the opted-in session, and that {foreground}, the launch owner and the owned app-server are gone. {action}. Recovery sends or pastes nothing."
+        "Enrollment record {path:?}. Verify {pane} no longer runs the opted-in session, and that {foreground}, the launch owner and the owned app-server are gone. Only after verification, recover it with: {}. It refuses while a recorded process runs or cannot be observed, and sends or pastes nothing.",
+        crate::runtime::channel::recover_command(&record.binding_id, &record.generation)
     )
 }
-fn shell_quote(value: &str) -> String {
+pub(super) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 

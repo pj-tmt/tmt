@@ -3,7 +3,8 @@ use super::{attachment::LaunchOptions, delivery, supervisor::Supervisor};
 use crate::{
     process::{CommandRequest, CommandRunner, UnixCommandRunner},
     runtime::channel::{
-        ChannelEnrollment, ChannelError, ChannelFault, ChannelPlan, RuntimeChannel,
+        ChannelEnrollment, ChannelError, ChannelFault, ChannelPlan, EnrollmentReport,
+        EvidenceError, Recovery, RecoveryError, RuntimeChannel,
     },
 };
 use std::{ffi::OsStr, path::Path, time::Instant};
@@ -21,6 +22,29 @@ impl RuntimeChannel for CodexChannel {
         deadline: Instant,
     ) -> Result<crate::runtime::channel::PaneEvidence, crate::runtime::channel::EvidenceError> {
         super::pane::enrolled(directory, pane, binding_id, deadline)
+    }
+    fn inspect(
+        &self,
+        directory: &Path,
+        binding_id: &str,
+        deadline: Instant,
+    ) -> Result<Option<EnrollmentReport>, EvidenceError> {
+        super::recovery::inspect(&UnixCommandRunner, directory, binding_id, deadline)
+    }
+    fn recover(
+        &self,
+        directory: &Path,
+        binding_id: &str,
+        generation: &str,
+        deadline: Instant,
+    ) -> Result<Recovery, RecoveryError> {
+        super::recovery::recover(
+            &UnixCommandRunner,
+            directory,
+            binding_id,
+            generation,
+            deadline,
+        )
     }
     fn preflight(
         &self,

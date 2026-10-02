@@ -277,6 +277,14 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             forget: flag(m, "forget"),
             retry: flag(m, "retry"),
         },
+        ["channel", action @ ("inspect" | "recover")] => {
+            let selector = match text(m, "binding") {
+                Some(binding) => EnrollmentSelector::Binding(binding),
+                None => EnrollmentSelector::Target(required(m, "target")),
+            };
+            let recover = (*action == "recover").then(|| required(m, "generation"));
+            Invocation::Channel(ChannelRequest { selector, recover })
+        }
         ["whoami"] if flag(m, "context") => Invocation::WhoamiContext,
         ["whoami"] => Invocation::Whoami,
         ["unbind"] => Invocation::Unbind,

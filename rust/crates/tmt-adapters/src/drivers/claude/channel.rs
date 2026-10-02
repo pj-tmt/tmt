@@ -11,8 +11,9 @@ use crate::{
     runtime::{
         RuntimeCommand, RuntimeError,
         channel::{
-            ChannelEnrollment, ChannelError, ChannelFault, ChannelPlan, EvidenceError, PaneAddress,
-            PaneEvidence, RuntimeChannel, ServeRequest,
+            ChannelEnrollment, ChannelError, ChannelFault, ChannelPlan, EnrollmentReport,
+            EvidenceError, PaneAddress, PaneEvidence, Recovery, RecoveryError, RuntimeChannel,
+            ServeRequest,
         },
     },
 };
@@ -37,6 +38,7 @@ use tmt_core::{
     exact_text::MAX_EXCHANGE_TEXT_BYTES,
 };
 
+mod recovery;
 mod server;
 
 /// The oldest provider build with recorded channel evidence. A build is accepted
@@ -337,6 +339,31 @@ impl RuntimeChannel for ClaudeChannel {
         deadline: Instant,
     ) -> Result<PaneEvidence, EvidenceError> {
         pane_enrolled(&UnixCommandRunner, directory, pane, binding_id, deadline)
+    }
+
+    fn inspect(
+        &self,
+        directory: &Path,
+        binding_id: &str,
+        deadline: Instant,
+    ) -> Result<Option<EnrollmentReport>, EvidenceError> {
+        recovery::inspect(&UnixCommandRunner, directory, binding_id, deadline)
+    }
+
+    fn recover(
+        &self,
+        directory: &Path,
+        binding_id: &str,
+        generation: &str,
+        deadline: Instant,
+    ) -> Result<Recovery, RecoveryError> {
+        recovery::recover(
+            &UnixCommandRunner,
+            directory,
+            binding_id,
+            generation,
+            deadline,
+        )
     }
 
     fn serve(
@@ -677,7 +704,8 @@ fn shell_quoted(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
 }
 
-/// The recovery a user runs after verifying that nothing of the launch is left.
+/// The manual removal of a record that cannot be read, which `tmt channel
+/// recover` refuses: run only after verifying that nothing of the launch is left.
 fn recovery(directory: &Path, binding_id: &str) -> String {
     format!(
         "rm -- {} {}",
@@ -772,9 +800,9 @@ fn pane_enrolled<R: CommandRunner>(
                 _ => {
                     return Err(
                         EvidenceError::at(ChannelFault::Unverifiable, &path).with_detail(format!(
-                            "Process {} of this pane's enrollment could not be observed. Retry, or after confirming that it is gone remove the enrollment with: {}.",
+                            "Process {} of this pane's enrollment could not be observed. Retry; `{}` shows what the enrollment recorded.",
                             process.pid,
-                            recovery(directory, stem)
+                            crate::runtime::channel::inspect_command(stem)
                         )),
                     );
                 }
@@ -785,12 +813,12 @@ fn pane_enrolled<R: CommandRunner>(
             // that the agent it may have started is gone.
             return Err(
                 EvidenceError::at(ChannelFault::Unverifiable, &path).with_detail(format!(
-                    "A `tmt run --channel` launch in pane {} on the tmux server at {} ended before it recorded its agent process, so that agent cannot be proven gone. After confirming that no agent started by launch owner {} (started {}) still runs in that pane, remove its enrollment with: {}. Nothing is pasted until then.",
+                    "A `tmt run --channel` launch in pane {} on the tmux server at {} ended before it recorded its agent process, so that agent cannot be proven gone. After confirming that no agent started by launch owner {} (started {}) still runs in that pane, recover its enrollment with: {}. Nothing is pasted until then.",
                     recorded.pane_id,
                     recorded.socket_path,
                     record.launch_owner.pid,
                     record.launch_owner.start,
-                    recovery(directory, stem)
+                    crate::runtime::channel::recover_command(stem, &record.generation)
                 )),
             );
         }
@@ -801,7 +829,7 @@ fn pane_enrolled<R: CommandRunner>(
 /// This driver's enrollment records: exactly `<binding-id>.json`.
 fn owned_record_stem(name: &str) -> Option<&str> {
     let stem = name.strip_suffix(".json")?;
-    (stem.len() == 36 && uuid::Uuid::parse_str(stem).is_ok()).then_some(stem)
+    crate::runtime::channel::valid_enrollment_id(stem).then_some(stem)
 }
 
 /// Every process and its parent from one bounded snapshot.

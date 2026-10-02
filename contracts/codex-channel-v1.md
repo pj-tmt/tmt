@@ -199,10 +199,26 @@ proof. The supervisor never signals a later observed PID. Before a usable Ready 
 Supervisor failure itself is a limitation: killing the supervisor can prevent
 its owned-child cleanup. Timeout or unconfirmed cleanup retains evidence and
 reports failure, rather than claiming that the endpoint or foreground ended.
-Manual recovery requires first verifying that the named pane's original
-foreground and endpoint are gone, then removing only the exact named stale
-record. Recovery is separate from delivery and never pastes a payload. Shell
-commands in recovery diagnostics must quote paths, including embedded apostrophes.
+
+Recovery uses `tmt channel`, which the
+[Claude channel contract](claude-channel-v1.md#recovery) owns. Pane diagnostics
+for an unknown or unobservable Codex enrollment name the pane, the foreground state
+and the exact `tmt channel recover --binding <binding-id> --generation
+<generation>`, to be run only after verifying that the named pane's original
+foreground, the launch owner and the owned app-server are gone. Under the record's
+per-binding lock and only while the record is exactly the one observed, with every
+recorded process (launch owner, known foreground, ready app-server) conclusively
+gone, recovery removes `codex/<binding-id>.json`. It cleans the generation
+directory only when the app-server was recorded ready and is gone: it removes the
+launch's own `capability` and `server.log` when each is a regular file of this
+user, then the directory with a non-recursive `rmdir`; any other entry, a link,
+or the directory itself when it is not empty is left and reported. If one of those
+known files cannot be removed, the record stays and recovery reports
+`CHANNEL_RECOVERY_FAILED`, so running the same command again can finish it. When no
+app-server was ever recorded, nothing proves it gone, so the directory is left and
+reported. `tmt channel` refuses an unreadable record and names a manual
+`rm -- '<record>'` with the path quoted, including embedded apostrophes. Recovery
+is separate from delivery and never signals, sends or pastes.
 
 The native send path requires the exact record, launch owner, foreground,
 endpoint and thread, qualifies the owned endpoint once, and consumes one queue

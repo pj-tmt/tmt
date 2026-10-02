@@ -742,7 +742,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
       });
       await ready(fixture, bystander, 'Bystander');
       const trace = installTmuxTrace(fixture);
-      const recovery = `rm -- '${file}' '${socket}'`;
+      const recovery = `tmt channel recover --binding ${record.bindingId} --generation ${record.generation}`;
       const refused = async (target: string, text: string) => {
         const result = await talk(fixture, target, text, ['--detach']);
         expect(result.code, `${target}: ${result.stdout}${result.stderr}`).toBe(1);
@@ -771,9 +771,31 @@ describe('Claude channel delivery', { concurrent: false }, () => {
         'the unrelated pane was pasted'
       );
 
-      // Running the named recovery makes the pane ordinary again.
-      execFileSync('/bin/sh', ['-c', recovery]);
+      // Inspection names the same exact enrollment and changes nothing.
+      const inspected = expectJsonResult(
+        await fixture.runJsonCli<{ enrollments: Array<Record<string, unknown>> }>(
+          ['channel', 'inspect', '--binding', record.bindingId],
+          { pane: window.pane }
+        )
+      );
+      expect(inspected.enrollments).toHaveLength(1);
+      expect(inspected.enrollments[0]).toMatchObject({
+        driver: 'claude',
+        generation: record.generation,
+        state: 'unconfirmed',
+        recover: recovery,
+      });
+      expect(fs.existsSync(file)).toBe(true);
+      // Running the named recovery makes the pane ordinary again, and pastes nothing.
+      const recovered = expectJsonResult(
+        await fixture.runJsonCli<Record<string, unknown>>(
+          ['channel', 'recover', '--binding', record.bindingId, '--generation', record.generation],
+          { pane: window.pane }
+        )
+      );
+      expect(recovered).toMatchObject({ driver: 'claude', recovered: true });
       expect(fs.existsSync(file) || fs.existsSync(socket)).toBe(false);
+      expect(terminalWrites(trace, window.pane)).toEqual([]);
       const after = await talk(fixture, window.pane, '# after recovery', [
         '--detach',
         '--no-preamble',

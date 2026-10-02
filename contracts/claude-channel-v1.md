@@ -1,7 +1,8 @@
 # Claude channel delivery (v1)
 
 This document owns the launch opt-in, the channel endpoint, the enrollment
-lifecycle, the delivery result mapping and the supported provider range.
+lifecycle, the delivery result mapping, the supported provider range and the
+`tmt channel` recovery command shared by every driver with a channel.
 [ARCHITECTURE.md](../ARCHITECTURE.md) owns module boundaries; the request
 lifecycle is owned by the request service and
 [contracts/request-response-v1.md](request-response-v1.md).
@@ -13,7 +14,8 @@ describes shipped behavior: the outcome vocabulary and reporting, the
 `RuntimeChannel` lease port with pane attribution and the foreground callback, the
 Claude send classification, the Claude enrollment and stdio server, `tmt run
 --channel` with the hidden `__channel-server` command, every delivery route, the
-baseline-paste evidence check and the E2E scenarios.
+baseline-paste evidence check and the E2E scenarios. The `tmt channel` recovery
+command (#764) is shipped behavior as well.
 
 ## Evidence base
 
@@ -167,6 +169,7 @@ every mutation of the record or the socket, so no check-then-change race exists:
 | Server removes its socket on exit | the record still carries the server's generation and the launch owner it adopted |
 | Lease `withdraw` removes the record and socket | the record carries exactly the lease's generation and launch owner, and names no Claude process that is not conclusively gone; otherwise it removes nothing |
 | `enroll` prunes other launches | the other record recorded a foreground or Claude, and its launch owner and every recorded process are absent from one `ps -A -o pid=,ppid=` snapshot, so the launch is over in every recorded respect; a record that recorded neither (the unconfirmed case), has a live or unobservable process, is unreadable or is not this driver's is left alone, at most 64 records are examined, and a snapshot that cannot be taken prunes nothing |
+| `tmt channel recover` removes the record and socket | the user named this record's generation, every process it recorded (launch owner, foreground, Claude) was observed conclusively gone by exact incarnation, and the record is still exactly the one observed; a socket path that is not a socket is left and reported (see "Recovery") |
 
 A launcher never removes a record because its owner is gone; a stale launcher has
 no authority over a replacement enrollment. Stale takeover happens only in `enroll`
@@ -177,8 +180,8 @@ by the next enrollment of the same binding. A launch that crashed, or whose
 launcher was killed, leaves one behind. Once the foreground it recorded is gone
 too it has ended, no longer protects its pane, and the next enrollment of any
 binding removes it; one that never recorded a foreground stays unknown until the
-user runs the named recovery or the same pane relaunches (see "The baseline-paste
-check"). The lock file is never removed (replacing its inode would
+user recovers it with `tmt channel recover` or the same pane relaunches (see
+"Recovery" and "The baseline-paste check"). The lock file is never removed (replacing its inode would
 split lock domains), and a lock that cannot be taken within 2 s fails the
 operation closed. A socket path therefore belongs to the generation in the
 record or is a leftover that only the next validated bind replaces. `send` is
@@ -272,8 +275,8 @@ driver's file) is classified:
 | --- | --- |
 | Attributed to the pane (server incarnation, pane ID and pane process all equal), and its launch owner, foreground or Claude process is observed as exactly the recorded incarnation (PID and start identity; a stopped process counts) | enrolled: terminal, nothing is pasted |
 | Attributed to the pane, a foreground or Claude was recorded, and every recorded process is conclusively gone (a reused PID is another incarnation) | ended: not evidence, the pane is ordinary again |
-| Attributed to the pane, neither was recorded and the owner is gone (the launcher died before it published the foreground) | unknown: terminal for this pane only, with a named recovery |
-| Attributed to the pane, and a process of it cannot be observed | unknown: terminal for this pane, with the same recovery |
+| Attributed to the pane, neither was recorded and the owner is gone (the launcher died before it published the foreground) | unknown: terminal for this pane only, naming the exact `tmt channel recover` command |
+| Attributed to the pane, and a process of it cannot be observed | unknown: terminal for this pane; the message says to retry and names `tmt channel inspect` |
 | Attributed to another pane, server incarnation or socket | not evidence, never observed |
 | Unreadable, naming no pane (written before attribution) or naming another binding | skipped: blocks nothing and is named in a warning; the one exception is a record whose file is named for the binding being delivered to, which is that binding's own invalid evidence and terminal |
 
@@ -282,9 +285,13 @@ foreground (for Claude, the Claude process, whose child the channel server is); 
 helper or server process never does.
 
 Terminal means the paste does not happen and `talk` fails with
-`DELIVERY_PREPARATION_FAILED`. The message names the record, the pane and the
-recovery `rm -- '<record>' '<socket>'`, to be run only after confirming that no agent
-of that launch still runs in the pane. Both paste sites report it identically:
+`DELIVERY_PREPARATION_FAILED`. The message names the record and the pane. For an
+unknown enrollment it names the exact recovery, `tmt channel recover --binding
+<binding-id> --generation <generation>`, to be run only after confirming that no agent
+of that launch still runs in the pane; for a process that cannot be observed it says
+to retry and names `tmt channel inspect --binding <binding-id>`. Only a record of the
+pane's own binding that cannot be read keeps a manual `rm -- '<record>' '<socket>'`,
+since recovery refuses what it cannot read. Both paste sites report it identically:
 `Delivery::ChannelUnavailable` carries the driver's `EvidenceError` (fault, file,
 recovery) to `talk`, and `delivery::send` also returns the skipped records
 (`Attempt::unattributed`) so that `talk` names them at either site with a stderr
@@ -293,7 +300,7 @@ block this one.`). Evidence about this pane that cannot be told (an unreadable
 directory, an observation that fails, running out of the one 3 s deadline) is
 terminal too, and records unrelated to the pane never block it.
 
-The unknown state clears through the named recovery or an explicit relaunch of the
+The unknown state clears through `tmt channel recover` or an explicit relaunch of the
 same binding in the very pane the record names (`enroll` replaces it); nothing
 infers an end from the launcher, a server or an EOF. A pane whose opted-in launch
 ended with its foreground confirmed (even by a crash that left its record) is an
@@ -309,8 +316,56 @@ Limits: the pane's process tree and tty are not used as evidence (the tree is
 rewritten when a launcher dies, and a tty is not portably observable), so the
 launcher's published foreground and the persisted pane address replace them. A launch
 killed between its spawn and `foreground_started` leaves an unknown record that
-protects its pane until the recovery or a same-pane relaunch; records written before
+protects its pane until it is recovered or the same pane relaunches; records written before
 attribution can never be matched and are only named.
+
+## Recovery
+
+`tmt channel` is the supported recovery for an enrollment that a crashed launch left
+behind, for every driver with a channel. This section owns the command; each
+driver's contract owns what its records name and which files it removes (for Codex,
+see its "Consumer lifecycle").
+
+- `tmt channel inspect <target> | --binding <binding-id> [--json]` is read-only. A
+  target is an identity name, UUID or pane resolved through the shared resolver to
+  its current binding; `--binding` takes the exact binding ID a talk error printed,
+  which may no longer be current (observation deletes the binding of a pane that lost
+  its marker, and the enrollment outlives it). For each driver that has a record of
+  the binding it reports the record, identity, generation, the pane the record names,
+  every recorded process with an exact observation (`running`, `gone` or
+  `unobservable`), whether the foreground was recorded, what recovery would remove
+  and keep, what the user must verify, and the exact recover command when recovery
+  would proceed. It changes no file and signals no process.
+- `tmt channel recover <target> | --binding <binding-id> --generation <generation>
+  [--json]` names one exact enrollment by its generation. A driver removes it only
+  when every process it recorded is conclusively gone (exact PID and start
+  identity; a reused PID is another process), and only while, under the driver's
+  lock, the record is still exactly the one it observed. A gone incarnation never
+  returns, so an unchanged record keeps that observation valid.
+- An enrollment whose foreground was never recorded is recovered on this explicit
+  request: nothing TMT recorded can prove that agent gone, so the command shows the
+  pane and launch owner to check, and the user's request after checking it is the
+  proof. An enrollment whose recorded processes are all gone and whose foreground
+  was recorded has ended; recovering it does what the next `enroll`'s prune would.
+- Recovery never signals a process, sends, resends or pastes, never touches a pane,
+  a binding or a request, and never removes a directory recursively or the lock
+  file. For Claude it removes `<binding-id>.json` and the socket when that path is a
+  socket; anything else at the socket path is left and reported.
+- It is safe to repeat: a binding with no record succeeds with `recovered: false`.
+
+| Outcome | Exit | JSON / code |
+| --- | --- | --- |
+| Inspected | 0 | `{"bindingId","enrollments":[{"driver","record","identityId","generation","state","pane","processes":[{"role","pid","start","state"}],"foregroundRecorded","verification","removes","keeps","recover"}]}`; `state` is `running`, `unverifiable`, `unconfirmed` or `ended`, `recover` is `null` unless recovery would proceed |
+| Recovered | 0 | `{"bindingId","generation","driver","recovered":true,"removed","kept"}` |
+| Nothing on record | 0 | `{"bindingId","generation","recovered":false}` |
+| A recorded process is running | 1 | `CHANNEL_ENROLLMENT_LIVE` |
+| A recorded process cannot be observed | 1 | `CHANNEL_ENROLLMENT_UNVERIFIABLE` |
+| Another generation is on record, or the record changed while it was checked | 1 | `CHANNEL_ENROLLMENT_CHANGED` |
+| The record cannot be read (manual removal only, as named in the message) | 1 | `CHANNEL_ENROLLMENT_INVALID` |
+| A removal or the lock failed (rerunning is safe) | 1 | `CHANNEL_RECOVERY_FAILED` |
+| `--binding` or `--generation` is not a UUID | 1 | `USAGE_ERROR` |
+
+Every refusal leaves every file in place and says that nothing was removed.
 
 ## Talk behavior
 

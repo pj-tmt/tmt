@@ -23,6 +23,9 @@ use subprocess::{Exec, ExecExt, Job, JobExt, Redirection};
 use tmt_core::endpoint::ProcessIncarnation;
 
 const STARTUP_LIMIT: u64 = 64 * 1024;
+/// The files a launch creates in its generation directory, and nothing else.
+pub(super) const CAPABILITY_FILE: &str = "capability";
+pub(super) const LOG_FILE: &str = "server.log";
 
 pub struct OwnedServer {
     resources: Resources,
@@ -96,10 +99,10 @@ impl OwnedServer {
             uuid::Uuid::new_v4().simple(),
             uuid::Uuid::new_v4().simple()
         );
-        let mut capability = files.create_file("capability")?;
+        let mut capability = files.create_file(CAPABILITY_FILE)?;
         capability.write_all(token.as_bytes())?;
         capability.sync_all()?;
-        let mut log = files.create_file("server.log")?;
+        let mut log = files.create_file(LOG_FILE)?;
         let mut args = options.server_arguments().to_vec();
         args.extend([
             "app-server".into(),
@@ -108,7 +111,7 @@ impl OwnedServer {
             "--ws-auth".into(),
             "capability-token".into(),
             "--ws-token-file".into(),
-            directory.join("capability").into_os_string(),
+            directory.join(CAPABILITY_FILE).into_os_string(),
         ]);
         let mut launch = Exec::cmd(&command.executable)
             .args(&args)
