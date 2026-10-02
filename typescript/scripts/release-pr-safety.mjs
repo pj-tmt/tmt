@@ -216,7 +216,7 @@ function writeTitleReport(text) {
 }
 
 /** A matching draft blocks release-pr only until its actual git tag exists. */
-export function taglessDrafts({ manifest, components, reader }) {
+export function inspectManifestDrafts({ manifest, components, reader }) {
   if (
     !manifest ||
     typeof manifest !== 'object' ||
@@ -235,7 +235,8 @@ export function taglessDrafts({ manifest, components, reader }) {
     throw new Error('Incomplete release manifest components.');
   }
   const releases = releasesOf(reader);
-  const held = [];
+  const heldPaths = [];
+  const drafts = [];
   for (const [path, version] of Object.entries(manifest)) {
     const component = components.find((item) => item.owns.length === 1 && item.owns[0] === path);
     if (!component || component.release === false || typeof version !== 'string') {
@@ -243,16 +244,22 @@ export function taglessDrafts({ manifest, components, reader }) {
     }
     compareVersions(version, version);
     const tag = `${releasePolicy(component.name).tagPrefix}${version}`;
-    if (!releases.some((release) => release.draft && release.tag_name === tag)) continue;
+    const matching = releases.filter((release) => release.draft && release.tag_name === tag);
+    if (!matching.length) continue;
+    // Pass metadata only; draft body/assets and the push-capable token remain in this job.
+    drafts.push(
+      ...matching.map(({ id, tag_name, created_at }) => ({ path, id, tag_name, created_at }))
+    );
+
     const refs = reader.list(`git/matching-refs/tags/${encodeURIComponent(tag)}`);
     if (
       refs.some((ref) => !ref || typeof ref.ref !== 'string' || !SHA.test(ref.object?.sha ?? ''))
     ) {
       throw new Error(`Invalid git tag data for ${tag}.`);
     }
-    if (!refs.some((ref) => ref.ref === `refs/tags/${tag}`)) held.push(path);
+    if (!refs.some((ref) => ref.ref === `refs/tags/${tag}`)) heldPaths.push(path);
   }
-  return held;
+  return { heldPaths, drafts };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -295,12 +302,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       process.stdout.write(`Checked ${checked} release PR(s).\n`);
     } else {
       const manifest = JSON.parse(readFileSync(`${ROOT}.release-please-manifest.json`, 'utf8'));
-      const held = taglessDrafts({ manifest, components, reader });
+      const { heldPaths: held, drafts } = inspectManifestDrafts({ manifest, components, reader });
       if (!process.env.GITHUB_OUTPUT || !process.env.GITHUB_STEP_SUMMARY)
         throw new Error('Workflow output/summary paths are required.');
       appendFileSync(
         process.env.GITHUB_OUTPUT,
-        `skip=${held.length === Object.keys(manifest).length}\nheld_paths=${JSON.stringify(held)}\n`
+        `skip=${held.length === Object.keys(manifest).length}\nheld_paths=${JSON.stringify(held)}\ndrafts=${JSON.stringify(drafts)}\n`
       );
       if (held.length)
         appendFileSync(

@@ -1,3 +1,4 @@
+import type { DraftEvidence } from './release-pr-safety.mjs';
 import type { ComponentMap } from './ci-scope.mjs';
 import type { runPackedCommand } from './packed-command.mjs';
 export interface RestRecord {
@@ -35,8 +36,7 @@ export interface StallFinding {
 export function createStallClient(
   options: {
     repository: string;
-    readToken: string;
-    issueToken?: string;
+    token: string;
     cwd?: string;
     env?: NodeJS.ProcessEnv;
   },
@@ -52,6 +52,7 @@ export interface MonitorOptions {
   manifest: Record<string, string>;
   components: ComponentMap['components'];
   heldPaths: string[];
+  drafts: DraftEvidence[];
   queueSkipped: boolean;
   now?: number;
   live?: boolean;

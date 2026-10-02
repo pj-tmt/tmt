@@ -43,14 +43,15 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      issues: write
     outputs:
       live: ${{ steps.mode.outputs.live }}
+      held_paths: ${{ steps.draft.outputs.held_paths }}
+      drafts: ${{ steps.draft.outputs.drafts }}
+      queue_skipped: ${{ steps.release.outputs.queue_skipped }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 0
       # The mode script learns whether the secrets exist, never their values, and refuses a
       # live run anywhere but `main`.
       - name: Decide whether this run changes anything
@@ -109,17 +110,6 @@ jobs:
             node ../../typescript/scripts/release-please-run.mjs "$command" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
             printf '```\n\n' >> "$GITHUB_STEP_SUMMARY"
           done
-      - name: Report release stalls
-        if: always() && steps.mode.outcome == 'success' && (steps.mode.outputs.live != 'true' || steps.app.outcome == 'success')
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          RELEASE_TOKEN: ${{ steps.app.outputs.token || github.token }}
-          ISSUE_TOKEN: ${{ github.token }}
-          LIVE: ${{ steps.mode.outputs.live }}
-          TAGLESS_DRAFT_PATHS: ${{ steps.draft.outputs.held_paths }}
-          QUEUE_SKIPPED: ${{ steps.release.outputs.queue_skipped }}
-        run: node typescript/scripts/release-stall.mjs
       # Only one release PR is enabled at a time: separate components share the manifest.
       # The merge queue tests current main without rewriting an unchanged PR's CI head.
       - name: Enable auto-merge for one release pull request
@@ -128,6 +118,37 @@ jobs:
           RELEASE_TOKEN: ${{ steps.app.outputs.token }}
           LIVE: ${{ steps.mode.outputs.live }}
         run: node typescript/scripts/release-please-queue.mjs enable
+
+  release-stall:
+    name: Advisory release stall monitor
+    needs: release-please
+    if: always() && needs.release-please.outputs.live != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Node.js and pnpm
+        uses: ./.github/actions/setup-tooling
+      - name: Install the pinned release-please
+        working-directory: .github/release-please
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Report release stalls
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LIVE: ${{ needs.release-please.outputs.live }}
+          TAGLESS_DRAFT_PATHS: ${{ needs.release-please.outputs.held_paths }}
+          DRAFT_EVIDENCE: ${{ needs.release-please.outputs.drafts }}
+          QUEUE_SKIPPED: ${{ needs.release-please.outputs.queue_skipped }}
+        run: node typescript/scripts/release-stall.mjs
 
   dispatch:
     name: Start the release run for ${{ matrix.product }}

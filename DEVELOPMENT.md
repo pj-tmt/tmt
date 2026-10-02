@@ -2276,7 +2276,8 @@ outdated compare anchor or out-of-range note requires release-please regeneratio
 
 Before release-please runs, `node typescript/scripts/release-pr-safety.mjs draft`
 checks all manifest versions. A matching draft with no exact git tag holds only
-its manifest path. The step writes JSON `held_paths` and a summary naming them;
+its manifest path. The step writes JSON `held_paths`, sanitized matching `drafts` evidence and a
+summary naming held paths;
 `skip=true` only when every released manifest path is held. The workflow passes
 `TAGLESS_DRAFT_PATHS` to the pinned wrapper. Its ManifestPlugin candidate hook
 filters held paths before separate PR updates, allowing unheld components to
@@ -2304,7 +2305,11 @@ actionlint .github/workflows/ci.yml .github/workflows/release.yml
 
 ## Release stall monitoring
 
-`release.yml` runs `node typescript/scripts/release-stall.mjs` after release-please.
+`release.yml` runs `node typescript/scripts/release-stall.mjs` in its own advisory
+job after release-please. The release job retains read-only workflow-token
+permissions; only the monitor job has `contents: read` plus `issues: write`.
+It consumes mode, held-path, queue-skip and sanitized matching-draft outputs;
+no credentials cross job outputs.
 A tagless component hold or queue skip warns when its matching manifest draft is
 strictly older than 30 minutes. An open component release PR warns when its head
 commit timestamp is more than one hour older than that component’s newest
@@ -2320,12 +2325,19 @@ list, with a 90-second total deadline and ten-second individual command bound.
 Planning consumes at most 500 commits; incomplete history, missing candidate
 links or unavailable metadata warn instead of declaring healthy. Proven draft
 stalls still open/update the issue when independent PR planning is unavailable. No GraphQL or
-live API tests are used. The workflow’s separate two-minute step timeout and
-`continue-on-error` isolate the monitor, including startup/summary/API failures,
-from release gating.
+live API tests are used. The separate job’s five-minute bound and
+`continue-on-error`, plus the monitor step’s two-minute bound, isolate setup,
+startup, summary and API failures from release gating and dispatch.
 
-Live runs use the App token for draft/PR reads and `github.token` with
-`issues: write` for issue discovery and mutation. A complete fixed-title search
+The monitor uses `github.token` for all its REST reads and issue writes. The
+push-capable App token stays in the release job, where the existing draft guard
+needs it to see unpublished releases. That one discovery now also emits matching
+draft path/ID/tag/creation-time metadata, excluding bodies, assets and credentials.
+Read-only monitor credentials cannot list drafts: the transported snapshot supplies
+their evidence. A current published-release read supersedes any draft published
+since the guard ran; absent or inconsistent transport warns without closing the
+issue. No second App token is minted or passed to monitoring.
+A complete fixed-title search
 finds the single `Release stalled` issue, reopening it for later stalls. A recent
 REST issue page also checks for a just-created issue not yet indexed by search. Each new
 draft ID or stale PR head/commit pair receives a comment marker; retries do not

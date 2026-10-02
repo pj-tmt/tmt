@@ -27,12 +27,18 @@ export function verifyReleasePrNotes(input: {
   components: ComponentMap['components'];
   reader: SafetyReader;
 }): number;
-/** Manifest paths held until matching draft tags exist. */
-export function taglessDrafts(input: {
+export interface DraftEvidence {
+  path: string;
+  tag_name: string;
+  id?: number;
+  created_at?: string;
+}
+/** Manifest paths and sanitized draft evidence; no credentials, bodies or assets. */
+export function inspectManifestDrafts(input: {
   manifest: unknown;
   components: ComponentMap['components'];
   reader: SafetyReader;
-}): string[];
+}): { heldPaths: string[]; drafts: DraftEvidence[] };
 
 export interface QueueSubject {
   sha: string;

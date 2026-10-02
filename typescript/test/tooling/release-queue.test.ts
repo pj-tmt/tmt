@@ -16,7 +16,7 @@ const workflow = readFileSync(
 );
 const step = workflow
   .split('      - name: Run release-please\n')[1]
-  .split('\n      - name: Report release stalls')[0];
+  .split('\n      # Only one release PR')[0];
 const shell = step
   .split('        run: |\n')[1]
   .split('\n')
