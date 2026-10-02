@@ -20,7 +20,7 @@ import Working from "./working.mdx";
 export type Window = { n: number; name: string; path: string };
 
 export const windows: Window[] = [
-  { n: 0, name: "start", path: "/" },
+  { n: 0, name: "home", path: "/" },
   { n: 1, name: "concepts", path: "/concepts" },
   { n: 2, name: "working", path: "/working" },
   { n: 3, name: "drivers", path: "/drivers" },
@@ -44,7 +44,7 @@ export const pages: Page[] = [
   {
     path: "/",
     window: 0,
-    crumb: "start",
+    crumb: "home",
     title: "One channel for all your agents",
     Content: Start,
   },
