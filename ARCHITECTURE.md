@@ -3162,6 +3162,15 @@ must run, and a missing default native build must fail clearly. No Rust coverage
 percentage is compared with the retired TypeScript source or reported as a
 zero-file success.
 
+`typescript/scripts/merge-queue-metrics.mjs` is read-only developer tooling,
+not a CI selector or queue controller. It owns bounded REST evidence collection,
+local cache reuse and metric calculation, using the existing bounded command
+process owner. Its tests own deterministic API/timeline fixtures; production
+job and step evidence stays in local report artifacts. The reporting definitions,
+limits and invocation belong to [DEVELOPMENT](DEVELOPMENT.md#merge-queue-metrics).
+It never changes workflows, rulesets or PR state; unknown causes/inclusion remain
+explicit rather than becoming inferred delivery decisions.
+
 ## Release boundary
 
 `dist-workspace.toml`, `scripts/build-native-artifact.sh`,

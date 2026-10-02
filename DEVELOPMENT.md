@@ -282,6 +282,31 @@ from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
 [Architecture](ARCHITECTURE.md) owns the event, gate and main-ref cache policy;
 queue/ruleset changes remain a repository-owner operation.
 
+### Merge queue metrics
+
+Collect read-only REST evidence with authenticated `gh` (no GraphQL):
+
+```sh
+node typescript/scripts/merge-queue-metrics.mjs --repo pj-tmt/tmt \
+  --since 2026-10-02T00:00:00Z --until 2026-10-02T08:08:40Z \
+  --boundary 2026-10-02T06:08:40Z --cache /tmp/tmt-queue-metrics-cache \
+  --output /tmp/tmt-queue-metrics.md --json /tmp/tmt-queue-metrics.json
+```
+
+Bounds are UTC, inclusive start/exclusive end; `--boundary` compares cohorts.
+Runs/merge and merges/hour measure queue throughput. Group duration measures
+start to last completed job; job creation-to-start delay includes runner and dependency wait.
+Enqueue latency measures the last recorded queue entry to merge.
+Per-job/event/runner rows measure executions, duration and sole worker failures.
+Tree tags separate confounders; fail/pass pairs identify flake candidates.
+Methodology limits and unknown evidence are described in the script and report.
+`--details` prints all cost rows; repeated `--tag-pr N` overrides #961/#963.
+`--repo OWNER/REPO` defaults to `pj-tmt/tmt`; `--workflow FILE` defaults to `ci.yml`.
+The local cache holds REST responses; `--offline` requires cached evidence.
+`--max-requests N` overrides the 500-request budget; split capped searches into
+smaller windows. Posting is separate. Verify with
+`pnpm exec vitest run test/tooling/merge-queue-metrics.test.ts` from `typescript/`.
+
 Linux CI package installation uses `.github/actions/apt-install`: each apt update
 or install attempt has a 120-second timeout with a 10-second forced-kill grace.
 The existing retry helper makes at most three attempts, with 5- and 10-second
