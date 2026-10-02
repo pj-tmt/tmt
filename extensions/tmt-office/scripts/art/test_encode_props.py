@@ -7,8 +7,8 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = ROOT / "docs/office/references/rooms-and-walls/modular-v1/workstation-import.json"
+ROOT = Path(__file__).resolve().parents[4]
+MANIFEST = ROOT / "extensions/tmt-office/docs/references/rooms-and-walls/modular-v1/workstation-import.json"
 MODULE_SPEC = importlib.util.spec_from_file_location("encode_props", Path(__file__).with_name("encode-props.py"))
 encoder = importlib.util.module_from_spec(MODULE_SPEC)
 MODULE_SPEC.loader.exec_module(encoder)
@@ -16,7 +16,7 @@ MODULE_SPEC.loader.exec_module(encoder)
 
 class PropEncodingTests(unittest.TestCase):
     def test_directional_imports_reproduce_exact_packs(self):
-        directory = ROOT / "docs/office/references/furniture-rotation"
+        directory = ROOT / "extensions/tmt-office/docs/references/furniture-rotation"
         for manifest in directory.glob("*-import.json"):
             with self.subTest(manifest=manifest.name):
                 output, encoded = encoder.encode(manifest)

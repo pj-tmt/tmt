@@ -27,11 +27,8 @@
     "REQUEST-RESPONSE.md": {
       "removeIn": ["#998"]
     },
-    "USER-GUIDE.md": {
-      "removeIn": ["#997"]
-    },
     "docs": {
-      "removeIn": ["#997", "#998"]
+      "removeIn": ["#998"]
     }
   }
 }

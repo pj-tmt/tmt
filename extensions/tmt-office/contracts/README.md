@@ -79,8 +79,8 @@ local boundary, independently versioned from the remote work-handoff proposal.
   the transport, never by an `actorUid`, display name or local receipt field.
 - `scenarios.json` assigns behavioral acceptance vectors to implementation
   issues. Its assertions are requirements, **not passing policy tests**.
-- [Design](../../../docs/office/design.md) owns semantics and trust boundaries;
-  [commands](../../../docs/office/commands.md) owns planned CLI UX.
+- [Design](../docs/design.md) owns semantics and trust boundaries;
+  [commands](../docs/commands.md) owns planned CLI UX.
 
 Browser, service and Rust connector representations must derive from this schema
 or run these fixtures and boundary mutations through their actual serializer and

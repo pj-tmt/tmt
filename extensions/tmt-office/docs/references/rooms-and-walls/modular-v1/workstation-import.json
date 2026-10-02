@@ -3,7 +3,7 @@
   "sha256": "0eaf07c6a6a769b902835255c1e114484f563a888bc3e8bc94e72084adcb8c49",
   "size": [1254, 1254],
   "label": "Modular workstation",
-  "output": "../../../../../extensions/tmt-office/contracts/modular-workstation-v2.tmtprop.json",
+  "output": "../../../../contracts/modular-workstation-v2.tmtprop.json",
   "props": [
     {
       "key": "workstation-desk",

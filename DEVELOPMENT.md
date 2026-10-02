@@ -161,7 +161,7 @@ no Office modules beyond the retained facade. Full isolated verification still
 covers the runtime consumers; pure model tests do not replace it.
 
 The optional app uses React, Vite, TanStack Router and Jotai. Read
-[Office architecture](docs/office/architecture.md) before changing its boundaries.
+[Office architecture](extensions/tmt-office/docs/architecture.md) before changing its boundaries.
 From the repository root:
 
 ```sh
@@ -386,7 +386,7 @@ pull requests until they are fixed and run weekly and by manual dispatch instead
 request runs only the emulator partition, for Office-owned paths or its own
 verification machinery.
 `office_browser` selects paths owned by Office in `.github/components.json`
-(including its test fixtures) plus `docs/office/**` and browser-specific machinery
+(including its documentation and test fixtures) plus browser-specific machinery
 listed in `selectOfficeBrowser` (the browser workflow, emulator verifier and
 Docker context policy). Shared dependency/selector/generic fixture changes rely
 on the weekly/manual safety net to catch Office build breakage. Scheduled and manual runs cover all twelve
@@ -706,11 +706,11 @@ from every installed pack. Keep pixel probes clear of architectural occlusion.
 `native-local-workstation.spec.ts` verifies source-derived bundled furniture and wall props through
 real catalog placement, authored chair views and native Save/reopen. Offline art
 encoding and its source-review gates are documented in the
-[modular visual package](docs/office/references/rooms-and-walls/modular-v1/README.md).
+[modular visual package](extensions/tmt-office/docs/references/rooms-and-walls/modular-v1/README.md).
 `native-local-furniture-rotation.spec.ts` verifies retained static furniture's
 directional successor through corner gestures, precision rotation, exact
 Undo/Redo and restart. Its runtime gallery captures all four views of the
-[directional furniture](docs/office/references/furniture-rotation/README.md);
+[directional furniture](extensions/tmt-office/docs/references/furniture-rotation/README.md);
 review those images as well as the state assertions when changing this art.
 `native-local-furniture-base.spec.ts` owns full-art upper hit testing and frontmost
 selection independently of shallow physical support. Its real drags distinguish
@@ -1412,7 +1412,8 @@ content, executable conflict recovery commands and native upgrade causes. Every
 fixture uses the existing isolated HOME/config/process sandbox. Existing-source
 integrity and canonical-store/name rejection controls stay with the Rust skill
 owner tests.
-Follow `USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do
+Follow the [Settings handbook chapter](site/src/chapters/settings.mdx) and
+`skills/README.md` for provider/custom-root usage; do
 not add provider-specific skill copies. The squad lead skill
 (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`) is deliberately outside this
 bundle: the squad executable embeds it, and its native test checks the

@@ -5,7 +5,7 @@ lounge, reception and facilities v2 packs.
 The built-in image-generation tool produced transparent PNGs using the retained
 modular-v1 furniture and mounted-functional sheets as identity/style references.
 The four `*-import.json` manifests own reviewed crop bounds, source hashes and
-direction order. `scripts/art/encode-props.py` reproduces their contract bytes.
+direction order. `extensions/tmt-office/scripts/art/encode-props.py` reproduces their contract bytes.
 Each prop uses one shared scale across its four views; narrow side views are not
 enlarged to fill their cells. The reception variants reuse the same source at
 their retained footprint sizes. Native/browser admission remains authoritative.
@@ -41,11 +41,11 @@ world edit. Undo restores the original reference as well as placement. The exist
 rolling chair already has authored views and does not need a successor.
 
 Reproduce one pack with the optional pinned dependencies from
-`scripts/art/requirements.txt`:
+`extensions/tmt-office/scripts/art/requirements.txt`:
 
 ```sh
-python scripts/art/encode-props.py docs/office/references/furniture-rotation/lounge-import.json
-python scripts/art/test_encode_props.py
+python extensions/tmt-office/scripts/art/encode-props.py extensions/tmt-office/docs/references/furniture-rotation/lounge-import.json
+python extensions/tmt-office/scripts/art/test_encode_props.py
 ```
 
 The encoder checks exact bytes by default; `--write` regenerates only the manifest's

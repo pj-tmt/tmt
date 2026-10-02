@@ -38,7 +38,7 @@ without fetching arbitrary URLs or breaking the room. Clearing placed objects
 is a separate explicit layout edit. Distribution, referenced-asset retention
 and garbage collection must be specified before storage implementation.
 
-The fixed four-asset [home block v1](../../extensions/tmt-office/contracts/block-v1.md) remains
+The fixed four-asset [home block v1](../contracts/block-v1.md) remains
 unchanged and is the single built-in catalog/layout owner. Custom props use the
 singular proposed `tmt office prop` namespace and need a versioned successor
 contract, not permissive fallback decoding or a parallel layout copy;

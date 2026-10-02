@@ -3,7 +3,7 @@
   "sha256": "f9c1d1e09b9f2420d8497c4a1460b9afc6e0be7128e7ca7ae58ed4500d8b0b55",
   "size": [1254, 1254],
   "label": "Modular office robots",
-  "output": "../../../../../extensions/tmt-office/contracts/modular-robots-v2.tmtavatar.json",
+  "output": "../../../../contracts/modular-robots-v2.tmtavatar.json",
   "avatars": [
     {"key": "moss", "label": "Moss", "crops": [[105, 100, 285, 340]]},
     {"key": "azure", "label": "Azure", "crops": [[105, 375, 285, 615]]},

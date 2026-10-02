@@ -70,7 +70,7 @@ Use TanStack Router for navigation and Jotai for shared cross-view presentation
 state; component-local forms and selection may use React state.
 Do not parse URLs or invent an application-wide store in view components.
 Remote state gets one owner, not mirrored Query/Jotai/Firestore copies. See
-[Office architecture](docs/office/architecture.md) before adding a service,
+[Office architecture](extensions/tmt-office/docs/architecture.md) before adding a service,
 contract, drawing dependency or cross-package abstraction.
 
 The separate Office Functions package uses NodeNext TypeScript, Vitest, Oxlint
