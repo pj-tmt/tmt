@@ -10,7 +10,7 @@ use std::{
     os::fd::AsFd,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
     time::Instant,
@@ -33,6 +33,34 @@ pub struct Request {
     pub cookie: Option<String>,
     pub upgrade: bool,
     pub body: Vec<u8>,
+    /// Held until the request is dropped, so handling counts against the budget.
+    _reserved: Reservation,
+}
+/// Door-wide in-flight body budget shared by all workers.
+#[derive(Clone, Default)]
+struct Budget(Arc<AtomicUsize>);
+struct Reservation {
+    budget: Budget,
+    bytes: usize,
+}
+impl Budget {
+    fn reserve(&self, bytes: usize) -> Option<Reservation> {
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                used.checked_add(bytes)
+                    .filter(|total| *total <= limits::IN_FLIGHT_BODY_BYTES)
+            })
+            .ok()?;
+        Some(Reservation {
+            budget: self.clone(),
+            bytes,
+        })
+    }
+}
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        self.budget.0.fetch_sub(self.bytes, Ordering::AcqRel);
+    }
 }
 pub struct Reply {
     pub status: u16,
@@ -61,6 +89,7 @@ pub struct Door {
     /// Exact `http://127.0.0.1:<port>` origin; also the only admitted Host authority.
     pub origin: String,
     host: String,
+    budget: Budget,
 }
 struct Worker {
     socket: TcpStream,
@@ -84,6 +113,7 @@ impl Door {
             listener,
             origin: format!("http://{host}"),
             host,
+            budget: Budget::default(),
         })
     }
     pub fn socket_addr(&self) -> std::io::Result<SocketAddr> {
@@ -126,15 +156,17 @@ impl Door {
                     }
                     let retained = socket.try_clone()?;
                     let host = self.host.clone();
+                    let budget = self.budget.clone();
                     let handler = Arc::clone(&handler);
                     let handle =
                         thread::Builder::new()
                             .name("remote-http".into())
                             .spawn(move || {
-                                let reply = match acquire(&mut socket, &host, handler.as_ref()) {
-                                    Ok(request) => handler.handle(request),
-                                    Err(reply) => reply,
-                                };
+                                let reply =
+                                    match acquire(&mut socket, &host, &budget, handler.as_ref()) {
+                                        Ok(request) => handler.handle(request),
+                                        Err(reply) => reply,
+                                    };
                                 let _ = response(&mut socket, &reply);
                             })?;
                     workers.push(Worker {
@@ -233,7 +265,12 @@ fn target(path: &str) -> bool {
             .all(|(i, s)| (!s.is_empty() || i + 1 == segments.len()) && *s != "." && *s != "..")
 }
 /// One request only; no pipelining, forwarded authority or HTTP transfer encoding.
-fn acquire(socket: &mut TcpStream, host: &str, handler: &dyn Handler) -> Result<Request, Reply> {
+fn acquire(
+    socket: &mut TcpStream,
+    host: &str,
+    budget: &Budget,
+    handler: &dyn Handler,
+) -> Result<Request, Reply> {
     let deadline = Instant::now() + limits::ACQUISITION;
     let mut bytes = Vec::new();
     let mut chunk = [0; 1024];
@@ -329,9 +366,12 @@ fn acquire(socket: &mut TcpStream, host: &str, handler: &dyn Handler) -> Result<
         upgrade,
     })?;
     let size = size.unwrap_or(0);
-    if size > limit {
+    // A handler can narrow, never widen, the door-owned body bound.
+    if size > limit.min(limits::BODY_BYTES) {
         return Err(Reply::empty(413));
     }
+    // Reserve before reading so concurrent unauthenticated bodies stay bounded.
+    let reserved = budget.reserve(size).ok_or_else(|| Reply::empty(429))?;
     let request = Request {
         method: method.to_owned(),
         path: path.to_owned(),
@@ -339,6 +379,7 @@ fn acquire(socket: &mut TcpStream, host: &str, handler: &dyn Handler) -> Result<
         cookie: cookie.map(str::to_owned),
         upgrade,
         body: Vec::new(),
+        _reserved: reserved,
     };
     // Header borrows end here; the body is acquired only after admission.
     while bytes.len() < end + size {

@@ -3427,7 +3427,9 @@ subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 IPv4-loopback sockets, joined workers, strict HTTP/1.1 framing, exact numeric
 Host admission (no alias, so DNS rebinding fails), the origin-form target
 grammar that isolates `/r/` from future `/x/<extension>/` prefixes,
-header/connection bounds, absolute acquisition/response deadlines and
+header/connection bounds, a door-owned maximum body that handlers can only
+narrow, a 32 MiB in-flight body budget reserved before any body byte is read
+(bounding unauthenticated memory), absolute acquisition/response deadlines and
 shutdown that closes retained sockets before joining workers. It has no
 CoreClient/storage reference. A `Handler` admits each framed head (route,
 Origin, cookie and body limit) before any body byte is read. `routes::Routes`

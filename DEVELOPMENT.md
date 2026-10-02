@@ -2101,7 +2101,8 @@ After building core, put `rust/target/debug` on PATH and run `tmt remote serve`
 deadline; Ctrl-C/SIGTERM closes the listener, retained sockets and workers.
 There is no autostart/LAN/daemon option. Door bounds are named in
 `src/limits.rs`: 32 concurrent connections, 20 unauthenticated `/r/` attempts
-per minute, 8 KiB/32 header fields, a 16 KiB pairing body and five-second
+per minute, 8 KiB/32 header fields, a 16 KiB pairing body, a door-wide 32 MiB
+in-flight body budget (excess concurrent bodies get 429) and five-second
 acquisition. The printed `127.0.0.1:<port>` is the only accepted Host.
 Tests use disposable HOME/XDG,
 count startup separately, assert zero request-triggered core calls and run
