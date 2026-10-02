@@ -5,6 +5,7 @@ import {
   applyUpdates,
   githubApi,
   LIMITS,
+  PROJECT_ID,
   noteReferences,
   planUpdates,
   publishedWindow,
@@ -185,8 +186,7 @@ describe('bounded release reconciliation', () => {
       ...release(`v5.0.0-alpha.${i + 1}`),
       published_at: `2026-10-02T00:${String(i).padStart(2, '0')}:00Z`,
     }));
-    expect(publishedWindow(rows, 'release', { release: rows[10] })).toHaveLength(10);
-    expect(() => publishedWindow(rows, 'release', { release: rows[0] })).toThrow('outside');
+    expect(publishedWindow(rows, 'schedule', {})).toHaveLength(10);
     expect(publishedWindow(rows, 'workflow_dispatch', {}, rows[0].tag_name)).toEqual([rows[0]]);
     expect(() =>
       publishedWindow([{ ...rows[0], draft: true }], 'workflow_dispatch', {}, rows[0].tag_name)
@@ -341,7 +341,7 @@ describe('bounded release reconciliation', () => {
     })) as unknown as typeof spawnSync;
     const api = githubApi({
       repository,
-      projectToken: 'test-project',
+      appToken: 'test-project',
       readToken: 'test-read',
       spawn,
     });
@@ -351,7 +351,7 @@ describe('bounded release reconciliation', () => {
     expect(spawn).toHaveBeenCalledTimes(LIMITS.graphql);
     const denied = githubApi({
       repository,
-      projectToken: 'test-project',
+      appToken: 'test-project',
       spawn: vi.fn(() => ({
         status: 1,
         stdout: '{"errors":[{"message":"missing project access"}]}',
@@ -379,20 +379,36 @@ describe('bounded release reconciliation', () => {
     expect(() => planUpdates(evidence(), project('', 'Archived'))).toThrow('Unknown status');
   });
 
-  it('fails before reads when PROJECT_TOKEN is missing', () => {
-    expect(() => githubApi({ repository })).toThrow('PROJECT_TOKEN is missing');
+  it('fails before reads when RELEASE_APP_TOKEN is missing', () => {
+    expect(() => githubApi({ repository })).toThrow('RELEASE_APP_TOKEN is missing');
   });
   it('freezes trusted event wiring, dry-run default and project-wide serialization', () => {
     const workflow = readFileSync(
       new URL('../../../.github/workflows/project-release.yml', import.meta.url),
       'utf8'
     );
-    expect(workflow).toContain('types: [published]');
+    expect(workflow).not.toContain('types: [published]');
+    expect(workflow).toContain("- cron: '23 4 * * *'");
+    expect(PROJECT_ID).toBe('PVT_kwDOFBKkD84BlZ_A');
     expect(workflow).toContain('workflows: [Native release artifacts]');
     expect(workflow).toContain('default: true');
     expect(workflow).toContain('ref: main');
-    expect(workflow).toContain('group: project-4-release-tracking');
-    expect(workflow).toContain('PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}');
+    expect(workflow).toContain('group: project-release-tracking');
+    expect(workflow).toContain('RELEASE_APP_TOKEN: ${{ steps.app.outputs.token }}');
+    expect(workflow).toContain('environment: release');
+    expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
+    expect(workflow).toContain(
+      'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1'
+    );
+    expect(workflow).toContain('owner: pj-tmt');
+    expect(workflow).toContain('repositories: tmt');
+    expect(workflow).toContain('permission-organization-projects: write');
+    expect(workflow).toContain('permission-pull-requests: read');
+    expect(workflow).toContain('permission-issues: read');
+    expect(workflow).not.toContain('PROJECT_TOKEN');
+    expect(workflow.indexOf('Require release App credentials')).toBeLessThan(
+      workflow.indexOf('Create the project updater App token')
+    );
     expect(workflow).not.toContain('contents: write');
   });
 });

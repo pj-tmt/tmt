@@ -55,7 +55,7 @@ export function releaseIdentity(
 ): { product: string; version: string; label: string } | undefined;
 export function noteReferences(body: string, repository: string): number[];
 export function githubApi(options: {
-  projectToken?: string;
+  appToken?: string;
   readToken?: string;
   repository: string;
   spawn?: typeof import('node:child_process').spawnSync;

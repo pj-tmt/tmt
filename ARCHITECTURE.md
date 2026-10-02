@@ -3106,14 +3106,15 @@ inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 
 `project-release.mjs` owns release-to-Project delivery evidence, separately from
-publication. `project-release.yml` runs on published releases and completion of
-`Native release artifacts` (whose `GITHUB_TOKEN` publications do not trigger a
-second release event), plus manual replay. It executes main's tooling, never code
+publication. `project-release.yml` runs on completion of `Native release artifacts`,
+daily catch-up and manual replay. All execute on main so the release environment
+can mint a short-lived release-App token scoped to org-project writes and tmt
+repository reads. Direct release-tag events cannot use that main-only environment. It executes main's tooling, never code
 from release tags or artifacts. Automatic runs reconcile the latest ten published
 supported releases under one project-wide concurrency group, recovering replaced
 pending events. The release-please links or same-product compare range identify
 merged PRs; GitHub's paginated `closingIssuesReferences` is the issue authority.
-Only existing issue items in Project 4 are updated: distinct component/version
+Only existing issue items in pj-tmt organization project 1 are updated: distinct component/version
 lines append to `Released in`, then Status becomes terminal `Released`. No issue,
 release, membership or earlier status is written. Replays preserve existing text
 and skip completed entries; partial text writes can be retried before status.

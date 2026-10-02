@@ -1,8 +1,8 @@
 name: Project release tracking
 
 on:
-  release:
-    types: [published]
+  schedule:
+    - cron: '23 4 * * *'
   workflow_run:
     workflows: [Native release artifacts]
     types: [completed]
@@ -14,7 +14,7 @@ on:
         required: true
         type: string
       dry_run:
-        description: Read and report without changing Project 4
+        description: Read and report without changing the release project
         required: true
         default: true
         type: boolean
@@ -26,16 +26,36 @@ permissions:
 # Pending runs can be replaced. Every automatic run reconciles the last ten
 # published releases rather than relying on just one event surviving the queue.
 concurrency:
-  group: project-4-release-tracking
+  group: project-release-tracking
   cancel-in-progress: false
 
 jobs:
   update:
     name: Record released project issues
-    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
+    environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
+      - name: Require release App credentials
+        env:
+          HAS_APP_CREDENTIALS: ${{ secrets.RELEASE_APP_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$HAS_APP_CREDENTIALS" != true ]; then
+            echo 'Release App credentials are missing: configure RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY in the release environment.' >&2
+            exit 1
+          fi
+      - name: Create the project updater App token
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: pj-tmt
+          repositories: tmt
+          permission-organization-projects: write
+          permission-pull-requests: read
+          permission-issues: read
       # Execute trusted default-branch tooling, never a release tag or run artifact.
       - uses: actions/checkout@v4
         with:
@@ -44,9 +64,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
-      - name: Reconcile published releases into Project 4
+      - name: Reconcile published releases into the release project
         env:
-          PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          RELEASE_APP_TOKEN: ${{ steps.app.outputs.token }}
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           DRY_RUN: ${{ inputs.dry_run }}

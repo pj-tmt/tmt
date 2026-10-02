@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { productOfTag, archivePrefix } from './native-release-policy.mjs';
 import { compareVersions, versionOfTag } from './release-versions.mjs';
 
-export const PROJECT_ID = 'PVT_kwHOAE1Eac4BlJ1K';
+export const PROJECT_ID = 'PVT_kwDOFBKkD84BlZ_A';
 export const LIMITS = { graphql: 60, rest: 250, pages: 10, releases: 10, prs: 250, batch: 25 };
 const replay = 'Replay the affected published tag with project-release.yml (dry-run first).';
 const chunks = (rows, size = LIMITS.batch) =>
@@ -40,9 +40,11 @@ export function noteReferences(body, repository) {
 }
 
 /** A hard budget counts requests, including failed calls; no retries or polling. */
-export function githubApi({ projectToken, readToken, repository, spawn = spawnSync }) {
-  if (!projectToken)
-    throw new Error('PROJECT_TOKEN is missing; add a classic token with project scope.');
+export function githubApi({ appToken, readToken, repository, spawn = spawnSync }) {
+  if (!appToken)
+    throw new Error(
+      'RELEASE_APP_TOKEN is missing; mint the release App installation token before running the updater.'
+    );
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('Invalid repository.');
   const counts = { graphql: 0, rest: 0 };
   const invoke = (kind, endpoint, input) => {
@@ -56,7 +58,7 @@ export function githubApi({ projectToken, readToken, repository, spawn = spawnSy
       maxBuffer: 16 * 1024 * 1024,
       env: {
         ...process.env,
-        GH_TOKEN: kind === 'graphql' ? projectToken : readToken || projectToken,
+        GH_TOKEN: kind === 'graphql' ? appToken : readToken || appToken,
       },
     });
     let data;
@@ -105,11 +107,7 @@ export function publishedWindow(releases, eventName, event, tag) {
     return [release];
   }
   const selected = published.slice(0, LIMITS.releases);
-  if (eventName === 'release') {
-    if (!releaseIdentity(event.release?.tag_name)) return [];
-    if (!selected.some((r) => r.tag_name === event.release.tag_name))
-      throw new Error(`Release is outside the ${LIMITS.releases}-release window. ${replay}`);
-  } else if (eventName === 'workflow_run') {
+  if (eventName === 'workflow_run') {
     const run = event.workflow_run;
     if (
       run?.name !== 'Native release artifacts' ||
@@ -121,7 +119,7 @@ export function publishedWindow(releases, eventName, event, tag) {
     if (!Number.isFinite(since)) throw new Error('Publishing run has no valid start time.');
     if (published.slice(LIMITS.releases).some((r) => Date.parse(r.published_at) >= since))
       throw new Error(`Publishing run exceeds the ${LIMITS.releases}-release window. ${replay}`);
-  } else throw new Error('Unsupported updater event.');
+  } else if (eventName !== 'schedule') throw new Error('Unsupported updater event.');
   return selected;
 }
 
@@ -402,7 +400,7 @@ export function reconcile({
 
 export function main(env = process.env) {
   const api = githubApi({
-    projectToken: env.PROJECT_TOKEN,
+    appToken: env.RELEASE_APP_TOKEN,
     readToken: env.GITHUB_TOKEN,
     repository: env.GITHUB_REPOSITORY,
   });

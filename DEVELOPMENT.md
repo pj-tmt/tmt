@@ -1591,19 +1591,33 @@ are public test data. This foundation does not satisfy the complete L1 gates.
 ## Project release tracking
 
 `project-release.yml` records published core `v5.*`, Squad and Office releases in
-Project 4 (`wkh237`'s user project, independently of repository ownership).
-The owner adds `PROJECT_TOKEN`, a classic PAT with only the `project` scope and
-access to this private project. The normal read-only `GITHUB_TOKEN` reads public
-repository metadata; the PAT is used only for Project/closing-issue GraphQL.
-Missing credentials or incomplete API responses fail visibly. This workflow does
-not publish releases. [Architecture](ARCHITECTURE.md) owns its selection and
-terminal-state contract.
+the release project ([pj-tmt organization project 1](https://github.com/orgs/pj-tmt/projects/1)).
+The updater mints a per-run installation token with the existing release GitHub
+App using `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` in the `release`
+environment. Ben grants the App **Organization projects: read and write**, plus
+pull-request and issue read access to `pj-tmt/tmt`. The SHA-pinned token action
+requests only those permissions for owner `pj-tmt` and repository `tmt`, revoking
+the token on cleanup. Only the reconciliation step receives it. The separate
+read-only `GITHUB_TOKEN` reads repository release/compare metadata. No PAT or
+`PROJECT_TOKEN` is used. Missing App credentials fail before API reads; missing
+App permissions fail token minting or the API request visibly.
 
-Automatic `release:published` and `Native release artifacts` completion events
-reconcile the latest ten published supported releases, including publications
-followed by failed downstream checks. The fallback watches the actual publisher,
-not `Release`, which only creates drafts. An event outside the window or a run
-publishing more than ten releases fails with replay guidance. The window bounds
+The `release` environment's protection policy allows only branch `main`, with no
+required reviewers or wait timer. No separate environment is needed. Because a
+`release:published` run has a tag ref, the updater uses completion of **Native
+release artifacts**, a daily catch-up at 04:23 UTC, and main-only manual replay.
+CLI, Office and Squad share that actual publishing workflow; `Release` only
+creates drafts. Owner/manual publication (including a manually released hold)
+is picked up by the next publisher completion or daily run while within the
+latest-ten window; use explicit tag replay for immediate tracking or older tags.
+This updater never publishes releases. Missing configuration fails its separate
+workflow without blocking publication. After Ben grants the App permissions,
+the first live run must be a manual dry-run replay of a recent tag; review its
+proposed fields before a write-enabled replay. [Architecture](ARCHITECTURE.md)
+owns the selection and terminal-state contract.
+
+Automatic runs reconcile the latest ten published supported releases, including
+publications followed by failed downstream checks. A publisher run exceeding the ten-release window fails with replay guidance. The window bounds
 recovery from replaced pending workflow runs; older missed tags require replay.
 Manual dispatch defaults to dry-run and requires a published tag:
 
