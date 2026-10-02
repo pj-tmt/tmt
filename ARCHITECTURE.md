@@ -3781,9 +3781,17 @@ owns bounds, token and recovery behavior.
 `release-pr-safety.mjs` owns the read-only release PR safety gates. `Code quality`
 checks PR notes on PR updates and merge groups: the compare base must be the
 component's newest published tag, and each linked commit must descend from that
-tag and be an ancestor of the candidate base, excluding the tag itself. It reuses
-release version/policy owners and does not regenerate or count expected changelog
-entries. Pending squash queue commits have no REST commit/PR associations yet;
+tag and be an ancestor of the candidate base, excluding the tag itself. COVERAGE
+requires links for every commit the pinned release-please notes renderer lists
+in that range for the component. The safety owner uses candidate-base config paths,
+exclusions and changelog sections (or pinned defaults), the pinned parser/splitter
+and the existing private-leaf attribution wrapper to project those links.
+`release-please-commits.mjs` owns the pinned internal import/compatibility boundary;
+a missing interface fails visibly before coverage planning. No
+parallel conventional-type or entry-count policy owns visibility; bounded local
+history and unsupported renderer evidence fail closed. It reuses release
+version/policy owners and does not plan version updates or write changelogs.
+Pending squash queue commits have no REST commit/PR associations yet;
 the gate resolves their GitHub-appended PR numbers and identifies release branches
 before verifying their title/repository/base metadata and current notes in the
 cumulative pending range. Ordinary PR metadata mismatches do not fail this gate.

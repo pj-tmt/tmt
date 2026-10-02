@@ -20,13 +20,13 @@ export function checkReleaseNotes(input: {
   components: ComponentMap['components'];
   reader: SafetyReader;
   releases?: unknown[];
-}): { tag: string; linkedCommits: number } | null;
+}): Promise<{ tag: string; linkedCommits: number } | null>;
 export function verifyReleasePrNotes(input: {
   eventName: string;
   event: unknown;
   components: ComponentMap['components'];
   reader: SafetyReader;
-}): number;
+}): Promise<number>;
 export interface DraftEvidence {
   path: string;
   tag_name: string;

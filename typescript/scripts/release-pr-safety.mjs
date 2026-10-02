@@ -5,6 +5,8 @@ import { parseComponentMap } from './ci-scope.mjs';
 import { releasePolicy } from './native-release-policy.mjs';
 import { compareVersions, publishedReleases } from './release-versions.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import { attributeReleaseConsumption } from './release-please-run.mjs';
+import { loadReleasePleaseCommitRules } from './release-please-commits.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const PREFIX = 'release-please--branches--main--';
@@ -12,6 +14,7 @@ const SHA = /^[a-f0-9]{40}$/;
 const PAGES = 10;
 const REQUESTS = 60;
 const QUEUE_COMMITS = 40;
+const COVERAGE_COMMITS = 500;
 
 /** Explicit workflow credentials, bounded REST pages and the existing process owner. */
 export function createSafetyReader(
@@ -84,8 +87,88 @@ export function releaseNoteLinks(body) {
   );
 }
 
-/** Compare anchor and linked SHA membership only; no conventional-commit or entry counting rules. */
-export function checkReleaseNotes({ pr, base, components, reader, releases }) {
+/** Project linked SHAs with the pinned release-please rules, never a second type/path parser. */
+async function listedReleaseCommits({ component, components, reader, anchor, base }) {
+  const config = JSON.parse(reader.git(['show', `${base}:release-please-config.json`]));
+  const entries = Object.entries(config.packages ?? {}).filter(
+    ([, entry]) => entry.component === component.package
+  );
+  if (entries.length !== 1) throw new Error('Missing or ambiguous release package config.');
+  const [packagePath, entry] = entries[0];
+  const options = { ...config, ...entry };
+  if ((options['changelog-type'] ?? 'default') !== 'default')
+    throw new Error('Release notes coverage requires the pinned default changelog renderer.');
+  const { CommitSplit, CommitExclude, parseConventionalCommits, DefaultChangelogNotes } =
+    loadReleasePleaseCommitRules();
+  const raw = reader.git([
+    'log',
+    `--max-count=${COVERAGE_COMMITS + 1}`,
+    '--format=%H%x00%B%x00',
+    `${anchor}..${base}`,
+  ]);
+  const fields = raw ? raw.split('\0') : [];
+  if (
+    (raw && (fields.length < 3 || fields.length % 2 !== 1 || fields.at(-1).trim())) ||
+    (!raw && anchor !== base)
+  )
+    throw new Error('Incomplete release coverage history.');
+  if ((fields.length - 1) / 2 > COVERAGE_COMMITS)
+    throw new Error(
+      'Release coverage history exceeds 500 commits; regenerate or investigate the range.'
+    );
+  const commits = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const sha = fields[index].trim();
+    if (!SHA.test(sha)) throw new Error('Invalid release coverage commit.');
+    const names = reader.git([
+      'diff-tree',
+      '--root',
+      '--no-commit-id',
+      '--name-only',
+      '-r',
+      '-m',
+      '--no-renames',
+      '-z',
+      sha,
+    ]);
+    const files = names ? names.split('\0').filter(Boolean) : [];
+    commits.push({ sha, message: fields[index + 1], files });
+  }
+  // Reuse the workflow's private-leaf attribution before the pinned splitter/exclusions.
+  const github = attributeReleaseConsumption(
+    {
+      async *mergeCommitIterator(_branch) {
+        yield* commits;
+      },
+    },
+    components
+  );
+  const attributed = [];
+  for await (const commit of github.mergeCommitIterator('main')) attributed.push(commit);
+  const split = new CommitSplit({
+    includeEmpty: true,
+    packagePaths: Object.keys(config.packages),
+  }).split(attributed);
+  const selected = packagePath === '.' ? attributed : (split[packagePath] ?? []);
+  const filtered = new CommitExclude({
+    [packagePath]: { excludePaths: options['exclude-paths'] },
+  }).excludeCommits({ [packagePath]: selected })[packagePath];
+  const [owner, repository] = reader.repository.split('/');
+  // Config omission deliberately uses the pinned renderer's defaults. It also owns
+  // breaking/nested commits, hidden sections, scopes and revert-pair suppression.
+  const body = await new DefaultChangelogNotes().buildNotes(parseConventionalCommits(filtered), {
+    owner,
+    repository,
+    version: 'coverage',
+    currentTag: 'coverage',
+    targetBranch: 'main',
+    changelogSections: options['changelog-sections'],
+  });
+  return new Set(releaseNoteLinks(body).map(({ sha }) => sha));
+}
+
+/** Anchor, linked membership and coverage; release-please owns which commits are listed. */
+export async function checkReleaseNotes({ pr, base, components, reader, releases }) {
   const component = componentOf(pr, components);
   if (!component) return null;
   if (!SHA.test(base ?? '')) throw new Error('Missing candidate base SHA.');
@@ -122,18 +205,25 @@ export function checkReleaseNotes({ pr, base, components, reader, releases }) {
       );
     }
   }
+  const listed = await listedReleaseCommits({ component, components, reader, anchor, base });
+  const linked = new Set(links.map(({ sha }) => sha));
+  const missing = [...listed].filter((sha) => !linked.has(sha));
+  if (missing.length)
+    throw new Error(
+      `Release notes COVERAGE missing commit(s): ${missing.join(', ')}. Regenerate the release PR with release-please.`
+    );
   return { tag: published.tag_name, linkedCommits: links.length };
 }
 
 /** Pending squash commits do not yet have REST /commits/:sha/pulls associations. */
-export function verifyReleasePrNotes({ eventName, event, components, reader }) {
+export async function verifyReleasePrNotes({ eventName, event, components, reader }) {
   if (eventName === 'pull_request') {
-    return checkReleaseNotes({
+    return (await checkReleaseNotes({
       pr: event.pull_request,
       base: event.pull_request?.base?.sha,
       components,
       reader,
-    })
+    }))
       ? 1
       : 0;
   }
@@ -154,7 +244,7 @@ export function verifyReleasePrNotes({ eventName, event, components, reader }) {
     }
     releases ??= releasesOf(reader);
     const parent = reader.git(['rev-parse', '--verify', `${sha}^`]);
-    checkReleaseNotes({ pr, base: parent, components, reader, releases });
+    await checkReleaseNotes({ pr, base: parent, components, reader, releases });
     checked++;
   }
   return checked;
@@ -293,7 +383,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       );
     } else if (command === 'notes') {
       const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
-      const checked = verifyReleasePrNotes({
+      const checked = await verifyReleasePrNotes({
         eventName: process.env.GITHUB_EVENT_NAME,
         event,
         components,

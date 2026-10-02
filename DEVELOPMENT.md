@@ -2327,8 +2327,17 @@ and gates it at queue time. A release branch under
 `release-please--branches--main--` must resolve to a released component. Its notes
 must compare from that component's newest published tag; each linked commit SHA
 must be a descendant of that tag and an ancestor of the candidate base, excluding
-the tag itself. The gate does not regenerate release-please's changelog or compare
-expected entry counts. Missing tags, malformed notes and incomplete data fail.
+the tag itself. COVERAGE also requires every commit that release-please would list
+for this component in `(published tag, candidate base]` to have a commit link.
+The gate projects links with the isolated pinned release-please parser, path
+splitter, exclusions and default notes renderer, including the shared private-leaf
+attribution. Package paths, `exclude-paths` and visible `changelog-sections` come
+from `release-please-config.json` at the candidate base; omitted sections use the
+pinned renderer's defaults. Breaking changes, nested messages and revert suppression
+retain that renderer's behavior. There is no separate type list or entry-count
+policy. Local coverage history is capped at 500 commits with 30-second command
+bounds; missing config, unsupported changelog renderers or incomplete evidence fail
+closed. Missing tags and malformed notes also fail.
 Existing locked Cargo workers verify the cumulative queue result through the
 [CI selector](ARCHITECTURE.md#ci-selection-and-worker-model), so a later prose-only HEADGREEN tip retains earlier
 release version/lock changes.
@@ -2341,7 +2350,9 @@ release candidates must have matching title, repository and main base metadata;
 ordinary PR title/base mismatches are skipped by this gate. A candidate's parent is
 its notes range endpoint. Unavailable, stale or oversized queue evidence fails
 rather than dropping a candidate. Rerun after publication metadata settles; an
-outdated compare anchor or out-of-range note requires release-please regeneration.
+outdated compare anchor, out-of-range note or missing COVERAGE link requires
+release-please regeneration on the next main push. A late merged commit therefore
+holds the merge group until refreshed notes cover it, preventing silent omissions.
 
 Before release-please runs, `node typescript/scripts/release-pr-safety.mjs draft`
 checks all manifest versions. A matching draft with no exact git tag holds only
