@@ -42,9 +42,11 @@ cell).
 - `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue`, `minimal` or `team`),
   `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
   `normal`), `waiting` (members that owe the user a decision or wait for an
-  answer) and `blocked` (members in the `blocked` state). The board colors the
-  squad's tab by it; tab and switcher counts use `◆n` for waiting on you
-  and `✗n` for blocked members, including without color.
+  answer) and `blocked` (members in the `blocked` state). Tabs and the switcher
+  reserve a two-cell leading slot: `◆ ` for waiting on you, else `✗ ` for
+  blocked, else two spaces. The count follows the name (`◆ product 2`);
+  both states append the blocked count (`◆ product 2 ✗1`). The marks carry
+  the meaning, including without color.
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
@@ -101,8 +103,10 @@ or `[tabs.all.bind]` for all. F5 has no default action; an explicit
 
 The board uses the shared TMT design tokens: `muted` for readable tabs, labels
 and key hints, `accent` plus bold for focus, and `dim` for secondary values and
-borders. Attention tabs keep their waiting/blocked color and counts. Selection
-uses the theme's `selection` background for rows and selected squad/pane tabs,
+borders. Only a tab's leading attention mark and appended blocked `✗n` use bold
+waiting/blocked colors; names and primary counts keep accent/bold when selected
+and muted otherwise. The fixed mark slot keeps each name's starting column stable.
+Selection uses the theme's `selection` background for rows and selected squad/pane tabs,
 retaining each cell's state/provider color and each tab's foreground; a terminal without a background color uses reverse video,
 including `NO_COLOR`. Colors decorate the words and marks; never infer state
 from color alone. The CLI theme is `theme.base` in the global `config.json`;

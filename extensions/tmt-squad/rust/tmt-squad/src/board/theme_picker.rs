@@ -430,9 +430,9 @@ mod tests {
                 line[..line.find(text).expect("header text")].width() as u16
             };
             assert_eq!(
-                buffer[(find(0, "product"), 0)].fg,
+                buffer[(find(0, "◆"), 0)].fg,
                 expected,
-                "tab uses the preview, including retained tokens"
+                "tab mark uses the preview, including retained tokens"
             );
             assert_eq!(
                 buffer[(find(1, " · 1 waiting"), 1)].fg,

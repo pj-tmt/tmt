@@ -357,49 +357,114 @@ fn pane_tab(look: crate::look::Look, name: &str, selected: bool) -> Span<'static
     }
 }
 
-/// A tab or switcher entry names its attention with the same shared marks.
-fn tab_label(name: &str, attention: Attention) -> String {
-    let mut text = format!(" {name}");
-    for (mark, count) in [
-        (Mark::Decision, attention.waiting),
-        (Mark::Failed, attention.blocked),
-    ] {
-        if count > 0 {
-            text.push_str(&format!(" {}{count}", mark.symbol()));
+/// A tab or switcher entry has one fixed mark slot and one styled label owner.
+fn tab_label(
+    look: crate::look::Look,
+    name: &str,
+    attention: Attention,
+    colors: &TabColors,
+    style: Style,
+) -> Line<'static> {
+    let attention_style = |color: &str| {
+        let foreground = look.named(color);
+        Style {
+            // Explicit default foreground prevents the label's accent/muted
+            // foreground leaking into a mark whose configured color is default.
+            fg: Some(foreground.fg.unwrap_or_default()),
+            bg: style.bg,
+            ..foreground
+                .add_modifier(Modifier::BOLD | (style.add_modifier & Modifier::REVERSED))
+                .remove_modifier(
+                    style.add_modifier
+                        & !(foreground.add_modifier | Modifier::BOLD | Modifier::REVERSED),
+                )
         }
+    };
+    let (mark, count, color) = if attention.waiting > 0 {
+        (Mark::Decision.symbol(), attention.waiting, &colors.waiting)
+    } else if attention.blocked > 0 {
+        (Mark::Failed.symbol(), attention.blocked, &colors.blocked)
+    } else {
+        (" ", 0, &colors.waiting)
+    };
+    let mut spans = vec![
+        Span::styled(
+            mark,
+            if count > 0 {
+                attention_style(color)
+            } else {
+                style
+            },
+        ),
+        Span::styled(format!(" {}", tmt_cli_style::table::escape(name)), style),
+    ];
+    if count > 0 {
+        spans.push(Span::styled(format!(" {count}"), style));
     }
-    text
+    if attention.waiting > 0 && attention.blocked > 0 {
+        spans.push(Span::styled(" ", style));
+        spans.push(Span::styled(
+            format!("{}{}", Mark::Failed.symbol(), attention.blocked),
+            attention_style(&colors.blocked),
+        ));
+    }
+    Line::from(spans).style(style)
 }
 
-/// One tab. Selection adds a background tint to bold focus color, never extra characters,
-/// so switching never moves the tabs beside it (#504). The tab's attention
-/// colors it and, so color never carries meaning alone, also adds counts:
-/// `◆2` members waiting on you, `✗1` blocked.
+/// Fit the shared label through the grid owner, preserving the styles of the
+/// retained prefix. Widths elsewhere come from this same rendered Line::width.
+fn fit_tab_label(mut line: Line<'static>, width: usize) -> Line<'static> {
+    if line.width() <= width {
+        line.spans
+            .push(Span::styled(" ".repeat(width - line.width()), line.style));
+        return line;
+    }
+    let text = line.to_string();
+    let fitted = fit(&text, width);
+    let mut retained: usize = text
+        .chars()
+        .zip(fitted.chars())
+        .take_while(|(original, shown)| original == shown)
+        .map(|(original, _)| original.len_utf8())
+        .sum();
+    let prefix = retained;
+    let mut spans = Vec::new();
+    for span in line.spans {
+        let kept = retained.min(span.content.len());
+        if kept > 0 {
+            spans.push(Span::styled(span.content[..kept].to_owned(), span.style));
+            retained -= kept;
+        }
+        if retained == 0 {
+            break;
+        }
+    }
+    spans.push(Span::styled(fitted[prefix..].to_owned(), line.style));
+    Line::from(spans).style(line.style)
+}
+
+/// Selection covers the entire tab; attention decorates only its marks.
 fn tab(
     look: crate::look::Look,
     name: &str,
     selected: bool,
     attention: Attention,
     colors: &TabColors,
-) -> Span<'static> {
-    let mut text = tab_label(name, attention);
-    text.push(' ');
-    let style = match attention.state() {
-        "waiting" => look.named(&colors.waiting),
-        "blocked" => look.named(&colors.blocked),
-        _ if selected => look.role(Role::Accent),
-        _ => look.role(Role::Muted),
-    };
+) -> Line<'static> {
     let style = if selected {
         let selection = look.selection();
         Style {
             bg: selection.bg,
-            ..style.add_modifier(Modifier::BOLD | selection.add_modifier)
+            ..look
+                .role(Role::Accent)
+                .add_modifier(Modifier::BOLD | selection.add_modifier)
         }
     } else {
-        style
+        look.role(Role::Muted)
     };
-    Span::styled(text, style)
+    let mut label = tab_label(look, name, attention, colors, style);
+    label.spans.push(Span::styled(" ", style));
+    label
 }
 
 /// The first header line: only the tabs. Each
@@ -412,7 +477,7 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
     let default = TabColors::default();
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
     let attention = |key: &String| app.attention.get(key).copied().unwrap_or_default();
-    let spans: Vec<Span> = app
+    let labels: Vec<Line> = app
         .tabs
         .iter()
         .map(|key| {
@@ -426,9 +491,9 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
             )
         })
         .collect();
-    let widths: Vec<u16> = spans
+    let widths: Vec<u16> = labels
         .iter()
-        .map(|span| span.content.width() as u16 + 1)
+        .map(|label| label.width() as u16 + 1)
         .collect();
     // Pinned tabs always show; the rest scroll in the room they leave.
     let pinned = app.pinned.min(app.tabs.len());
@@ -450,7 +515,7 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
     };
     let reserved = shown_hidden
         .as_ref()
-        .map_or(0, |span| span.content.width() as u16 + 1);
+        .map_or(0, |label| label.width() as u16 + 1);
     let room = room.saturating_sub(reserved);
     let current = position.and_then(|index| index.checked_sub(pinned));
     let (start, end) = tab_window(&widths[pinned..], current, app.tab_start.get(), room);
@@ -474,10 +539,10 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
     let mut x = area.x;
     if let Some(span) = shown_hidden {
         x = x.saturating_add(reserved);
-        line.push(span);
+        line.extend(span.spans);
         line.push(Span::raw(" "));
     }
-    let mut spans: Vec<Option<Span>> = spans.into_iter().map(Some).collect();
+    let mut labels: Vec<Option<Line>> = labels.into_iter().map(Some).collect();
     let mut draw = |index: usize, line: &mut Vec<Span<'static>>, x: &mut u16| {
         app.tab_hits.borrow_mut().push(TabHit {
             y: area.y,
@@ -486,7 +551,7 @@ fn tab_line(app: &App, area: Rect) -> Line<'_> {
             tab: index,
         });
         *x = x.saturating_add(widths[index]);
-        line.push(spans[index].take().expect("each tab is drawn once"));
+        line.extend(labels[index].take().expect("each tab is drawn once").spans);
         line.push(Span::raw(" "));
     };
     for index in 0..pinned {
@@ -786,21 +851,20 @@ fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher, body: Rect
     }
     for (index, key) in found.iter().enumerate().skip(first).take(shown) {
         let attention = app.attention.get(*key).copied().unwrap_or_default();
-        let mut text = tab_label(super::tabs::label(key), attention);
-        if app.hidden.contains(*key) {
-            text.push_str(" (hidden)");
-        }
-        let style = match attention.state() {
-            "waiting" => look.named(&colors.waiting),
-            "blocked" => look.named(&colors.blocked),
-            _ => Style::new(),
+        let name = if app.hidden.contains(*key) {
+            format!("{} (hidden)", super::tabs::label(key))
+        } else {
+            super::tabs::label(key).to_owned()
         };
         let style = if index == switcher.selected {
-            style.add_modifier(Modifier::REVERSED)
+            Style::new().add_modifier(Modifier::REVERSED)
         } else {
-            style
+            Style::new()
         };
-        lines.push(Line::from(Span::styled(fit(&text, inner), style)));
+        lines.push(fit_tab_label(
+            tab_label(look, &name, attention, colors, style),
+            inner,
+        ));
     }
     frame.render_widget(Clear, area);
     frame.render_widget(
@@ -1777,7 +1841,7 @@ columns = [{ name = "member", width = "30%" },
         ]));
         let screen = draw(&app, 48, 10);
         // The tab line holds only the tabs; the summary has its own line.
-        assert_eq!(screen[0], " product   reviews");
+        assert_eq!(screen[0], "  product    reviews");
         assert_eq!(screen[1], "lead sol · 2 members");
         assert_eq!(screen[2], "  MEMBER     STATE    TASK");
         assert_eq!(screen[3], "NEEDS ME");
@@ -2159,7 +2223,7 @@ lines = [
             assert_eq!(buffer[(13, 5)].fg, fg(Role::Dim));
             assert_eq!(buffer[(22, 5)].fg, fg(Role::Dim));
             assert_eq!(buffer[(1, 0)].fg, fg(Role::Accent));
-            assert!(buffer[(1, 0)].modifier.contains(Modifier::BOLD));
+            assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
             let selected = &buffer[(2, 3)];
             assert_eq!(selected.fg, fg(Role::Text));
             assert_eq!(selected.bg, app.look().selection().bg.unwrap_or_default());
@@ -2168,7 +2232,7 @@ lines = [
                 depth != tmt_cli_style::Depth::TrueColor
             );
             assert_eq!(
-                buffer[(1, 0)].modifier.contains(Modifier::REVERSED),
+                buffer[(2, 0)].modifier.contains(Modifier::REVERSED),
                 depth != tmt_cli_style::Depth::TrueColor
             );
         }
@@ -2187,61 +2251,88 @@ lines = [
                     depth,
                 };
                 let selection = look.selection();
-                for attention in [
-                    Attention::default(),
-                    Attention {
-                        waiting: 2,
-                        blocked: 1,
-                    },
-                    Attention {
-                        waiting: 0,
-                        blocked: 1,
-                    },
+                for (attention, text) in [
+                    (Attention::default(), "  product "),
+                    (
+                        Attention {
+                            waiting: 2,
+                            blocked: 0,
+                        },
+                        "◆ product 2 ",
+                    ),
+                    (
+                        Attention {
+                            waiting: 0,
+                            blocked: 1,
+                        },
+                        "✗ product 1 ",
+                    ),
+                    (
+                        Attention {
+                            waiting: 2,
+                            blocked: 1,
+                        },
+                        "◆ product 2 ✗1 ",
+                    ),
                 ] {
                     let selected = tab(look, "product", true, attention, &TabColors::default());
                     let unselected = tab(look, "product", false, attention, &TabColors::default());
-                    assert_eq!(selected.content, unselected.content);
+                    assert_eq!(selected.to_string(), text);
+                    assert_eq!(selected.to_string(), unselected.to_string());
                     assert_eq!(selected.width(), unselected.width());
-                    let foreground = match attention.state() {
-                        "waiting" => look.role(Role::Waiting),
-                        "blocked" => look.role(Role::Blocked),
-                        _ => look.role(Role::Accent),
-                    };
-                    assert_eq!(selected.style.fg, foreground.fg);
-                    assert_eq!(selected.style.bg, selection.bg);
-                    assert!(selected.style.add_modifier.contains(Modifier::BOLD));
-                    assert_eq!(
-                        selected.style.add_modifier.contains(Modifier::REVERSED),
-                        selection.bg.is_none()
-                    );
-                    let unchanged = match attention.state() {
-                        "waiting" => look.role(Role::Waiting),
-                        "blocked" => look.role(Role::Blocked),
-                        _ => look.role(Role::Muted),
-                    };
-                    assert_eq!(unselected.style, unchanged);
-                    let width = selected.width() as u16;
-                    let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
-                    terminal
-                        .draw(|frame| {
-                            frame.render_widget(
-                                Paragraph::new(selected.clone()),
-                                Rect::new(0, 0, width, 1),
-                            )
-                        })
-                        .unwrap();
-                    for x in 0..width {
-                        let cell = &terminal.backend().buffer()[(x, 0)];
+                    for (label, chosen) in [(selected, true), (unselected, false)] {
+                        let normal = if chosen {
+                            Style {
+                                bg: selection.bg,
+                                ..look
+                                    .role(Role::Accent)
+                                    .add_modifier(Modifier::BOLD | selection.add_modifier)
+                            }
+                        } else {
+                            look.role(Role::Muted)
+                        };
+                        let width = label.width() as u16;
+                        let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
+                        terminal
+                            .draw(|frame| {
+                                frame
+                                    .render_widget(Paragraph::new(label), Rect::new(0, 0, width, 1))
+                            })
+                            .unwrap();
+                        let buffer = terminal.backend().buffer();
                         assert_eq!(
-                            cell.bg,
-                            selection.bg.unwrap_or_default(),
-                            "{base:?} {depth:?} at {x}"
+                            buffer[(2, 0)].symbol(),
+                            "p",
+                            "names always start after the two-cell slot"
                         );
-                        assert_eq!(cell.fg, foreground.fg.unwrap_or_default());
-                        assert!(cell.modifier.contains(Modifier::BOLD));
+                        for x in 0..width {
+                            let role = if x == 0 && attention.waiting > 0 {
+                                Some(Role::Waiting)
+                            } else if (x == 0 && attention.blocked > 0)
+                                || (attention.waiting > 0
+                                    && attention.blocked > 0
+                                    && (12..14).contains(&x))
+                            {
+                                Some(Role::Blocked)
+                            } else {
+                                None
+                            };
+                            let expected = role.map_or(normal, |role| Style {
+                                bg: normal.bg,
+                                ..look.role(role).add_modifier(
+                                    Modifier::BOLD | (normal.add_modifier & Modifier::REVERSED),
+                                )
+                            });
+                            let cell = &buffer[(x, 0)];
+                            assert_eq!(
+                                cell.fg,
+                                expected.fg.unwrap_or_default(),
+                                "{base:?} {depth:?} {attention:?} selected={chosen} at {x}"
+                            );
+                            assert_eq!(cell.bg, expected.bg.unwrap_or_default());
+                            assert_eq!(cell.modifier, expected.add_modifier);
+                        }
                     }
-                    assert_eq!(terminal.backend().buffer()[(0, 0)].symbol(), " ");
-                    assert_eq!(terminal.backend().buffer()[(width - 1, 0)].symbol(), " ");
                 }
                 let selected = pane_tab(look, "detail", true);
                 let unselected = pane_tab(look, "detail", false);
@@ -2269,18 +2360,19 @@ lines = [
         };
         assert!(look.role(Role::Accent).fg.is_some());
         assert!(look.selection().bg.is_none());
-        for span in [
+        for style in [
             tab(
                 look,
                 "product",
                 true,
                 Attention::default(),
                 &TabColors::default(),
-            ),
-            pane_tab(look, "detail", true),
+            )
+            .style,
+            pane_tab(look, "detail", true).style,
         ] {
-            assert_eq!(span.style.fg, look.role(Role::Accent).fg);
-            assert!(span.style.add_modifier.contains(Modifier::REVERSED));
+            assert_eq!(style.fg, look.role(Role::Accent).fg);
+            assert!(style.add_modifier.contains(Modifier::REVERSED));
         }
     }
 
@@ -2678,16 +2770,18 @@ lines = [
             .map(|x| buffer[(x, 0)].symbol().to_owned())
             .collect();
         // Counts say what the color says, so no meaning is color-only.
-        assert_eq!(tabs.trim_end(), " product ◆1 ✗1   reviews ✗2");
+        assert_eq!(tabs.trim_end(), "◆ product 1 ✗1  ✗ reviews 2");
         let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
         let product = &buffer[(column("product"), 0)];
         // Waiting wins over blocked; selection is bold without moving the tab.
         let fg = |role| app.look().role(role).fg.unwrap_or_default();
-        assert_eq!(product.fg, fg(Role::Waiting));
+        assert_eq!(product.fg, fg(Role::Accent));
+        assert_eq!(buffer[(0, 0)].fg, fg(Role::Waiting));
         assert!(product.modifier.contains(Modifier::BOLD));
         assert!(!product.modifier.contains(Modifier::REVERSED));
         let reviews = &buffer[(column("reviews"), 0)];
-        assert_eq!(reviews.fg, fg(Role::Blocked));
+        assert_eq!(reviews.fg, fg(Role::Muted));
+        assert_eq!(buffer[(column("reviews") - 2, 0)].fg, fg(Role::Blocked));
         assert!(!reviews.modifier.contains(Modifier::REVERSED));
 
         let screen = draw(&app, 60, 6);
@@ -2712,7 +2806,7 @@ lines = [
             .collect();
         let reviews = tabs[..tabs.find("reviews").unwrap()].chars().count() as u16;
         assert_eq!(
-            buffer[(reviews, 0)].fg,
+            buffer[(reviews - 2, 0)].fg,
             app.look().role(Role::Review).fg.unwrap_or_default()
         );
         assert_eq!(draw(&app, 60, 6)[1], "no lead · 1 member");
@@ -2728,15 +2822,25 @@ lines = [
         };
         app.attention.insert("product".into(), counts);
         assert_eq!(Mark::Failed.symbol().width(), 1);
-        assert_eq!(tab_label("product", Attention::default()), " product");
+        assert_eq!(
+            tab(
+                app.look(),
+                "product",
+                false,
+                Attention::default(),
+                &TabColors::default()
+            )
+            .to_string(),
+            "  product "
+        );
         let colors = TabColors::default();
         let plain = tab(app.look(), "product", false, counts, &colors);
         let selected = tab(app.look(), "product", true, counts, &colors);
-        assert_eq!(selected.content, " product ◆2 ✗1 ");
-        assert_eq!(selected.content, plain.content);
-        assert_eq!(selected.width(), " product ◆2 ✗1 ".width());
+        assert_eq!(selected.to_string(), "◆ product 2 ✗1 ");
+        assert_eq!(selected.to_string(), plain.to_string());
+        assert_eq!(selected.width(), "◆ product 2 ✗1 ".width());
         assert_eq!(selected.style.fg, None);
-        assert!(draw(&app, 60, 8)[0].contains("product ◆2 ✗1"));
+        assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗1"));
         app.switcher = Some(Switcher {
             query: "product".into(),
             selected: 0,
@@ -2744,8 +2848,134 @@ lines = [
         assert!(
             draw(&app, 60, 8)
                 .iter()
-                .any(|line| line.contains("product ◆2 ✗1"))
+                .any(|line| line.contains("◆ product 2 ✗1"))
         );
+    }
+
+    #[test]
+    fn tab_hits_cover_the_slot_name_and_trailing_cell_of_the_rendered_label() {
+        use crate::board::app::Effect;
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        for attention in [
+            Attention::default(),
+            Attention {
+                waiting: 1,
+                blocked: 2,
+            },
+        ] {
+            for offset in [0, 2, 14] {
+                let mut app = board(json!([{"title": null, "rows": []}]));
+                app.attention.insert("reviews".into(), attention);
+                draw(&app, 80, 8);
+                let hit = app.tab_hits.borrow()[1];
+                let label = tab(
+                    app.look(),
+                    "reviews",
+                    false,
+                    attention,
+                    &TabColors::default(),
+                );
+                assert_eq!(usize::from(hit.width), label.width());
+                let x = hit.x + offset.min(hit.width - 1);
+                assert_eq!(
+                    app.mouse(
+                        MouseEvent {
+                            kind: MouseEventKind::Down(MouseButton::Left),
+                            column: x,
+                            row: hit.y,
+                            modifiers: KeyModifiers::NONE,
+                        },
+                        std::time::Instant::now()
+                    ),
+                    Effect::Load("reviews".into())
+                );
+                assert_eq!(app.current.as_deref(), Some("reviews"));
+            }
+        }
+    }
+
+    #[test]
+    fn default_attention_color_does_not_inherit_the_selected_name_foreground() {
+        let look = crate::look::Look::default();
+        let label = tab(
+            look,
+            "product",
+            true,
+            Attention {
+                waiting: 1,
+                blocked: 1,
+            },
+            &TabColors {
+                waiting: "default".into(),
+                blocked: "default".into(),
+            },
+        );
+        for rendered in [label.clone(), Line::from(label.spans)] {
+            let width = rendered.width() as u16;
+            let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
+            terminal
+                .draw(|frame| frame.render_widget(Paragraph::new(rendered), frame.area()))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            assert_eq!(buffer[(0, 0)].fg, Style::new().fg.unwrap_or_default());
+            assert_eq!(buffer[(12, 0)].fg, Style::new().fg.unwrap_or_default());
+            assert_eq!(buffer[(2, 0)].fg, look.role(Role::Accent).fg.unwrap());
+            for x in 0..width {
+                assert_eq!(buffer[(x, 0)].bg, look.selection().bg.unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn switcher_fitting_keeps_mark_styles_alignment_and_its_selected_row() {
+        let look = crate::look::Look::default();
+        let style = Style::new().add_modifier(Modifier::REVERSED);
+        let colors = TabColors {
+            waiting: "review".into(),
+            blocked: "link".into(),
+        };
+        for name in ["product", "wide-界界界界界界", "literal…name"] {
+            let label = tab_label(
+                look,
+                name,
+                Attention {
+                    waiting: 1,
+                    blocked: 2,
+                },
+                &colors,
+                style,
+            );
+            for width in [0, 1, 2, 8, 12, 40] {
+                let fitted = fit_tab_label(label.clone(), width);
+                assert_eq!(fitted.width(), width);
+                assert_eq!(fitted.to_string(), fit(&label.to_string(), width));
+                if width == 0 {
+                    continue;
+                }
+                let mut terminal = Terminal::new(TestBackend::new(width as u16, 1)).unwrap();
+                terminal
+                    .draw(|frame| frame.render_widget(Paragraph::new(fitted), frame.area()))
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let mut x = 0;
+                while x < width as u16 {
+                    let cell = &buffer[(x, 0)];
+                    assert!(cell.modifier.contains(Modifier::REVERSED));
+                    // The next cell of a wide glyph is a backend placeholder.
+                    x += cell.symbol().width().max(1) as u16;
+                }
+                if width > 1 {
+                    assert_eq!(buffer[(0, 0)].symbol(), Mark::Decision.symbol());
+                    assert_eq!(buffer[(0, 0)].fg, look.role(Role::Review).fg.unwrap());
+                }
+                if width == 40 {
+                    assert_eq!(buffer[(2, 0)].symbol(), &name[..1]);
+                    let blocked = label.width() as u16 - 2;
+                    assert_eq!(buffer[(blocked, 0)].symbol(), Mark::Failed.symbol());
+                    assert_eq!(buffer[(blocked, 0)].fg, look.role(Role::Link).fg.unwrap());
+                }
+            }
+        }
     }
 
     #[test]
@@ -2768,7 +2998,7 @@ lines = [
             view: Ok(view),
         });
         let screen = draw(&app, 60, 6);
-        assert_eq!(screen[0], " product   leads");
+        assert_eq!(screen[0], "  product    leads");
         assert_eq!(screen[1], "2 squad leads");
         assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
         assert_eq!(screen[3], "  product        sol            working    plan");
@@ -2803,7 +3033,7 @@ lines = [
 
         // Drag: press on the first tab (showing it), release over the last.
         let screen = draw(&app, 60, 6);
-        assert_eq!(screen[0], " reviews   leads   product");
+        assert_eq!(screen[0], "  reviews    leads    product");
         let mouse = |kind, column| MouseEvent {
             kind,
             column,
@@ -2903,7 +3133,7 @@ lines = [
         let hits = app.tab_hits.borrow().clone();
         assert!(hits.iter().all(|hit| hit.tab >= app.tab_start.get()));
         let seven = hits.iter().find(|hit| hit.tab == 7).unwrap();
-        let at = line[..line.find(" sq7").unwrap()].chars().count() as u16;
+        let at = line[..line.find("  sq7").unwrap()].chars().count() as u16;
         assert_eq!(seven.x, at);
     }
 
@@ -2913,20 +3143,36 @@ lines = [
         app.tabs = (0..9).map(|n| format!("sq{n}")).collect();
         app.hidden = vec!["quiet".into()];
         app.current = Some("quiet".into());
+        app.attention.insert(
+            "quiet".into(),
+            Attention {
+                waiting: 1,
+                blocked: 2,
+            },
+        );
         let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
         terminal.draw(|frame| render(frame, &app)).unwrap();
         let buffer = terminal.backend().buffer().clone();
         let line: String = (0..40)
             .map(|x| buffer[(x, 0)].symbol().to_owned())
             .collect();
-        assert!(line.starts_with(" quiet (hidden) "), "{line:?}");
-        assert!(buffer[(1, 0)].modifier.contains(Modifier::BOLD));
+        assert!(line.starts_with("◆ quiet (hidden) 1 ✗2 "), "{line:?}");
+        assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buffer[(2, 0)].fg, app.look().role(Role::Accent).fg.unwrap());
+        assert_eq!(
+            buffer[(0, 0)].fg,
+            app.look().role(Role::Waiting).fg.unwrap()
+        );
+        assert_eq!(
+            buffer[(19, 0)].fg,
+            app.look().role(Role::Blocked).fg.unwrap()
+        );
         assert!(line.trim_end().ends_with(" ›"), "{line:?}");
         // It is not one of the tabs, so it cannot be clicked or dragged, and
         // the tabs after it are hit where they are drawn.
         let hits = app.tab_hits.borrow().clone();
         let first = hits.iter().find(|hit| hit.tab == 0).unwrap();
-        let at = line[..line.find(" sq0").unwrap()].chars().count() as u16;
+        let at = line[..line.find("  sq0").unwrap()].chars().count() as u16;
         assert_eq!(first.x, at, "{line:?}");
         assert!(hits.iter().all(|hit| hit.x >= at));
     }
@@ -2951,7 +3197,7 @@ lines = [
         for expected in [
             "switch · Enter opens",
             " product",
-            " reviews ◆1",
+            "◆ reviews 1",
             " leads",
             " quiet (hidden)",
         ] {
@@ -2995,7 +3241,7 @@ lines = [
         app.current = Some("sq8".into());
         let line = draw(&app, 36, 6)[0].clone();
         assert!(
-            line.starts_with(" all  ‹ 5 "),
+            line.starts_with("  all  ‹ 6 "),
             "the pin stays first: {line:?}"
         );
         assert!(
@@ -3043,8 +3289,8 @@ lines = [
         }
         assert_eq!(app.current.as_deref(), Some("reviews"));
         // Selection is a style, so the tab text is the same either way.
-        assert!(during[0].starts_with(" product   reviews "), "{during:?}");
-        assert_eq!(before[0].trim_end(), " product   reviews");
+        assert!(during[0].starts_with("  product    reviews "), "{during:?}");
+        assert_eq!(before[0].trim_end(), "  product    reviews");
         assert!(
             during[1].contains("loading"),
             "a slow switch shows a spinner"
