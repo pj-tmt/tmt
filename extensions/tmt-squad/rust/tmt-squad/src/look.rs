@@ -3,7 +3,31 @@
 //! own; every color is a design token that tmt-cli-style renders.
 
 use ratatui::style::{Modifier, Style};
-use tmt_cli_style::{Depth, Role, Theme, theme::screen};
+use tmt_cli_style::{
+    Depth, Role, Theme,
+    theme::{
+        background::{self, Background},
+        screen,
+    },
+};
+
+static BACKGROUND: std::sync::OnceLock<Option<Background>> = std::sync::OnceLock::new();
+
+/// The signal shared by tabs, refreshes and picker previews in this process.
+/// Plain commands only inspect COLORFGBG; the board initializes before workers.
+pub(crate) fn background() -> Option<Background> {
+    *BACKGROUND.get_or_init(|| {
+        std::env::var("COLORFGBG")
+            .ok()
+            .as_deref()
+            .and_then(background::colorfgbg)
+    })
+}
+
+pub(crate) fn configure_background(signal: Option<Background>) {
+    let first = BACKGROUND.set(signal).is_ok();
+    debug_assert!(first, "background detection precedes every board reader");
+}
 
 /// A color named in `squad.toml` or a layout default: a design token, or one
 /// of the names Squad accepted before tokens, kept as their token.
@@ -72,7 +96,7 @@ pub fn board_theme(
     let base = base(squad)
         .or_else(|| base(board))
         .or_else(|| base(global))
-        .unwrap_or_else(|| "tmt".into());
+        .unwrap_or_else(|| "auto".into());
     let mut merged = vec![("base".to_owned(), base)];
     merged.extend(
         global
@@ -107,7 +131,7 @@ impl Look {
     /// The board draws on a terminal; `NO_COLOR` still turns color off.
     pub fn new(theme: Theme) -> Self {
         Self {
-            theme,
+            theme: theme.resolve(background()),
             depth: Depth::from_env(std::env::var_os("NO_COLOR").is_none()),
         }
     }
@@ -174,7 +198,7 @@ mod tests {
     fn the_board_is_tmt_unless_a_base_is_chosen_and_the_squad_wins() {
         let fg = |theme: Theme, role: Role| theme.style(role, Depth::TrueColor).get_fg_color();
         let none = board_theme(&[], &[], &[], "squad.p.theme").unwrap();
-        assert_eq!(none.base, tmt_cli_style::Base::Tmt);
+        assert_eq!(none.base, tmt_cli_style::Base::Auto);
         let global = settings(&[("base", "mono"), ("waiting", "red"), ("accent", "blue")]);
         let squad = settings(&[("waiting", "#010203")]);
         let merged = board_theme(&global, &[], &squad, "squad.p.theme").unwrap();

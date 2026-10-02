@@ -73,7 +73,7 @@ pub fn grammar() -> Command {
     .subcommand(spec("ls", "List board themes and the current base's source", &[
         Example { command: "tmt squad theme ls", note: "List themes for all boards" },
         Example { command: "tmt squad theme ls --squad product", note: "Inspect one squad's effective theme" },
-    ], "The base source is default, cli, board or squad; token overrides layer separately.").alias("list").arg(scope_option()))
+    ], "The base source is default, cli, board, squad or detected; token overrides layer separately.").alias("list").arg(scope_option()))
     .subcommand(spec("set", "Set a board theme base; keep token overrides and CLI colors", &[
         Example { command: "tmt squad theme set tmt-light", note: "Use a light theme for all boards" },
         Example { command: "tmt squad theme set mono --squad product", note: "Choose a theme for one squad" },
@@ -101,14 +101,32 @@ pub fn parse_base(name: &str) -> Result<Base, SquadError> {
 }
 
 pub fn report(config: &Config, scope: &ThemeScope) -> Result<Value, SquadError> {
+    report_with_background(config, scope, crate::look::background())
+}
+
+fn report_with_background(
+    config: &Config,
+    scope: &ThemeScope,
+    signal: Option<tmt_cli_style::theme::background::Background>,
+) -> Result<Value, SquadError> {
     let squad = scope.squad().unwrap_or("");
     let (theme, notice) = config.theme(squad)?;
     let source = config.theme_source(squad)?;
+    let mut effective = json!({ "base": theme.base.name(), "source": source });
+    if theme.base == Base::Auto {
+        effective["resolvedBase"] = signal
+            .map(|signal| theme.base.resolve(Some(signal)).name())
+            .into();
+        effective["baseSource"] = source.into();
+        if signal.is_some() {
+            effective["source"] = "detected".into();
+        }
+    }
     let mut bases = Base::ALL;
     bases.sort_by_key(|base| base.name());
     Ok(json!({
         "action": "ls", "scope": scope.squad(), "boardOnly": true,
-        "effective": { "base": theme.base.name(), "source": source },
+        "effective": effective,
         "themes": bases.map(|base| json!({ "name": base.name(), "description": base.description(), "current": base == theme.base })),
         "notice": notice,
     }))
@@ -152,10 +170,24 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
                 Table::new(&[Column::Fixed, Column::Name, Column::Detail, Column::Fixed]);
             for base in document["themes"].as_array().into_iter().flatten() {
                 let current = base["current"] == true;
+                let name = base["name"].as_str().unwrap_or_default();
+                let automatic = current && name == "auto";
+                let resolved = document["effective"]["resolvedBase"].as_str();
+                let label = if automatic {
+                    resolved
+                        .map_or_else(|| name.to_owned(), |resolved| format!("auto ({resolved})"))
+                } else {
+                    name.to_owned()
+                };
+                let description = if automatic && resolved.is_none() {
+                    "matches the terminal when the board opens"
+                } else {
+                    base["description"].as_str().unwrap_or_default()
+                };
                 rows.row([
                     Cell::from(if current { "●" } else { "" }),
-                    Cell::from(base["name"].as_str().unwrap_or_default()),
-                    Cell::styled(base["description"].as_str().unwrap_or_default(), Token::Dim),
+                    Cell::from(label),
+                    Cell::styled(description, Token::Dim),
                     Cell::styled(
                         if current {
                             document["effective"]["source"].as_str().unwrap_or_default()
@@ -247,7 +279,7 @@ mod tests {
             1
         );
         let human = text(&bare, Terminal::PLAIN);
-        assert!(human.starts_with("THEMES 4\n"));
+        assert!(human.starts_with("THEMES 5\n"));
         assert_eq!(human.matches('●').count(), 1);
         assert_eq!(human.matches("board\n").count(), 1);
         assert!(human.ends_with(&format!("hint: {HINT}\n")));
@@ -287,6 +319,59 @@ mod tests {
             text(&noop, Terminal::PLAIN),
             "✓ Kept squad product on the inherited theme; no override to remove\n"
         );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn auto_reports_only_measured_backgrounds_and_retains_configuration_source() {
+        use tmt_cli_style::theme::background::Background;
+        let directory = std::env::temp_dir().join(format!("tmt-theme-auto-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("squad.toml");
+        std::fs::write(&path, "").unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        let plain = report_with_background(&config, &ThemeScope::Board, None).unwrap();
+        assert_eq!(
+            plain["effective"],
+            json!({"base":"auto", "resolvedBase":null, "source":"default", "baseSource":"default"})
+        );
+        assert_eq!(plain["themes"][0]["name"], "auto");
+        let human = text(&plain, Terminal::PLAIN);
+        assert!(human.contains("matches the terminal when the board opens"));
+        assert!(!human.contains("detected") && !human.contains("auto (tmt)"));
+        for (signal, name) in [(Background::Light, "tmt-light"), (Background::Dark, "tmt")] {
+            let detected =
+                report_with_background(&config, &ThemeScope::Board, Some(signal)).unwrap();
+            assert_eq!(
+                detected["effective"],
+                json!({"base":"auto", "resolvedBase":name, "source":"detected", "baseSource":"default"})
+            );
+            assert!(text(&detected, Terminal::PLAIN).contains(&format!("auto ({name})")));
+        }
+        std::fs::write(
+            &path,
+            r#"[board.theme]
+base = "mono"
+[squad.product.theme]
+base = "auto"
+"#,
+        )
+        .unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        let concrete =
+            report_with_background(&config, &ThemeScope::Board, Some(Background::Light)).unwrap();
+        assert_eq!(
+            concrete["effective"],
+            json!({"base":"mono", "source":"board"})
+        );
+        let scoped = report_with_background(
+            &config,
+            &ThemeScope::Squad("product".into()),
+            Some(Background::Light),
+        )
+        .unwrap();
+        assert_eq!(scoped["effective"]["baseSource"], "squad");
+        assert_eq!(scoped["effective"]["source"], "detected");
         std::fs::remove_dir_all(directory).unwrap();
     }
 

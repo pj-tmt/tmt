@@ -48,8 +48,16 @@ impl Picker {
     }
 
     pub fn preview(&self, depth: tmt_cli_style::Depth) -> Look {
+        self.preview_with_background(depth, crate::look::background())
+    }
+
+    fn preview_with_background(
+        &self,
+        depth: tmt_cli_style::Depth,
+        signal: Option<tmt_cli_style::theme::background::Background>,
+    ) -> Look {
         Look {
-            theme: self.preview,
+            theme: self.preview.resolve(signal),
             depth,
         }
     }
@@ -215,6 +223,58 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn auto_is_first_previews_detection_and_saves_the_requested_base() {
+        use tmt_cli_style::{Depth, theme::background::Background};
+        let (path, config) = fixture("auto", "# keep me\n");
+        let mut picker = Picker::open(config, None).unwrap();
+        assert_eq!(picker.selected, Base::Auto);
+        assert_eq!(Base::ALL[0], Base::Auto);
+        assert_eq!(
+            Base::Auto.description(),
+            "match your terminal (light or dark)"
+        );
+        assert_eq!(
+            picker
+                .preview_with_background(Depth::TrueColor, Some(Background::Light))
+                .theme
+                .base,
+            Base::TmtLight
+        );
+        assert_eq!(
+            picker
+                .preview_with_background(Depth::TrueColor, Some(Background::Dark))
+                .theme
+                .base,
+            Base::Tmt
+        );
+        assert_eq!(
+            picker
+                .preview_with_background(Depth::TrueColor, None)
+                .theme
+                .base,
+            Base::Tmt
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# keep me\n");
+        assert!(picker.save().unwrap());
+        assert_eq!(
+            Config::read(path.clone())
+                .unwrap()
+                .theme("")
+                .unwrap()
+                .0
+                .base,
+            Base::Auto
+        );
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("# keep me\n")
+        );
+        assert!(!picker.save().unwrap());
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
@@ -419,7 +479,14 @@ mod tests {
             ] {
                 assert!(content.contains(text), "missing {text}");
             }
-            let selected = &buffer[(11, 10)];
+            let (x, y) = (0..22)
+                .find_map(|y| {
+                    let line: String = (0..90).map(|x| buffer[(x, y)].symbol()).collect();
+                    line.find("mono      ")
+                        .map(|x| (unicode_width::UnicodeWidthStr::width(&line[..x]) as u16, y))
+                })
+                .expect("mono preset row");
+            let selected = &buffer[(x, y)];
             assert_eq!(selected.symbol(), "m");
             assert_eq!(selected.bg, look.selection().bg.unwrap_or_default());
             assert_eq!(

@@ -69,11 +69,34 @@ pub(super) enum BoardEvent {
     },
 }
 
-fn spawn_input(sender: Sender<BoardEvent>) {
+fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::background::ReplyFilter>) {
     std::thread::spawn(move || {
-        while let Ok(event) = event::read() {
-            if sender.send(BoardEvent::Input(event)).is_err() {
-                break;
+        loop {
+            match event::poll(INPUT_WAIT) {
+                Ok(true) => {
+                    let Ok(event) = event::read() else {
+                        break;
+                    };
+                    let events = match &mut filter {
+                        Some(filter) => filter.push(event, Instant::now()),
+                        None => vec![event],
+                    };
+                    for event in events {
+                        if sender.send(BoardEvent::Input(event)).is_err() {
+                            return;
+                        }
+                    }
+                }
+                Ok(false) => {
+                    if let Some(filter) = &mut filter {
+                        for event in filter.expire(Instant::now()) {
+                            if sender.send(BoardEvent::Input(event)).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                }
+                Err(_) => break,
             }
         }
         let _ = sender.send(BoardEvent::InputClosed);
@@ -290,9 +313,30 @@ fn session(
 
 /// Returns the signal that ended the board, if any.
 /// `popup` closes the board after a successful jump, as a tmux popup should.
-pub fn run(core: Core, squad: Option<String>, popup: bool) -> Result<Option<i32>, SquadError> {
+pub fn run(
+    core: Core,
+    squad: Option<String>,
+    popup: bool,
+    interaction: tmt_cli_style::Interaction,
+) -> Result<Option<i32>, SquadError> {
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
+    let config = Config::load(&core)?;
+    let requested = config.theme(squad.as_deref().unwrap_or(""))?.0.base;
+    let value = std::env::var("COLORFGBG").ok();
+    let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
+    let eligible = terminal::background::allowed(
+        requested,
+        interaction,
+        tmt_cli_style::Terminal::stdout(false).color,
+        std::env::var_os("NO_COLOR").is_some(),
+    );
+    let (signal, query) =
+        terminal::background::observe(value.as_deref(), eligible, || guard.query_background());
+    crate::look::configure_background(signal);
+    let filter = query
+        .as_ref()
+        .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
     let (events, input) = mpsc::channel();
     let worker = refresh::Worker::spawn(
         core.clone(),
@@ -302,9 +346,8 @@ pub fn run(core: Core, squad: Option<String>, popup: bool) -> Result<Option<i32>
     worker.request(squad.clone(), false);
     let mut app = App::new(squad);
     app.popup = popup;
-    let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
-    spawn_input(events);
+    spawn_input(events, filter);
     let result = session(
         &mut app,
         &stop,

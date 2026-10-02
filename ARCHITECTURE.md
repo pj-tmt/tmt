@@ -1963,8 +1963,24 @@ set `theme.base`, `tmt` sets the process theme once
 `stream::stderr` apply at the stream's color depth. A missing or invalid theme
 leaves every command on the terminal's own 16 colors. The Squad board reads the
 same resolved theme from `config show` and layers `[squad.<name>.theme]` over it
-(`look`), defaulting to `tmt`; a bad global theme is a notice on the board, a
-bad squad theme a `squad.toml` error. Only `tmt-cli-style` names colors: the
+(`look`), defaulting to `auto`; a bad global theme is a notice on the board, a
+bad squad theme a `squad.toml` error. The global `appearance::parse` rejects
+`auto` with a board-only hint; the shared parser accepts it for `squad.toml`
+`[board.theme]` and `[squad.<name>.theme]`, including both picker scopes. No CLI
+auto resolution path exists. `tmt-cli-style::theme::background` owns pure COLORFGBG/OSC 11 parsing and
+luminance classification. Its bounded reader takes injected read/clock functions;
+it opens no terminal and retains received bytes for the caller's input owner.
+`Base::Auto` and `Theme::resolve` consume a supplied background signal without
+changing token overrides or `Theme::default()`. The executable owns environment
+observation, query eligibility, terminal I/O and detection lifetime. Squad's
+`board::terminal` queries after raw-mode entry and before the input and refresh
+workers start, then `look` caches the optional signal for this process. Concrete
+bases do not query; COLORFGBG wins without I/O. The 100 ms query discards received
+startup input, and its input-thread filter removes late OSC 11 responses before
+board actions. Picker previews consume the same cached signal. Plain theme
+listings read COLORFGBG only, report an unknown resolved base as null, and retain
+configuration provenance separately from detected provenance.
+Only `tmt-cli-style` names colors: the
 native architecture test (`colors`) rejects color literals in other production
 code, the Rust extensions included. `Look::row_span` owns the board's selected
 reverse-fallback span policy: cells, pending text/mark and age labels share one

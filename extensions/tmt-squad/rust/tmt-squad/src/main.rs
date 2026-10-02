@@ -990,7 +990,7 @@ fn main() -> ExitCode {
     if command == "board" && interaction.view() == Mode::Interactive {
         let squad = sub.get_one::<String>("squad").cloned();
         let popup = sub.get_flag("popup");
-        return match Core::discover().and_then(|core| board::run(core, squad, popup)) {
+        return match Core::discover().and_then(|core| board::run(core, squad, popup, interaction)) {
             Ok(signal) => ExitCode::from(board::exit_status(signal)),
             Err(failure) => {
                 report(&failure);

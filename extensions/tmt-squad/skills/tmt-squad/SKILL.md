@@ -107,13 +107,24 @@ including `NO_COLOR`. Colors decorate the words and marks; never infer state
 from color alone. The CLI theme is `theme.base` in the global `config.json`;
 `tmt config show` shows its value and file. Board themes layer that resolved
 theme, then `[board.theme]`, then `[squad.<name>.theme]` in `squad.toml`.
+`auto` works in both `squad.toml` theme layers and both picker scopes; the global
+`config.json` theme rejects it. Use `tmt sq theme set auto` for all boards.
 
 `tmt sq theme ls` (or bare `tmt sq theme`) lists built-in bases, marking the
-current base and its source: `default`, `cli`, `board` or `squad`. Add
+current base and its source: `default`, `cli`, `board`, `squad` or `detected`.
+`auto` is first and is the board default when no layer sets a base. It chooses
+`tmt` or `tmt-light` from COLORFGBG, then an OSC 11 query only when opening an
+interactive colored board, with a 100 ms limit and dark fallback. Concrete
+configured bases win. Startup keys received during the query are discarded;
+late replies never become board actions. Lists never query: without COLORFGBG,
+`auto` says “matches the terminal when the board opens”, with JSON
+`resolvedBase: null`; a measured result says `auto (tmt-light)` or `auto (tmt)`
+and `detected`, retaining its configuration layer in `baseSource`. Add
 `--squad <name>` to inspect that squad. These choices affect the board only;
 CLI colors stay unchanged.
 
 ```sh
+tmt sq theme set auto                      # match the terminal on all boards
 tmt sq theme set tmt-light                 # all boards
 tmt sq theme set mono --squad product      # this squad
 tmt sq theme rm --squad product            # remove only its base override
@@ -222,17 +233,17 @@ sources, and `lines` places cells from track zero. A string names a field,
 tracks. Spanned cells use the first track's fitting settings. The legacy
 `[squad.<name>.columns]` form remains supported; do not set both forms.
 
-| Setting | Current behavior |
-| --- | --- |
-| `name`, `title` | Field name and optional column heading. |
-| `width` | Cells (1–200) or a quoted percentage (1–100%, supported since Squad alpha.8). |
-| `min`, `max` | Cell bounds, including for percentage widths. |
-| `grow` | Weight (0–100) for distributing remaining space after bases and bounds; default 0 in the full rows form. |
-| `align` | `left` (default), `right` or `center`. |
-| `truncate` | `end` (default) or `middle`. |
-| `overflow`, `max_lines` | `ellipsis` (default) or `wrap`; wrapped visual lines are bounded to 1–8, default 2, with a final end ellipsis. |
-| `priority` | 1–100; higher values hide first when minimum widths cannot fit. Without it, a track does not hide. |
-| `from`, `format` | Bind a column to a supported public source (listed below); format as `text` (default), `tokens`, `age` or `count`. Squad-owned fields cannot be bound. |
+| Setting                 | Current behavior                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`, `title`         | Field name and optional column heading.                                                                                                                |
+| `width`                 | Cells (1–200) or a quoted percentage (1–100%, supported since Squad alpha.8).                                                                          |
+| `min`, `max`            | Cell bounds, including for percentage widths.                                                                                                          |
+| `grow`                  | Weight (0–100) for distributing remaining space after bases and bounds; default 0 in the full rows form.                                               |
+| `align`                 | `left` (default), `right` or `center`.                                                                                                                 |
+| `truncate`              | `end` (default) or `middle`.                                                                                                                           |
+| `overflow`, `max_lines` | `ellipsis` (default) or `wrap`; wrapped visual lines are bounded to 1–8, default 2, with a final end ellipsis.                                         |
+| `priority`              | 1–100; higher values hide first when minimum widths cannot fit. Without it, a track does not hide.                                                     |
+| `from`, `format`        | Bind a column to a supported public source (listed below); format as `text` (default), `tokens`, `age` or `count`. Squad-owned fields cannot be bound. |
 
 Supported `from` paths are `member`, `presence`, `cwd`, `target`,
 `session.driver`, `session.model`, `session.usage.tokens`,
