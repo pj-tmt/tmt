@@ -1379,6 +1379,36 @@ fn remote_keeps_public_command_isolation() {
 }
 
 #[test]
+fn squad_may_use_the_neutral_invoke_leaf_but_not_core_process_adapters() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("tmt-invoke", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_exact(
+        &[syntax("tmt-squad", "runner.rs", "use tmt_invoke::invoke;")],
+        &[],
+    );
+    assert!(
+        !policy::source_violations(&[syntax(
+            "tmt-squad",
+            "runner.rs",
+            "use tmt_adapters::process::UnixCommandRunner;"
+        )])
+        .is_empty()
+    );
+    assert!(
+        !policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("tmt-invoke", "normal", None, Some("runner"))]
+        ))
+        .is_empty()
+    );
+}
+
+#[test]
 fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
     assert!(
         policy::dependency_violations(&package(

@@ -353,10 +353,7 @@ mod tests {
 
     fn snapshot_event(snapshot: Snapshot) -> BoardEvent {
         BoardEvent::Snapshot {
-            cancellation: crate::runner::Cancellation::new(
-                std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-                0,
-            ),
+            cancellation: crate::runner::Cancellation::default(),
             snapshot: Box::new(snapshot),
         }
     }
@@ -567,8 +564,8 @@ mod tests {
     }
     #[test]
     fn already_queued_cancelled_snapshots_and_attention_cannot_replace_current_data() {
-        use std::sync::{Arc, atomic::AtomicU64};
-        let generation = Arc::new(AtomicU64::new(1));
+        let generation = crate::runner::Cancellation::default();
+        generation.cancel();
         let (events, input) = channel();
         let mut app = App::new(Some("product".into()));
         let mut current = app::tests::snapshot("product", serde_json::json!([]));
@@ -576,7 +573,7 @@ mod tests {
         app.apply(current);
         events
             .send(BoardEvent::Snapshot {
-                cancellation: crate::runner::Cancellation::new(Arc::clone(&generation), 0),
+                cancellation: generation.clone(),
                 snapshot: Box::new(app::tests::snapshot(
                     "product",
                     serde_json::json!([{ "title": null, "rows": [{"name": "stale"}] }]),
@@ -585,7 +582,7 @@ mod tests {
             .unwrap();
         events
             .send(BoardEvent::Attention {
-                cancellation: crate::runner::Cancellation::new(generation, 0),
+                cancellation: generation,
                 attention: std::collections::BTreeMap::from([(
                     "product".into(),
                     crate::attention::Attention {

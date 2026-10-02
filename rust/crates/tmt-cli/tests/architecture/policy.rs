@@ -186,10 +186,11 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
         ],
         // Squad is a public-interface consumer: it reaches TMT only through
-        // commands and `tmt api`. Its one workspace dependency is the leaf
-        // `tmt-cli-style`, which carries no TMT behavior.
+        // commands and `tmt api`. Neutral invoke/style leaves carry no core behavior.
         "tmt-squad" => &[
             "tmt-cli-style",
+            // Same neutral bounded process owner used by Remote and Colab.
+            "tmt-invoke",
             "clap",
             "serde_json",
             "toml_edit",
@@ -567,8 +568,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             if ["tmt-squad", "tmt-remote", "tmt-colab"].contains(&source.package.as_str())
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
-                && !(["tmt-remote", "tmt-colab"].contains(&source.package.as_str())
-                    && root == "tmt_invoke")
+                && root != "tmt_invoke"
                 && root != source.package.replace('-', "_")
             {
                 violations.push(format!(
