@@ -57,6 +57,16 @@ fn upgrade_to(
     .unwrap()
 }
 
+/// [`serving`] for one companion chosen at run time.
+fn serving_owned(
+    version: &'static str,
+    name: &'static str,
+    bytes: &'static [u8],
+) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>> {
+    let companions: &'static [(&'static str, &'static [u8])] = Box::leak(Box::new([(name, bytes)]));
+    serving(version, companions)
+}
+
 /// A 4-file release, upgraded to one that carries the driver.
 fn with_driver() -> (crate::test_support::TestDirectory, PathBuf, PathBuf) {
     let (directory, layout, old) = published_layout();
@@ -241,6 +251,10 @@ mod first_party {
 
     /// A 4-file release upgraded to one that ships a working Herdr driver.
     fn shipped() -> (crate::test_support::TestDirectory, PathBuf, PathBuf) {
+        shipping(HERDR_DRIVER)
+    }
+
+    fn shipping(driver: &'static [u8]) -> (crate::test_support::TestDirectory, PathBuf, PathBuf) {
         let (directory, layout, old) = published_layout();
         let old_executable = layout
             .root
@@ -250,7 +264,7 @@ mod first_party {
         let report = upgrade_to(
             &old_executable,
             None,
-            serving("1.2.4", &[(DRIVER, HERDR_DRIVER)]),
+            serving_owned("1.2.4", DRIVER, driver),
         );
         let release = report
             .installation
@@ -352,11 +366,15 @@ mod first_party {
             &path,
             &crate::native_install::artifact::digest(HERDR_DRIVER),
         );
-        assert_eq!(registry::state(&approved, &active), ApprovalState::Ok);
-        // The shipped driver is the approved one: used as recorded, nothing
-        // written.
+        let runner = crate::process::UnixCommandRunner;
         let global = directory.path.join("global");
         fs::create_dir_all(&global).unwrap();
+        assert_eq!(
+            registry::state(&global, &approved, &active, &runner),
+            (ApprovalState::Ok, None)
+        );
+        // The shipped driver is the approved one: used as recorded, nothing
+        // written.
         assert_eq!(
             registry::current_first_party(
                 &global,
@@ -368,7 +386,10 @@ mod first_party {
         );
         assert!(!global.join(registry::REGISTRY_FILE).exists());
         fs::write(&path, b"#!/bin/sh\necho swapped\n").unwrap();
-        assert_eq!(registry::state(&approved, &active), ApprovalState::Changed);
+        assert_eq!(
+            registry::state(&global, &approved, &active, &runner).0,
+            ApprovalState::Changed
+        );
         // A release that ships none: missing, and unavailable at run time.
         let (_directory, layout, old) = published_layout();
         let four_files = layout
@@ -376,10 +397,9 @@ mod first_party {
             .join("releases")
             .join(old.id.to_string())
             .join("tmt");
-        assert_eq!(
-            registry::state(&approved, &four_files),
-            ApprovalState::Missing
-        );
+        let (state, reason) = registry::state(&global, &approved, &four_files, &runner);
+        assert_eq!(state, ApprovalState::Missing);
+        assert!(reason.unwrap().contains("ships no herdr driver"));
         assert_eq!(
             registry::current_first_party(
                 &global,
@@ -388,6 +408,91 @@ mod first_party {
                 &crate::process::UnixCommandRunner
             ),
             None
+        );
+    }
+
+    /// A driver that asks for more than the approved one: another operation
+    /// and another environment variable.
+    const HERDR_DRIVER_MORE: &[u8] = br#"#!/bin/sh
+printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"herdr","version":"0.0.1-test","ops":["snapshot","capture"],"paneId":{"prefix":"term_"},"target":"w{n}:p{n}","callerEnv":["HERDR_PANE_ID"]}}'
+"#;
+
+    /// A driver that only reads one more environment variable.
+    const HERDR_DRIVER_ENV: &[u8] = br#"#!/bin/sh
+printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"herdr","version":"0.0.1-test","ops":["snapshot"],"paneId":{"prefix":"term_"},"target":"w{n}:p{n}","callerEnv":["HERDR_PANE_ID"]}}'
+"#;
+
+    /// A registry holding exactly `record`, as an earlier approval left it.
+    fn registry_with(global: &Path, record: &registry::DriverRecord) {
+        fs::create_dir_all(global).unwrap();
+        fs::write(
+            global.join(registry::REGISTRY_FILE),
+            serde_json::to_vec(&serde_json::json!({"version": 1, "drivers": [record]})).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn an_upgraded_driver_within_its_approval_is_adopted_without_asking() {
+        let (directory, active, release) = shipped();
+        let path = fs::canonicalize(&release).unwrap().join(DRIVER);
+        // Approved in an earlier release, whose driver had other bytes.
+        let approved = record(
+            &path,
+            &crate::native_install::artifact::digest(b"older driver"),
+        );
+        let global = directory.path.join("global");
+        registry_with(&global, &approved);
+        let runner = crate::process::UnixCommandRunner;
+        let adopted = registry::current_first_party(&global, &approved, &active, &runner).unwrap();
+        assert_eq!(
+            adopted.digest,
+            crate::native_install::artifact::digest(HERDR_DRIVER)
+        );
+        assert_eq!(adopted.approved_at_ms, approved.approved_at_ms);
+        assert_eq!(
+            registry::read(&global).unwrap(),
+            std::slice::from_ref(&adopted)
+        );
+        assert_eq!(
+            registry::state(&global, &adopted, &active, &runner),
+            (ApprovalState::Ok, None)
+        );
+    }
+
+    #[test]
+    fn an_upgraded_driver_asking_for_more_needs_approval_again() {
+        for (driver, extra) in [
+            (HERDR_DRIVER_MORE, "now also runs capture"),
+            (HERDR_DRIVER_ENV, "now also reads HERDR_PANE_ID"),
+        ] {
+            asks_for_more(driver, extra);
+        }
+    }
+
+    fn asks_for_more(driver: &'static [u8], extra: &str) {
+        let (directory, active, release) = shipping(driver);
+        let path = fs::canonicalize(&release).unwrap().join(DRIVER);
+        let approved = record(
+            &path,
+            &crate::native_install::artifact::digest(b"older driver"),
+        );
+        let global = directory.path.join("global");
+        registry_with(&global, &approved);
+        let before = fs::read(global.join(registry::REGISTRY_FILE)).unwrap();
+        let runner = crate::process::UnixCommandRunner;
+        assert_eq!(
+            registry::current_first_party(&global, &approved, &active, &runner),
+            None
+        );
+        let (state, reason) = registry::state(&global, &approved, &active, &runner);
+        assert_eq!(state, ApprovalState::Changed);
+        let reason = reason.unwrap();
+        assert!(reason.contains(extra), "{reason}");
+        // Nothing beyond the approval was recorded.
+        assert_eq!(
+            fs::read(global.join(registry::REGISTRY_FILE)).unwrap(),
+            before
         );
     }
 }

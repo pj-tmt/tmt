@@ -75,11 +75,14 @@ fn write_details(
     )
 }
 
+/// One approved driver, its state, and why when it isn't `ok`.
+type Listed = (DriverRecord, registry::ApprovalState, Option<String>);
+
 /// What a run prints for a human.
 enum Human {
     Nothing,
     Success(String),
-    Listing(Vec<(DriverRecord, registry::ApprovalState)>),
+    Listing(Vec<Listed>),
 }
 
 /// The JSON document and the human output.
@@ -145,18 +148,20 @@ fn install(
 fn list_approved(paths: &ConfigPaths) -> Result<Answer, Failure> {
     let records = registry::read(&paths.global_dir).map_err(failure)?;
     let tmt = running_tmt()?;
-    let rows: Vec<(DriverRecord, registry::ApprovalState)> = records
+    let rows: Vec<Listed> = records
         .into_iter()
         .map(|record| {
-            let state = registry::state(&record, &tmt);
-            (record, state)
+            let (state, reason) =
+                registry::state(&paths.global_dir, &record, &tmt, &UnixCommandRunner);
+            (record, state, reason)
         })
         .collect();
     let drivers: Vec<serde_json::Value> = rows
         .iter()
-        .map(|(record, state)| {
+        .map(|(record, state, reason)| {
             let mut value = record_json(record);
             value["state"] = json!(state.as_str());
+            value["reason"] = json!(reason);
             value
         })
         .collect();
@@ -188,15 +193,21 @@ fn mark(state: registry::ApprovalState) -> Mark {
     }
 }
 
-fn write_listing(
-    output: &mut impl Write,
-    terminal: Terminal,
-    rows: &[(DriverRecord, registry::ApprovalState)],
-) -> io::Result<()> {
+fn write_listing(output: &mut impl Write, terminal: Terminal, rows: &[Listed]) -> io::Result<()> {
     if rows.is_empty() {
         return writeln!(output, "No host drivers are approved.");
     }
     let home = std::env::home_dir();
+    // Why each driver that can't run as approved can't, in one dimmed line.
+    let reasons = rows
+        .iter()
+        .filter_map(|(record, _, reason)| {
+            reason
+                .as_ref()
+                .map(|reason| format!("{}: {reason}", record.name))
+        })
+        .collect::<Vec<_>>();
+    let reasons = (!reasons.is_empty()).then(|| reasons.join(" · "));
     let mut table = Table::new(&[
         Column::Fixed,
         Column::Name,
@@ -204,7 +215,7 @@ fn write_listing(
         Column::Fixed,
         Column::Detail,
     ]);
-    for (record, state) in rows {
+    for (record, state, _) in rows {
         let mark = mark(*state);
         let cells: [Cell; 5] = [
             Cell::styled(mark.symbol(), mark.token()),
@@ -231,7 +242,7 @@ fn write_listing(
             title: "host drivers",
             count: Some(rows.len()),
             rows: table,
-            note: None,
+            note: reasons.as_deref(),
             hint: None,
         }],
     )

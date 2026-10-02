@@ -262,9 +262,20 @@ fn described(
     })
 }
 
+/// Serializes every read-modify-write of the registry, so an approval, a
+/// removal and a first-party adoption in concurrent tmt processes can't
+/// drop one another. The write itself is a staged file renamed into place.
+fn locked(global_dir: &Path) -> Result<nix::fcntl::Flock<fs::File>, RegistryError> {
+    fs::create_dir_all(global_dir)?;
+    Ok(crate::file_lock::exclusive(
+        &global_dir.join("drivers.lock"),
+    )?)
+}
+
 /// Records an inspected driver, after checking again against the registry
 /// as it is now, since another approval may have landed in between.
 pub fn commit(global_dir: &Path, mut record: DriverRecord) -> Result<DriverRecord, RegistryError> {
+    let _lock = locked(global_dir)?;
     let mut drivers = read(global_dir)?;
     admissible(&record, &drivers)?;
     drivers.retain(|existing| existing.name != record.name);
@@ -336,54 +347,142 @@ impl ApprovalState {
     }
 }
 
-/// The state a driver would be found in when next run: the same ownership,
-/// fingerprint and digest checks a call makes. A first-party driver is
-/// checked against the release that ships it now, so an upgrade keeps it
-/// `ok` and only a file that doesn't match its receipt is `changed`.
-pub fn state(record: &DriverRecord, tmt: &Path) -> ApprovalState {
+/// The state a driver would be found in when next run, and why when it
+/// isn't `ok`: the same ownership, fingerprint and digest checks a call
+/// makes. A first-party driver is resolved as a run would resolve it
+/// ([`resolve_first_party`]), then its bytes are checked against the receipt.
+pub fn state(
+    global_dir: &Path,
+    record: &DriverRecord,
+    tmt: &Path,
+    runner: &impl CommandRunner,
+) -> (ApprovalState, Option<String>) {
     if record.source == DriverSource::FirstParty {
-        let Ok(Some(companion)) =
-            crate::native_install::active_companion(tmt, &first_party_file(&record.name))
-        else {
-            return ApprovalState::Missing;
-        };
-        return match executable_trust::digest(&companion.path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => ApprovalState::Missing,
-            Ok(digest) if digest == companion.sha256 => ApprovalState::Ok,
-            _ => ApprovalState::Changed,
+        return match resolve_first_party(global_dir, record, tmt, runner) {
+            Ok(current) => match executable_trust::digest(&current.path) {
+                Ok(digest) if digest == current.digest => (ApprovalState::Ok, None),
+                _ => (
+                    ApprovalState::Changed,
+                    Some("the shipped driver doesn't match its release receipt".into()),
+                ),
+            },
+            Err(gap) => (gap.state(), Some(gap.reason)),
         };
     }
     match fs::symlink_metadata(&record.path) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return ApprovalState::Missing,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return (
+                ApprovalState::Missing,
+                Some("nothing is at the approved path".into()),
+            );
+        }
         _ => {}
     }
     let same = executable_trust::unchanged(&record.path, &record.fingerprint)
         && executable_trust::digest(&record.path).is_ok_and(|digest| digest == record.digest);
     if same {
-        ApprovalState::Ok
+        (ApprovalState::Ok, None)
     } else {
-        ApprovalState::Changed
+        (
+            ApprovalState::Changed,
+            Some("the executable changed since it was approved".into()),
+        )
     }
 }
 
-/// A first-party record as the running release ships it. Unchanged while the
-/// shipped driver is the approved one. After an upgrade the release ships a
-/// new one: it is described again (its receipt digest, one `capabilities`
-/// probe) and recorded under the same approval, nothing asked. `None` when
-/// the release ships no such driver, it no longer calls itself by the
-/// approved name, or it would now collide with another host; it then reads
-/// as unavailable until approved again.
-pub fn current_first_party(
+/// Why a first-party driver can't run as approved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FirstPartyGap {
+    /// The running tmt ships no such driver, as opposed to shipping one that
+    /// can't be used as approved.
+    pub not_shipped: bool,
+    pub reason: String,
+}
+
+impl FirstPartyGap {
+    fn not_shipped(reason: String) -> Self {
+        Self {
+            not_shipped: true,
+            reason,
+        }
+    }
+
+    fn unusable(reason: String) -> Self {
+        Self {
+            not_shipped: false,
+            reason,
+        }
+    }
+
+    pub fn state(&self) -> ApprovalState {
+        if self.not_shipped {
+            ApprovalState::Missing
+        } else {
+            ApprovalState::Changed
+        }
+    }
+}
+
+/// What a new description declares beyond the approved one, if anything.
+/// An approval covers what the user was shown: the same protocol, pane-ID
+/// and target syntax, and no operation or environment variable beyond it.
+fn beyond(approved: &DriverRecord, current: &DriverRecord) -> Option<String> {
+    let (old, new) = (&approved.capabilities, &current.capabilities);
+    if !new.protocols.contains(&approved.protocol) {
+        return Some(format!(
+            "it no longer speaks protocol {}",
+            approved.protocol
+        ));
+    }
+    if new.pane_id != old.pane_id || new.target != old.target {
+        return Some("it changed its pane-ID or target syntax".into());
+    }
+    let ops: Vec<&str> = new
+        .ops
+        .iter()
+        .filter(|op| !old.ops.contains(op))
+        .map(String::as_str)
+        .collect();
+    if !ops.is_empty() {
+        return Some(format!("it now also runs {}", ops.join(", ")));
+    }
+    let env: Vec<&str> = new
+        .caller_env
+        .iter()
+        .filter(|name| !old.caller_env.contains(name))
+        .map(String::as_str)
+        .collect();
+    if !env.is_empty() {
+        return Some(format!("it now also reads {}", env.join(", ")));
+    }
+    None
+}
+
+/// A first-party record as the running release ships it.
+///
+/// While the release ships the approved digest, the record as written. After
+/// an upgrade the new driver is described (its receipt digest and one
+/// `capabilities` probe) and adopted under the same approval, asking nothing,
+/// only when it declares nothing beyond what was approved ([`beyond`]); the
+/// record is then rewritten under the registry lock. Same name and syntax
+/// leave every conflict check as it was. Anything else is a gap: not
+/// shipped (`missing`), or shipped but needing approval again (`changed`).
+pub fn resolve_first_party(
     global_dir: &Path,
     record: &DriverRecord,
     tmt: &Path,
     runner: &impl CommandRunner,
-) -> Option<DriverRecord> {
-    let companion = crate::native_install::active_companion(tmt, &first_party_file(&record.name))
-        .ok()
-        .flatten()?;
+) -> Result<DriverRecord, FirstPartyGap> {
+    let name = &record.name;
+    let companion = crate::native_install::active_companion(tmt, &first_party_file(name))
+        .map_err(|error| {
+            FirstPartyGap::not_shipped(format!("this tmt is not a managed installation: {error}"))
+        })?
+        .ok_or_else(|| {
+            FirstPartyGap::not_shipped(format!("this tmt release ships no {name} driver"))
+        })?;
     if companion.sha256 == record.digest && companion.path == record.path {
-        return Some(record.clone());
+        return Ok(record.clone());
     }
     let mut current = described(
         &companion.path,
@@ -391,22 +490,49 @@ pub fn current_first_party(
         Some(&companion.sha256),
         runner,
     )
-    .ok()?;
-    if current.name != record.name {
-        return None;
+    .map_err(|error| FirstPartyGap::unusable(error.to_string()))?;
+    if current.name != *name {
+        return Err(FirstPartyGap::unusable(format!(
+            "the shipped driver now calls itself {}",
+            current.name
+        )));
+    }
+    if let Some(reason) = beyond(record, &current) {
+        return Err(FirstPartyGap::unusable(format!(
+            "the upgraded driver needs approval again: {reason}"
+        )));
     }
     current.approved_at_ms = record.approved_at_ms;
-    let mut drivers = read(global_dir).ok()?;
-    admissible(&current, &drivers).ok()?;
+    let unwritable = |error: RegistryError| FirstPartyGap::unusable(error.to_string());
+    let _lock = locked(global_dir).map_err(unwritable)?;
+    let mut drivers = read(global_dir).map_err(unwritable)?;
+    // Removed or replaced since it was read: that approval stands.
+    if !drivers.iter().any(|existing| existing == record) {
+        return Err(FirstPartyGap::unusable(
+            "the approval changed while it was being updated".into(),
+        ));
+    }
     drivers.retain(|existing| existing.name != current.name);
     drivers.push(current.clone());
     drivers.sort_by(|left, right| left.name.cmp(&right.name));
-    write(global_dir, &drivers).ok()?;
-    Some(current)
+    write(global_dir, &drivers).map_err(unwritable)?;
+    Ok(current)
+}
+
+/// [`resolve_first_party`] for a run: the record to use, or none, so the
+/// host reads as unavailable until the driver is approved again.
+pub fn current_first_party(
+    global_dir: &Path,
+    record: &DriverRecord,
+    tmt: &Path,
+    runner: &impl CommandRunner,
+) -> Option<DriverRecord> {
+    resolve_first_party(global_dir, record, tmt, runner).ok()
 }
 
 /// Removes an approval; whether there was one.
 pub fn remove(global_dir: &Path, name: &str) -> Result<bool, RegistryError> {
+    let _lock = locked(global_dir)?;
     let mut drivers = read(global_dir)?;
     let before = drivers.len();
     drivers.retain(|existing| existing.name != name);

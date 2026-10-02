@@ -2583,13 +2583,19 @@ adapter does until the driver replaces it.
   A path approval is pinned to its digest. A first-party approval
   (`inspect_first_party`) is of the driver the running release ships as a
   companion, whose bytes must match the receipt digest. It follows that
-  release: `current_first_party` uses the record while the release ships
-  the approved digest, and after an upgrade describes the new driver (its
-  receipt digest and one `capabilities` probe) and records it under the same
-  approval, asking nothing. A release that ships none, a driver that no
-  longer calls itself by the approved name, or one that would now collide
-  reads as unavailable. `state` checks a first-party driver against the
-  receipt of the release that ships it.
+  release: `resolve_first_party` uses the record while the release ships
+  the approved digest. After an upgrade it describes the new driver (its
+  receipt digest and one `capabilities` probe) and adopts it under the same
+  approval, asking nothing, only when it declares nothing beyond what the
+  user approved: the same protocol and pane-ID and target syntax, and no
+  operation or `callerEnv` variable outside the approved ones. Same name and
+  syntax leave every conflict check as it was. Anything else is a gap: a
+  release that ships none reads `missing`, and a driver that asks for more,
+  is renamed or doesn't match its receipt reads `changed`. Either way it is
+  unavailable at run time until approved again, and `state` returns the
+  reason, which `tmt driver ls` shows. Every read-modify-write of
+  `drivers.json` (approval, removal, adoption) holds `drivers.lock`, and the
+  write is a staged file renamed into place.
 - **`tmt driver` (`tmt-cli/src/driver_command.rs`):** the registry's front
   end. A record is written only with explicit consent, never by install or
   upgrade. `install <path>`, or `install <name>` for a first-party driver
@@ -2600,8 +2606,9 @@ adapter does until the driver replaces it.
   (no terminal, or `--json`) refuses with `DRIVER_CONSENT_REQUIRED` and writes
   nothing. `ls` is one `HOST DRIVERS` list section: a row per driver with
   its state mark (`●` ok, `✗` changed, `○` missing), name, version, state
-  and path, and `tmt driver install <path>` (or `<name>` for a first-party
-  one) as the trailing action of a changed or missing one. `rm` withdraws an approval without asking; an
+  and path, `tmt driver install <path>` (or `<name>` for a first-party
+  one) as the trailing action of a changed or missing one, and a note with
+  each such driver's reason (`reason` in JSON). `rm` withdraws an approval without asking; an
   unknown name is `DRIVER_NOT_FOUND`. Bindings on a removed driver's host
   stay stored and read as unavailable.
 - **`DriverProcess`:** runs one operation through the bounded process owner,
