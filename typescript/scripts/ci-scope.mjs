@@ -6,7 +6,6 @@ import { e2eShardFiles } from './e2e-shards.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 
 const COMPONENT_MAP = new URL('../../.github/components.json', import.meta.url);
-const CONSUMERS = ['native', 'office'];
 
 /**
  * `**` matches any path (newlines included: git paths may contain them), `*` and `?`
@@ -88,7 +87,7 @@ export function parseComponentMap(text) {
     ids.add(rule.id);
     if (
       !Array.isArray(rule.consumers) ||
-      rule.consumers.some((consumer) => !CONSUMERS.includes(consumer))
+      rule.consumers.some((consumer) => consumer !== 'native')
     ) {
       throw new Error(`Rule ${rule.id} names an unknown consumer.`);
     }
@@ -149,82 +148,32 @@ export function ownerOf(path, map = componentMap()) {
 }
 
 /**
- * Every workspace crate except tmt-cli is Office-affecting by default: the
- * Office crates import the shared crates and call `tmt api` at runtime. Only
- * these top-level modules are verified unreachable from the Office crates and
- * the API module; ci-scope.test.ts recomputes that closure so the list cannot
- * silently rot.
- */
-export const NATIVE_OFFICE_UNREACHABLE = {
-  'tmt-adapters': ['setup'],
-};
-
-/**
- * CLI surfaces Office drives: its facade, the API command, and the installers
- * that publish Office releases through its verifier.
- */
-const NATIVE_OFFICE_CLI = [
-  'rust/crates/tmt-cli/src/office_facade.rs',
-  'rust/crates/tmt-cli/src/api_command.rs',
-  'rust/crates/tmt-cli/src/native_install_command.rs',
-  'rust/crates/tmt-cli/src/extension_install_command.rs',
-  'rust/crates/tmt-cli/src/native_upgrade_command.rs',
-];
-
-function consumedCratePath(path) {
-  const [, crate, rest] = /^rust\/crates\/([^/]+)\/(.*)$/.exec(path) ?? [];
-  if (!crate) return true;
-  if (crate === 'tmt-cli') return NATIVE_OFFICE_CLI.includes(path);
-  const module = /^src\/([^/.]+)/.exec(rest)?.[1];
-  return !(module && (NATIVE_OFFICE_UNREACHABLE[crate] ?? []).includes(module));
-}
-
-/**
- * Shared paths the native Office image never reads: prose outside Office, the
- * release archive note, core-only test suites, and E2E scenarios (Office imports
- * only the harness and test support) with their separate image.
- */
-const NATIVE_OFFICE_UNRELATED = [
-  /^(?:design\/cli-style|rust\/archive\/NATIVE-INSTALL|[^/]+)\.md$/,
-  /^typescript\/test\/(?:native|tooling)\//,
-  /^typescript\/test\/e2e\/(?:[^/]+\.e2e\.test\.ts|Dockerfile)$/,
-];
-
-/** Unknown paths fail closed, as they do for the other areas. */
-function consumedByNativeOffice(path) {
-  if (NATIVE_OFFICE_UNRELATED.some((pattern) => pattern.test(path))) return false;
-  if (path.startsWith('rust/crates/')) return consumedCratePath(path);
-  if (path.startsWith('rust/')) return true;
-  return !(path.startsWith('skills/') || path.startsWith('extensions/tmt-squad/'));
-}
-
-/**
  * What each changed path selects and why, for the run summary. The first
- * matching rule of the component map decides `native` and `office`; a path no
- * rule matches fails closed to both. `nativeOffice` retains the local Office
- * verification impact of core surfaces it consumes; advisory PR scheduling
- * uses the separate ownership-only selectOfficeBrowser policy.
+ * matching rule of the component map decides native work; unknown inputs keep
+ * full native verification. Frozen Office verification follows ownership only,
+ * with shared dependencies covered by weekly/manual runs.
  */
 export function explainCiSelection(paths, map = componentMap()) {
   return paths.map((path) => {
     const rule = map.rules.find(({ patterns }) => patterns.some((pattern) => pattern.test(path)));
-    const consumers = rule ? rule.consumers : CONSUMERS;
+    const office = selectOfficeBrowser([path], map);
     return {
       path,
       owner: ownerOf(path, map),
       rule: rule?.id ?? 'unmapped',
-      why: rule?.why ?? 'Not covered by any rule, so it fails closed to every consumer.',
-      native: consumers.includes('native'),
-      office: consumers.includes('office'),
-      // A rule with no consumers means no CI job reads the path, the Office shards included.
-      nativeOffice: consumers.length > 0 && consumedByNativeOffice(path),
+      why:
+        rule?.why ??
+        'Unmapped input retains full native verification; frozen Office follows ownership.',
+      native: rule ? rule.consumers.includes('native') : true,
+      office,
+      nativeOffice: office,
     };
   });
 }
 
-/** Deletions are still changes, and an empty diff fails closed. */
+/** Deletions select their owner; an empty diff retains full native work only. */
 export function selectCiAreas(paths, map = componentMap()) {
-  if (paths.length === 0) return { native: true, office: true, nativeOffice: true };
+  if (paths.length === 0) return { native: true, office: false, nativeOffice: false };
   const rows = explainCiSelection(paths, map);
   return {
     native: rows.some((row) => row.native),
@@ -243,7 +192,7 @@ const OFFICE_BROWSER_INPUTS = new Set([
 ]);
 
 /**
- * Parked Office browser PRs follow ownership plus browser-specific machinery,
+ * Frozen Office PR verification follows ownership plus Office-specific machinery,
  * not shared inputs or core dependencies. Weekly/manual runs cover every partition.
  * Empty or unknown paths select no browser work; required CI stays conservative.
  */
@@ -366,12 +315,12 @@ function expectedNativeResults(scope, map, macos = 'true') {
   };
 }
 
-function expectedRustResults(scope, map) {
+function expectedRustResults(scope, map, officeSelected) {
   const native = expectedNativeResults(scope, map)?.nativeRust;
   if (!native) return undefined;
   return {
     ...Object.fromEntries(RUST_WORKERS.map((worker) => [worker, native])),
-    office: scope === 'squad' ? 'skipped' : native,
+    office: scope === 'full' && officeSelected === 'true' ? native : 'skipped',
   };
 }
 
@@ -393,8 +342,9 @@ export function e2eGatePasses(scope, results, map = componentMap()) {
 }
 
 /** `Native Rust contracts`: clippy, tests, Office feature, native fixtures and MSRV. */
-export function rustGatePasses(scope, results, map = componentMap()) {
-  const expected = expectedRustResults(scope, map);
+export function rustGatePasses(scope, results, officeSelected, map = componentMap()) {
+  if (!['true', 'false'].includes(officeSelected)) return false;
+  const expected = expectedRustResults(scope, map, officeSelected);
   if (!expected || results?.length !== RUST_WORKERS.length) return false;
   const byWorker = Object.fromEntries(
     RUST_WORKERS.map((worker, index) => [worker, results[index]])
@@ -441,8 +391,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     return;
   }
   if (args[0] === 'gate-rust') {
-    const [, scope, ...results] = args;
-    if (!rustGatePasses(scope, results)) {
+    const [, scope, officeSelected, ...results] = args;
+    if (!rustGatePasses(scope, results, officeSelected)) {
       throw new Error(
         'Selected native Rust workers did not complete successfully, or skip evidence is invalid.'
       );
@@ -470,15 +420,16 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     return;
   }
   const full = args.length === 1 && args[0] === 'full';
+  const seed = args.length === 1 && args[0] === 'seed';
   const queue = args[0] === 'merge-group';
-  if (!full && !queue && args.length !== 2) {
+  if (!full && !seed && !queue && args.length !== 2) {
     throw new Error('Expected exact base and head commit SHAs.');
   }
   let [base, head] = queue ? [undefined, args[1]] : args;
   const range = queue ? '..' : '...';
   let fallback;
   let selection;
-  if (!full) {
+  if (!full && !seed) {
     try {
       if (queue) {
         if (args.length !== 2 || !/^[a-f0-9]{40}$/.test(head ?? '')) {
@@ -503,10 +454,15 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     }
   }
   selection ??= { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) };
-  const officeBrowser = selectOfficeBrowser(selection.paths);
+  if (full) selection.areas = { native: true, office: true, nativeOffice: true };
+  if (queue) {
+    selection.areas = { ...selection.areas, office: false, nativeOffice: false };
+    selection.rows = selection.rows?.map((row) => ({ ...row, office: false, nativeOffice: false }));
+  }
+  const officeBrowser = full || (!queue && !seed && selectOfficeBrowser(selection.paths));
   const evidence =
-    (full || fallback
-      ? `### CI selection\n\n${fallback ?? 'Full verification; no path filtering.'}\n`
+    (full || seed || fallback
+      ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual full verification; no path filtering.' : 'Main cache seed; Office verification is frozen.')}\n`
       : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n`;
   stderr.write(evidence);

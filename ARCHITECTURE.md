@@ -638,13 +638,15 @@ runtime SDK, identity registry or alternate exchange engine.
 `.github/components.json` is the one component map: who owns the CLI, Office and Squad
 paths, and the ordered rules that say which CI consumers a path selects and why.
 `typescript/scripts/ci-scope.mjs` reads it and owns conservative affected-area
-selection and final gate validation. Office-only source/docs avoid native matrices;
-native source/skill changes, Office's Rust crates, core-only test suites and E2E
-scenario files avoid the Office web checks; prose that no job reads selects nothing
-beyond `Code quality`. Shared or unknown paths (including lockfiles, security,
-contracts, workflows, the map itself and the E2E harness) fan out. Empty diffs fail
-closed to both. The explicit remote-Rust rule retains full workspace and Office
-coverage independently of its private release ownership. Full Rust checks reject
+selection and final gate validation. Native source/skill changes, Office's Rust crates,
+core test suites and shared or unknown paths retain full native verification; Office-only
+app/docs paths avoid native matrices, and unread prose selects nothing beyond `Code quality`.
+Frozen Office verification follows component ownership, Office docs and Office-specific
+workflow/emulator machinery only. Shared dependencies and unknown paths do not select it.
+Weekly/manual runs cover Office; merge groups and main pushes never run Office web,
+local-service or companion-dependent native jobs. Workspace Rust clippy/test/build still
+include the Office members. The explicit remote-Rust rule retains full workspace coverage
+independently of private release ownership. Full Rust checks reject
 empty remote test discovery before executing all workspace tests, including the
 remote lifecycle tests and core architecture guards. Diffs include deletions and both
 sides of renames. The selector writes
@@ -665,12 +667,13 @@ matrix` gates all selected native jobs. Selected skipped, cancelled or failed
 jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 `Native Rust contracts` aggregates independent fmt/Clippy, workspace test/build,
 Office local-service and native process workers, plus an MSRV worker that reads
-`rust/Cargo.toml` and checks every workspace target. Full scope requires all five;
-Squad requires all except Office, and none skips the aggregate. Missing, failed,
+`rust/Cargo.toml` and checks every workspace target. Full scope requires all except Office;
+the Office worker also requires explicit `native_office=true`. Squad skips Office, and
+none skips the aggregate. Missing, failed,
 cancelled or unexpectedly skipped workers fail closed. The native process worker
-consumes the Office fixture producer's local-service executable through a SHA-256
-checked artifact, preserving the fixture bytes without repeating its feature
-verification. The Office check worker consumes the same embedded SPA; other
+consumes the Office fixture producer's SHA-256-checked local-service executable only
+when Office is selected. Otherwise it excludes Office-owned native suites and requires
+no companion artifact, while keeping nonempty core discovery and independent fixtures. The Office check worker consumes the same embedded SPA; other
 fixtures remain independently built in the native worker.
 
 Rust dependency caches (`Swatinem/rust-cache`, pinned by commit SHA) have one
@@ -692,8 +695,8 @@ checks. Merge groups select paths from the common ancestor of fetched
 the event's `base_sha` can be a preceding queued commit; using it would omit earlier
 pending changes and let a prose-only tip skip their checks. PRs retain merge-base (`...`)
 selection. Both use the same component-map rules, scopes and E2E partitions;
-empty or unreadable merge-group diffs fall back to full native and Office
-verification. The changes job fetches full history, and missing commit objects
+empty or unreadable merge-group diffs fall back to full native verification with
+Office still unselected. The changes job fetches full history, and missing commit objects
 cannot yield a successful empty selection.
 
 The changes job also owns the `macos` classification: false only for
@@ -708,12 +711,15 @@ checks remain separate; the repository owner controls merge-queue rulesets.
 The advisory Office browser workflow has a separate ownership-based PR flag,
 `office_browser`: Office-owned component paths and the browser
 verification machinery select its emulator/image work. The selector owns the
-browser-specific workflow/emulator/context-policy exception so that machinery
+Office-specific workflow/emulator and Docker context exceptions so that machinery
 exercises itself. Shared dependency/selector/generic fixture changes, ordinary
 core product dependencies and unknown paths do not select
 browser PR work while Office is parked. Scheduled/manual runs cover all twelve
 partitions, including the emulator; the existing native/local PR pauses remain.
-Required CI keeps its conservative consumer selection and unchanged gates.
+Required native CI keeps conservative selection; the Rust gate validates the explicit
+Office selection and exact worker results in both states.
+`tmt-infra-lead` owns triage of red weekly/manual Office runs, records follow-up issues,
+and routes product failures to the Office owner; freezing does not leave the safety net unowned.
 
 The same map feeds release versioning. `typescript/scripts/release-please-config.mjs`
 generates `release-please-config.json` from the map (one release-please package per
@@ -3502,8 +3508,11 @@ owns execution, platform-specific baselines and explicit visual-review updates.
 Geometry, gesture history and native durability retain their existing test owners.
 
 Retained tests are organized under `typescript/test/native/`, `typescript/test/e2e/`,
-`typescript/test/tooling/` and `typescript/test/support/`, with Rust unit/integration tests beside
-their owners. The CLI's `tests/support` module owns the isolated environment and
+`typescript/test/tooling/`, `typescript/test/stress/` and `typescript/test/support/`, with Rust unit/integration tests beside
+their owners. Office real-companion stress cases use `office-*` filenames and the
+component map's stress `selectedBy` glob; retained-release setup uses the private
+installer, while public acquisition refusal stays in the native lifecycle suite.
+The CLI's `tests/support` module owns the isolated environment and
 direct-child lifetime shared by its stdin-signal and request-observer fixtures;
 [Development](DEVELOPMENT.md#native-process-and-shared-tests) owns the isolation contract.
 They use independent SQL/schema oracles for SQLite behavior and
