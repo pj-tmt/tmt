@@ -32,10 +32,10 @@ tmt comes with the drivers most people need; there's nothing else to install. **
 
 ### The basic loop
 
-Inside tmux, name the pane an agent runs in, then talk to it from anywhere. This is the loop the walkthrough at the top plays.
+Inside tmux, name the pane an agent runs in (`tmt name`, also spelled `tmt this`), then talk to it from anywhere. This is the loop the walkthrough at the top plays.
 
 <Cmd>{`
-$ tmt this reviewer                   # in the agent's pane: name it
+$ tmt name reviewer                   # in the agent's pane: name it
 $ tmt talk reviewer "Review the diff."  # from any pane: send, then wait for the reply
 $ tmt reply req_4f36… --receipt v2_… --message "…"   # the agent answers; talk prints it
 $ tmt check reviewer                  # look at the pane if something seems stuck
@@ -71,11 +71,11 @@ $ tmt run -s reviewer claude --model sonnet
 $ tmt resume reviewer       # later, in any pane: reviewer's own conversation
 `}</Cmd>
 
-You can also start first and name later. `tmt run claude` starts Claude Code at once under a temporary name such as `claude-12ab34cd56ef`, and `tmt this reviewer`, run from the agent's shell tool, gives it its real name. Naming keeps the same conversation but doesn't save it; add `-s` for that.
+You can also start first and name later. `tmt run claude` starts Claude Code at once under a temporary name such as `claude-12ab34cd56ef`, and `tmt name reviewer`, run from the agent's shell tool, gives it its real name. Naming keeps the same conversation but doesn't save it; add `-s` for that.
 
 <Cmd>{`
 $ tmt run claude --model sonnet
-$ tmt this -s reviewer      # from the agent's shell tool: name it, and keep the name
+$ tmt name -s reviewer      # from the agent's shell tool: name it, and keep the name
 `}</Cmd>
 
 <PaneDemo

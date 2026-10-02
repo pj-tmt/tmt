@@ -13,7 +13,7 @@ $ tmt run reviewer claude --model sonnet   # name this pane and start Claude Cod
 $ tmt run reviewer                         # later: start the remembered agent
 `}</Cmd>
 
-You can also start first and name later. `tmt run claude` starts the agent at once under a temporary name such as `claude-12ab34cd56ef`, and prints one line saying how to rename it. From the agent's shell tool, `tmt this reviewer` gives it its real name and keeps the same conversation. Naming doesn't save the name: add `-s` to `tmt this` or `tmt run` for that. Naming never merges two identities, so if one is already called `claude`, `tmt run claude` refuses. Use `tmt run claude claude` to launch that one, or `tmt run reviewer claude` for another name.
+You can also start first and name later. `tmt run claude` starts the agent at once under a temporary name such as `claude-12ab34cd56ef`, and prints one line saying how to rename it. From the agent's shell tool, `tmt name reviewer` gives it its real name and keeps the same conversation. Naming doesn't save the name: add `-s` to `tmt name` or `tmt run` for that. Naming never merges two identities, so if one is already called `claude`, `tmt run claude` refuses. Use `tmt run claude claude` to launch that one, or `tmt run reviewer claude` for another name.
 
 ### `tmt resume`
 
