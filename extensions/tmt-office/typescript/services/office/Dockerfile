@@ -40,6 +40,8 @@ COPY --chown=node:node extensions/tmt-office/typescript/apps/office /workspace/e
 COPY --chown=node:node extensions/tmt-office/contracts /workspace/extensions/tmt-office/contracts
 COPY --chown=node:node typescript/test/e2e test/e2e
 COPY --chown=node:node typescript/test/support test/support
+# test/support/native-artifact.ts reads the archive inventory from its one owner (#1163).
+COPY --chown=node:node typescript/scripts/native-artifact-policy.mjs scripts/native-artifact-policy.mjs
 COPY --chown=node:node extensions/tmt-office/typescript/services/office/functions /workspace/extensions/tmt-office/typescript/services/office/functions
 COPY --chown=node:node extensions/tmt-office/typescript/services/office/firebase.json extensions/tmt-office/typescript/services/office/firestore.rules /workspace/extensions/tmt-office/typescript/services/office/
 COPY --chown=node:node extensions/tmt-office/typescript/services/office/with-test-keyring.sh /workspace/extensions/tmt-office/typescript/services/office/with-test-keyring.sh
