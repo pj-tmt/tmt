@@ -1,0 +1,146 @@
+{
+  "$source": {
+    "source": "site/src/lang/strings.ts",
+    "sourceRevision": "0463948902c1892865f41cf285790913270bbc27"
+  },
+  "ui": {
+    "notTranslated": "尚未翻譯，此頁以英文顯示。",
+    "language": "語言",
+    "chapterWindows": "章節視窗",
+    "allChapters": "所有章節",
+    "closeMenu": "關閉選單",
+    "onThisPage": "本頁內容",
+    "pageNavigation": "頁面導覽",
+    "previous": "← 上一頁",
+    "next": "下一頁 →"
+  },
+  "home": {
+    "eyebrow": "首頁",
+    "title": "一個簡單的核心，*無限*種 AI 協作方式。",
+    "lede": "tmt 在 agent 之間傳遞訊息，並為每則回覆保留一張 receipt。board、colab 和 meet 都建立在這個核心上。它適用於任何 agent、任何 harness、任何機器；下面列出現在就能用的，和之後會有的。",
+    "worksWith": "支援",
+    "yourHarness": "你的 harness",
+    "yourServer": "你的伺服器",
+    "planned": "規劃中",
+    "designing": "設計中",
+    "install": "安裝",
+    "start": "從一則訊息開始 ↓",
+    "boardLabel": "一個 tmt sq board 分四個步驟更新：builder 處理 token 輪替，reviewer 開始審查，接著等你決定是否發布，tester 開始端對端測試，你回覆之後其他人繼續。",
+    "boardWaits": "◆ reviewer 在等你"
+  },
+  "chapters": {
+    "travel": {
+      "label": "一則請求從 lead 傳到 builder，回覆再傳回來。lead 執行 tmt talk；tmt 以 ID 和 receipt 儲存請求，並把它輸入到 builder 的窗格；builder 完成工作後，用 tmt reply 和 receipt 回覆；tmt 儲存回覆，talk 再把它交還給 lead。",
+      "examples": "任何 harness 裡的任何 agent 都適用。Claude Code 和 Codex 只是其中兩個例子，目前內建的 host 是 tmux。",
+      "steps": [
+        {
+          "title": "1 · talk",
+          "text": "lead 送出請求。tmt 以 ID 和 receipt 儲存它。"
+        },
+        {
+          "title": "2 · 送達",
+          "text": "請求被輸入到 builder 的窗格，它照常工作。"
+        },
+        {
+          "title": "3 · reply",
+          "text": "builder 帶著 receipt 回覆。回覆會被儲存，再由 talk 交給 lead。"
+        }
+      ]
+    },
+    "marks": {
+      "label": "board 和每個指令使用的標記，每個標記只有一個意思。",
+      "intro": "board 平常很安靜，只有需要你處理的事會跳出來。每個指令都用同一套標記。",
+      "boardOnly": "僅限 board",
+      "items": [
+        {
+          "name": "執行中",
+          "text": "執行中或作用中"
+        },
+        {
+          "name": "離線",
+          "text": "離線或已結束"
+        },
+        {
+          "name": "無 agent",
+          "text": "已綁定窗格，但沒有 agent 在執行"
+        },
+        {
+          "name": "等你處理",
+          "text": "等你決定"
+        },
+        {
+          "name": "卡住",
+          "text": "失敗或卡住"
+        },
+        {
+          "name": "完成",
+          "text": "完成"
+        },
+        {
+          "name": "恢復",
+          "text": "帶出恢復動作，不是列的狀態"
+        },
+        {
+          "name": "已收合",
+          "text": "已收合的窗格；按 d 或點它的標題即可展開"
+        }
+      ]
+    }
+  },
+  "journey": {
+    "stepsLabel": "步驟",
+    "layersLabel": "同一個基礎上的各層",
+    "steps": [
+      {
+        "title": "1 · talk",
+        "hint": "兩個窗格，一則訊息",
+        "caption": "最小的起點：兩個 agent 在兩個窗格裡，其中一個用 `tmt talk` 向另一個送出請求。回覆會帶著 receipt 回來，後面的一切都建立在這上面。"
+      },
+      {
+        "title": "2 · board",
+        "hint": "整個團隊，一個畫面",
+        "caption": "agent 變多了？`tmt sq board` 在一個畫面裡顯示整個團隊：誰在工作、誰在等你、誰卡住。它隨 Squad 擴充套件提供。同一批 agent，多開一個視窗。"
+      },
+      {
+        "title": "3 · colab",
+        "hint": "一個共用頁面",
+        "status": "進行中",
+        "caption": "Colab 是一個共用頁面，放 lead 的計畫、筆記和討論，讓隊友和其他機器上的 agent 讀寫同一頁。你現在看到的是設計，不是已發布的版本。"
+      },
+      {
+        "title": "4 · meet",
+        "hint": "與你的 agent 開會",
+        "status": "規劃中",
+        "caption": "Meet（#842）讓你、lead 和它的成員在同一場文字會議裡。想發言的人舉手，由你點名。尚未開始。"
+      }
+    ],
+    "layers": [
+      "會議室 · 規劃中",
+      "共用頁面 · 進行中",
+      "一個畫面看整個團隊 · alpha",
+      "每一層都用到的基礎"
+    ],
+    "scenes": {
+      "talkArrow": "lead ⇄ builder · 兩個窗格 · 請求送出，回覆帶著 receipt 回來",
+      "boardArrow": "同一批 agent，多開一個視窗",
+      "boardNew": "新",
+      "yourLaptop": "你的筆電",
+      "buildServer": "建置伺服器",
+      "teammate": "隊友",
+      "human": "（真人）",
+      "herLead": "對方的 lead",
+      "sharedPage": "一個共用頁面",
+      "inProgress": "進行中",
+      "pageTitle": "colab · 發布計畫",
+      "planHeading": "Release 5.0 計畫",
+      "planOne": "輪替 token",
+      "planTwo": "登入測試",
+      "planThree": "今晚發布 #412",
+      "decide": "決定",
+      "reviewerSays": "diff 很小，可以發布",
+      "meiSays": "可以等文件修正嗎？",
+      "meetArrow": "舉手的人（↑）依序等待 · 由你點名",
+      "planned": "規劃中"
+    }
+  }
+}
