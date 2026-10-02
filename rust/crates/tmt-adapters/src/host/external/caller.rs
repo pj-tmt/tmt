@@ -3,7 +3,10 @@
 //! shell is an ancestor of the caller, which it checks itself, the same proof
 //! tmux and Herdr callers need.
 
-use super::{Drivers, session::driver_process};
+use super::{
+    Drivers,
+    session::{driver_process, refused},
+};
 use crate::{
     host::{CallerEnvironment, HostError},
     process::{CommandRunner, ancestry},
@@ -11,8 +14,8 @@ use crate::{
 use std::{collections::BTreeMap, time::Instant};
 use tmt_core::host::HostName;
 use tmt_driver_protocol::{
-    CallerRequest, CallerResponse, ResolveTargetRequest, ResolveTargetResponse, ServerRequest,
-    ServerResponse,
+    CallerRequest, CallerResponse, ErrorCode, ResolveTargetRequest, ResolveTargetResponse,
+    ServerRequest, ServerResponse,
 };
 
 /// A caller's pane on an external host, verified by core: `depth` is where
@@ -88,7 +91,9 @@ impl<R: CommandRunner> Drivers<R> {
     }
 
     /// An explicit target's pane ID on the caller's server of `host`, or on
-    /// the driver's default server; `None` when the driver can't say.
+    /// the driver's default server. `None` only when no driver is approved,
+    /// no server runs, or the driver answers that no such pane exists; a
+    /// driver that fails or runs late is an error, never "not found".
     pub(crate) fn resolve_target(
         &self,
         host: HostName,
@@ -101,23 +106,28 @@ impl<R: CommandRunner> Drivers<R> {
         let socket = match self.caller().filter(|caller| caller.host == host) {
             Some(caller) => caller.socket.clone(),
             None => {
-                match process.call::<ServerResponse>(ServerRequest { socket: None }, deadline) {
-                    Ok(Ok(ServerResponse {
-                        server: Some(server),
-                    })) => server.socket,
-                    Err(error) => return unless_cleanup_failed(error).map(|()| None),
-                    Ok(_) => return Ok(None),
-                }
+                let answer = process
+                    .call::<ServerResponse>(ServerRequest { socket: None }, deadline)
+                    .map_err(HostError::Driver)?
+                    .map_err(|error| refused(&process, error))?;
+                let Some(server) = answer.server else {
+                    return Ok(None);
+                };
+                server.socket
             }
         };
         let request = ResolveTargetRequest {
             socket,
             target: target.to_owned(),
         };
-        match process.call::<ResolveTargetResponse>(request, deadline) {
-            Ok(Ok(answer)) => Ok(answer.pane_id),
-            Err(error) => unless_cleanup_failed(error).map(|()| None),
-            Ok(Err(_)) => Ok(None),
+        match process
+            .call::<ResolveTargetResponse>(request, deadline)
+            .map_err(HostError::Driver)?
+        {
+            Ok(answer) => Ok(answer.pane_id),
+            // The pane or its server is gone: as definite as `null`.
+            Err(error) if error.code == ErrorCode::NotFound => Ok(None),
+            Err(error) => Err(refused(&process, error)),
         }
     }
 }

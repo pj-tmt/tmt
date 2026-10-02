@@ -149,7 +149,10 @@ impl<R: CommandRunner> Drivers<R> {
     }
 }
 
-fn refused<R>(process: &DriverProcess<R>, error: tmt_driver_protocol::DriverError) -> HostError
+pub(super) fn refused<R>(
+    process: &DriverProcess<R>,
+    error: tmt_driver_protocol::DriverError,
+) -> HostError
 where
     R: CommandRunner,
 {

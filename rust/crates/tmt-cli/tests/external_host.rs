@@ -47,6 +47,8 @@ case "$3" in
       *) printf '{"ok":{"pane":null}}' ;;
     esac ;;
   resolve-target)
+    if [ -f "$d/slow" ]; then sleep 3; fi
+    if [ -f "$d/fail" ]; then printf '{"error":{"code":"failed","message":"host is wedged"}}'; exit 0; fi
     case "$input" in
       *'"target":"f1"'*) printf '{"ok":{"paneId":"fake-1"}}' ;;
       *) printf '{"ok":{"paneId":null}}' ;;
@@ -366,4 +368,27 @@ fn a_pane_whose_shell_is_not_the_callers_ancestor_is_not_the_caller() {
     assert_eq!(failure["error"]["code"], "PANE_NOT_FOUND", "{failure:#}");
     // Only asked, never published: the built-in choice (tmux) stands.
     assert_eq!(fixture.calls(), ["caller"]);
+}
+
+#[test]
+fn a_failing_or_late_driver_is_a_failure_never_a_missing_pane() {
+    register();
+    let fixture = Fixture::new("wedged");
+    fixture.approve();
+    for mode in ["fail", "slow"] {
+        fs::write(fixture.root.join("driver").join(mode), "").unwrap();
+        let added = fixture.tmt(&["add", "f1", "worker", "--json"]);
+        assert_eq!(added.status.code(), Some(1), "{mode}: {added:?}");
+        let failure: Value = serde_json::from_slice(&added.stdout).unwrap();
+        assert_eq!(
+            failure["error"]["code"], "RECONCILIATION_FAILED",
+            "{mode}: {failure:#}"
+        );
+        fs::remove_file(fixture.root.join("driver").join(mode)).unwrap();
+    }
+    // Answered again, the same target binds.
+    assert_eq!(
+        fixture.json(&["add", "f1", "worker", "--json"])["pane"],
+        "fake-1"
+    );
 }

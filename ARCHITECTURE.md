@@ -2303,7 +2303,11 @@ guard allows exactly those edges.
   for `caller_pane`, server resolution and `resolve-target`. `Host::for_target`
   picks the host whose registered grammar reads the text as a target (tmux, the
   broadest, is the default), and an external target resolves through the
-  driver on the caller's server or the driver's default one.
+  driver on the caller's server or the driver's default one. Only a definite
+  answer (no such pane, no server, no approved driver) is "not found"; a
+  driver that fails or runs late is a failure (`RECONCILIATION_FAILED`).
+  Caller detection stays best-effort: a failing driver is just not the
+  caller.
 
 The atomic owner-only replacement of such settings files is `private_file`,
 shared with the extension hook consents. The approved drivers' syntax is
