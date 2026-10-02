@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'vitest';
+import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import {
   envelopeSigningBytes,
   enrollmentSigningBytes,
   enrollmentPossessionSigningBytes,
+  fingerprintIndexes,
+  pairingCode,
+  responseKeyInput,
+  serverProofInput,
 } from '../src/canonical-bytes.js';
+import macVectors from '../../../rust/tmt-remote/tests/fixtures/mac-vectors.json' with { type: 'json' };
 import type { Envelope, Enrollment } from '../src/canonical-bytes.js';
 import vectors from './vectors.json' with { type: 'json' };
 
@@ -21,8 +28,6 @@ function candidate(index = 0): Enrollment {
     serverChallenge: bytes(input.serverChallenge),
     clientNonce: bytes(input.clientNonce),
     publicKey: bytes(input.publicKey),
-    agentIds: [...input.agentIds],
-    scopes: [...input.scopes],
   } as Enrollment;
 }
 function matches(raw: Uint8Array, expected: { hex: string; sha256: string }): void {
@@ -137,27 +142,6 @@ test('normal controls and integer endpoints encode without numeric rounding', as
     }),
   );
 });
-// Independently computed with reference.py enrollment(candidate with only agentIds replaced).
-// These hashes cover framing unchanged by the broader core-reference syntax.
-for (const [id, sha256] of [
-  [
-    '00000000-0000-1000-8000-000000000008',
-    '3b04e045f03e8eb236b8f8518105449c3f04b586dbbbffc0b7563627e0849382',
-  ],
-  [
-    '00000000-0000-5000-8000-000000000008',
-    '79bb1944f9db766ae1880ed97b064f477a8430290c2df60d82b41e6d1618db40',
-  ],
-  [
-    '00000000-0000-0000-0000-000000000001',
-    '150a2d2f244ad3225c33905567329e9ed5500c227e31d337747243c48f36cbfe',
-  ],
-] as const) {
-  test(`canonical core reference preserves enrollment bytes: ${id}`, () => {
-    const actual = enrollmentSigningBytes({ ...candidate(), agentIds: [id] });
-    assert.equal(createHash('sha256').update(actual).digest('hex'), sha256);
-  });
-}
 for (const field of ['machineId', 'windowId', 'offerId'] as const) {
   test(`generated enrollment ${field} still requires v4`, () => {
     assert.throws(
@@ -178,33 +162,84 @@ const badEnrollment: [string, Partial<Enrollment>][] = [
   ['challenge length', { serverChallenge: new Uint8Array(15) }],
   ['nonce length', { clientNonce: new Uint8Array(17) }],
   ['public key length', { publicKey: new Uint8Array(31) }],
-  ['agent order', { agentIds: [...candidate().agentIds].reverse() }],
-  ['duplicate agent', { agentIds: [candidate().agentIds[0]!, candidate().agentIds[0]!] }],
-  ['invalid core ID', { agentIds: ['req_example'] }],
-  ['nil core ID', { agentIds: ['00000000-0000-0000-0000-000000000000'] }],
-  ['uppercase core ID', { agentIds: ['00000000-0000-5000-8000-00000000000A'] }],
-  ['nonhyphenated core ID', { agentIds: ['00000000000050008000000000000008'] }],
-  ['core ID trailing newline', { agentIds: ['00000000-0000-5000-8000-000000000008\n'] }],
-  ['scope order', { scopes: ['talk.hold', 'agents.read'] }],
-  ['duplicate scope', { scopes: ['status.read', 'status.read'] }],
-  ['unknown scope', { scopes: ['unknown' as Enrollment['scopes'][number]] }],
   ['kind/origin mismatch', { kind: 'cli' }],
+  ['addon kind with door origin', { origin: 'http://127.0.0.1:7341' }],
   ['unknown kind', { kind: 'other' as Enrollment['kind'] }],
   ['unknown profile', { profile: 'other' as Enrollment['profile'] }],
-  ['unknown mode', { mode: 'send' as Enrollment['mode'] }],
 ];
 for (const [name, change] of badEnrollment) {
   test(`reject enrollment single condition: ${name}`, () => {
     assert.throws(() => enrollmentSigningBytes({ ...candidate(), ...change }));
   });
 }
-test('agent count endpoint and overflow with otherwise valid sorted UUIDs', () => {
-  const ids = Array.from(
-    { length: 257 },
-    (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+test('browser kind accepts exactly the door loopback origin', () => {
+  const browser = candidate(1);
+  for (const origin of ['http://127.0.0.1:1', 'http://127.0.0.1:7341', 'http://127.0.0.1:65535'])
+    assert.ok(enrollmentSigningBytes({ ...browser, origin }));
+  for (const origin of [
+    'http://127.0.0.1:0',
+    'http://127.0.0.1:07341',
+    'http://127.0.0.1:65536',
+    'http://127.0.0.1',
+    'http://127.0.0.1:7341/',
+    'http://localhost:7341',
+    'https://127.0.0.1:7341',
+    'cli',
+    `chrome-extension://${'a'.repeat(32)}`,
+  ])
+    assert.throws(() => enrollmentSigningBytes({ ...browser, origin }), /kind\/origin|origin/);
+});
+test('door origin is an envelope origin', async () => {
+  assert.ok(await envelopeSigningBytes({ ...request(), origin: 'http://127.0.0.1:7341' }));
+});
+for (const vector of vectors.pairingCodes) {
+  test(`independent pairing code text: ${vector.text}`, () => {
+    const code = Buffer.from(vector.code, 'hex');
+    assert.deepEqual(Buffer.from(pairingCode(vector.text)), code);
+    assert.deepEqual(Buffer.from(pairingCode(vector.text.replaceAll('-', ''))), code);
+    assert.deepEqual(Buffer.from(pairingCode(vector.text.replaceAll('-', ' '))), code);
+  });
+}
+test('pairing code refuses other characters, lengths and unused bits', () => {
+  const compact = vectors.pairingCodes[0]!.text.replaceAll('-', '');
+  for (const invalid of [
+    compact.toLowerCase(),
+    compact.replaceAll('A', '1'),
+    compact.replaceAll('A', '='),
+    `${compact}A`,
+    compact.slice(0, 25),
+    `${compact.slice(0, 4)}\t${compact.slice(4)}`,
+    `${compact.slice(0, 4)}_${compact.slice(4)}`,
+    `${compact.slice(0, 25)}5`,
+  ])
+    assert.throws(() => pairingCode(invalid), /pairing code/);
+});
+test('pinned wordlist and independent fingerprint indexes and words', async () => {
+  const list = readFileSync(
+    new URL('../../../rust/tmt-remote/assets/bip39-english.txt', import.meta.url),
   );
-  assert.ok(enrollmentSigningBytes({ ...candidate(), agentIds: ids.slice(0, 256) }));
-  assert.throws(() => enrollmentSigningBytes({ ...candidate(), agentIds: ids }), /agent count/);
+  assert.equal(createHash('sha256').update(list).digest('hex'), vectors.wordlist.sha256);
+  const words = list.toString('ascii').split('\n').slice(0, 2048);
+  for (const vector of vectors.fingerprints) {
+    const indexes = await fingerprintIndexes(bytes(vector.publicKey));
+    assert.deepEqual(indexes, vector.indexes);
+    assert.deepEqual(
+      indexes.map((index) => words[index]),
+      vector.words,
+    );
+  }
+  await assert.rejects(fingerprintIndexes(new Uint8Array(31)));
+});
+test('independent response key and server proof inputs', () => {
+  const hmac = (key: Uint8Array, message: Uint8Array): string =>
+    createHmac('sha256', key).update(message).digest('hex');
+  const code = bytes(macVectors.code);
+  const key = hmac(code, responseKeyInput(bytes(macVectors.enrollment)));
+  assert.equal(key, macVectors.responseKey);
+  assert.equal(
+    hmac(bytes(key), serverProofInput(bytes(macVectors.receipt))),
+    macVectors.serverProof,
+  );
 });
 for (const length of [0, 31, 33]) {
   test(`possession refuses MAC length ${length}`, () => {

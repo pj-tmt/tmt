@@ -49,13 +49,20 @@ fn uuid(value: &str) -> Result<()> {
         value.as_bytes()[14] == b'4' && matches!(value.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
     )
 }
+/// The exact loopback door origin `http://127.0.0.1:<port>`, canonical decimal port.
+fn door_origin(value: &str) -> bool {
+    value.strip_prefix("http://127.0.0.1:").is_some_and(|port| {
+        port.parse::<u16>()
+            .is_ok_and(|n| n != 0 && n.to_string() == port)
+    })
+}
+fn addon_origin(value: &str) -> bool {
+    value
+        .strip_prefix("chrome-extension://")
+        .is_some_and(|id| id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b)))
+}
 fn origin(value: &str) -> Result<()> {
-    require(
-        value == "cli"
-            || value
-                .strip_prefix("chrome-extension://")
-                .is_some_and(|id| id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b))),
-    )
+    require(value == "cli" || addon_origin(value) || door_origin(value))
 }
 
 /// Strings are valid UTF-8 by construction and are never normalized. Payload is exact bytes.
@@ -121,6 +128,8 @@ pub fn envelope(value: &Envelope<'_>) -> Result<Vec<u8>> {
     ])
 }
 
+/// Device enrollment candidate (`tmt-device-pair-v1`). The device proposes no
+/// agents, scopes, mode or expiry; the owner's confirmation sets them.
 pub struct Enrollment<'a> {
     pub machine_id: &'a str,
     pub window_id: &'a str,
@@ -131,33 +140,19 @@ pub struct Enrollment<'a> {
     pub origin: &'a str,
     pub name: &'a str,
     pub public_key: &'a [u8; 32],
-    pub agent_ids: &'a [&'a str],
-    pub scopes: &'a [&'a str],
-}
-fn append_sorted_list(
-    output: &mut Vec<u8>,
-    values: &[&str],
-    validate: fn(&str) -> Result<()>,
-) -> Result<()> {
-    let count = u32::try_from(values.len()).map_err(|_| InvalidBytes)?;
-    output.extend_from_slice(&count.to_be_bytes());
-    let mut previous = None;
-    for value in values {
-        validate(value)?;
-        require(previous.is_none_or(|p| p < *value))?;
-        lp(output, value.as_bytes())?;
-        previous = Some(*value);
-    }
-    Ok(())
 }
 /// Frames a candidate only: key validity and proof checks are separate pure operations.
 pub fn enrollment(value: &Enrollment<'_>) -> Result<Vec<u8>> {
     for id in [value.machine_id, value.window_id, value.offer_id] {
         uuid(id)?;
     }
-    require(matches!(value.kind, "addon" | "cli"))?;
     origin(value.origin)?;
-    require((value.kind == "cli") == (value.origin == "cli"))?;
+    require(match value.kind {
+        "addon" => addon_origin(value.origin),
+        "browser" => door_origin(value.origin),
+        "cli" => value.origin == "cli",
+        _ => false,
+    })?;
     require(
         !value.name.is_empty()
             && value.name.len() <= 64
@@ -165,11 +160,10 @@ pub fn enrollment(value: &Enrollment<'_>) -> Result<Vec<u8>> {
                 .name
                 .chars()
                 .any(|c| !c.is_whitespace() && c != '\u{feff}')
-            && !value.name.chars().any(char::is_control)
-            && value.agent_ids.len() <= 256,
+            && !value.name.chars().any(char::is_control),
     )?;
-    let mut result = framed(&[
-        b"tmt-local-pair-v1",
+    framed(&[
+        b"tmt-device-pair-v1",
         b"local-v1",
         value.machine_id.as_bytes(),
         value.window_id.as_bytes(),
@@ -180,17 +174,70 @@ pub fn enrollment(value: &Enrollment<'_>) -> Result<Vec<u8>> {
         value.origin.as_bytes(),
         value.name.as_bytes(),
         value.public_key,
-    ])?;
-    append_sorted_list(&mut result, value.agent_ids, core_id)?;
-    append_sorted_list(&mut result, value.scopes, |s| {
-        require(matches!(
-            s,
-            "agents.read" | "results.own" | "status.read" | "talk.hold"
-        ))
-    })?;
-    lp(&mut result, b"hold")?;
-    Ok(result)
+    ])
 }
 pub fn possession(enrollment: &[u8], mac: &[u8; 32]) -> Result<Vec<u8>> {
-    framed(&[b"tmt-local-pair-possession-v1", enrollment, mac])
+    framed(&[b"tmt-device-pair-possession-v1", enrollment, mac])
+}
+
+const BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+/// The 16-byte pairing code as 26 uppercase RFC 4648 base32 characters,
+/// grouped by four with hyphens for copy/paste.
+pub fn pairing_code_text(code: &[u8; 16]) -> String {
+    let mut text = String::with_capacity(32);
+    let (mut buffer, mut bits) = (0u32, 0);
+    for byte in code {
+        buffer = (buffer << 8) | u32::from(*byte);
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            text.push(BASE32[((buffer >> bits) & 31) as usize] as char);
+        }
+    }
+    text.push(BASE32[((buffer << (5 - bits)) & 31) as usize] as char);
+    text.as_bytes()
+        .chunks(4)
+        .map(|group| std::str::from_utf8(group).expect("ASCII"))
+        .collect::<Vec<_>>()
+        .join("-")
+}
+/// Decode after removing ASCII spaces and hyphens only; any other character,
+/// a wrong length or nonzero unused bits refuses.
+pub fn pairing_code(text: &str) -> Result<[u8; 16]> {
+    let symbols: Vec<u8> = text.bytes().filter(|b| !matches!(b, b' ' | b'-')).collect();
+    require(symbols.len() == 26)?;
+    let mut code = [0; 16];
+    let (mut buffer, mut bits, mut index) = (0u32, 0, 0);
+    for symbol in symbols {
+        let value = BASE32
+            .iter()
+            .position(|c| *c == symbol)
+            .ok_or(InvalidBytes)?;
+        buffer = (buffer << 5) | value as u32;
+        bits += 5;
+        if bits >= 8 {
+            bits -= 8;
+            code[index] = (buffer >> bits) as u8;
+            index += 1;
+        }
+    }
+    // 130 bits carry 128: the last two must be zero.
+    require(index == 16 && buffer & ((1 << bits) - 1) == 0)?;
+    Ok(code)
+}
+
+/// Pinned BIP-39 English list: bitcoin/bips ce1862ac bip-0039/english.txt,
+/// SHA-256 2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda.
+const WORDLIST: &str = include_str!("../assets/bip39-english.txt");
+/// Four 11-bit indexes from the first 44 bits of the key fingerprint.
+pub fn fingerprint_indexes(public_key: &[u8; 32]) -> Result<[u16; 4]> {
+    let digest = Sha256::digest(framed(&[b"tmt-local-key-fingerprint-v1", public_key])?);
+    let bits = u64::from_be_bytes(digest[..8].try_into().expect("eight bytes")) >> 20;
+    Ok([33, 22, 11, 0].map(|shift| ((bits >> shift) & 0x7ff) as u16))
+}
+/// Comparison text shown on both sides of pairing; not a recovery mnemonic.
+pub fn fingerprint_words(public_key: &[u8; 32]) -> Result<[&'static str; 4]> {
+    let words: Vec<&'static str> = WORDLIST.lines().collect();
+    require(words.len() == 2048)?;
+    Ok(fingerprint_indexes(public_key)?.map(|i| words[usize::from(i)]))
 }

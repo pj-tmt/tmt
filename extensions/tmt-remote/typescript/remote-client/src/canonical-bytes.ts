@@ -16,7 +16,7 @@ export interface Envelope {
   payload: Uint8Array;
 }
 
-export type Scope = 'agents.read' | 'results.own' | 'status.read' | 'talk.hold';
+/** Device enrollment candidate. The device proposes no agents, scopes, mode or expiry. */
 export interface Enrollment {
   profile: 'local-v1';
   machineId: string;
@@ -24,19 +24,18 @@ export interface Enrollment {
   offerId: string;
   serverChallenge: Uint8Array;
   clientNonce: Uint8Array;
-  kind: 'addon' | 'cli';
+  kind: 'addon' | 'browser' | 'cli';
   origin: string;
   name: string;
   publicKey: Uint8Array;
-  agentIds: readonly string[];
-  scopes: readonly Scope[];
-  mode: 'hold';
 }
 
 const encoder = new TextEncoder();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ADDON_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
-const SCOPES: readonly string[] = ['agents.read', 'results.own', 'status.read', 'talk.hold'];
+// The door's exact loopback origin, with a canonical nonzero decimal port.
+const DOOR_ORIGIN = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/;
+const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
 function requireValue(condition: boolean, label: string): asserts condition {
   if (!condition) throw new Error(`Invalid ${label}.`);
@@ -83,39 +82,22 @@ function uuid(value: string): void {
   requireValue(value.length === 36 && UUID.test(value), 'UUIDv4');
 }
 
-function agentId(value: string): void {
-  requireValue(
-    value.length === 36 &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value) &&
-      value !== '00000000-0000-0000-0000-000000000000',
-    'canonical core agent UUID',
-  );
-}
-
 function binary(value: Uint8Array, length: number): Uint8Array {
   requireValue(value instanceof Uint8Array && value.length === length, `binary length ${length}`);
   return lp(value);
 }
 
-function origin(value: string): void {
-  requireValue(
-    text(value).length <= 128 &&
-      (value === 'cli' || (value.length === 51 && ADDON_ORIGIN.test(value))),
-    'origin',
-  );
+const addonOrigin = (value: string): boolean => value.length === 51 && ADDON_ORIGIN.test(value);
+function doorOrigin(value: string): boolean {
+  const port = DOOR_ORIGIN.exec(value)?.[1];
+  return port !== undefined && Number(port) <= 65535;
 }
 
-function sortedList(values: readonly string[], validate: (value: string) => void): Uint8Array {
-  const parts = [count(values.length)];
-  let previous: string | undefined;
-  for (const value of values) {
-    validate(value);
-    // These lists contain ASCII UUIDs/scopes, so string order is UTF-8 byte order.
-    requireValue(previous === undefined || previous < value, 'sorted distinct list');
-    parts.push(lpText(value));
-    previous = value;
-  }
-  return concat(parts);
+function origin(value: string): void {
+  requireValue(
+    text(value).length <= 128 && (value === 'cli' || addonOrigin(value) || doorOrigin(value)),
+    'origin',
+  );
 }
 
 /** Hash the exact supplied payload bytes, without parsing or reserializing them. */
@@ -173,11 +155,15 @@ export async function envelopeSigningBytes(value: Envelope): Promise<Uint8Array>
 
 /** Encode a decoded enrollment candidate; no key validity, proof or authority is established. */
 export function enrollmentSigningBytes(value: Enrollment): Uint8Array {
-  requireValue(value.profile === 'local-v1' && value.mode === 'hold', 'enrollment profile/mode');
+  requireValue(value.profile === 'local-v1', 'enrollment profile');
   for (const id of [value.machineId, value.windowId, value.offerId]) uuid(id);
-  requireValue(value.kind === 'addon' || value.kind === 'cli', 'enrollment kind');
   origin(value.origin);
-  requireValue((value.kind === 'cli') === (value.origin === 'cli'), 'kind/origin');
+  requireValue(
+    (value.kind === 'addon' && addonOrigin(value.origin)) ||
+      (value.kind === 'browser' && doorOrigin(value.origin)) ||
+      (value.kind === 'cli' && value.origin === 'cli'),
+    'kind/origin',
+  );
   const name = text(value.name);
   requireValue(
     name.length >= 1 &&
@@ -189,9 +175,8 @@ export function enrollmentSigningBytes(value: Enrollment): Uint8Array {
       }),
     'name',
   );
-  requireValue(value.agentIds.length <= 256, 'agent count');
   return concat([
-    lpText('tmt-local-pair-v1'),
+    lpText('tmt-device-pair-v1'),
     lpText(value.profile),
     lpText(value.machineId),
     lpText(value.windowId),
@@ -202,9 +187,6 @@ export function enrollmentSigningBytes(value: Enrollment): Uint8Array {
     lpText(value.origin),
     lp(name),
     binary(value.publicKey, 32),
-    sortedList(value.agentIds, agentId),
-    sortedList(value.scopes, (scope) => requireValue(SCOPES.includes(scope), 'scope')),
-    lpText(value.mode),
   ]);
 }
 
@@ -214,5 +196,63 @@ export function enrollmentPossessionSigningBytes(
   mac: Uint8Array,
 ): Uint8Array {
   requireValue(enrollment instanceof Uint8Array, 'enrollment bytes');
-  return concat([lpText('tmt-local-pair-possession-v1'), lp(enrollment), binary(mac, 32)]);
+  return concat([lpText('tmt-device-pair-possession-v1'), lp(enrollment), binary(mac, 32)]);
+}
+
+/** HMAC input for `K_response`, keyed by the pairing code. */
+export function responseKeyInput(enrollment: Uint8Array): Uint8Array {
+  requireValue(enrollment instanceof Uint8Array, 'enrollment bytes');
+  return concat([lpText('tmt-device-pair-response-key-v1'), lp(enrollment)]);
+}
+
+/** HMAC input for `serverProof`, keyed by `K_response`, over the exact receipt bytes. */
+export function serverProofInput(receipt: Uint8Array): Uint8Array {
+  requireValue(receipt instanceof Uint8Array, 'receipt bytes');
+  return concat([lpText('tmt-device-pair-response-v1'), lp(receipt)]);
+}
+
+/**
+ * Decode a pairing code after removing ASCII spaces and hyphens only. Anything
+ * else, a wrong length or nonzero unused bits refuses.
+ */
+export function pairingCode(textValue: string): Uint8Array {
+  const symbols = textValue.replace(/[ -]/g, '');
+  requireValue(symbols.length === 26, 'pairing code length');
+  const code = new Uint8Array(16);
+  let buffer = 0;
+  let bits = 0;
+  let index = 0;
+  for (const symbol of symbols) {
+    const value = BASE32.indexOf(symbol);
+    requireValue(value >= 0, 'pairing code alphabet');
+    // At most 7 pending bits plus 5 new ones are ever needed.
+    buffer = ((buffer << 5) | value) & 0xfff;
+    bits += 5;
+    if (bits >= 8) {
+      bits -= 8;
+      code[index++] = (buffer >> bits) & 0xff;
+    }
+  }
+  requireValue(index === 16 && (buffer & ((1 << bits) - 1)) === 0, 'pairing code unused bits');
+  return code;
+}
+
+/**
+ * Four 11-bit indexes into the pinned BIP-39 English list (bitcoin/bips
+ * ce1862ac, SHA-256 2f5eed53…), from the first 44 bits of the key fingerprint.
+ * Comparison text only, never a recovery mnemonic.
+ */
+export async function fingerprintIndexes(
+  publicKey: Uint8Array,
+): Promise<[number, number, number, number]> {
+  // A fresh ArrayBuffer-backed copy, as WebCrypto requires.
+  const input = new Uint8Array(
+    concat([lpText('tmt-local-key-fingerprint-v1'), binary(publicKey, 32)]),
+  );
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', input));
+  let bits = 0n;
+  for (const byte of digest.subarray(0, 6)) bits = (bits << 8n) | BigInt(byte);
+  bits >>= 4n;
+  const index = (shift: bigint): number => Number((bits >> shift) & 0x7ffn);
+  return [index(33n), index(22n), index(11n), index(0n)];
 }

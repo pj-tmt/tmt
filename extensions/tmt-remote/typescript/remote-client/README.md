@@ -1,17 +1,21 @@
 # Canonical byte groundwork
 
-This private module implements decoded-value envelope, enrollment and possession
-signing-byte builders defined by [remote-client-v1](../../../../contracts/remote-channel-v1.md).
+This private module implements decoded-value envelope, device enrollment and
+possession signing-byte builders, the `K_response` and `serverProof` HMAC inputs,
+pairing-code decoding and four-word fingerprint indexes defined by
+[remote-channel-v1](../../../../contracts/remote-channel-v1.md).
 It is not a usable SDK. Inputs have already been decoded; wire JSON, duplicate
 members, base64url/hex admission and payload operation schemas belong to a future
 wire decoder. Structural checks here enforce framing, exact UTF-8, decimal bounds,
-fixed profile values and ordered lists. They do not establish key validity,
+fixed profile values and kind/origin pairs. They do not establish key validity,
 live grants, timestamp freshness, replay protection or remote authority.
 
 Production uses TextEncoder and native WebCrypto SHA-256; no Node imports or
 third-party crypto. Payload bytes are copied before asynchronous hashing and are
 never parsed, normalized or reserialized. No signing, MAC computation, key
-persistence, pairing, BIP39 corpus, transport or browser-shell integration is included.
+persistence, pairing ceremony, transport or browser-shell integration is included.
+Fingerprint indexes point into the pinned BIP-39 English list at
+`../../rust/tmt-remote/assets/bip39-english.txt`; callers map indexes to words.
 
 From the repository's `typescript` directory with Node 22.12.0 or later, pinned pnpm and Python 3:
 
@@ -31,7 +35,8 @@ Run the same test command with Node 24 for the contract conformance target. No
 release or distribution entry is added.
 
 `test/reference.py` independently transcribes contract field order using Python's
-standard-library `struct`, UTF-8 encoder and `hashlib`. Committed `vectors.json`
+standard-library `struct`, UTF-8 encoder, `hashlib` and `base64`, and refuses
+to run if the pinned wordlist digest differs. Committed `vectors.json`
 contains literal full bytes and SHA-256 values, first established with Python
 3.14.7, rather than generated from the TypeScript implementation. The Unicode
 fixture data deliberately includes astral and decomposed characters. Raw example
