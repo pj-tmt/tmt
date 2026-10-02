@@ -56,6 +56,10 @@
       "owns": ["extensions/tmt-remote/typescript/browser-addon"],
       "release": false
     },
+    "colab-client": {
+      "owns": ["extensions/tmt-colab/typescript/colab-client"],
+      "release": false
+    },
     "remote-client": {
       "owns": ["extensions/tmt-remote/typescript/remote-client"],
       "release": false
