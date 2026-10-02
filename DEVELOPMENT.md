@@ -2087,10 +2087,13 @@ uses its own Prettier configuration; shared docs use the tooling formatter.
 ## Remote pilot development
 
 The local-build-only remote crate is a foreground deny-all door. It performs
-one public startup capabilities read, then refuses every remote application
-request. Pairing, signing, grants, hold, sends, extension mounting/relay and
-journal/SDK integration are not implemented. The
-[channel contract](contracts/remote-channel-v1.md) is proposed; [the separately owned browser shell](#browser-add-on-shell)
+two public startup reads (capabilities and `storage.root`), then refuses every
+remote application request. It mounts colab under `/x/colab/` while
+`<dataRoot>/colab/door.sock` exists as an owner-only socket in a 0700
+directory; mounted requests carry no device context until pairing lands.
+Pairing, signing, grants, hold, sends, the relay and journal/SDK integration
+are not implemented. The [channel contract](contracts/remote-channel-v1.md) is
+proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 
 ```bash

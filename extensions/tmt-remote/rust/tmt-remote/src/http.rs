@@ -32,6 +32,8 @@ pub struct Request {
     pub origin: Option<String>,
     pub cookie: Option<String>,
     pub upgrade: bool,
+    /// Every admitted header with a lowercase name, in arrival order.
+    pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
     /// Held until the request is dropped, so handling counts against the budget.
     _reserved: Reservation,
@@ -62,18 +64,39 @@ impl Drop for Reservation {
         self.budget.0.fetch_sub(self.bytes, Ordering::AcqRel);
     }
 }
+/// One complete reply. The door adds framing headers and fills any absent
+/// [`SECURITY_DEFAULTS`]; the reply's own headers (for example a mounted
+/// extension's CSP) are never overridden.
 pub struct Reply {
     pub status: u16,
+    /// Lowercase names; framing headers are owned by the door.
+    pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
-    pub content_type: &'static str,
 }
+pub const SECURITY_DEFAULTS: [(&str, &str); 4] = [
+    ("cache-control", "no-store"),
+    (
+        "content-security-policy",
+        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    ),
+    ("referrer-policy", "no-referrer"),
+    ("x-content-type-options", "nosniff"),
+];
+/// Hop-by-hop and framing headers the door writes itself.
+pub const FRAMING: [&str; 5] = [
+    "connection",
+    "content-length",
+    "keep-alive",
+    "transfer-encoding",
+    "upgrade",
+];
 impl Reply {
     /// Delivery-only refusal: the status reports framing, never authority.
     pub fn empty(status: u16) -> Self {
         Self {
             status,
+            headers: vec![("content-type".into(), "application/json".into())],
             body: b"{}".to_vec(),
-            content_type: "application/json",
         }
     }
 }
@@ -81,7 +104,9 @@ impl Reply {
 pub trait Handler: Send + Sync {
     /// Admit a head and return its body limit, or refuse before reading the body.
     fn admit(&self, head: &Head<'_>) -> Result<usize, Reply>;
-    fn handle(&self, request: Request) -> Reply;
+    /// Return a reply for the door to write, or `None` after taking over the
+    /// client socket (an upgraded tunnel). Door shutdown closes that socket.
+    fn handle(&self, request: Request, client: &mut TcpStream) -> Option<Reply>;
 }
 
 pub struct Door {
@@ -164,10 +189,12 @@ impl Door {
                             .spawn(move || {
                                 let reply =
                                     match acquire(&mut socket, &host, &budget, handler.as_ref()) {
-                                        Ok(request) => handler.handle(request),
-                                        Err(reply) => reply,
+                                        Ok(request) => handler.handle(request, &mut socket),
+                                        Err(reply) => Some(reply),
                                     };
-                                let _ = response(&mut socket, &reply);
+                                if let Some(reply) = reply {
+                                    let _ = response(&mut socket, &reply);
+                                }
                             })?;
                     workers.push(Worker {
                         socket: retained,
@@ -195,15 +222,32 @@ impl Door {
 fn worker_failure() -> RemoteError {
     RemoteError::new("REMOTE_IO", "HTTP worker cleanup failed.")
 }
+/// Serialize a response head with door-owned framing and absent security defaults.
+pub fn head(status: u16, headers: &[(String, String)], length: Option<usize>) -> String {
+    let mut text = format!("HTTP/1.1 {status} Response\r\n");
+    for (name, value) in headers {
+        if !FRAMING.contains(&name.as_str()) {
+            text.push_str(&format!("{name}: {value}\r\n"));
+        }
+    }
+    for (name, value) in SECURITY_DEFAULTS {
+        if !headers.iter().any(|(present, _)| present == name) {
+            text.push_str(&format!("{name}: {value}\r\n"));
+        }
+    }
+    match length {
+        Some(length) => text.push_str(&format!(
+            "content-length: {length}\r\nconnection: close\r\n\r\n"
+        )),
+        None => text.push_str("connection: upgrade\r\nupgrade: websocket\r\n\r\n"),
+    }
+    text
+}
 fn response(socket: &mut TcpStream, reply: &Reply) -> std::io::Result<()> {
     let deadline = Instant::now() + limits::RESPONSE;
     let status = reply.status;
     let body = reply.body.as_slice();
-    let bytes = format!(
-        "HTTP/1.1 {status} Response\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'none'; base-uri 'none'; frame-ancestors 'none'\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
-        reply.content_type,
-        body.len()
-    );
+    let bytes = head(status, &reply.headers, Some(body.len()));
     for mut bytes in [bytes.as_bytes(), body] {
         while !bytes.is_empty() {
             let remaining = deadline
@@ -309,6 +353,7 @@ fn acquire(
     let mut content_type = None;
     let mut size = None;
     let mut upgrade = false;
+    let mut headers = Vec::new();
     for header in request.headers.iter() {
         let name = header.name.to_ascii_lowercase();
         if !seen.insert(name.clone())
@@ -324,6 +369,7 @@ fn acquire(
             return Err(Reply::empty(400));
         }
         let value = std::str::from_utf8(header.value).map_err(|_| Reply::empty(400))?;
+        headers.push((name.clone(), value.to_owned()));
         match name.as_str() {
             "host" => actual_host = Some(value),
             "origin" => origin = Some(value),
@@ -378,6 +424,7 @@ fn acquire(
         origin: origin.map(str::to_owned),
         cookie: cookie.map(str::to_owned),
         upgrade,
+        headers,
         body: Vec::new(),
         _reserved: reserved,
     };

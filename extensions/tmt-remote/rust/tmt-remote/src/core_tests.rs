@@ -46,6 +46,28 @@ fn fixed_public_argv_input_and_core_errors() {
         serde_json::from_slice::<Value>(&fs::read(fixture.0.join("input")).unwrap()).unwrap(),
         json!({"version":1,"operation":"capabilities","input":{}})
     );
+    let root = Fixture::new(
+        "printf '%s\\n' \"$@\" > argv; cat > input; printf '{\"dataRoot\":\"/tmp/tmt-root\"}'",
+    );
+    assert_eq!(
+        root.client().storage_root(&stop).unwrap(),
+        PathBuf::from("/tmp/tmt-root")
+    );
+    assert_eq!(fs::read_to_string(root.0.join("argv")).unwrap(), "api\n");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(root.0.join("input")).unwrap()).unwrap(),
+        json!({"version":1,"operation":"storage.root","input":{}})
+    );
+    for reply in ["{}", r#"{"dataRoot":"relative"}"#, r#"{"dataRoot":""}"#] {
+        assert_eq!(
+            Fixture::new(&format!("printf '{reply}'"))
+                .client()
+                .storage_root(&stop)
+                .unwrap_err()
+                .code,
+            "REMOTE_CORE_UNAVAILABLE"
+        );
+    }
     fixture.client().agents(&stop).unwrap();
     assert_eq!(
         fs::read_to_string(fixture.0.join("argv")).unwrap(),

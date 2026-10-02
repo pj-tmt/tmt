@@ -3535,8 +3535,8 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 ## Remote extension pilot
 
 `extensions/tmt-remote/rust/tmt-remote` is a local-build-only executable reached
-as `tmt remote`. `main` owns style/foreground composition and one bounded
-startup capabilities call. `core::CoreClient` owns fixed public `api`/`ls`
+as `tmt remote`. `main` owns style/foreground composition and two bounded
+startup calls: capabilities and `storage.root`. `core::CoreClient` owns fixed public `api`/`ls`
 subprocesses through the supplied absolute `TMT_EXECUTABLE`; no PATH fallback.
 `rust/crates/tmt-invoke` is a TMT-dependency-free leaf owning executable discovery helpers and bounded waited byte captures, deadlines, per-stream caps, cancellation and explicit process-group cleanup; Remote keeps public command choices and error interpretation and depends only on it and the shared `tmt-cli-style` leaf. Request-carried launch options preserve environment inheritance by default or explicitly clear it and copy only named allowlisted caller variables, preserving OS-string bytes and leaving the caller environment unchanged. This policy is configured through the existing invocation entry point; it supplies no memory sandbox or resource-limit guarantee. `LaunchOptions::process_group` defaults to `New`, preserving owned group creation/termination. Explicit `InheritCaller` omits group creation; a started failure detaches and returns `Cleanup::CallerOwned` without signalling or waiting for cleanup. Pre-start failures remain `NotStarted`. The caller must supervise that group. Squad's context wrapper retains its live group-leader check and whole-group abort on a started failure; capture/deadlines/caps remain invoke-owned. Ordinary Squad, Remote and Colab calls use `New`. The shared 20 ms `PULSE` bounds stop-flag observation latency; each wait is also bounded by the remaining request deadline.
 
@@ -3558,6 +3558,26 @@ operation. The pilot cannot pair, adopt a request, approve, send or subscribe;
 no grant/journal/core DB is created. The foreground door has no default
 deadline; it runs until interrupted. Colab keeps its own copy of the door
 until its routes mount on the remote door.
+
+`site::Site` is the door's handler: `/x/` paths go to `mount::Mounts`, all
+others to the `/r/` binding. Mounts forward `/x/<extension>/` to
+`<dataRoot>/<extension>/door.sock` only for allowlisted extensions (exactly
+`colab` in this slice; a general enabled-extension registry is later work)
+and only when that socket and its directory are owned by the user, grant
+nothing to group/other and are not symlinks. Remote owns admission: the
+door's exact Origin for every request except top-level GET navigation and
+for every upgrade, a method allowlist and per-extension request/reply bounds.
+It forwards the path below the prefix, a small header allowlist and a
+`tmt-mount` header, never the door-session cookie; it adds `tmt-device-context`
+(ASCII JSON of the extension channel API's owner device context) only when the
+`mount::Sessions` port resolves an owner session, and never copies one from a
+client. Until pairing supplies sessions, every forwarded request is non-owner.
+The extension owns its reply: status, content type, CSP and other headers pass
+through; the door only fills absent security defaults and drops `Set-Cookie`.
+Replies stream one chunk at a time. WebSocket upgrades are spliced as unparsed
+bytes in both directions with bounded per-direction buffers until either side
+closes, a write stalls past its bound or the door shuts down. A missing or
+unsafe socket is 404, an unreachable one 503 and a malformed extension reply 502. Mounted traffic makes no core call and never reaches `/r/`.
 
 `canonical` owns pure decoded-value local-v1 envelope framing and the
 `tmt-device-pair-v1` device enrollment and possession framing (kinds `addon`,

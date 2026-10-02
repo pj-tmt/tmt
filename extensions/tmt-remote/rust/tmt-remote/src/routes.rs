@@ -6,6 +6,7 @@ use crate::{
     transport::{LoopbackTransport, Transport},
 };
 use std::{
+    net::TcpStream,
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -97,15 +98,15 @@ impl Handler for Routes {
             self.body_limit
         })
     }
-    fn handle(&self, request: Request) -> Reply {
+    fn handle(&self, request: Request, _: &mut TcpStream) -> Option<Reply> {
         let denied = match self.suffix(&request.path) {
             Some("/append") => self.transport.append(&request.body),
             Some("/subscribe") => self.transport.subscribe(&request.body),
             Some("/ack") => self.transport.ack(&request.body),
-            _ => return Reply::empty(404),
+            _ => return Some(Reply::empty(404)),
         };
         // No successful admission exists in this slice. Fail closed if it changes.
         let _ = denied;
-        Reply::empty(404)
+        Some(Reply::empty(404))
     }
 }
