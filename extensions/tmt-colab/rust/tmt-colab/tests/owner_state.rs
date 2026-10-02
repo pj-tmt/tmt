@@ -178,6 +178,12 @@ fn signed_authority_round_trips_and_exact_replay_survives_reopen() {
     assert_eq!(counts(&f.oracle()), vec![1; 7]);
     let key = &f.key;
     f.store = Store::open(&f.layout).unwrap();
+    assert_eq!(
+        f.oracle()
+            .pragma_query_value(None, "journal_mode", |r| r.get::<_, String>(0))
+            .unwrap(),
+        "delete"
+    );
     let replay = f
         .store
         .owner_transaction(&key.space_id, &key.owner_public(), mutation(OP, 0), |_| {
@@ -591,4 +597,35 @@ fn empty_mutation_and_oversized_outcome_do_not_leave_authority_or_receipts() {
         .unwrap_err();
     assert!(is_owner(&*error, OwnerFault::Capacity));
     assert_eq!(counts(&f.oracle()), vec![0; 7]);
+}
+
+#[test]
+fn open_restores_delete_journal_mode_before_migration_and_leaves_no_wal_sidecars() {
+    let fixture = Fixture::new();
+    let layout = Layout::open(&fixture.root.join("wal")).unwrap();
+    Store::open(&layout).unwrap().close().unwrap();
+    let path = layout.directory.join("space.db");
+    let oracle = Connection::open(&path).unwrap();
+    oracle.pragma_update(None, "journal_mode", "WAL").unwrap();
+    assert_eq!(
+        oracle
+            .pragma_query_value(None, "journal_mode", |r| r.get::<_, String>(0))
+            .unwrap(),
+        "wal"
+    );
+    oracle.close().unwrap();
+    let reopened = Store::open(&layout).unwrap();
+    reopened.create_page(PAGE).unwrap();
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(
+        oracle
+            .pragma_query_value(None, "journal_mode", |r| r.get::<_, String>(0))
+            .unwrap(),
+        "delete"
+    );
+    for sidecar in ["space.db-wal", "space.db-shm"] {
+        assert!(!layout.directory.join(sidecar).exists());
+    }
+    oracle.close().unwrap();
+    reopened.close().unwrap();
 }

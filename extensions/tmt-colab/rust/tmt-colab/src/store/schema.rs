@@ -33,18 +33,19 @@ const MIGRATIONS: &[&str] = &[
     "#,
 ];
 
-pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
+pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {
     let version: u32 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
     if version as usize > MIGRATIONS.len() {
         return Err(Fault::UnsupportedSchema(version));
     }
+    Ok(version)
+}
+
+pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     // Recheck after acquiring the writer lock: another opener may have migrated.
-    let version: u32 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if version as usize > MIGRATIONS.len() {
-        return Err(Fault::UnsupportedSchema(version));
-    }
+    let version = check_version(&tx)?;
     for (index, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", (index + 1) as u32)?;

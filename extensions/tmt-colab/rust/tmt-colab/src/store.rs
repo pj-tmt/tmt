@@ -83,6 +83,8 @@ impl Store {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
         connection.busy_timeout(Duration::from_secs(2))?;
+        schema::check_version(&connection)?;
+        connection.pragma_update(None, "journal_mode", "DELETE")?;
         schema::migrate(&mut connection)?;
         Ok(Self { connection })
     }
