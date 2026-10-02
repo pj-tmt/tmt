@@ -66,10 +66,7 @@ pub fn execute(
             } else {
                 1
             };
-            let message = activated.as_deref().map_or_else(
-                || error.to_string(),
-                |report| format!("{} {}", error, retry_hint(report)),
-            );
+            let message = error.to_string();
             let failure = Failure::new("NATIVE_UPGRADE_FAILED", message, status).caused_by(error);
             return publish(activated.as_deref(), None, Some(failure), mode);
         }
@@ -84,10 +81,7 @@ pub fn execute(
             None,
             Some(Failure::new(
                 "NATIVE_UPGRADE_INTERRUPTED",
-                format!(
-                    "Native binary installation completed; managed skill refresh was interrupted. {}",
-                    retry_hint(&report)
-                ),
+                "Native binary installation completed; managed skill refresh was interrupted.",
                 130,
             )),
             mode,
@@ -102,16 +96,13 @@ pub fn execute(
         Ok(skills) => (Some(skills), None),
         Err((skills, cause)) => (skills, Some(Failure::new(
             "NATIVE_UPGRADE_SKILLS_FAILED",
-            format!("Native binary installation completed, but managed skill refresh failed. User-owned skill content was not overwritten. {}", retry_hint(&report)), 1,
+            "Native binary installation completed, but managed skill refresh failed. User-owned skill content was not overwritten.", 1,
         ).caused_by(cause))),
     };
     if interrupt.is_interrupted() {
         failure = Some(Failure::new(
             "NATIVE_UPGRADE_INTERRUPTED",
-            format!(
-                "Native binary installation completed; update was interrupted during managed skill refresh. Inspect the skill report. {}",
-                retry_hint(&report)
-            ),
+            "Native binary installation completed; update was interrupted during managed skill refresh. Inspect the skill report.",
             130,
         ));
     }
@@ -201,6 +192,18 @@ fn publish_products(
     extensions: Vec<Value>,
     mode: OutputMode,
 ) -> io::Result<u8> {
+    let failure = failure.map(|mut failure| {
+        if let Some(report) = report {
+            if let Some(version) = &report.state.pinned_version {
+                failure
+                    .message
+                    .push_str(&format!(" The pin to {version} is kept."));
+            }
+            failure.suggestion(retry_hint(report))
+        } else {
+            failure
+        }
+    });
     let mut document = report.map_or_else(|| json!({"changed": false}), |report| json!({
         "executable": report.installation.executable, "version": report.installation.version,
         "changed": report.installation.changed, "channel": report.state.channel.as_str(),
@@ -370,10 +373,8 @@ fn path_warning(executable: &Path) -> Option<String> {
 
 fn retry_hint(report: &UpgradeReport) -> String {
     match &report.state.pinned_version {
-        Some(version) => format!(
-            "Run the current managed tmt upgrade --to {version} to retry without clearing the pin."
-        ),
-        None => "Run the current managed tmt upgrade to retry.".into(),
+        Some(version) => format!("tmt upgrade --to {version}"),
+        None => "tmt upgrade".into(),
     }
 }
 
@@ -384,14 +385,10 @@ mod tests;
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core("tmt upgrade", &[""], &[]),
     crate::cli_style_tests::HintSpec::core(
-        "Run the current managed tmt upgrade to retry.",
-        &[" to retry"],
-        &[],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "Run the current managed tmt upgrade --to {version} to retry without clearing the pin.",
-        &[" to retry"],
+        "tmt upgrade --to {version}",
+        &[""],
         &[("{version}", "0.2.0")],
     ),
     crate::cli_style_tests::HintSpec::core(

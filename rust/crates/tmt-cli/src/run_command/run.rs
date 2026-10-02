@@ -217,8 +217,9 @@ pub(super) fn run_bound(
                     5,
                 ));
             }
-            diagnostic(
-                "prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run <name>` again to establish runtime ownership.",
+            super::warn(
+                "automatic delivery is off for this run: TMT can't confirm who owns this pane; retry after this command exits",
+                Some(&format!("tmt run {}", crate::output::shell_word(name))),
             );
             false
         } else {
@@ -568,11 +569,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &["`", "`"],
         &[],
     ),
-    crate::cli_style_tests::HintSpec::core(
-        "prior runtime evidence is unknown; automatic delivery will remain unavailable. After this command exits, run `tmt run <name>` again to establish runtime ownership.",
-        &["`"],
-        &[],
-    ),
+    crate::cli_style_tests::HintSpec::core("tmt run {}", &[""], &[]),
     crate::cli_style_tests::HintSpec::core(
         "tmt: {} name: {name}; name this agent with tmt this <name>",
         &[""],

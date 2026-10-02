@@ -36,7 +36,7 @@ pub(in crate::grammar) fn config() -> Command {
                 "Set a setting",
                 [
                     "Change a workspace setting" => "tmt config set preambleEvery 2",
-                    "Change a global setting" => "tmt config set --global pasteEnterDelayMs 500",
+                    "Change a global setting" => "tmt config set --global pasteEnterDelayMs 300",
                 ]
             )),
             &["global"],

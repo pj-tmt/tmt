@@ -136,7 +136,7 @@ fn printed_command_validation_rejects_the_reported_regressions() {
     for command in [
         "tmt inbox --identity worker --json",
         "tmt config set preambleEvery 2",
-        "tmt config set --global pasteEnterDelayMs 500",
+        "tmt config set --global pasteEnterDelayMs 300",
         "tmt config rm preambleEvery",
     ] {
         let argv = tmt_cli_style::Example {
