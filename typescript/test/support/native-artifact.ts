@@ -23,8 +23,11 @@ export type ArtifactSources = {
   readonly root: string;
   readonly cli?: {
     readonly executable: string;
-    /** Where the build's companions are; by default beside `executable`. */
-    readonly companions?: string;
+    /**
+     * Where the build's companions are, by default beside `executable`; `null` builds a
+     * published archive from before companions existed, such as CLI 5.0.0-alpha.39.
+     */
+    readonly companions?: string | null;
   };
 };
 
@@ -78,7 +81,8 @@ export async function createArtifact(
   writeFileSync(path.join(root, 'THIRD-PARTY-NOTICES.txt'), 'Synthetic test notice fixture.\n');
   // A companion (the CLI's Herdr driver) comes from the same build as the
   // executable, as in a release archive.
-  for (const companion of companionFiles(product)) {
+  const companions = sources.cli?.companions === null ? [] : companionFiles(product);
+  for (const companion of companions) {
     const built = sources.cli?.companions ?? path.dirname(source);
     copyFileSync(path.join(built, companion), path.join(root, companion));
     chmodSync(path.join(root, companion), 0o755);
@@ -101,6 +105,7 @@ export async function createArtifact(
           // cargo-dist declares an included directory as one asset.
           assets: [
             ...runtimeFiles(product),
+            ...companions,
             ...(Object.keys(skills).length > 0 ? ['skills'] : []),
           ].map((file) => ({ path: file })),
         },

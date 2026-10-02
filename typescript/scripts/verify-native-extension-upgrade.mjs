@@ -31,7 +31,11 @@ for (const name of OPTIONS) assert(values[name], `--${name} is required`);
 assert(['office', 'squad'].includes(values.product), 'Only extension products have this proof');
 
 const { product, target } = values;
-const current = selectNativeArtifact(values.manifest, values.archive, target, product);
+// The archive under release is strict; the previous release and the CLI driver are published
+// archives, read against their own manifests.
+const current = selectNativeArtifact(values.manifest, values.archive, target, product, {
+  release: true,
+});
 const previous = selectNativeArtifact(
   values['previous-manifest'],
   values['previous-archive'],

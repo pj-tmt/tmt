@@ -8,11 +8,13 @@ import * as tar from 'tar';
 
 const executables = { cli: 'tmt', office: 'tmt-office', squad: 'tmt-squad' };
 /**
- * Executables a product's archive carries beside its own, installed with it
- * and recorded in its receipt. Mirrors Product::companions() in
- * rust/crates/tmt-core/src/native_install/product.rs; a release built here
- * always carries them, while the installer also accepts older archives
- * without them.
+ * Executables a product's archive may carry beside its own, installed with
+ * it and recorded in its receipt. Mirrors Product::companions() in
+ * rust/crates/tmt-core/src/native_install/product.rs. As in the installer,
+ * an archive is read against its own manifest: a companion is optional, and
+ * one the manifest declares must be archived and executable. A release built
+ * here must declare them all (verify-native-artifact.mjs), while published
+ * archives from before a companion existed still read.
  */
 const companions = { cli: ['tmt-driver-herdr'], office: [], squad: [] };
 /** The agent-skills tree an extension archive carries under one directory. */
@@ -20,22 +22,16 @@ const skillsRoot = 'skills';
 const skillFileLimit = 1024 * 1024;
 const skillTreeFileLimit = 16 * 64;
 
-/** A product's companion executables; fixtures build from this one list. */
+/** A product's companion executables; builds and fixtures carry them all. */
 export function companionFiles(product = 'cli') {
   assert(Object.hasOwn(companions, product), 'Unknown native product');
   return [...companions[product]];
 }
 
-/** Every file a product's archive carries, its own executable first. */
+/** The files every archive of a product carries, its own executable first. */
 export function runtimeFiles(product = 'cli') {
   assert(Object.hasOwn(executables, product), 'Unknown native product');
-  return [
-    executables[product],
-    'LICENSE',
-    'NATIVE-INSTALL.md',
-    'THIRD-PARTY-NOTICES.txt',
-    ...companions[product],
-  ];
+  return [executables[product], 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 }
 const compressedLimit = 64 * 1024 * 1024;
 const expandedLimit = 128 * 1024 * 1024;
@@ -67,8 +63,18 @@ export function readBoundedFile(file, limit) {
   }
 }
 
-/** Consume cargo-dist metadata; do not maintain a second checksum/version catalog. */
-export function selectNativeArtifact(manifestFile, archiveFile, target, product = 'cli') {
+/**
+ * Consume cargo-dist metadata; do not maintain a second checksum/version catalog. `release`
+ * marks the archive under release, which must carry every companion; a published archive
+ * (an upgrade proof's previous release or driver) is read against its own manifest.
+ */
+export function selectNativeArtifact(
+  manifestFile,
+  archiveFile,
+  target,
+  product = 'cli',
+  { release = false } = {}
+) {
   const requiredFiles = runtimeFiles(product);
   const manifest = JSON.parse(readBoundedFile(manifestFile, 4 * 1024 * 1024));
   const name = path.basename(archiveFile);
@@ -85,11 +91,21 @@ export function selectNativeArtifact(manifestFile, archiveFile, target, product 
   assert(typeof version === 'string' && version.length > 0, 'Manifest requires a version');
   // cargo-dist declares an included directory as one asset named after it.
   const declared = product === 'squad' ? [skillsRoot] : [];
+  const assets = artifact.assets.map((asset) => asset.path);
+  // The companions this archive declares, in their one order.
+  const carried = companionFiles(product).filter((companion) => assets.includes(companion));
   assert.deepEqual(
-    artifact.assets.map((asset) => asset.path).sort(),
-    [...requiredFiles, ...declared].sort(),
+    assets.sort(),
+    [...requiredFiles, ...carried, ...declared].sort(),
     'Manifest must describe exactly the native runtime files'
   );
+  if (release) {
+    assert.deepEqual(
+      carried,
+      companionFiles(product),
+      'A release archive must carry every companion executable'
+    );
+  }
   return {
     name,
     version,
@@ -97,6 +113,7 @@ export function selectNativeArtifact(manifestFile, archiveFile, target, product 
     sha256: artifact.checksums.sha256,
     ...(product === 'cli' ? {} : { product }),
     ...(declared.length > 0 ? { skills: true } : {}),
+    ...(carried.length > 0 ? { companions: carried } : {}),
   };
 }
 
@@ -116,7 +133,10 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
   try {
     const snapshot = path.join(staging, 'snapshot.tar');
     fs.writeFileSync(snapshot, expanded, { flag: 'wx', mode: 0o600 });
-    const expected = new Set(requiredFiles.map((name) => `${rootName}/${name}`));
+    const executables = [requiredFiles[0], ...(metadata.companions ?? [])];
+    const expected = new Set(
+      [...requiredFiles, ...(metadata.companions ?? [])].map((name) => `${rootName}/${name}`)
+    );
     const tree = `${rootName}/${skillsRoot}`;
     const seen = new Set();
     let skillFiles = 0;
@@ -146,8 +166,7 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
         assert.equal(entry.type, 'File', `Native archive entry must be regular: ${entry.path}`);
         assert.equal(entry.mode & 0o7000, 0, 'Native archive must not set special permission bits');
         assert(entry.size > 0, `Empty native archive entry: ${entry.path}`);
-        const executable = [requiredFiles[0], ...companions[metadata.product ?? 'cli']];
-        if (executable.some((name) => entry.path === `${rootName}/${name}`)) {
+        if (executables.some((name) => entry.path === `${rootName}/${name}`)) {
           assert(entry.mode & 0o111, 'Native executable lacks execute permission');
         }
       },

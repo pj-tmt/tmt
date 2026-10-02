@@ -33,7 +33,8 @@ const metadata = selectNativeArtifact(
   values.manifest,
   values.archive,
   values.target,
-  values.product
+  values.product,
+  { release: true }
 );
 assertNativeTarget(values.target, 'Artifact requires a matching native host');
 const skill = values.skill ? fs.readFileSync(values.skill, 'utf8') : undefined;
