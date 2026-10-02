@@ -3766,6 +3766,20 @@ Unheld components regenerate normally; only all-held paths skip `release-pr`.
 hold creation. REST reads use explicit workflow credentials and bounded pages;
 no release or tag is mutated by either gate.
 
+`release-stall.mjs` owns advisory monitoring after release-please, separate from
+required gates. It observes component guard holds and uses the pinned manifest’s
+read-only candidates to identify newest releasable commits. An immutable full
+checkout supplies commit/file/tag acquisition; the attribution wrapper still
+owns private-leaf consumption. No duplicate conventional-commit parser or
+changelog generator selects release work. REST supplies drafts, open PRs, head
+ancestry and the single fixed-title `Release stalled` issue. The read App token
+sees drafts; the workflow token owns issue reads/writes. Stable occurrence
+markers in comments suppress retry duplicates; healthy complete discovery closes
+the same issue. Uncertainty warns without closing, and dry runs only summarize.
+Its request/deadline budget and isolated workflow timeout keep all monitor failures
+advisory; existing release and publication gates retain their failure behavior.
+[Development](DEVELOPMENT.md#release-stall-monitoring) owns thresholds and bounds.
+
 The same safety owner provides `titles-report`, invoked only for merge groups.
 Notes and title feedback share the bounded cumulative squash-subject reader;
 title feedback checks the actual queued subjects, without comparing ordinary PRs

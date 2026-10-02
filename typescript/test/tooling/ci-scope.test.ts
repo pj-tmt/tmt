@@ -416,6 +416,7 @@ describe('component map', () => {
     const alwaysRun = [
       'typescript/test/tooling/ci-scope.test.ts',
       'typescript/test/tooling/release-please-config.test.ts',
+      'typescript/test/tooling/release-stall.test.ts',
     ];
     const qualityCommand = /vitest run ([^\n]+)/.exec(
       readFileSync(path.join(repository, '.github/workflows/ci.yml'), 'utf8')

@@ -57,6 +57,15 @@ Changed release content still needs fresh checks; no queue priority jump is used
 owns request bounds, failure and recovery details. Tooling tests must cover pagination,
 single-active selection, unchanged generated files and original conflict/update behavior.
 
+## Release stall monitoring
+
+Keep advisory stall detection separate from required release gates. The pinned
+manifest remains the releasability owner; a monitor must not close its issue on
+incomplete evidence or mutate held release PRs. Preserve zero-failure behavior,
+visible summary warnings and fixture-only REST tests. [DEVELOPMENT’s monitor
+section](../../../DEVELOPMENT.md#release-stall-monitoring) owns thresholds,
+credentials, bounded discovery and the single-issue recovery lifecycle.
+
 ## Conventional PR titles
 
 Merge groups report conventional squash-title syntax through the shared safety

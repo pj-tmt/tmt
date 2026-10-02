@@ -77,6 +77,13 @@ function componentOf(pr, components) {
   return component;
 }
 
+/** Structural links only; release-please remains the changelog and releasability owner. */
+export function releaseNoteLinks(body) {
+  return [...body.matchAll(/https:\/\/github\.com\/([^\s/]+\/[^\s/]+)\/commit\/([^\s)#?]*)/g)].map(
+    ([, repository, sha]) => ({ repository, sha })
+  );
+}
+
 /** Compare anchor and linked SHA membership only; no conventional-commit or entry counting rules. */
 export function checkReleaseNotes({ pr, base, components, reader, releases }) {
   const component = componentOf(pr, components);
@@ -107,10 +114,8 @@ export function checkReleaseNotes({ pr, base, components, reader, releases }) {
   const range = text ? text.split('\n') : [];
   if (range.some((sha) => !SHA.test(sha))) throw new Error('Incomplete candidate commit range.');
   const allowed = new Set(range);
-  const links = [
-    ...pr.body.matchAll(/https:\/\/github\.com\/([^\s/]+\/[^\s/]+)\/commit\/([^\s)#?]*)/g),
-  ];
-  for (const [, repository, sha] of links) {
+  const links = releaseNoteLinks(pr.body);
+  for (const { repository, sha } of links) {
     if (repository !== reader.repository || !SHA.test(sha) || !allowed.has(sha)) {
       throw new Error(
         `Release note commit ${sha} is outside (${published.tag_name}, candidate base].`

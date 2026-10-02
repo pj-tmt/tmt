@@ -2289,6 +2289,41 @@ cd ..
 actionlint .github/workflows/ci.yml .github/workflows/release.yml
 ```
 
+## Release stall monitoring
+
+`release.yml` runs `node typescript/scripts/release-stall.mjs` after release-please.
+A tagless component hold or queue skip warns when its matching manifest draft is
+strictly older than 30 minutes. An open component release PR warns when its head
+commit timestamp is more than one hour older than that component’s newest
+releasable commit, and a REST ancestry comparison proves the commit is absent
+from the head. The timestamp difference is between commits, not time since the
+workflow ran. Candidates come from real pinned release-please planning, including
+private-leaf attribution, excludes and component cutoffs; unrelated component or
+nonreleasable pushes do not make a preserved head stale.
+
+The full checkout supplies bounded local history/files/tags for this read-only
+plan. Discovery uses REST only, at most 60 requests and ten 100-row pages per
+list, with a 90-second total deadline and ten-second individual command bound.
+Planning consumes at most 500 commits; incomplete history, missing candidate
+links or unavailable metadata warn instead of declaring healthy. Proven draft
+stalls still open/update the issue when independent PR planning is unavailable. No GraphQL or
+live API tests are used. The workflow’s separate two-minute step timeout and
+`continue-on-error` isolate the monitor, including startup/summary/API failures,
+from release gating.
+
+Live runs use the App token for draft/PR reads and `github.token` with
+`issues: write` for issue discovery and mutation. A complete fixed-title search
+finds the single `Release stalled` issue, reopening it for later stalls. A recent
+REST issue page also checks for a just-created issue not yet indexed by search. Each new
+draft ID or stale PR head/commit pair receives a comment marker; retries do not
+repeat the occurrence. Complete healthy discovery closes it automatically.
+Ambiguous discovery or mutation errors leave a visible summary warning; resolve
+multiple matching issues before retrying. Dry runs only summarize and do not
+edit issues. If the App token is unavailable, dry reads cannot observe drafts,
+as described in the safety gate above. The detector never edits release PRs,
+tags, drafts or publication state. Fixtures verify both thresholds, component
+isolation, real pinned planning, occurrence lifecycle and nonblocking failure.
+
 ## Conventional PR-title rollout
 
 `Code quality` runs `node typescript/scripts/release-pr-safety.mjs titles-report`

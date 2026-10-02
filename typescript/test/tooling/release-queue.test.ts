@@ -16,7 +16,7 @@ const workflow = readFileSync(
 );
 const step = workflow
   .split('      - name: Run release-please\n')[1]
-  .split('\n      # Only one release PR')[0];
+  .split('\n      - name: Report release stalls')[0];
 const shell = step
   .split('        run: |\n')[1]
   .split('\n')
@@ -128,6 +128,7 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
         PATH: `${directory}:${process.env.PATH}`,
         RUNNER_TEMP: directory,
         GITHUB_STEP_SUMMARY: summary,
+        GITHUB_OUTPUT: path.join(directory, 'output'),
         GITHUB_REPOSITORY: 'pj-tmt/tmt',
         LIVE: live,
         RELEASE_TOKEN: 'fixture-app',
