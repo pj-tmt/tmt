@@ -252,12 +252,9 @@ fn publish_products(
                     tmt_cli_style::message::hint(
                         &mut stdout,
                         terminal,
-                        &format!(
-                            "{}",
-                            crate::skill_refresh_command::conflict_hint(Path::new(
-                                target.as_str().expect("validated skill path")
-                            ))
-                        ),
+                        &crate::skill_refresh_command::conflict_hint(Path::new(
+                            target.as_str().expect("validated skill path"),
+                        )),
                     )?;
                 }
                 if !refreshed.is_empty() {
