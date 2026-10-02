@@ -3236,6 +3236,12 @@ GitHub App token, created only in that job and only in a live run on `main`, is 
 the release pull requests run the required checks; the job runs in the `release`
 Environment and the App credentials are secrets of that Environment, restricted to `main`.
 Until they exist every push is a dry run that opens, merges, creates and starts nothing.
+`typescript/scripts/release-please-queue.mjs` owns the read-only queue pre-check:
+a workflow-token GraphQL query skips `release-pr` while any open release PR is
+queued, preserving the candidate and continuing `github-release`. Query errors
+and release-please errors remain failures. The check is not atomic with a later
+branch update; [Development](DEVELOPMENT.md#queued-release-pull-requests) owns
+its race, token and recovery behavior.
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
