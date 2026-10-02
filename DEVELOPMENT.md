@@ -1399,8 +1399,9 @@ are not proof of release archives or public installation.
 #### Explicit multi-platform release preparation
 
 `Native release artifacts` (`.github/workflows/native-release.yml`) is the per-product
-release run, dispatched with an explicit `cli`, `office` or `squad` product, not part of
-every PR. It has two modes. The default `prepare` builds and verifies one bundle from the
+release run, dispatched with an explicit `cli` or `squad` product, not part of
+every PR. Office is frozen: its component is parked and neither preparation nor draft
+publication accepts it; existing releases remain untouched. It has two modes. The default `prepare` builds and verifies one bundle from the
 current main commit without a draft release and attaches nothing: dispatch each authorized
 product on the release's reviewed, required-checks-green main commit and record the
 product, run ID and exact SHA in its issue. With `prepare` off, the run plans the
@@ -1792,9 +1793,10 @@ not CLI-only skill/SQLite commands. Follow with `office install --yes --archive
 <archive> --manifest <manifest> --prefix <task-owned-prefix>`, status, repeat
 installation and explicit uninstall. Inspect surviving bytes after rejected
 candidates and deactivation. Public availability is a separate authorized gate;
-local cargo-dist's package selection tag does not publish a Git tag. Public Office
-discovery uses `tmt-office-v<version>`; select `office` explicitly when dispatching
-the shared release workflow and never publish its bundle under a CLI tag.
+local cargo-dist's package selection tag does not publish a Git tag. Historical Office
+releases use `tmt-office-v<version>`. Office is frozen and is
+not accepted by the shared release workflow; local archive verification does not
+authorize publication or a CLI tag.
 
 #### Squad archives
 
