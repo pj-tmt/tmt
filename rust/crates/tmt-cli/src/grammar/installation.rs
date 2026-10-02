@@ -306,3 +306,48 @@ pub(in crate::grammar) fn learn() -> Command {
         &["skill"],
     )
 }
+
+/// Consented host drivers (#570): terminal hosts TMT doesn't build in.
+pub(in crate::grammar) fn driver() -> Command {
+    general(spec!(
+        "driver",
+        "Manage consented host drivers",
+        [
+            "List approved host drivers" => "tmt driver ls",
+            "Approve a host driver" => "tmt driver install ./tmt-driver-herdr",
+        ]
+    ))
+    .subcommand_required(true)
+    .subcommand(
+        general(spec!(
+            "install",
+            "Approve a host driver executable after showing what it declares",
+            [
+                "Approve a host driver" => "tmt driver install ./tmt-driver-herdr",
+                "Approve without a prompt" => "tmt driver install ./tmt-driver-herdr --yes",
+            ]
+        ))
+        .arg(operand("path", true))
+        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
+    )
+    .subcommand(
+        general(spec!(
+            "ls",
+            "List approved host drivers and whether each still runs as approved",
+            [
+                "List approved host drivers" => "tmt driver ls",
+            ]
+        ))
+        .alias("list"),
+    )
+    .subcommand(
+        general(spec!(
+            "rm",
+            "Withdraw approval of a host driver",
+            [
+                "Remove the Herdr driver" => "tmt driver rm herdr",
+            ]
+        ))
+        .arg(operand("name", true)),
+    )
+}

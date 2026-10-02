@@ -783,6 +783,11 @@ installation state and retry only the stated selection.
 
 ## Configuration safety
 
+Host drivers (`tmt driver install|ls|rm`) run only after the user approves
+them. Never pass `--yes` to `tmt driver install` on the user's behalf; a run
+without a terminal refuses with `DRIVER_CONSENT_REQUIRED` and changes nothing.
+Ask the user to run it themselves. `tmt driver ls` is safe to read.
+
 Use `tmt config show --json` to inspect resolved settings and file paths.
 Human `config show` also labels actual value source, accepted values and whether
 each key is CLI-editable locally/globally or global-file-only. The three

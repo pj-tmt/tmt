@@ -2505,7 +2505,22 @@ replaces it.
 
 - **`registry`:** the approved drivers in `<global>/drivers.json`. Approval
   refuses a declaration that a built-in host or another approved driver would
-  read as its own.
+  read as its own. It is two steps: `inspect` runs every check (ownership,
+  digest, one `capabilities` probe, conflicts) and writes nothing, and
+  `commit` checks the conflicts again against the registry as it is then and
+  writes the record. `state` reports an approved driver as `ok`, `changed`
+  (fingerprint, ownership or digest no longer as approved) or `missing`.
+- **`tmt driver` (`tmt-cli/src/driver_command.rs`):** the registry's front
+  end. A record is written only with explicit consent, never by install or
+  upgrade. `install <path>` refuses before asking, then shows the name,
+  version, protocol, executable, SHA-256, operations and the environment
+  `caller` reads, and asks `Approve host driver <name>? [y/N]` through the
+  shared consent prompt. `--yes` skips the question. A run that can't ask
+  (no terminal, or `--json`) refuses with `DRIVER_CONSENT_REQUIRED` and writes
+  nothing. `ls` shows each driver's state, with the command that approves a
+  changed or missing one again. `rm` withdraws an approval without asking; an
+  unknown name is `DRIVER_NOT_FOUND`. Bindings on a removed driver's host
+  stay stored and read as unavailable.
 - **`DriverProcess`:** runs one operation through the bounded process owner,
   under the operation's deadline and output bound, with `TMT_DRIVER_CALL=1`. It
   decodes the answer against the driver's grammar.

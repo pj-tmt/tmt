@@ -14,6 +14,7 @@ mod focus_command;
 mod resume_command;
 use tmt_adapters::delivery;
 mod diagnostics;
+mod driver_command;
 #[cfg(test)]
 mod driver_registry_tests;
 mod driver_style;
@@ -161,6 +162,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::ExtensionHooks(request) => {
             return extension_hooks_command::execute(request, parsed.mode);
+        }
+        Invocation::Driver(request) => {
+            return driver_command::execute(request, parsed.mode);
         }
         Invocation::Init => {
             return init_command::execute(parsed.mode);

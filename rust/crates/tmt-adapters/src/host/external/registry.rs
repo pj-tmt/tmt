@@ -132,8 +132,20 @@ fn write(global_dir: &Path, drivers: &[DriverRecord]) -> Result<(), RegistryErro
 }
 
 /// Approves `executable` as a host driver, replacing an earlier approval of
-/// the same name.
+/// the same name: [`inspect`], then [`commit`].
 pub fn approve(
+    global_dir: &Path,
+    executable: &Path,
+    runner: &impl CommandRunner,
+) -> Result<DriverRecord, RegistryError> {
+    commit(global_dir, inspect(global_dir, executable, runner)?)
+}
+
+/// Everything approval checks, without recording anything: the executable is
+/// safely owned, answers `capabilities`, and could not be read as a built-in
+/// host or another approved driver. The record is what `commit` would write,
+/// so a user can be shown it before consenting.
+pub fn inspect(
     global_dir: &Path,
     executable: &Path,
     runner: &impl CommandRunner,
@@ -141,21 +153,59 @@ pub fn approve(
     let executable = fs::canonicalize(executable)?;
     let metadata = executable_trust::verify_ownership(&executable)?;
     let digest = executable_trust::digest(&executable)?;
-    let (capabilities, grammar) = process::probe(runner, &executable).map_err(|reason| {
+    let (capabilities, _) = process::probe(runner, &executable).map_err(|reason| {
         RegistryError::Refused(format!(
             "{} is not a host driver: {reason}",
             executable.display()
         ))
     })?;
-    let name = grammar.name().to_owned();
+    let record = DriverRecord {
+        name: capabilities.name.clone(),
+        path: executable,
+        digest,
+        fingerprint: Fingerprint::of(&metadata),
+        protocol: PROTOCOL,
+        capabilities,
+        approved_at_ms: 0,
+    };
+    admissible(&record, &read(global_dir)?)?;
+    Ok(record)
+}
+
+/// Records an inspected driver, after checking again against the registry
+/// as it is now, since another approval may have landed in between.
+pub fn commit(global_dir: &Path, mut record: DriverRecord) -> Result<DriverRecord, RegistryError> {
+    let mut drivers = read(global_dir)?;
+    admissible(&record, &drivers)?;
+    drivers.retain(|existing| existing.name != record.name);
+    record.approved_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64);
+    drivers.push(record.clone());
+    drivers.sort_by(|left, right| left.name.cmp(&right.name));
+    write(global_dir, &drivers)?;
+    Ok(record)
+}
+
+/// Whether `record` may join `drivers`, replacing one of its own name.
+fn admissible(record: &DriverRecord, drivers: &[DriverRecord]) -> Result<(), RegistryError> {
+    let grammar = Grammar::from_capabilities(&record.capabilities).map_err(|error| {
+        RegistryError::Refused(format!(
+            "{} is not a host driver: {error}",
+            record.path.display()
+        ))
+    })?;
+    let name = &record.name;
     if let Some(reason) = tmt_core::host::builtin_conflict(grammar.host()) {
         return Err(RegistryError::Refused(format!(
             "Host driver {name} can't be installed: {reason}."
         )));
     }
-    let mut drivers = read(global_dir)?;
-    drivers.retain(|existing| existing.name != name);
-    for existing in &drivers {
+    let others: Vec<&DriverRecord> = drivers
+        .iter()
+        .filter(|existing| existing.name != *name)
+        .collect();
+    for existing in &others {
         let Ok(other) = Grammar::from_capabilities(&existing.capabilities) else {
             continue;
         };
@@ -167,26 +217,49 @@ pub fn approve(
         }
     }
     // Each approved host is registered for a process's life (`tmt_core::host`).
-    if drivers.len() >= MAX_EXTERNAL_HOSTS {
+    if others.len() >= MAX_EXTERNAL_HOSTS {
         return Err(RegistryError::Refused(format!(
             "At most {MAX_EXTERNAL_HOSTS} host drivers can be installed."
         )));
     }
-    let record = DriverRecord {
-        name,
-        path: executable,
-        digest,
-        fingerprint: Fingerprint::of(&metadata),
-        protocol: PROTOCOL,
-        capabilities,
-        approved_at_ms: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |elapsed| elapsed.as_millis() as u64),
-    };
-    drivers.push(record.clone());
-    drivers.sort_by(|left, right| left.name.cmp(&right.name));
-    write(global_dir, &drivers)?;
-    Ok(record)
+    Ok(())
+}
+
+/// Whether an approved driver can still run as approved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalState {
+    Ok,
+    /// The executable is no longer the one approved: changed, replaced, or
+    /// no longer safely owned.
+    Changed,
+    /// Nothing is at the approved path.
+    Missing,
+}
+
+impl ApprovalState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Changed => "changed",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+/// The state a driver would be found in when next run: the same ownership,
+/// fingerprint and digest checks a call makes.
+pub fn state(record: &DriverRecord) -> ApprovalState {
+    match fs::symlink_metadata(&record.path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return ApprovalState::Missing,
+        _ => {}
+    }
+    let same = executable_trust::unchanged(&record.path, &record.fingerprint)
+        && executable_trust::digest(&record.path).is_ok_and(|digest| digest == record.digest);
+    if same {
+        ApprovalState::Ok
+    } else {
+        ApprovalState::Changed
+    }
 }
 
 /// Removes an approval; whether there was one.
