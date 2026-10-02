@@ -267,9 +267,9 @@ function assertDurableSubmission(
   );
 }
 
-const baselineSuite = ENABLED ? describe.sequential : describe.skip;
+const baselineSuite = ENABLED ? describe : describe.skip;
 
-baselineSuite('TMT performance baseline', () => {
+baselineSuite('TMT performance baseline', { concurrent: false }, () => {
   it(
     'measures fresh CLI processes against observable output, state, and tmux fan-out',
     { timeout: 120_000 },

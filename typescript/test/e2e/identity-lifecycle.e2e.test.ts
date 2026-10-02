@@ -109,7 +109,7 @@ async function talkToIdentity(
   }
 }
 
-describe.sequential('global identity lifecycle', () => {
+describe('global identity lifecycle', { concurrent: false }, () => {
   it('runs the real name/this/whoami/unbind lifecycle with human and JSON contracts', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.pane;

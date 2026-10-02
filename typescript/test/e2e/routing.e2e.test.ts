@@ -33,7 +33,7 @@ interface BoundResult {
   lifetime: 'temporary' | 'saved';
 }
 
-describe.sequential('global identity and runtime routing', () => {
+describe('global identity and runtime routing', { concurrent: false }, () => {
   it('routes names, an ordinary all identity, and direct pane targets across workspaces', async () => {
     await withE2EFixture(async (fixture) => {
       const alphaWorkspace = fixture.createWorkspace('alpha-workspace');

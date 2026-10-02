@@ -54,7 +54,7 @@
     "prettier": "^3.7.4",
     "tar": "7.5.22",
     "typescript": "^5.3.0",
-    "vitest": "4.1.11"
+    "vitest": "5.0.1"
   },
   "nx": {
     "includedScripts": []

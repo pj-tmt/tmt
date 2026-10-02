@@ -15,7 +15,7 @@ interface TalkResult {
   response: string;
 }
 
-describe.sequential('shared rooms across real tmux and inbox delivery', () => {
+describe('shared rooms across real tmux and inbox delivery', { concurrent: false }, () => {
   it('preserves verified caller provenance and unknown outside-owner provenance', async () => {
     await withE2EFixture(async (fixture) => {
       const caller = expectJsonResult(

@@ -35,7 +35,7 @@ function waitForSubmitted(fixture: E2EFixture, requestId: string): Promise<MockE
   );
 }
 
-describe.sequential('TMT-39 durable talk contract', () => {
+describe('TMT-39 durable talk contract', { concurrent: false }, () => {
   it.each([
     ['empty', ''],
     ['whitespace', ' \t  \n\r\n '],

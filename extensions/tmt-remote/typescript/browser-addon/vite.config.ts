@@ -8,5 +8,5 @@ export default defineConfig({
       output: { entryFileNames: '[name].js' },
     },
   },
-  test: { include: ['src/**/*.test.ts'], passWithNoTests: false },
+  test: { clearMocks: false, include: ['src/**/*.test.ts'], passWithNoTests: false },
 });

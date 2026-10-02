@@ -13,7 +13,7 @@ interface StatusResult {
   };
 }
 
-describe.sequential('self-reported status from verified tmux callers', () => {
+describe('self-reported status from verified tmux callers', { concurrent: false }, () => {
   it('uses the bound Contractor UUID and preserves its status through promotion', async () => {
     await withE2EFixture(async (fixture) => {
       const caller = expectJsonResult(

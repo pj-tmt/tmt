@@ -12,7 +12,7 @@ function processGroupIsRunning(pid: number): boolean {
   }
 }
 
-describe.sequential('durable reply child lifecycle', () => {
+describe('durable reply child lifecycle', { concurrent: false }, () => {
   it('cleans a real reply child held before stdin EOF when the mock is SIGKILLed', async () => {
     let failedFixture: E2EFixture | undefined;
     let childPid = 0;

@@ -25,7 +25,7 @@ function badge(fixture: E2EFixture, pane: string): string {
   return fixture.tmux(['show-options', '-p', '-qv', '-t', pane, '@tmux-team.badge']).trim();
 }
 
-describe.sequential('explicit marked-pane binding', () => {
+describe('explicit marked-pane binding', { concurrent: false }, () => {
   it('binds the marked pane without caller discovery and preserves repeat, save, conflicts, and the mark', async () => {
     await withE2EFixture(async (fixture) => {
       const peer = await fixture.createMockPane('marked-peer');

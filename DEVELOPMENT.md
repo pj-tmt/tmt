@@ -192,8 +192,16 @@ selects only tooling tests; `office:test` explicitly selects app tests and fails
 on empty discovery. Office uses Oxfmt; tooling and repository docs use the
 `typescript/.prettierrc` Prettier configuration. Run
 `pnpm --filter @tmt/office format` for app formatting, not the tooling formatter.
-Root tooling, native, stress and Docker suites use Vitest 4 alongside the
+Root tooling, native, stress and Docker suites use exact Vitest 5.0.1 alongside the
 extension packages; their separate configurations retain their own test discovery.
+Each test configuration sets `clearMocks: false` to preserve mock history, and
+ordered suites use `{ concurrent: false }`.
+Vitest 5 changes generated `it.each` case labels: `$field` strings lose
+quotes, and percent placeholders use the new value renderer (including signed
+zero and object clipping). Migration parity records each changed label with its
+source template and case index alongside both actual titles and equal statuses;
+unchanged labels remain exact multiset matches. Preserve the raw reports rather
+than silently normalizing these differences.
 Office wire-schema conformance is a nested tooling test. From `typescript`, run
 `corepack pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
 [`extensions/tmt-office/contracts`](extensions/tmt-office/contracts/README.md) for its single source of truth,

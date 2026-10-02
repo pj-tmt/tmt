@@ -48,7 +48,7 @@ function bindingOwners(fixture: E2EFixture): string[] {
   }
 }
 
-describe.sequential('committed identity retention', () => {
+describe('committed identity retention', { concurrent: false }, () => {
   it('keeps an existing offline identity through a refused binding and reuses its UUID on a later verified binding', async () => {
     await withE2EFixture(async (fixture) => {
       expectJsonResult(await fixture.runJsonCli(['name', 'Occupied']));

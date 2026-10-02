@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    clearMocks: false,
     pool: 'threads',
     include: ['test/native/**/*.test.ts'],
     fileParallelism: false,

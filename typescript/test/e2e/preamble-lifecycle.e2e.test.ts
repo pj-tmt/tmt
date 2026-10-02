@@ -104,7 +104,7 @@ async function causalTalk(
   return event;
 }
 
-describe.sequential('durable identity preambles', () => {
+describe('durable identity preambles', { concurrent: false }, () => {
   it('stores by durable identity, stays offline, and survives legacy files and rebinding', async () => {
     await withE2EFixture(async (fixture) => {
       const bound = await fixture.runJsonCli(['name', 'Durable', '-s']);

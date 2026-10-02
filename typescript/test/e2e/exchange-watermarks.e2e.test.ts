@@ -33,7 +33,7 @@ function attentionAttempt(fixture: E2EFixture, requestId: string): AttentionAtte
   return attempt as AttentionAttemptRow;
 }
 
-describe.sequential('exchange attention watermarks and revision fencing', () => {
+describe('exchange attention watermarks and revision fencing', { concurrent: false }, () => {
   it('keeps implicit attribution, explicit offline attention, watermark cutoffs, and late revisions causal', async () => {
     const original = 'native attention original prompt';
     const body = '\uFEFFlate native final\r\n日本語🙂  ';
