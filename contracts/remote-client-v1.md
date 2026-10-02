@@ -371,10 +371,11 @@ Remote narrows supported operations/authority before core calls.
 
 `agents.list`, `check`, `operation.show` and `result` are adapter helpers over ordinary public JSON
 commands, not new core API operations. SDK `api(op,input)` cannot reach local management/argv
-through an invented operation. Delivery status is `channel` (enrolled native channel ready),
-`paste` (ordinary paste delivery), `not_ready` (enrolled but not ready; carries the local relaunch
-hint) or `not_running`. Remote reads it from a public core projection and never infers it from
-panes; until core publishes that projection, `agents.list` reports presence only.
+through an invented operation. Delivery status is the read-only `delivery` projection that core
+owns in its public `ls`/API JSON: `channel` (enrolled native channel ready), `paste` (ordinary paste
+delivery), `not_ready` (enrolled but not ready, with core's local recovery hint) or `not_running`.
+Remote forwards it unchanged and never infers it from panes; until core publishes that projection,
+`agents.list` reports presence only.
 
 Helper payloads are `agents.list:{}`, `check:{agentId,lines?}`, `operation.show:{operationId}` and
 `result:{requestId}`. `dispatch.create` payload is exactly
@@ -392,8 +393,12 @@ never mapped to an identity on the receiving machine. Callers reject a caller-se
 
 On a paired `cli` device, ordinary `tmt talk` addressed to a remote agent is the send action: it
 freezes the operation ID and exact bytes, appends `dispatch.create`, and waits for the durable
-reply through `result`, as a local talk waits for its reply. The address grammar for a remote agent
-(for example `<agent>@<machine>`) is owned by the CLI slice and reviewed with core.
+reply through `result`, as a local talk waits for its reply. Remote agents are addressed by their
+plain name, as in local `tmt talk`; a local identity with that name always wins. A name with no
+local match resolves to the one paired-machine agent of that name, and the command output names
+the machine. `<name>@<machine>` (the machine name recorded when this device paired) selects explicitly
+and is needed only when the plain name is ambiguous across paired machines; ambiguity refuses and
+lists the qualified candidates rather than choosing one.
 
 The wire-independent client boundary is `@tmt/remote-client`. `RemoteClient` has
 `listAgents():Promise<{id,name,delivery?}[]>`, `send({operationId,agentId,message})`, read-only
