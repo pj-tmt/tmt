@@ -2,11 +2,9 @@ use super::*;
 
 #[test]
 fn response_drains_input_sent_after_its_fin_until_peer_eof() {
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-    let mut peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (mut socket, mut peer) = UnixStream::pair().unwrap();
     peer.set_read_timeout(Some(limits::RESPONSE)).unwrap();
     peer.set_write_timeout(Some(limits::RESPONSE)).unwrap();
-    let (mut socket, _) = listener.accept().unwrap();
     socket.set_read_timeout(Some(limits::RESPONSE)).unwrap();
     let worker = thread::spawn(move || {
         response(&mut socket, 429, b"CAPACITY", false).unwrap();
@@ -20,6 +18,6 @@ fn response_drains_input_sent_after_its_fin_until_peer_eof() {
     // The server has already sent FIN; the request tail is intentionally late.
     peer.write_all(&vec![b'x'; limits::HTTP_BODY_BYTES])
         .unwrap();
-    peer.shutdown(Shutdown::Write).unwrap();
+    peer.shutdown(std::net::Shutdown::Write).unwrap();
     worker.join().unwrap();
 }

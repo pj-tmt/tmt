@@ -2618,24 +2618,29 @@ PATH="$PWD/rust/target/debug:$PATH" tmt colab serve --json
 ```
 
 After building a core supporting `storage.root` (#860) and the extension, put
-`rust/target/debug` on PATH and run `tmt colab serve` (default port 7341).
-A busy port fails with a `--port` hint; `--port 0` selects a free port.
-Direct invocation requires an absolute
+`rust/target/debug` on PATH and run `tmt colab serve`. It listens only on its
+owner-only socket `<dataRoot>/colab/door.sock`; a stale socket from an earlier
+serve is replaced, any other file at that path refuses with
+`COLAB_STATE_UNSAFE`, and a data root too deep for a Unix socket path refuses
+with `COLAB_SOCKET_PATH_TOO_LONG`. Direct invocation requires an absolute
 `TMT_EXECUTABLE`. `tmt colab serve --json` prints one plain JSON descriptor with
-space ID and working URL; Ctrl-C/SIGTERM closes sockets, joins workers and
-releases the service lock. `tmt colab spaces --json` lists the local space and
-running state without creating directories or keys; before first serve it
-returns `{"spaces":[]}`. Use an isolated normal TMT data root for manual tests.
+the space ID and socket path; Ctrl-C/SIGTERM closes sockets and tunnels, joins
+workers, removes the socket and releases the service lock. `tmt colab spaces
+--json` lists the local space and running state without creating directories or
+keys; before first serve it returns `{"spaces":[]}`. Use an isolated normal TMT
+data root for manual tests. Browsers reach colab through `tmt remote serve` at
+`<prefix>/x/colab/`; remote owns Host and Origin admission and forwards the
+paired owner's device context.
 
-The printed `127.0.0.1:<port>` is the only accepted Host and Origin; no localhost,
-forwarded-host or DNS-rebinding alias is admitted. The door bounds are named in
-`src/limits.rs`: 16 active sockets, 8 KiB/32 header fields, 64 KiB HTTP bodies,
-2-second total acquisition and 1-second total response. HTTP body capacity is
-for later sign-in/management; page objects use the future sync path. The stream sync library enforces 64 KiB frames and 8 queued frames with
-`RESYNC_REQUIRED` close for slow subscribers; the foreground door still accepts no
-WebSocket. Real socket and foreground
-process cleanup tests run lifecycle scenarios twice, with no core calls from
-denied traffic. Owner-key temporary cleanup is publication-locked; it preserves
+The socket bounds are named in `src/limits.rs`: 16 request workers, 8 KiB/32
+header fields, 64 KiB HTTP bodies, 2-second total acquisition and 1-second total
+response, and 16 WebSocket tunnels closed after 120 seconds without bytes. HTTP
+body capacity is for later sign-in/management; page objects use the future sync
+path. The stream sync library enforces 64 KiB frames and 8 queued frames with
+`RESYNC_REQUIRED` close for slow subscribers; serve accepts and holds an owner's
+`colab-sync-v1` upgrade but does not yet hand it to that library. Real socket
+and foreground process cleanup tests run lifecycle scenarios twice, with no core calls from
+socket traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
 
 ### Colab stream sync verification

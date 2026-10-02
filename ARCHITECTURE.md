@@ -3843,8 +3843,8 @@ is that handler for the machine's stable `/r/<prefix>/` binding routes and the
 owner, which currently denies every request. Startup discovery is not a remote
 operation. Apart from pairing, the pilot cannot adopt a request, approve, send
 or subscribe; no journal or core DB is created. The foreground door has no default
-deadline; it runs until interrupted. Colab keeps its own copy of the door
-until its routes mount on the remote door.
+deadline; it runs until interrupted. Colab has no door of its own; remote
+mounts its owner-only socket.
 
 `state` owns remote's private `<dataRoot>/remote/` subtree, relocated from the
 colab keyring: an owned 0700 directory, owned 0600 regular files opened without
@@ -4077,6 +4077,20 @@ owner-device identity, door route mounting, the opaque relay, agent operations a
 backends/deploy, and colab-v1 marks which of its sections move there or retire.
 Colab keeps page membership, content keys, epochs and before-effect verification;
 the public core API retains dispatch/final ownership.
+
+`socket::MountSocket` is colab's only listener: `<dataRoot>/colab/door.sock`
+(0600 in the 0700 colab directory), bound under the serve lock, which replaces
+only a stale socket owned by this user, refuses anything else, rejects paths too
+long for a Unix socket and removes its own socket on exit. Remote mounts it at
+`<prefix>/x/colab/` and owns Host, Origin, cookies and browser framing; colab
+trusts `tmt-device-context` because only the owner can reach the socket. It
+keeps the relocated door's bounds (16 request workers, 8 KiB/32 header fields,
+64 KiB bodies, acquisition/response deadlines, drained replies) and answers the
+placeholder page for owner and non-owner requests. It accepts a `colab-sync-v1`
+WebSocket upgrade only with an owner context, computing the accept value with
+the workspace `tungstenite` handshake, then holds the tunnel (16 at most, closed
+after 120 s without bytes) until colab-sync-v1 frames exist. Shutdown closes
+every request socket and tunnel before joining.
 
 Servers never decode Yjs; foreign-writer decoding/merging runs in a bounded
 `tmt-colab` child through `tmt-invoke` (deadline/caps/confirmed cleanup), or a
