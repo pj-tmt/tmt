@@ -288,6 +288,129 @@ it('unconfirmed group exit is bounded and retains files and the original failure
   }
 }, 5_000);
 
+it.each(['signal', 'probe'])(
+  '%s EPERM resolves only after direct close and confirmed group absence',
+  async (denial) => {
+    const f = fixture('exit');
+    const kill = process.kill.bind(process);
+    let signalled = 0;
+    let absent = false;
+    let probeDenied = false;
+    const probe = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      const group = fs.existsSync(f.marker)
+        ? (JSON.parse(fs.readFileSync(f.marker, 'utf8')) as { group: number }).group
+        : undefined;
+      if (
+        denial === 'probe' &&
+        !probeDenied &&
+        group !== undefined &&
+        pid === -group &&
+        signal === 0
+      ) {
+        probeDenied = true;
+        // Emulate independently exiting fixture members, then deny the stale probe.
+        // The harness must not send a signal after this unconfirmed observation.
+        kill(pid, 'SIGKILL');
+        throw Object.assign(new Error('Simulated probe exit race'), { code: 'EPERM' });
+      }
+      if (group !== undefined && pid === -group && signal === 'SIGKILL') {
+        signalled++;
+        if (denial === 'probe') return kill(pid, signal);
+        // Deliver the real signal, then emulate the error from a concurrent exit.
+        kill(pid, signal);
+        throw Object.assign(new Error('Simulated signal exit race'), { code: 'EPERM' });
+      }
+      try {
+        return kill(pid, signal);
+      } catch (error) {
+        if (
+          group !== undefined &&
+          pid === -group &&
+          signal === 0 &&
+          (error as NodeJS.ErrnoException).code === 'ESRCH'
+        ) {
+          absent = true;
+        }
+        throw error;
+      }
+    });
+    try {
+      await withSandbox(async (sandbox) => {
+        const result = await runCli({ ...sandbox, cli: f.cli }, []);
+        expect(result.status).toBe(0);
+        expect(result.signal).toBeNull();
+        expect(signalled).toBe(denial === 'signal' ? 1 : 0);
+        expect(probeDenied).toBe(denial === 'probe');
+        expect(absent).toBe(true);
+        const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
+        expect(alive(child)).toBe(false);
+        expect(alive(-group)).toBe(false);
+      });
+    } finally {
+      probe.mockRestore();
+      await cleanup(f.marker);
+    }
+  }
+);
+
+it.each(['signal', 'probe'])(
+  '%s EPERM with a live group fails bounded cleanup and retains files',
+  async (denial) => {
+    const f = fixture('exit');
+    const kill = process.kill.bind(process);
+    let signalled = 0;
+    let sandboxRoot = '';
+    let probeDenied = false;
+    const probe = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      const group = fs.existsSync(f.marker)
+        ? (JSON.parse(fs.readFileSync(f.marker, 'utf8')) as { group: number }).group
+        : undefined;
+      if (
+        denial === 'probe' &&
+        !probeDenied &&
+        group !== undefined &&
+        pid === -group &&
+        signal === 0
+      ) {
+        probeDenied = true;
+        throw Object.assign(new Error('Simulated inspection denial'), { code: 'EPERM' });
+      }
+      if (group !== undefined && pid === -group && signal === 'SIGKILL') {
+        signalled++;
+        if (denial === 'probe') return kill(pid, signal);
+        throw Object.assign(new Error('Simulated permission denial'), { code: 'EPERM' });
+      }
+      return kill(pid, signal);
+    });
+    try {
+      const error = await withSandbox(async (sandbox) => {
+        sandboxRoot = sandbox.root;
+        roots.push(sandboxRoot);
+        await runCli({ ...sandbox, cli: f.cli }, []);
+      }).catch((error: unknown) => error);
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as Error).message).toContain('retained fixture');
+      expect((error as AggregateError).errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: 'CLI process cleanup did not confirm close and group exit within 1000ms.',
+          }),
+        ])
+      );
+      expect(signalled).toBe(denial === 'signal' ? 1 : 0);
+      expect(probeDenied).toBe(denial === 'probe');
+      expect(fs.existsSync(sandboxRoot)).toBe(true);
+      const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8'));
+      expect(alive(child)).toBe(true);
+      expect(alive(-group)).toBe(true);
+    } finally {
+      probe.mockRestore();
+      await cleanup(f.marker);
+    }
+  },
+  5_000
+);
+
 it('callback failure stops an unawaited run before removing the sandbox', async () => {
   const f = fixture('hold');
   let sandboxRoot = '';

@@ -1229,7 +1229,10 @@ The public Office acquisition contract remains separately asserted while it ship
 Use `withSandbox` for callback-owned native fixtures. Its descriptor clones
 share active runs; disposal stops outstanding commands before deleting files
 and rejects later launches. Each run has its execution deadline plus at most
-one second to confirm direct close and process-group exit. Unconfirmed cleanup
+one second to confirm direct close and process-group exit. Signal or initial
+group-probe EPERM is tolerated only after child close and a subsequent ESRCH
+group probe; live or unknown groups and other initial probe or signal errors
+still fail cleanup. An unconfirmed group is never signalled. Unconfirmed cleanup
 fails and reports the retained fixture path instead of deleting potentially
 live state. Focused lifecycle regressions live in `typescript/test/tooling/cli-process.test.ts`;
 they use explicit Node fixtures, not a product-runtime fallback.
