@@ -57,8 +57,8 @@ artifacts may lag until a coordinated compatible CLI/Office release; do not adve
 source-only `start` or `--local` support from an older pair. When a schema advance
 requires it, install the compatible CLI before activating the companion: an older
 CLI may reject the upgraded shared database. Never publish an incompatible Office
-companion alone. Follow the [native installation guidance](../../../docs/NATIVE-INSTALL.md)
-for release status and compatibility.
+companion alone. Follow the [handbook start chapter](../../../site/src/chapters/start.mdx)
+for installation and upgrade steps.
 
 The installed companion can serve its embedded Office UI and installation-owned
 SQLite state without pairing, Firebase or network access:

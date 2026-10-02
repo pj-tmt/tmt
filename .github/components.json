@@ -88,8 +88,8 @@
     {
       "id": "consumed-docs",
       "consumers": ["native", "office"],
-      "why": "Read by build and test inputs: design/cli-style.md by the CLI and Squad style tests, docs/NATIVE-INSTALL.md by the release archive and onboarding checks.",
-      "paths": ["design/cli-style.md", "docs/NATIVE-INSTALL.md"]
+      "why": "Read by build and test inputs: design/cli-style.md by the CLI and Squad style tests, rust/archive/NATIVE-INSTALL.md by the release archive and onboarding checks.",
+      "paths": ["design/cli-style.md", "rust/archive/NATIVE-INSTALL.md"]
     },
     {
       "id": "prose",
@@ -102,7 +102,6 @@
         "DEVELOPMENT.md",
         "README.md",
         "contracts/request-response-v1.md",
-        "docs/*.md",
         "contracts/extension-api.md",
         ".agents/**",
         ".github/pull_request_template.md"

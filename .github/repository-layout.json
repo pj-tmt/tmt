@@ -23,9 +23,5 @@
     "skills",
     "typescript"
   ],
-  "temporary": {
-    "docs": {
-      "removeIn": ["#998"]
-    }
-  }
+  "temporary": {}
 }

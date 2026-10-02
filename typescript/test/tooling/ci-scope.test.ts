@@ -176,12 +176,13 @@ describe('CI area selection', () => {
     expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: true });
   });
 
-  it.each(['typescript/test/e2e/Dockerfile', 'design/cli-style.md', 'docs/NATIVE-INSTALL.md'])(
-    'runs native and Office checks, but not the Office shards, for input %s',
-    (file) => {
-      expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: false });
-    }
-  );
+  it.each([
+    'typescript/test/e2e/Dockerfile',
+    'design/cli-style.md',
+    'rust/archive/NATIVE-INSTALL.md',
+  ])('runs native and Office checks, but not the Office shards, for input %s', (file) => {
+    expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: false });
+  });
 
   it.each([
     'ARCHITECTURE.md',
@@ -521,7 +522,7 @@ describe('component map', () => {
     expect(text).toContain('| `ARCHITECTURE.md` | cli | prose | nothing |');
     expect(text).toContain('| `rust/lib.rs` | cli | native-source | native, native_office |');
     const many = explainCiSelection(
-      Array.from({ length: 130 }, (_, index) => `docs/file-${index}.md`),
+      Array.from({ length: 130 }, (_, index) => `.agents/file-${index}.md`),
       map
     );
     const bounded = renderSelectionEvidence({
@@ -531,7 +532,7 @@ describe('component map', () => {
       areas: { native: false, office: false, nativeOffice: false },
       digest: map.digest,
     });
-    expect(bounded.match(/^\| `docs\//gm)).toHaveLength(100);
+    expect(bounded.match(/^\| `\.agents\//gm)).toHaveLength(100);
     expect(bounded).toContain('30 more path(s) not listed: prose 30.');
   });
 
@@ -1194,8 +1195,8 @@ describe('CI diff and command integration', () => {
       git(['init', '--quiet']);
       const base = commit('README.md', 'base');
       git(['update-ref', 'refs/remotes/origin/main', base]);
-      commit('docs/first.md', 'first PR');
-      const docs = commit('docs/second.md', 'second PR');
+      commit('.agents/first.md', 'first PR');
+      const docs = commit('.agents/second.md', 'second PR');
       const docsRun = select(['merge-group', docs]);
       expect(docsRun.outputs).toMatchObject({
         native: 'false',
@@ -1205,8 +1206,8 @@ describe('CI diff and command integration', () => {
         e2e_shard_2: '',
       });
       expect(docsRun.evidence).toContain(`${base.slice(0, 12)}..${docs.slice(0, 12)}`);
-      expect(docsRun.evidence).toContain('docs/first.md');
-      expect(docsRun.evidence).toContain('docs/second.md');
+      expect(docsRun.evidence).toContain('.agents/first.md');
+      expect(docsRun.evidence).toContain('.agents/second.md');
       expect(docsRun.outputs).toEqual(select([base, docs]).outputs);
       const squad = commit('extensions/tmt-squad/rust/tmt-squad/src/main.rs', '// squad');
       const squadRun = select(['merge-group', squad]);

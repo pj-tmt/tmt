@@ -38,7 +38,7 @@ layout permission does not change component ownership, CI selection or release p
 | Repository root           | Short entry points, contributor guidance, license and required repository/tool configuration; no product source or generated evidence. |
 | `.agents/`                | Repository contributor procedures.                                                                                                     |
 | `.github/`                | Component ownership, layout allowlist, workflows, shared Actions and isolated release tooling.                                         |
-| `rust/`                   | Native CLI, core, adapters and shared Rust leaves; extension crates remain under their extension.                                      |
+| `rust/`                   | Native CLI, core, adapters and shared Rust leaves, and the release archive note; extension crates remain under their extension.        |
 | `typescript/`             | Private developer tooling, tests and shared fixture support; no product-runtime fallback.                                              |
 | `extensions/<extension>/` | Feature-owned runtimes, contracts, skills, documentation and assets.                                                                   |
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
@@ -47,7 +47,7 @@ layout permission does not change component ownership, CI selection or release p
 | `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead.                                                                  |
 | `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
 
-Current temporary homes and pending moves:
+Homes of moved guidance:
 
 Core public process and request/response contracts live in `contracts/extension-api.md`
 and `contracts/request-response-v1.md`; the Remote channel contract lives in
@@ -57,9 +57,11 @@ Release-verification procedures belong to
 
 - The handbook owns user guidance. Office documentation and art helpers live in
   `extensions/tmt-office/docs/` and `extensions/tmt-office/scripts/art/`.
-  `docs/` remains a temporary home under #998.
-  `docs/NATIVE-INSTALL.md` and `docs/performance.md` stay there pending their move to
-  `site/` under #998; the directory exception remains until its retained contents move.
+- `rust/archive/NATIVE-INSTALL.md` is the short offline note that every release
+  archive carries under the entry name `NATIVE-INSTALL.md`; the archive inventory
+  is part of the installer contract, so the name stays. Runtime performance probes
+  are in [DEVELOPMENT](DEVELOPMENT.md#optional-performance-probes). No top-level
+  exception remains.
 
 New homes or exceptions require an infra-reviewed proposal with a component owner
 and bounded responsibility. Update this map and the JSON allowlist together;

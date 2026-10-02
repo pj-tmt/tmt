@@ -4,7 +4,10 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withSandbox } from '../support/cli-process.js';
 
-const guide = readFileSync(new URL('../../../docs/NATIVE-INSTALL.md', import.meta.url), 'utf8');
+const guide = readFileSync(
+  new URL('../../../rust/archive/NATIVE-INSTALL.md', import.meta.url),
+  'utf8'
+);
 const setup = guide.split('## One-time PATH setup\n')[1]?.match(/```sh\n([\s\S]*?)\n```/)?.[1];
 
 describe('documented one-time PATH setup', () => {
