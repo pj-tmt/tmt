@@ -50,7 +50,13 @@ function decision(response: unknown) {
 }
 function execute(
   response: unknown,
-  { queryFails = false, failCommand = 'none', live = 'true', teeFails = false } = {}
+  {
+    queryFails = false,
+    failCommand = 'none',
+    live = 'true',
+    teeFails = false,
+    unknownMergeability = false,
+  } = {}
 ) {
   const directory = mkdtempSync(path.join(tmpdir(), 'tmt-release-queue-'));
   try {
@@ -70,6 +76,7 @@ cat "$RUNNER_TEMP/query.json"
       `#!${process.execPath}
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
+(async () => {
 if (process.argv[2].endsWith('/release-please-run.mjs')) {
   const command = process.argv[3];
   fs.appendFileSync(process.env.RUNNER_TEMP + '/commands', command + String.fromCharCode(10));
@@ -77,12 +84,34 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
     console.error('release-please failure');
     process.exit(19);
   }
+  if (command === 'release-pr' && process.env.UNKNOWN_MERGEABILITY === 'true') {
+    const { preserveUnchangedReleasePullRequests } = await import(process.env.RELEASE_WRAPPER);
+    const candidate = { headRefName: 'release-please--branches--main--fixture', title: 'release', body: 'notes', updates: [] };
+    const existing = { number: 17, sha: 'a'.repeat(40) };
+    const github = {
+      repository: { owner: 'pj-tmt', repo: 'tmt' },
+      getGitHubApi: () => ({ octokit: { pulls: { get: async () => ({ data: {
+        state: 'open', title: 'release', body: 'notes', mergeable: null,
+        head: { ref: candidate.headRefName, sha: existing.sha, repo: { full_name: 'pj-tmt/tmt' } },
+        base: { ref: 'main' },
+      } }) } } }),
+      buildChangeSet: async () => new Map([['release-file', { content: 'unchanged', mode: '100644' }]]),
+      getFileContentsOnBranch: async () => ({ content: Buffer.from('unchanged').toString('base64'), mode: '100644' }),
+      getPullRequest: async () => existing,
+      updatePullRequest: async () => { throw new Error('unchanged head was rewritten'); },
+    };
+    preserveUnchangedReleasePullRequests(github, Error);
+    const result = await github.updatePullRequest(17, candidate, 'main');
+    if (result !== existing) throw new Error('existing PR was not returned');
+    console.log('Preserved unchanged release head with unknown mergeability');
+  }
   console.log('release-please succeeded');
 } else {
   // Exercise the real pre-check; only the wrapper's release mutation is replaced.
   const result = spawnSync(process.execPath, process.argv.slice(2), { stdio: 'inherit' });
   process.exit(result.status ?? 1);
 }
+})().catch(error => { console.error(error); process.exitCode = 1; });
 `,
       { mode: 0o700 }
     );
@@ -104,6 +133,8 @@ if (process.argv[2].endsWith('/release-please-run.mjs')) {
         RELEASE_TOKEN: 'fixture-app',
         GH_TOKEN: 'wrong-user-token',
         FAIL_COMMAND: failCommand,
+        UNKNOWN_MERGEABILITY: String(unknownMergeability),
+        RELEASE_WRAPPER: new URL('../../scripts/release-please-run.mjs', import.meta.url).href,
         QUERY_FAILS: String(queryFails),
       },
       encoding: 'utf8',
@@ -162,6 +193,14 @@ describe('release PR queue pre-check', () => {
     expect(result.commands).toBe('release-pr\ngithub-release\n');
     expect(result.summary).not.toContain(QUEUED_NOTICE);
     expect(result.queries).toBe('api graphql\n');
+  });
+
+  it('still runs github-release when an unchanged release PR has unknown mergeability', () => {
+    const result = execute(connection([release(false)]), { unknownMergeability: true });
+    expect(result.status).toBe(0);
+    expect(result.commands).toBe('release-pr\ngithub-release\n');
+    expect(result.summary).toContain('Preserved unchanged release head with unknown mergeability');
+    expect(result.output).not.toContain('unchanged head was rewritten');
   });
 
   it('keeps the same pre-check and command planning in dry runs', () => {

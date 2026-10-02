@@ -741,9 +741,10 @@ and real Manifest attribution, without adding release tooling to other workspace
 The config retains `always-update` for conflict recovery: each component edits the shared
 manifest, whose adjacent lines can conflict. `release-please-run.mjs` wraps the pinned
 GitHub update boundary to preserve an open PR's head when its title, complete inline
-notes, generated file bytes and modes are unchanged and GitHub confirms it mergeable.
+notes, generated file bytes and modes are unchanged and GitHub does not report a conflict.
 File comparisons use the observed immutable head SHA. Changed content, missing files
-and confirmed conflicts use the original updater; unknown mergeability and acquisition
+and confirmed conflicts use the original updater; unknown mergeability preserves an
+otherwise unchanged head and returns normally so draft reconciliation continues. Acquisition
 errors fail visibly without treating uncertainty as equality. Overflow notes retain the
 original update/overflow behavior. This avoids CI restarts for unchanged release content;
 new release content still needs a new verified head.

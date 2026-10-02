@@ -103,10 +103,9 @@ export function preserveUnchangedReleasePullRequests(github, fileNotFoundError) 
       )
         return original.call(this, number, candidate, targetBranch, options);
     }
-    if (existing.mergeable !== true)
-      throw new Error(
-        `Release PR #${number} mergeability is unknown; preserving its CI head until the next run.`
-      );
+    // GitHub computes mergeability lazily. Preserve an unchanged head while it is unknown,
+    // so release-pr completes and the workflow still reconciles merged PRs via github-release.
+    // Confirmed conflicts take the original updater above; the queue checks the merged result.
     // Keep the pinned API's return shape, without pushing the branch or editing PR metadata.
     return this.getPullRequest(number);
   };

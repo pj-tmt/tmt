@@ -1499,12 +1499,14 @@ BEHIND branch: the queue tests the combined result on current main, including re
 checks. release-please retains `always-update` for conflict recovery, subject to the
 [queued-PR pre-check](#queued-release-pull-requests), but the pinned wrapper suppresses
 an update when the title, complete inline notes, generated release-file bytes and modes
-already match the observed immutable head and GitHub confirms it mergeable. This
+already match the observed immutable head and GitHub does not report a conflict. This
 preserves running CI across main pushes that do not change the release content. Changed
 release content, missing files, confirmed conflicts and overflow notes use the original
-updater; unknown mergeability or acquisition errors fail visibly and can be retried on
-the next main push. New releasable commits may still restart CI; this policy does not
-promise bounded latency under continuously changing release content. A `dispatch` job
+updater. Unknown mergeability preserves an otherwise unchanged head and returns normally,
+so `github-release` still reconciles merged release PRs in the same invocation; acquisition
+errors fail visibly and can be retried on the next main push. New releasable commits
+may still restart CI; this policy does not promise bounded latency under continuously
+changing release content. A `dispatch` job
 then starts the per-product run above for every
 product that has a draft without a bundle. The job runs in the `release` Environment and the
 App credentials, `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`, are secrets of that
@@ -2055,6 +2057,12 @@ Enabling uses `--auto --squash --match-head-commit` and propagates failures with
 trying a second PR. It never updates a BEHIND branch or jumps the queue. The next main
 push after the active PR merges permits the remaining component to be regenerated and
 enabled against the updated manifest.
+
+A single active release PR with permanently failing checks holds the slot and blocks
+the other component. `tmt-infra-lead` coordinates diagnosis and a fix with the owning
+squad; if the release PR is to be abandoned, the lead asks tmt-lead or Ben to close it.
+The next main push can then select the remaining component. Automation does not bypass
+failed checks or abandon an active release on its own.
 
 Both commands use the release App token in live runs (the pre-check uses the workflow
 token in dry runs), never an agent's token. The existing workflow concurrency group

@@ -840,10 +840,10 @@ describe('private leaf release attribution with pinned release-please', () => {
     }
   );
 
-  it('preserves the head with a visible failure when otherwise unchanged mergeability is unknown', async () => {
+  it('returns the existing PR without rewriting when unchanged mergeability is unknown', async () => {
     const fixture = await updateFixture();
     fixture.snapshot.mergeable = null;
-    await expect(fixture.update()).rejects.toThrow('mergeability is unknown');
+    expect(await fixture.update()).toEqual(fixture.existing);
     expect(fixture.mutation).not.toHaveBeenCalled();
   });
 
