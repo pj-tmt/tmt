@@ -107,6 +107,8 @@ including `NO_COLOR`. Colors decorate the words and marks; never infer state
 from color alone. The CLI theme is `theme.base` in the global `config.json`;
 `tmt config show` shows its value and file. Board themes layer that resolved
 theme, then `[board.theme]`, then `[squad.<name>.theme]` in `squad.toml`.
+`auto` works in both `squad.toml` theme layers and both picker scopes; the global
+`config.json` theme rejects it. Use `tmt sq theme set auto` for all boards.
 
 `tmt sq theme ls` (or bare `tmt sq theme`) lists built-in bases, marking the
 current base and its source: `default`, `cli`, `board`, `squad` or `detected`.

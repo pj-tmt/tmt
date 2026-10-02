@@ -54,7 +54,11 @@ background). A `Theme` is a built-in base plus per-role overrides:
 | `terminal`  | the tokens' terminal column: the terminal's own 16 colors                      |
 | `mono`      | bold (`accent`, `waiting`, `review`, `blocked`) and dim (`muted`, `dim`)       |
 
-`Base::Auto` is selectable; `Theme::default()` remains `tmt`. Callers resolve
+`auto` is valid in Squad's `squad.toml` `[board.theme]` and
+`[squad.<name>.theme]` layers, including both picker scopes. The global
+`config.json` theme rejects `auto` with a board-only hint; CLI colors and defaults
+are unchanged. `Base::Auto` is selectable by board callers; `Theme::default()`
+remains `tmt`. Callers resolve
 an automatic base with `Theme::resolve`, retaining token overrides. Rendering
 never reads the environment or queries a terminal. `theme::background` owns
 COLORFGBG and OSC 11 interpretation, linear luminance classification, and a
