@@ -10,7 +10,17 @@ struct Field {
     property: &'static str,
 }
 
-const GLOBAL_FIELDS: [Field; 8] = [
+const GLOBAL_FIELDS: [Field; 10] = [
+    Field {
+        key: SettingKey::ReplyBatchWindowMs,
+        container: Some("notifications"),
+        property: "replyBatchWindowMs",
+    },
+    Field {
+        key: SettingKey::TypingQuietMs,
+        container: Some("notifications"),
+        property: "typingQuietMs",
+    },
     Field {
         key: SettingKey::PreambleMode,
         container: None,
@@ -90,7 +100,7 @@ fn object<'a>(
 fn shape(value: &Value, path: &Path, scope: Scope) -> Result<(), ConfigError> {
     let root = object(value, path, "<root>")?;
     let containers: &[&str] = match scope {
-        Scope::Global => &["defaults", "exchange", "ui"],
+        Scope::Global => &["defaults", "exchange", "ui", "notifications"],
         Scope::Local => &["$config"],
     };
     for name in containers {
@@ -180,7 +190,9 @@ fn setting_value(setting: Setting) -> Value {
         Setting::PaneBadge(value) => json!(value.as_str()),
         Setting::CaptureLines(value)
         | Setting::PreambleEvery(value)
-        | Setting::RetentionDays(value) => json!(value),
+        | Setting::RetentionDays(value)
+        | Setting::ReplyBatchWindowMs(value)
+        | Setting::TypingQuietMs(value) => json!(value),
         Setting::Timeout(value)
         | Setting::PollInterval(value)
         | Setting::PasteEnterDelayMs(value) => {
@@ -255,4 +267,38 @@ pub(super) fn write(path: &Path, value: &Value, scope: Scope) -> Result<(), Conf
         .map_err(|error| ConfigError::internal(error.to_string()))?;
     content.push('\n');
     fs::write(path, content).map_err(|error| ConfigError::internal(error.to_string()))
+}
+
+/// Reply acceptance must not depend on unrelated defaults or a local directory.
+pub(super) fn notification_settings(path: &Path) -> Result<(u64, u64), ConfigError> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((
+                Settings::default().reply_batch_window_ms,
+                Settings::default().typing_quiet_ms,
+            ));
+        }
+        Err(error) => return Err(ConfigError::parse(path, error)),
+    };
+    let value = crate::json_document::parse(&content).map_err(|e| ConfigError::parse(path, e))?;
+    let root = object(&value, path, "<root>")?;
+    let Some(value) = root.get("notifications") else {
+        return Ok((
+            Settings::default().reply_batch_window_ms,
+            Settings::default().typing_quiet_ms,
+        ));
+    };
+    let settings = object(value, path, "notifications")?;
+    let mut resolved = Settings::default();
+    for key in [SettingKey::ReplyBatchWindowMs, SettingKey::TypingQuietMs] {
+        let property = key.name().split_once('.').expect("notification property").1;
+        if let Some(value) = settings.get(property) {
+            let scalar = value.as_f64().map_or(Scalar::Invalid, Scalar::Number);
+            let setting = Setting::validate(key, scalar)
+                .ok_or_else(|| ConfigError::validation(path, key.name(), key.expected()))?;
+            resolved.apply(setting);
+        }
+    }
+    Ok((resolved.reply_batch_window_ms, resolved.typing_quiet_ms))
 }

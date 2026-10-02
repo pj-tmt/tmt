@@ -107,6 +107,7 @@ function expectNativeSchema(
       name: "record the observed pane process incarnation beside each binding's pane pid",
     },
     { version: 43, name: 'record explicit automatic identity name provenance' },
+    { version: 44, name: 'persist pane reply notice batches and one-shot worker claims' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -138,6 +139,8 @@ function expectNativeSchema(
       'office_whiteboard_snapshot_images',
       'request_recipient_attention_identities',
       'request_notifications',
+      'reply_notice_batches',
+      'reply_notices',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([

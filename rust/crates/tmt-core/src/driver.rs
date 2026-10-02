@@ -33,6 +33,22 @@ impl<T, E> ActionResult<T, E> {
     }
 }
 
+/// Key-input evidence from an attached client showing the target pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputActivity {
+    /// Milliseconds since the most recent real key from a viewing client.
+    ElapsedMs(u64),
+    Unknown,
+}
+
+/// Core policy over recent activity; no application buffer is inspected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputState {
+    Empty,
+    Pending,
+    Unknown,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryAcceptance {
     /// Submitted to the interface, not proof of model execution or a final reply.

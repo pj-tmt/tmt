@@ -49,6 +49,13 @@ pub trait HostDriver {
     /// recorded when a binding is made.
     fn pane_incarnation(&mut self, pane_pid: u64) -> Result<Option<String>, HostError>;
 
+    /// Elapsed real key activity from a client viewing this verified pane.
+    /// Unsupported hosts explicitly report Unknown; quiet policy belongs to core.
+    fn input_activity(
+        &mut self,
+        binding: &Binding,
+    ) -> Result<tmt_core::driver::InputActivity, HostError>;
+
     /// Whether the host can paste into a pane. Without it a send is
     /// `Unsupported` before any evidence is read, and core uses the inbox.
     fn has_input(&self) -> bool;
@@ -106,6 +113,37 @@ pub fn status(
         RuntimeState::Unknown
     };
     ActionResult::Completed(InterfaceStatus { presence, runtime })
+}
+
+/// Query evidence only after the ordinary binding-presence verification.
+/// Missing evidence is Unknown; failed child cleanup remains an operation error.
+pub fn input_activity(
+    driver: &mut dyn HostDriver,
+    entry: &BindingEntry,
+) -> Result<tmt_core::driver::InputActivity, ActionError> {
+    use tmt_core::driver::InputActivity;
+    match status(driver, entry) {
+        ActionResult::Completed(InterfaceStatus {
+            presence: InterfacePresence::Present,
+            ..
+        }) => {
+            let Some(binding) = &entry.binding else {
+                return Ok(InputActivity::Unknown);
+            };
+            match driver.input_activity(binding) {
+                Ok(activity) => Ok(activity),
+                Err(error) if error.cleanup_failed() => Err(ActionError::Evidence(error)),
+                Err(_) => Ok(InputActivity::Unknown),
+            }
+        }
+        ActionResult::Failed(ActionError::Evidence(error)) if error.cleanup_failed() => {
+            Err(ActionError::Evidence(error))
+        }
+        ActionResult::Failed(ActionError::Process(error)) if error.cleanup_failed() => {
+            Err(ActionError::Process(error))
+        }
+        _ => Ok(InputActivity::Unknown),
+    }
 }
 
 /// Input only into a present pane whose runtime, when one was recorded,
@@ -234,6 +272,13 @@ impl HostDriver for Unavailable {
 
     fn pane_incarnation(&mut self, _: u64) -> Result<Option<String>, HostError> {
         Ok(None)
+    }
+
+    fn input_activity(
+        &mut self,
+        _: &Binding,
+    ) -> Result<tmt_core::driver::InputActivity, HostError> {
+        Ok(tmt_core::driver::InputActivity::Unknown)
     }
 
     fn has_input(&self) -> bool {

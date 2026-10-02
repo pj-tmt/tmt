@@ -5,6 +5,7 @@ mod binding;
 mod caller;
 mod evidence;
 mod focus;
+mod input;
 mod metadata;
 mod transport;
 pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};

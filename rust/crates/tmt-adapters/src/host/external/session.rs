@@ -514,6 +514,13 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
             .map_err(|error| driver_process(&self.process, error))
     }
 
+    fn input_activity(
+        &mut self,
+        _: &Binding,
+    ) -> Result<tmt_core::driver::InputActivity, HostError> {
+        Ok(tmt_core::driver::InputActivity::Unknown)
+    }
+
     /// A driver without `input` takes no message; core uses the inbox.
     fn has_input(&self) -> bool {
         self.process.supports(Op::Input)

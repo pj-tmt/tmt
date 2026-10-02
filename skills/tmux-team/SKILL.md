@@ -197,7 +197,11 @@ received `talk` instruction, including detached requests. Never manufacture a
 receipt, select the latest request, or infer a current pane. Both `reply` and
 `result` work without a live pane on this same local TMT database. Result reads
 are storage-only; first reply acceptance may also attempt an independent
-originator hint. A failed hint does not invalidate the stored reply. This is
+originator hint. Ordinary pane reply notices batch for 5 s and debounce recent
+attached-client keys for a 2 s quiet period, bounded to 30 s after the window. Unknown input
+activity delivers after the window; channels retain individual driver notices.
+JSON `notification: "queued"` means the notice is persisted, not sent. A failed
+hint does not invalidate the stored reply. This is
 not remote transport or authentication.
 
 Reply input is one exact valid UTF-8 body up to 1 MiB, preserving empty,
@@ -792,6 +796,13 @@ the paste-to-Enter delay. Preamble frequency is bounded to a safe integer;
 paste delay is at most 2147483647 milliseconds.
 The default paste-to-Enter delay is 500 milliseconds; `config show` reports
 the effective value after global and local overrides.
+
+`tmt config set notifications.replyBatchWindowMs 5000 --global` sets the fixed
+reply-notice window (`0..60000` integer milliseconds); `0` disables grouping.
+`tmt config set notifications.typingQuietMs 2000 --global` sets the key debounce
+quiet period (`0..30000` integer milliseconds). Both are global-only; new notices
+never reset the batch deadline. tmux activity has second resolution, so quiet
+detection can take an extra second. It does not prove the input buffer is empty.
 
 `tmt config set exchange.retentionDays 90 --global` sets the duration for new
 requests only, from 1 through 3650 integer days. It uses `exchange.retentionDays`

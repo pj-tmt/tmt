@@ -237,6 +237,16 @@ pub fn send(
     message: &str,
     delay: Duration,
 ) -> Result<Attempt, StorageError> {
+    send_messages(storage, identity, None, Messages::Single(message), delay)
+}
+
+fn send_messages(
+    storage: &mut Storage,
+    identity: &str,
+    expected_binding: Option<&str>,
+    messages: Messages<'_>,
+    delay: Duration,
+) -> Result<Attempt, StorageError> {
     match status(storage, identity)? {
         Availability::Ready => {}
         Availability::Offline => return Ok(Delivery::Offline.into()),
@@ -248,6 +258,9 @@ pub fn send(
     let Some(binding) = entry.binding.as_ref() else {
         return Ok(Delivery::Offline.into());
     };
+    if expected_binding.is_some_and(|id| id != binding.id) {
+        return Ok(Delivery::Unavailable.into());
+    }
     let host = Host::for_server(&binding.server);
     let binding_id = binding.id.clone();
     let preferences =
@@ -267,16 +280,14 @@ pub fn send(
     };
     let mut unattributed = Vec::new();
     let mut session = host.session().with_enter_delay(delay);
+    let text = messages.rendered();
+    let storage = std::cell::RefCell::new(storage);
     // Both closures retain distinct driver outcome classes. The host performs
     // fresh endpoint and runtime verification, including after a NotSent result.
     let result = send_preferred(
         || match harness.as_ref() {
             None => ActionResult::Unsupported,
-            Some(id) => match registry.send(id, &entry, message) {
-                ActionResult::Unsupported => ActionResult::Unsupported,
-                ActionResult::Completed(value) => ActionResult::Completed(value),
-                ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
-            },
+            Some(id) => messages.registered(&mut registry, id, &entry, &storage),
         },
         || {
             // The baseline paste is the last resort for a session that never opted
@@ -295,26 +306,33 @@ pub fn send(
                 directory.as_deref(),
                 Instant::now() + PANE_EVIDENCE_BUDGET,
                 &mut unattributed,
-                || match session.send(&entry, message) {
-                    ActionResult::Unsupported => ActionResult::Unsupported,
-                    ActionResult::Completed(value) => ActionResult::Completed(value),
-                    ActionResult::Failed(error) => ActionResult::Failed(match error {
-                        SendFailure::NotSent(ActionError::Offline) => {
-                            SendFailure::NotSent(Delivery::Offline)
-                        }
-                        SendFailure::NotSent(ActionError::Delivery(error)) => {
-                            SendFailure::NotSent(Delivery::Transport(error))
-                        }
-                        SendFailure::Uncertain(ActionError::Delivery(error)) => {
-                            SendFailure::Uncertain(Delivery::Transport(error))
-                        }
-                        SendFailure::NotSent(_) => SendFailure::NotSent(Delivery::Unavailable),
-                        SendFailure::Uncertain(_) => SendFailure::Uncertain(Delivery::Uncertain),
-                        SendFailure::Denied(_) => SendFailure::Denied(Delivery::Unavailable),
-                        SendFailure::AwaitingApproval(_) => {
-                            SendFailure::AwaitingApproval(Delivery::AwaitingApproval)
-                        }
-                    }),
+                || {
+                    if !messages.claim_fallback(&storage) {
+                        return ActionResult::Failed(SendFailure::Denied(Delivery::Unavailable));
+                    }
+                    match session.send(&entry, &text) {
+                        ActionResult::Unsupported => ActionResult::Unsupported,
+                        ActionResult::Completed(value) => ActionResult::Completed(value),
+                        ActionResult::Failed(error) => ActionResult::Failed(match error {
+                            SendFailure::NotSent(ActionError::Offline) => {
+                                SendFailure::NotSent(Delivery::Offline)
+                            }
+                            SendFailure::NotSent(ActionError::Delivery(error)) => {
+                                SendFailure::NotSent(Delivery::Transport(error))
+                            }
+                            SendFailure::Uncertain(ActionError::Delivery(error)) => {
+                                SendFailure::Uncertain(Delivery::Transport(error))
+                            }
+                            SendFailure::NotSent(_) => SendFailure::NotSent(Delivery::Unavailable),
+                            SendFailure::Uncertain(_) => {
+                                SendFailure::Uncertain(Delivery::Uncertain)
+                            }
+                            SendFailure::Denied(_) => SendFailure::Denied(Delivery::Unavailable),
+                            SendFailure::AwaitingApproval(_) => {
+                                SendFailure::AwaitingApproval(Delivery::AwaitingApproval)
+                            }
+                        }),
+                    }
                 },
             )
         },
@@ -334,6 +352,226 @@ pub fn send(
         delivery,
         unattributed,
     })
+}
+
+/// Reply batches preserve driver frames while sharing the ordinary fallback.
+/// The two send_preferred callbacks run sequentially; RefCell lends storage only
+/// for short claims/settlements, and never across a driver or host call.
+#[derive(Clone, Copy)]
+enum NoticeProgress {
+    Unstarted,
+    Driver { settled: usize },
+    Fallback,
+}
+
+struct NoticeAttempt<'a> {
+    batch: &'a tmt_core::request::notification::batch::Batch,
+    worker: &'a tmt_core::endpoint::ProcessIncarnation,
+    notices: &'a [tmt_core::request::notification::batch::Notice],
+    progress: std::cell::Cell<NoticeProgress>,
+    storage_error: std::cell::Cell<Option<StorageError>>,
+}
+
+enum Messages<'a> {
+    Single(&'a str),
+    Notices(&'a NoticeAttempt<'a>),
+}
+
+impl Messages<'_> {
+    fn rendered(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Self::Single(text) => std::borrow::Cow::Borrowed(text),
+            Self::Notices(attempt) => std::borrow::Cow::Owned(
+                attempt
+                    .notices
+                    .iter()
+                    .map(|notice| notice.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+        }
+    }
+
+    fn registered(
+        &self,
+        registry: &mut RuntimeRegistry,
+        harness: &HarnessId,
+        entry: &BindingEntry,
+        storage: &std::cell::RefCell<&mut Storage>,
+    ) -> Outcome {
+        let send = |registry: &mut RuntimeRegistry, text: &str| match registry
+            .send(harness, entry, text)
+        {
+            ActionResult::Unsupported => ActionResult::Unsupported,
+            ActionResult::Completed(value) => ActionResult::Completed(value),
+            ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
+        };
+        let Self::Notices(attempt) = self else {
+            return send(registry, &self.rendered());
+        };
+        let mut unacknowledged = false;
+        let mut awaiting_approval = false;
+        for (index, notice) in attempt.notices.iter().enumerate() {
+            let claimed = match storage.borrow_mut().mark_reply_notice_attempted(
+                &attempt.batch.id,
+                &notice.request_id,
+                attempt.worker,
+            ) {
+                Ok(claimed) => claimed,
+                Err(error) => {
+                    attempt.storage_error.set(Some(error));
+                    false
+                }
+            };
+            if !claimed {
+                return ActionResult::Failed(SendFailure::Denied(Delivery::Unavailable));
+            }
+            attempt
+                .progress
+                .set(NoticeProgress::Driver { settled: index });
+            let outcome = send(registry, &notice.text);
+            let state = match outcome {
+                ActionResult::Completed(acceptance) => {
+                    unacknowledged |= acceptance == DeliveryAcceptance::Unacknowledged;
+                    if acceptance == DeliveryAcceptance::Unacknowledged {
+                        WakeState::Uncertain
+                    } else {
+                        WakeState::Sent
+                    }
+                }
+                // A blocked frame is definitely unsent and final for routing, but
+                // does not prevent independent later notices from being attempted.
+                ActionResult::Failed(SendFailure::AwaitingApproval(_)) => {
+                    awaiting_approval = true;
+                    WakeState::Unavailable
+                }
+                // The first frame retains ordinary routing, including NotSent
+                // fallback. A later failure must never replay an accepted prefix.
+                other if index == 0 => return other,
+                ActionResult::Unsupported => WakeState::Unavailable,
+                ActionResult::Failed(ref failure) => match failure {
+                    SendFailure::NotSent(value)
+                    | SendFailure::Uncertain(value)
+                    | SendFailure::Denied(value)
+                    | SendFailure::AwaitingApproval(value) => value.wake_state(),
+                },
+            };
+            let accepted = matches!(outcome, ActionResult::Completed(_));
+            // Claim before IO, settle before advancing: process loss cannot make
+            // a known prefix eligible for another send.
+            if let Err(error) = storage.borrow_mut().settle_reply_notice_member(
+                &attempt.batch.id,
+                &notice.request_id,
+                state,
+            ) {
+                attempt.storage_error.set(Some(error));
+                return ActionResult::Failed(SendFailure::Denied(Delivery::Uncertain));
+            }
+            attempt
+                .progress
+                .set(NoticeProgress::Driver { settled: index + 1 });
+            if !accepted
+                && !matches!(
+                    outcome,
+                    ActionResult::Failed(SendFailure::AwaitingApproval(_))
+                )
+            {
+                return match outcome {
+                    ActionResult::Unsupported => {
+                        ActionResult::Failed(SendFailure::Denied(Delivery::Unavailable))
+                    }
+                    ActionResult::Failed(SendFailure::NotSent(value)) => {
+                        ActionResult::Failed(SendFailure::Denied(value))
+                    }
+                    ActionResult::Failed(failure) => ActionResult::Failed(failure),
+                    ActionResult::Completed(_) => unreachable!("accepted outcomes continue"),
+                };
+            }
+        }
+        if awaiting_approval {
+            return ActionResult::Failed(SendFailure::AwaitingApproval(Delivery::AwaitingApproval));
+        }
+        ActionResult::Completed(if unacknowledged {
+            DeliveryAcceptance::Unacknowledged
+        } else {
+            DeliveryAcceptance::Submitted
+        })
+    }
+
+    fn claim_fallback(&self, storage: &std::cell::RefCell<&mut Storage>) -> bool {
+        match self {
+            Self::Single(_) => true,
+            Self::Notices(attempt) => {
+                let claimed = match storage
+                    .borrow_mut()
+                    .mark_reply_notice_fallback_attempted(&attempt.batch.id, attempt.worker)
+                {
+                    Ok(claimed) => claimed,
+                    Err(error) => {
+                        attempt.storage_error.set(Some(error));
+                        false
+                    }
+                };
+                if claimed {
+                    attempt.progress.set(NoticeProgress::Fallback);
+                }
+                claimed
+            }
+        }
+    }
+}
+
+/// Same fresh route and paste gate as send: drivers receive individual frames,
+/// and only the host fallback receives their joined text. Binding replacement
+/// cannot redirect already queued notices to another pane.
+pub fn send_reply_notices(
+    storage: &mut Storage,
+    batch: &tmt_core::request::notification::batch::Batch,
+    worker: &tmt_core::endpoint::ProcessIncarnation,
+    notices: &[tmt_core::request::notification::batch::Notice],
+    delay: Duration,
+) -> Result<(), StorageError> {
+    let progress = NoticeAttempt {
+        batch,
+        worker,
+        notices,
+        progress: std::cell::Cell::new(NoticeProgress::Unstarted),
+        storage_error: std::cell::Cell::new(None),
+    };
+    let attempt = send_messages(
+        storage,
+        &batch.originator_id,
+        Some(&batch.binding_id),
+        Messages::Notices(&progress),
+        delay,
+    )?;
+    if let Some(error) = progress.storage_error.take() {
+        // Failed-closed routing does not erase a storage fault. The worker keeps
+        // its diagnostic, and attempted frames retain their no-replay claim.
+        return Err(error);
+    }
+    let state = attempt.delivery.wake_state();
+    match progress.progress.get() {
+        NoticeProgress::Fallback => storage.settle_reply_notice_batch(&batch.id, state),
+        NoticeProgress::Unstarted => {
+            // A route refusal before IO can truthfully settle the whole batch.
+            if storage.mark_reply_notice_fallback_attempted(&batch.id, worker)? {
+                storage.settle_reply_notice_batch(&batch.id, state)
+            } else {
+                Ok(())
+            }
+        }
+        NoticeProgress::Driver { settled } => {
+            if settled == 0
+                && let Some(first) = notices.first()
+            {
+                storage.settle_reply_notice_member(&batch.id, &first.request_id, state)?;
+            }
+            // Untouched channel frames remain pending; a later eligible enqueue
+            // may resume only after proving this exact worker incarnation Gone.
+            storage.finish_reply_notice_batch(&batch.id)
+        }
+    }
 }
 
 type Outcome = ActionResult<DeliveryAcceptance, SendFailure<Delivery>>;
@@ -449,7 +687,7 @@ fn route_harness(
         .or(preferred))
 }
 
-pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
+pub fn hint_text(storage: &mut Storage, hint: &OriginatorHint) -> String {
     let recipient = hint
         .recipient_id
         .as_deref()
@@ -461,7 +699,7 @@ pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
         .take(64)
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect();
-    let text = match hint.kind {
+    match hint.kind {
         HintKind::Reply => format!(
             "[tmt] reply from {recipient} to {}: tmt result {}",
             hint.request_id, hint.request_id
@@ -471,7 +709,11 @@ pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
             hint.request_id,
             hint.timeout_ms as f64 / 1000.0
         ),
-    };
+    }
+}
+
+pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> WakeState {
+    let text = hint_text(storage, hint);
     let outcome = match send(
         storage,
         &hint.originator_id,
@@ -889,3 +1131,6 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod notice_tests;

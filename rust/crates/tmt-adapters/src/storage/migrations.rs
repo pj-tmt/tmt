@@ -235,6 +235,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "record explicit automatic identity name provenance",
         sql: include_str!("schema/043.sql"),
     },
+    Migration {
+        name: "persist pane reply notice batches and one-shot worker claims",
+        sql: include_str!("schema/044.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

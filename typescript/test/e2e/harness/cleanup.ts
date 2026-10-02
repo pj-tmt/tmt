@@ -21,24 +21,28 @@ export async function killAndWait(
       }
     }
   }
-  const groupsRunning = (): number[] =>
+  const groupsRunning = (reportErrors = false): number[] =>
     pids.filter((pid) => {
       try {
         return processGroupIsRunning(pid);
       } catch (error) {
-        onError(
-          new Error(`Could not inspect E2E ${label} process group ${pid}.`, {
-            cause: error,
-          })
-        );
-        return false;
+        // Inspection can be temporarily unknown while a killed group is reaped.
+        // Keep it pending within the cleanup bound; never treat an error as gone.
+        if (reportErrors) {
+          onError(
+            new Error(`Could not inspect E2E ${label} process group ${pid}.`, {
+              cause: error,
+            })
+          );
+        }
+        return true;
       }
     });
   const deadline = Date.now() + 1_000;
   while (Date.now() < deadline && groupsRunning().length > 0) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  return groupsRunning();
+  return groupsRunning(true);
 }
 
 export function processGroupIsRunning(pid: number): boolean {
@@ -70,6 +74,37 @@ export function requestObserverPids(observers: string): number[] {
       if (args.trim().endsWith(`__request-observer ${request}`)) owned.push(pid);
     } catch {
       // Already exited. Never signal a recycled PID with different argv.
+    }
+  }
+  return owned;
+}
+
+/** Stop only fixture-owned reply workers with matching recorded argv. */
+export function replyWorkerPids(directory: string): number[] {
+  const owned: number[] = [];
+  for (const name of fs.readdirSync(directory)) {
+    if (!/^[0-9a-f-]{36}\.log$/.test(name)) continue;
+    let log: string;
+    try {
+      log = fs.readFileSync(path.join(directory, name), 'utf8');
+    } catch (error) {
+      // Clean workers remove their own logs; a concurrent exit is harmless.
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
+      throw error;
+    }
+    const pid = Number(log.match(/^reply_worker_pid=(\d+)$/m)?.[1]);
+    const batch = log.match(/^reply_batch_id=([0-9a-f-]{36})$/m)?.[1];
+    if (!Number.isSafeInteger(pid) || pid <= 1 || !batch) continue;
+    try {
+      const args = execFileSync('ps', ['-p', String(pid), '-o', 'args='], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      if (args.trim().endsWith(`__reply-notice-worker ${batch} ${name.slice(0, -4)}`))
+        owned.push(pid);
+    } catch (error) {
+      if (!(error instanceof Error && 'status' in error && error.status === 1)) throw error;
+      // Already exited; never signal a recycled PID.
     }
   }
   return owned;

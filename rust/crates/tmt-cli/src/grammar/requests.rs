@@ -172,3 +172,13 @@ pub(in crate::grammar) fn request_observer() -> Command {
     .hide(true)
     .arg(operand("request-id", true))
 }
+
+pub(in crate::grammar) fn reply_notice_worker() -> Command {
+    internal(
+        "__reply-notice-worker",
+        "Internal bounded reply notice worker",
+    )
+    .hide(true)
+    .arg(operand("batch-id", true))
+    .arg(operand("log-id", true))
+}

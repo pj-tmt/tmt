@@ -38,6 +38,8 @@ pub mod private_file;
 pub mod process;
 #[cfg(unix)]
 mod release_http;
+#[cfg(unix)]
+pub mod reply_notice;
 pub mod reply_receipt;
 #[cfg(unix)]
 pub mod repository_remote;

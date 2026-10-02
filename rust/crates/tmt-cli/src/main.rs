@@ -38,6 +38,7 @@ use tmt_adapters::pane_badge;
 mod parser;
 mod profile_command;
 mod provider_hook_command;
+mod reply_notice_command;
 mod request_observer_command;
 mod response_command;
 mod room_command;
@@ -218,6 +219,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::ProviderHook { provider, worker } => {
             return provider_hook_command::execute(&provider, worker);
+        }
+        Invocation::ReplyNoticeWorker { batch_id, log_id } => {
+            return reply_notice_command::execute(&batch_id, &log_id);
         }
         Invocation::RequestObserver { request_id } => {
             return request_observer_command::execute(&request_id);

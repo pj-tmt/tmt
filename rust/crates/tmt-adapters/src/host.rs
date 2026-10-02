@@ -707,6 +707,14 @@ impl<R: CommandRunner> BindingSession<'_, R> {
         }
     }
 
+    /// Recent user keys in a verified binding, without provider buffer guesses.
+    pub fn input_activity(
+        &mut self,
+        entry: &BindingEntry,
+    ) -> Result<tmt_core::driver::InputActivity, ActionError> {
+        driver::input_activity(self.driver(binding_host(entry, self.primary)), entry)
+    }
+
     /// Runtime liveness after the caller verified this binding's endpoint.
     pub fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, ActionError> {
         match binding.server.host {

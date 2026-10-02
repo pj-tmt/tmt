@@ -277,6 +277,13 @@ impl<R: CommandRunner> HostDriver for Session<'_, R> {
         )
     }
 
+    fn input_activity(
+        &mut self,
+        _: &Binding,
+    ) -> Result<tmt_core::driver::InputActivity, HostError> {
+        Ok(tmt_core::driver::InputActivity::Unknown)
+    }
+
     fn has_input(&self) -> bool {
         false
     }

@@ -25,9 +25,10 @@ use tmt_cli_style::{
 use tmt_core::{
     identity::Identity,
     request::{
-        FinalResponse, RequestError, RequestService, SubmitResponse, WakeState,
+        FinalResponse, RequestError, RequestService, SubmitResponse,
         attention::AttentionRejection,
         inbox::{AnswerRejection, OpenPage, OpenRequest},
+        notification::NotificationOutcome,
     },
 };
 
@@ -41,7 +42,7 @@ enum Report {
         /// None for an anonymous originator.
         from: Option<Identity>,
         response: Box<FinalResponse>,
-        notification: Option<WakeState>,
+        notification: Option<NotificationOutcome>,
     },
 }
 
@@ -179,7 +180,7 @@ fn run(request: Invocation) -> Result<(Identity, Report), Failure> {
                     .map_err(fail)?;
                 let notification = hint
                     .as_ref()
-                    .map(|hint| tmt_adapters::delivery::notify(&mut storage, hint));
+                    .map(|hint| crate::reply_notice_command::notify(&mut storage, hint));
                 Report::Answered {
                     from,
                     response: Box::new(response),

@@ -7,6 +7,7 @@
 mod attention;
 mod history;
 mod notification;
+mod reply_batch;
 mod rows;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
