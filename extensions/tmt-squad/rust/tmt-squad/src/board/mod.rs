@@ -611,7 +611,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("calls");
         let fake = dir.join("tmt");
-        crate::test_support::write_executable(
+        crate::test_support::write_ready_executable(
             &fake,
             &format!(
                 "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n\

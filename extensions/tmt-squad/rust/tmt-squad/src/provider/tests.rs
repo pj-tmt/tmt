@@ -356,12 +356,16 @@ fn a_refresh_saves_its_values_and_does_not_repeat_fresh_work() {
     let dir = scratch("refresh");
     let counter = dir.join("count");
     let program = dir.join("state");
-    crate::test_support::write_executable(
+    crate::test_support::write_ready_executable(
         &program,
         &format!(
             "#!/bin/sh\necho x >> '{}'\necho \"open:$1\"\n",
             counter.display()
         ),
+    );
+    assert!(
+        !counter.exists(),
+        "readiness does not run the provider payload"
     );
     let providers = providers(&format!(
         "[squad.p.fields.pr_state]\nrun = [\"{}\", \"{{pr_link}}\"]\n",
@@ -498,7 +502,7 @@ fn the_github_preset_degrades_to_a_failed_run() {
     let dir = scratch("gh");
     let fake = |name: &str, script: &str| {
         let path = dir.join(name);
-        crate::test_support::write_executable(&path, script);
+        crate::test_support::write_ready_executable(&path, script);
         path.to_str().unwrap().to_owned()
     };
     let ok = fake(

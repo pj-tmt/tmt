@@ -918,7 +918,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("squad-view-notes-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let executable = root.join("tmt");
-        crate::test_support::write_executable(
+        crate::test_support::write_ready_executable(
             &executable,
             r##"#!/bin/sh
 root=${0%/*}
@@ -1358,7 +1358,7 @@ esac
     fn squad_leads_and_all_default_to_ctrl_r_refresh_and_keep_their_override_owners() {
         let path = std::env::temp_dir().join(format!("squad-ctrl-r-{}.toml", std::process::id()));
         let executable = path.with_extension("tmt");
-        crate::test_support::write_executable(
+        crate::test_support::write_ready_executable(
             &executable,
             "#!/bin/sh\n[ \"$1\" = ls ] || exit 2\nprintf \"%s\\n\" \'{\"identities\":[]}\'\n",
         );
