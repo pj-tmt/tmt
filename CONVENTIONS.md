@@ -8,9 +8,9 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 ## Style and readability
 
 - Write repository content in English. Use rustfmt for Rust and the nested
-  `typescript` Prettier/strict TypeScript configuration for developer tooling and Oxfmt
-  for `extensions/tmt-office/typescript/apps/office`; run checks
-  rather than restyling unrelated files.
+  workspace-pinned Vite+ formatter and strict TypeScript configuration for developer
+  tooling and extensions. Preserve each owner's explicit formatter configuration and
+  file selection; run checks rather than restyling unrelated files.
 - Rust uses snake_case modules and owner-local tests. Node tooling uses
   kebab-case files, `<module>.test.ts` tests and `.e2e.test.ts` integration scenarios.
 - Use ESM with explicit `.js` extensions for local TypeScript modules and
@@ -74,7 +74,7 @@ Remote state gets one owner, not mirrored Query/Jotai/Firestore copies. See
 contract, drawing dependency or cross-package abstraction.
 
 The separate Office Functions package uses NodeNext TypeScript, Vitest, Oxlint
-and Oxfmt. Keep SDK initialization in its entry point, transactions in the store
+and the Vite+ formatter. Keep SDK initialization in its entry point, transactions in the store
 and credential signing outside transaction retries. Do not import service/Admin
 code into SPA production source. Combined emulator fixtures may import the
 service's test-only owner and have an explicit E2E type-check target.

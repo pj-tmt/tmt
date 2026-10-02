@@ -99,7 +99,7 @@
     {
       "id": "prose",
       "consumers": [],
-      "why": "Prose read only by prettier in Code quality, which always runs; no test or build input reads it (guarded by ci-scope.test.ts).",
+      "why": "Prose read only by the formatter in Code quality, which always runs; no test or build input reads it (guarded by ci-scope.test.ts).",
       "paths": [
         "AGENTS.md",
         "ARCHITECTURE.md",

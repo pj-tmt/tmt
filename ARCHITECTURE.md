@@ -100,8 +100,11 @@ specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
 Vite+ owns workspace test and Office/addon/Colab Vite build, dev and preview entry points.
 It supplies one Vitest runner and aliased Vite core. Each suite keeps its separate
 configuration; the override also supplies that core to the existing plugins. Site and release
-tooling remain outside this workspace lockfile. Compiler, lint and formatter
-commands retain their existing owners.
+tooling remain outside this workspace lockfile. Vite+ also supplies the bundled
+Oxfmt formatter. Each package explicitly selects its existing Vite/Vitest config's
+`fmt` block; `typescript/scripts/format-workspace.mjs` owns the separate tooling
+code and docs selections and expands them to absolute paths before invoking Vite+.
+Compiler and lint commands retain their existing owners.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
 and the Office skill sources live under `extensions/tmt-office/`; the proposed

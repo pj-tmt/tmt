@@ -57,7 +57,9 @@ contains literal full bytes and SHA-256 values, first established with Python
 3.14.7, rather than generated from the TypeScript implementation. The Unicode
 fixture data deliberately includes astral and decomposed characters. Raw example
 public keys and MACs prove framing only, not valid cryptographic proofs. Regenerate
-with `python3 test/reference.py` from this directory, then format `vectors.json`
-with the package's Prettier (`check` requires it); `--check` compares parsed values, verifying fixed
-bytes without rewriting them. The TypeScript tests compare these literal artifacts
+with `python3 test/reference.py` from this directory, then format `test/vectors.json`
+with `corepack pnpm@10.33.0 exec vp fmt --config vite.config.ts test/vectors.json`
+(the package's Vite+ formatter, also required by `check`). The reference generator's
+`--check` compares parsed values, verifying fixed bytes without rewriting them.
+The TypeScript tests compare these literal artifacts
 and mutate one condition at a time to demonstrate refusal and exact byte binding.

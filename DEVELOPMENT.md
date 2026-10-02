@@ -219,9 +219,17 @@ of the scaffold. Tests use jsdom and the real router, not a browser-layout proof
 `pnpm check` checks workspace tooling and Office. `pnpm check:tooling` retains the
 native test/release tooling's independent quality gate. Tooling-workspace `test:run` still
 selects only tooling tests; `office:test` explicitly selects app tests and fails
-on empty discovery. Office uses Oxfmt; tooling and repository docs use the
-`typescript/.prettierrc` Prettier configuration. Run
-`pnpm --filter @tmt/office format` for app formatting, not the tooling formatter.
+on empty discovery. Workspace and extension formatting uses `vp fmt` from exact
+Vite+ 1.0.0 (bundled Oxfmt 0.70.0). Each package explicitly selects its existing
+Vite or Vitest configuration's `fmt` block, preserving its options and file list.
+Import and package-key sorting are disabled. Run `pnpm format` or
+`pnpm format:check` for tooling and `pnpm --filter @tmt/office format` for the app.
+Tooling code retains `typescript/.prettierignore`, including the Markdown ignore;
+`pnpm docs:format:check` retains its explicit docs list and `../.gitignore`
+override so those Markdown files are checked separately. The single target lists
+live in `typescript/scripts/format-workspace.mjs`; both write and check modes expand
+parent-relative globs to absolute paths there and fail if any pattern matches nothing.
+Keep these script names and separate selections when changing formatting.
 Root tooling, native, stress, Docker and extension suites run through exact
 Vite+ 1.0.0 with bundled Vitest 5.0.1. Their separate configurations retain their
 own test discovery and are selected explicitly with `--config`. Use
@@ -2715,7 +2723,7 @@ Load this package's `dist/` as an unpacked add-on in a separate development
 profile to inspect it manually; Chrome 137 or later is required. Both right-click
 Send to agent and the popup capture only after a gesture. All displayed agents
 and replies are demo fixtures; Send does not deliver to an agent. Package code
-uses its own Prettier configuration; shared docs use the tooling formatter.
+uses the `fmt` block in its Vite configuration; shared docs use the tooling formatter.
 
 ## Remote pilot development
 
@@ -3062,8 +3070,10 @@ are public test data. This foundation does not satisfy the complete L1 gates.
 
 The private local page app has its own package and Chromium isolation suite.
 Its test/build/dev entry points use workspace-pinned Vite+; `vitest.config.ts`
-keeps app unit discovery separate. TypeScript, Oxlint and Prettier retain their
-existing check responsibilities:
+keeps app unit discovery separate. TypeScript and Oxlint retain their existing
+check responsibilities; the existing `check` script selects the Vite configuration's
+`fmt` block, preserving the app's single quotes, all trailing commas and 100-column
+width with import and package-key sorting disabled:
 
 ```sh
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app install --frozen-lockfile --ignore-scripts
