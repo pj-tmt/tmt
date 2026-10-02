@@ -56,7 +56,11 @@ credentials. Same-user malware, a compromised browser/add-on, malicious selected
 compromised OS account are outside this profile. Non-extractability restricts key export; it is not
 hardware isolation or protection from code that can invoke the key. `local-v1` does not encrypt
 operation content; cloud bindings need the encryption profile in
-[Backends and deploy](#backends-and-deploy) before use.
+[Backends and deploy](#backends-and-deploy) before use. Browsers do not isolate cookies by port on
+loopback: another local user's listener on `127.0.0.1` could receive the door session cookie when
+the owner's browser requests it at a matching path. That cookie grants extension page and relay
+access only, until stop, revocation or idle expiry, never an operation or pairing action;
+state-changing operations still need a fresh device signature.
 
 ## Bytes, IDs and the fixed M1 suite
 
@@ -193,11 +197,15 @@ signature.
 
 A `browser` device on the door's own origin may instead hold a door session: after one signed
 `session.open` over the door, remote sets a 256-bit random token as an HttpOnly, SameSite=Strict
-cookie (Secure on HTTPS), stores only its SHA-256 and binds it to the device, grant revision and
-remote run. Browsers cannot set authorization headers on WebSocket construction, so tokens never
-move into query strings. The cookie is a carrier for the same authenticated device context, not a
-second credential model: every request and upgrade rechecks grant, revocation and expiry, and a
-state-changing operation still needs a fresh device signature over its exact intent.
+cookie scoped to `Path=/x/` (Secure on HTTPS), stores only its SHA-256 and binds it to the device,
+grant revision and remote run. Browsers cannot set authorization headers on WebSocket construction,
+so tokens never move into query strings. The cookie is a carrier for the same authenticated device
+context, not a second credential model: every request and upgrade rechecks grant, revocation and
+expiry, and a state-changing operation still needs a fresh device signature over its exact intent.
+Door sessions live only in the running remote: they end on stop, revocation, a newer session for the
+device and after 12 hours without use, and do not survive restart. Reopening is silent: the page
+sends another signed `session.open` from its stored device key, with no owner step or new pairing.
+Ending a session closes the WebSocket tunnels opened under it.
 
 ## Durable log: append, subscribe and ack
 
@@ -648,8 +656,9 @@ builders. Their fixtures
 are regenerated from the independent oracle (#1039); the superseded M1 enrollment vectors are
 removed and envelope bytes are unchanged. The pairing ceremony is implemented through
 `tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
-grant and the receipt with `serverProof` (#1039). The remote-served browser pairing page, door
-sessions and device management are not yet implemented.
+grant and the receipt with `serverProof` (#1039). Door sessions (`session.open` on `/append`, the
+`/x/` cookie and the device context it carries to mounts) and `tmt remote devices` list and revoke
+are implemented (#1039). The remote-served browser pairing page is not yet implemented.
 
 Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
 local door, device sign-in and relay where it meets this contract, rather than being rewritten.

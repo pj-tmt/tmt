@@ -3,6 +3,7 @@
 //! here, since serve is the state's only opener. One JSON object per line.
 use crate::{
     canonical,
+    devices::{Devices, device_json},
     error::RemoteError,
     pairing::{End, Pairing, PairingEvent},
     state::Serving,
@@ -50,6 +51,7 @@ impl Control {
     pub fn start(
         serving: &Serving,
         pairing: Arc<Pairing>,
+        devices: Arc<Devices>,
         door: Door,
     ) -> Result<Self, RemoteError> {
         let path = serving.layout().directory.join(SOCKET);
@@ -82,7 +84,7 @@ impl Control {
         let door = Arc::new(door);
         let accept = thread::Builder::new()
             .name("remote-control".into())
-            .spawn(move || accept_loop(listener, &flag, &pairing, &door))
+            .spawn(move || accept_loop(listener, &flag, &pairing, &devices, &door))
             .map_err(io_error)?;
         Ok(Self {
             path,
@@ -114,6 +116,7 @@ fn accept_loop(
     listener: UnixListener,
     stop: &AtomicBool,
     pairing: &Arc<Pairing>,
+    devices: &Arc<Devices>,
     door: &Arc<Door>,
 ) {
     thread::scope(|scope| {
@@ -121,7 +124,7 @@ fn accept_loop(
             pairing.expire();
             match listener.accept() {
                 Ok((stream, _)) => {
-                    scope.spawn(|| session(stream, stop, pairing, door));
+                    scope.spawn(|| session(stream, stop, pairing, devices, door));
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(50))
@@ -134,8 +137,14 @@ fn accept_loop(
         pairing.shutdown();
     });
 }
-/// Serve one local client. Only `{"op":"pair"}` exists today.
-fn session(mut stream: UnixStream, stop: &AtomicBool, pairing: &Pairing, door: &Door) {
+/// Serve one local client: `pair`, `devices` or `revoke`.
+fn session(
+    mut stream: UnixStream,
+    stop: &AtomicBool,
+    pairing: &Pairing,
+    devices: &Devices,
+    door: &Door,
+) {
     let _ = stream.set_nonblocking(true);
     let mut buffer = Vec::new();
     let Some(request) = read_line(
@@ -146,11 +155,30 @@ fn session(mut stream: UnixStream, stop: &AtomicBool, pairing: &Pairing, door: &
     ) else {
         return;
     };
-    if request.get("op").and_then(Value::as_str) != Some("pair") {
-        let _ = write_line(
-            &mut stream,
-            &json!({"error":{"code":"REMOTE_INPUT_INVALID","message":"Unknown control operation."}}),
-        );
+    let answer =
+        match request.get("op").and_then(Value::as_str) {
+            Some("pair") => None,
+            Some("devices") => Some(devices.list().map(
+                |grants| json!({"devices": grants.iter().map(device_json).collect::<Vec<_>>()}),
+            )),
+            Some("revoke") => Some(match request.get("clientId").and_then(Value::as_str) {
+                Some(client_id) => devices
+                    .revoke(client_id)
+                    .map(|grant| json!({"device": device_json(&grant)})),
+                None => Err(RemoteError::new(
+                    "REMOTE_INPUT_INVALID",
+                    "Revoke needs a clientId.",
+                )),
+            }),
+            _ => Some(Err(RemoteError::new(
+                "REMOTE_INPUT_INVALID",
+                "Unknown control operation.",
+            ))),
+        };
+    if let Some(answer) = answer {
+        let line = answer
+            .unwrap_or_else(|error| json!({"error":{"code":error.code,"message":error.message}}));
+        let _ = write_line(&mut stream, &line);
         return;
     }
     let (offered, events) = match pairing.open() {

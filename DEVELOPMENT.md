@@ -2426,15 +2426,20 @@ on the same data root fails with `REMOTE_ALREADY_SERVING`. With serve running,
 `tmt remote pair` prints a pairing link and code, shows the device's kind,
 origin, name and four words, and asks once on the terminal; `tmt remote pair
 --json` streams one event per line and reads `confirm` or `refuse` from stdin,
-which is how the process tests drive it. Pairing and state tests use short
+which is how the process tests drive it. `tmt remote devices [--json]` lists
+paired devices with their four words, and `tmt remote devices revoke
+<client-id>` ends one device's access, whether or not serve is running. A paired
+browser opens a door session with a signed `session.open`; its cookie then
+carries the device context to mounted pages. Pairing and state tests use short
 roots under `/tmp`, because Unix socket paths are limited to about 100 bytes. It mounts colab under `/x/colab/` while
 `<dataRoot>/colab/door.sock` exists as an owner-only socket in a 0700
-directory; mounted requests carry no device context until pairing lands.
+directory; mounted requests carry a device context only under a live door
+session.
 Colab gets at most 16 live WebSocket tunnels, each closed after 120 seconds
 without traffic; a full pool answers 503 with `retry-after`, so colab should
 keep one socket per tab and reconnect after idle close.
-Pairing, signing, grants, hold, sends, the relay and journal/SDK integration
-are not implemented. The [channel contract](contracts/remote-channel-v1.md) is
+The browser pairing page, signed operations, hold, sends, the relay and
+journal/SDK integration are not implemented. The [channel contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 

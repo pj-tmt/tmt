@@ -432,7 +432,30 @@ fn pair_json_confirms_one_device_through_the_running_serve() {
     assert_eq!(ended["reason"], "paired");
     assert!(pair.wait().unwrap().success());
     assert!(device.join().unwrap().starts_with("HTTP/1.1 200"));
+    // Device management reaches state through the running serve, and through
+    // the serve lock once it stops.
+    let devices = |args: &[&str]| {
+        let output = pilot.command().arg("devices").args(args).output().unwrap();
+        let answer: Value = serde_json::from_slice(&output.stdout)
+            .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&output.stderr)));
+        (output.status.success(), answer)
+    };
+    let (listed, running) = devices(&["--json"]);
+    assert!(listed);
+    let client_id = ended["clientId"].as_str().unwrap();
+    assert_eq!(running["devices"][0]["clientId"], client_id);
+    assert_eq!(running["devices"][0]["kind"], "cli");
     terminate(server);
+    let (listed, stopped) = devices(&["--json"]);
+    assert!(listed);
+    assert_eq!(stopped, running);
+    let (revoked, answer) = devices(&["revoke", client_id, "--json"]);
+    assert!(revoked);
+    assert_eq!(answer["device"]["revoked"], true);
+    assert_eq!(answer["device"]["revision"], 2);
+    let (found, missing) = devices(&["revoke", "00000000-0000-4000-8000-000000000009", "--json"]);
+    assert!(!found);
+    assert_eq!(missing["error"]["code"], "REMOTE_DEVICE_NOT_FOUND");
     let grants: i64 = rusqlite::Connection::open(pilot.root.join("state/remote/remote.db"))
         .unwrap()
         .query_row("SELECT COUNT(*) FROM grants", [], |r| r.get(0))
