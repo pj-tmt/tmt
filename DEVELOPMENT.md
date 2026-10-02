@@ -1048,16 +1048,18 @@ manual lifecycle evidence in issue #321 owns that distinction, including the
 Codex cross-mode limitation. Normal `tmt run` does not execute this developer
 check or enforce these version pins on user commands.
 
-The Claude channel provider has its own opt-in check, for the one build with
-recorded channel evidence (see the [channel contract](contracts/claude-channel-v1.md)):
+The Claude channel provider has its own opt-in check against the supported range
+and the builds with recorded channel evidence (see the
+[channel contract](contracts/claude-channel-v1.md)):
 
 ```bash
 cargo run --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
   --example channel-contract -- /absolute/claude
 ```
 
-It runs only `--version` and `--help`. The channel launch preflight applies the same
-version pin to user commands once `tmt run --channel` ships (#715).
+It runs only `--version` and `--help`, fails outside the range and says when the build
+is accepted but untested. `tmt run --channel` applies the same range rule to the user's
+command before it binds or spawns anything.
 
 `tmt whoami --context [--json]` is the read-only rehydration entry point. It reports
 the verified caller identity and lifetime, up to 500 characters of role text,
@@ -1180,6 +1182,7 @@ Keep these boundaries when choosing where a regression belongs:
 | `tmux-adapter`, `transport-adapter`                            | Explicit adapter-probe evidence: caller/inventory/markers and delivery/capture stages; not public CLI success                         |
 | `pane-badge`                                                   | Default-off behavior, opt-in updates, theme preservation, rendering, conflicts and cleanup                                            |
 | `executable-selection`, `smoke`                                | Harness selection, causal nested replies, startup and cleanup controls                                                                |
+| `claude-channel`                                               | Claude channel delivery against a mock `claude`: no paste to an opted-in pane, crash cleanup, plain paste kept                        |
 
 Similar commands do not imply duplicate evidence: native-process tests inspect
 the executable's public contracts and independent stored state, while Docker
