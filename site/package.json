@@ -5,9 +5,9 @@
   "description": "The tmt handbook website, built as static files for GitHub Pages.",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vp dev --host 127.0.0.1",
     "build": "tsc --noEmit && vp build && node scripts/spa-routes.mjs",
-    "preview": "vite preview --host 127.0.0.1",
+    "preview": "vp preview --host 127.0.0.1",
     "type:check": "tsc --noEmit",
     "lint": "vp lint --deny-warnings --react-plugin src scripts vite.config.ts",
     "format": "vp fmt .",
