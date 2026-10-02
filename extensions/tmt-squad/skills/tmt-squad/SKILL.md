@@ -105,6 +105,34 @@ bases and overrides belong in `[squad.<name>.theme]` in `squad.toml`.
 
 The detail pane shows full projected board-column values not already shown by its header, task, note, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
 
+## Fold board panes
+
+In split mode, press `d` to fold or expand detail, or click a pane's title.
+A folded title reads `▸ detail` and stays in place. Stacked panes reserve one
+line; side-by-side panes reserve a compact title-width column. Expanded neighbours
+share the freed space, and expanding restores the configured proportions.
+Tab skips folded panes. With all panes folded, only titles and bindings act;
+`n` expands and focuses notes. A single expanded pane stays borderless; bind
+`toggle rows` to fold it, then click its folded title to expand.
+
+Set the initial state or override a binding in `squad.toml`:
+
+```toml
+[squad.product.board]
+panes = ["rows", "detail"]
+collapsed = ["detail"]
+
+[bind]
+d = "toggle detail"
+```
+
+`collapsed` accepts unique configured pane names: rows, notes, detail or replies.
+It applies only to split mode. `toggle <pane>` uses the same literal names;
+a missing pane or tabs mode gives a notice. User and section bindings keep their
+usual precedence. Runtime folds survive unchanged refreshes and squad switches
+within the board session. Changed board configuration resets them; restarting
+uses the configured initial state. Toggling writes no config or member state.
+
 ## Keep it current
 
 A stale board is worse than none. Update the board as part of every dispatch

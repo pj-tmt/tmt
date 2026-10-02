@@ -6,7 +6,7 @@ use super::scroll::{Scrolls, Step, WHEEL_LINES};
 use crate::{
     action::{Action, Bindings, Verb},
     attention::Attention,
-    config::{Board, NotesRender, Pane},
+    config::{Board, BoardMode, NotesRender, Pane},
     effects,
 };
 use ratatui::crossterm::event::{
@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{
 use serde_json::Value;
 use std::{
     cell::RefCell,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
 
@@ -207,6 +207,18 @@ pub struct Hit {
     pub row: usize,
 }
 
+/// Config is immutable; only this session presentation set changes on a toggle.
+struct FoldState {
+    board: Board,
+    collapsed: BTreeSet<Pane>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TitleHit {
+    pub pane: Pane,
+    pub area: ratatui::layout::Rect,
+}
+
 #[derive(Default)]
 pub struct App {
     pub tabs: Vec<String>,
@@ -248,6 +260,9 @@ pub struct App {
     pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
+    /// Only titles actually painted in the last frame can toggle.
+    pub title_hits: RefCell<Vec<TitleHit>>,
+    folds: BTreeMap<String, FoldState>,
     /// The first tab the tab line showed, so it scrolls only as needed.
     pub tab_start: std::cell::Cell<usize>,
     /// The tab a left button went down on, until it is released.
@@ -358,6 +373,7 @@ impl App {
         self.selected = 0;
         self.scrolls = Scrolls::default();
         self.follow = true;
+        self.reconcile_folds();
         self.clamp();
     }
 
@@ -372,6 +388,11 @@ impl App {
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
+        self.folds
+            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
+        if let (Some(key), Ok(view)) = (&snapshot.squad, &snapshot.view) {
+            self.remember_folds(key.clone(), &view.board);
+        }
         self.attention
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.attention.extend(snapshot.attention);
@@ -397,6 +418,8 @@ impl App {
                 }
                 if changed {
                     self.shown_changed();
+                } else {
+                    self.reconcile_folds();
                 }
                 self.error = None;
             }
@@ -482,6 +505,57 @@ impl App {
         Effect::Load(next)
     }
 
+    fn remember_folds(&mut self, key: String, board: &Board) {
+        if !self.tabs.contains(&key) && !self.hidden.contains(&key) {
+            return;
+        }
+        if self
+            .folds
+            .get(&key)
+            .is_none_or(|state| state.board != *board)
+        {
+            self.folds.insert(
+                key,
+                FoldState {
+                    board: board.clone(),
+                    collapsed: board.collapsed.clone(),
+                },
+            );
+        }
+    }
+
+    fn reconcile_folds(&mut self) {
+        if let (Some(key), Some(view)) = (&self.shown, &self.view) {
+            let key = key.clone();
+            let board = view.board.clone();
+            self.remember_folds(key, &board);
+        }
+        if self.focused_pane().is_none() {
+            self.next_pane();
+        }
+    }
+
+    pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
+        self.shown
+            .as_ref()
+            .and_then(|key| self.folds.get(key))
+            .map_or_else(
+                || {
+                    self.view
+                        .as_ref()
+                        .map_or_else(BTreeSet::new, |view| view.board.collapsed.clone())
+                },
+                |state| state.collapsed.clone(),
+            )
+    }
+
+    pub fn focused_pane(&self) -> Option<Pane> {
+        self.view
+            .as_ref()
+            .and_then(|view| view.board.panes.get(self.focus).copied())
+            .filter(|pane| !self.collapsed_panes().contains(pane))
+    }
+
     pub fn focused(&self) -> Pane {
         self.view
             .as_ref()
@@ -491,7 +565,11 @@ impl App {
 
     /// Focuses the pane drawn under the pointer, if any.
     fn focus_at(&mut self, column: u16, row: u16) {
-        let Some(pane) = self.scrolls.pane_at(column, row) else {
+        let Some(pane) = self
+            .scrolls
+            .pane_at(column, row)
+            .filter(|pane| !self.collapsed_panes().contains(pane))
+        else {
             return;
         };
         if let Some(position) = self
@@ -505,8 +583,56 @@ impl App {
 
     fn next_pane(&mut self) {
         if let Some(view) = &self.view {
-            self.focus = (self.focus + 1) % view.board.panes.len().max(1);
+            let collapsed = self.collapsed_panes();
+            let count = view.board.panes.len();
+            if let Some(next) = (1..=count)
+                .map(|step| (self.focus + step) % count)
+                .find(|index| !collapsed.contains(&view.board.panes[*index]))
+            {
+                self.focus = next;
+            }
         }
+    }
+
+    fn toggle_pane(&mut self, pane: Pane) -> Effect {
+        if self.loading() {
+            return self.say(format!(
+                "Loading {}…",
+                self.current.clone().unwrap_or_default()
+            ));
+        }
+        let Some(view) = &self.view else {
+            return Effect::None;
+        };
+        if view.board.mode != BoardMode::Split {
+            return self.say("toggle applies to split mode only.");
+        }
+        let Some(position) = view.board.panes.iter().position(|p| *p == pane) else {
+            return self.say(format!(
+                "The {} pane is not on this board; add it to panes.",
+                pane.title()
+            ));
+        };
+        let had_focus = self.focused_pane().is_some();
+        let Some(key) = self.shown.clone() else {
+            return Effect::None;
+        };
+        let board = view.board.clone();
+        self.remember_folds(key.clone(), &board);
+        let Some(state) = self.folds.get_mut(&key) else {
+            return Effect::None;
+        };
+        let expanding = state.collapsed.remove(&pane);
+        if !expanding {
+            state.collapsed.insert(pane);
+        }
+        if expanding && !had_focus {
+            self.focus = position;
+        } else if self.focused_pane().is_none() {
+            self.next_pane();
+        }
+        self.last_click = None;
+        Effect::None
     }
 
     /// The selected row's effective bindings: its section's, over `[bind]`
@@ -540,6 +666,15 @@ impl App {
             return self.say(format!("Loading {loading}…"));
         }
         match action.verb {
+            Verb::Toggle => {
+                let pane = action
+                    .args
+                    .first()
+                    .and_then(|arg| arg.literal())
+                    .and_then(Pane::parse)
+                    .expect("validated toggle pane");
+                return self.toggle_pane(pane);
+            }
             Verb::NextPane => {
                 self.next_pane();
                 return Effect::None;
@@ -555,6 +690,15 @@ impl App {
                     .and_then(|view| view.board.panes.iter().position(|p| *p == Pane::Notes));
                 return match position {
                     Some(position) => {
+                        if self.loading() && self.collapsed_panes().contains(&Pane::Notes) {
+                            return self.say(format!(
+                                "Loading {}…",
+                                self.current.clone().unwrap_or_default()
+                            ));
+                        }
+                        if self.collapsed_panes().contains(&Pane::Notes) {
+                            self.toggle_pane(Pane::Notes);
+                        }
                         self.focus = position;
                         Effect::None
                     }
@@ -887,6 +1031,21 @@ impl App {
             self.clamp();
             return Effect::None;
         }
+        if self.focused_pane().is_none()
+            && !self.bound(key)
+            && matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::Char('j' | 'k')
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End
+            )
+        {
+            return Effect::None;
+        }
         match key.code {
             KeyCode::Char('q') => return Effect::Quit,
             KeyCode::Esc if self.search.is_empty() && !self.help => return Effect::Quit,
@@ -1036,7 +1195,11 @@ impl App {
             _ => None,
         };
         if let Some(lines) = lines {
-            if let Some(pane) = self.scrolls.pane_at(event.column, event.row) {
+            if let Some(pane) = self
+                .scrolls
+                .pane_at(event.column, event.row)
+                .filter(|pane| !self.collapsed_panes().contains(pane))
+            {
                 self.scrolls.scroll(pane, Step::Lines(lines));
                 if pane == Pane::Rows {
                     self.follow = false;
@@ -1068,11 +1231,24 @@ impl App {
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;
         }
+        let title = self
+            .title_hits
+            .borrow()
+            .iter()
+            .find(|hit| {
+                hit.area
+                    .contains(ratatui::layout::Position::new(event.column, event.row))
+            })
+            .map(|hit| hit.pane);
+        if let Some(pane) = title {
+            self.notice = None;
+            return self.toggle_pane(pane);
+        }
         self.focus_at(event.column, event.row);
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
-        let Some(hit) = hit else {
+        let Some(hit) = hit.filter(|_| !self.collapsed_panes().contains(&Pane::Rows)) else {
             return Effect::None;
         };
         self.notice = None;
@@ -1818,5 +1994,98 @@ pub(crate) mod tests {
             app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
             Effect::Quit
         ));
+    }
+    fn folding_snapshot(squad: &str) -> Snapshot {
+        let mut snapshot = snapshot(squad, json!([]));
+        let view = snapshot.view.as_mut().unwrap();
+        view.board = Board::simple(
+            BoardMode::Split,
+            crate::config::Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail, Pane::Notes],
+            &[40, 30, 30],
+        );
+        snapshot
+    }
+
+    #[test]
+    fn fold_focus_skips_hidden_bodies_and_recovers_from_every_pane_folded() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(folding_snapshot("product"));
+        app.focus = 1;
+        // No selected row is needed: d goes through the normal binding path.
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        app.perform(&Action::parse("toggle rows").unwrap());
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        app.perform(&Action::parse("toggle notes").unwrap());
+        assert_eq!(app.focused_pane(), None);
+        for key in [KeyCode::Tab, KeyCode::Down, KeyCode::End, KeyCode::PageDown] {
+            press(&mut app, key);
+            assert_eq!(app.selected, 0);
+            assert_eq!(app.focused_pane(), None);
+        }
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(app.focused_pane(), Some(Pane::Detail));
+        press(&mut app, KeyCode::Char('n'));
+        assert_eq!(app.focused_pane(), Some(Pane::Notes));
+        assert!(!app.collapsed_panes().contains(&Pane::Notes));
+        assert!(
+            app.view.as_ref().unwrap().board.collapsed.is_empty(),
+            "configured board remains immutable"
+        );
+    }
+
+    #[test]
+    fn fold_state_survives_refresh_and_cached_switch_but_config_change_resets_it() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(folding_snapshot("product"));
+        press(&mut app, KeyCode::Char('d'));
+        app.apply(folding_snapshot("product"));
+        assert!(app.collapsed_panes().contains(&Pane::Detail));
+        app.apply(folding_snapshot("infra"));
+        app.go("infra".into());
+        assert!(app.collapsed_panes().is_empty());
+        app.go("product".into());
+        assert!(app.collapsed_panes().contains(&Pane::Detail));
+        let mut changed = folding_snapshot("product");
+        changed
+            .view
+            .as_mut()
+            .unwrap()
+            .board
+            .collapsed
+            .insert(Pane::Rows);
+        app.apply(changed);
+        assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Rows]));
+        let mut removed = folding_snapshot("product");
+        removed.tabs = vec!["product".into()];
+        app.apply(removed);
+        assert!(!app.folds.contains_key("infra"));
+    }
+
+    #[test]
+    fn folding_refuses_a_stale_frame_tabs_and_an_absent_pane() {
+        let mut app = App::new(Some("product".into()));
+        app.apply(folding_snapshot("product"));
+        app.go("infra".into());
+        press(&mut app, KeyCode::Char('d'));
+        assert!(app.collapsed_panes().is_empty());
+        assert_eq!(app.notice.as_deref(), Some("Loading infra…"));
+        let mut tabs = folding_snapshot("infra");
+        tabs.view.as_mut().unwrap().board.mode = BoardMode::Tabs;
+        app.apply(tabs);
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("toggle applies to split mode only.")
+        );
+        app.apply(snapshot("infra", json!([])));
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("The detail pane is not on this board; add it to panes.")
+        );
     }
 }

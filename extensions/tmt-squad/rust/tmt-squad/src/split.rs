@@ -7,7 +7,8 @@ use crate::{
     config::{Direction, Pane},
     core::SquadError,
 };
-use ratatui::layout::Constraint;
+use ratatui::layout::{Constraint, Layout, Rect};
+use std::collections::BTreeSet;
 use toml_edit::{InlineTable, Item, TableLike, Value};
 
 /// Deepest nesting a layout may have.
@@ -50,6 +51,189 @@ impl Split {
                 .map(|(pane, size)| (Size::Percent(*size), Self::Pane(*pane)))
                 .collect(),
         }
+    }
+
+    /// Title footprint when this entire subtree is folded.
+    fn footprint(&self, collapsed: &BTreeSet<Pane>) -> Option<(u16, u16)> {
+        match self {
+            Self::Pane(pane) => collapsed
+                .contains(pane)
+                .then(|| (2 + pane.title().len() as u16, 1)),
+            Self::Group {
+                direction,
+                children,
+            } => {
+                let sizes = children
+                    .iter()
+                    .map(|(_, child)| child.footprint(collapsed))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(match direction {
+                    Direction::LeftRight => (
+                        sizes.iter().map(|(w, _)| *w).sum::<u16>()
+                            + sizes.len().saturating_sub(1) as u16,
+                        sizes.iter().map(|(_, h)| *h).max().unwrap_or(0),
+                    ),
+                    Direction::TopBottom => (
+                        sizes.iter().map(|(w, _)| *w).max().unwrap_or(0),
+                        sizes.iter().map(|(_, h)| *h).sum(),
+                    ),
+                })
+            }
+        }
+    }
+
+    /// The existing split tree is the sole placement owner. Folded children
+    /// reserve their title footprint; expanded siblings share the remainder.
+    /// With no folded children the original ratatui constraints are unchanged.
+    pub fn solve(&self, mut area: Rect, collapsed: &BTreeSet<Pane>) -> Vec<(Pane, Rect)> {
+        if let Self::Pane(pane) = self {
+            if collapsed.contains(pane) {
+                area.height = area.height.min(1);
+            }
+            return vec![(*pane, area)];
+        }
+        if let Some((width, height)) = self.footprint(collapsed) {
+            area.width = area.width.min(width);
+            area.height = area.height.min(height);
+        }
+        let Self::Group {
+            direction,
+            children,
+        } = self
+        else {
+            unreachable!("pane handled above")
+        };
+        let horizontal = *direction == Direction::LeftRight;
+        let layout = |constraints: Vec<Constraint>, area| {
+            if horizontal {
+                Layout::horizontal(constraints).split(area)
+            } else {
+                Layout::vertical(constraints).split(area)
+            }
+        };
+        let folded: Vec<_> = children
+            .iter()
+            .map(|(_, child)| child.footprint(collapsed))
+            .collect();
+        let areas = if folded.iter().all(Option::is_none) {
+            layout(
+                children.iter().map(|(size, _)| size.constraint()).collect(),
+                area,
+            )
+            .to_vec()
+        } else {
+            let length = if horizontal { area.width } else { area.height };
+            // Reserve titles in reading order, clipping before the solver so
+            // even an undersized terminal has disjoint, bounded hit regions.
+            let mut remaining = length;
+            let fixed: Vec<_> = folded
+                .iter()
+                .enumerate()
+                .map(|(index, size)| {
+                    // A horizontal folded subtree has one blank cell before its
+                    // title, separating it from an adjacent expanded border.
+                    let wanted = size.map_or(0, |(w, h)| {
+                        if horizontal {
+                            w + u16::from(index > 0)
+                        } else {
+                            h
+                        }
+                    });
+                    let given = wanted.min(remaining);
+                    remaining -= given;
+                    given
+                })
+                .collect();
+            let percent: u32 = children
+                .iter()
+                .map(|(size, _)| match size {
+                    Size::Percent(p) => u32::from(*p),
+                    Size::Grow(_) => 0,
+                })
+                .sum();
+            let grow: u32 = children
+                .iter()
+                .map(|(size, _)| match size {
+                    Size::Grow(g) => u32::from(*g),
+                    Size::Percent(_) => 0,
+                })
+                .sum();
+            let weights: Vec<_> = children
+                .iter()
+                .zip(&folded)
+                .map(|((size, _), folded)| {
+                    if folded.is_some() {
+                        return 0;
+                    }
+                    match size {
+                        Size::Percent(p) => u32::from(*p) * grow.max(1),
+                        Size::Grow(g) => (100 - percent) * u32::from(*g),
+                    }
+                })
+                .collect();
+            let total: u32 = weights.iter().sum();
+            let count = folded.iter().filter(|size| size.is_none()).count() as u32;
+            let constraints = weights
+                .iter()
+                .zip(&folded)
+                .filter_map(|(weight, folded)| {
+                    folded.is_none().then_some(if total == 0 {
+                        Constraint::Ratio(1, count.max(1))
+                    } else {
+                        Constraint::Ratio(*weight, total)
+                    })
+                })
+                .collect();
+            let free = if horizontal {
+                Rect {
+                    width: remaining,
+                    ..area
+                }
+            } else {
+                Rect {
+                    height: remaining,
+                    ..area
+                }
+            };
+            let expanded = layout(constraints, free);
+            let mut expanded = expanded.iter();
+            let mut offset = 0;
+            fixed
+                .iter()
+                .zip(&folded)
+                .enumerate()
+                .map(|(index, (fixed, folded))| {
+                    let length = if folded.is_some() {
+                        *fixed
+                    } else {
+                        expanded
+                            .next()
+                            .map_or(0, |rect| if horizontal { rect.width } else { rect.height })
+                    };
+                    let gap = u16::from(horizontal && index > 0 && folded.is_some() && length > 0);
+                    let rect = if horizontal {
+                        Rect {
+                            x: area.x + offset + gap,
+                            width: length - gap,
+                            ..area
+                        }
+                    } else {
+                        Rect {
+                            y: area.y + offset,
+                            height: length,
+                            ..area
+                        }
+                    };
+                    offset += length;
+                    rect
+                })
+                .collect()
+        };
+        children
+            .iter()
+            .zip(areas)
+            .flat_map(|((_, child), rect)| child.solve(rect, collapsed))
+            .collect()
     }
 
     /// Every pane in reading order: the order Tab moves focus.

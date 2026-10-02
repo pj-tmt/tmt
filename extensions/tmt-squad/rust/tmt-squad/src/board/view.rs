@@ -2,13 +2,13 @@
 //! cells so wide characters never misalign columns.
 
 use super::{
-    app::{App, Hit, Item, Notes, Switcher, TabHit},
+    app::{App, Hit, Item, Notes, Switcher, TabHit, TitleHit},
     markdown,
     notes::{sanitize, wrap},
 };
 use crate::{
     attention::Attention,
-    config::{BoardMode, Direction, NotesRender, Pane, TabColors},
+    config::{BoardMode, NotesRender, Pane, TabColors},
     requests::{BODIES, age},
     rows::{Cell as RowCell, Rows},
     split::Split,
@@ -31,6 +31,7 @@ const KEYS: &[&str] = &[
     "↑ ↓ / j k   select a row; in a focused notes, detail or replies pane, scroll it",
     "PgUp PgDn   page the focused pane; Home End go to its top and bottom",
     "wheel       scroll the pane under the pointer",
+    "title click fold or expand a split pane (▸ means folded)",
     "Shift-drag  select text to copy (Option-drag in some terminals)",
     "← →         switch tab; Shift+← → or drag a tab to move it",
     "/           search; Esc clears",
@@ -47,12 +48,22 @@ fn hints(app: &App) -> String {
         ("enter", "⏎"),
         ("o", "o"),
         ("y", "y"),
+        ("d", "d"),
         ("tab", "tab"),
         ("ctrl-r", "ctrl-r"),
     ]
     .into_iter()
     .filter_map(|(event, label)| {
         let action = bindings.get(event)?;
+        if event == "d" {
+            return app
+                .view
+                .as_ref()
+                .filter(|view| {
+                    view.board.mode == BoardMode::Split && view.board.panes.contains(&Pane::Detail)
+                })
+                .map(|_| format!("{label} {}", action.text));
+        }
         Some(format!("{label} {}", action.verb.name()))
     })
     .collect();
@@ -241,7 +252,10 @@ pub(super) fn time_marks(app: &App, now: u64) -> Vec<String> {
         return Vec::new();
     };
     let visible = match view.board.mode {
-        BoardMode::Split => view.board.panes.contains(&Pane::Replies),
+        BoardMode::Split => {
+            view.board.panes.contains(&Pane::Replies)
+                && !app.collapsed_panes().contains(&Pane::Replies)
+        }
         BoardMode::Tabs => app.focused() == Pane::Replies,
     };
     if !visible {
@@ -534,6 +548,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     app.hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
+    app.title_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
     let [tabs, summary, body, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -679,7 +694,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         return;
     };
     let board = &view.board;
-    let focused = app.focused();
+    let focused = app.focused_pane();
     let pane_block = |pane: Pane| {
         let title = match pane {
             // The lead's notes nobody updated for a while say how long.
@@ -697,7 +712,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
             }
             other => Line::from(format!(" {} ", other.title())),
         };
-        let style = if pane == focused && board.panes.len() > 1 {
+        let style = if Some(pane) == focused && board.panes.len() > 1 {
             look.role(Role::Accent).add_modifier(Modifier::BOLD)
         } else {
             look.named("dim")
@@ -705,7 +720,7 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         Block::new()
             .borders(Borders::ALL)
             .border_style(style)
-            .title_style(if pane == focused && board.panes.len() > 1 {
+            .title_style(if Some(pane) == focused && board.panes.len() > 1 {
                 look.role(Role::Accent).add_modifier(Modifier::BOLD)
             } else {
                 look.role(Role::Muted)
@@ -713,9 +728,12 @@ fn render_body(frame: &mut Frame, app: &App, area: Rect) {
             .title(title)
     };
     match board.mode {
-        BoardMode::Split if board.panes.len() == 1 => render_pane(frame, app, board.panes[0], area),
+        BoardMode::Split if board.panes.len() == 1 && app.collapsed_panes().is_empty() => {
+            render_pane(frame, app, board.panes[0], area)
+        }
         BoardMode::Split => render_split(frame, app, &board.split, area, &pane_block),
         BoardMode::Tabs => {
+            let focused = app.focused();
             let [bar, rest] =
                 Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
             let mut spans = Vec::new();
@@ -741,24 +759,39 @@ fn render_split(
     area: Rect,
     pane_block: &dyn Fn(Pane) -> Block<'static>,
 ) {
-    match split {
-        Split::Pane(pane) => {
-            let block = pane_block(*pane);
+    let collapsed = app.collapsed_panes();
+    for (pane, area) in split.solve(area, &collapsed) {
+        if area.is_empty() {
+            continue;
+        }
+        let title = Rect { height: 1, ..area };
+        app.title_hits
+            .borrow_mut()
+            .push(TitleHit { pane, area: title });
+        if collapsed.contains(&pane) {
+            let mut text = format!("▸ {}", pane.title());
+            if pane == Pane::Notes
+                && let Some(view) = &app.view
+            {
+                if let Some(lead) = view.document["squad"]["lead"]["name"].as_str() {
+                    text.push_str(&format!(" · {}", sanitize(lead)));
+                }
+                if let Some(age) =
+                    crate::staleness::label(&view.document["squad"]["notesStaleness"])
+                {
+                    text.push_str(&format!(" · {age}"));
+                }
+            }
+            frame.render_widget(
+                Paragraph::new(Line::styled(text, app.look().role(Role::Muted))),
+                title,
+            );
+        } else {
+            let block = pane_block(pane);
             let inner = block.inner(area);
             frame.render_widget(block, area);
-            render_pane(frame, app, *pane, inner);
-        }
-        Split::Group {
-            direction,
-            children,
-        } => {
-            let constraints = children.iter().map(|(size, _)| size.constraint());
-            let areas = match direction {
-                Direction::LeftRight => Layout::horizontal(constraints).split(area),
-                Direction::TopBottom => Layout::vertical(constraints).split(area),
-            };
-            for ((_, child), rect) in children.iter().zip(areas.iter()) {
-                render_split(frame, app, child, *rect, pane_block);
+            if !inner.is_empty() {
+                render_pane(frame, app, pane, inner);
             }
         }
     }
@@ -1188,9 +1221,11 @@ fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::app::{Notes, Snapshot, View};
+    use crate::board::app::{Effect, Notes, Snapshot, View};
     use crate::config::{BoardMode, Direction, Pane};
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
     use ratatui::{Terminal, backend::TestBackend};
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -1537,7 +1572,7 @@ columns = [{ name = "member", width = "30%" },
 
         app.view.as_mut().unwrap().bindings = crate::action::preset(false);
         app.help = true;
-        let help = draw(&app, 60, 26);
+        let help = draw(&app, 60, 29);
         assert!(
             help.iter().any(|line| line == "y           copy"),
             "{help:#?}"
@@ -1548,7 +1583,7 @@ columns = [{ name = "member", width = "30%" },
             "{help:#?}"
         );
         app.view.as_mut().unwrap().refresh = None;
-        let help = draw(&app, 60, 26);
+        let help = draw(&app, 60, 29);
         assert!(
             help.iter()
                 .any(|line| line == "reload      automatic reload is off"),
@@ -1868,6 +1903,7 @@ columns = [{ name = "member", width = "30%" },
         use crate::split::{Size, Split};
         let board = crate::config::Board {
             mode: BoardMode::Split,
+            collapsed: Default::default(),
             panes: vec![Pane::Rows, Pane::Detail, Pane::Notes],
             split: Split::Group {
                 direction: Direction::LeftRight,
@@ -2877,5 +2913,306 @@ columns = [{ name = "member", width = "30%" },
         assert!(!first.is_empty());
         assert_eq!(first, time_marks(&app, 61_200));
         assert_ne!(first, time_marks(&app, 121_000));
+    }
+    fn fold(app: &mut App, pane: Pane) {
+        app.perform(&crate::action::Action::parse(&format!("toggle {}", pane.title())).unwrap());
+    }
+    fn click_title(app: &mut App, pane: Pane) {
+        let hit = *app
+            .title_hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.pane == pane)
+            .unwrap();
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: hit.area.x,
+                    row: hit.area.y,
+                    modifiers: KeyModifiers::NONE
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+    }
+
+    #[test]
+    fn fold_render_restores_both_directions_and_keeps_the_mark_muted() {
+        for direction in [Direction::LeftRight, Direction::TopBottom] {
+            for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+                let mut app = paned(
+                    split(direction, vec![Pane::Rows, Pane::Detail], vec![60, 40]),
+                    Notes::NotShown,
+                );
+                app.view.as_mut().unwrap().look.theme = tmt_cli_style::Theme::new(base);
+                let expanded = draw(&app, 80, 23);
+                assert!(expanded.iter().any(|line| line.contains("┌ detail")));
+                fold(&mut app, Pane::Detail);
+                let folded = draw(&app, 80, 23);
+                let hit = *app
+                    .title_hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.pane == Pane::Detail)
+                    .unwrap();
+                assert!(
+                    folded[hit.area.y as usize].contains("▸ detail"),
+                    "{folded:#?}"
+                );
+                assert_eq!(hit.area.height, 1);
+                if direction == Direction::LeftRight {
+                    assert_eq!(hit.area.x, 72);
+                    let title = &folded[hit.area.y as usize];
+                    assert_eq!(title.chars().nth(hit.area.x as usize - 1), Some(' '));
+                    assert_eq!(title.chars().nth(hit.area.x as usize - 2), Some('┐'));
+                } else {
+                    assert_eq!(hit.area.y, 22 - 1);
+                }
+                assert!(!folded.iter().any(|line| line.contains("waiting on you:")));
+                assert!(app.scrolls.pane_at(hit.area.x, hit.area.y).is_none());
+                let mut terminal = Terminal::new(TestBackend::new(80, 23)).unwrap();
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                assert_eq!(
+                    terminal.backend().buffer()[(hit.area.x, hit.area.y)].fg,
+                    app.look().role(Role::Muted).fg.unwrap()
+                );
+                click_title(&mut app, Pane::Detail);
+                assert_eq!(draw(&app, 80, 23), expanded);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_and_all_folded_render_titles_only_and_tiny_hits_stay_disjoint() {
+        use crate::split::{Size, Split};
+        let panes = vec![Pane::Rows, Pane::Detail, Pane::Notes, Pane::Replies];
+        let board = crate::config::Board {
+            mode: BoardMode::Split,
+            panes: panes.clone(),
+            collapsed: Default::default(),
+            split: Split::Group {
+                direction: Direction::LeftRight,
+                children: vec![
+                    (Size::Percent(60), Split::Pane(Pane::Rows)),
+                    (
+                        Size::Percent(40),
+                        Split::simple(Direction::TopBottom, &panes[1..], &[30, 30, 40]),
+                    ),
+                ],
+            },
+        };
+        let mut app = paned(board, Notes::Text("SECRET NOTE BODY".into()));
+        for pane in &panes[1..] {
+            fold(&mut app, *pane);
+        }
+        let screen = draw(&app, 100, 23);
+        assert_eq!(
+            app.title_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.pane == Pane::Detail)
+                .unwrap()
+                .area
+                .x,
+            91
+        );
+        assert!(!screen.iter().any(|line| line.contains("SECRET")));
+        fold(&mut app, Pane::Rows);
+        let screen = draw(&app, 100, 23);
+        assert!(
+            screen
+                .iter()
+                .any(|line| line.starts_with("▸ rows ▸ detail"))
+        );
+        assert!(app.hits.borrow().is_empty());
+        assert_eq!(app.focused_pane(), None);
+        for (w, h) in [(20, 9), (10, 6), (3, 4), (1, 1), (0, 0)] {
+            draw(&app, w, h);
+            let hits = app.title_hits.borrow();
+            for (i, hit) in hits.iter().enumerate() {
+                assert!(hit.area.right() <= w && hit.area.bottom() <= h);
+                for other in &hits[..i] {
+                    assert!(hit.area.intersection(other.area).is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn title_clicks_bypass_row_bindings_overlays_and_double_click_history() {
+        let mut app = paned(
+            split(
+                Direction::TopBottom,
+                vec![Pane::Rows, Pane::Detail],
+                vec![50, 50],
+            ),
+            Notes::NotShown,
+        );
+        app.view.as_mut().unwrap().bindings.extend([
+            (
+                "click".into(),
+                crate::action::Action::parse("refresh").unwrap(),
+            ),
+            (
+                "double-click".into(),
+                crate::action::Action::parse("refresh").unwrap(),
+            ),
+        ]);
+        draw(&app, 80, 23);
+        let selected = app.selected;
+        app.help = true;
+        click_title(&mut app, Pane::Detail);
+        assert!(app.collapsed_panes().is_empty());
+        app.help = false;
+        click_title(&mut app, Pane::Rows);
+        assert_eq!(app.selected, selected);
+        draw(&app, 80, 23);
+        assert!(app.hits.borrow().is_empty());
+        click_title(&mut app, Pane::Rows);
+        draw(&app, 80, 23);
+        let hit = app.hits.borrow()[0];
+        let result = app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: hit.x,
+                row: hit.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert_eq!(
+            result,
+            Effect::Refresh,
+            "title clicks never become a row action"
+        );
+    }
+
+    #[test]
+    fn fold_preserves_scroll_and_the_borderless_single_pane_path() {
+        let mut app = paned(
+            split(
+                Direction::LeftRight,
+                vec![Pane::Rows, Pane::Notes],
+                vec![60, 40],
+            ),
+            Notes::Text(
+                (0..100)
+                    .map(|n| format!("line {n}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+        );
+        draw(&app, 80, 23);
+        app.scrolls
+            .scroll(Pane::Notes, super::super::scroll::Step::Lines(12));
+        fold(&mut app, Pane::Notes);
+        draw(&app, 80, 23);
+        fold(&mut app, Pane::Notes);
+        draw(&app, 80, 23);
+        assert_eq!(app.scrolls.offset(Pane::Notes), 12);
+        let mut app = paned(
+            split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+            Notes::NotShown,
+        );
+        let before = draw(&app, 60, 12);
+        assert!(app.title_hits.borrow().is_empty());
+        fold(&mut app, Pane::Rows);
+        assert_eq!(draw(&app, 60, 12)[2], "▸ rows");
+        click_title(&mut app, Pane::Rows);
+        assert_eq!(draw(&app, 60, 12), before);
+        assert!(app.title_hits.borrow().is_empty());
+    }
+
+    #[test]
+    fn folded_rows_clear_visual_positions_and_resume_wrapped_paging_after_expansion() {
+        let mut app = board(json!([{ "title": null, "rows": [
+            row("a", "", "alpha beta gamma delta", json!({})),
+            row("b", "", "alpha beta gamma delta", json!({})),
+            row("c", "", "alpha beta gamma delta", json!({})),
+            row("d", "", "alpha beta gamma delta", json!({})),
+        ] }]));
+        let view = app.view.as_mut().unwrap();
+        view.board = split(
+            Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail],
+            vec![50, 50],
+        );
+        view.rows = rows_from(
+            r#"[p.rows]
+columns = [{ name = "member", width = "30%" },
+           { name = "task", width = "70%", overflow = "wrap", max_lines = 2 }]
+"#,
+        );
+        app.selected = 1;
+        draw(&app, 20, 10);
+        assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
+        fold(&mut app, Pane::Rows);
+        draw(&app, 20, 10);
+        assert!(app.row_starts.borrow().is_empty());
+        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(app.selected, 1, "paging detail cannot move hidden rows");
+        fold(&mut app, Pane::Detail);
+        draw(&app, 20, 10);
+        assert_eq!(app.focused_pane(), None);
+        for key in [KeyCode::PageDown, KeyCode::Home, KeyCode::End] {
+            app.key(KeyEvent::new(key, KeyModifiers::NONE));
+            assert_eq!(
+                app.selected, 1,
+                "all-folded navigation cannot page stale rows"
+            );
+        }
+        fold(&mut app, Pane::Rows);
+        draw(&app, 20, 10);
+        assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert!(app.selected > 0, "expanded rows resume visual paging");
+    }
+
+    #[test]
+    fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
+        let mut app = paned(
+            split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+            Notes::NotShown,
+        );
+        assert!(!hints(&app).contains("d toggle"));
+        app.view.as_mut().unwrap().board = split(
+            Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail],
+            vec![60, 40],
+        );
+        assert!(hints(&app).contains("d toggle detail"));
+        assert!(draw(&app, 48, 12)[11].contains("d toggle detail"));
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("d".into(), crate::action::Action::parse("refresh").unwrap());
+        assert!(hints(&app).contains("d refresh"));
+        assert!(
+            help_lines(&app)
+                .iter()
+                .any(|line| line.trim_end() == "d           refresh")
+        );
+    }
+    #[test]
+    fn folded_reply_age_never_invalidates_the_visible_frame() {
+        let mut app = paned(
+            split(
+                Direction::TopBottom,
+                vec![Pane::Rows, Pane::Replies],
+                vec![60, 40],
+            ),
+            Notes::NotShown,
+        );
+        app.view.as_mut().unwrap().replies = vec![json!({"submittedAtMs":40_000})];
+        assert!(!time_marks(&app, 60_000).is_empty());
+        fold(&mut app, Pane::Replies);
+        assert!(time_marks(&app, 60_000).is_empty());
+        fold(&mut app, Pane::Replies);
+        assert!(!time_marks(&app, 60_000).is_empty());
     }
 }
