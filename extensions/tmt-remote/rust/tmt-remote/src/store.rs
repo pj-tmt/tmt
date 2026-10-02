@@ -2,7 +2,7 @@
 //! The machine identity (ID and `/r/` route prefix) is created once and is
 //! stable across restarts; neither is a credential.
 use crate::{error::RemoteError, state::Serving};
-use rusqlite::{Connection, OpenFlags, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::time::Duration;
 
 fn database(error: impl std::fmt::Display) -> RemoteError {
@@ -222,12 +222,57 @@ impl Store {
         transaction
             .execute(
                 "UPDATE grants SET disabled = 1, revision = revision + 1
-                 WHERE client_id = ?1 AND disabled = 0",
+                 WHERE client_id = ?1 AND disabled = 0 AND revision < 9007199254740991",
                 [client_id],
             )
             .map_err(database)?;
         transaction.commit().map_err(database)?;
-        self.grant(client_id)
+        let grant = self.grant(client_id)?;
+        if grant.as_ref().is_some_and(|g| !g.disabled) {
+            return Err(database("grant revision exhausted"));
+        }
+        Ok(grant)
+    }
+    /// Presentation-only rename. Disabled grants remain tombstones; an exact
+    /// repeat preserves the revision and never changes grant authority.
+    pub fn rename(&mut self, client_id: &str, name: &str) -> Result<Option<Grant>, RemoteError> {
+        if !crate::canonical::device_name(name) {
+            return Err(RemoteError::new(
+                "REMOTE_INPUT_INVALID",
+                "Device names must be 1–64 nonblank UTF-8 bytes without controls.",
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let disabled: Option<bool> = transaction
+            .query_row(
+                "SELECT disabled FROM grants WHERE client_id = ?1",
+                [client_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(database)?;
+        if disabled == Some(true) {
+            return Err(RemoteError::new(
+                "REMOTE_DEVICE_REVOKED",
+                "A revoked device cannot be renamed.",
+            ));
+        }
+        transaction
+            .execute(
+                "UPDATE grants SET name = ?2, revision = revision + 1
+             WHERE client_id = ?1 AND name != ?2 AND revision < 9007199254740991",
+                rusqlite::params![client_id, name],
+            )
+            .map_err(database)?;
+        transaction.commit().map_err(database)?;
+        let grant = self.grant(client_id)?;
+        if grant.as_ref().is_some_and(|g| g.name != name) {
+            return Err(database("grant revision exhausted"));
+        }
+        Ok(grant)
     }
 }
 const GRANT_COLUMNS: &str = "client_id, public_key, kind, origin, name, agents, scopes, mode,
@@ -343,6 +388,46 @@ mod tests {
         // FULL is 2 in SQLite's numbering.
         assert_eq!(pragma("synchronous"), 2);
         drop(store);
+        drop(serving);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn rename_and_revoke_refuse_revision_exhaustion_without_changing_the_grant() {
+        let root = std::env::temp_dir().join(format!("tmt-1100-revision-{}", std::process::id()));
+        let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+        let mut store = Store::open(&serving).unwrap();
+        let grant = Grant {
+            client_id: uuid_v4().unwrap(),
+            public_key: [7; 32],
+            kind: "cli".into(),
+            origin: "cli".into(),
+            name: "Laptop".into(),
+            agents: "all".into(),
+            scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+            mode: "direct".into(),
+            issued_at_ms: 1,
+            expires_at_ms: None,
+            revision: 9_007_199_254_740_991,
+            disabled: false,
+        };
+        store.insert_grant(&grant).unwrap();
+        assert_eq!(
+            store.rename(&grant.client_id, "Travel").unwrap_err().code,
+            "REMOTE_STATE_UNAVAILABLE"
+        );
+        assert_eq!(
+            store.revoke(&grant.client_id).unwrap_err().code,
+            "REMOTE_STATE_UNAVAILABLE"
+        );
+        assert_eq!(
+            store.rename(&grant.client_id, "Laptop").unwrap(),
+            Some(grant.clone())
+        );
+        drop(store);
+        let reopened = Store::open(&serving).unwrap();
+        assert_eq!(reopened.grant(&grant.client_id).unwrap(), Some(grant));
+        drop(reopened);
         drop(serving);
         std::fs::remove_dir_all(&root).unwrap();
     }

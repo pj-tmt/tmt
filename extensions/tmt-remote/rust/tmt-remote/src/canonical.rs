@@ -158,15 +158,7 @@ pub fn enrollment(value: &Enrollment<'_>) -> Result<Vec<u8>> {
         "cli" => value.origin == "cli",
         _ => false,
     })?;
-    require(
-        !value.name.is_empty()
-            && value.name.len() <= 64
-            && value
-                .name
-                .chars()
-                .any(|c| !c.is_whitespace() && c != '\u{feff}')
-            && !value.name.chars().any(char::is_control),
-    )?;
+    require(device_name(value.name))?;
     framed(&[
         b"tmt-device-pair-v1",
         b"local-v1",
@@ -183,6 +175,14 @@ pub fn enrollment(value: &Enrollment<'_>) -> Result<Vec<u8>> {
 }
 pub fn possession(enrollment: &[u8], mac: &[u8; 32]) -> Result<Vec<u8>> {
     framed(&[b"tmt-device-pair-possession-v1", enrollment, mac])
+}
+
+/// Pairing and local rename share the contract's 1–64 byte, nonblank name rule.
+pub fn device_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value.chars().any(|c| !c.is_whitespace() && c != '\u{feff}')
+        && !value.chars().any(char::is_control)
 }
 
 /// An extension name as mounted under `<prefix>/x/<extension>/`: a lowercase ASCII

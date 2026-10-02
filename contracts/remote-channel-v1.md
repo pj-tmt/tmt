@@ -525,9 +525,8 @@ owner:true, grantRevision}`, where `publicKey` is the grant's raw 32-byte Ed2551
 canonical unpadded base64url, the only form remote forwards. A cloud edge attributes a non-owner
 principal it authenticated for that extension as `{principal, owner:false}`; on the local door a
 non-owner request arrives without a device context and the extension authenticates it (below).
-Extensions query the current principal from the CLI and browser SDK and subscribe to device
-revocation and renaming events, each carrying `deviceId` (for example to drop a device's extension
-key or rotate page epochs); the event stream is not yet implemented (#1100). An extension that needs
+Extensions query the current principal from the CLI and browser SDK and receive the device events
+defined below (for example to drop a device's extension key or rotate page epochs). An extension that needs
 its own keys generates them on the device and asks the device key to certify them: the device signs
 LP(`tmt-ext-cert-v1`) || LP(extension) || LP(purpose) || LP(raw extension public key) || LP(decimal
 issuedAtMs), where extension is its mounted name (a lowercase ASCII letter, then lowercase letters,
@@ -535,6 +534,56 @@ digits or hyphens, at most 32 bytes) and purpose is `sign` or `enc`. The certifi
 extension key to a device; it grants no remote authority by itself, and extension cryptography stays
 owned by the extension. The extension verifies it against the `publicKey` of a device context with
 the matching `deviceId`.
+
+**Device events (local).** Remote delivers one channel to each mounted extension using ordinary
+HTTP/1.1 `POST /.tmt/remote/device-events` on that extension's existing owner-only
+`<dataRoot>/<extension>/door.sock`. This path is extension-local, outside its browser routes.
+Mounts refuse the entire `/.tmt` subtree, including
+`<prefix>/x/<extension>/.tmt/remote/device-events`, with 404 before forwarding. The callback carries
+`tmt-device-event: 1`, `Content-Type: application/json`, one `Content-Length`, `Connection: close`
+and the usual remote-set `tmt-mount`. Browser request headers never forward `tmt-device-event`;
+extensions trust a callback only on the owner-only socket with that exact remote-only header and
+reserved path. The header alone is not authority on a browser-facing transport. Remote validates
+the socket and its directory's ownership, private permissions and no-symlink rule exactly as for
+route mounting. No browser route, device session, signature, credential or new listener is added.
+
+The body is exactly one strict UTF-8 JSON object, with no duplicate or unknown fields:
+
+- `{"type":"device.revoked","deviceId":"<device UUID>","grantRevision":N}`.
+- `{"type":"device.renamed","deviceId":"<device UUID>","grantRevision":N,"name":"<current name>"}`.
+
+`deviceId` is the grant's `clientId`, a canonical lowercase UUIDv4. `grantRevision` is the positive
+JSON integer grant revision (at most 2^53-1). Names follow the existing 1–64 nonblank UTF-8 byte,
+no-control rule. Extensions reject unknown types, extra or missing fields and invalid values;
+`name` is present only for `device.renamed`. These events convey device state, never agent work
+or extension membership authority.
+
+Delivery is level-triggered from durable grants, without a journal or cursor. Each sweep sends a
+revoked tombstone for every disabled grant and the current name for every other grant, including
+the initial name at revision 1. Intermediate renames may coalesce. Tombstones are retained, so a
+revocation while an extension or remote is stopped is replayed on recovery. Remote starts with a
+full sweep and repeats successful sweeps every five seconds, also covering a restarted extension
+at the same socket. A committed revoke or changed rename wakes the worker immediately. Each
+request has a one-second total connect/write/reply-head deadline; a joined worker performs socket
+I/O outside the grant lock and local mutation acknowledgment.
+
+Only a valid 2xx response acknowledges an event. Every other status, missing or unsafe socket,
+connection failure, timeout or malformed response retries current durable state with bounded
+backoff (1, 2, 4, 8, 16, then at most 30 seconds); a committed mutation wakes that wait too.
+An extension acknowledges only after applying or durably recording the event. Lost replies and
+successful periodic replay can duplicate events. Extension consumers therefore apply revisions
+idempotently per `deviceId`: an equal revision causes no repeated effects, and an older event
+never undoes a newer one. A revoke at revision N wins over any rename at a lower revision.
+Consumers retain the applied revision with device-bound state; they must not rotate epochs again
+for a replayed revoke. Delivery is asynchronous: remote revokes authority and ends sessions before
+acknowledging the local command, while extension cleanup may still be awaiting recovery. A rename
+of a revoked device refuses, so its tombstone cannot become a name event.
+
+`tmt remote devices rename <clientId> <name>` changes presentation only, preserving the device ID,
+key and authority. A changed name advances the grant revision and ends old-revision sessions and
+tunnels; the device silently reopens with signed `session.open`. Repeating the current name is a
+no-op with the same revision. Both rename and revoke work through serve's control socket when
+running, or directly under the serve lock when stopped.
 
 **Route mounting.** The door mounts each enabled, owner-installed extension under
 `/r/<prefix>/x/<extension>/`, inside the machine's route prefix, forwarding HTTP requests, static
@@ -691,7 +740,8 @@ removed and envelope bytes are unchanged. The pairing ceremony is implemented th
 `tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
 grant and the receipt with `serverProof` (#1039). Door sessions (`session.open` on `/append`, the
 mount-space cookie and the device context it carries to mounts) and `tmt remote devices` list and
-revoke are implemented (#1039). The device SDK in `remote-client` (non-extractable WebCrypto device
+revoke are implemented (#1039). Local rename and level-triggered device events over mounted
+extension sockets are implemented (#1100). The device SDK in `remote-client` (non-extractable WebCrypto device
 key, pairing client with `serverProof` verification, `session.open` client and `tmt-ext-cert-v1`
 certification) and the Rust and Python certificate vectors are implemented, as are the remote-served
 pairing page, `/sdk/remote-v1.js` and `/sdk/mount` (#1039).

@@ -6,7 +6,11 @@ use std::{
     os::unix::{fs::PermissionsExt, net::UnixListener},
     path::PathBuf,
     process::{Child, Command, Stdio},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant},
 };
 #[path = "support/executable_fixture.rs"]
@@ -445,14 +449,58 @@ fn pair_json_confirms_one_device_through_the_running_serve() {
     let client_id = ended["clientId"].as_str().unwrap();
     assert_eq!(running["devices"][0]["clientId"], client_id);
     assert_eq!(running["devices"][0]["kind"], "cli");
+    let (renamed, name) = devices(&["rename", client_id, "Travel laptop", "--json"]);
+    assert!(renamed);
+    assert_eq!(name["device"]["name"], "Travel laptop");
+    assert_eq!(name["device"]["clientId"], client_id);
+    assert_eq!(name["device"]["revision"], 2);
+    for field in [
+        "kind",
+        "origin",
+        "words",
+        "agents",
+        "scopes",
+        "mode",
+        "issuedAtMs",
+        "expiresAtMs",
+        "revoked",
+    ] {
+        assert_eq!(
+            name["device"][field], running["devices"][0][field],
+            "{field} changed"
+        );
+    }
+    let (repeated, same) = devices(&["rename", client_id, "Travel laptop", "--json"]);
+    assert!(repeated);
+    assert_eq!(same, name);
+    for invalid in ["", " \u{feff}", "a\nb", &"é".repeat(33)] {
+        let (accepted, bad) = devices(&["rename", client_id, invalid, "--json"]);
+        assert!(!accepted);
+        assert_eq!(bad["error"]["code"], "REMOTE_INPUT_INVALID");
+    }
     terminate(server);
     let (listed, stopped) = devices(&["--json"]);
     assert!(listed);
-    assert_eq!(stopped, running);
+    assert_eq!(stopped["devices"][0], name["device"]);
+    let (renamed, offline) = devices(&["rename", client_id, "Home laptop", "--json"]);
+    assert!(renamed);
+    assert_eq!(offline["device"]["name"], "Home laptop");
+    assert_eq!(offline["device"]["revision"], 3);
     let (revoked, answer) = devices(&["revoke", client_id, "--json"]);
     assert!(revoked);
     assert_eq!(answer["device"]["revoked"], true);
-    assert_eq!(answer["device"]["revision"], 2);
+    assert_eq!(answer["device"]["revision"], 4);
+    let (renamed, disabled) = devices(&["rename", client_id, "Revived", "--json"]);
+    assert!(!renamed);
+    assert_eq!(disabled["error"]["code"], "REMOTE_DEVICE_REVOKED");
+    let (renamed, missing) = devices(&[
+        "rename",
+        "00000000-0000-4000-8000-000000000009",
+        "Missing",
+        "--json",
+    ]);
+    assert!(!renamed);
+    assert_eq!(missing["error"]["code"], "REMOTE_DEVICE_NOT_FOUND");
     let (found, missing) = devices(&["revoke", "00000000-0000-4000-8000-000000000009", "--json"]);
     assert!(!found);
     assert_eq!(missing["error"]["code"], "REMOTE_DEVICE_NOT_FOUND");
@@ -462,4 +510,145 @@ fn pair_json_confirms_one_device_through_the_running_serve() {
         .unwrap();
     assert_eq!(grants, 1);
     assert!(!pilot.root.join("state/remote/control.sock").exists());
+}
+
+/// A bounded HTTP callback fixture for actual foreground-process composition.
+struct DeviceCallback {
+    events: mpsc::Receiver<Value>,
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+impl DeviceCallback {
+    fn serve(root: &std::path::Path) -> Self {
+        let directory = root.join("colab");
+        fs::create_dir_all(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = directory.join("door.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&stop);
+        let (sent, events) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            while !flag.load(Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(2)))
+                            .unwrap();
+                        let mut reader = BufReader::new(stream.try_clone().unwrap());
+                        let mut line = String::new();
+                        reader.read_line(&mut line).unwrap();
+                        assert_eq!(line, "POST /.tmt/remote/device-events HTTP/1.1\r\n");
+                        let (mut marker, mut length) = (false, None);
+                        loop {
+                            line.clear();
+                            assert!(reader.read_line(&mut line).unwrap() > 0);
+                            if line == "\r\n" {
+                                break;
+                            }
+                            marker |= line == "tmt-device-event: 1\r\n";
+                            if let Some(value) = line.strip_prefix("Content-Length: ") {
+                                length = Some(value.trim().parse::<usize>().unwrap());
+                            }
+                        }
+                        assert!(marker);
+                        let length = length.unwrap();
+                        assert!(length <= 4096);
+                        let mut body = vec![0; length];
+                        reader.read_exact(&mut body).unwrap();
+                        stream
+                            .write_all(b"HTTP/1.1 204 No Content\r\n\r\n")
+                            .unwrap();
+                        sent.send(serde_json::from_slice(&body).unwrap()).unwrap();
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5))
+                    }
+                    Err(e) => panic!("callback listener failed: {e}"),
+                }
+            }
+        });
+        Self {
+            events,
+            stop,
+            thread: Some(thread),
+        }
+    }
+    fn next(&self) -> Value {
+        self.events
+            .recv_timeout(Duration::from_secs(10))
+            .expect("foreground did not deliver device event")
+    }
+}
+impl Drop for DeviceCallback {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        self.thread.take().unwrap().join().unwrap();
+    }
+}
+
+#[test]
+fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
+    use tmt_remote::{
+        state::Layout,
+        store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
+    };
+    for _ in 0..2 {
+        let mut pilot = Pilot::new();
+        let root = pilot.root.join("state");
+        let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+        let mut store = Store::open(&serving).unwrap();
+        let grant = Grant {
+            client_id: uuid_v4().unwrap(),
+            public_key: [7; 32],
+            kind: "cli".into(),
+            origin: "cli".into(),
+            name: "Laptop".into(),
+            agents: "all".into(),
+            scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+            mode: "direct".into(),
+            issued_at_ms: 1,
+            expires_at_ms: None,
+            revision: 1,
+            disabled: false,
+        };
+        store.insert_grant(&grant).unwrap();
+        drop(store);
+        drop(serving);
+        let callback = DeviceCallback::serve(&root);
+        let (server, _) = serve(&pilot);
+        pilot.child = Some(server);
+        assert_eq!(
+            callback.next(),
+            serde_json::json!({"type":"device.renamed","deviceId":grant.client_id,"grantRevision":1,"name":"Laptop"})
+        );
+        let renamed = pilot
+            .command()
+            .args(["devices", "rename", &grant.client_id, "Travel", "--json"])
+            .output()
+            .unwrap();
+        assert!(renamed.status.success());
+        assert_eq!(
+            callback.next(),
+            serde_json::json!({"type":"device.renamed","deviceId":grant.client_id,"grantRevision":2,"name":"Travel"})
+        );
+        terminate(pilot.child.take().unwrap());
+        let revoked = pilot
+            .command()
+            .args(["devices", "revoke", &grant.client_id, "--json"])
+            .output()
+            .unwrap();
+        assert!(revoked.status.success());
+        let (server, _) = serve(&pilot);
+        pilot.child = Some(server);
+        assert_eq!(
+            callback.next(),
+            serde_json::json!({"type":"device.revoked","deviceId":grant.client_id,"grantRevision":3})
+        );
+        terminate(pilot.child.take().unwrap());
+        assert!(!root.join("remote/control.sock").exists());
+        drop(callback);
+    }
 }

@@ -19,11 +19,14 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_remote::{
+    devices::{Devices, event_json},
     http::{Door, Handler},
     limits,
     mount::{Admitted, DeviceContext, EXTENSIONS, Extension, Mounts, NoSessions, Sessions},
     routes::Routes,
     site::Site,
+    state::Layout,
+    store::{DEFAULT_SCOPES, Grant, Store},
 };
 
 const OWNER: &str = "tmt_door=owner";
@@ -136,12 +139,41 @@ fn replying(reply: &'static [u8]) -> Behavior {
 }
 const PAGE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Security-Policy: default-src 'self'\r\nSet-Cookie: shadow=1; Path=/\r\nX-Ext: yes\r\nContent-Length: 5\r\n\r\nhello";
 
+fn grant() -> Grant {
+    Grant {
+        client_id: "00000000-0000-4000-8000-000000000004".into(),
+        public_key: [7; 32],
+        kind: "cli".into(),
+        origin: "cli".into(),
+        name: "Laptop é".into(),
+        agents: "all".into(),
+        scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+        mode: "direct".into(),
+        issued_at_ms: 1,
+        expires_at_ms: None,
+        revision: 1,
+        disabled: false,
+    }
+}
+fn received(events: &mpsc::Receiver<String>) -> serde_json::Value {
+    let wire = events
+        .recv_timeout(Duration::from_secs(10))
+        .expect("device event missing");
+    let (head, body) = wire.split_once("\r\n\r\n").unwrap();
+    assert!(head.starts_with("POST /.tmt/remote/device-events HTTP/1.1\r\n"));
+    assert!(head.contains("\r\ntmt-device-event: 1\r\n"));
+    assert!(head.contains("\r\nContent-Type: application/json\r\n"));
+    assert!(!head.to_ascii_lowercase().contains("cookie:"));
+    serde_json::from_str(body).unwrap()
+}
+
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 struct Mounted {
     root: PathBuf,
     addr: SocketAddr,
     origin: String,
     prefix: String,
+    mounts: Arc<Mounts>,
     stop: Arc<AtomicBool>,
     door: Option<JoinHandle<()>>,
 }
@@ -166,10 +198,17 @@ impl Mounted {
         let origin = door.origin.clone();
         let site = Arc::new(Site {
             routes,
-            mounts: Mounts::with_extensions(root.clone(), &origin, &prefix, sessions, extensions),
+            mounts: Arc::new(Mounts::with_extensions(
+                root.clone(),
+                &origin,
+                &prefix,
+                sessions,
+                extensions,
+            )),
             pages: None,
         });
         let stop = Arc::new(AtomicBool::new(false));
+        let mounts = Arc::clone(&site.mounts);
         let flag = Arc::clone(&stop);
         let door = thread::spawn(move || door.run(&flag, site as Arc<dyn Handler>).unwrap());
         Self {
@@ -177,6 +216,7 @@ impl Mounted {
             addr,
             origin,
             prefix,
+            mounts,
             stop,
             door: Some(door),
         }
@@ -232,7 +272,7 @@ fn forwards_to_owner_socket_without_device_context_or_cookie() {
     let reply = door.send(
         door.get(
             &door.at("/x/colab/app/index.html"),
-            &format!("Accept: text/html\r\nCookie: {OWNER}\r\nTMT-Device-Context: forged\r\nTMT-Mount: /x/evil/\r\nX-Other: dropped\r\n"),
+            &format!("Accept: text/html\r\nCookie: {OWNER}\r\nTMT-Device-Context: forged\r\nTMT-Device-Event: 1\r\nTMT-Mount: /x/evil/\r\nX-Other: dropped\r\n"),
         )
         .as_bytes(),
     );
@@ -292,6 +332,188 @@ fn owner_session_forwards_exact_device_context_and_body() {
     // A non-owner request on the same mount carries no context.
     assert_eq!(door.status(&post.replace(OWNER, "tmt_door=other")), 200);
     assert!(!extension.seen.all()[1].contains("tmt-device-context"));
+}
+
+#[test]
+fn reserved_device_events_never_forward_even_with_a_forged_marker() {
+    let door = Mounted::new(Arc::new(OneOwner));
+    let extension = door.extension(replying(PAGE));
+    for path in [
+        "/.tmt",
+        "/.tmt/",
+        "/.tmt/remote/device-events",
+        "/.tmt/other",
+    ] {
+        for method in ["GET", "POST", "PUT", "PATCH", "DELETE"] {
+            let wire = format!(
+                "{method} {}/x/colab{path} HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nCookie: {OWNER}\r\nTMT-Device-Event: 1\r\nContent-Length: 2\r\n\r\n{{}}",
+                door.prefix, door.addr, door.origin
+            );
+            assert_eq!(door.status(&wire), 404);
+        }
+    }
+    assert!(extension.seen.all().is_empty());
+    // Positive control: the marker is stripped on an otherwise admitted request.
+    assert_eq!(
+        door.status(&door.get(&door.at("/x/colab/app"), "TMT-Device-Event: 1\r\n")),
+        200
+    );
+    assert!(
+        !extension.seen.all()[0]
+            .to_ascii_lowercase()
+            .contains("tmt-device-event")
+    );
+}
+
+#[test]
+fn only_2xx_device_replies_acknowledge_and_unsafe_sockets_receive_nothing() {
+    let door = Mounted::new(Arc::new(NoSessions));
+    assert!(!door.mounts.device_event(&event_json(&grant())));
+    for reply in [
+        b"HTTP/1.1 204 No Content\r\n\r\n".as_slice(),
+        b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".as_slice(),
+        b"HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n".as_slice(),
+        b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\n\r\n".as_slice(),
+        b"invalid reply\r\n\r\n".as_slice(),
+    ] {
+        let extension = door.extension(replying(reply));
+        assert_eq!(
+            door.mounts.device_event(&event_json(&grant())),
+            reply.starts_with(b"HTTP/1.1 2")
+        );
+        let count = extension.seen.all().len();
+        fs::set_permissions(door.socket(), fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(!door.mounts.device_event(&event_json(&grant())));
+        assert_eq!(extension.seen.all().len(), count);
+        fs::set_permissions(door.socket(), fs::Permissions::from_mode(0o600)).unwrap();
+        fs::set_permissions(door.root.join("colab"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!door.mounts.device_event(&event_json(&grant())));
+        assert_eq!(extension.seen.all().len(), count);
+        fs::set_permissions(door.root.join("colab"), fs::Permissions::from_mode(0o700)).unwrap();
+        drop(extension);
+        fs::remove_file(door.socket()).unwrap();
+    }
+}
+
+#[test]
+fn durable_device_events_retry_rename_revoke_and_replay_after_restarts() {
+    for _ in 0..2 {
+        let door = Mounted::new(Arc::new(NoSessions));
+        let layout = Layout::open(&door.root).unwrap();
+        let serving = layout.serve_lock().unwrap();
+        let store = Arc::new(Mutex::new(Store::open(&serving).unwrap()));
+        let original = grant();
+        store.lock().unwrap().insert_grant(&original).unwrap();
+        let devices = Arc::new(Devices::new(Arc::clone(&store), None));
+        let (sent, events) = mpsc::channel();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let extension = door.extension(Arc::new(move |mut stream, seen| {
+            let wire = request(&mut stream);
+            seen.push(wire.clone());
+            let reply = if attempts.fetch_add(1, Ordering::Relaxed) == 0 {
+                "HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\n\r\n"
+            } else {
+                "HTTP/1.1 204 No Content\r\n\r\n"
+            };
+            stream.write_all(reply.as_bytes()).unwrap();
+            sent.send(String::from_utf8(wire).unwrap()).unwrap();
+        }));
+        let worker = devices.start_events(Arc::clone(&door.mounts)).unwrap();
+        let initial = serde_json::json!({"type":"device.renamed", "deviceId":original.client_id,"grantRevision":1,"name":"Laptop é"});
+        assert_eq!(received(&events), initial);
+        assert_eq!(received(&events), initial); // 503 must retry, not acknowledge.
+        devices.rename(&original.client_id, "Travel").unwrap();
+        assert_eq!(
+            received(&events),
+            serde_json::json!({"type":"device.renamed","deviceId":original.client_id,"grantRevision":2,"name":"Travel"})
+        );
+        devices.revoke(&original.client_id).unwrap();
+        let revoked = serde_json::json!({"type":"device.revoked","deviceId":original.client_id,"grantRevision":3});
+        assert_eq!(received(&events), revoked);
+        assert_eq!(devices.revoke(&original.client_id).unwrap().revision, 3);
+        assert_eq!(received(&events), revoked);
+        drop(worker);
+        drop(extension);
+        fs::remove_file(door.socket()).unwrap();
+        // Extension restart alone recovers through periodic replay, with no mutation.
+        let (sent, events) = mpsc::channel();
+        let extension = door.extension(Arc::new(move |mut stream, _| {
+            let wire = request(&mut stream);
+            stream
+                .write_all(b"HTTP/1.1 204 No Content\r\n\r\n")
+                .unwrap();
+            sent.send(String::from_utf8(wire).unwrap()).unwrap();
+        }));
+        let worker = devices.start_events(Arc::clone(&door.mounts)).unwrap();
+        assert_eq!(received(&events), revoked);
+        drop(extension);
+        fs::remove_file(door.socket()).unwrap();
+        let (sent, events) = mpsc::channel();
+        let extension = door.extension(Arc::new(move |mut stream, _| {
+            let wire = request(&mut stream);
+            stream
+                .write_all(b"HTTP/1.1 204 No Content\r\n\r\n")
+                .unwrap();
+            sent.send(String::from_utf8(wire).unwrap()).unwrap();
+        }));
+        assert_eq!(received(&events), revoked);
+        drop(worker);
+        drop(devices);
+        drop(store);
+        // No journal is needed when remote reopens its actual database.
+        let devices = Arc::new(Devices::new(
+            Arc::new(Mutex::new(Store::open(&serving).unwrap())),
+            None,
+        ));
+        let worker = devices.start_events(Arc::clone(&door.mounts)).unwrap();
+        assert_eq!(received(&events), revoked);
+        drop(worker);
+        drop(extension);
+    }
+}
+
+#[test]
+fn an_unresponsive_extension_cannot_block_mutation_or_worker_shutdown() {
+    for _ in 0..2 {
+        let door = Mounted::new(Arc::new(NoSessions));
+        let layout = Layout::open(&door.root).unwrap();
+        let serving = layout.serve_lock().unwrap();
+        let store = Arc::new(Mutex::new(Store::open(&serving).unwrap()));
+        let original = grant();
+        store.lock().unwrap().insert_grant(&original).unwrap();
+        let devices = Arc::new(Devices::new(Arc::clone(&store), None));
+        let (sent, events) = mpsc::channel();
+        let (release, gate) = mpsc::channel();
+        let gate = Mutex::new(gate);
+        let extension = door.extension(Arc::new(move |mut stream, _| {
+            let wire = request(&mut stream);
+            sent.send(String::from_utf8(wire).unwrap()).unwrap();
+            gate.lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+        }));
+        let worker = devices.start_events(Arc::clone(&door.mounts)).unwrap();
+        received(&events); // Callback is held, with no response yet.
+        assert!(store.try_lock().is_ok(), "callback retained the grant lock");
+        assert_eq!(
+            devices
+                .rename(&original.client_id, "Travel")
+                .unwrap()
+                .revision,
+            2
+        );
+        assert_eq!(devices.revoke(&original.client_id).unwrap().revision, 3);
+        assert!(devices.list().unwrap()[0].disabled);
+        let began = Instant::now();
+        drop(worker);
+        assert!(
+            began.elapsed() < Duration::from_secs(3),
+            "worker leaked behind reply/backoff"
+        );
+        release.send(()).unwrap();
+        drop(extension);
+    }
 }
 
 #[test]

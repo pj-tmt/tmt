@@ -7,11 +7,11 @@ use crate::{
     pages::Pages,
     routes::Routes,
 };
-use std::net::TcpStream;
+use std::{net::TcpStream, sync::Arc};
 
 pub struct Site {
     pub routes: Routes,
-    pub mounts: Mounts,
+    pub mounts: Arc<Mounts>,
     /// Present while serve can pair browsers; without it those paths are 404.
     pub pages: Option<Pages>,
 }

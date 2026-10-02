@@ -2561,7 +2561,14 @@ origin, name and four words, and asks once on the terminal; `tmt remote pair
 --json` streams one event per line and reads `confirm` or `refuse` from stdin,
 which is how the process tests drive it. `tmt remote devices [--json]` lists
 paired devices with their four words, and `tmt remote devices revoke
-<client-id>` ends one device's access, whether or not serve is running. Opening
+<client-id>` ends one device's access, whether or not serve is running.
+`tmt remote devices rename <client-id> <name>` changes its display name without
+changing authority; a changed name ends the old session for silent reopening.
+Mounted extensions receive current names and revoked tombstones through the
+owner-only socket's reserved device-event callback. Native mount tests cover
+delivery, retry/replay and both browser-spoofing guards; the
+[channel contract](contracts/remote-channel-v1.md#extension-channel-api) owns
+callback fields and consumer revision handling. Opening
 the pairing link in a browser serves the pairing page, which shows the same four
 words; after the owner confirms, the browser opens a door session with a signed
 `session.open`, and its cookie then carries the device context to mounted pages. Pairing and state tests use short
