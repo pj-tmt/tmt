@@ -1,0 +1,90 @@
+---
+source: site/src/chapters/start.mdx
+sourceRevision: ce4850ec8d4b0447752efa8d2581f06cc595412d
+title: 給所有 agent 的一條通道
+---
+
+import { Cmd } from "../../components/Cmd";
+import { LsSample } from "../../components/samples";
+import { PaneDemo, basicLoop, resumeAfterReboot } from "../../demos/PaneDemo";
+
+import { Hero } from "../../home/Hero";
+import { Journey } from "../../home/Journey";
+
+<Hero />
+
+<h2
+  id="start"
+  className="mt-16 mb-3 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance"
+>
+  {"從"}
+  <em className="text-accent not-italic">一則訊息</em>
+  {"開始，逐步成長為團隊。"}
+</h2>
+
+從步驟 1 的 talk、reply 和 receipt 開始。board、colab 和 meet 都建立在同一個基礎上，你可以在任何一步停下來：已經有的功能照樣能用。
+
+<Journey />
+
+<h3 id="install">安裝</h3>
+
+<Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
+
+安裝程式會把 `tmt` 放進 `~/.local/bin`；在終端機裡，它接著會執行 `tmt setup`：找出你的 agent，列出它將變更的每個檔案（每個 agent 的 skill，以及這台機器上已安裝者的 session hook），並只詢問一次。之後隨時可以再執行 `tmt setup`，它只會提供尚缺的項目。如果找不到 `tmt`，請把 `~/.local/bin` 加進 PATH（只需做一次）。tmt 是全新安裝，不會遷移舊資料：如果你是從 `tmux-team` npm 套件轉過來，請先執行 `npm uninstall -g tmux-team` 移除它。
+
+<h3 id="built-in-drivers">內建的 driver</h3>
+
+tmt 內建多數人需要的 driver，不必另外安裝。**tmux** 是 host driver，不需要任何設定。**Claude Code** 和 **Codex** 是 runtime driver：它們開箱即用；執行 `tmt setup claude` 或 `tmt setup codex` 之後，tmt 還會認得每個 agent 自己的對話、能精確接續它，並顯示它是否正在執行。[所有 driver →](/drivers)
+
+<h3 id="the-basic-loop">基本流程</h3>
+
+在 tmux 裡，先為 agent 所在的窗格命名，之後就能從任何地方對它說話。頁面頂端的逐步示範播放的就是這個流程。
+
+<Cmd>{`
+$ tmt this reviewer                   # 在 agent 的窗格裡：為它命名
+$ tmt talk reviewer "Review the diff."  # 從任何窗格：送出，然後等待回覆
+$ tmt reply req_4f36… --receipt v2_… --message "…"   # agent 回覆；talk 會把它印出來
+$ tmt check reviewer                  # 覺得卡住時，看一下窗格的內容
+`}</Cmd>
+
+agent 不必記住那一行：它收到的請求本身就帶有完整的 `tmt reply` 指令，receipt 也包含在內。
+
+<PaneDemo
+  {...basicLoop}
+  label="在三個 tmux 窗格中的逐步示範：啟動 Claude Code 和 Codex，在它們各自的 CLI 裡把它們命名為 reviewer 和 builder，把伺服器日誌的窗格命名為 server-log，請 reviewer 修一個問題並由它轉交給 builder，接著讓 reviewer 讀取 server-log 找出錯誤。每個步驟都有字幕說明（字幕為英文）。"
+/>
+
+接著管理你已有的名稱：
+
+<Cmd>{`
+$ tmt ls                    # 每個名稱、是暫時或已儲存，以及它是否在線
+$ tmt add 0:1.2 builder     # 不必切換過去，就替另一個窗格命名
+$ tmt rm builder            # 移除一個名稱；窗格繼續執行
+`}</Cmd>
+
+名稱預設是暫時的，加上 `-s` 才會儲存。`tmt ls` 以 agent 為主，而不是窗格：先列已儲存的名稱，再列暫時的，每個都標出它所在的 `driver:session`，只有在有動作可做時才顯示動作。
+
+<LsSample />
+
+`tmt ls reviewer` 會完整顯示一個 agent，包括它的 tmux 窗格。`--saved`、`--temp`、`--here` 和 `--all` 可以縮小或放大清單。
+
+<h3 id="start-agents-with-a-name">為 agent 命名並啟動</h3>
+
+`tmt run` 一步完成命名窗格和啟動 agent；名稱之後的一切，就是你平常用的指令。對應的 driver 會接手，所以之後 `tmt resume` 可以帶回同一段對話。[各個 driver 如何運作 →](/drivers)
+
+<Cmd>{`
+$ tmt run -s reviewer claude --model sonnet
+$ tmt resume reviewer       # 之後在任何窗格：reviewer 自己的對話
+`}</Cmd>
+
+你也可以先啟動、之後再命名。`tmt run claude` 會立刻以暫時名稱（例如 `claude-12ab34cd56ef`）啟動 Claude Code，再從 agent 的 shell 工具執行 `tmt this reviewer`，就會給它正式的名稱。命名會保留同一段對話，但不會儲存名稱；要儲存請加上 `-s`。
+
+<Cmd>{`
+$ tmt run claude --model sonnet
+$ tmt this -s reviewer      # 從 agent 的 shell 工具：命名，並保留這個名稱
+`}</Cmd>
+
+<PaneDemo
+  {...resumeAfterReboot}
+  label="逐步示範：重新開機後，tmux 的版面回來了，但 agent 沒有；`tmt resume` 會讓 reviewer 和 builder 回到各自的對話，找不到對話時會回報，而不是重新開始。每個步驟都有字幕說明（字幕為英文）。"
+/>

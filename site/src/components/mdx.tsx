@@ -36,17 +36,19 @@ export function A({ href = "", children, ...rest }: ComponentProps<"a">) {
 }
 
 export const components: MDXComponents = {
-  h3: ({ children }) => (
+  // A heading keeps an explicit id when it has one: translated pages carry the
+  // English slug, because slug() drops non-Latin text and links target the slug.
+  h3: ({ children, id }) => (
     <h3
-      id={slug(textOf(children))}
+      id={id ?? slug(textOf(children))}
       className="mt-10 mb-2.5 scroll-mt-6 font-display text-[17px] leading-tight font-semibold text-balance"
     >
       {children}
     </h3>
   ),
-  h4: ({ children }) => (
+  h4: ({ children, id }) => (
     <h4
-      id={slug(textOf(children))}
+      id={id ?? slug(textOf(children))}
       className="mt-7 mb-2 scroll-mt-6 font-display text-[15px] leading-tight font-semibold"
     >
       {children}

@@ -676,6 +676,14 @@ A language's UI and home strings are `site/src/i18n/<lang>/strings.json`, overri
 A changed `strings.ts` makes the file stale (a warning); invalid JSON, a missing or
 malformed `$source`, or another `source` fails the check.
 
+Translators keep these in English everywhere: command names, flags and ids, the
+words `talk`, `reply` and `receipt`, the board marks (● ○ ◌ ◆ ✗ ✓ ↻ ▸), sample
+terminal output and code. A translated heading keeps the English slug as an explicit
+id (`<h3 id="install">安裝</h3>`), because links, the home page and the on-this-page
+list use it and `slug()` drops non-Latin text. Chinese (`zh`) is Traditional Chinese
+with Taiwan usage; it also keeps `agent`, `driver`, `harness`, `board`, `colab` and
+`meet`, and uses 窗格 for pane, 終端機 for terminal and 擴充套件 for extension.
+
 `.github/workflows/site.yml` checks and builds the site on pull requests and
 `main`. Every push to `main` that changes `site/**`, `design/tokens/**` or the
 workflow deploys the built site to GitHub Pages, one deployment at a time; a manual
