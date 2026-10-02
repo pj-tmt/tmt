@@ -10,8 +10,8 @@ that attempt. Neither implies a daemon, remote transport or authentication.
 A cooperating agent submits its complete final body successfully, then may show
 a short truthful summary of work, verification and unresolved items. Submission
 means delivered, not successful work; summary failure cannot undo an accepted
-reply. [Architecture](ARCHITECTURE.md) owns implementation boundaries and
-[the Working handbook chapter](site/src/chapters/working.mdx) provides usage examples.
+reply. [Architecture](../ARCHITECTURE.md) owns implementation boundaries and
+[the Working handbook chapter](../site/src/chapters/working.mdx) provides usage examples.
 
 ## Durable final submission
 
@@ -539,11 +539,11 @@ The following semantic scenarios are illustrative only, not final JSON schemas:
 ## Verification ownership
 
 Exact body, retained retry, revision races and expiry belong to the request
-service and storage tests. [Native response tests](typescript/test/native/response.test.ts)
-cover public receipt/input contracts; [Docker response integrity](typescript/test/e2e/response-integrity.e2e.test.ts)
+service and storage tests. [Native response tests](../typescript/test/native/response.test.ts)
+cover public receipt/input contracts; [Docker response integrity](../typescript/test/e2e/response-integrity.e2e.test.ts)
 checks complete bodies against independent mock-agent events even when the
 terminal renders only a tail. Terminal echo is not a completion oracle.
-See [Development](DEVELOPMENT.md) for commands and scenario ownership.
+See [Development](../DEVELOPMENT.md) for commands and scenario ownership.
 
 The [historical research record](https://github.com/wkh237/tmt/blob/5b1e9beb6d7deeae955eba3b49ab78bd07c9df1d/REQUEST-RESPONSE.md)
 retains superseded marker/JSON-state behavior and provider research. It does not

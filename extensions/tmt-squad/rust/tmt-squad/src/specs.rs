@@ -1,6 +1,6 @@
 //! What `tmt squad -h` prints for each command: a summary, one to three
 //! examples (the common use first) and, only where a safety fact must be
-//! visible, `Details`. `docs/cli-style.md` owns the rules; the grammar walk
+//! visible, `Details`. `design/cli-style.md` owns the rules; the grammar walk
 //! in `cli_style_tests.rs` parses every example through Squad's real grammar.
 
 use tmt_cli_style::CommandSpec;

@@ -45,16 +45,16 @@ layout permission does not change component ownership, CI selection or release p
 | `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
 | `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
 | `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead.                                                                  |
-| `design/`                 | Design tokens (from #901) and, after #998, CLI style guidance.                                                                         |
+| `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
 
 Current temporary homes and pending moves:
 
-- #998 (PR C, after the queue drains) moves `docs/extension-api.md` to
-  `contracts/extension-api.md`, and `docs/cli-style.md` to `design/cli-style.md`.
-  It renames `contracts/remote-client-v1.md` to `contracts/remote-channel-v1.md`.
-  `REQUEST-RESPONSE.md` is a contract and moves to `contracts/request-response-v1.md`.
-  Release-verification procedures
-  in `docs/native-release-verification.md` fold into DEVELOPMENT's release section.
+Core public process and request/response contracts live in `contracts/extension-api.md`
+and `contracts/request-response-v1.md`; the Remote channel contract lives in
+`contracts/remote-channel-v1.md`. CLI style guidance lives in `design/cli-style.md`.
+Release-verification procedures belong to
+[DEVELOPMENT's release section](DEVELOPMENT.md#native-release-verification).
+
 - The handbook owns user guidance. Office documentation and art helpers live in
   `extensions/tmt-office/docs/` and `extensions/tmt-office/scripts/art/`.
   `docs/` remains a temporary home under #998.
@@ -787,7 +787,7 @@ The Rust crates have deliberately narrow responsibilities:
 
 `rust/crates/tmt-command-output` owns shared command output/error values and
 formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
-implementation of the [CLI style](docs/cli-style.md) (palette, themes over the
+implementation of the [CLI style](design/cli-style.md) (palette, themes over the
 design tokens, marks, values, messages, lists, tables, the one column-width solver `grid` that tables and
 extension boards share, the help registration contract and the one
 interaction decision, `Interaction`). Migrated command
@@ -833,7 +833,7 @@ and the invoke leaf remains guarded for every dependency kind. The guard fails c
 module remapping or incomplete discovery. It also checks that the CLI crates
 reach the terminal only through `tmt_cli_style::stream`, and a grammar walk in
 each CLI checks every command's help against the style
-([enforcement](docs/cli-style.md#enforcement)). It is a syntactic guard and never
+([enforcement](design/cli-style.md#enforcement)). It is a syntactic guard and never
 replaces review of behavior or effects.
 
 The optional `extensions/tmt-office/rust/tmt-office` executable remains a member
@@ -1194,7 +1194,7 @@ snapshot or change feed. X attention retains its separate revision cursor.
 Inspection does not acknowledge work or renew retention. Dispatch operation IDs
 recover immutable acceptance; replay never wakes again. Clients must recover a
 receipt or current room revision after interrupted writes, not invent a new
-operation ID and resend. See [extension API usage](docs/extension-api.md).
+operation ID and resend. See [extension API usage](contracts/extension-api.md).
 
 ### Extension hooks (v1)
 
@@ -1430,7 +1430,7 @@ Binding queries still read tmux rows only until the core endpoint types carry
 the host.
 
 Schema 40 adds the change cursor behind the `changes.cursor` API operation
-(contract in [extension-api.md](docs/extension-api.md)). It is a one-row
+(contract in [extension-api.md](contracts/extension-api.md)). It is a one-row
 `change_cursor` counter. Every core-owned table has three AFTER triggers,
 `<table>_advances_change_cursor_on_{insert,update,delete}`, that advance it
 inside the writing transaction, so no write path can forget. Migration
@@ -2088,7 +2088,7 @@ request open until a final or its acceptance deadline. `answer_target` selects
 one open request by recipient and originator, never guessing among several, and
 derives the route proof in-process from the recorded attempt, so `tmt answer`
 submits through the same acceptance path as `reply` without exposing a receipt
-([contract](REQUEST-RESPONSE.md#inbox-and-answer)).
+([contract](contracts/request-response-v1.md#inbox-and-answer)).
 
 `RequestRoute` distinguishes unbound direct-pane delivery from durable identity inbox
 queueing. Identified talk is Inbox-first with one claimed full-payload live wake;
@@ -2101,7 +2101,7 @@ this path; pane effects retain the separate prepare/send/settle lifecycle.
 live-wake projection. Pending explicit-inbox output says no notification was
 attempted and recipient pull is required; this presentation never changes the
 route, claims, attention or queue acceptance. The public output contract is in
-[REQUEST-RESPONSE.md](REQUEST-RESPONSE.md).
+[contracts/request-response-v1.md](contracts/request-response-v1.md).
 Both paths reuse the same preparation and queue-transition policy. Database
 errors roll back all enqueue writes. A recipient found inactive commits a failed,
 non-waiting attempt without recipient attention, matching the prepared queue path.
@@ -2155,7 +2155,7 @@ core applies the configured quiet period. Ordinary missing evidence is Unknown;
 failed probe cleanup aborts the worker and retains diagnostics. tmux matches attached clients' current
 pane and reads `client_activity`; other hosts explicitly report Unknown. No
 screen contents or provider prompt buffer is interpreted as typing. See
-[request notification behavior](REQUEST-RESPONSE.md) for timing and limits.
+[request notification behavior](contracts/request-response-v1.md) for timing and limits.
 
 `process::detached` owns startup acknowledgment and failure cleanup for one
 request deadline observer or reply notice worker, and the worker's removal of its
@@ -2172,7 +2172,7 @@ request.
 schema, connection or alternate final-submission path. Input is bounded and
 validated before storage effects. A malformed receipt, a stale revision, an
 unknown identity and an uncertain transport outcome remain distinct failures.
-The [request contract](REQUEST-RESPONSE.md#talk-completion) owns talk interruption
+The [request contract](contracts/request-response-v1.md#talk-completion) owns talk interruption
 and retry guidance on either side of preparation.
 
 Talk preparation renders `<tmt-reply from="…">` using the same resolved
@@ -3432,7 +3432,7 @@ new production dependencies are the contract's pinned Ed25519 and HMAC primitive
 with the existing pinned SHA-256 dependency. Real Chrome MV3 security and browser
 interoperability remain later gates; local Node conformance does not replace them.
 
-[`contracts/remote-client-v1.md`](contracts/remote-client-v1.md) owns the proposed
+[`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the proposed
 signed-message contract. Pairing/authentication/approval/log/SDK behavior remains
 proposed until its implementation slices land; `cloudflare`, `firestore` and
 `relay-v1` remain reserved. Core never owns a listener or remote state. Official

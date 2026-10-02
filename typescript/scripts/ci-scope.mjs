@@ -185,7 +185,7 @@ function consumedCratePath(path) {
  * and test support) with their separate image.
  */
 const NATIVE_OFFICE_UNRELATED = [
-  /^(?!docs\/office\/)(?:docs\/.+|[^/]+)\.md$/,
+  /^(?!docs\/office\/)(?:docs\/.+|design\/cli-style|[^/]+)\.md$/,
   /^typescript\/test\/(?:native|tooling)\//,
   /^typescript\/test\/e2e\/(?:[^/]+\.e2e\.test\.ts|Dockerfile)$/,
 ];

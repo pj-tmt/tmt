@@ -24,9 +24,6 @@
     "typescript"
   ],
   "temporary": {
-    "REQUEST-RESPONSE.md": {
-      "removeIn": ["#998"]
-    },
     "docs": {
       "removeIn": ["#998"]
     }

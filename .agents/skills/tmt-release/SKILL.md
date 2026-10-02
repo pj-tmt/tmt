@@ -29,7 +29,7 @@ or upgrading release-please. This does not change publication authorization or p
 
 ## Promotion and prerelease checks
 
-Read the complete [native release verification guide](../../../docs/native-release-verification.md)
+Read the complete [native release verification section](../../../DEVELOPMENT.md#native-release-verification)
 before archive, installer, upgrade, bootstrap or publication work. It owns the
 procedures referenced below; DEVELOPMENT owns ordinary native checks.
 
@@ -85,7 +85,7 @@ The owner chose a trunk-based alpha channel: there is no separate edge channel, 
 (the owner's decisions on #497). That choice is the owner's standing authorization for **the
 pipeline** to publish alpha releases from `main`; it is recorded here so that the written rule
 matches practice. The
-[native release verification guide](../../../docs/native-release-verification.md) owns the
+[native release verification section](../../../DEVELOPMENT.md#native-release-verification) owns the
 gates, the markers and the procedures; this section owns who may publish what.
 
 - Covered: an alpha draft of the CLI, Office or Squad (a version `X.Y.Z-alpha.N`, enforced by

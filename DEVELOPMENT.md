@@ -144,7 +144,7 @@ parser and handlers. Direct commands resolve core lookups through
 `TMT_EXECUTABLE` (when invoked by TMT) or an executable `tmt` on PATH; use an
 isolated application home when testing writes.
 
-Extensions can use the public [local process API](docs/extension-api.md) for
+Extensions can use the public [local process API](contracts/extension-api.md) for
 structured dispatch, history, conditional room writes and bounded notebook reads.
 Its contract is owned by [architecture](ARCHITECTURE.md#local-extension-api-v1).
 
@@ -975,7 +975,7 @@ After an intended change, regenerate with `INSTA_UPDATE=always cargo test -p
 <crate>`, delete any leftover `*.snap.new` files, and review the snapshot diff as
 part of the change. CI never updates snapshots.
 
-The CLI style guards ([enforcement](docs/cli-style.md#enforcement)) run in
+The CLI style guards ([enforcement](design/cli-style.md#enforcement)) run in
 `cargo test`. When a migrated command leaves its list, run them directly from
 `rust/`: `cargo test --locked -p tmt-cli --bin tmt cli_style`, `cargo test
 --locked -p tmt-squad cli_style` and the architecture test below. A failure
@@ -1455,7 +1455,7 @@ which merge through the normal required checks, and updates the ones that fell b
 (`strict` requires an up-to-date branch; a busy `main` can keep a release pull request behind
 until a quiet moment). release-please runs with `always-update`, so every run also rebuilds each
 open release pull request from `main`'s current files and force-pushes its branch, subject to the
-[queued-PR pre-check](../DEVELOPMENT.md#queued-release-pull-requests); that, not
+[queued-PR pre-check](#queued-release-pull-requests); that, not
 `gh pr update-branch`, is what clears a conflict (every release pull request edits the shared
 manifest, and adjacent lines conflict). A `dispatch` job then starts the per-product run above for every
 product that has a draft without a bundle. The job runs in the `release` Environment and the
@@ -2064,7 +2064,7 @@ uses its own Prettier configuration; shared docs use the tooling formatter.
 The local-build-only remote crate is a foreground deny-all door. It performs
 one public startup capabilities read, then refuses every remote application
 request. Pairing, signing, grants, approval, sends and journal/SDK integration
-are not implemented. The [client contract](contracts/remote-client-v1.md) is
+are not implemented. The [client contract](contracts/remote-channel-v1.md) is
 proposed; [the separately owned browser shell](#browser-add-on-shell)
 uses only a stub. No official remote installer/release exists.
 

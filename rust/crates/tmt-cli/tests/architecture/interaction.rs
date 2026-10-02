@@ -1,7 +1,7 @@
 //! The #485 interaction guard: whether a person can see a view or answer a
 //! question is decided once, by `tmt_cli_style::Interaction`. The CLI crates
 //! never test a handle with `is_terminal` or import `IsTerminal` themselves.
-//! `docs/cli-style.md` owns the rule; this is its syntactic check.
+//! `design/cli-style.md` owns the rule; this is its syntactic check.
 
 use super::{
     output::GUARDED,
