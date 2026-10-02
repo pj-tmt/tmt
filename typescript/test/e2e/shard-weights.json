@@ -14,6 +14,7 @@
     "claude-channel.e2e.test.ts": 62,
     "claude-hooks.e2e.test.ts": 1,
     "cli-errors.e2e.test.ts": 8,
+    "codex-channel.e2e.test.ts": 9,
     "codex-hooks.e2e.test.ts": 1,
     "command-options.e2e.test.ts": 1,
     "completion.e2e.test.ts": 14,

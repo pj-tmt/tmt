@@ -1,10 +1,11 @@
 # Codex native channel contract
 
-Status: unregistered Codex groundwork under #719/#329. The #785 foundations
-extend #736–#738 with pane/foreground record state, exact takeover/prune/withdraw,
-startup cleanup certainty and permission planning. Lease composition and launcher-only supervision are added in #786. Provider-local consumer, pane and hook modules are added in #787; runtime
-send/hook wiring and channel registration remain in the activation slice. No
-CLI launch or delivery invokes these native channel modules yet.
+Status: native Codex channel implementation in #739, following #736–#738 under
+#719/#329. The final activation slice registers `tmt run --channel codex` against
+the shared channel routing and launcher ports. Queue acceptance is a delivery
+receipt; durable request completion remains separate. The pinned 0.159.3
+attachment/active-turn proof is accepted; product routing and lifecycle gates
+are independent evidence described below.
 
 ## Delivery receipt
 
@@ -43,7 +44,7 @@ disabled and only `handshake` enabled. No TLS, async runtime or handwritten
 WebSocket/SHA1 implementation is added. Core and shared driver ports do not
 reference this dependency.
 
-The future enrollment owner must establish ownership of the exact endpoint
+The enrollment owner establishes ownership of the exact endpoint
 process and capability before constructing a client. A loopback address or an
 arbitrary endpoint's self-report is insufficient authority. The client accepts
 only explicit loopback IPv4/nonzero ports and a bounded capability token, sent
@@ -52,8 +53,8 @@ the leading provider build version from `userAgent`, not the trailing client
 version. The bounded supported set is 0.159.2 and 0.159.3; other builds fail closed. Binary preflight requires parseable `codex-cli major.minor.patch`, the 0.159 minor line and patch 2 or later. Older, malformed or different-line output is refused; patches above 3 receive an unqualified-build advisory. This does not qualify them: the owned initialize handshake remains authoritative and its exact allowlist is unchanged.
 The initialize format is source-backed at the pinned revision above, in
 `request_processors/initialize_processor.rs` and
-`login/src/auth/default_client.rs`. Patch compatibility still requires the final
-slice's real-provider verification; the allowlist alone is not runtime evidence.
+`login/src/auth/default_client.rs`. The accepted 0.159.3 attachment proof qualifies the remote foreground behavior
+for that build; the allowlist alone is not runtime evidence for future versions.
 
 One client connection has one absolute deadline, recalculated before every
 underlying read and write, including library-internal handshake/fragment reads.
@@ -66,8 +67,9 @@ retry worker or resend after any outcome.
 Tests use owned loopback peers and synthetic frames; they prove transport
 classification, bounds and absence of a second write/connection. They do not
 prove provider processing, same-live-turn attachment or production ownership.
-The final consumer slice must prove those properties and remeasure the fully
-linked CLI; groundwork can be removed from an unused binary by the linker.
+The consumer tests and live-provider evidence below cover separate properties.
+Release-size evidence measures the fully linked CLI against the matching baseline;
+groundwork alone may be removed from an unused binary by the linker.
 
 ## Private enrollment records
 
@@ -97,9 +99,8 @@ for an explicit relaunch of the same binding with the same persisted pane
 address; a historical ready server must also be conclusively gone. Any live or
 unverifiable recorded process, unreadable record, or unverifiable new owner is
 terminal and leaves prior state untouched. Old-owner absence alone never grants new authority.
-The final launcher/lease slice must exercise this guard, later admission failure
-and withdrawal together before activation; record unit tests alone do not prove
-full crash recovery or cleanup of a former endpoint process.
+The launcher/lease and product tests exercise these boundaries separately; record
+unit tests alone do not prove full crash recovery or former endpoint cleanup.
 
 Tests cover opt-in/ready transitions, serialized takeover, unchanged records
 on denied authority and stale withdrawal preserving changed generation, owner
@@ -124,8 +125,8 @@ explicit stop and drop use the same ordering. Unverified process cleanup reports
 failure and retains capability/diagnostic files; it is not successful cleanup.
 File cleanup compares created regular-file and directory device/inode identities,
 never recursively removes a directory, and preserves replacements. This is
-in-process cleanup; launcher crash/orphan recovery remains a final integration
-gate, not a guarantee provided by destructors.
+in-process cleanup; the supervisor described below owns launcher crash handling,
+which is not a guarantee provided by destructors.
 
 `drivers/codex/attachment` accepts a bounded option surface before launch. It
 resolves relative `-C` against the original working directory once, emits the
@@ -166,27 +167,25 @@ configuration. The TUI's `app/config_persistence.rs` permission detector and
 Tests use owned shell stand-ins and temporary files to observe cwd, process exit,
 startup timeout, private capability and replacement-preserving cleanup. They do
 not invoke a model or prove that a real foreground client preserves an active
-provider turn. The final lease/consumer slice must establish that continuity,
-thread admission, channel foreground identity, and terminal routing for talk and
-reply notifications before user-facing opt-in is enabled.
+provider turn. The live proof below establishes provider continuity separately from the real
+CLI tests for thread admission, foreground identity and terminal routing.
 
-## Foreground and cleanup foundations (#785)
+## Consumer lifecycle
 
-The private record stores its claimed pane address before any foreground spawn.
-Unknown foreground state stays terminal for that exact pane and is never pruned;
-server disappearance is not evidence that an unconfirmed foreground ended. An
-explicit same-binding, same-pane relaunch may take over Unknown only after all
-recorded processes are conclusively gone. A known foreground must also be gone.
-Every mutation compares the exact lease under the existing lock. Records without
-attribution require named recovery and cannot establish authority for a pane.
+The provider record persists the claimed identity and pane address before spawn:
+host/server UUID, socket path, server PID/start, pane ID and pane PID. The launcher
+supplies this evidence from its existing binding, without another binding write.
+Missing or mismatched attribution refuses enrollment. Older/unreadable records
+without attributable pane evidence are named in diagnostics; they cannot block
+unrelated panes. Corruption of the current binding's own record remains terminal.
 
-Failed endpoint startup returns both the startup error and cleanup certainty.
-When cleanup cannot be confirmed, created files are retained. Later lease code
-must preserve enrollment as well; this foundation does not yet compose that owner
-or register a channel. Native tests prove record transitions and permission/cwd
-planning, not user-facing delivery or launcher-crash cleanup.
-
-## Owned lease and supervisor (#786)
+Foreground state starts Unknown. The launcher's single `foreground_started`
+callback publishes only the original owned child's observed incarnation under
+the record lock. A publication failure stays unconfirmed. A ready app-server
+precedes foreground spawn, so cleaning that server never proves an Unknown
+foreground ended. Unknown stays terminal for its exact pane and is never pruned.
+Known foreground, owner and endpoint must all be conclusively gone before an
+ended record is pruned during enrollment. Read-only delivery never prunes.
 
 `drivers/codex/supervisor` owns the original app-server child and its process
 group. A private, close-on-exec launcher socket controls its lifetime; neither
@@ -205,35 +204,31 @@ foreground and endpoint are gone, then removing only the exact named stale
 record. Recovery is separate from delivery and never pastes a payload. Shell
 commands in recovery diagnostics must quote paths, including embedded apostrophes.
 
-The lease creates exactly one thread on its owned endpoint, verifies the returned
-thread UUID and resolved cwd, and supplies that ID to later atomic foreground
-admission. Child environment locators have one provider-local owner,
-`channel_context`; their presence is never authority. The future hook consumer
-must validate the private record before using them.
+The native send path requires the exact record, launch owner, foreground,
+endpoint and thread, qualifies the owned endpoint once, and consumes one queue
+attempt. Channel-originated hooks preserve the admitted foreground incarnation;
+ordinary non-channel resume remains separate. Mock supervisor tests exercise
+startup failure, launcher SIGKILL with a surviving foreground, the publication
+window and explicit confirmed withdrawal. The registered driver participates in the shared `enrolled_harness` route selection
+and `enrolled_in_pane` guards; it does not create a second paste policy. This
+includes originator reply notifications, identity sends and identity-less panes.
 
-Mock lifecycle tests exercise startup failure with unconfirmed cleanup, EOF and
-launcher SIGKILL with a surviving foreground, Unknown publication and explicit
-confirmed withdrawal. They do not establish real CLI routing or activation.
-The deterministic connect-refusal test holds a bound non-listening socket using
-the existing nix dev-only `net` feature; no product retry or dependency is added.
+## Verification boundaries
 
-## Provider consumer and pane evidence (#787)
+The accepted [0.159.3 proof](https://github.com/wkh237/tmt/issues/739#issuecomment-5925294420)
+used a fresh 128-bit nonce rendered by the foreground while the native same-thread,
+same-turn synthetic barrier remained held, plus two exact owned endpoint
+connections. One barrier release was followed by successful native completion
+of that turn and a separately rendered assistant reply. Cleanup and shared-file
+hash preservation were independently checked. Retained native events are selected
+evidence, not a complete stream. No product-router claim is inferred from this
+provider proof.
 
-The unregistered channel composition delegates enrollment to the owned supervisor,
-binding-keyed evidence to the record reader, and pane evidence to the attributed
-record scan. Unknown is terminal only for its exact pane. Unattributed records
-produce named skipped warnings; corruption named by the current binding is an
-error. Recovery safely quotes exact paths and requires verification that the
-original foreground and endpoint are gone before removal.
-
-The one-shot send module checks the exact binding, launch owner, known foreground,
-server and thread before and after endpoint qualification, then consumes a queue
-attempt. Generic provider errors or missing receipts remain uncertain; only the
-qualified exact pre-enqueue errors are definite refusals. No retry or fallback
-is implemented. The hook module preserves the admitted foreground when a verified
-channel server reports its thread; ordinary non-channel resume is separate.
-
-The modules and their focused tests do not activate a driver entry point:
-`Runtime.channel` stays None, runtime send is unchanged and lifecycle decode still
-uses the ordinary decoder. The activation slice owns all three call-site changes,
-real shared-router tests and release-size evidence.
+`codex-channel.e2e.test.ts` uses the real CLI, shared delivery path, private tmux
+and the deterministic `codex-channel-fixture` peer. Native queue frames, durable
+request/response rows and per-pane tmux write traces are separate oracles. A
+never-enrolled plain session is the positive paste control. The fixture is an
+E2E-only Rust example using the existing WebSocket library, never a provider,
+model, release artifact or production fallback. These scenarios complement the
+native provider-local ownership tests; neither replaces the live attachment
+proof or the shared launcher's wait-error tests.

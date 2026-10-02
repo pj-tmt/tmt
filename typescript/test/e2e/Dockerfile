@@ -11,7 +11,7 @@ COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ ../extensions/tmt-colab/rust/
 COPY extensions/tmt-colab/contracts/ ../extensions/tmt-colab/contracts/
 ARG TMT_NATIVE_PROFILE=dev
-RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture \
+RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture --example codex-channel-fixture \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
   && CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-office \
@@ -42,6 +42,7 @@ RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile \
 COPY . .
 COPY --from=native-tests /native-artifacts/tmux-probe /opt/tmt-tests/tmux-probe
 COPY --from=native-tests /native-artifacts/codex /opt/tmt-tests/codex
+COPY --from=native-tests /native/rust/target/debug/examples/codex-channel-fixture /opt/tmt-tests/codex-channel-fixture
 COPY --from=native-tests /native-artifacts/claude /opt/tmt-tests/claude
 COPY --from=native-tests /native-artifacts/claude /opt/tmt-tests/hook-runtime/codex
 COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-tests
