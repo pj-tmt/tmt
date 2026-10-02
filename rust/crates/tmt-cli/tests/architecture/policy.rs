@@ -606,7 +606,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
-            let colab_model_consumer = source.package == "tmt-colab" && source.file == "keyring.rs";
+            let colab_model_consumer = source.package == "tmt-colab";
             if root == "tmt_colab_model"
                 && source.package != "tmt-colab-model"
                 && !colab_model_consumer

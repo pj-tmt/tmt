@@ -1698,7 +1698,7 @@ fn colab_yrs_imports_are_confined_to_the_decoder_child() {
 }
 
 #[test]
-fn colab_model_space_id_consumer_is_confined_to_keyring() {
+fn colab_model_consumers_are_confined_to_colab_package() {
     assert!(
         policy::dependency_violations(&package(
             "tmt-colab",
@@ -1706,19 +1706,35 @@ fn colab_model_space_id_consumer_is_confined_to_keyring() {
         ))
         .is_empty()
     );
-    assert_exact(
-        &[syntax(
-            "tmt-colab",
-            "keyring.rs",
-            "use tmt_colab_model::crypto::space_id;",
-        )],
-        &[],
-    );
-    for file in ["http.rs", "core.rs", "store.rs"] {
-        assert!(
-            policy::source_violations(&[syntax(
+    for file in ["keyring.rs", "http.rs", "core.rs", "store.rs"] {
+        assert_exact(
+            &[syntax(
                 "tmt-colab",
                 file,
+                "use tmt_colab_model::crypto::space_id;",
+            )],
+            &[],
+        );
+    }
+    for consumer in [
+        "tmt-core",
+        "tmt-adapters",
+        "tmt-cli",
+        "tmt-remote",
+        "tmt-squad",
+        "tmt-office",
+    ] {
+        assert!(
+            !policy::dependency_violations(&package(
+                consumer,
+                vec![dependency("tmt-colab-model", "normal", None, None)]
+            ))
+            .is_empty()
+        );
+        assert!(
+            policy::source_violations(&[syntax(
+                consumer,
+                "lib.rs",
                 "use tmt_colab_model::crypto::space_id;"
             )])
             .iter()

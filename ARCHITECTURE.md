@@ -3772,8 +3772,9 @@ strict Ed25519, sign-in HMAC/possession, management
 bytes, namespace-bound cuts and immutable object codecs/seal/open. Its only OS
 operations are crypto-only entropy for internal object IDs and fresh HPKE
 ephemeral keys. Long-term key generation stays in the executable keyring; no
-filesystem, process or network use. The executable keyring uses its space-ID derivation; the architecture guard
-rejects runtime/core dependencies and other unreviewed consumers. Envelope syntax/signature success does not establish
+filesystem, process or network use. The executable keyring uses its space-ID derivation. The architecture guard
+admits the `tmt-colab` package as a model consumer and rejects other consumers
+and runtime/core dependencies from the model. Envelope syntax/signature success does not establish
 log, session, role, epoch or sequence authority; callers admit those before open.
 The model also owns device/chain syntax, purpose-separated link keys and
 owner-authenticated HPKE Base wraps. Caller-owned live-issuer/history/transition
