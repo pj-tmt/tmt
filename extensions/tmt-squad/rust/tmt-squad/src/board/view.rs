@@ -1297,9 +1297,14 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
     lines.push(Line::default());
+    let label = "─ notebook ";
+    let divider = format!(
+        "{label}{}",
+        "─".repeat(width.saturating_sub(label.chars().count()))
+    );
     lines.push(Line::styled(
-        "Notebook",
-        look.role(Role::Dim).add_modifier(Modifier::BOLD),
+        divider.chars().take(width).collect::<String>(),
+        look.role(Role::Dim),
     ));
     if row["lifetime"] != "saved" {
         lines.extend(
@@ -2667,9 +2672,14 @@ lines = [
             .keep("W".into(), Notes::Text(safe));
         let full = detail_text(&detail_buffer(&app, 50, 20)).join("\n");
         assert!(
-            full.contains("Notebook") && full.contains("Current state") && full.contains("testing")
+            full.contains("─ notebook ─")
+                && full.contains("Current state")
+                && full.contains("testing")
         );
         assert!(!full.contains("**") && !full.contains('\u{1b}'));
+        let buffer = detail_buffer(&app, 50, 20);
+        assert!(!buffer[(0, 4)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buffer[(49, 4)].symbol(), "─");
         detail_buffer(&app, 16, 5);
         app.scrolls
             .scroll(Pane::Detail, super::super::scroll::Step::Bottom);
@@ -2728,7 +2738,7 @@ lines = [
                 "task: rotate tokens",
                 "activity: testing",
                 "links: pr_link https://example.com/412",
-                "Notebook",
+                &format!("─ notebook {}", "─".repeat(89)),
                 "(temporary identity: no notebook)",
             ]
         );
@@ -2764,7 +2774,7 @@ lines = [
                 "task: rotate tokens",
                 "pr: #412 open · changes requested",
                 "model: a full session model name",
-                "Notebook",
+                &format!("─ notebook {}", "─".repeat(69)),
                 "(temporary identity: no notebook)",
             ]
         );
@@ -2785,7 +2795,7 @@ lines = [
         assert_eq!(
             text[2..]
                 .iter()
-                .take_while(|line| line.as_str() != "Notebook")
+                .take_while(|line| !line.starts_with("─ note"))
                 .cloned()
                 .collect::<String>(),
             format!("model:{value}")
@@ -2816,7 +2826,7 @@ lines = [
                     "build: {}",
                     tmt_cli_style::table::escape("one\ntwo\t\u{1b}[31m")
                 ),
-                "Notebook",
+                &format!("─ notebook {}", "─".repeat(89)),
                 "(temporary identity: no notebook)",
             ]
         );
