@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 const corpus = readFileSync(
   new URL('../../../contracts/vectors/ed25519-829.jsonl', import.meta.url),
@@ -14,14 +15,14 @@ const reports = ['chromium', 'firefox', 'webkit'].map((engine) => ({
   checks: true,
   rows: corpus.map((v) => ({ name: v.name, accepted: v.nativePolicy, raw: v.nativePolicy })),
 }));
-function run(report: unknown, cases: unknown = corpus): number | null {
-  const script = `import {validateReport} from ${JSON.stringify(new URL('./gate.mjs', import.meta.url).href)};validateReport(${JSON.stringify(report)},${JSON.stringify(cases)});`;
+function run(report: unknown, cases: unknown = corpus, engines?: string[]): number | null {
+  const script = `import {validateReport} from ${JSON.stringify(new URL('./gate.mjs', import.meta.url).href)};validateReport(${JSON.stringify(report)},${JSON.stringify(cases)},${JSON.stringify(engines)});`;
   return spawnSync(process.execPath, ['--input-type=module', '-e', script], {
     timeout: 10000,
     encoding: 'utf8',
   }).status;
 }
-describe('three-engine differential report gate', () => {
+describe('differential report gate', () => {
   it('accepts complete controls and exact row correspondence', () => expect(run(reports)).toBe(0));
   it('exits nonzero for missing, skipped, unavailable, duplicate or incomplete engines', () => {
     const mutations = [
@@ -51,5 +52,60 @@ describe('three-engine differential report gate', () => {
         ),
       ),
     ).toBe(1);
+  });
+});
+
+describe('explicit engine selection', () => {
+  const parse = (args: string[]) =>
+    spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import {parseEngines} from ${JSON.stringify(new URL('./gate.mjs', import.meta.url).href)};console.log(JSON.stringify(parseEngines(${JSON.stringify(args)})));`,
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    );
+
+  it('defaults to all three and accepts explicit known sets', () => {
+    expect(JSON.parse(parse([]).stdout)).toEqual(['chromium', 'firefox', 'webkit']);
+    expect(JSON.parse(parse(['--engines', 'chromium']).stdout)).toEqual(['chromium']);
+    expect(JSON.parse(parse(['--engines', 'webkit,firefox']).stdout)).toEqual([
+      'webkit',
+      'firefox',
+    ]);
+  });
+
+  it('rejects unknown, empty and duplicate sets before starting the harness', () => {
+    for (const args of [
+      ['--engines', 'unknown'],
+      ['--engines', ''],
+      ['--engines', 'chromium,chromium'],
+      ['--engines'],
+    ]) {
+      const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL('./differential.mjs', import.meta.url)), ...args],
+        { encoding: 'utf8', timeout: 10000 },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/Expected a nonempty|Usage: differential/);
+    }
+  });
+
+  it('requires exactly the selected engines without weakening rows or availability', () => {
+    expect(run([reports[0]], corpus, ['chromium'])).toBe(0);
+    expect(run([reports[0]])).toBe(1); // Chromium alone cannot satisfy the default L1 gate.
+    expect(run(reports, corpus, ['chromium'])).toBe(1);
+    for (const report of [
+      [],
+      [{ ...reports[0], skipped: true }],
+      [{ ...reports[0], error: 'unavailable' }],
+      [{ ...reports[0], rows: [] }],
+    ])
+      expect(run(report, corpus, ['chromium'])).toBe(1);
+    expect(run([reports[0]], corpus, [])).toBe(1);
+    expect(run([reports[0]], corpus, ['unknown'])).toBe(1);
   });
 });

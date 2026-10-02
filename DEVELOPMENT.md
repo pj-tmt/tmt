@@ -2676,10 +2676,62 @@ independent namespace/sign-in oracle, use Python with `cryptography` installed:
 repository root; add `--write` only after reviewing changed bytes. Fixture keys
 are public test data. This foundation does not satisfy the complete L1 gates.
 
-The private browser primitives and three-engine differential commands are owned
-by the [colab-client guide](extensions/tmt-colab/typescript/colab-client/README.md).
-Browser binaries are explicit local test dependencies; all three engines are
-required and unavailable engines fail. This harness is not a product server.
+### Colab browser verification
+
+The private browser primitives use the existing frozen pnpm workspace. From the
+repository root:
+
+```sh
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client install --frozen-lockfile --ignore-scripts
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client --fail-if-no-match check
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client --fail-if-no-match test
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client exec playwright install chromium firefox webkit
+(cd rust && cargo build --locked -p tmt-colab-model --example browser_conformance --example browser_authority)
+COLAB_REPORT=/tmp/colab-browser-results.json corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client --fail-if-no-match test:browser
+```
+
+On Linux, add `--with-deps` to the Playwright install command to install system
+libraries too. Browser binaries are explicit test dependencies; the harness
+requires Chromium, Firefox and WebKit, all 148 strict Ed25519 rows and nine
+accepted controls in each. Missing/skipped/error engines, missing controls or
+wrong row counts fail nonzero; unit tests exercise that refusal. It records
+engine versions and raw-verifier bypass results and checks fresh ciphertext
+interoperability both ways with the Rust model. This is not a product server.
+
+`COLAB_RUST_TOOLCHAIN` selects an installed Rust toolchain (default `+1.97.0`).
+Optional `COLAB_CHROMIUM_EXECUTABLE`, `COLAB_FIREFOX_EXECUTABLE` and
+`COLAB_WEBKIT_EXECUTABLE` select explicit local binaries; launch failures never
+skip an engine. Reports default to ignored `differential-results.json`; use
+`COLAB_REPORT` to retain evidence elsewhere. Browser/server cleanup runs even on
+engine failure. Build the two examples first so cold compilation does not consume
+the harness's bounded native-call deadline. Python is not needed at test time.
+
+The default always requires all three engines. For a scoped diagnostic, append
+`--engines chromium` to `test:browser`; comma-separated known engine names are
+also accepted. Pass the flag directly, without an extra `--` separator:
+
+```sh
+COLAB_REPORT=/tmp/colab-chromium-results.json corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client --fail-if-no-match test:browser --engines chromium
+```
+
+Empty, unknown or duplicate sets reject before browser/Rust work.
+The gate requires exactly the requested set with full rows/controls and fails
+on any unavailable requested engine. Reports contain `{engines, results}` and
+logs name the selected set; Chromium-only evidence is not a three-engine pass.
+Developers run the default complete three-engine harness locally before handoff.
+The separate advisory `Colab browser verification` workflow runs Chromium on
+scoped PRs, outside required CI aggregates. It has no main-push trigger. Weekly
+and manual runs use all three engines as the safety net for other shared inputs
+and engine drift. The
+[CI selection and worker model](ARCHITECTURE.md#ci-selection-and-worker-model)
+owns scope and cache policy. `COLAB_HARNESS_ROOTS` in `ci-scope.mjs` owns the
+narrow client/model/vector inputs within Colab component ownership;
+`COLAB_HARNESS_INPUTS` also selects the workflow, `rust/Cargo.toml`,
+`rust/Cargo.lock` and `typescript/pnpm-lock.yaml` on PRs.
+The client's `package.json` is already within the client root. Runs retain the available JSON report and command
+log for seven days, including failure evidence. `tmt-lead` confirms a green run
+at the reviewed head when accepting later L1 PRs; a Chromium-only advisory run
+is not full three-engine L1 acceptance.
 
 ## Project release tracking
 

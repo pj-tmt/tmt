@@ -37,31 +37,21 @@ restoration verifies its public-key binding using native X25519. No seed import
 or intermediate-secret API is provided. Capability probes require a secure
 context and fail on unavailable Ed25519/X25519 without a fallback.
 
-From the repository root:
+See [Colab browser verification](../../../../DEVELOPMENT.md#colab-browser-verification)
+for library checks, unit tests, engine installation, harness commands and local
+binary/report options. The default `test:browser` requires all three engines;
+append `--engines chromium` for a Chromium-only diagnostic (or a comma-separated
+known set). Empty/unknown/duplicate sets reject, and every requested engine must
+pass. Reports use `{engines, results}` and explicitly name the selected engines;
+a scoped run is not full L1 evidence. Developers run the default full set before handoff.
 
-```sh
-corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client install --frozen-lockfile --ignore-scripts
-corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client check
-corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client test
-corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client exec playwright install chromium firefox webkit
-COLAB_REPORT=/tmp/colab-browser-results.json corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-client test:browser
-```
+The test-only harness checks WebCrypto snapshots, opaque keys, independent known
+answers and fresh ciphertext interoperability both ways with the Rust model
+through developer-only examples, plus exact authority answers and fresh native
+wraps/statements in all engines. Its imported keys are public fixtures, never
+product inputs. The independent frozen-vector generators remain documented in
+[the vector provenance](../../contracts/vectors/README.md).
 
-The harness requires all three engines, all 148 strict signature vectors and
-nine accepted controls. Missing/skipped/error engines, missing controls or wrong
-row counts fail nonzero; unit tests deliberately exercise that process failure.
-It records engine versions and raw-verifier bypass results. It also checks
-WebCrypto snapshots, opaque keys, independent known answers and fresh ciphertext
-interoperability both ways with the Rust model through developer-only examples,
-plus exact authority answers and fresh native wraps/statements in all engines.
-Browser keys in that harness are public fixture imports, never product inputs.
-Python is not required at test time; the independent frozen-vector generators
-remain documented in [the vector provenance](../../contracts/vectors/README.md).
-
-`COLAB_RUST_TOOLCHAIN` selects an installed Rust toolchain (default `+1.97.0`).
-Optional `COLAB_CHROMIUM_EXECUTABLE`, `COLAB_FIREFOX_EXECUTABLE` and
-`COLAB_WEBKIT_EXECUTABLE` select explicit local binaries. Launch failures never
-skip a required engine. Reports default to ignored `differential-results.json`;
-set `COLAB_REPORT` to retain evidence elsewhere. Browser/server cleanup runs even
-on a failed engine. CI runs the library check and unit tests on every pull request;
-the non-required, path-scoped three-engine job remains a coordinated follow-up.
+CI runs the library check and unit tests on every pull request. The separate
+advisory three-engine workflow follows the scope and cache policy in
+[the CI architecture](../../../../ARCHITECTURE.md#ci-selection-and-worker-model).
