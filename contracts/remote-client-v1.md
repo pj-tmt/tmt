@@ -8,7 +8,7 @@ bindings. tmt-lead reviews it before runtime/SDK code. The
 [transport-layer decision](https://github.com/wkh237/tmt/issues/478#issuecomment-5911165578) are
 its inputs. The owner's 2026-10-02 decisions on [#955](https://github.com/wkh237/tmt/issues/955)
 supersede the M1 rules for mandatory hold, per-agent allowlists, own-results-only reads, forced
-grant expiry and serve windows. A section marked **pending owner decision** is drafted, not decided.
+grant expiry and serve windows.
 
 ## User path
 
@@ -526,7 +526,9 @@ their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/
 Operations are append with create-only per-stream sequence (an exact retry returns the original
 receipt), subscribe from a scoped opaque cursor with bounded catch-up paging, ack as a cursor
 checkpoint only, an object store keyed by object ID with chunked transfer, and an ephemeral
-awareness lane that is never stored. Before accepting an append, subscription, object transfer or
+awareness lane that is never stored. On the `local` backend an extension may instead serve its own
+relay namespaces behind its mounted WebSocket; remote then only splices bytes and the extension
+keeps admission. The remote-run relay applies to cloud backends. Before accepting an append, subscription, object transfer or
 awareness frame, remote calls the extension's synchronous admission hook with the device context
 and frame metadata; the extension decides membership, role, epoch and writer checks. Revocation terminates live subscriptions. Remote
 enforces per-object size caps and per-namespace quotas and expiry declared by the extension. Relay
@@ -551,9 +553,13 @@ possession or a member device signature) and attributes it as `{principal, owner
 way they reach only the routes and relay namespaces the extension admits, never the remote
 operation routes, and never receive operation scopes.
 
-**Pending owner decision:** whether an invited non-owner member may ask the owner's agents (for
-example colab's Ask agent). As written they cannot; allowing it needs an owner-approved revision of
-this section, not an extension-local grant.
+**Members' own agents.** A non-owner member may ask agents only on their own machine, never the
+owner's. The member's browser holds a device paired with the member's own machine, and the ask
+travels as an ordinary operation from that device to that machine under that machine's own grant.
+The owner's machine never executes it, and page membership adds no operation scope anywhere. The
+extension records the ask and the reply in the shared resource, attributed to the asking member and
+to the answering agent and machine. Everyone who can see that resource sees them, like comments.
+Visibility is the extension's rule, not a remote grant.
 
 ## Backends and deploy
 
@@ -576,7 +582,7 @@ the machine key under a reviewed encryption profile added to this contract; rela
 already encrypted by their extension. Until both the edge admission and that encryption profile are
 specified, `firestore` and `cloudflare` are not permitted.
 
-## Provisioning on start and pair (pending owner decision)
+## Provisioning on start and pair
 
 `tmt remote start` mounts every enabled extension and prepares its relay namespaces and owner-machine
 bridge, and pairing a device makes it known to every mounted extension through the device context.
