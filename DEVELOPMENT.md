@@ -1539,9 +1539,10 @@ They use the existing private E2E fixture and a model-free Rust
 focused run, build both `tmt-cli` and that example; no installed provider or
 credentials are used. The tests independently check native queue receipts,
 durable replies, the shared enrollment/pane gates, and per-pane terminal writes
-with an explicit `--no-channel` plain-session positive control. Default launch
-and exact resume cover qualified enrollment, refusal/advisory/startup fallback
-with exactly one reason line, strict refusal, unchanged original resume argv,
+with Default and explicit `--no-channel` plain-session positive controls.
+Explicit `--channel` launch and exact resume cover qualified enrollment and
+strict refusal; Default bypasses channel setup without a fallback notice.
+The scenarios also cover unchanged original resume argv,
 thread-ID mismatch rejection, retained-evidence refusal, and Ctrl-C cleanup.
 Launcher unit tests toggle the channel port's advertised default independently
 of provider names. Provider live continuity evidence is

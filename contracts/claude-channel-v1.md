@@ -36,7 +36,7 @@ processing.
   `RuntimeChannel::enabled_by_default`; the CLI contains no provider-name policy.
   Claude advertises false and stays opt-in; the
   [Codex contract](codex-channel-v1.md#default-launch-policy)
-  owns its default enrollment and exact-thread attachment.
+  owns its opt-in enrollment and exact-thread attachment.
 - Claude channel enrollment on exact resume remains unsupported pending
   [#783](https://github.com/pj-tmt/tmt/issues/783). Both `tmt resume --channel`
   and `tmt run --resume --channel` fail with `CHANNEL_UNSUPPORTED` before
