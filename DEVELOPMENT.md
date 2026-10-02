@@ -1,7 +1,7 @@
 # Development
 
-The Rust workspace is the shipped CLI runtime. The optional Office SPA foundation
-lives in `extensions/tmt-office/typescript/apps/office` and is not required to use the CLI. The nested
+The Rust workspace is the shipped CLI runtime. Office is frozen and kept internal;
+its retained SPA foundation lives in `extensions/tmt-office/typescript/apps/office` and is not required to use the CLI. The nested
 `typescript` pnpm workspace owns private developer tooling for Vitest, fixtures
 and release verification. This tooling workspace is not an npm product or a CLI
 fallback. Repository policy is
@@ -149,6 +149,40 @@ structured dispatch, history, conditional room writes and bounded notebook reads
 Its contract is owned by [architecture](ARCHITECTURE.md#local-extension-api-v1).
 
 ## Office SPA
+
+Office is frozen for official installation and publication. Existing installations,
+source, contracts and data remain; local contributor verification is still supported.
+The [Office command reference](docs/office/commands.md) describes retained installations.
+
+### Revive Office
+
+Revival requires maintainer approval; a passing build is not permission to publish.
+Keep this procedure as the single owner of the revival steps:
+
+1. Review CLI/companion protocol and forward-only schema compatibility against the
+   retained releases. Keep existing tags, receipts and user data intact; stop old
+   writers before switching a development build. Any migration needs owner approval.
+2. Restore Office release eligibility in `.github/components.json`, its binary's
+   Cargo `package.metadata.dist` setting, the native-release product choices, and
+   the CLI's `INSTALLABLE_EXTENSIONS` together. Regenerate with
+   `node typescript/scripts/release-please-config.mjs` and verify with `--check`.
+   Follow the [release verification guide](docs/native-release-verification.md)
+   for the generated config/manifest and compatible archive checks; do not reset
+   a historical release version or recreate a published tag.
+3. Run the release-policy, workflow and release-config tooling tests, and the
+   native extension-install and Office lifecycle tests. Update the frozen-state
+   expectations for the approved eligibility change; keep the installable-set
+   comparison against the component map and retained/partial-removal coverage.
+4. Review Office CI selection and worker/artifact dependencies under the approved
+   revival scope. Verify positive and negative path selection, nonempty test
+   discovery, required check names and aggregates; retain workspace Rust coverage.
+   Run the [Office browser verification](#office-browser-verification) and affected
+   local-service checks before enabling broader CI or proposing a release.
+5. Update the user-facing frozen status and Office reference pages together.
+   Send handbook diffs to its single writer, tmt-lead. Obtain the separate release
+   approval and complete the release guide's acceptance before publication.
+
+### Local development
 
 Office native data contracts and codecs are in
 `extensions/tmt-office/rust/tmt-office-model`, a member of the `rust/` workspace.

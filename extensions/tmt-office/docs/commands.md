@@ -1,40 +1,35 @@
 # Office command experience
 
-## Implemented local installation
+## Frozen status and retained installations
 
-The CLI exposes `office install`, `upgrade`, `status` and `uninstall`. Office is
-optional and independently versioned. A public alpha companion is available
-through the verified online installer; source builds and explicit local archives
-can also exercise this boundary. Do not confuse successful local installation
-with pairing or a running connector.
+Office is frozen and kept internal. No new Office release is published. Official
+`tmt extension install office` (including repair) and `tmt extension upgrade office`
+refuse with a frozen message before consent or network access. Root `tmt upgrade`
+skips Office. The extension listing omits Office when absent and marks retained
+or partially removed installations as frozen; `--check` does not look for an Office update.
 
 ```sh
-tmt office install --yes
+tmt extension ls
 tmt office status --json
-tmt office upgrade
-tmt office rm --yes
+tmt extension rm office --yes
 ```
 
-All accept `--prefix <folder>` inside the Office subtree; omission selects
-`~/.local`. Use the same prefix for subsequent operations. First installation
-defaults to alpha; install/upgrade retain the recorded channel unless explicitly
-given `--channel stable|alpha`. Office uses immutable `tmt-office-v<version>` releases
-and the shared native archive verifier. Explicit offline installation uses
-`office install --yes --archive <file> --manifest <file>` with both inputs.
-Without a published candidate, online installation fails rather than claiming
-success. `tmt upgrade` continues to update only the CLI and its managed skills.
+Use the same `--prefix <folder>` as the existing installation; omission selects
+`~/.local`. Removal preserves release files and application data. A partial
+removal stays listable and can be completed by repeating explicit removal.
+Revival is a maintainer decision owned by
+[DEVELOPMENT](../../DEVELOPMENT.md#revive-office), not an installation workaround.
+Acquisition syntax in historical release records is not current installation guidance.
 
-Explicit Office install and upgrade also manage the optional `tmt-office`,
-`tmt-prop-create` and `tmt-avatar-create` skills
-through the existing provider/custom-root, immutable asset, registry, drift,
-backup, and refresh owner. Core `tmt install` does not expose them. Existing
-conversations can read either exact source with `tmt learn --skill <name>`.
-An unmanaged target is preserved; after inspection, `--force` on Office install
-or upgrade creates a recoverable backup. Companion activation can complete before
-skill publication fails, and that partial result does not roll back the binary.
-JSON partial results retain the successful companion fields, a bounded `skills`
-report, an `error`, and `skills.pendingBackup` when publication failed after a
-forced backup. Office uninstall retains managed guidance.
+### Retained companion operation
+
+Office companions are independently versioned. Retained installations may carry
+optional `tmt-office`, `tmt-prop-create` and `tmt-avatar-create` guidance; core
+`tmt install` does not publish those skills. Existing conversations can read
+available guidance with `tmt learn --skill <name>`. Historical acquisition kept
+binary activation separate from guidance publication, so a skill conflict did
+not roll back an activated companion. Unmanaged skill paths, recoverable backups
+and partial results remain part of the retained installation record.
 
 Bare `tmt office` is an inspection-only human entry point. It reports the
 installed companion and local service, then names explicit `start` and Office
@@ -48,12 +43,12 @@ availability. `office start` returns a private local browser URL for the
 current service start; open it locally and do not disclose the token. Uninstall
 requires explicit consent and removes verified activation links only. Release
 files and unrelated data remain. A partial removal reports an invalid
-installation; repeat explicit uninstall to finish before reinstalling.
+installation; repeat explicit uninstall to finish removal.
 
 ## Local Office
 
 The following local service is implemented and tested in this source tree. Published
-artifacts may lag until a coordinated compatible CLI/Office release; do not advertise
+artifacts remain at their historical versions while Office is frozen; do not advertise
 source-only `start` or `--local` support from an older pair. When a schema advance
 requires it, install the compatible CLI before activating the companion: an older
 CLI may reject the upgraded shared database. Never publish an incompatible Office

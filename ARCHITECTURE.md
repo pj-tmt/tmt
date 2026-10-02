@@ -724,6 +724,7 @@ opts out of cargo-dist with `dist = false`. The native-release entry delegates t
 before preparation or draft planning, so a parked product cannot enter the bundle
 pipeline through manual preparation. Native tests compare the CLI's installable
 extensions with the released extension components in the map.
+Revival is owned by [DEVELOPMENT](DEVELOPMENT.md#revive-office) and requires maintainer approval.
 release-please attributes a commit to a package by the files it touches under the package
 path and can only drop paths, so the CLI's `exclude-paths` lists everything under each
 extension root except the crates the CLI links (today the Office model, command and service
