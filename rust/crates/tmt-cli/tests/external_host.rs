@@ -46,6 +46,16 @@ case "$3" in
         printf '{"ok":{"pane":{"id":"fake-1","socket":"/tmp/fake.sock","shellPid":%s}}}' "$(cat "$d/shell")" ;;
       *) printf '{"ok":{"pane":null}}' ;;
     esac ;;
+  input) printf '%s\n' "$input" >> "$d/typed"; printf '{"ok":{}}' ;;
+  prompt)
+    a=$(cat "$d/agent" 2>/dev/null)
+    case "$a" in
+      ok) printf '%s\n' "$input" >> "$d/prompted"; printf '{"ok":{}}' ;;
+      blocked|not_ready) printf '{"error":{"code":"%s","message":"agent busy"}}' "$a" ;;
+      *) printf '{"error":{"code":"no_agent","message":"no agent"}}' ;;
+    esac ;;
+  capture) printf '{"ok":{"text":"captured line"}}' ;;
+  focus) printf '{"ok":{}}' ;;
   resolve-target)
     if [ -f "$d/slow" ]; then sleep 3; fi
     if [ -f "$d/fail" ]; then printf '{"error":{"code":"failed","message":"host is wedged"}}'; exit 0; fi
@@ -107,6 +117,27 @@ impl Fixture {
         // of every `tmt` it runs.
         beside("shell", &pid);
         Self { root, driver }
+    }
+
+    /// A driver that also types into its panes, prompts their agents, reads
+    /// them and focuses them.
+    fn delivering(name: &str) -> Self {
+        let fixture = Self::new(name);
+        fs::write(
+            fixture.root.join("driver/capabilities"),
+            r#"{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["caller","server","resolve-target","snapshot","publish","clear","input","prompt","capture","focus"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":["FAKE_PANE_ID"]}}"#,
+        )
+        .unwrap();
+        fixture
+    }
+
+    /// The requests the driver received for `op`, one JSON document each.
+    fn requests(&self, file: &str) -> Vec<Value> {
+        fs::read_to_string(self.root.join("driver").join(file))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
     }
 
     fn state(&self) -> PathBuf {
@@ -391,4 +422,87 @@ fn a_failing_or_late_driver_is_a_failure_never_a_missing_pane() {
         fixture.json(&["add", "f1", "worker", "--json"])["pane"],
         "fake-1"
     );
+}
+
+#[test]
+fn a_message_to_an_external_pane_is_prompted_first_and_typed_only_without_an_agent() {
+    register();
+    let fixture = Fixture::delivering("delivery");
+    fixture.approve();
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+    let talk = |agent: &str, text: &str| {
+        fs::write(fixture.root.join("driver/agent"), agent).unwrap();
+        let _ = fs::remove_file(fixture.root.join("driver/typed"));
+        let _ = fs::remove_file(fixture.root.join("driver/prompted"));
+        fixture.tmt_in(Some("f1"), &["talk", "worker", text, "--detach", "--json"])
+    };
+
+    // A recognized agent takes the prompt; nothing is typed.
+    let sent = talk("ok", "go!");
+    assert!(sent.status.success(), "{sent:?}");
+    let prompted = fixture.requests("prompted");
+    assert_eq!(prompted.len(), 1);
+    // The message, then the reply frame core appends.
+    assert!(
+        prompted[0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("go\u{ff01}\n")
+    );
+    assert_eq!(prompted[0]["paneId"], "fake-1");
+    assert!(fixture.requests("typed").is_empty());
+
+    // No agent: raw input, staged as paste then Enter alone.
+    let typed = talk("none", "plain!");
+    assert!(typed.status.success(), "{typed:?}");
+    let input = fixture.requests("typed");
+    assert_eq!(input.len(), 2, "{input:?}");
+    assert_eq!(input[0]["enter"], false);
+    assert!(
+        input[0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("plain\u{ff01}\n")
+    );
+    assert_eq!(input[1]["enter"], true);
+    assert_eq!(input[1]["text"], "");
+
+    // A blocked agent refuses; nothing reaches the pane and the request is kept.
+    let blocked = talk("blocked", "wait");
+    assert_eq!(blocked.status.code(), Some(1), "{blocked:?}");
+    let failure: Value = serde_json::from_slice(&blocked.stdout).unwrap();
+    assert_eq!(
+        failure["error"]["code"], "DELIVERY_AWAITING_APPROVAL",
+        "{failure:#}"
+    );
+    assert_eq!(
+        failure["error"]["message"],
+        "worker is waiting on its user; nothing was sent."
+    );
+    assert!(failure["requestId"].as_str().is_some());
+    assert!(fixture.requests("typed").is_empty());
+    assert!(fixture.requests("prompted").is_empty());
+
+    // An agent that is not ready refuses too, and is never typed around.
+    let not_ready = talk("not_ready", "later");
+    assert_eq!(not_ready.status.code(), Some(1), "{not_ready:?}");
+    assert!(fixture.requests("typed").is_empty());
+}
+
+#[test]
+fn check_and_focus_reach_an_external_pane_through_its_driver() {
+    register();
+    let fixture = Fixture::delivering("inspect");
+    fixture.approve();
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+
+    let checked = fixture.tmt_in(Some("f1"), &["check", "worker"]);
+    assert!(checked.status.success(), "{checked:?}");
+    assert!(String::from_utf8_lossy(&checked.stdout).contains("captured line"));
+
+    let focused = fixture.tmt_in(Some("f1"), &["focus", "worker", "--json"]);
+    assert!(focused.status.success(), "{focused:?}");
+    assert!(fixture.calls().contains(&"focus".to_owned()));
 }

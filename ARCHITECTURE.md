@@ -2320,14 +2320,24 @@ guard allows exactly those edges.
   driver that fails or runs late is a failure (`RECONCILIATION_FAILED`).
   Caller detection stays best-effort: a failing driver is just not the
   caller.
+- **Delivery and inspection:** a driver that declares `input` takes messages.
+  The prompt-first `send` asks its `prompt` when declared and maps the answer
+  as the contract says (`no_agent` or `unsupported` falls back to raw input;
+  `blocked` is `AwaitingApproval`; `not_ready`, `not_found` and `bad_request`
+  were not sent; anything else is uncertain). Raw input is staged like tmux:
+  paste with `enter: false`, core's paste-to-Enter delay, then Enter alone,
+  each call with its operation's own deadline. A pane-addressed message
+  (`Host::send`), `check` (`capture`) and `focus` go through the driver too;
+  focus on an external host needs no tmux client, and its `viewer` names the
+  server whose views moved.
 
 The atomic owner-only replacement of such settings files is `private_file`,
 shared with the extension hook consents. The approved drivers' syntax is
 registered with core at start (see the host section above). Bindings on an
 external host are made from its caller or an explicit target, and read,
-published and cleared through its driver. Input, capture and focus arrive in
-slice 3b-2b-2; until then a send to such a binding is `Unsupported`, the
-request is kept, and `--inbox` queues.
+published, cleared, messaged, captured and focused through its driver. A driver
+without `input` keeps today's behavior: a send is `Unsupported`, the request is
+kept, and `--inbox` queues.
 
 ## Managed skills and native installation
 
