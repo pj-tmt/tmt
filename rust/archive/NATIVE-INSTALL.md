@@ -5,8 +5,8 @@ This archive holds one TMT product: the `tmt` CLI, or the `tmt-office` or
 checkout. Keep the included `LICENSE` and `THIRD-PARTY-NOTICES.txt` with any copy
 you redistribute.
 
-The README at <https://github.com/pj-tmt/tmt#install> has the current one-line
-installer. The handbook's start chapter is the full user guide.
+The README at <https://github.com/pj-tmt/tmt> has the current one-line installer.
+The handbook at <https://pj-tmt.github.io/tmt/> is the full user guide.
 
 ## Check the download
 
