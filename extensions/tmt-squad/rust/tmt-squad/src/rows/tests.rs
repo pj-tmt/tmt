@@ -442,3 +442,68 @@ columns = [
         );
     }
 }
+
+#[test]
+fn uncovered_tracks_supply_values_without_reserving_width() {
+    let config: toml_edit::DocumentMut = include_str!("fixtures/uncovered-tracks.toml")
+        .parse()
+        .unwrap();
+    let rows = read(config["squad"]["checkout"].as_table_like(), "checkout").unwrap();
+    assert_eq!(rows.covered_tracks(), 4);
+    let mut covered = rows.clone();
+    covered.columns.truncate(4);
+    for available in [144, 198] {
+        let widths = rows.solve(|_| 80, available, 1);
+        assert_eq!(&widths[..4], covered.solve(|_| 80, available, 1));
+        assert_eq!(&widths[4..], [None, None]);
+        assert_eq!(widths.iter().flatten().sum::<usize>() + 3, available);
+    }
+    let value = rows.value();
+    assert!(value["columns"][0].get("valueOnly").is_none());
+    for column in &value["columns"].as_array().unwrap()[4..] {
+        assert_eq!(column["valueOnly"], true);
+        let display = Column::display(column["field"].as_str().unwrap(), column);
+        assert_eq!(
+            (display.width, display.min, display.max, display.grow),
+            (None, None, None, 0)
+        );
+    }
+    assert_eq!(value["columns"][4]["from"], "session.usage.tokens");
+    assert_eq!(value["columns"][5]["from"], "session.model");
+}
+
+#[test]
+fn empty_cells_and_spans_cover_tracks_and_all_covered_solves_are_unchanged() {
+    let rows = parse(HANDBOOK).unwrap();
+    let legacy = rows
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(i, c)| c.track(i + 15))
+        .collect::<Vec<_>>();
+    for available in [40, 146, 200] {
+        assert_eq!(
+            rows.solve(|i| i + 15, available, 1),
+            grid::solve(&legacy, Some(available), 1)
+        );
+    }
+    assert!(
+        rows.value()["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c.get("valueOnly").is_none())
+    );
+    let rows = parse("[p.rows]\ncolumns=[{name=\"member\"},{name=\"state\"},{name=\"task\"},{name=\"model\"}]\nlines=[[\"member\"],[\"\",{field=\"model\",span=3}]]\n").unwrap();
+    assert_eq!(
+        rows.covered_tracks(),
+        4,
+        "coverage is positional, not the field name"
+    );
+    let rows = parse("[p.rows]\ncolumns=[{name=\"member\",width=\"80%\"},{name=\"model\",width=\"80%\"}]\nlines=[[\"member\"]]\n").unwrap();
+    assert_eq!(
+        rows.covered_tracks(),
+        1,
+        "value-only percentage does not join the solved total"
+    );
+}

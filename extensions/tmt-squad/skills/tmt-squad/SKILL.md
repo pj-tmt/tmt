@@ -25,8 +25,11 @@ the fields each line of a row shows (`{field, span}`, field null for an empty
 cell).
 
 - A column's `width` is null, a cell count or a percentage string such as
-  `"30%"`. Configured percentage widths total at most 100% and resolve against data width
+  `"30%"`. Covered-track percentage widths total at most 100% and resolve against data width
   after row marks and gaps; `min`/`max` remain cells.
+- A column has optional `valueOnly: true` when no row line covers its positional
+  track. It remains a value source but reserves no board width; other columns
+  omit this key. See Columns and row lines below.
 - A column has `overflow` only when configured: `"ellipsis"` or `"wrap"`.
   Without it, cells use ellipsis. Wrapped continuations align to the cell start.
 - A wrapped column has `max_lines`, its bounded visual-line count (1–8, default 2).
@@ -188,6 +191,69 @@ UUID, which lets `me` follow a rename; squad maintains it), each squad's `layout
 states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
 apply them.
+
+## Columns and row lines
+
+Use `[squad.<name>.rows]`; `columns` defines positional tracks and value
+sources, and `lines` places cells from track zero. A string names a field,
+`""` is an empty cell, and `{ field = "pending", span = 3 }` covers three
+tracks. Spanned cells use the first track's fitting settings. The legacy
+`[squad.<name>.columns]` form remains supported; do not set both forms.
+
+| Setting | Current behavior |
+| --- | --- |
+| `name`, `title` | Field name and optional column heading. |
+| `width` | Cells (1–200) or a quoted percentage (1–100%, supported since Squad alpha.8). |
+| `min`, `max` | Cell bounds, including for percentage widths. |
+| `grow` | Weight (0–100) for distributing remaining space after bases and bounds; default 0 in the full rows form. |
+| `align` | `left` (default), `right` or `center`. |
+| `truncate` | `end` (default) or `middle`. |
+| `overflow`, `max_lines` | `ellipsis` (default) or `wrap`; wrapped visual lines are bounded to 1–8, default 2, with a final end ellipsis. |
+| `priority` | 1–100; higher values hide first when minimum widths cannot fit. Without it, a track does not hide. |
+| `from`, `format` | Bind a column to a supported public source (listed below); format as `text` (default), `tokens`, `age` or `count`. Squad-owned fields cannot be bound. |
+
+Supported `from` paths are `member`, `presence`, `cwd`, `target`,
+`session.driver`, `session.model`, `session.usage.tokens`,
+`session.usage.remaining`, `meta.<key>`, `meta.squad.<field>` and
+`fields.<configured-provider>`. Without `from`, a format reads the column's
+squad field; `member`, `role`, `state`, `pending` and `note` cannot use either.
+
+`%` is a share of the **whole data width**, like CSS `width: …%`: after
+borders, row marks and gaps, before fixed columns are deducted. For example,
+with member/state widths 30/10, task `width = "62%"` and PR `width = "26%"`
+still share the whole data width, not what those fixed columns leave. Covered
+percentages total at most 100%; bounds and fitting can reduce the final widths.
+To split the remainder instead, use `grow`, like CSS `fr`: weights distribute
+the space left after fixed widths and other bases, respecting cell bounds.
+
+A column's own width/min/max/grow apply only if some line covers its positional
+track. Empty cells and spans count as coverage. Uncovered trailing columns
+are value-only: their fields can appear on another track without reserving
+an extra column. `ls --json` adds **`valueOnly: true`** only to these column
+entries; ordinary columns omit the key. Their source/format metadata and full
+row values remain available. Text `ls` lists their values naturally and ignores
+their width/min/max/grow settings.
+
+This checkout example splits the remainder with task/PR weights **62:26**;
+`ctx` and `model` supply footer-line values on existing tracks, not extra widths:
+
+```toml
+[squad.checkout.rows]
+columns = [
+  { name = "member", width = 30, truncate = "middle" },
+  { name = "state", width = 10, overflow = "wrap", max_lines = 4 },
+  { name = "task", grow = 62, min = 20, title = "WORK", overflow = "wrap", max_lines = 3 },
+  { name = "pr_state", grow = 26, min = 10, title = "PR", priority = 2 },
+  { name = "ctx", from = "session.usage.tokens", format = "tokens", width = 6, title = "" },
+  { name = "model", from = "session.model", width = 14, title = "" },
+]
+lines = [
+  ["member", "state", "task", "pr_state"],
+  ["", { field = "pending", span = 3 }],
+  ["", { field = "note", span = 3 }],
+  ["", { field = "ctx" }, { field = "model", span = 2 }],
+]
+```
 
 ## When a rule is unclear, ask
 

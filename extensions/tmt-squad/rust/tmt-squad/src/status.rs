@@ -336,6 +336,7 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
             RowColumn::display(field, value)
         })
         .collect();
+    // Value-only column metadata supplies no configured sizing to this flat list.
     let sizing = ListSizing::for_columns(&columns);
     columns.push(RowColumn::display("detail", &Value::Null));
     if stale_column {
@@ -993,6 +994,43 @@ columns = [{ name = "member", width = "20%" },
                 .filter(|line| line.starts_with("  "))
                 .all(|line| unicode_width::UnicodeWidthStr::width(line) <= 20)
         );
+    }
+
+    #[test]
+    fn value_only_text_fields_ignore_their_unused_track_settings() {
+        let mut document = json!({
+            "squad": {"name": "x", "layout": "minimal"},
+            "columns": [
+                {"field": "member", "width": 14},
+                {"field": "task", "width": "40%", "overflow": "wrap", "max_lines": 2},
+                {"field": "model", "width": 200, "min": 200, "max": 200, "grow": 100, "valueOnly": true}
+            ],
+            "lines": [[{"field": "member", "span": 1}, {"field": "task", "span": 1}], [{"field": null,"span": 1},{"field": "model","span": 1}]],
+            "sections": [{"title": null, "rows": [{"name": "worker", "presence": "offline", "fields": {"task": "long task ".repeat(20), "model": "test-model"}}]}]
+        });
+        let before = document.clone();
+        let rendered = text(
+            &document,
+            Terminal {
+                width: Some(80),
+                ..Terminal::PLAIN
+            },
+        );
+        for key in ["width", "min", "max", "grow"] {
+            document["columns"][2].as_object_mut().unwrap().remove(key);
+        }
+        assert_eq!(
+            rendered,
+            text(
+                &document,
+                Terminal {
+                    width: Some(80),
+                    ..Terminal::PLAIN
+                }
+            )
+        );
+        assert!(rendered.contains("test-model"));
+        assert_eq!(before["sections"], document["sections"]);
     }
 
     #[test]
