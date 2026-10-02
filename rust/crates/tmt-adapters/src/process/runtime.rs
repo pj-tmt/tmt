@@ -146,12 +146,11 @@ pub fn observe_start<R: CommandRunner>(
     })
 }
 
-/// The incarnations of several processes from one batched `ps` call, for an
+/// The incarnations of several processes, with one batched ps fallback, for an
 /// external host's verification (#570): its server and its scoped pane
 /// shells. A pid that is gone, a zombie or not parsed is absent, and a failed
 /// call leaves every pid absent; an absent pid is unknown, never evidence.
-/// Only a child that could not be cleaned up fails. This is the ps path only:
-/// a faster backend for it (#724) routes here later.
+/// Only a fallback child that could not be cleaned up fails.
 pub fn observe_starts<R: CommandRunner>(
     runner: &R,
     pids: &[u64],
@@ -164,6 +163,25 @@ pub fn observe_starts<R: CommandRunner>(
         .collect();
     if pids.is_empty() {
         return Ok(HashMap::new());
+    }
+    // Fall back as a whole batch, preserving all-unknown acquisition failures.
+    let native: Option<Vec<_>> = pids
+        .iter()
+        .map(|pid| runner.process_observation(*pid, deadline))
+        .collect();
+    if let Some(native) = native {
+        if Instant::now() >= deadline {
+            return Ok(HashMap::new());
+        }
+        return Ok(native
+            .into_iter()
+            .filter_map(|value| match value {
+                ProcessObservation::Live(process) | ProcessObservation::Stopped(process) => {
+                    Some((process.pid(), process))
+                }
+                _ => None,
+            })
+            .collect());
     }
     let list = pids
         .iter()
@@ -414,6 +432,56 @@ mod tests {
                 .unwrap()
                 .get(&pid),
             Some(&single)
+        );
+    }
+
+    #[test]
+    fn native_batch_filters_states_and_falls_back_as_a_whole() {
+        struct Native {
+            unavailable: bool,
+            calls: std::cell::Cell<usize>,
+        }
+        impl CommandRunner for Native {
+            fn process_observation(&self, pid: u64, _: Instant) -> Option<ProcessObservation> {
+                let key = ProcessIncarnation::new(pid, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap();
+                match pid {
+                    42 => Some(ProcessObservation::Live(key)),
+                    43 => Some(ProcessObservation::Stopped(key)),
+                    44 if self.unavailable => None,
+                    _ => Some(ProcessObservation::UnreapedZombie(key)),
+                }
+            }
+            fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                self.calls.set(self.calls.get() + 1);
+                assert_eq!(request.args[4], "42,43,44");
+                Err(CommandError::new(CommandFailure::Exit {
+                    code: Some(1),
+                    signal: None,
+                }))
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let runner = Native {
+            unavailable: false,
+            calls: std::cell::Cell::new(0),
+        };
+        let observed = observe_starts(&runner, &[42, 43, 44, 42, 0], deadline).unwrap();
+        assert_eq!(observed.len(), 2);
+        assert!(observed.contains_key(&42) && observed.contains_key(&43));
+        assert_eq!(runner.calls.get(), 0);
+        let runner = Native {
+            unavailable: true,
+            calls: std::cell::Cell::new(0),
+        };
+        assert!(
+            observe_starts(&runner, &[42, 43, 44], deadline)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            runner.calls.get(),
+            1,
+            "fallback failure discards native positives too"
         );
     }
 

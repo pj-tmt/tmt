@@ -5,6 +5,7 @@
 pub mod ancestry;
 pub mod detached;
 pub mod interactive;
+mod process_info;
 pub mod ps;
 pub mod runtime;
 
@@ -103,12 +104,39 @@ impl std::error::Error for CommandError {
 }
 
 pub trait CommandRunner {
+    /// Native process evidence, when this runner owns real local effects.
+    /// Scripted runners retain the ps protocol unless they supply this evidence.
+    fn process_observation(
+        &self,
+        _pid: u64,
+        _deadline: Instant,
+    ) -> Option<runtime::ProcessObservation> {
+        None
+    }
+
+    /// A native parent PID, or None to retain the bounded ps fallback.
+    fn process_parent(&self, _pid: u64, _deadline: Instant) -> Option<u64> {
+        None
+    }
+
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError>;
 }
 
 /// A borrowed runner, so a short-lived caller (one external host driver per
 /// binding session) runs through its handle's runner.
 impl<R: CommandRunner + ?Sized> CommandRunner for &R {
+    fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
+        (**self).process_parent(pid, deadline)
+    }
+
+    fn process_observation(
+        &self,
+        pid: u64,
+        deadline: Instant,
+    ) -> Option<runtime::ProcessObservation> {
+        (**self).process_observation(pid, deadline)
+    }
+
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         (**self).execute(request)
     }
@@ -136,6 +164,18 @@ impl SupervisedProbeRunner {
 }
 
 impl CommandRunner for SupervisedProbeRunner {
+    fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
+        process_info::parent(pid, deadline)
+    }
+
+    fn process_observation(
+        &self,
+        pid: u64,
+        deadline: Instant,
+    ) -> Option<runtime::ProcessObservation> {
+        process_info::observe(pid, deadline)
+    }
+
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         let result = start_command(request, false)?.wait();
         if result.as_ref().is_err_and(|error| {
@@ -155,6 +195,18 @@ impl CommandRunner for SupervisedProbeRunner {
 }
 
 impl CommandRunner for UnixCommandRunner {
+    fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
+        process_info::parent(pid, deadline)
+    }
+
+    fn process_observation(
+        &self,
+        pid: u64,
+        deadline: Instant,
+    ) -> Option<runtime::ProcessObservation> {
+        process_info::observe(pid, deadline)
+    }
+
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         self.start(request)?.wait()
     }

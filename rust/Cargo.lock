@@ -2621,9 +2621,11 @@ dependencies = [
  "signal-hook 0.4.4",
  "subprocess",
  "tar",
+ "time",
  "tmt-core",
  "tmt-driver-protocol",
  "tmt-office-model",
+ "tmt-sys",
  "tungstenite",
  "ureq",
  "uuid",
@@ -2648,6 +2650,7 @@ dependencies = [
  "tmt-core",
  "tmt-office-command",
  "tmt-office-model",
+ "toml_edit",
 ]
 
 [[package]]
@@ -2893,6 +2896,13 @@ dependencies = [
  "tmt-tui",
  "toml_edit",
  "unicode-width",
+]
+
+[[package]]
+name = "tmt-sys"
+version = "5.0.0-alpha.37"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

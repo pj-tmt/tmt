@@ -25,6 +25,7 @@ clap_complete.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+toml_edit.workspace = true
 crossterm.workspace = true
 insta.workspace = true
 tmt-office-model.workspace = true

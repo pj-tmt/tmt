@@ -22,6 +22,8 @@ mod policy;
 mod skill_lists;
 #[path = "architecture/source.rs"]
 mod source;
+#[path = "architecture/unsafe_boundary.rs"]
+mod unsafe_boundary;
 
 use std::{
     collections::BTreeSet,
@@ -38,6 +40,7 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
         "extensions/tmt-colab/rust/tmt-colab/Cargo.toml",
     ),
     ("tmt-core", "rust/crates/tmt-core/Cargo.toml"),
+    ("tmt-sys", "rust/crates/tmt-sys/Cargo.toml"),
     ("tmt-adapters", "rust/crates/tmt-adapters/Cargo.toml"),
     ("tmt-cli", "rust/crates/tmt-cli/Cargo.toml"),
     ("tmt-cli-style", "rust/crates/tmt-cli-style/Cargo.toml"),
@@ -174,6 +177,7 @@ fn workspace_obeys_native_architecture() {
     for package in metadata["packages"].as_array().expect("Cargo packages") {
         violations.extend(manifest_location_violation(package, repository));
         violations.extend(policy::dependency_violations(package));
+        violations.extend(unsafe_boundary::check(package, repository));
         for target in package["targets"].as_array().expect("Cargo targets") {
             let kind = target["kind"].as_array().expect("Cargo target kinds");
             if kind.iter().any(|k| k == "lib" || k == "bin") {

@@ -102,6 +102,11 @@
         {
           "type": "toml",
           "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-sys')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-tui')].version"
         }
       ]

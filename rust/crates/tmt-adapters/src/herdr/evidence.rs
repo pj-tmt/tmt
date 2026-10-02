@@ -125,8 +125,20 @@ impl<R: CommandRunner> Herdr<R> {
         Ok(Some(Process { shell_pid, command }))
     }
 
-    /// Each shell's parent, from one bounded `ps` call.
+    /// Each shell's parent, using native evidence or one bounded ps fallback.
     fn parents(&self, shells: &[u64], deadline: Instant) -> Result<HashMap<u64, u64>, HerdrError> {
+        // Preserve batch-wide failure behavior when native acquisition fails.
+        let native: Option<HashMap<_, _>> = shells
+            .iter()
+            .map(|pid| {
+                self.runner()
+                    .process_parent(*pid, deadline)
+                    .map(|parent| (*pid, parent))
+            })
+            .collect();
+        if let Some(parents) = native.filter(|_| Instant::now() < deadline) {
+            return Ok(parents);
+        }
         let list = shells
             .iter()
             .map(u64::to_string)
@@ -256,5 +268,48 @@ impl<R: CommandRunner> Herdr<R> {
             },
             panes,
         }))
+    }
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::*;
+    use crate::process::{CommandError, CommandFailure, CommandOutput, CommandRequest};
+    use std::{cell::Cell, time::Duration};
+
+    struct Runner {
+        unavailable: bool,
+        calls: Cell<usize>,
+    }
+    impl CommandRunner for Runner {
+        fn process_parent(&self, pid: u64, _: Instant) -> Option<u64> {
+            (!(self.unavailable && pid == 43)).then_some(7)
+        }
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            self.calls.set(self.calls.get() + 1);
+            assert_eq!(request.args.last().unwrap(), "42,43");
+            Err(CommandError::new(CommandFailure::Timeout))
+        }
+    }
+
+    #[test]
+    fn native_parents_avoid_ps_but_unavailable_evidence_preserves_batch_failure() {
+        for unavailable in [false, true] {
+            let herdr = Herdr::new(
+                Runner {
+                    unavailable,
+                    calls: Cell::new(0),
+                },
+                None,
+            );
+            let result = herdr.parents(&[42, 43], Instant::now() + Duration::from_secs(1));
+            if unavailable {
+                assert!(result.is_err());
+                assert_eq!(herdr.runner().calls.get(), 1);
+            } else {
+                assert_eq!(result.unwrap(), HashMap::from([(42, 7), (43, 7)]));
+                assert_eq!(herdr.runner().calls.get(), 0);
+            }
+        }
     }
 }
