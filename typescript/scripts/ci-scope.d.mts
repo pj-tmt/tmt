@@ -77,8 +77,8 @@ export function scopedChecks(
 export function nativeGatePasses(
   scope: string,
   results: NativeJobResults,
-  map?: ComponentMap,
-  event?: string
+  macos: string,
+  map?: ComponentMap
 ): boolean;
 export function rustGatePasses(
   scope: string,
@@ -93,8 +93,14 @@ export function renderSelectionEvidence(input: {
   readonly areas: CiAreas;
   readonly digest: string;
   readonly nativeScope?: string;
+  readonly range?: '..' | '...';
 }): string;
-export function readChangedCiSelection(base: string, head: string, cwd: string): CiSelection;
+export function readChangedCiSelection(
+  base: string,
+  head: string,
+  cwd: string,
+  range?: '..' | '...'
+): CiSelection;
 export function readChangedCiAreas(base: string, head: string, cwd: string): CiAreas;
 export function runCiScope(
   args: readonly string[],

@@ -613,17 +613,21 @@ not run. A seeding run has no diff to select from, so it takes the full native s
 
 `ci.yml` owns all four required checks: Code quality, Unit tests, Docker E2E and
 Native package matrix. Both pull requests and `merge_group` candidates run those
-checks. Merge groups use the selector's explicit `full` mode, selecting native
-and Office verification plus both disjoint E2E shards, without path filtering.
-Merge groups omit only the macOS raw-runtime builds and packed-install jobs;
-those jobs are separate from Linux and share their verification steps through
-YAML anchors. The native aggregate requires their exact `skipped` results on
-`merge_group`, and success on full-scope PRs; missing or failed results never pass.
-All Linux rows remain required. Release builds and archive verification retain
-macOS before publication. The same fail-closed aggregators apply to the combined
-queue candidate. Advisory
-Office browser checks remain separate. Workflow support does not enable the
-merge queue; the repository owner configures the ruleset after rollout.
+checks. Merge groups select paths from `merge_group.base_sha..head_sha`, the
+cumulative group-head diff used by HEADGREEN. PRs retain merge-base (`...`)
+selection. Both use the same component-map rules, scopes and E2E partitions;
+empty or unreadable merge-group diffs fall back to full native and Office
+verification. The changes job fetches full history, and missing commit objects
+cannot yield a successful empty selection.
+
+The changes job also owns the `macos` classification: false only for
+`merge_group`. Separate macOS raw-runtime build and packed-install jobs consume
+that output, sharing their verification steps with Linux through YAML anchors.
+The native aggregate requires a valid classification and exact `skipped` macOS
+results when false; full-scope PRs require success. Missing, failed or unexpected
+results never pass. All selected Linux rows remain required. Release builds and
+archive verification retain macOS before publication. Advisory Office browser
+checks remain separate; the repository owner controls merge-queue rulesets.
 
 The advisory Office browser workflow has a separate ownership-based PR flag,
 `office_browser`: Office-owned component paths, `docs/office/**` and the browser
