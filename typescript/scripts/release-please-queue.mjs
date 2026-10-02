@@ -135,7 +135,6 @@ export function enableReleaseAutoMerge(options, execute = runPackedCommand) {
       '--repo',
       options.repository,
       '--auto',
-      '--squash',
       '--match-head-commit',
       selected.headRefOid,
     ],

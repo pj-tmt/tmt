@@ -1689,7 +1689,7 @@ integrity) against the generated `release-please-config.json` and
 `.release-please-manifest.json`: it opens one release pull request per released component, and when
 one is merged it creates the draft release (release-please's drafts, so a published release
 never has to receive assets). A live run, which is only allowed on `main`, creates a GitHub
-App token in that job alone, enables auto-merge (squash) for one open release PR at a time,
+App token in that job alone, enables auto-merge for one open release PR at a time (the merge queue sets the strategy),
 through the normal required checks and merge queue. An enabled or queued release PR
 blocks enabling another component until it merges. The workflow does not refresh a
 BEHIND branch: the queue tests the combined result on current main, including required
@@ -2288,7 +2288,9 @@ cursors, duplicate PRs, API errors and exhausted discovery fail visibly.
 The same script's live-only `enable` command finishes discovery before choosing one
 non-draft release PR by ascending PR number. An existing enabled or queued release
 retains the slot; multiple active releases fail with instructions to reconcile them.
-Enabling uses `--auto --squash --match-head-commit` and propagates failures without
+Enabling uses `--auto --match-head-commit`, with no strategy flag: under a merge queue `gh`
+warns on stderr when one is passed, which the packed-command contract treats as a
+failure. It propagates failures without
 trying a second PR. It never updates a BEHIND branch or jumps the queue. The next main
 push after the active PR merges permits the remaining component to be regenerated and
 enabled against the updated manifest.

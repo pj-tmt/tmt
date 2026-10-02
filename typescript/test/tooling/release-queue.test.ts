@@ -350,7 +350,6 @@ describe('single active release auto-merge', () => {
         '--repo',
         'pj-tmt/tmt',
         '--auto',
-        '--squash',
         '--match-head-commit',
         first.headRefOid,
       ],
