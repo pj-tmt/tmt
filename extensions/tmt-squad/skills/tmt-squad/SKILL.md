@@ -97,8 +97,8 @@ or `[tabs.all.bind]` for all. F5 has no default action; an explicit
 The board uses the shared TMT design tokens: `muted` for readable tabs, labels
 and key hints, `accent` plus bold for focus, and `dim` for secondary values and
 borders. Attention tabs keep their waiting/blocked color and counts. Selection
-uses the theme's `selection` background while retaining each cell's state or
-provider color; a terminal without a background color uses reverse video,
+uses the theme's `selection` background for rows and selected squad/pane tabs,
+retaining each cell's state/provider color and each tab's foreground; a terminal without a background color uses reverse video,
 including `NO_COLOR`. Colors decorate the words and marks; never infer state
 from color alone. The global theme belongs in `config.json`; per-squad theme
 bases and overrides belong in `[squad.<name>.theme]` in `squad.toml`.

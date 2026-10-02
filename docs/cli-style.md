@@ -15,18 +15,18 @@ Colors are semantic tokens (`palette::Token`). Each maps to one of the terminal'
 16 palette entries or to an effect, so the user's theme decides the shade. No RGB
 or 256-color values are used.
 
-| Token            | Rendering | Use                                 |
-| ---------------- | --------- | ----------------------------------- |
-| `accent`         | blue      | running, `hint:`, row actions       |
-| `ok`             | green     | success (`✓`)                       |
-| `warn`           | yellow    | needs attention                     |
-| `error`          | red       | `error:`, failed                    |
-| `dim`            | dim       | counts, times, offline, secondary   |
-| `title`          | bold      | section titles and help headings    |
-| `literal`        | bold      | commands and flags a reader types   |
+| Token            | Rendering | Use                                   |
+| ---------------- | --------- | ------------------------------------- |
+| `accent`         | blue      | running, `hint:`, row actions         |
+| `ok`             | green     | success (`✓`)                         |
+| `warn`           | yellow    | needs attention                       |
+| `error`          | red       | `error:`, failed                      |
+| `dim`            | dim       | counts, times, offline, secondary     |
+| `title`          | bold      | section titles and help headings      |
+| `literal`        | bold      | commands and flags a reader types     |
 | driver `claude`  | magenta   | `review`: an address driven by Claude |
 | driver `codex`   | cyan      | `link`: an address driven by Codex    |
-| any other driver | dim       | including the `tmux:%N` transport   |
+| any other driver | dim       | including the `tmux:%N` transport     |
 
 Help uses the same tokens through clap `Styles`. A full-screen view, such as the
 Squad board, draws only design tokens, through `theme::screen::style`. This crate
@@ -69,9 +69,9 @@ staleness and scroll marks. Focus uses `accent` and bold, while attention tabs
 keep their attention token. The selected row uses the `selection` background
 and keeps its text/state/provider foregrounds. Without a background color
 (`terminal`, `mono`, 16 colors or `NO_COLOR`), selection uses reverse video.
-Unselected body text keeps the terminal's default foreground. Tabs keep their
-width when selected; without an accent foreground the selected tab also uses
-reverse video.
+Unselected body text keeps the terminal's default foreground. Selected squad and
+pane tabs keep their foreground and width, adding the same selection background
+or reverse fallback.
 
 A `Terminal` carries the stream's theme and depth; `paint` and table cells use
 `Token::themed`, and a stream without a theme renders exactly the 16-color

@@ -271,16 +271,22 @@ pub(super) fn time_marks(app: &App, now: u64) -> Vec<String> {
 /// one is bracketed, the others padded.
 fn pane_tab(look: crate::look::Look, name: &str, selected: bool) -> Span<'static> {
     if selected {
+        let selection = look.selection();
         Span::styled(
             format!("[{name}]"),
-            look.role(Role::Accent).add_modifier(Modifier::BOLD),
+            Style {
+                bg: selection.bg,
+                ..look
+                    .role(Role::Accent)
+                    .add_modifier(Modifier::BOLD | selection.add_modifier)
+            },
         )
     } else {
         Span::styled(format!(" {name} "), look.role(Role::Muted))
     }
 }
 
-/// One tab. Selection uses bold focus color, never extra characters,
+/// One tab. Selection adds a background tint to bold focus color, never extra characters,
 /// so switching never moves the tabs beside it (#504). The tab's attention
 /// colors it and, so color never carries meaning alone, also adds counts:
 /// `◆2` members waiting on you, `!1` blocked.
@@ -306,11 +312,10 @@ fn tab(
         _ => look.role(Role::Muted),
     };
     let style = if selected {
-        let style = style.add_modifier(Modifier::BOLD);
-        if look.role(Role::Accent).fg.is_none() {
-            style.add_modifier(Modifier::REVERSED)
-        } else {
-            style
+        let selection = look.selection();
+        Style {
+            bg: selection.bg,
+            ..style.add_modifier(Modifier::BOLD | selection.add_modifier)
         }
     } else {
         style
@@ -1816,8 +1821,118 @@ columns = [{ name = "member", width = "30%" },
             );
             assert_eq!(
                 buffer[(1, 0)].modifier.contains(Modifier::REVERSED),
-                depth == tmt_cli_style::Depth::None
+                depth != tmt_cli_style::Depth::TrueColor
             );
+        }
+    }
+
+    #[test]
+    fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
+        for base in tmt_cli_style::Base::ALL {
+            for depth in [
+                tmt_cli_style::Depth::TrueColor,
+                tmt_cli_style::Depth::Ansi16,
+                tmt_cli_style::Depth::None,
+            ] {
+                let look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                let selection = look.selection();
+                for attention in [
+                    Attention::default(),
+                    Attention {
+                        waiting: 2,
+                        blocked: 1,
+                    },
+                    Attention {
+                        waiting: 0,
+                        blocked: 1,
+                    },
+                ] {
+                    let selected = tab(look, "product", true, attention, &TabColors::default());
+                    let unselected = tab(look, "product", false, attention, &TabColors::default());
+                    assert_eq!(selected.content, unselected.content);
+                    assert_eq!(selected.width(), unselected.width());
+                    let foreground = match attention.state() {
+                        "waiting" => look.role(Role::Waiting),
+                        "blocked" => look.role(Role::Blocked),
+                        _ => look.role(Role::Accent),
+                    };
+                    assert_eq!(selected.style.fg, foreground.fg);
+                    assert_eq!(selected.style.bg, selection.bg);
+                    assert!(selected.style.add_modifier.contains(Modifier::BOLD));
+                    assert_eq!(
+                        selected.style.add_modifier.contains(Modifier::REVERSED),
+                        selection.bg.is_none()
+                    );
+                    let unchanged = match attention.state() {
+                        "waiting" => look.role(Role::Waiting),
+                        "blocked" => look.role(Role::Blocked),
+                        _ => look.role(Role::Muted),
+                    };
+                    assert_eq!(unselected.style, unchanged);
+                    let width = selected.width() as u16;
+                    let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
+                    terminal
+                        .draw(|frame| {
+                            frame.render_widget(
+                                Paragraph::new(selected.clone()),
+                                Rect::new(0, 0, width, 1),
+                            )
+                        })
+                        .unwrap();
+                    for x in 0..width {
+                        let cell = &terminal.backend().buffer()[(x, 0)];
+                        assert_eq!(
+                            cell.bg,
+                            selection.bg.unwrap_or_default(),
+                            "{base:?} {depth:?} at {x}"
+                        );
+                        assert_eq!(cell.fg, foreground.fg.unwrap_or_default());
+                        assert!(cell.modifier.contains(Modifier::BOLD));
+                    }
+                    assert_eq!(terminal.backend().buffer()[(0, 0)].symbol(), " ");
+                    assert_eq!(terminal.backend().buffer()[(width - 1, 0)].symbol(), " ");
+                }
+                let selected = pane_tab(look, "detail", true);
+                let unselected = pane_tab(look, "detail", false);
+                assert_eq!(selected.content, "[detail]");
+                assert_eq!(unselected.content, " detail ");
+                assert_eq!(selected.width(), unselected.width());
+                assert_eq!(selected.style.fg, look.role(Role::Accent).fg);
+                assert_eq!(selected.style.bg, selection.bg);
+                assert!(selected.style.add_modifier.contains(Modifier::BOLD));
+                assert_eq!(
+                    selected.style.add_modifier.contains(Modifier::REVERSED),
+                    selection.bg.is_none()
+                );
+                assert_eq!(unselected.style, look.role(Role::Muted));
+            }
+        }
+    }
+
+    #[test]
+    fn tab_fallback_depends_on_background_even_with_an_accent_foreground() {
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::parse("theme", [("base", "terminal"), ("accent", "blue")])
+                .unwrap(),
+            depth: tmt_cli_style::Depth::TrueColor,
+        };
+        assert!(look.role(Role::Accent).fg.is_some());
+        assert!(look.selection().bg.is_none());
+        for span in [
+            tab(
+                look,
+                "product",
+                true,
+                Attention::default(),
+                &TabColors::default(),
+            ),
+            pane_tab(look, "detail", true),
+        ] {
+            assert_eq!(span.style.fg, look.role(Role::Accent).fg);
+            assert!(span.style.add_modifier.contains(Modifier::REVERSED));
         }
     }
 
