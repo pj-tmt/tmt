@@ -1942,7 +1942,8 @@ Conclusive pane/server death or explicit unbind retires temporary names without
 erasing retained exchanges; saved identities remain available offline. Saved
 removal requires explicit force. Neither removal nor unbind kills a pane.
 `ls` may show verified foreign-server identities, but `talk`/`check` routing
-remains current-server-only: a name bound on another host reads as not active
+remains current-server-only: an absent name reads as not found, while an existing
+name bound on another host reads as not active
 without asking the caller's host, and one on another socket fails closed. Pane number, presentation title and socket pathname
 alone are not endpoint identity. Publication and recovery preserve the full
 server/pane process evidence; ambiguous observations fail closed.

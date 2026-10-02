@@ -41,15 +41,24 @@ pub fn resolve(storage: &mut Storage, host: &Host, input: &str) -> Result<PaneId
     // another host or socket reads as not active. That server is resolved
     // first, as for a pane (a no-op on tmux).
     host.resolve_servers(storage).map_err(endpoint_failure)?;
-    binding::current_name_presence(storage, &mut host.session(), input)
+    if let Some(pane) = binding::current_name_presence(storage, &mut host.session(), input)
         .map_err(binding_failure)?
-        .ok_or_else(|| {
-            Failure::new(
-                "NAME_NOT_FOUND",
-                format!("Identity '{input}' is not active."),
-                3,
-            )
-        })
+    {
+        return Ok(pane);
+    }
+    let identity = tmt_core::identity::IdentityReader::find_identity(
+        storage,
+        &tmt_core::names::normalize_name(input),
+    )
+    .map_err(|error| {
+        Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)
+    })?;
+    let message = if identity.is_some() {
+        format!("Identity '{input}' is not active.")
+    } else {
+        format!("Identity '{input}' was not found.")
+    };
+    Err(Failure::new("NAME_NOT_FOUND", message, 3))
 }
 
 /// A fresh observation before preparation is not a lease on later processing.

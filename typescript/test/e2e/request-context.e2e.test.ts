@@ -337,7 +337,7 @@ describe('TMT-55 request context and provenance', { concurrent: false }, () => {
       expect(rejected.json).toEqual({
         error: {
           code: 'NAME_NOT_FOUND',
-          message: "Identity 'missing-recipient' is not active.",
+          message: "Identity 'missing-recipient' was not found.",
         },
       });
       expect(requestAttempts(fixture)).toHaveLength(attemptsBeforeReject);

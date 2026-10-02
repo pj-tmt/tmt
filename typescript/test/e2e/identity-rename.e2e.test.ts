@@ -116,7 +116,9 @@ describe('identity rename', { concurrent: false }, () => {
         // The old name is gone; everything keyed by the UUID answers to the new one.
         const old = await fixture.runJsonCli(['talk', 'opus-tmt-peer-2', 'hello', '--detach']);
         expect(old.code).toBe(3);
-        expect(old.json).toMatchObject({ error: { code: 'NAME_NOT_FOUND' } });
+        expect(old.json).toMatchObject({
+          error: { code: 'NAME_NOT_FOUND', message: "Identity 'opus-tmt-peer-2' was not found." },
+        });
         const shown = expectJsonResult(
           await fixture.runJsonCli<{ identity: PublicIdentity; resume?: { session: string } }>(
             ['identity', 'show', 'tmt-peer-2'],

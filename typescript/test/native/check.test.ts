@@ -6,6 +6,25 @@ import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-p
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 
 describe('native check process preflight', () => {
+  it('distinguishes renamed-away names from existing inactive identities with exit 3', async () => {
+    await withSandbox(async (sandbox) => {
+      expect((await runCli(sandbox, ['identity', 'create', 'Before', '--json'])).status).toBe(0);
+      expect((await runCli(sandbox, ['mv', 'Before', 'After', '--json'])).status).toBe(0);
+      for (const [name, message] of [
+        ['Before', "Identity 'Before' was not found."],
+        ['After', "Identity 'After' is not active."],
+      ]) {
+        const result = await runCli(sandbox, ['check', name, '--json']);
+        expect(result.status).toBe(3);
+        const failure = expectError(result, 'NAME_NOT_FOUND');
+        expect(failure.error).toMatchObject({ message });
+        const human = await runCli(sandbox, ['check', name]);
+        expect(human.status).toBe(3);
+        expect(human.stderr).toContain(message.replace(/\.$/, ''));
+      }
+    });
+  });
+
   it('reports a denied private tmux socket without preparing check or talk effects', async () => {
     await withSandbox(async (sandbox) => {
       const directory = path.join(sandbox.root, 'denied-tmux');
