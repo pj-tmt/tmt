@@ -26,6 +26,12 @@ fn literal_cell_styles_and_defaults() {
     assert_eq!(
         node.style,
         CellStyle {
+            display: Display::Flex,
+            basis: Extent::Auto,
+            min_width: None,
+            max_width: None,
+            columns: Default::default(),
+            col_span: 1,
             direction: Direction::Column,
             width: Extent::Auto,
             height: Extent::Auto,
@@ -40,6 +46,12 @@ fn literal_cell_styles_and_defaults() {
     assert_eq!(
         node.children[0].style,
         CellStyle {
+            display: Display::Flex,
+            basis: Extent::Auto,
+            min_width: None,
+            max_width: None,
+            columns: Default::default(),
+            col_span: 1,
             direction: Direction::Row,
             width: Extent::Full,
             height: Extent::Cells(7),
@@ -136,11 +148,11 @@ fn overlaps_and_duplicates_fail_in_both_orders() {
 fn unsupported_syntax_and_numbers_fail_without_coercion() {
     for class in [
         "hidden",
-        "grid",
         "hover:w-1",
         "sm:flex",
         "w-1/2",
-        "w-[3]",
+        "w-30%",
+        "text-ellipsis-middle",
         "w-auto",
         "w-1px",
         "w-1.0",
@@ -181,4 +193,97 @@ fn tokens_reuse_the_style_owner_without_resolving_a_palette() {
     }
     // Dynamic values belong to later binding validation, not literal Role parsing.
     assert_eq!(styled(r#"token-bind="row.role""#).token, None);
+}
+
+#[test]
+fn grid_and_bracket_utilities_admit_only_the_canonical_vocabulary() {
+    let s = styled(
+        "class='grid grid-cols-[4_30%_2fr_minmax(2,3fr)] gap-[2] col-span-[2] truncate-middle'",
+    );
+    assert_eq!(s.display, Display::Grid);
+    assert_eq!(s.col_span, 2);
+    assert_eq!(s.gap, [2, 2]);
+    assert_eq!(s.text_flow, TextFlow::Middle);
+    assert_eq!(
+        s.columns[0],
+        GridTrack {
+            min: Breadth::Cells(4),
+            max: Breadth::Cells(4)
+        }
+    );
+    assert_eq!(s.columns[1].max, Breadth::Percent(30));
+    assert_eq!(s.columns[2].max, Breadth::Fraction(2));
+    assert_eq!(
+        s.columns[3],
+        GridTrack {
+            min: Breadth::Cells(2),
+            max: Breadth::Fraction(3)
+        }
+    );
+    let s =
+        styled("class='basis-[30%] w-[100%] h-[50%] min-w-[2] max-w-[20] grow-[3] line-clamp-[2]'");
+    assert_eq!(
+        (s.basis, s.width, s.height),
+        (
+            Extent::Percent(30),
+            Extent::Percent(100),
+            Extent::Percent(50)
+        )
+    );
+    assert_eq!(
+        (s.min_width, s.max_width, s.grow, s.text_flow),
+        (Some(2), Some(20), 3, TextFlow::Clamp(2))
+    );
+    for class in [
+        "w-[0%]",
+        "basis-[100%]",
+        "grid grid-cols-[0_0%_0fr_minmax(0,1)]",
+    ] {
+        styled(&format!("class='{class}'"));
+    }
+}
+#[test]
+fn malformed_grid_tracks_sizes_and_conflicts_have_located_errors() {
+    for class in [
+        "grid-cols-[2]",
+        "grid flex-row",
+        "grid grid-cols-[]",
+        "grid grid-cols-[2_]",
+        "grid grid-cols-[1.2fr]",
+        "grid grid-cols-[101%]",
+        "grid grid-cols-[minmax(1fr,2fr)]",
+        "grid grid-cols-[minmax(2,3,4)]",
+        "grid grid-cols-[minmax(1,minmax(2,3))]",
+        "grid grid-cols-[auto]",
+        "col-span-[0]",
+        "line-clamp-[0]",
+        "w-[101%]",
+        "min-w-[20%]",
+        "basis-3",
+        "col-span-3",
+        "w-[1] w-1",
+        "w-[20%] w-full",
+        "truncate-middle truncate",
+        "line-clamp-[2] truncate",
+        "grid flex",
+        "grid grid-cols-[1] grid-cols-[2]",
+        "text-ellipsis-middle",
+        "p-[1]",
+        "shrink-[1]",
+    ] {
+        let message = invalid(&format!("class='{class}'"));
+        assert!(
+            class.split_whitespace().any(|word| message.contains(word)),
+            "{message}"
+        );
+    }
+    let message = invalid("class='w-30%'");
+    assert!(message.contains("w-30%") && message.contains("w-[n%]"));
+    assert!(invalid("class='line-clamp-[2]' wrap='true'").contains("conflicts"));
+}
+#[test]
+fn repeated_static_track_lists_share_storage() {
+    let original = styled("class='grid grid-cols-[1_2_3]'");
+    let copied = original.clone();
+    assert!(std::sync::Arc::ptr_eq(&original.columns, &copied.columns));
 }
