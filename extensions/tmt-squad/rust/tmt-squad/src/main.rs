@@ -38,6 +38,7 @@ mod template;
 #[cfg(test)]
 mod test_support;
 mod theme;
+mod view;
 
 use crate::{
     config::Config, consent::Consent, core::Core, core::SquadError, membership::Outcome,
@@ -255,6 +256,7 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(theme::grammar())
+        .subcommand(view::grammar())
         .subcommand(playbook::grammar())
         .subcommand(
             build(specs::SKILL)
@@ -483,6 +485,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "hotkeys" => hotkeys_text(document, terminal),
         "playbook" => playbook::text(document, terminal),
         "theme" => theme::text(document, terminal),
+        "view" => view::text(document, terminal),
         "jump" => {
             let mut output = done(
                 terminal,
@@ -754,6 +757,9 @@ fn run(
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
+    if command == "view" {
+        return view::run(&mut config, matches).map(Outcome::from);
+    }
     if command == "theme" {
         return theme::run(&mut config, matches).map(Outcome::from);
     }
@@ -1199,8 +1205,13 @@ mod tests {
             complete(&words("-- ")),
             [
                 "add", "annotate", "back", "board", "copy", "help", "hotkeys", "init", "jump",
-                "lead", "ls", "me", "open", "playbook", "rm", "set", "skill", "theme"
+                "lead", "ls", "me", "open", "playbook", "rm", "set", "skill", "theme", "view"
             ]
+        );
+        assert_eq!(complete(&words("-- view ")), ["ls", "rm", "set"]);
+        assert_eq!(
+            complete(&words("-- view set --")),
+            ["--help", "--json", "--squad"]
         );
         assert_eq!(complete(&words("-- h")), ["help", "hotkeys"]);
         assert_eq!(

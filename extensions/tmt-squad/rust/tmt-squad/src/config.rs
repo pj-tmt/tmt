@@ -1,5 +1,5 @@
-//! `squad.toml`: the user's file, beside TMT's global configuration. Squad reads
-//! it and writes only `me`, preserving every other byte of the document.
+//! `squad.toml`: the user's file, beside TMT's global configuration.
+//! Named edits pass through one format-preserving writer.
 
 use crate::core::{Core, SquadError};
 use crate::{
@@ -537,24 +537,40 @@ impl Board {
         Ok(())
     }
 
+    fn from_settings(table: &dyn TableLike, place: &str) -> Result<Self, SquadError> {
+        let split = crate::split::read(
+            table.get("layout").expect("preset layout"),
+            &format!("{place}.layout"),
+        )?;
+        let mut board = Self {
+            mode: BoardMode::Split,
+            panes: split.panes(),
+            split,
+            collapsed: Default::default(),
+            fold_below: None,
+        };
+        board.read_collapsed(table.get("collapsed"), place)?;
+        board.read_fold_below(table.get("fold_below"), place)?;
+        Ok(board)
+    }
+
+    fn factory(view: crate::view::ViewName) -> Self {
+        match view {
+            crate::view::ViewName::Team => Self::preset(Layout::Team),
+            _ => Self::from_settings(view.settings(), view.name()).expect("factory view is valid"),
+        }
+    }
+
     /// Crew keeps rows and the lead's notes side by side; pr-queue pairs rows
     /// with the selected row's detail; minimal shows rows only. Team nests all
     /// four panes, with full-width lead notes below the rows/detail/replies.
     fn preset(layout: Layout) -> Self {
         if layout == Layout::Team {
-            let split = crate::split::read(&team()["team"]["board"]["layout"], "team.board.layout")
-                .expect("the team split is valid");
-            let mut board = Self {
-                mode: BoardMode::Split,
-                panes: split.panes(),
-                split,
-                collapsed: Default::default(),
-                fold_below: None,
-            };
-            board
-                .read_fold_below(Some(&team()["team"]["board"]["fold_below"]), "team.board")
-                .expect("the team fold rule is valid");
-            return board;
+            return Self::from_settings(
+                team()["team"]["board"].as_table_like().unwrap(),
+                "team.board",
+            )
+            .expect("team board is valid");
         }
         let (direction, panes, sizes) = match layout {
             Layout::Crew => (
@@ -799,6 +815,7 @@ impl Config {
         };
         config.me()?;
         config.me_id()?;
+        config.validate_views()?;
         Ok(config)
     }
 
@@ -1244,11 +1261,180 @@ impl Config {
         )
     }
 
+    fn view_setting(
+        &self,
+        squad: Option<&str>,
+    ) -> Result<Option<crate::view::ViewName>, SquadError> {
+        let (item, place) = match squad {
+            Some(name) => (
+                self.squad_table(name)?.and_then(|table| table.get("board")),
+                format!("squad.{name}.board"),
+            ),
+            None => (self.document.get("board"), "board".into()),
+        };
+        let Some(item) = item else { return Ok(None) };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+        table
+            .get("view")
+            .map(|item| {
+                item.as_str()
+                    .and_then(crate::view::ViewName::parse)
+                    .ok_or_else(|| {
+                        invalid(format!(
+                            "`{place}.view` must be team, focus, notes, detail or wide."
+                        ))
+                    })
+            })
+            .transpose()
+    }
+
+    fn validate_views(&self) -> Result<(), SquadError> {
+        self.view_setting(None)?;
+        if let Some(table) = self.document.get("squad").and_then(Item::as_table_like) {
+            for (name, _) in table.iter() {
+                self.view_setting(Some(name))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn custom_board(&self, squad: &str) -> Result<bool, SquadError> {
+        Ok(self
+            .squad_table(squad)?
+            .and_then(|table| table.get("board"))
+            .and_then(Item::as_table_like)
+            .is_some_and(|table| table.get("layout").is_some() || table.get("panes").is_some()))
+    }
+
+    /// Arrangement precedence stays separate from the workflow layout decision.
+    pub fn view_source(
+        &self,
+        squad: &str,
+    ) -> Result<(Option<crate::view::ViewName>, &'static str), SquadError> {
+        let global = self.view_setting(None)?;
+        let own = self.view_setting(Some(squad))?;
+        Ok(if self.custom_board(squad)? {
+            (None, "custom")
+        } else if let Some(view) = own {
+            (Some(view), "squad")
+        } else if let Some(view) = global {
+            (Some(view), "board")
+        } else {
+            (
+                (self.resolve_layout(squad)? == Layout::Team)
+                    .then_some(crate::view::ViewName::Team),
+                "layout",
+            )
+        })
+    }
+
+    pub fn set_view(
+        &mut self,
+        scope: &crate::view::ViewScope,
+        view: crate::view::ViewName,
+    ) -> Result<bool, SquadError> {
+        if let Some(name) = scope.squad() {
+            self.refuse_custom_view(name)?;
+        }
+        self.edit_view(scope, Some(view))
+    }
+
+    fn refuse_custom_view(&self, squad: &str) -> Result<(), SquadError> {
+        if self.custom_board(squad)? {
+            return Err(SquadError::hinted(
+                "SQUAD_VIEW_CUSTOM",
+                &format!("squad {squad} has a hand-written board layout"),
+                "; ",
+                &format!(
+                    "remove squad.{squad}.board.layout or panes from squad.toml manually before saving a view"
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn remove_view(&mut self, scope: &crate::view::ViewScope) -> Result<bool, SquadError> {
+        self.edit_view(scope, None)
+    }
+
+    fn edit_view(
+        &mut self,
+        scope: &crate::view::ViewScope,
+        view: Option<crate::view::ViewName>,
+    ) -> Result<bool, SquadError> {
+        let draft = self.view_draft(scope, view)?;
+        draft.board(scope.squad().unwrap_or(""))?;
+        draft.refresh(scope.squad().unwrap_or(""))?;
+        if scope.squad().is_none()
+            && let Some(squads) = draft.document.get("squad").and_then(Item::as_table_like)
+        {
+            for (name, _) in squads.iter() {
+                draft.board(name)?;
+            }
+        }
+        let changed = draft.document.to_string() != self.document.to_string();
+        self.write(|document| *document = draft.document)?;
+        Ok(changed)
+    }
+
+    fn view_draft(
+        &self,
+        scope: &crate::view::ViewScope,
+        view: Option<crate::view::ViewName>,
+    ) -> Result<Self, SquadError> {
+        let mut draft = self.clone();
+        let path = match scope {
+            crate::view::ViewScope::Board => vec!["board"],
+            crate::view::ViewScope::Squad(name) => vec!["squad", name, "board"],
+        };
+        let mut table: &mut dyn TableLike = draft.document.as_table_mut();
+        for (index, key) in path.iter().enumerate() {
+            if !table.contains_key(key) {
+                if view.is_none() {
+                    return Ok(draft);
+                }
+                let mut child = Table::new();
+                child.set_implicit(index + 1 < path.len());
+                table.insert(key, Item::Table(child));
+            }
+            table = table
+                .get_mut(key)
+                .and_then(Item::as_table_like_mut)
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "`{}` must be a table to edit its view.",
+                        path[..=index].join(".")
+                    ))
+                })?;
+        }
+        match view {
+            Some(view) if table.get("view").and_then(Item::as_str) != Some(view.name()) => {
+                let decor = table
+                    .get("view")
+                    .and_then(Item::as_value)
+                    .map(|value| value.decor().clone());
+                let mut item = value(view.name());
+                if let (Some(decor), Some(value)) = (decor, item.as_value_mut()) {
+                    *value.decor_mut() = decor;
+                }
+                table.insert("view", item);
+            }
+            None => {
+                table.remove("view");
+            }
+            _ => {}
+        }
+        Ok(draft)
+    }
+
     /// `[squad.<name>.board]` over the layout's preset. Validated before the
     /// terminal changes mode, so a mistake never leaves a half-drawn screen.
     pub fn board(&self, squad: &str) -> Result<Board, SquadError> {
         let layout = self.resolve_layout(squad)?;
-        let preset = Board::preset(layout);
+        let (view, _) = self.view_source(squad)?;
+        let preset = view.map_or_else(|| Board::preset(layout), Board::factory);
         let place = format!("squad.{squad}.board");
         let Some(item) = self
             .squad_table(squad)?
@@ -1271,6 +1457,7 @@ impl Config {
                 "collapsed",
                 "fold_below",
                 "token_rate",
+                "view",
             ]
             .contains(&key)
             {
@@ -1311,18 +1498,19 @@ impl Config {
             board.read_fold_below(table.get("fold_below"), &place)?;
             return Ok(board);
         }
-        if layout == Layout::Team && table.get("panes").is_none() {
+        if (layout == Layout::Team || view.is_some()) && table.get("panes").is_none() {
             if let Some(key) = ["direction", "sizes"]
                 .into_iter()
                 .find(|key| table.get(key).is_some())
             {
                 return Err(invalid(format!(
-                    "`{place}.{key}` cannot partially override team's nested layout; set `{place}.layout` or `{place}.panes`."
+                    "`{place}.{key}` cannot partially override the resolved arrangement; set `{place}.layout` or `{place}.panes`."
                 )));
             }
             let mut board = Board { mode, ..preset };
             if mode == BoardMode::Tabs {
                 board.fold_below = None;
+                board.collapsed.clear();
             }
             board.read_collapsed(table.get("collapsed"), &place)?;
             board.read_fold_below(table.get("fold_below"), &place)?;
@@ -1441,7 +1629,7 @@ impl Config {
                     .ok_or_else(|| invalid("`board` must be a table."))?;
                 if let Some((key, _)) = table
                     .iter()
-                    .find(|(key, _)| !matches!(*key, "refresh" | "theme" | "token_rate"))
+                    .find(|(key, _)| !matches!(*key, "refresh" | "theme" | "token_rate" | "view"))
                 {
                     return Err(invalid(format!("`board.{key}` is not a board setting.")));
                 }
@@ -2555,7 +2743,11 @@ sort = ["state", "-name"]
             "board = 5\n",
             "[squad.x.board]\nrefresh = \"500ms\"\n",
         ] {
-            let code = read(body).refresh("x").err().map(|error| error.code);
+            fs::write(&path, body).unwrap();
+            let code = Config::read(path.clone())
+                .and_then(|config| config.refresh("x"))
+                .err()
+                .map(|error| error.code);
             assert_eq!(code.as_deref(), Some("SQUAD_CONFIG_INVALID"), "{body}");
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
@@ -2642,7 +2834,11 @@ sort = ["state", "-name"]
             let error = partial.board("x").unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
             assert!(error.message.contains("squad.x.board"));
-            assert!(error.message.contains("nested layout"));
+            assert!(
+                error
+                    .message
+                    .contains("partially override the resolved arrangement")
+            );
         }
         let added = read(
             "[squad.x]\nlayout = \"team\"\n[squad.x.fields.ci]\nrun = [\"echo\", \"ready\"]\n",
@@ -2973,7 +3169,7 @@ panes = ["rows", "notes"]
                     .board("x")
                     .unwrap_err()
                     .message
-                    .contains("nested layout")
+                    .contains("partially override the resolved arrangement")
             );
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
