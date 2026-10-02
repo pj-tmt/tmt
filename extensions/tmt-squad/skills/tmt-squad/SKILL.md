@@ -225,6 +225,55 @@ states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
 apply them.
 
+## Completed-request token rate
+
+The selected named squad's summary shows **tokens of completed requests observed
+by this board**, averaged over 5s, 1m, 30m or 1h. Input and output count once;
+cached input is already included in input, and normalized reasoning in output.
+Mixed providers sum provider-reported token units, not cost or interchangeable
+text volume. Counters update at request completion and are observed every 5–10 s;
+these are sampled batches, not in-flight generation throughput.
+
+Team (the default board) enables the meter; crew, pr-queue and minimal keep it off.
+The all/leads tabs omit it. `w` cycles available windows through the bindable
+`token-window` action; default is 1m. The 5s heartbeat is offered only with exactly
+5 s sampling: usually zero between completions, then a sampled batch spike.
+Until a window is full, its label shows the covered span (for example `12m`), and
+the number averages that span. No earlier history is loaded or persisted.
+
+True absence hides the window/meter; there are no placeholders. Longer windows
+remain hidden until usable observations span at least 10 s. A genuinely measured
+zero shows `0`. Never-reporting members are excluded and listed in `?` help;
+`≥N`/`≥0` means a reporting member or interval is missing, and remains until that
+gap ages out of the selected window. Resets, new sessions, compaction gaps and
+failed reads rebaseline without inventing tokens. Returning to a tab preserves
+its bounded history but does not treat the cached view as a fresh observation.
+
+```toml
+[board.token_rate]
+enabled = false
+every = "5s" # 5s through 10s; independent of board.refresh
+window = "1m" # 5s, 1m, 30m, 1h; 5s falls back to 1m unless every = "5s"
+reduced_motion = true
+
+[squad.checkout.board.token_rate]
+enabled = true # individual keys override global policy and layout preset
+
+[bind]
+w = "token-window" # may be rebound through normal global/section bindings
+```
+
+Digits count with cubic ease-out for at most 600 ms; reduced motion and window
+switches show the exact value immediately. Idle values do not animate. Eight
+sparkline bars derive from 5 s buckets: their trend spans are 40s/80s/30m/1h for
+the four windows, respectively. Blank means no evidence; ▁ means measured zero;
+▂ through █ scale nonzero values against the eight-bar maximum. Narrow boards
+drop the sparkline, then only a full default-1m label, shorten `tok/s` to `/s`,
+then hide the meter before cutting lead/attention text. The number, unit, label
+and trend form one contiguous right-aligned group; empty trend slices retain
+their positions. Covered-span and other
+window labels always remain while the meter is visible.
+
 ## Columns and row lines
 
 Use `[squad.<name>.rows]`; `columns` defines positional tracks and value

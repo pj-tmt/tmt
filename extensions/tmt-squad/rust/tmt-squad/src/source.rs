@@ -166,7 +166,7 @@ fn number(value: &Value) -> Option<f64> {
 }
 
 /// A value in `format`. A value the format cannot read shows as it is.
-fn render_value(value: &Value, format: Format, now_ms: u64) -> Option<String> {
+pub(crate) fn render_value(value: &Value, format: Format, now_ms: u64) -> Option<String> {
     let text = || match value {
         Value::String(text) => Some(text.clone()),
         Value::Null => None,

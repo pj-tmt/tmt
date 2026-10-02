@@ -2905,6 +2905,47 @@ changes. Each immutable view owns disposable markdown wrapping and grid-width
 derivations keyed by effective pane width (and grid search); markdown also keys
 its styled lines by the active look so theme previews repaint them. Replacing the view
 invalidates them, and the scroll renderer copies only visible lines.
+The completed-request meter has separate 5–10 second deadlines on that same
+worker. `board::rate::Input` captures the observed roster UUIDs and public
+`resume` values before section shaping. A normal named-squad load carries that
+input; while idle the worker reads only `ls --room --json` for those UUIDs,
+without providers, notes/history or staleness publication. Full loads take
+priority. Usage events use the same generation cancellation and shutdown owner.
+`App` accepts normal counter receipts at the configured cadence and never treats
+cached tabs as fresh evidence. It retains one meter per visited named squad,
+pruned against visible/hidden tabs, and owns the runtime selected window. Leaving
+a tab closes sampling continuity. Meter state is separate from pane/fold settings.
+
+`board::rate` validates cumulative input/output/cache-subset, session/driver/epoch
+and sequence/time order. Complete deltas enter a fixed 720-slot ring of 5 s
+receipt-time buckets: observed batches, never reconstructed completion times.
+Missing, invalid, gap, decrease, new-session or recovery evidence establishes a
+baseline without invented tokens. Prior-epoch tokens and gap evidence expire by
+the selected window (5 s, 1 min, 30 min or 1 h). Never-reporting members are excluded
+and listed in help; previously reporting members with lost evidence make the
+known sum a lower bound. Failed reads become partial after two sampling periods.
+Provider observedAt is order evidence, not a heartbeat. Input plus output counts
+cached input once; mixed providers sum reported token units, not costs/text volume.
+
+`config::TokenRate` layers team preset, global `[board.token_rate]` and per-squad
+keys; Team alone defaults on. Built-in all/leads tabs omit the meter. The default
+window is 1 min; 5 s is offered only at exactly 5 s sampling. The bindable
+`token-window` action (`w` in both host presets) cycles available windows, outside
+text inputs. Longer windows divide known deltas by the covered span until full;
+the label discloses that span. Windows with no usable interval hide, including
+warm-up (10 s for windows other than 5 s). Measured zero renders `0`, or `≥0` for
+missing reporting coverage. `board::meter` owns cubic counting digits (600 ms,
+250 ms frame spacing and an exact final frame), smooth retargeting and immediate
+window switches/reduced motion. Its eight trend bars derive from the ring;
+slices are rounded up to 5 s, so trend spans are 40 s/80 s/30 min/1 h. No evidence
+is blank; measured zero is ▁; nonzero bars use ▂ through █.
+The meter renders one right-aligned number/unit/label/trend group, using a
+seven-cell maximum number region and no padding between its parts; the trend
+preserves its eight slots, including empty slices. The meter owns step-aside: drop trend, then only a full default-1m label, shorten
+`tok/s` to `/s`, then hide before cutting lead/attention text. Covered-span and
+non-default labels persist. The normal cached render and ratatui diff own output;
+backend-cell tests prove meter-only ticks emit inside the meter band, with no
+parallel paint path. Window cycling is runtime state, never a config write.
 A switch advances the worker's generation, cancelling superseded core reads in
 the shared `tmt-invoke` bounded process owner. The refresh worker owns one never-reset stop flag per generation; preemption
 and shutdown set that flag while the generation counter still fences events.

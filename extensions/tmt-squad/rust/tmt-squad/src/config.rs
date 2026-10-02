@@ -37,6 +37,78 @@ impl Default for Reminders {
     }
 }
 
+/// Completed-request meter policy; independent of the ordinary board reload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TokenWindow {
+    Five,
+    #[default]
+    Minute,
+    HalfHour,
+    Hour,
+}
+
+impl TokenWindow {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "5s" => Some(Self::Five),
+            "1m" => Some(Self::Minute),
+            "30m" => Some(Self::HalfHour),
+            "1h" => Some(Self::Hour),
+            _ => None,
+        }
+    }
+    pub fn milliseconds(self) -> u64 {
+        match self {
+            Self::Five => 5_000,
+            Self::Minute => 60_000,
+            Self::HalfHour => 1_800_000,
+            Self::Hour => 3_600_000,
+        }
+    }
+    pub fn available(self, every: Duration) -> Self {
+        if self == Self::Five && every != Duration::from_secs(5) {
+            Self::Minute
+        } else {
+            self
+        }
+    }
+    pub fn next(self, every: Duration) -> Self {
+        match self {
+            Self::Five => Self::Minute,
+            Self::Minute => Self::HalfHour,
+            Self::HalfHour => Self::Hour,
+            Self::Hour => Self::Five.available(every),
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Five => "5s",
+            Self::Minute => "1m",
+            Self::HalfHour => "30m",
+            Self::Hour => "1h",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenRate {
+    pub enabled: bool,
+    pub every: Duration,
+    pub reduced_motion: bool,
+    pub window: TokenWindow,
+}
+
+impl Default for TokenRate {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            every: Duration::from_secs(5),
+            reduced_motion: false,
+            window: TokenWindow::Minute,
+        }
+    }
+}
+
 /// One sort key; `-field` sorts descending. `state` follows the layout's order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SortKey {
@@ -200,6 +272,7 @@ impl Layout {
 /// Default team settings, expressed in the same configuration grammar as overrides.
 const TEAM: &str = r#"
 [team.board]
+token_rate = { enabled = true }
 fold_below = { width = 100, panes = ["detail", "replies"] }
 layout = { direction = "top-bottom", sizes = [60, 40], panes = [{ direction = "left-right", sizes = [62, 38], panes = ["rows", { direction = "top-bottom", sizes = [50, 50], panes = ["detail", "replies"] }] }, "notes"] }
 [team.rows]
@@ -1197,6 +1270,7 @@ impl Config {
                 "refresh",
                 "collapsed",
                 "fold_below",
+                "token_rate",
             ]
             .contains(&key)
             {
@@ -1367,7 +1441,7 @@ impl Config {
                     .ok_or_else(|| invalid("`board` must be a table."))?;
                 if let Some((key, _)) = table
                     .iter()
-                    .find(|(key, _)| !matches!(*key, "refresh" | "theme"))
+                    .find(|(key, _)| !matches!(*key, "refresh" | "theme" | "token_rate"))
                 {
                     return Err(invalid(format!("`board.{key}` is not a board setting.")));
                 }
@@ -1386,6 +1460,69 @@ impl Config {
             None => Ok(Some(DEFAULT_REFRESH)),
             Some((item, place)) => refresh(item, &place),
         }
+    }
+
+    /// Preset, then global, then per-squad keys; no implicit second team path.
+    pub fn token_rate(&self, squad: &str) -> Result<TokenRate, SquadError> {
+        let mut settings = TokenRate::default();
+        let own = self
+            .squad_table(squad)?
+            .and_then(|table| table.get("board"))
+            .and_then(Item::as_table_like)
+            .and_then(|table| table.get("token_rate"));
+        let preset = (self.resolve_layout(squad)? == Layout::Team)
+            .then(|| &team()["team"]["board"]["token_rate"]);
+        let global = self
+            .document
+            .get("board")
+            .and_then(Item::as_table_like)
+            .and_then(|table| table.get("token_rate"));
+        for (item, place) in [
+            (preset, "team.board.token_rate".to_owned()),
+            (global, "board.token_rate".to_owned()),
+            (own, format!("squad.{squad}.board.token_rate")),
+        ] {
+            let Some(item) = item else { continue };
+            let table = item
+                .as_table_like()
+                .ok_or_else(|| invalid(format!("`{place}` must be a table.")))?;
+            for (key, item) in table.iter() {
+                match key {
+                    "enabled" | "reduced_motion" => {
+                        let value = item.as_bool().ok_or_else(|| {
+                            invalid(format!("`{place}.{key}` must be a boolean."))
+                        })?;
+                        if key == "enabled" {
+                            settings.enabled = value;
+                        } else {
+                            settings.reduced_motion = value;
+                        }
+                    }
+                    "window" => {
+                        settings.window =
+                            item.as_str().and_then(TokenWindow::parse).ok_or_else(|| {
+                                invalid(format!("`{place}.window` must be 5s, 1m, 30m or 1h."))
+                            })?;
+                    }
+                    "every" => {
+                        settings.every = refresh(item, &format!("{place}.every"))?
+                            .filter(|every| {
+                                (Duration::from_secs(5)..=Duration::from_secs(10)).contains(every)
+                            })
+                            .ok_or_else(|| {
+                                invalid(format!("`{place}.every` must be 5s through 10s."))
+                            })?;
+                    }
+                    _ => {
+                        return Err(invalid(format!(
+                            "`{place}.{key}` is not a token-rate setting."
+                        )));
+                    }
+                }
+            }
+        }
+        settings.window = settings.window.available(settings.every);
+        Ok(settings)
     }
 
     /// `[squad.<name>.notes] render = "markdown" | "plain"`; markdown by default.
@@ -2923,5 +3060,49 @@ panes = ["rows", "notes"]
                 .is_empty()
         );
         fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn token_rate_defaults_and_layered_overrides_are_strict() {
+        let read = |text: &str, name: &str| {
+            let path = temp("token-rate");
+            fs::write(&path, text).unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            fs::remove_file(path).unwrap();
+            config.token_rate(name)
+        };
+        assert!(read("", "p").unwrap().enabled);
+        for layout in ["crew", "minimal", "pr-queue"] {
+            assert!(
+                !read(&format!("[squad.p]\nlayout='{layout}'\n"), "p")
+                    .unwrap()
+                    .enabled
+            );
+        }
+        let config=read("[board.token_rate]\nenabled=false\nevery='10s'\nreduced_motion=true\n[squad.p.board.token_rate]\nenabled=true\nevery='5s'\n","p").unwrap();
+        assert!(config.enabled && config.reduced_motion);
+        assert_eq!(config.every, Duration::from_secs(5));
+        assert_eq!(
+            read("[board.token_rate]\nwindow='5s'\nevery='10s'", "p")
+                .unwrap()
+                .window,
+            TokenWindow::Minute
+        );
+        assert_eq!(
+            read("[board.token_rate]\nwindow='30m'", "p")
+                .unwrap()
+                .window,
+            TokenWindow::HalfHour
+        );
+        for value in ["off", "4s", "11s"] {
+            assert!(read(&format!("[board.token_rate]\nevery='{value}'"), "p").is_err());
+        }
+        for setting in [
+            "enabled=1",
+            "reduced_motion='yes'",
+            "window='2m'",
+            "every=5",
+        ] {
+            assert!(read(&format!("[squad.p.board.token_rate]\n{setting}"), "p").is_err());
+        }
     }
 }
