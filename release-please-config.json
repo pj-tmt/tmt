@@ -60,6 +60,11 @@
         {
           "type": "toml",
           "path": "rust/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='tmt-driver-herdr')].version"
+        },
+        {
+          "type": "toml",
+          "path": "rust/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value=='tmt-driver-protocol')].version"
         },
         {

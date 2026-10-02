@@ -2723,6 +2723,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-driver-herdr"
+version = "5.0.0-alpha.34"
+dependencies = [
+ "semver",
+ "serde_json",
+ "tmt-driver-protocol",
+ "tmt-invoke",
+]
+
+[[package]]
 name = "tmt-driver-protocol"
 version = "5.0.0-alpha.34"
 dependencies = [

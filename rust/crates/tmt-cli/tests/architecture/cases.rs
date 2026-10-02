@@ -697,6 +697,7 @@ fn every_workspace_crate_reviews_new_dev_dependencies() {
         "tmt-command-output",
         "tmt-host-grammar",
         "tmt-driver-protocol",
+        "tmt-driver-herdr",
         "tmt-invoke",
         "tmt-remote",
         "tmt-squad",
@@ -1130,6 +1131,27 @@ fn the_host_grammar_is_the_only_crate_core_and_the_protocol_share() {
             1,
             "{crate_name}"
         );
+    }
+}
+
+#[test]
+fn the_herdr_driver_reaches_tmt_only_through_the_protocol() {
+    let violations = |dependencies: &[&str]| {
+        policy::dependency_violations(&package(
+            "tmt-driver-herdr",
+            dependencies
+                .iter()
+                .map(|name| dependency(name, "normal", None, None))
+                .collect(),
+        ))
+        .len()
+    };
+    assert_eq!(
+        violations(&["semver", "serde_json", "tmt-driver-protocol", "tmt-invoke"]),
+        0
+    );
+    for crate_name in ["tmt-core", "tmt-adapters", "tmt-host-grammar", "serde"] {
+        assert_eq!(violations(&[crate_name]), 1, "{crate_name}");
     }
 }
 

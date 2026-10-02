@@ -2383,6 +2383,22 @@ protocol crate otherwise depends only on `serde` and `serde_json`, so a
 community driver builds against these two small crates alone. The architecture
 guard allows exactly those edges.
 
+`rust/crates/tmt-driver-herdr` is the first driver built this way (#479). The
+`tmt-driver-herdr` executable depends on the protocol crate, `tmt-invoke` (its
+bounded process owner), `serde_json` and `semver`, and never on core or the
+adapters; the architecture guard holds it to those edges. It answers `caller`,
+`server`, `resolve-target`, `snapshot`, `publish` and `clear` through Herdr's
+documented CLI (floor 0.9.1) and `ps`. Its children get an allowlisted
+environment without `TMT_DRIVER_CALL`. Herdr reports no server pid, so `server`
+names the parent of a pane's shell, and a server with no pane reads as no
+server. `publish` refuses with `not_found` unless the pane still runs `panePid`,
+then reads the marker back. The marker tokens are the built-in Herdr host's,
+byte for byte: both crates test against one fixture
+(`tmt-driver-herdr/src/fixtures/builtin-marker.json`). The driver doesn't yet
+declare `capture`, `input`, `prompt` or `focus`, isn't packaged, and doesn't
+serve `HostKind::Herdr`; the built-in `herdr/` adapter does until the driver
+replaces it.
+
 `tmt-adapters::host::external` holds the core side of that boundary:
 
 - **`registry`:** the approved drivers in `<global>/drivers.json`. Approval

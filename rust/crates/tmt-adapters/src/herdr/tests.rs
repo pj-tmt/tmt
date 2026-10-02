@@ -380,6 +380,35 @@ fn a_marker_round_trips_and_long_names_span_continuation_tokens() {
     assert_eq!(marker::decode(bad_pid.as_object()), None);
 }
 
+/// The Herdr driver crate decodes this same fixture, so a pane marked by
+/// either reads the same. The name holds one non-ASCII character to pin
+/// that a token value is split by characters, not bytes.
+#[test]
+fn the_marker_tokens_match_the_herdr_driver_fixture() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tmt-driver-herdr/src/fixtures/builtin-marker.json"
+    ))
+    .unwrap();
+    let wire = &fixture["marker"];
+    let text = |key: &str| wire[key].as_str().unwrap().to_owned();
+    let marker = BindingMarker {
+        name: text("name"),
+        canonical_name: text("canonicalName"),
+        identity_id: text("identityId"),
+        binding_id: text("bindingId"),
+        server_id: text("serverId"),
+        pane_pid: wire["panePid"].as_u64().unwrap(),
+    };
+    let expected: Vec<String> = fixture["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|token| token.as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(marker::encode(&marker).unwrap(), expected);
+    assert_eq!(marker::decode(tokens(&marker).as_object()), Some(marker));
+}
+
 #[test]
 fn publishing_reports_tokens_under_tmt_and_verifies_them() {
     let binding = binding(90316);
