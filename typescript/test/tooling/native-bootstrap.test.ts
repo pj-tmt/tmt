@@ -26,7 +26,15 @@ const { generateNativeBootstrap } = (await import(
   ) => Promise<string>;
 };
 
-const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
+// The CLI archive's files, from the artifact policy that owns the list.
+const { runtimeFiles, companionFiles } = (await import(
+  pathToFileURL(path.join(repositoryRoot, 'scripts', 'native-artifact-policy.mjs')).href
+)) as unknown as {
+  runtimeFiles: () => string[];
+  companionFiles: () => string[];
+};
+const REQUIRED_FILES = runtimeFiles();
+const COMPANIONS = companionFiles();
 
 function nativeTarget(): string {
   const architecture = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
@@ -57,7 +65,13 @@ async function createFixture(
   mkdirSync(root, { recursive: true });
   writeFileSync(path.join(root, 'tmt'), stubExecutable(), { mode: 0o755 });
   chmodSync(path.join(root, 'tmt'), 0o755);
-  for (const file of REQUIRED_FILES.slice(1)) writeFileSync(path.join(root, file), `${file}\n`);
+  for (const file of REQUIRED_FILES.slice(1)) {
+    // A companion is never run here; it only has to be an executable file.
+    const companion = COMPANIONS.includes(file);
+    writeFileSync(path.join(root, file), companion ? '#!/bin/sh\nexit 0\n' : `${file}\n`, {
+      mode: companion ? 0o755 : 0o644,
+    });
+  }
   await tar.c({ cwd: tree, file: archive, gzip: true }, [rootName]);
   const checksum = createHash('sha256').update(readFileSync(archive)).digest('hex');
   writeFileSync(

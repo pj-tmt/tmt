@@ -28,7 +28,11 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
 
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 /** Product::companions(): executables a product's archive carries beside its own. */
-const COMPANIONS = { cli: ['tmt-driver-herdr'], office: [], squad: [] };
+const COMPANIONS: Record<'cli' | 'office' | 'squad', readonly string[]> = {
+  cli: ['tmt-driver-herdr'],
+  office: [],
+  squad: [],
+};
 const TARGET = 'aarch64-apple-darwin';
 const VERSION = '5.0.0-alpha.1';
 

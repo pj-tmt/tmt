@@ -20,7 +20,14 @@ const skillsRoot = 'skills';
 const skillFileLimit = 1024 * 1024;
 const skillTreeFileLimit = 16 * 64;
 
-function runtimeFiles(product = 'cli') {
+/** A product's companion executables; fixtures build from this one list. */
+export function companionFiles(product = 'cli') {
+  assert(Object.hasOwn(companions, product), 'Unknown native product');
+  return [...companions[product]];
+}
+
+/** Every file a product's archive carries, its own executable first. */
+export function runtimeFiles(product = 'cli') {
   assert(Object.hasOwn(executables, product), 'Unknown native product');
   return [
     executables[product],
