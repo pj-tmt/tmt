@@ -520,6 +520,11 @@ extension owns its responses, content security policy and headers. All mounted e
 browser origin and therefore one browser trust domain; mounting is limited to owner-installed
 extensions, and untrusted content renders only in sandboxed opaque-origin frames. Plain HTTP is
 loopback-only; an opt-in non-loopback bind requires HTTPS and WSS with a user-supplied certificate.
+Upgraded WebSocket tunnels do not use the door's edge connections, so open pages cannot starve
+remote operations, pairing or page loads. Each mounted extension has its own tunnel cap and idle
+bound: a tunnel with no bytes in either direction for the idle bound is closed, and an upgrade
+beyond the cap is refused with HTTP 503 and `Retry-After` before it reaches the extension. An
+extension keeps one WebSocket per page and reconnects after an idle close or a refusal.
 
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).
@@ -646,7 +651,9 @@ implemented.
 
 Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
 local door, device sign-in and relay where it meets this contract, rather than being rewritten.
-Local colab keeps working until its routes mount on the remote door.
+The relocated door and `/x/<extension>/` route mounting are implemented (#1039), with only colab
+allowlisted; mounted requests carry no device context until pairing lands. Local colab keeps
+working until its routes mount on the remote door.
 
 ## Conformance and acceptance
 
