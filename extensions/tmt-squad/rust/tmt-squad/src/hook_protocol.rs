@@ -1,13 +1,15 @@
 //! Squad's side of the consented extension hook protocol:
-//! `tmt-squad __tmt-hooks 1 capabilities|observe`.
+//! `tmt-squad __tmt-hooks 1 capabilities|observe|context`.
 //!
-//! Core runs it only after the user enabled squad's hooks, after a command
-//! committed, within a shared deadline. Squad observes one event: an identity
+//! Core runs it only after the user enabled squad's hooks, within a shared
+//! deadline. Lifecycle observations follow committed commands; context runs
+//! before a turn. Squad observes one lifecycle event: an identity
 //! rename, so `me` in `squad.toml` follows the user's renamed identity at
 //! once. Hooks are optional: without them the next command that needs `me`
-//! repairs it (`me::resolve`). Output is empty, and core ignores the status.
+//! repairs it (`me::resolve`). Lifecycle output is empty and non-vetoing.
+//! Context returns an optional informational reminder within its own budget.
 
-use crate::{config::Config, core::Core, me};
+use crate::{config::Config, core::Core, me, reminder};
 use serde_json::Value;
 use std::{
     ffi::OsString,
@@ -29,6 +31,33 @@ pub fn run(arguments: &[OsString]) -> ExitCode {
     };
     match operation.as_str() {
         "capabilities" => print_capabilities(),
+        "context" => {
+            let Some(budget) = reminder::Budget::start() else {
+                return ExitCode::SUCCESS;
+            };
+            let mut input = Vec::new();
+            let read = io::stdin()
+                .lock()
+                .take(INPUT_LIMIT + 1)
+                .read_to_end(&mut input);
+            let Some(identity) = read
+                .ok()
+                .filter(|_| input.len() as u64 <= INPUT_LIMIT)
+                .and_then(|_| context_identity(&input))
+            else {
+                return ExitCode::from(2);
+            };
+            let summary = reminder::summary(&identity, budget.deadline);
+            let reply = serde_json::json!({"summary": summary}).to_string();
+            let mut stdout = tmt_cli_style::stream::stdout(true);
+            match stdout
+                .write_all(reply.as_bytes())
+                .and_then(|()| stdout.flush())
+            {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(_) => ExitCode::FAILURE,
+            }
+        }
         "observe" => {
             let mut input = Vec::new();
             let read = io::stdin()
@@ -63,7 +92,7 @@ pub fn run(arguments: &[OsString]) -> ExitCode {
 /// The protocol handshake, byte for byte.
 fn print_capabilities() -> ExitCode {
     let mut stdout = tmt_cli_style::stream::stdout(true);
-    let reply = format!("TMT-HOOKS/{PROTOCOL_VERSION}\n{LIFECYCLE_CAPABILITY}\n");
+    let reply = format!("TMT-HOOKS/{PROTOCOL_VERSION}\n{LIFECYCLE_CAPABILITY}\ncontext_v1\n");
     match stdout
         .write_all(reply.as_bytes())
         .and_then(|()| stdout.flush())
@@ -71,6 +100,14 @@ fn print_capabilities() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,
     }
+}
+
+/// Only the verified identity supplied by the generic context callback.
+fn context_identity(input: &[u8]) -> Option<String> {
+    let value: Value = serde_json::from_slice(input).ok()?;
+    let identity = value["identityId"].as_str()?;
+    (value.as_object()?.len() == 2 && value["version"] == 1 && crate::config::uuid_like(identity))
+        .then(|| identity.to_owned())
 }
 
 /// The identity IDs an observation renamed, in order; `None` when the input
@@ -97,6 +134,25 @@ mod tests {
     use super::*;
 
     const ID: &str = "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f";
+
+    #[test]
+    fn context_accepts_only_the_verified_identity_document() {
+        assert_eq!(
+            context_identity(
+                serde_json::json!({"version": 1, "identityId": ID})
+                    .to_string()
+                    .as_bytes()
+            ),
+            Some(ID.into())
+        );
+        for input in [
+            serde_json::json!({"version": 2, "identityId": ID}),
+            serde_json::json!({"version": 1, "identityId": "invalid"}),
+            serde_json::json!({"version": 1, "identityId": ID, "extra": true}),
+        ] {
+            assert_eq!(context_identity(input.to_string().as_bytes()), None);
+        }
+    }
 
     #[test]
     fn only_rename_events_with_a_uuid_are_followed() {
