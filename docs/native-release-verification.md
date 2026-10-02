@@ -98,10 +98,8 @@ published release of its product), `migration` (no commit of the release carries
 `BREAKING CHANGE:` footer; outside the alpha channel the component's migration list, named in
 `.github/components.json`, also has no more entries than at the product's last published
 release, while an alpha publishes new entries and the gate's summary only reports them) and
-`upgrade` (the proof above; the first release of a product has nothing to upgrade from; the
-CLI proof writes one identity with the previous release and reads it with the candidate, which
-applies the candidate's pending migrations to that record only, so no publication gate exercises
-a migration of any other existing data). A failed gate does
+`upgrade` (the proof above, which for the CLI includes migrating state the previous release
+wrote; the first release of a product has nothing to upgrade from). A failed gate does
 not make the draft a failed build. The draft gets `publication-held.json` (`tag`, `sha`,
 `gate`, `reason`, `runUrl`, `recordedAt`), and later runs list it as held and leave it alone.
 The jobs that evaluate the gates hold the write token, so they run `main`'s code and only read
@@ -132,15 +130,18 @@ published release). GitHub finishes the attestation after publishing, so these c
 retried for about two minutes. A failed check opens an issue and fails the run; nothing is
 rolled back, because a published release is immutable and a repair needs a new reviewed
 version. A `smoke` job then installs the published release as a user does
-(`.github/workflows/native-release-smoke.yml`, also run by hand for any published tag with
-`product` and `tag`). On the four hosts of the upgrade proof, in an isolated home, state directory
+(`.github/workflows/native-release-smoke.yml`, also run by hand with `product` and `tag`, for
+the newest published release of the product only: it installs what the public entry points serve
+now, so any other tag fails its first check and a failed run reports on the issue like any
+other). On the four hosts of the upgrade proof, in an isolated home, state directory
 and prefix and with no token, a CLI alpha goes through the public
 `releases/latest/download/install.sh`: the installer names the tag's version, the installed `tmt`
 is the one PATH selects and reports that version, the installed shared skills are the tag's
 `skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --json` reads the live
 metadata and reports the installation current (a newer alpha that appeared since passes with a
-note). An extension alpha is installed by the newest published CLI's `tmt <extension> install`
-into a separate prefix; its version must be the tag's and no CLI link may appear. The tag is
+note). An extension alpha is installed by the newest published CLI's `tmt extension install
+<extension>` into a separate prefix; `tmt extension list` must report the tag's version and no
+CLI link may appear. The tag is
 checked out only so its skills can be read; none of its code runs. The network steps get three
 attempts, and a GitHub API rate limit that persists is reported as one (the installed CLI reads
 the release list unauthenticated). A failed leg keeps its failed checks as data, and a final job
@@ -189,7 +190,17 @@ re-check the digests and run the scripts of the release's own commit on them. A 
 goes through
 `verify-native-installation.mjs`: the previous archive is installed pinned, the candidate
 is refused while pinned and installed with `--unpin`, the exact skills are served, SQLite is
-unchanged, the old executable is preserved, a repeat is a no-op and a downgrade is refused.
+unchanged by the installation, the old executable is preserved, a repeat is a no-op and a
+downgrade is refused. It also proves the migration of state the previous release wrote
+(`migrated-state.mjs`): before the upgrade the previous release writes identities (one with a
+preamble, role, metadata and status) and a room they joined with a message queued to each
+member, all through commands that need no tmux; once the candidate has opened that state, the
+proof reads the database file and requires exactly the migrations the candidate's source lists
+(the publication gate's `countMigrations`), clean `integrity_check` and `foreign_key_check`,
+every id the previous release wrote still held by some table, and no table that held rows
+short of them. Only ids, counts and these SQLite checks are compared, never command output.
+Binding a pane needs tmux, which the proof does not use, so `bindings` and `host_servers` stay
+empty and a migration that rebuilds them over rows is not exercised.
 An Office or Squad release is installed over the previous one by the newest published CLI
 with `tmt extension install <extension>` and read back with `tmt extension ls`
 (`verify-native-extension-upgrade.mjs`): the version changes, the previous release stays on
@@ -197,7 +208,11 @@ disk, a repeat is a no-op, a downgrade is refused and no CLI link is created. Ex
 have no install command of their own under `tmt <extension>`; the proof must use the surface
 a user's install runs. The first release of a product has nothing to upgrade from and says
 so. A commit that predates these scripts fails the proof with that message; prove it by
-hand as below.
+hand as below. A verifier command that fails says, on one line, which command failed, how it
+ended and the first thing it said. A failed host keeps its log as an artifact, and the
+`conclude` job outputs, as the workflow's `reason`, the first error of each failing host on one
+bounded line (it reads the logs as data, because the release commit's own scripts wrote them);
+the `upgrade` hold marker carries that reason with the run URL.
 
 The automated proof does not run `tmt upgrade` or a public installer: the candidate has no
 published release for `tmt upgrade` to find, and production has no test endpoint. By hand,
@@ -455,7 +470,8 @@ node typescript/scripts/verify-native-installation.mjs \
 This reuses the bounded packed-command runner and independent archive verifier.
 It checks exact old/new versions with no runtime PATH, pinned rejection, explicit
 unpin advancement, a retained executable, no-op and downgrade rejection, exact
-embedded skill and unchanged SQLite bytes during installation. Its temporary
+embedded skill, unchanged SQLite bytes during installation and the migration of state the
+previous release wrote. Its temporary
 prefix/application state is always invocation-owned and removed afterward.
 
 ## Native curl bootstrap verification

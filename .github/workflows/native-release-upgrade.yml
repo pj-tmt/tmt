@@ -27,8 +27,8 @@ on:
         description: proved, nothing (no earlier published release) or predates (the commit has no proof scripts)
         value: ${{ jobs.fetch.outputs.outcome }}
       reason:
-        description: Why the proof could not run, worded for the owner; empty when it ran or was not needed
-        value: ${{ jobs.fetch.outputs.reason }}
+        description: Why the proof could not run, or why a host failed it (the first error its log shows), worded for the owner; empty when it ran and passed or was not needed
+        value: ${{ jobs.conclude.outputs.reason }}
   workflow_dispatch:
     inputs:
       product:
@@ -159,8 +159,19 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           TARGET: ${{ matrix.target }}
         run: |
+          # The log is kept so the conclusion can name the first error; pipefail keeps the exit status.
+          set -o pipefail
           node typescript/scripts/release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
-            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill skills/tmux-team/SKILL.md
+            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill skills/tmux-team/SKILL.md \
+            2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"
+      - name: Keep the log of a failed proof
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-proof-log-${{ matrix.target }}
+          path: ${{ runner.temp }}/upgrade-proof.log
+          if-no-files-found: ignore
+          retention-days: 1
 
   # A release that cannot be proved must not look proved to whoever runs this by hand. The
   # publication run reads the outcome and the reason from the outputs, whatever this job says.
@@ -172,7 +183,29 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+    outputs:
+      # A host's failure is named by the first error in its log; otherwise the reason the proof
+      # could not run, which is empty when it ran and passed.
+      reason: ${{ steps.failure.outputs.reason || needs.fetch.outputs.reason }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      # The logs were written by the release commit's own scripts; this job runs this
+      # repository's code and reads them as data, so what it outputs is one bounded line.
+      - uses: actions/download-artifact@v4
+        if: needs.prove.result == 'failure'
+        continue-on-error: true
+        with:
+          pattern: upgrade-proof-log-*
+          path: ${{ runner.temp }}/upgrade-logs
+      - name: Name why the proof failed
+        id: failure
+        if: needs.prove.result == 'failure'
+        run: node typescript/scripts/release-upgrade.mjs reason --directory "$RUNNER_TEMP/upgrade-logs"
       - name: Fail a release the proof cannot run for
         if: needs.fetch.outputs.outcome == 'predates'
         env:

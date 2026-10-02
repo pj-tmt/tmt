@@ -1,12 +1,34 @@
 use super::*;
 use serde_json::json;
-use std::{fs, os::unix::fs::PermissionsExt, path::Path};
+use std::{
+    fs,
+    io::Write,
+    path::Path,
+    process::{Command, Stdio},
+};
 
 fn script(directory: &Path, body: &str) -> ProcessCore {
     let path = directory.join("tmt");
-    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    write_executable(&path, &format!("#!/bin/sh\n{body}\n"));
     ProcessCore(CoreClient::with_executable(path))
+}
+
+/// See the [development ETXTBSY case-(2) rule](https://github.com/wkh237/tmt/blob/main/DEVELOPMENT.md#rust-checks).
+fn write_executable(path: &Path, script: &str) {
+    let mut writer = Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("start sh to write the executable");
+    writer
+        .stdin
+        .take()
+        .expect("sh stdin")
+        .write_all(script.as_bytes())
+        .expect("send the script to sh");
+    let status = writer.wait().expect("wait for sh");
+    assert!(status.success(), "sh could not write {}", path.display());
 }
 
 fn directory() -> std::path::PathBuf {

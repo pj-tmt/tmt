@@ -700,7 +700,8 @@ mod tests {
                 prompts: Vec::new(),
             };
             let sent = driver::send(&mut host, &entry, "hello!");
-            assert_eq!(host.prompts, ["hello!"]);
+            // A prompt gets core's pane input policy, as raw input does.
+            assert_eq!(host.prompts, ["hello！"]);
             let expected = match answer() {
                 ActionResult::Unsupported => ActionResult::Completed(DeliveryAcceptance::Submitted),
                 answer => answer,

@@ -186,10 +186,11 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
         ],
         // Squad is a public-interface consumer: it reaches TMT only through
-        // commands and `tmt api`. Its one workspace dependency is the leaf
-        // `tmt-cli-style`, which carries no TMT behavior.
+        // commands and `tmt api`. Neutral invoke/style leaves carry no core behavior.
         "tmt-squad" => &[
             "tmt-cli-style",
+            // Same neutral bounded process owner used by Remote and Colab.
+            "tmt-invoke",
             "clap",
             "serde_json",
             "toml_edit",
@@ -217,6 +218,18 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "signal-hook",
             "tmt-cli-style",
             "tmt-invoke",
+        ],
+        // Colab model owns pure codecs and fixed crypto, not core or extension behavior.
+        "tmt-colab-model" => &[
+            "x25519-dalek",
+            "aes-gcm",
+            "base64",
+            "ed25519-dalek",
+            "getrandom",
+            "hmac",
+            "serde",
+            "serde_json",
+            "sha2",
         ],
         "tmt-remote" => &[
             "ed25519-dalek",
@@ -563,12 +576,27 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
+            if source.package == "tmt-colab-model"
+                && ((root.starts_with("tmt_") && root != "tmt_colab_model")
+                    || (["std", "core"].contains(&root)
+                        && ["fs", "io", "net", "process", "env", "thread"].contains(&module)))
+            {
+                violations.push(format!(
+                    "{location}: colab model cannot acquire runtime authority via {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_colab_model" && source.package != "tmt-colab-model" {
+                violations.push(format!(
+                    "{location}: unreviewed colab model consumer {}",
+                    source.package
+                ));
+            }
             // Public-interface extensions name their own library and approved leaves only.
             if ["tmt-squad", "tmt-remote", "tmt-colab"].contains(&source.package.as_str())
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
-                && !(["tmt-remote", "tmt-colab"].contains(&source.package.as_str())
-                    && root == "tmt_invoke")
+                && root != "tmt_invoke"
                 && root != source.package.replace('-', "_")
             {
                 violations.push(format!(

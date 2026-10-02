@@ -18,10 +18,11 @@ export function installTmuxTripwire(sandbox: Sandbox): string {
 
 export async function calibrateTmuxTripwire(sandbox: Sandbox): Promise<string> {
   const logPath = installTmuxTripwire(sandbox);
+  // macOS arm64 completion maxima: 296 ms quiet / 465 ms with the tooling suite.
+  // Use the normal 5 s subprocess bound: the log alone cannot prove exit/cleanup.
   const result = await runCli(
     { ...sandbox, cli: { executable: '/usr/bin/env', args: ['tmux'] } },
-    [],
-    { deadlineMs: 2_000 }
+    []
   );
   expect(result.status).toBe(97);
   expect(result.stdout).toBe('');

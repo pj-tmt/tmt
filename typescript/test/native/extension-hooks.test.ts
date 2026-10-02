@@ -14,6 +14,9 @@ import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { createArtifact } from '../support/native-artifact.js';
+import { workspaceVersion } from '../support/workspace-version.js';
+
+const officeVersion = workspaceVersion('tmt-office');
 
 // A non-Office extension: it answers the hook protocol and records what it sees.
 const FIXTURE = `#!/bin/sh
@@ -214,7 +217,7 @@ describe('consented extension hooks', () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'isolated office');
       const office = (args: string[]) => cli(sandbox, ['office', '--prefix', prefix, ...args]);
-      const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
+      const artifact = await createArtifact(sandbox, officeVersion, new Uint8Array(), 'office');
       await office([
         'install',
         '--yes',

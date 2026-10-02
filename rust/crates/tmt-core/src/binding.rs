@@ -202,6 +202,8 @@ pub trait BindingEndpoint {
     type Error;
     fn begin_coordination(&mut self);
     fn budget_available(&self) -> bool;
+    /// The host `current_snapshot` observes: the caller's own.
+    fn current_host(&self) -> crate::host::HostKind;
     fn current_snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, Self::Error>;
     fn probe_binding(
         &mut self,

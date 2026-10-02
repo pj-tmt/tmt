@@ -43,7 +43,8 @@ Read the repository guidance before planning work:
    correctness/security blockers and confirmed duplicate responsibilities in
    scope are resolved, and deferred risks are explicit. A broad audit is not a
    demand to find nothing else to improve. Follow AGENTS for authorized merge,
-   tracker updates and safe cleanup: when the PR merges, remove its worktree
+   tracker updates, [Project status](../../../DEVELOPMENT.md#project-tracking)
+   and safe cleanup: when the PR merges, remove its worktree
    with `scripts/dev-worktree-remove.sh` and then that worktree's Docker images
    in the same turn (the DEVELOPMENT disk section has the exact steps; if the
    script refuses, stop and ask), and start the next task in a clean existing

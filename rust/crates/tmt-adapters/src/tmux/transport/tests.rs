@@ -31,7 +31,7 @@ fn assert_socket(calls: &[crate::scripted_runner::Invocation]) {
 }
 
 #[test]
-fn send_uses_explicit_socket_protected_payload_owned_buffer_and_one_enter() {
+fn send_pastes_the_text_as_given_with_an_explicit_socket_owned_buffer_and_one_enter() {
     let runner = ScriptedRunner::new([Ok(""), Ok(""), Ok("")]);
     let tmux = Tmux::new(runner);
     let waited = RefCell::new(Vec::new());
@@ -49,7 +49,8 @@ fn send_uses_explicit_socket_protected_payload_owned_buffer_and_one_enter() {
     assert_eq!(calls.len(), 3);
     assert_socket(&calls);
     assert_eq!(&calls[0].args[..4], ["-S", SOCKET, "set-buffer", "-b"]);
-    assert_eq!(&calls[0].args[5..], ["--", "if (！ready)！\n尾\n"]);
+    // The transport adds only the final newline; the `!` policy is core's.
+    assert_eq!(&calls[0].args[5..], ["--", "if (!ready)!\n尾\n"]);
     assert_eq!(&calls[1].args[..4], ["-S", SOCKET, "paste-buffer", "-b"]);
     assert_eq!(calls[1].args[4], calls[0].args[4]);
     assert_eq!(&calls[1].args[5..], ["-d", "-t", PANE, "-p"]);
@@ -113,7 +114,7 @@ fn set_buffer_failure_has_one_literal_fallback_with_the_same_payload() {
     );
     assert_eq!(
         &calls[2].args[2..],
-        ["send-keys", "-l", "-t", PANE, "--", "-n weird！\nLine\n"]
+        ["send-keys", "-l", "-t", PANE, "--", "-n weird!\nLine\n"]
     );
     assert_eq!(
         &calls[3].args[..],

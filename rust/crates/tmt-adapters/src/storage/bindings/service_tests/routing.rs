@@ -111,6 +111,42 @@ fn current_name_presence_rejects_foreign_socket_with_equal_server_uuid_without_m
 }
 
 #[test]
+fn current_name_presence_reads_another_hosts_binding_as_not_active_without_asking() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let identity = create_or_resolve(&mut storage, "Alice", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let mut other = server("server-a", "/tmp/herdr.sock", 41, "other-start");
+    other.host = tmt_core::host::HostKind::Herdr;
+    let other_binding = storage
+        .with_binding_transaction(|records| {
+            records.insert_binding(&identity, &other, &pane("w1-1", 100))
+        })
+        .unwrap();
+    let before_state = binding_state(&fixture.database, &other_binding.id).unwrap();
+
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    assert!(
+        current_name_presence(&mut storage, &mut endpoint, "Alice")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(endpoint.current_calls, 0);
+    assert!(endpoint.probe_calls.is_empty());
+    let entry = storage
+        .with_binding_transaction(|records| records.entry_by_id(&identity.id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(entry.binding, Some(other_binding));
+    assert_eq!(
+        binding_state(&fixture.database, &entry.binding.unwrap().id),
+        Some(before_state)
+    );
+    storage.close().unwrap();
+}
+
+#[test]
 fn current_name_presence_detaches_stale_marker_but_preserves_saved_identity() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();

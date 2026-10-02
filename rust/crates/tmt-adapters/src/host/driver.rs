@@ -146,6 +146,7 @@ pub fn send(
     let Some(binding) = &entry.binding else {
         return ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified));
     };
+    let message = &tmt_core::driver::pane_input_text(message);
     driver
         .prompt(binding, message)
         .or_unsupported(|| match driver.input(binding, message) {
@@ -187,7 +188,7 @@ pub fn focus(
 /// whose driver isn't installed. It never claims evidence: a probe is
 /// `Unknown`, so the binding is neither verified nor retired; it has no
 /// input, so a send falls through to the inbox; and it can't be focused.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Unavailable {
     name: String,
 }

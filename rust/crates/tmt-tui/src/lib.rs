@@ -1,7 +1,9 @@
-//! Internal TMT markup admission. A structural template is not a renderable
-//! scene: utility, binding and theme admission belong to subsequent stages.
+//! Internal TMT markup admission. Templates have checked structure and static
+//! styles; binding, geometry and painting remain separate, later stages.
 
 use std::{collections::BTreeMap, fmt};
+
+pub mod style;
 
 pub const MAX_BYTES: usize = 256 * 1024;
 pub const MAX_DEPTH: usize = 32;
@@ -20,6 +22,7 @@ pub enum Kind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkupElement {
     pub kind: Kind,
+    pub style: style::CellStyle,
     pub attributes: BTreeMap<String, String>,
     pub text: String,
     pub children: Vec<MarkupElement>,
@@ -63,7 +66,8 @@ fn error(file: &str, pos: roxmltree::TextPos, message: impl Into<String>) -> Err
 
 /// Admit version 1 structure, including templates that may later repeat zero
 /// times. No I/O occurs; callers must bound file acquisition independently.
-/// Attribute values (classes, paths, formats, tokens and IDs) remain uncompiled.
+/// Classes, wrap and literal theme tokens are compiled to cell styles. Paths,
+/// formats, dynamic tokens, IDs and row-track attributes remain uncompiled.
 pub fn parse(file: &str, source: &str) -> Result<MarkupElement, Error> {
     if source.len() > MAX_BYTES {
         return Err(error(
@@ -222,6 +226,7 @@ fn read(
             }
         }
     }
+    let style = style::admit(kind, &attributes).map_err(fail)?;
     let text: String = node
         .children()
         .filter(|n| n.is_text())
@@ -243,6 +248,7 @@ fn read(
     }
     Ok(MarkupElement {
         kind,
+        style,
         attributes,
         text,
         children,

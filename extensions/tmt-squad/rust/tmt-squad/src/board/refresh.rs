@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
@@ -33,9 +33,38 @@ use std::{
 /// How often an idle worker checks for changes between interval reloads.
 const CHECK_EVERY: Duration = Duration::from_secs(1);
 
+/// The event fence and its invoke stop adapter advance under one short lock.
+/// Taking an obsolete token never borrows the current generation's live flag.
+#[derive(Default)]
+struct Generation {
+    number: AtomicU64,
+    stop: Mutex<crate::runner::Cancellation>,
+}
+
+impl Generation {
+    fn cancellation(&self, expected: u64) -> crate::runner::Cancellation {
+        let stop = self.stop.lock().unwrap();
+        if self.number.load(Ordering::Acquire) == expected {
+            stop.clone()
+        } else {
+            let obsolete = crate::runner::Cancellation::default();
+            obsolete.cancel();
+            obsolete
+        }
+    }
+
+    fn advance(&self) -> u64 {
+        let mut stop = self.stop.lock().unwrap();
+        stop.cancel();
+        let next = self.number.fetch_add(1, Ordering::AcqRel) + 1;
+        *stop = crate::runner::Cancellation::default();
+        next
+    }
+}
+
 pub struct Worker {
     requests: Sender<Reload>,
-    generation: Arc<AtomicU64>,
+    generation: Arc<Generation>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -43,13 +72,10 @@ impl Worker {
     /// `tmux` selects the host preset: whether a jump can show a pane.
     pub fn spawn(core: Core, tmux: bool, events: Sender<super::BoardEvent>) -> Self {
         let (requests, pending) = mpsc::channel();
-        let generation = Arc::new(AtomicU64::new(0));
+        let generation = Arc::new(Generation::default());
         let read_generation = Arc::clone(&generation);
         let thread = std::thread::spawn(move || {
-            let initial = core.cancellable(crate::runner::Cancellation::new(
-                Arc::clone(&read_generation),
-                0,
-            ));
+            let initial = core.cancellable(read_generation.cancellation(0));
             let mut kept = Kept {
                 bodies: BTreeMap::new(),
                 fetch: fetcher(),
@@ -64,28 +90,19 @@ impl Worker {
                 |snapshot, generation| {
                     events
                         .send(super::BoardEvent::Snapshot {
-                            cancellation: crate::runner::Cancellation::new(
-                                Arc::clone(&read_generation),
-                                generation,
-                            ),
+                            cancellation: read_generation.cancellation(generation),
                             snapshot: Box::new(snapshot),
                         })
                         .is_ok()
                 },
                 CHECK_EVERY,
-                &read_generation,
+                &read_generation.number,
                 |generation| {
-                    changes.stamp(&core.cancellable(crate::runner::Cancellation::new(
-                        Arc::clone(&read_generation),
-                        generation,
-                    )))
+                    changes.stamp(&core.cancellable(read_generation.cancellation(generation)))
                 },
                 |wanted, generation| {
                     load(
-                        &core.cancellable(crate::runner::Cancellation::new(
-                            Arc::clone(&read_generation),
-                            generation,
-                        )),
+                        &core.cancellable(read_generation.cancellation(generation)),
                         tmux,
                         caller.as_ref(),
                         wanted,
@@ -93,8 +110,7 @@ impl Worker {
                     )
                 },
                 |job, generation| {
-                    let cancellation =
-                        crate::runner::Cancellation::new(Arc::clone(&read_generation), generation);
+                    let cancellation = read_generation.cancellation(generation);
                     let reader = core.cancellable(cancellation.clone());
                     let attention = job.complete(&reader);
                     cancellation.cancelled()
@@ -117,9 +133,9 @@ impl Worker {
     /// None loads the first squad.
     pub fn request(&self, squad: Option<String>, preempt: bool) {
         let generation = if preempt {
-            self.generation.fetch_add(1, Ordering::AcqRel) + 1
+            self.generation.advance()
         } else {
-            self.generation.load(Ordering::Acquire)
+            self.generation.number.load(Ordering::Acquire)
         };
         let _ = self.requests.send(Reload { squad, generation });
     }
@@ -127,7 +143,7 @@ impl Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        self.generation.fetch_add(1, Ordering::AcqRel);
+        self.generation.advance();
         // Disconnect before joining: the worker exits its bounded cancelled
         // child read, and an idle worker exits recv immediately.
         let (replacement, _) = mpsc::channel();
@@ -420,7 +436,7 @@ fn squad_view(
     let layout = config.layout(&squad.name)?;
     let (theme, theme_notice) = config.theme(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
-    let board = config.board(&squad.name, layout)?;
+    let board = config.board(&squad.name)?;
     let sections = config.sections(&squad.name)?;
     let rows = config.rows(&squad.name)?;
     let providers = config.providers(&squad.name)?;
@@ -432,10 +448,10 @@ fn squad_view(
         squad,
         reminders,
         &providers,
-        crate::observe::Reads {
+        crate::observe::Mode::Read(crate::observe::Reads {
             metadata: rows.reads_metadata(),
             notes: shows_notes,
-        },
+        }),
     )?;
     // Providers run on the fetcher thread, never while the board draws.
     if !providers.is_empty() {
@@ -827,6 +843,21 @@ mod tests {
     }
 
     const WAIT: Duration = Duration::from_millis(300);
+
+    #[test]
+    fn advancing_generation_stops_all_old_readers_and_never_resets_them() {
+        let generation = Generation::default();
+        let old = generation.cancellation(0);
+        assert!(!old.cancelled());
+        assert_eq!(generation.advance(), 1);
+        assert!(old.cancelled());
+        assert!(generation.cancellation(0).cancelled());
+        let current = generation.cancellation(1);
+        assert!(!current.cancelled());
+        assert_eq!(generation.advance(), 2);
+        assert!(old.cancelled() && current.cancelled());
+        assert!(!generation.cancellation(2).cancelled());
+    }
 
     /// A moved stamp reloads the last squad at once, well before its
     /// hour-long interval; an unmoved one never does.

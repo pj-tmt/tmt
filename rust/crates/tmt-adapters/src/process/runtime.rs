@@ -2,7 +2,11 @@
 
 use super::{CommandError, CommandRunner, ps::query_ps};
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
-use std::{ffi::OsString, time::Instant};
+use std::{
+    collections::{BTreeSet, HashMap},
+    ffi::OsString,
+    time::Instant,
+};
 use tmt_core::binding::session::RuntimeLiveness;
 use tmt_core::endpoint::ProcessIncarnation;
 
@@ -142,6 +146,57 @@ pub fn observe_start<R: CommandRunner>(
     })
 }
 
+/// The incarnations of several processes from one batched `ps` call, for an
+/// external host's verification (#570): its server and its scoped pane
+/// shells. A pid that is gone, a zombie or not parsed is absent, and a failed
+/// call leaves every pid absent; an absent pid is unknown, never evidence.
+/// Only a child that could not be cleaned up fails. This is the ps path only:
+/// a faster backend for it (#724) routes here later.
+pub fn observe_starts<R: CommandRunner>(
+    runner: &R,
+    pids: &[u64],
+    deadline: Instant,
+) -> Result<HashMap<u64, ProcessIncarnation>, CommandError> {
+    let pids: BTreeSet<u64> = pids
+        .iter()
+        .copied()
+        .filter(|pid| i32::try_from(*pid).is_ok_and(|pid| pid > 0))
+        .collect();
+    if pids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let list = pids
+        .iter()
+        .map(u64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let args: Vec<OsString> = ["-p", &list, "-o", "pid=", "-o", "lstart=", "-o", "stat="]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    let output = match query_ps(runner, &args, deadline, 128 * pids.len()) {
+        Ok(output) => output,
+        Err(error) if error.cleanup_failed() => return Err(error),
+        Err(_) => return Ok(HashMap::new()),
+    };
+    let Ok(text) = std::str::from_utf8(&output.stdout) else {
+        return Ok(HashMap::new());
+    };
+    Ok(text
+        .lines()
+        .filter_map(|line| {
+            let (pid, rest) = line.trim_start().split_once(char::is_whitespace)?;
+            let pid = pid.parse::<u64>().ok().filter(|pid| pids.contains(pid))?;
+            match parse_process_observation(pid, rest.as_bytes()) {
+                ProcessObservation::Live(process) | ProcessObservation::Stopped(process) => {
+                    Some((pid, process))
+                }
+                _ => None,
+            }
+        })
+        .collect())
+}
+
 fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObservation {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return ProcessObservation::Unknown;
@@ -269,6 +324,97 @@ mod tests {
                 "{stdout:?}"
             );
         }
+    }
+
+    #[test]
+    fn one_ps_call_observes_many_starts_and_drops_what_it_cannot_prove() {
+        struct Runner(std::cell::Cell<usize>, Result<&'static [u8], ()>);
+        impl CommandRunner for Runner {
+            fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                self.0.set(self.0.get() + 1);
+                assert_eq!(
+                    request.args[3..]
+                        .iter()
+                        .map(|v| v.to_str().unwrap())
+                        .collect::<Vec<_>>(),
+                    [
+                        "-p",
+                        "7,42,43,44",
+                        "-o",
+                        "pid=",
+                        "-o",
+                        "lstart=",
+                        "-o",
+                        "stat="
+                    ]
+                );
+                assert_eq!(request.max_output_bytes, 4 * 128);
+                self.1
+                    .map(|stdout| CommandOutput {
+                        stdout: stdout.to_vec(),
+                        stderr: vec![],
+                    })
+                    .map_err(|()| {
+                        CommandError::new(CommandFailure::Exit {
+                            code: Some(1),
+                            signal: None,
+                        })
+                    })
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let runner = Runner(
+            std::cell::Cell::new(0),
+            Ok(b"   42 Sun Sep 27 10:00:00 2026 S+
+   43 Sun Sep 27 10:00:01 2026 T
+   44 Sun Sep 27 10:00:02 2026 Z
+   99 Sun Sep 27 10:00:03 2026 S
+    7 garbage
+"),
+        );
+        // Duplicates and invalid pids are dropped before the one call.
+        let observed =
+            observe_starts(&runner, &[44, 42, 0, 43, 42, 7, u64::MAX], deadline).unwrap();
+        assert_eq!(runner.0.get(), 1);
+        assert_eq!(
+            observed,
+            HashMap::from([
+                (
+                    42,
+                    ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap()
+                ),
+                (
+                    43,
+                    ProcessIncarnation::new(43, "ps-v1:Sun Sep 27 10:00:01 2026").unwrap()
+                ),
+            ]),
+            "a zombie, an unasked pid and an unparsed line are absent"
+        );
+        // A failed call proves nothing about any pid; no pids, no call.
+        let failed = Runner(std::cell::Cell::new(0), Err(()));
+        assert_eq!(
+            observe_starts(&failed, &[7, 42, 43, 44], deadline).unwrap(),
+            HashMap::new()
+        );
+        let idle = Runner(std::cell::Cell::new(0), Err(()));
+        assert_eq!(
+            observe_starts(&idle, &[0], deadline).unwrap(),
+            HashMap::new()
+        );
+        assert_eq!(idle.0.get(), 0);
+        // A real batched observation equals the single one.
+        let pid = u64::from(std::process::id());
+        let ProcessObservation::Live(single) =
+            observe_runtime_process(&UnixCommandRunner, pid, deadline).unwrap()
+        else {
+            panic!("the test process is live");
+        };
+        assert_eq!(
+            observe_starts(&UnixCommandRunner, &[pid], deadline)
+                .unwrap()
+                .get(&pid),
+            Some(&single)
+        );
     }
 
     #[test]

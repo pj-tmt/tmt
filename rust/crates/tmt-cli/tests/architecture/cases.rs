@@ -1379,6 +1379,36 @@ fn remote_keeps_public_command_isolation() {
 }
 
 #[test]
+fn squad_may_use_the_neutral_invoke_leaf_but_not_core_process_adapters() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("tmt-invoke", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_exact(
+        &[syntax("tmt-squad", "runner.rs", "use tmt_invoke::invoke;")],
+        &[],
+    );
+    assert!(
+        !policy::source_violations(&[syntax(
+            "tmt-squad",
+            "runner.rs",
+            "use tmt_adapters::process::UnixCommandRunner;"
+        )])
+        .is_empty()
+    );
+    assert!(
+        !policy::dependency_violations(&package(
+            "tmt-squad",
+            vec![dependency("tmt-invoke", "normal", None, Some("runner"))]
+        ))
+        .is_empty()
+    );
+}
+
+#[test]
 fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
     assert!(
         policy::dependency_violations(&package(
@@ -1545,5 +1575,57 @@ fn colab_persistence_keeps_core_remote_and_office_isolated() {
         "use tmt_remote::core::CoreClient;",
     ] {
         assert!(!policy::source_violations(&[syntax("tmt-colab", "lib.rs", code)]).is_empty());
+    }
+}
+
+#[test]
+fn colab_model_has_only_fixed_crypto_and_no_runtime_authority() {
+    for name in [
+        "x25519-dalek",
+        "aes-gcm",
+        "base64",
+        "ed25519-dalek",
+        "getrandom",
+        "hmac",
+        "serde",
+        "serde_json",
+        "sha2",
+    ] {
+        assert!(
+            policy::dependency_violations(&package(
+                "tmt-colab-model",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+    }
+    for name in ["tmt-core", "tmt-adapters", "tmt-remote", "hpke", "rusqlite"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-colab-model",
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .len(),
+            1
+        );
+    }
+    for path in [
+        "std::fs::read",
+        "std::io::stdin",
+        "std::env::var",
+        "std::thread::spawn",
+        "std::net::TcpStream",
+        "std::process::Command",
+        "tmt_core::Identity",
+    ] {
+        assert_eq!(
+            policy::source_violations(&[syntax(
+                "tmt-colab-model",
+                "lib.rs",
+                &format!("use {path};")
+            )])
+            .len(),
+            1
+        );
     }
 }

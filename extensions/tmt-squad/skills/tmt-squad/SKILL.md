@@ -25,8 +25,11 @@ the fields each line of a row shows (`{field, span}`, field null for an empty
 cell).
 
 - A column's `width` is null, a cell count or a percentage string such as
-  `"30%"`. Configured percentage widths total at most 100% and resolve against data width
+  `"30%"`. Covered-track percentage widths total at most 100% and resolve against data width
   after row marks and gaps; `min`/`max` remain cells.
+- A column has optional `valueOnly: true` when no row line covers its positional
+  track. It remains a value source but reserves no board width; other columns
+  omit this key. See Columns and row lines below.
 - A column has `overflow` only when configured: `"ellipsis"` or `"wrap"`.
   Without it, cells use ellipsis. Wrapped continuations align to the cell start.
 - A wrapped column has `max_lines`, its bounded visual-line count (1–8, default 2).
@@ -36,7 +39,7 @@ cell).
   width or overflow. Opt-in text uses the shared grid and fit rules; a pipe's
   budget is natural data widths plus gaps before priority hiding, so text may
   wrap, truncate or hide columns. JSON row values stay full.
-- `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue` or `minimal`),
+- `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue`, `minimal` or `team`),
   `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
   `normal`), `waiting` (members that owe the user a decision or wait for an
   answer) and `blocked` (members in the `blocked` state). The board colors the
@@ -62,12 +65,12 @@ cell).
   labels stale rows and notes with their age. See the reminder configuration
   below for reset and evidence limits.
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
-  layout lists it first.
+  and team layouts list it first.
 - A row has the optional `colors` key only when a cell has a color:
   `{field: theme token}`. `colors.state` holds the resolved state token; other
   keys come from the user's column thresholds or a field provider's suggestion.
   Colors only decorate; read the values.
-- States come from the layout: crew uses `working idle blocked review testing
+- States come from the layout: crew and team use `working idle blocked review testing
 hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
   Color and order resolve through exact `[squad.<name>.states]` entries (including
   layout presets), then the first matching `[[squad.<name>.state_patterns]]`,
@@ -97,11 +100,41 @@ or `[tabs.all.bind]` for all. F5 has no default action; an explicit
 The board uses the shared TMT design tokens: `muted` for readable tabs, labels
 and key hints, `accent` plus bold for focus, and `dim` for secondary values and
 borders. Attention tabs keep their waiting/blocked color and counts. Selection
-uses the theme's `selection` background while retaining each cell's state or
-provider color; a terminal without a background color uses reverse video,
+uses the theme's `selection` background for rows and selected squad/pane tabs,
+retaining each cell's state/provider color and each tab's foreground; a terminal without a background color uses reverse video,
 including `NO_COLOR`. Colors decorate the words and marks; never infer state
 from color alone. The global theme belongs in `config.json`; per-squad theme
 bases and overrides belong in `[squad.<name>.theme]` in `squad.toml`.
+
+The detail pane shows full projected board-column values not already shown by its header, task, note, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
+
+## Fold board panes
+
+In split mode, press `d` to fold or expand detail, or click a pane's title.
+A folded title reads `▸ detail` and stays in place. Stacked panes reserve one
+line; side-by-side panes reserve a compact title-width column. Expanded neighbours
+share the freed space, and expanding restores the configured proportions.
+Tab skips folded panes. With all panes folded, only titles and bindings act;
+`n` expands and focuses notes. A single expanded pane stays borderless; bind
+`toggle rows` to fold it, then click its folded title to expand.
+
+Set the initial state or override a binding in `squad.toml`:
+
+```toml
+[squad.product.board]
+panes = ["rows", "detail"]
+collapsed = ["detail"]
+
+[bind]
+d = "toggle detail"
+```
+
+`collapsed` accepts unique configured pane names: rows, notes, detail or replies.
+It applies only to split mode. `toggle <pane>` uses the same literal names;
+a missing pane or tabs mode gives a notice. User and section bindings keep their
+usual precedence. Runtime folds survive unchanged refreshes and squad switches
+within the board session. Changed board configuration resets them; restarting
+uses the configured initial state. Toggling writes no config or member state.
 
 ## Keep it current
 
@@ -159,6 +192,69 @@ states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
 apply them.
 
+## Columns and row lines
+
+Use `[squad.<name>.rows]`; `columns` defines positional tracks and value
+sources, and `lines` places cells from track zero. A string names a field,
+`""` is an empty cell, and `{ field = "pending", span = 3 }` covers three
+tracks. Spanned cells use the first track's fitting settings. The legacy
+`[squad.<name>.columns]` form remains supported; do not set both forms.
+
+| Setting | Current behavior |
+| --- | --- |
+| `name`, `title` | Field name and optional column heading. |
+| `width` | Cells (1–200) or a quoted percentage (1–100%, supported since Squad alpha.8). |
+| `min`, `max` | Cell bounds, including for percentage widths. |
+| `grow` | Weight (0–100) for distributing remaining space after bases and bounds; default 0 in the full rows form. |
+| `align` | `left` (default), `right` or `center`. |
+| `truncate` | `end` (default) or `middle`. |
+| `overflow`, `max_lines` | `ellipsis` (default) or `wrap`; wrapped visual lines are bounded to 1–8, default 2, with a final end ellipsis. |
+| `priority` | 1–100; higher values hide first when minimum widths cannot fit. Without it, a track does not hide. |
+| `from`, `format` | Bind a column to a supported public source (listed below); format as `text` (default), `tokens`, `age` or `count`. Squad-owned fields cannot be bound. |
+
+Supported `from` paths are `member`, `presence`, `cwd`, `target`,
+`session.driver`, `session.model`, `session.usage.tokens`,
+`session.usage.remaining`, `meta.<key>`, `meta.squad.<field>` and
+`fields.<configured-provider>`. Without `from`, a format reads the column's
+squad field; `member`, `role`, `state`, `pending` and `note` cannot use either.
+
+`%` is a share of the **whole data width**, like CSS `width: …%`: after
+borders, row marks and gaps, before fixed columns are deducted. For example,
+with member/state widths 30/10, task `width = "62%"` and PR `width = "26%"`
+still share the whole data width, not what those fixed columns leave. Covered
+percentages total at most 100%; bounds and fitting can reduce the final widths.
+To split the remainder instead, use `grow`, like CSS `fr`: weights distribute
+the space left after fixed widths and other bases, respecting cell bounds.
+
+A column's own width/min/max/grow apply only if some line covers its positional
+track. Empty cells and spans count as coverage. Uncovered trailing columns
+are value-only: their fields can appear on another track without reserving
+an extra column. `ls --json` adds **`valueOnly: true`** only to these column
+entries; ordinary columns omit the key. Their source/format metadata and full
+row values remain available. Text `ls` lists their values naturally and ignores
+their width/min/max/grow settings.
+
+This checkout example splits the remainder with task/PR weights **62:26**;
+`ctx` and `model` supply footer-line values on existing tracks, not extra widths:
+
+```toml
+[squad.checkout.rows]
+columns = [
+  { name = "member", width = 30, truncate = "middle" },
+  { name = "state", width = 10, overflow = "wrap", max_lines = 4 },
+  { name = "task", grow = 62, min = 20, title = "WORK", overflow = "wrap", max_lines = 3 },
+  { name = "pr_state", grow = 26, min = 10, title = "PR", priority = 2 },
+  { name = "ctx", from = "session.usage.tokens", format = "tokens", width = 6, title = "" },
+  { name = "model", from = "session.model", width = 14, title = "" },
+]
+lines = [
+  ["member", "state", "task", "pr_state"],
+  ["", { field = "pending", span = 3 }],
+  ["", { field = "note", span = 3 }],
+  ["", { field = "ctx" }, { field = "model", span = 2 }],
+]
+```
+
 ## When a rule is unclear, ask
 
 Don't guess, and don't invent conventions. Ask the user and record what you
@@ -173,9 +269,41 @@ Record the agreement in your notes (`tmt notes path` prints your notebook's
 path), or propose a `squad.toml` change for the user to apply. Squad never
 starts members, worktrees or windows; that is yours to arrange with the user.
 
+## Team board preset
+
+Squads with no layout key use team unless they set the simple board form, which keeps crew. Set `layout = "crew"`, `"pr-queue"`
+or `"minimal"` to retain those presets. The top 60% contains rows beside a right column (62/38), with
+detail above replies (50/50). The lead's notes fill the bottom 40%.
+
+Below 100 columns of board body width, team folds detail and replies into title
+bars: `board.fold_below = { width = 100, panes = ["detail", "replies"] }`.
+`d` toggles detail; click either title to toggle its pane. User toggles win at
+both narrow and wide widths until the board configuration changes or the session
+restarts. Widening restores automatic panes without moving focus. Custom split
+boards can set `fold_below` with width 1–1000 and panes present in their layout.
+
+Member, state, PR and model use percentage widths (22%, 14%, 24%, 16%);
+task grows into the remaining space. Model yields first when space is short,
+then PR; member/state/task remain. Values truncate with the existing ellipsis.
+
+Team uses crew states and pending-first ordering. Rows show member, state,
+task, PR and model (`session.model` from the existing presence read); pending
+text has its own line under task. Its `pr` field uses `preset = "github-pr"`
+from `pr_link`, refreshed at most every 60 seconds per member. A missing link
+never runs `gh`; unavailable or failed provider results follow the normal
+missing/`?` rules. A `rows` or legacy `columns` table replaces the whole grid;
+`fields.<name>` replaces that provider's whole table, other provider names add
+to `pr`, and reminder keys override individually. Set a full `board.layout`
+or `board.panes` to replace the nested pane arrangement; `direction` or `sizes`
+alone is refused. Host bindings and theme selection are unchanged.
+
+Team enables observed age at 30 minutes. Other layouts keep it disabled by
+default; `[squad.<name>.reminders] enabled = false` disables it for team too.
+
 ## Optional observed age
 
-The user can enable observation per squad; defaults are disabled and 30 minutes:
+The user can configure observation per squad; the threshold defaults to 30
+minutes. Team enables it by default; the other layouts disable it:
 
 ```toml
 [squad.product.reminders]
@@ -196,8 +324,31 @@ tabs show no ages.
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant
 observed PR link changes, successful current `github-pr` state transitions to
-open/merged, or a submitted member final after the task/state update. Cold
-provider data and bounded room history can miss transitions. Idle is never
-guessed from silence or offline presence. This slice reports age in `ls`;
-board marks, settings controls and a reminder in the lead's next-turn context
-are planned follow-ups. Enabling these keys installs no provider hook.
+open/merged, a submitted member final, or an authoritative idle transition in
+public `session.activity` after the task/state update. Ordinary `ls` and board
+reads retain that idle evidence; the reminder never probes live presence or
+uses self-reported activity. Cold provider data and bounded room history can
+miss transitions. Idle is never guessed from silence or offline presence.
+
+With Squad's extension hooks enabled (`tmt extension hooks enable squad`) and
+the provider hook installed through consented `tmt setup`, Squad may add one
+informational line to the lead's next turn, including SessionStart context.
+It never emits at Stop. Enabling reminder settings installs no hook. Start
+observations with `tmt sq ls` or the board: a cold cache stays silent. Disabled,
+fresh, already-claimed and non-lead cache checks call no core and take no room
+lock; warm candidates revalidate the current config, room and sole lead. The
+best-effort preflight examines at most 128 cache-directory entries per call.
+
+A reminder names stale notes or counts/names stale rows with relevant activity.
+The line is sanitized and at most 240 characters; one invocation has an aggregate
+300 ms budget including child cleanup, capped by the host's earlier deadline.
+No provider or network runs in the hook. The host isolates the hook's process
+group, and nested public reads remain in it so timeout cleanup reaches them.
+Context calls require an isolated process group owned by the extension.
+
+One claim bit per content generation is atomically published before handoff.
+Concurrent calls share the nonblocking room lock. A lost handoff, crash or host
+cutoff after publication can lose a reminder; it is never blindly retried.
+At-most-once applies while the cache survives: loss/corruption restarts grace,
+and changed content starts a new generation. This is best-effort context, not a
+notification queue. Board reminder-setting controls are a separate slice.

@@ -188,7 +188,11 @@ it(
         env: { ...sandbox.env, PATH: `${decoyDirectory}:${sandbox.env.PATH ?? ''}` },
       };
       const prefix = path.join(sandbox.root, 'isolated office');
-      const run = (args: string[]) => runCli(named, ['office', '--prefix', prefix, ...args]);
+      // macOS arm64 subprocess maxima: 1.884 s quiet / 1.945 s with the tooling suite.
+      // Match the Office world fixture's 15 s bound, leaving room for the service's
+      // own 5 s readiness wait plus the core/companion launches and response.
+      const run = (args: string[]) =>
+        runCli(named, ['office', '--prefix', prefix, ...args], { deadlineMs: 15_000 });
       const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
       const installed = await run([
         'install',

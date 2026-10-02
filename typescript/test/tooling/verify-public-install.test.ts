@@ -29,7 +29,7 @@ interface Fake {
   upgradeStderr?: string;
   installerStatus?: number;
   withoutBinary?: boolean;
-  /** An extension: whether the CLI has the command, what it installs, and whether it links the CLI. */
+  /** An extension: whether the CLI has `tmt extension`, what it installs and lists, and whether it links the CLI. */
   extension?: { command?: boolean; installs?: string; reports?: string; link?: boolean };
 }
 
@@ -74,12 +74,13 @@ case "$*" in
   "upgrade --channel alpha --json")
     count=$(cat "$HOME/upgrade-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/upgrade-count"
     ${fake.upgradeStderr ? `echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
-  "squad install --help") ${extension.command === false ? 'echo "error: unrecognized subcommand \'squad\'" >&2; exit 2' : 'echo usage'} ;;
-  squad\\ install\\ *)
+  "extension install squad "*)
+    ${extension.command === false ? 'echo "error: unrecognized subcommand \'extension\'" >&2; exit 2' : 'true'}
     prefix=$(echo "$*" | sed 's/.*--prefix //')
     mkdir -p "$prefix/lib" ${extension.link ? '"$prefix/bin" && : > "$prefix/bin/tmt"' : ''}
-    printf '{"installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
-  squad\\ status\\ *) printf '{"version":"%s"}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
+    printf '{"extension":"squad","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
+  "extension list --json --prefix "*)
+    printf '{"extensions":[{"name":"office","installed":false},{"name":"squad","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 TMT
@@ -277,9 +278,8 @@ describe('the public installer smoke of an extension release', () => {
       ['install', true],
       ['PATH selects the installed tmt', true],
       ['installed version', true],
-      ['squad command', true],
       ['squad install', true],
-      ['squad status', true],
+      ['squad list', true],
     ]);
     // The installer's version is the CLI's, not the extension tag's, and nothing checks the skills.
     expect(results.find(({ check }) => check === 'installed version')?.reason).toBe(
@@ -287,23 +287,23 @@ describe('the public installer smoke of an extension release', () => {
     );
   });
 
-  it('says that the newest published CLI has no install command for the extension', async () => {
+  it('names an install through a CLI without `tmt extension`, and never uses a command of the extension itself', async () => {
     const results = await smoke({ command: false });
-    expect(results.at(-1)).toMatchObject({ check: 'squad command', ok: false });
-    expect(results.at(-1)?.reason).toBe(
-      'the newest published CLI (5.0.0-alpha.12) has no `squad install` command, so it cannot install tmt-squad-v0.1.0-alpha.4'
-    );
+    expect(results.at(-1)).toMatchObject({ check: 'squad install', ok: false });
+    expect(results.at(-1)?.reason).toContain("unrecognized subcommand 'extension'");
+    // The fake knows no `tmt squad ...`: a verifier that used one would fail the passing case.
+    expect((await smoke()).every(({ ok }) => ok)).toBe(true);
   });
 
-  it('fails an install of another version, a status that disagrees and a CLI link', async () => {
+  it('fails an install of another version, a list that disagrees and a CLI link', async () => {
     expect((await smoke({ installs: '0.1.0-alpha.3' })).at(-1)?.reason).toBe(
       'it installed 0.1.0-alpha.3, not 0.1.0-alpha.4'
     );
     expect((await smoke({ reports: '0.1.0-alpha.3' })).at(-1)?.reason).toBe(
-      'status reports 0.1.0-alpha.3, not 0.1.0-alpha.4'
+      'the list reports 0.1.0-alpha.3, not 0.1.0-alpha.4'
     );
     const linked = await smoke({ link: true });
-    expect(linked.at(-1)).toMatchObject({ check: 'squad status', ok: false });
+    expect(linked.at(-1)).toMatchObject({ check: 'squad list', ok: false });
     expect(linked.at(-1)?.reason).toContain('must not create the CLI link');
   });
 });

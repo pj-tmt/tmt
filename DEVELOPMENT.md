@@ -257,7 +257,7 @@ Rustup resolves the manifest's two-part minimum to its latest patch release,
 rather than duplicating a patch pin in the workflow.
 It replaces the MSRV executable builds and expands Squad MSRV coverage to the
 whole workspace without changing the declared minimum. Its separate
-`native-rust-msrv` cache has one writer, the MSRV job on main; PRs only restore.
+`native-rust-msrv` cache has one writer, the MSRV job on main; PR and merge-group events only restore.
 `Native Rust contracts` is the fail-closed aggregator of these two workers. It
 requires both to succeed, rejects missing selection, and stays skipped for scope
 `none`, preserving the outer native gate and required-check names.
@@ -269,6 +269,18 @@ partitions run in their own workflow (below), so a red `CI` run means one of its
 jobs failed. CI changes need positive
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
+
+Merge-group candidates use `node typescript/scripts/ci-scope.mjs merge-group
+"$BASE_SHA" "$HEAD_SHA"` with the event's exact base/head SHAs. The two-dot diff
+covers the cumulative group; docs-only groups skip native suites, Squad-only
+groups run Squad checks, and shared changes select the full native scope. Empty
+or unreadable diffs fail closed to full native/Office verification with both E2E
+shards, and the selection summary reports the fallback. PR merge-base selection
+is unchanged. The macOS exception is described in the runtime smoke matrix below.
+Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
+from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
+[Architecture](ARCHITECTURE.md) owns the event, gate and main-ref cache policy;
+queue/ruleset changes remain a repository-owner operation.
 
 Linux CI package installation uses `.github/actions/apt-install`: each apt update
 or install attempt has a 120-second timeout with a 10-second forced-kill grace.
@@ -841,8 +853,11 @@ cargo +1.95.0 build --locked
 For the unregistered Codex queue transport (#736), focused deterministic checks
 are `cargo test --locked -p tmt-adapters drivers::codex::queue` and
 `cargo test --locked -p tmt-adapters drivers::codex::transport`. The transport
-tests own local loopback peers and exercise receipt loss and absolute deadlines;
-they do not start a model or inspect provider credentials. Dependency review
+tests own local loopback peers and exercise receipt loss and absolute deadlines.
+The refusal fixture holds a bound, non-listening socket through the connect attempt;
+it never releases a port for a parallel test to claim. It uses the existing nix
+Unix dev-dependency with `net`, without a new runtime dependency. These tests do
+not start a model or inspect provider credentials. Dependency review
 also records exact features/graph, Rust 1.95, licenses, current advisories and an
 actual CLI release baseline/candidate under one toolchain/profile. Label a
 zero delta from unused/dead-stripped groundwork honestly and repeat the size
@@ -859,6 +874,10 @@ Owned Codex startup and attachment planning (#738) are covered by
 isolated shell stand-ins and check observable process/file cleanup; cwd probes
 compare relative and absolute `-C`. They do not start Codex or a model and do not
 replace the final live foreground continuity gate.
+
+The adapter `process::cleanup_policy_tests` must pass under both `cargo test` and
+nextest: isolated re-exec cases prove timeout cleanup regardless of whether the
+test runner makes its harness a process-group leader.
 
 Before native installation/process tests, build the two product fixtures
 independently, after workspace checks:
@@ -903,6 +922,13 @@ The opt-in stress test `cargo test -p tmt-office-command text_file_busy_stress
 -- --ignored --nocapture` reproduces the race and reports failures with and
 without the retry.
 
+For explicit tmux target-resolution errors (#949), run
+`cargo test --locked -p tmt-adapters tmux::io_tests` and
+`cargo test --locked -p tmt-cli --test target_resolution` from `rust/`.
+The adapter tests inject execution faults; the CLI fixture uses a slow stand-in
+under an isolated HOME, verifies check/add error codes and confirms timeout cleanup.
+It does not contact a real tmux server or replace Docker routing evidence.
+
 The external-host shell fixtures use a test-local runner with a thirty-second
 execution budget for success cases. This does not change the driver's wire
 `deadlineMs` or output limit. Conformance timing uses scripted elapsed values;
@@ -937,10 +963,24 @@ I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
 
 From `rust/`, run `cargo test --locked -p tmt-tui` and
 `cargo +1.95.0 test --locked -p tmt-tui` for structural XML admission and its
-byte/depth/node limits. Run the architecture test for dependency changes.
+byte/depth/node limits, integer utilities, property conflicts and literal theme
+tokens. Run the architecture test for dependency changes.
 The crate has no executable or board consumer; these tests use in-memory XML,
 not application configuration, SQLite or a terminal. Later admission/rendering
-stages must not treat a structural template as a fully validated scene.
+stages must not treat an admitted template as a fully validated scene.
+
+The internal static subset is `flex`, `flex-row`, `flex-col`, `w-N`, `h-N`,
+`w-full`, `h-full`, `gap-N`, `gap-x-N`, `gap-y-N`, `p-N`, `px-N`, `py-N`,
+`grow`, `grow-N`, `shrink`, `shrink-N`, and `truncate`. `N` is ASCII decimal
+0..4096, in cells (grow/shrink are integer weights). Overlapping properties,
+even equal duplicates, fail rather than applying class order. No fractions,
+variants, arbitrary values or CSS units are accepted. Padding is symmetric per
+axis. View/col default to column direction; other elements default to row.
+Sizes default to auto, gaps/padding/grow to zero, and shrink to one. Full means
+the parent's available axis. Text defaults to clipping; leaf `wrap="true"` or
+`wrap="false"` selects wrapping or clipping and conflicts with `truncate`.
+`token` must name a shared `Role`; omission preserves inheritance. Binding
+paths, dynamic tokens and row-track attributes await their owning later stages.
 
 ## Native process and shared tests
 
@@ -949,6 +989,19 @@ stages must not treat a structural template as a fully validated scene.
 The maintained JavaScript suites live under `typescript/test/native/`, `typescript/test/e2e/`,
 `typescript/test/tooling/` and `typescript/test/support/`. Rust tests stay beside the owner in
 `rust/crates/*` or the companion package under `extensions/tmt-office/rust/`.
+`tmt-cli/tests/support` owns the environment and direct-child lifetime shared by
+`stdin_flags` and `request_observer`. Their commands clear the parent environment;
+HOME, XDG config/data/state/cache, CODEX_HOME, temporary files and the tmux socket
+directory stay under each fixture's owned root. State uses the canonical
+XDG config `tmux-team` directory. Native TypeScript sandboxes use the same isolation
+contract with an explicit system/Node PATH and UTF-8 locale. Their named runtime
+connection allowlist retains only `DBUS_SESSION_BUS_ADDRESS`, so Office browser
+fixtures can reach the container-owned Secret Service without inheriting HOME,
+XDG runtime paths or unrelated parent variables. Executable selectors are resolved
+separately; scenario-local environment changes remain explicit.
+These fixtures do not inherit caller/provider markers, driver recursion flags or
+color settings. Environment isolation does not remove process ancestry.
+
 The native process selector resolves the repository build at
 `rust/target/debug/tmt` by default and fails if it is absent. An explicit
 descriptor may select another absolute native executable; it must be
@@ -970,7 +1023,8 @@ and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
 and embedded service tests remain separate required checks; process deadlines
 and assertions are unchanged. Local selection still defaults to the debug CLI.
 
-The CLI version expectation uses the shared workspace reader once per suite, running bounded
+CLI version expectations and Office installation/hook fixtures use the shared workspace reader
+once per suite, selecting the relevant crate by name and running bounded
 `cargo metadata --no-deps --offline --locked`. The reader also reads `rust/Cargo.lock` and
 lists tracked files with `git ls-files -z`, so the suite needs a Git checkout. Cargo, the
 lockfile and workspace resolution inputs must remain available even when selecting an explicit
@@ -1218,6 +1272,8 @@ fixture, readiness, cleanup and type modules live under
 Shared cross-suite utilities belong in `typescript/test/support/`; suite-only harness,
 assertions and observers stay with their suite. Focused helper tests belong in
 `typescript/test/tooling/` and must prove rejection as well as positive behavior.
+The tooling [import-direction guard](ARCHITECTURE.md#testing-and-evidence-boundaries)
+checks these suite/support and harness boundaries without starting Docker.
 
 For ordinary developer checks, run:
 
@@ -1237,7 +1293,7 @@ replace the Rust commands, native process suite or Docker runs.
 
 ## Runtime smoke matrix
 
-The six required native smoke environments are:
+The six native smoke environments required on full-scope PRs are:
 
 - macOS x64 and macOS arm64;
 - Linux glibc x64 and Linux glibc arm64;
@@ -1253,6 +1309,12 @@ runs outside the checkout with isolated HOME/state, no Node or Rust on the
 product PATH, and checks version/help, exact embedded skill bytes, managed skill installation and
 SQLite reopen/persistence. Cross-compilation alone is never claimed as runtime
 evidence.
+
+Merge-group runs retain the two Linux builds and four Linux smoke rows. They
+skip the separate macOS build and install jobs, whose `skipped` results the
+aggregate requires explicitly only on that event. PRs still run both macOS
+architectures, and native release workflows still build and verify macOS before
+publication. The queue tests each cumulative group head (HEADGREEN).
 
 The same distinction applies to release artifacts: raw PR executables prove
 source-runtime behavior only. They do not prove archive inventory, notices,
@@ -1294,6 +1356,57 @@ written down. Extension-owned skills
 no-op, core and cross-owner claims, force backup, Office adoption, removal by
 owner (all skills or a named subset) and drift. Runtime/linkage proof shared by archive
 and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
+
+## Project tracking
+
+Progress is read from one place: the `pj-tmt` project
+(<https://github.com/orgs/pj-tmt/projects/1>), filtered to `label:feature`.
+Each product feature has one tracker issue titled `Feature: <name>` with the
+`feature` label. The project's Sub-issues progress counts only direct
+sub-issues, so the tracker is the only parent that matters for progress.
+
+Every issue carries these Project fields:
+
+- `Feature`: the tracker it serves. The issue is also a direct sub-issue of
+  that tracker. Do not hang slices under an umbrella issue that is itself a
+  tracker child; umbrella or findings-log issues stay outside the tracker.
+- `Squad`: the squad whose lead owns the issue.
+- `Status`, which moves forward only:
+  - `Todo`: not started.
+  - `In Progress`: implementation started, including draft or stacked PRs.
+  - `In Review`: a PR is ready for review or queued. In a stacked chain, the
+    issue stays here while any of its PRs is still queued.
+  - `Merged`: the last required PR is on `main` and a release is pending. A
+    `Fixes #N` merge moves the issue here through the Project workflow.
+  - `Released`: shipped in a published release. Release automation sets it and
+    fills `Released in`.
+- `Agents`: comma-separated names of agents actively building or coordinating
+  it now, including assigned members waiting on a named dependency. List the
+  lead first. Reviewers who build nothing are not listed. Removing a member
+  from `Agents` is part of its retirement checklist.
+
+Tracker rules:
+
+- Each tracker has one owning lead, recorded in `Squad`. On a tracker shared by
+  squads, the owner writes the tracker's Status and body, and each child keeps
+  the Status and Agents of the lead whose member works on it.
+- The tracker body keeps a short `Now / Next / Blocked` section of three to six
+  plain lines. Describe the outcome first, with issue numbers in parentheses.
+  When something is runnable, add one `Try it` line with the command. Update
+  the section when a PR merges, a member starts or retires, or something
+  blocks. Keep logs and evidence in the child issues and PRs.
+- Tracker Status is `In Progress` while any child is active, `Todo` when
+  nothing has started or the feature is parked (say "parked" in `Now`),
+  `Merged` when all required delivery is on `main`, and `Released` only after
+  publication and any feature acceptance or dogfood gate. Keep pending gates
+  visible under `Blocked`. Optional future children must not reopen a
+  delivered milestone; state the delivered scope in `Now` and label deferred
+  scope.
+- New trackers are proposed to tmt-lead. A new product topic needs the
+  maintainer's approval; agents never create a tracker on their own.
+- Use one batched daily audit plus event-driven updates. Batch Project edits,
+  never poll, and treat about 200 GraphQL calls per lead per day as a ceiling.
+  The GraphQL limit is shared by every agent on the maintainer's account.
 
 ## Review and evidence
 
@@ -1444,3 +1557,15 @@ for slow subscribers; no WebSocket is accepted yet. Real socket and foreground
 process cleanup tests run lifecycle scenarios twice, with no core calls from
 denied traffic. Owner-key temporary cleanup is publication-locked; it preserves
 foreign file names and refuses unsafe matching files.
+
+## Colab model foundation
+
+The private Rust model has no server or CLI. From `rust/`, run
+`cargo test --offline --locked -p tmt-colab-model` and
+`cargo clippy --offline --locked -p tmt-colab-model --all-targets -- -D warnings`;
+workspace boundary changes also require the architecture guard above.
+Tests consume frozen contract vectors without Python. To check/regenerate the
+independent namespace/sign-in oracle, use Python with `cryptography` installed:
+`python3 extensions/tmt-colab/contracts/vectors/model-reference.py` from the
+repository root; add `--write` only after reviewing changed bytes. Fixture keys
+are public test data. This foundation does not satisfy the complete L1 gates.

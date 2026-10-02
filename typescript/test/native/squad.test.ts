@@ -86,6 +86,105 @@ const squadVersion = /^version = "([^"]+)"$/m.exec(
 )?.[1];
 
 describe('squad extension', () => {
+  it('reports the resolved default layout in ls JSON for team and legacy simple boards', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(toml, 'me = "Ben"\n');
+      expect((await squad(sandbox, ['ls', '--squad', 'product'])).body.squad.layout).toBe('team');
+      for (const setting of [
+        'direction = "top-bottom"',
+        'panes = ["rows", "notes"]',
+        'sizes = [60, 40]',
+      ]) {
+        writeFileSync(toml, `me = "Ben"\n[squad.product.board]\n${setting}\n`);
+        const listed = await squad(sandbox, ['ls', '--squad', 'product']);
+        expect(listed.status).toBe(0);
+        expect(listed.body.squad.layout).toBe('crew');
+        expect(listed.body.columns.map((column: { field: string }) => column.field)).toEqual([
+          'member',
+          'state',
+          'task',
+          'pr_link',
+        ]);
+      }
+    });
+  });
+
+  it('defaults to team rows and refreshes only linked PRs through the existing provider', async () => {
+    await withSandbox(async (sandbox) => {
+      const bin = installSquad(sandbox);
+      for (const name of ['Ben', 'Sol', 'linked', 'unlinked']) await identity(sandbox, name);
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+      const toml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(toml, 'me = "Ben"\n');
+      expect((await squad(sandbox, ['add', 'linked', 'unlinked'])).status).toBe(0);
+      expect(
+        (
+          await squad(sandbox, [
+            'set',
+            'linked',
+            'task=review PR',
+            'pr_link=https://example.com/pull/412',
+          ])
+        ).status
+      ).toBe(0);
+      expect(
+        (await squad(sandbox, ['set', 'unlinked', 'task=write notes', 'pending=approve the plan']))
+          .status
+      ).toBe(0);
+      const calls = path.join(sandbox.root, 'gh-calls');
+      const gh = path.join(bin, 'gh');
+      writeFileSync(
+        gh,
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\nprintf '%s\\n' '{"number":412,"state":"OPEN","isDraft":false,"reviewDecision":"APPROVED"}'\n`
+      );
+      chmodSync(gh, 0o755);
+      const metadata = observe(sandbox);
+      const listed = await squad(sandbox, ['ls', '--squad', 'product', '--refresh-fields']);
+      expect(listed.status).toBe(0);
+      expect(listed.body.squad.layout).toBe('team');
+      expect(listed.body.columns.map((column: { field: string }) => column.field)).toEqual([
+        'member',
+        'state',
+        'task',
+        'pr',
+        'model',
+      ]);
+      expect(listed.body.columns[4].from).toBe('session.model');
+      expect(listed.body.lines[1]).toEqual([
+        { field: null, span: 1 },
+        { field: null, span: 1 },
+        { field: 'pending', span: 3 },
+      ]);
+      const rows = listed.body.sections[0].rows;
+      expect(rows.map((row: { name: string }) => row.name)).toEqual(['unlinked', 'linked']);
+      expect(rows[0]).toMatchObject({
+        state: 'working',
+        pending: 'approve the plan',
+        staleness: { state: 'fresh' },
+      });
+      expect(rows[1].fields.pr).toContain('#412 open');
+      expect(readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(1);
+      const refresh = await squad(sandbox, ['ls', '--squad', 'product', '--refresh-fields']);
+      expect(refresh.status).toBe(0);
+      expect(readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(1);
+      expect(observe(sandbox)).toEqual(metadata);
+      writeFileSync(toml, 'me = "Ben"\n[squad.product]\nlayout = "crew"\n');
+      const crew = await squad(sandbox, ['ls', '--squad', 'product']);
+      expect(crew.body.columns.map((column: { field: string }) => column.field)).toEqual([
+        'member',
+        'state',
+        'task',
+        'pr_link',
+      ]);
+      expect(crew.body.sections[0].rows[0].staleness.state).toBe('disabled');
+    });
+  });
+
   it('dispatches rm and remove identically while retaining the identity and its other metadata', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -118,6 +217,136 @@ describe('squad extension', () => {
     });
   });
 
+  it('delivers a claimed reminder only once and revalidates notes and leadership', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const lead = await identity(sandbox, 'Sol');
+      const member = await identity(sandbox, 'Rin');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'Rin'])).status).toBe(0);
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        config,
+        readFileSync(config, 'utf8') +
+          '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
+      );
+      const notebook = JSON.parse(
+        (await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json'])).stdout
+      ).path;
+      writeFileSync(notebook, 'Current plan');
+      const context = async (identityId = lead) => {
+        const result = await runCli(
+          { ...sandbox, cli: { executable: squadExecutable, args: [] } },
+          ['__tmt-hooks', '1', 'context'],
+          {
+            stdin: JSON.stringify({ version: 1, identityId }),
+          }
+        );
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe('');
+        return JSON.parse(result.stdout).summary as string | null;
+      };
+      sandbox.env.TMT_EXECUTABLE = sandbox.cli.executable;
+      expect(await context()).toBeNull(); // No observation: no core reads or notebook creation.
+      expect((await squad(sandbox, ['ls'])).status).toBe(0);
+      expect(await context()).toBeNull();
+      const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+      const file = path.join(
+        directory,
+        readdirSync(directory).find((name) => name.endsWith('.json'))!
+      );
+      const age = () => {
+        const cache = JSON.parse(readFileSync(file, 'utf8'));
+        cache.notes.sinceMs = Date.now() - 125_000;
+        cache.observedAtMs = cache.notes.sinceMs;
+        writeFileSync(file, JSON.stringify(cache));
+      };
+      age();
+      const before = readFileSync(file, 'utf8');
+      expect(await context(member)).toBeNull();
+      expect(readFileSync(file, 'utf8')).toBe(before);
+      const summary = await context();
+      expect(summary).toContain('Squad product: stale lead notes');
+      expect([...summary!].length).toBeLessThanOrEqual(240);
+      expect(JSON.parse(readFileSync(file, 'utf8')).notes.claimed).toBe(true);
+      expect(await context()).toBeNull();
+      writeFileSync(notebook, 'Updated plan');
+      expect((await squad(sandbox, ['ls'])).status).toBe(0);
+      age();
+      await squad(sandbox, ['lead', 'Rin']);
+      expect(await context(lead)).toBeNull();
+      expect(JSON.parse(readFileSync(file, 'utf8')).notes.claimed).toBe(false);
+    });
+  });
+
+  it('keeps cold and fresh context silent without calling core, and kills timed-out descendants', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const lead = await identity(sandbox, 'Sol');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        config,
+        readFileSync(config, 'utf8') +
+          '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
+      );
+      const notebook = JSON.parse(
+        (await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json'])).stdout
+      ).path;
+      writeFileSync(notebook, 'Current plan');
+      const fake = path.join(sandbox.root, 'slow-core');
+      writeFileSync(
+        fake,
+        '#!/bin/sh\nroot=${0%/*}\nprintf called > "$root/core-called"\n(sleep 0.8; touch "$root/leaked-child") &\nsleep 30\n'
+      );
+      chmodSync(fake, 0o755);
+      sandbox.env.TMT_EXECUTABLE = fake;
+      const context = (deadlineMs = 5_000) =>
+        runCli(
+          { ...sandbox, cli: { executable: squadExecutable, args: [] } },
+          ['__tmt-hooks', '1', 'context'],
+          {
+            stdin: JSON.stringify({ version: 1, identityId: lead }),
+            deadlineMs,
+          }
+        );
+      expect(JSON.parse((await context()).stdout)).toEqual({ summary: null });
+      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(false);
+      await squad(sandbox, ['ls']);
+      expect(JSON.parse((await context()).stdout)).toEqual({ summary: null });
+      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(false);
+      const directory = path.join(sandbox.root, 'cache', 'tmt-squad', 'staleness');
+      const file = path.join(
+        directory,
+        readdirSync(directory).find((name) => name.endsWith('.json'))!
+      );
+      const age = () => {
+        const cache = JSON.parse(readFileSync(file, 'utf8'));
+        cache.notes.sinceMs = Date.now() - 125_000;
+        cache.observedAtMs = cache.notes.sinceMs;
+        writeFileSync(file, JSON.stringify(cache));
+      };
+      age();
+      const started = performance.now();
+      const timedOut = await context();
+      expect(timedOut.signal).toBe('SIGKILL');
+      expect(timedOut.stdout).toBe('');
+      expect(performance.now() - started).toBeLessThan(1_000);
+      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(existsSync(path.join(sandbox.root, 'leaked-child'))).toBe(false);
+      expect(JSON.parse(readFileSync(file, 'utf8')).notes.claimed).toBe(false);
+      // The outer runner may have less time than Squad's local 300 ms budget.
+      unlinkSync(path.join(sandbox.root, 'core-called'));
+      await expect(context(200)).rejects.toThrow();
+      expect(existsSync(path.join(sandbox.root, 'core-called'))).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(existsSync(path.join(sandbox.root, 'leaked-child'))).toBe(false);
+    });
+  });
+
   it('reports observed age without changing board metadata or creating missing notes', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -132,6 +361,7 @@ describe('squad extension', () => {
       ])
         expect((await squad(sandbox, args)).status).toBe(0);
       const toml = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(toml, `${readFileSync(toml, 'utf8')}\n[squad.product]\nlayout = "crew"\n`);
       const original = readFileSync(toml, 'utf8');
       const listing = () => squad(sandbox, ['ls', '--squad', 'product']);
       const disabled = await listing();
@@ -400,7 +630,7 @@ describe('squad extension', () => {
 
       // Hooks on: the rename observation follows the user at once.
       const capabilities = await runCli(sandbox, ['squad', '__tmt-hooks', '1', 'capabilities']);
-      expect(capabilities.stdout).toBe('TMT-HOOKS/1\nlifecycle_observations_v1\n');
+      expect(capabilities.stdout).toBe('TMT-HOOKS/1\nlifecycle_observations_v1\ncontext_v1\n');
       const enabled = await runCli(sandbox, ['extension', 'hooks', 'enable', 'squad', '--json']);
       expect(enabled.status, enabled.stdout + enabled.stderr).toBe(0);
       expect(realpathSync(path.join(bin, 'tmt-squad'))).toBe(realpathSync(squadExecutable));
@@ -880,6 +1110,10 @@ describe('squad extension', () => {
         'squad.product.note',
       ]);
 
+      writeFileSync(
+        path.join(sandbox.globalDir, 'squad.toml'),
+        'me = "Ben"\n[squad.product]\nlayout = "crew"\n'
+      );
       const status = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(status.status).toBe(0);
       expect(status.body.squad).toMatchObject({
@@ -1017,6 +1251,11 @@ describe('squad extension', () => {
       installSquad(sandbox);
       for (const name of ['Ben', 'auth-fix']) await identity(sandbox, name);
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      const legacyConfig = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        legacyConfig,
+        `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
+      );
       await squad(sandbox, ['add', 'auth-fix']);
       await squad(sandbox, ['set', 'auth-fix', 'task=rotate session tokens']);
       const ls = await runCli(sandbox, ['sq', 'ls']);
@@ -1086,6 +1325,10 @@ describe('squad extension', () => {
       installSquad(sandbox);
       await identity(sandbox, 'worker');
       await squad(sandbox, ['init', 'product']);
+      writeFileSync(
+        path.join(sandbox.globalDir, 'squad.toml'),
+        '[squad.product]\nlayout = "crew"\n'
+      );
       await squad(sandbox, ['add', 'worker']);
       const task =
         'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron';
@@ -1099,6 +1342,8 @@ describe('squad extension', () => {
       writeFileSync(
         path.join(sandbox.globalDir, 'squad.toml'),
         [
+          '[squad.product]',
+          'layout = "crew"',
           '[squad.product.rows]',
           'columns = [',
           '  { name = "member", width = "20%", overflow = "ellipsis" },',
@@ -1134,6 +1379,62 @@ describe('squad extension', () => {
       expect(configured.body.sections[0].rows[0].fields.task).toBe(task);
       const after = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(after.body).toEqual(configured.body);
+    });
+  });
+
+  it('marks uncovered columns value-only while preserving their values and ignoring text sizing', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'worker');
+      await squad(sandbox, ['init', 'checkout']);
+      await squad(sandbox, ['add', 'worker']);
+      await squad(sandbox, [
+        'set',
+        'worker',
+        'task=alpha beta gamma delta epsilon zeta eta theta',
+        'pr_state=OPEN',
+      ]);
+      const example = readFileSync(
+        new URL(
+          '../../../extensions/tmt-squad/rust/tmt-squad/src/rows/fixtures/uncovered-tracks.toml',
+          import.meta.url
+        ),
+        'utf8'
+      );
+      const file = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(file, example);
+      const result = await squad(sandbox, ['ls', '--squad', 'checkout']);
+      expect(result.status).toBe(0);
+      expect(
+        result.body.columns.slice(0, 4).every((c: Record<string, unknown>) => !('valueOnly' in c))
+      ).toBe(true);
+      expect(
+        result.body.columns.slice(4).map((c: Record<string, unknown>) => [c.field, c.valueOnly])
+      ).toEqual([
+        ['ctx', true],
+        ['model', true],
+      ]);
+      expect(result.body.columns[4]).toMatchObject({
+        width: 6,
+        from: 'session.usage.tokens',
+        format: 'tokens',
+      });
+      expect(result.body.lines[3]).toEqual([
+        { field: null, span: 1 },
+        { field: 'ctx', span: 1 },
+        { field: 'model', span: 2 },
+      ]);
+      expect(result.body.sections[0].rows[0].fields.task).toBe(
+        'alpha beta gamma delta epsilon zeta eta theta'
+      );
+      const first = await runCli(sandbox, ['sq', 'ls', '--squad', 'checkout']);
+      writeFileSync(
+        file,
+        example.replace('width = 6', 'width = 200').replace('width = 14', 'width = 200')
+      );
+      const second = await runCli(sandbox, ['sq', 'ls', '--squad', 'checkout']);
+      expect(second.status).toBe(0);
+      expect(second.stdout).toBe(first.stdout);
     });
   });
 
@@ -1177,6 +1478,11 @@ describe('squad extension', () => {
         await identity(sandbox, name);
       }
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      const legacyConfig = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        legacyConfig,
+        `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
+      );
       await squad(sandbox, ['add', 'exact', 'pattern', 'working', 'unknown']);
       await squad(sandbox, ['set', 'exact', 'state=blocked']);
       await squad(sandbox, ['set', 'pattern', 'state=BLOCKED-on-ci']);
@@ -1423,6 +1729,11 @@ sort = ["-name"]
       for (const name of ['Ben', 'Sol', 'auth-fix', 'docs'])
         ids[name] = await identity(sandbox, name);
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
+      const legacyConfig = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(
+        legacyConfig,
+        `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
+      );
       await squad(sandbox, ['lead', 'Sol']);
       await squad(sandbox, ['add', 'auth-fix', 'docs']);
       const api = async (operation: string, input: object) => {

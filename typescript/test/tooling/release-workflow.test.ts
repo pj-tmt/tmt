@@ -328,7 +328,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/);
     // The publication run reads the outcome and the reason, whatever the run's own result is.
     expect(upgrade).toMatch(
-      /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.reason \}\}\n/m
+      /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.conclude\.outputs\.reason \}\}\n/m
     );
   });
 
@@ -367,6 +367,31 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(fetch).toContain('actions/upload-artifact@');
     expect(prove).toContain('actions/download-artifact@');
     expect(prove).toContain(`name: ${name}`);
+  });
+
+  it('names why a host failed from its log, as data, without a flag the release commit may lack', () => {
+    const prove = job(upgrade, 'prove');
+    const conclude = job(upgrade, 'conclude');
+    // The release commit's own script runs the proof: only the flags every commit has reach it, and
+    // the log is kept by the step around it.
+    const call =
+      /node typescript\/scripts\/release-upgrade\.mjs prove[^\n]*\n[^\n]*\n/.exec(prove)?.[0] ?? '';
+    expect(call).not.toMatch(/--failure|--reason|--log/);
+    expect(prove).toContain('set -o pipefail');
+    expect(prove).toContain('2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"');
+    expect(prove).toMatch(
+      /if: failure\(\)\n {8}uses: actions\/upload-artifact@v4\n {8}with:\n {10}name: upgrade-proof-log-\$\{\{ matrix\.target \}\}/
+    );
+    // The conclusion runs this repository's code on the default ref and only reads the logs.
+    expect(conclude).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
+    expect(conclude).not.toMatch(/ref:|GH_TOKEN|contents: write/);
+    expect(conclude).toContain('pattern: upgrade-proof-log-*');
+    expect(conclude).toContain(
+      'release-upgrade.mjs reason --directory "$RUNNER_TEMP/upgrade-logs"'
+    );
+    expect(conclude).toContain(
+      'reason: ${{ steps.failure.outputs.reason || needs.fetch.outputs.reason }}'
+    );
   });
 
   it('runs the proof from the commit of the release, and says when that commit predates it', () => {

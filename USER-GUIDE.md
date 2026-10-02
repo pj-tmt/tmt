@@ -602,7 +602,7 @@ order the existing state text; they do not rename it or change tab attention.
 The board and `ls` share this resolution, including section sorting by state.
 
 A column's `width` is cells or a percentage such as `"30%"` (1–100%).
-Configured percentages must total at most 100%; `min`/`max` remain cells. Percentages
+Covered-track percentages must total at most 100%; `min`/`max` remain cells. Percentages
 use the available data width after borders, row marks and gaps, with largest
 remainders receiving rounding cells before bounds and `grow`. On a narrow
 board columns shrink to their `min` first; if the row still does not fit, the
@@ -616,7 +616,11 @@ a cut on the last bounded line ends in `…`, even with `truncate = "middle"`. F
 including wide characters. Selection, paging, scrolling and clicks follow
 these visual lines, including existing note and configured row lines. A later configured row line with nothing to show is left
 out. The row-level `lines` defaults to one line of every column; a spanned
-cell uses the first column's fitting options. The older
+cell uses the first column's fitting options. Only tracks covered by some
+configured line reserve width, including empty cells and spans. Uncovered
+trailing columns remain value sources; `ls --json` marks them `valueOnly: true`
+and omits that key on covered columns. Their width/min/max/grow are ignored;
+text `ls` shows their values naturally. The older
 `[squad.<name>.columns]` table supports `title`, cell/percentage `width`,
 `overflow` and wrap `max_lines` per field; set one row form, not both.
 

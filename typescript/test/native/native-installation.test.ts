@@ -19,6 +19,9 @@ import {
   type Sandbox,
 } from '../support/cli-process.js';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
+import { workspaceVersion } from '../support/workspace-version.js';
+
+const officeVersion = workspaceVersion('tmt-office');
 
 // Debug payload hashing/decompression and fsync are installation work, not the
 // ordinary command-startup budget. Keep a separate finite process deadline.
@@ -134,7 +137,7 @@ describe('native installation process contract', () => {
           'OFFICE_INSTALL_FAILED'
         );
         expect(existsSync(prefix)).toBe(false);
-        const fixture = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
+        const fixture = await createArtifact(sandbox, officeVersion, new Uint8Array(), 'office');
         const args = [
           'install',
           '--yes',
@@ -149,7 +152,7 @@ describe('native installation process contract', () => {
         expect(installedDocument).toMatchObject({
           installed: true,
           changed: true,
-          version: '0.1.0-alpha.4',
+          version: officeVersion,
           skills: {
             installed: [
               {
@@ -190,7 +193,7 @@ describe('native installation process contract', () => {
         expect(parseWholeStdout(status)).toMatchObject({
           installed: true,
           protocolVersion: '1',
-          version: '0.1.0-alpha.4',
+          version: officeVersion,
           service: { running: false },
         });
         expect(parseWholeStdout(await office([]))).toEqual(parseWholeStdout(status));
@@ -247,7 +250,7 @@ describe('native installation process contract', () => {
         expect(expectError(partial, 'OFFICE_SKILLS_FAILED')).toMatchObject({
           installed: true,
           changed: true,
-          version: '0.1.0-alpha.4',
+          version: officeVersion,
           skills: {
             installed: [{ skill: 'tmt-avatar-create', changed: false }],
           },
@@ -299,7 +302,7 @@ describe('native installation process contract', () => {
     async () => {
       await withSandbox(async (sandbox) => {
         const prefix = installPrefix(sandbox);
-        const fixture = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
+        const fixture = await createArtifact(sandbox, officeVersion, new Uint8Array(), 'office');
         const office = (args: string[], outputLimitBytes = 1024 * 1024) =>
           runCli(sandbox, ['office', '--prefix', prefix, ...args, '--json'], {
             deadlineMs: 30_000,
@@ -470,11 +473,11 @@ esac
         const installedCli = await install(sandbox, cli, prefix);
         const cliReceipt = readFileSync(receiptPath(prefix));
         const pointer = readlinkSync(currentPointer(prefix));
-        const office = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
+        const office = await createArtifact(sandbox, officeVersion, new Uint8Array(), 'office');
         const installed = await install(sandbox, office, prefix, ['--product', 'office']);
         expect(installed).toEqual({
           executable: path.join(realpathSync(prefix), 'bin/tmt-office'),
-          version: '0.1.0-alpha.4',
+          version: officeVersion,
           changed: true,
         });
         expect(readlinkSync(installed.executable)).toBe('../lib/tmt-office/current/tmt-office');
@@ -489,7 +492,7 @@ esac
         );
         expect(probe.status).toBe(0);
         expect(probe.stderr).toBe('');
-        expect(probe.stdout).toBe('TMT-OFFICE/1\n0.1.0-alpha.4\n');
+        expect(probe.stdout).toBe(`TMT-OFFICE/1\n${officeVersion}\n`);
         const rejected = await runCli(
           { ...sandbox, cli: { executable: installed.executable, args: [] } },
           ['__tmt-office', '2', 'probe']
