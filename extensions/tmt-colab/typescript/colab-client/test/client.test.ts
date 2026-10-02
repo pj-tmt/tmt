@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import * as c from '../src/index.js';
 const fixture = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/model-v1.json', import.meta.url), 'utf8'),

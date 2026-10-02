@@ -1,5 +1,5 @@
 import { Timestamp } from 'firebase/firestore';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { readAgentSpace } from './firebase-spaces.js';
 
 const id = '00000000-0000-4000-8000-000000000001';

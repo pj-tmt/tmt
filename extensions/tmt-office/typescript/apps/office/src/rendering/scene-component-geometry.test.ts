@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { componentActionBounds, componentAt } from './scene-component-geometry.js';
 import type { SceneComponent } from './scene-component-geometry.js';
 import { fitOfficeCamera } from './office-geometry.js';

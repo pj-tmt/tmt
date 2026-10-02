@@ -2,7 +2,7 @@ import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { runCli, withSandbox } from '../support/cli-process.js';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');

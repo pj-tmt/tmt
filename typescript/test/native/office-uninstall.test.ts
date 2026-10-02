@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { createArtifact } from '../support/native-artifact.js';
 import { INSTALL_BUDGET_MS, paths, setUpMachine, tree } from '../support/native-uninstall.js';

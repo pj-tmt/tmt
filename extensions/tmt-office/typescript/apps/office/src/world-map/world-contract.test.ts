@@ -1,5 +1,5 @@
 import { mapGeometry } from './map-source.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import maps from '../../../../../contracts/map-v1-vectors.json';
 import vectors from '../../../../../contracts/world-v1-vectors.json';
 import { builtinFurniture, validFurniture } from '../blocks/block-contract.js';

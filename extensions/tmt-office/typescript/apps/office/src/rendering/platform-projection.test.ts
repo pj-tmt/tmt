@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { platformProjection, PLATFORM_BRIDGE_LENGTH } from './platform-projection.js';
 import { skybridgeCirculation } from '../world-map/compact-circulation.js';
 

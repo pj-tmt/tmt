@@ -1,5 +1,5 @@
 import { mapGeometry } from '../world-map/map-source.js';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import {
   officeWorldFixture,
   WORLD_LOBBY_ID,

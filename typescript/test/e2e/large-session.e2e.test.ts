@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
 import { withE2EFixture, type CliResult, type E2EFixture, type MockEvent } from './harness.js';
 import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';

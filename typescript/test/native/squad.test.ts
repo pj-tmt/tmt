@@ -17,7 +17,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 
 // Scenario-local selector: the built squad extension, never an installed copy.

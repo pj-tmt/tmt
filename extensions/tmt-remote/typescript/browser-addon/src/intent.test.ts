@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { Intent } from './intent.js';
 import type { SendInput, RemoteClient } from './remote-client.js';
 function fixture() {

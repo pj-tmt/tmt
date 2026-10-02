@@ -1,5 +1,5 @@
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createOfficeScene } from './office-scene.js';
 import type { OfficeSceneModel } from './office-scene.js';
 import { DIRECTIONAL_WORKSTATION_DIGEST } from '../props/prop-contract.js';

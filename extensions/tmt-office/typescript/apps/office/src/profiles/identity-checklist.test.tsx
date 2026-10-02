@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { IdentityChecklist } from './identity-checklist.js';
 
 it('distinguishes unknown, offline and missing choices without treating presence as permission', async () => {

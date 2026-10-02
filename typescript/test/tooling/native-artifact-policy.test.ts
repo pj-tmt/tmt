@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createGzip } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import * as tar from 'tar';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 

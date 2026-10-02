@@ -11,7 +11,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import * as tar from 'tar';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 

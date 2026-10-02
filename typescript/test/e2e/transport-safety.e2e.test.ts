@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { E2EFixture, withE2EFixture } from './harness.js';
 import { requestAttempts } from './request-state-oracle.js';
 

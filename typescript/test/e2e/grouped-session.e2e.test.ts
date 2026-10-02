@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
 import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
 import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';

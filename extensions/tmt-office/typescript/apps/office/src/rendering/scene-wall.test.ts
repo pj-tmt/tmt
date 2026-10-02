@@ -6,7 +6,7 @@ import {
   TextureSource,
   TilingSprite,
 } from 'pixi.js';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { drawWall } from './scene-wall.js';
 import { ARCHITECTURE_FRAMES } from './architecture-art.js';
 import { wallProjection } from './world-geometry.js';

@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createBridgePulse } from './bridge-pulse.js';
 
 afterEach(() => {

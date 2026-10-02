@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { skybridgeCirculation } from './compact-circulation.js';
 import vectors from '../../../../../contracts/modules-central-grid-vectors.json';
 import bridges from '../../../../../contracts/modules-skybridge-vectors.json';

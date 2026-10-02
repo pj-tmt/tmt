@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { expect } from 'vitest';
+import { expect } from 'vite-plus/test';
 import { parseWholeStdout, runCli, type Sandbox } from './cli-process.js';
 import type { ArtifactFixture } from './native-artifact.js';
 

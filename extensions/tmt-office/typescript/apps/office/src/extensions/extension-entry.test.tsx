@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import definitionDocument from '../../../../../contracts/discussion-extension-v1.json';
 import instanceDocument from '../../../../../contracts/lobby-extension-v1.json';
 import { defaultCatalog } from '../blocks/block-contract.js';

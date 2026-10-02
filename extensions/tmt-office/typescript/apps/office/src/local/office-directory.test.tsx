@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { AreaRoster } from './office-directory.js';
 import type { AreaPopulation } from './office-population.js';
 

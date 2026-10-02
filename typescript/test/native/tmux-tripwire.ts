@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
-import { expect } from 'vitest';
+import { expect } from 'vite-plus/test';
 import { runCli, type Sandbox } from '../support/cli-process.js';
 
 /** A task-owned executable that fails visibly instead of touching host tmux. */

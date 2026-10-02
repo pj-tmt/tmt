@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { imports } from '../support/source-imports.js';
 
 const workspaceRoot = fileURLToPath(new URL('../../', import.meta.url));

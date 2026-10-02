@@ -1,6 +1,6 @@
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { RoomPicker } from './room-picker.js';
 import type { MeetingRoom, RoomPort } from './room-contract.js';
 import { DISPATCH_RECIPIENT_LIMIT } from './dispatch-contract.js';

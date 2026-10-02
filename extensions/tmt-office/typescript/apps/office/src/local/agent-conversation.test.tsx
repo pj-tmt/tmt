@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { AgentConversation } from './agent-conversation.js';
 import type { HistoryDetail, HistoryPage } from './request-history-contract.js';
 import type { DispatchInput, DispatchReceipt } from './dispatch-contract.js';

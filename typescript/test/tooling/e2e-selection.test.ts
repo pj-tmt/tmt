@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { e2eShardFiles, listE2eFiles } from '../../scripts/e2e-shards.mjs';
 
 const typescript = fileURLToPath(new URL('../../', import.meta.url));
@@ -44,16 +44,17 @@ function pnpmArguments(files: string): string[] {
   return JSON.parse(result.stdout) as string[];
 }
 
-/** The filters after the fixed `exec vitest run --config <config>` prefix. */
+/** The filters after the fixed `exec vp test run --config <config>` prefix. */
 function filtersOf(args: string[]): string[] {
-  expect(args.slice(0, 5)).toEqual([
+  expect(args.slice(0, 6)).toEqual([
     'exec',
-    'vitest',
+    'vp',
+    'test',
     'run',
     '--config',
     'test/e2e/vitest.config.ts',
   ]);
-  return args.slice(5);
+  return args.slice(6);
 }
 
 /**
@@ -63,7 +64,7 @@ function filtersOf(args: string[]): string[] {
  */
 function selectedByVitest(filterLists: string[][]): string[][] {
   const script = `
-    import { createVitest } from 'vitest/node';
+    import { createVitest } from 'vite-plus/test/node';
     const lists = JSON.parse(process.argv[1]);
     const vitest = await createVitest('test', {
       config: 'test/e2e/vitest.config.ts', run: true, watch: false, reporters: [],
@@ -107,7 +108,8 @@ describe('what the Docker E2E shards select', () => {
     expect(selections.single).toEqual(['test/e2e/routing.e2e.test.ts']);
     expect(pnpmArguments('')).toEqual([
       'exec',
-      'vitest',
+      'vp',
+      'test',
       'run',
       '--config',
       'test/e2e/vitest.config.ts',

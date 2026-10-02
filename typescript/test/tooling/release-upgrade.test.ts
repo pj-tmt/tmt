@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import type { DraftAsset, DraftRelease } from '../../scripts/release-draft-assets.mjs';
 import {
   PROOF_FILES,

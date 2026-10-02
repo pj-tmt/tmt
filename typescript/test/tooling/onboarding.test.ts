@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { withSandbox } from '../support/cli-process.js';
 
 const guide = readFileSync(

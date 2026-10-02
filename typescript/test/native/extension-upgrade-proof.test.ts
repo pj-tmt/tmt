@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { createArtifact, nativeTarget } from '../support/native-artifact.js';
 

@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createDispatchJournal } from './dispatch-journal.js';
 import { createDispatchComposerState } from './dispatch-composer-state.js';
 import type { DispatchInput, DispatchReceipt } from './dispatch-contract.js';

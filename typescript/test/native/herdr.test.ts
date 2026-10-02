@@ -3,7 +3,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { installTmuxTripwire } from './tmux-tripwire.js';
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { builtinFurniture } from '../blocks/block-contract.js';
 import { startLocalRuntime } from './local-runtime.js';
 import { PROFILE_CATALOG, ProfileConflict } from '../profiles/profile-contract.js';

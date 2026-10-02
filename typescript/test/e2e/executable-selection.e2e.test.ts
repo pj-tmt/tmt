@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { createCliProbe } from '../support/cli-probe.js';
 import { E2EFixture, withE2EFixture } from './harness.js';

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 
 const script = fileURLToPath(new URL('../../scripts/release-publish.mjs', import.meta.url));
 const componentMap = fileURLToPath(new URL('../../../.github/components.json', import.meta.url));

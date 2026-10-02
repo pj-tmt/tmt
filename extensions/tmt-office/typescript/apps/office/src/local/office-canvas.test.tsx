@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { OfficeCanvas } from './office-canvas.js';
 import userEvent from '@testing-library/user-event';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';

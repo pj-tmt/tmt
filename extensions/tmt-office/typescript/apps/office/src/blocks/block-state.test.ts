@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { createBlockState } from './block-state.js';
 import { BlockConflict, builtinFurniture } from './block-contract.js';
 import type { Block, BlockPort, Furniture } from './block-contract.js';

@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { LocalHttpError } from '../local/local-runtime.js';
 import { usePixelCatalog } from './use-pixel-catalog.js';
 import { newPixelDraft, paintPixels, pixelDraftPack } from './pixel-draft.js';

@@ -17,9 +17,9 @@ This private module implements the device side of
   runs the pairing page and gives mounted extension pages `reopenSession` and
   `certifyKey`, whose extension comes from the door's `/sdk/mount` answer.
 
-`pnpm build` bundles the browser entry with Vite (library mode, unminified) into
+`pnpm build` bundles the browser entry with Vite+ on the aliased Vite core (library mode, unminified) into
 `../../rust/tmt-remote/assets/remote-v1.js`, which the door embeds; commit the
-result. `pnpm test:browser` runs the Playwright Chromium pairing smoke against
+result. `pnpm test:browser` uses `vp exec playwright test` to run the Playwright Chromium pairing smoke against
 `rust/target/debug/tmt-remote` (or `TMT_REMOTE_BINARY`).
 
 Network access goes through an injected fetch. The caller persists the device
@@ -42,7 +42,7 @@ pnpm --filter @tmt/remote-client --fail-if-no-match test
 ```
 
 The test command checks the independent Python 3 oracle before running the
-workspace-pinned Vitest suite. Oracle failures stop the command before Vitest;
+workspace-pinned Vite+ test runner with explicit `vitest.config.ts`. Oracle failures stop the command before the test runner;
 assertion failures and missing tests also fail the command. Type checking remains
 in the separate `check` command.
 The existing unconditional Code quality CI job runs these commands using the

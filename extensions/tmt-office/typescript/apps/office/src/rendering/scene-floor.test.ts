@@ -1,5 +1,5 @@
 import { Texture } from 'pixi.js';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { createSceneFloor, floorTileScale } from './scene-floor.js';
 
 it('tiles one shared material at a fixed world scale rather than stretching it to each room', () => {

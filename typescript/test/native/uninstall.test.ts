@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 
 import {

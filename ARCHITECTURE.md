@@ -96,6 +96,11 @@ The two Office packages live under `extensions/tmt-office/typescript` as
 parent-relative members of that same workspace and lockfile. They resolve only
 their declared dependencies, never root-hoisted tooling packages; Office browser
 specs reach the tooling-owned SQLite oracle through `typescript/test/support`.
+Vite+ owns workspace test and Office/addon Vite build, dev and preview entry points.
+It supplies one Vitest runner and aliased Vite core. Each suite keeps its separate
+configuration; the override also supplies that core to the existing plugins. Site and release
+tooling remain outside this workspace lockfile. Compiler, lint and formatter
+commands retain their existing owners.
 Rust, root shell launchers, shared contracts and canonical skills remain outside
 that boundary. `contracts/` holds core contracts only; Office contracts, vectors
 and the Office skill sources live under `extensions/tmt-office/`; the proposed
@@ -4025,15 +4030,15 @@ handle), the pairing link parser and client that accepts the machine key only af
 `serverProof` verifies, the `session.open` client that verifies the machine-signed
 response, and extension key certification. Network access goes through an
 injected fetch. Its browser entry (`src/browser.ts`) is what the door serves:
-`vite build` in library mode bundles it, the canonical builders and the pinned
-BIP-39 list into one unminified ES module in the crate's `assets/`. It runs the
+`vp build` on the aliased Vite core in library mode bundles it, the canonical
+builders and the pinned BIP-39 list into one unminified ES module in the crate's `assets/`. It runs the
 pairing page (fragment removed first, words shown before the owner confirms, the
 key's opaque handle kept in this origin's IndexedDB) and gives mounted pages only
 `reopenSession` and `certifyKey`, whose extension comes from `/sdk/mount`, never
 from the caller. Remote-generated IDs remain UUIDv4, as defined by the channel
 contract. Syntax validation establishes no authority. It uses standard UTF-8 and
 WebCrypto primitives and runs in the existing Code quality job: the independent
-Python oracle must pass before the workspace-pinned Vitest suite runs, and the SDK
+Python oracle must pass before the workspace-pinned Vite+ test runner runs, and the SDK
 tests drive it against a node:crypto stand-in door. A Playwright Chromium smoke
 (`test:browser`, in the path-filtered Remote pairing page workflow) pairs a real
 browser with a real `tmt remote serve` and checks the cookie, the forwarded

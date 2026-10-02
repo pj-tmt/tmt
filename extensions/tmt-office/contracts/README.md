@@ -126,7 +126,7 @@ do not forward native CLI error details to remote clients.
 ## Local conformance
 
 ```sh
-(cd typescript && corepack pnpm exec vitest run test/tooling/office-contracts.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/office-contracts.test.ts)
 (cd typescript && corepack pnpm check:tooling)
 ```
 

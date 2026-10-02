@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 const corpus = readFileSync(
   new URL('../../../contracts/vectors/ed25519-829.jsonl', import.meta.url),
   'utf8',

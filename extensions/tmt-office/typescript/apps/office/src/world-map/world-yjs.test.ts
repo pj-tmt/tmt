@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it } from 'vite-plus/test';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { createWorldYjs } from './world-yjs.js';
 import type { WorldDocument } from './world-contract.js';

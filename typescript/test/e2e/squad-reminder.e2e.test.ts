@@ -1,7 +1,7 @@
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { withE2EFixture } from './harness.js';
 
 it.each(['claude', 'codex'] as const)(

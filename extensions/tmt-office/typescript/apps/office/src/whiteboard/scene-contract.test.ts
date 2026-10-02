@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import example from '../../../../../contracts/whiteboard-scene-v1.json';
 import vectors from '../../../../../contracts/whiteboard-vectors.json';
 import {

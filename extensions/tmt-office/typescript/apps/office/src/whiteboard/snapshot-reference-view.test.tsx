@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { SnapshotReferenceView } from './snapshot-reference-view.js';
 
 const id = '11111111-1111-4111-8111-111111111111';

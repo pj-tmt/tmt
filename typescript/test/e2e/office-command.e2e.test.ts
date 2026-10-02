@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { createArtifact } from '../support/native-artifact.js';
 import { expectJsonResult } from './cli-assertions.js';

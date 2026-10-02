@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { decodeFloorBase, floorObjectBounds } from './object-base.js';
 import { decodeWorldDocument } from './world-contract.js';

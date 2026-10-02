@@ -1,5 +1,5 @@
 import { Container, Texture, TextureSource, TilingSprite } from 'pixi.js';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { BRIDGE_DECK_SCALE, drawBridgeDeck } from './scene-skybridge.js';
 import { FLOOR_DEPTH } from './world-projection.js';
 

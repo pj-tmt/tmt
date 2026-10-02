@@ -1,6 +1,6 @@
 import { fireEvent, render as mount, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { WorldObjectTools } from './world-object-tools.js';
 import type { WorldObject } from './world-contract.js';

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { readWorkspace } from '../../scripts/release-please-config.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));

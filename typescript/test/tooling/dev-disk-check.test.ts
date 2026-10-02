@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 
 const script = fileURLToPath(new URL('../../../scripts/dev-disk-check.sh', import.meta.url));
 

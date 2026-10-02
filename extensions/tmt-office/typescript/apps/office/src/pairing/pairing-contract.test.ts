@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { Buffer } from 'node:buffer';
 import vectors from '../../../../../contracts/pairing-examples.json' with { type: 'json' };
 import {

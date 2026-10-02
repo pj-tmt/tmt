@@ -37,6 +37,10 @@ restoration verifies its public-key binding using native X25519. No seed import
 or intermediate-secret API is provided. Capability probes require a secure
 context and fail on unavailable Ed25519/X25519 without a fallback.
 
+Unit tests use the workspace-pinned Vite+ runner and explicitly select
+`vitest.config.ts`; lint, formatting and the three-engine harness retain their
+separate tools.
+
 See [Colab browser verification](../../../../DEVELOPMENT.md#colab-browser-verification)
 for library checks, unit tests, engine installation, harness commands and local
 binary/report options. The default `test:browser` requires all three engines;

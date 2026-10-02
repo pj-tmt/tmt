@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { indexFloor } from './floor-index.js';
 import type { FloorSpan } from './map-contract.js';
 

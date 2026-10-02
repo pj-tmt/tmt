@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 

@@ -120,7 +120,7 @@ jobs:
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vitest run test/tooling/ci-scope.test.ts test/tooling/release-please-config.test.ts test/tooling/release-stall.test.ts
+          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-please-config.test.ts test/tooling/release-stall.test.ts
       - name: Verify release PR notes
         env:
           GITHUB_TOKEN: ${{ github.token }}

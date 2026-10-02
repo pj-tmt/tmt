@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { isAlphaVersion } from '../../scripts/release-versions.mjs';
 
 describe('isAlphaVersion', () => {

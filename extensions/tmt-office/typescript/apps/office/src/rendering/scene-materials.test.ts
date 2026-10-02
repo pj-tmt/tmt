@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createSceneMaterials } from './scene-materials.js';
 import { ARCHITECTURE_FRAMES } from './architecture-art.js';
 

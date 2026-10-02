@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/modules-island-vectors.json';
 import { decodeMapSource, mapGeometry } from './map-source.js';
 import { moduleBounds, meetingCirculation } from './module-geometry.js';

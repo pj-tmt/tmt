@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import scene from '../../../../../contracts/whiteboard-scene-v1.json';
 import { decodeWhiteboardDocument } from './document-contract.js';
 import { decodeWhiteboardSnapshot } from './snapshot-contract.js';

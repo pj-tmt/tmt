@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { avatarTopInset } from './avatar-layout.js';
 
 it('anchors names to the first visible portrait row for both admitted index widths', () => {

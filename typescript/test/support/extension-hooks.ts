@@ -1,4 +1,4 @@
-import { expect } from 'vitest';
+import { expect } from 'vite-plus/test';
 import { parseWholeStdout, runCli, type Sandbox } from './cli-process.js';
 
 export async function cli(sandbox: Sandbox, args: string[]) {

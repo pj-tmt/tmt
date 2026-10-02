@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 import { EXPECTED_NATIVE_SCHEMA_VERSION } from './storage-fixture.js';
 import {

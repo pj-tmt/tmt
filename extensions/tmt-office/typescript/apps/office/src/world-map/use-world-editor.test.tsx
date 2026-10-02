@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { StrictMode } from 'react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { useWorldEditor } from './use-world-editor.js';
 import { WorldConflict, WorldValidationError } from './world-port.js';

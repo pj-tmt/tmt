@@ -10,7 +10,7 @@ import {
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { cli } from '../support/extension-hooks.js';
 

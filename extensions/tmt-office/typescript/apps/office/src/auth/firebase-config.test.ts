@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { officeDeployment, officeFirebaseConfig } from './firebase-config.js';
 import deployments from '../../../../../contracts/deployment-examples.json';
 

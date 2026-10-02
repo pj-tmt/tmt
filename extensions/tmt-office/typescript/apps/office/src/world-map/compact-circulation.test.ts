@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { compactCirculation } from './compact-circulation.js';
 
 const lobby = { x: 0, y: 0, width: 104, height: 88 };

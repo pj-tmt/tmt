@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { PixelWorkshop } from './pixel-workshop.js';
 import { newPixelDraft, paintPixels, pixelDraftPack } from './pixel-draft.js';
 import type { PropCatalogPage, PropInstallInput } from './prop-catalog-contract.js';

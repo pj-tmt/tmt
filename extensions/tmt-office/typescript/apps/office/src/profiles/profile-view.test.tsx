@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { PROFILE_CATALOG, ProfileConflict } from './profile-contract.js';
 import type { Profile, ProfileMutation, ProfilePort, ProfileSnapshot } from './profile-contract.js';
 import { ProfilePanel } from './profile-view.js';

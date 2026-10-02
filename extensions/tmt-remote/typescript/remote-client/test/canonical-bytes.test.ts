@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { test } from 'vitest';
+import { test } from 'vite-plus/test';
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {

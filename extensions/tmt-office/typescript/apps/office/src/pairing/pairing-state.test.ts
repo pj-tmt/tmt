@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { createPairingState } from './pairing-state.js';
 import { PairingActionError } from './pairing-contract.js';
 import type { ApprovedPairing, PairingRequest, PairingPort } from './pairing-contract.js';

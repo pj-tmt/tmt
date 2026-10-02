@@ -1,6 +1,6 @@
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import {
   expectError,

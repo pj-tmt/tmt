@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/snapshot-reference-vectors.json';
 import { resolveSnapshotReference, snapshotReference } from './snapshot-reference.js';
 

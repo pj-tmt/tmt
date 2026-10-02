@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture } from './harness.js';
 
 const first = '11111111-1111-4111-8111-111111111111';

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
 import { preambleCounters, requestAttempts } from './request-state-oracle.js';
 

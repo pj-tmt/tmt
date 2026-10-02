@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { LocalRuntime } from './local-runtime.js';
 import { LocalHttpError, LocalRuntimeContext } from './local-runtime.js';
 import { LocalBoardPage } from './board-page.js';

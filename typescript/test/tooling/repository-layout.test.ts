@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { ownerOf, parseComponentMap } from '../../scripts/ci-scope.mjs';
 const { runPackedCommand } = await import(
   new URL('../../scripts/packed-command.mjs', import.meta.url).href

@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { REQUIRED_CONTEXTS } from '../../scripts/publication-gates.mjs';
 
 const script = fileURLToPath(new URL('../../scripts/publication-gates.mjs', import.meta.url));

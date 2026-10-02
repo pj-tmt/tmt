@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 
 function extension(sandbox: Sandbox, name: string, script: string): string {

@@ -2,7 +2,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { withE2EFixture } from './harness.js';
 
 const session = '33333333-3333-4333-8333-333333333333';

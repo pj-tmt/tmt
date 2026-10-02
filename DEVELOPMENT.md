@@ -218,8 +218,13 @@ selects only tooling tests; `office:test` explicitly selects app tests and fails
 on empty discovery. Office uses Oxfmt; tooling and repository docs use the
 `typescript/.prettierrc` Prettier configuration. Run
 `pnpm --filter @tmt/office format` for app formatting, not the tooling formatter.
-Root tooling, native, stress and Docker suites use exact Vitest 5.0.1 alongside the
-extension packages; their separate configurations retain their own test discovery.
+Root tooling, native, stress, Docker and extension suites run through exact
+Vite+ 1.0.0 with bundled Vitest 5.0.1. Their separate configurations retain their
+own test discovery and are selected explicitly with `--config`. Use
+`pnpm test:watch` for watch mode; `vp test` runs once by default. The workspace
+Vite override makes Office/addon build, dev and preview commands and their plugins
+share the aliased core. The alias exposes no `vite` executable; those commands use
+`vp build`, `vp dev` and `vp preview` with their existing compiler steps and flags.
 Each test configuration sets `clearMocks: false` to preserve mock history, and
 ordered suites use `{ concurrent: false }`.
 Vitest 5 changes generated `it.each` case labels: `$field` strings lose
@@ -229,7 +234,7 @@ source template and case index alongside both actual titles and equal statuses;
 unchanged labels remain exact multiset matches. Preserve the raw reports rather
 than silently normalizing these differences.
 Office wire-schema conformance is a nested tooling test. From `typescript`, run
-`corepack pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
+`corepack pnpm exec vp test run --config vitest.config.ts test/tooling/office-contracts.test.ts`. See
 [`extensions/tmt-office/contracts`](extensions/tmt-office/contracts/README.md) for its single source of truth,
 versioning and limits. Design vectors are not executable authorization or crash
 recovery evidence; downstream suites must prove those behaviors separately.
@@ -238,6 +243,10 @@ configurations also select the threads pool and retain their own execution rules
 
 For an Office-only clean checkout, use `pnpm office:install`. It installs from
 the app directory against the same workspace lockfile, without workspace recursion.
+The Vite/Vitest overrides have one owner in `typescript/package.json`
+(`pnpm.overrides`). Pinned pnpm also reads that manifest at the lockfile directory
+for isolated installs; `--ignore-workspace` skips the workspace YAML.
+`pnpm-workspace.yaml` retains package membership and the lifecycle script allowlist.
 With pinned pnpm 10.33, a plain Office `--filter` install still builds root
 SQLite; the explicit isolated install avoids that unrelated dependency. Do not
 create an app lockfile or remove `--frozen-lockfile` to work around a mismatch.
@@ -309,7 +318,7 @@ Squad-only groups run Squad checks, and shared changes select the full native
 scope. Missing, unreadable, ambiguous or empty range evidence fails closed to
 full native verification with both E2E shards and Office unselected, and the selection summary
 reports the fallback. PR merge-base selection is unchanged. The macOS exception is described in the runtime smoke matrix below.
-Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
+Check event wiring with `pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts`
 from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
 [Architecture](ARCHITECTURE.md) owns the event, gate and main-ref cache policy;
 queue/ruleset changes remain a repository-owner operation.
@@ -337,7 +346,7 @@ Methodology limits and unknown evidence are described in the script and report.
 The local cache holds REST responses; `--offline` requires cached evidence.
 `--max-requests N` overrides the 500-request budget; split capped searches into
 smaller windows. Posting is separate. Verify with
-`pnpm exec vitest run test/tooling/merge-queue-metrics.test.ts` from `typescript/`.
+`pnpm exec vp test run --config vitest.config.ts test/tooling/merge-queue-metrics.test.ts` from `typescript/`.
 
 Linux CI package installation uses `.github/actions/apt-install`: each apt update
 or install attempt has a 120-second timeout with a 10-second forced-kill grace.
@@ -375,7 +384,7 @@ Private leaves declare `releaseConsumers` in the component map; today only TUI n
 The release workflow uses `release-please-run.mjs` with the pinned API to attribute these commits
 before the ordinary splitter, excludes and product release cutoffs. No `additional-paths` option
 exists in 17.11.2. An upgrade must re-verify the API shape and run
-`pnpm exec vitest run test/tooling/release-please-config.test.ts` from `typescript/`:
+`pnpm exec vp test run --config vitest.config.ts test/tooling/release-please-config.test.ts` from `typescript/`:
 the suite exercises real release candidates, TUI-only and unrelated/private controls, mixed commits
 and independent release cutoffs. Ownership, CI selection and version/lock updates remain separate.
 
@@ -1279,7 +1288,7 @@ gh api repos/herdrdev/herdr/releases/tags/v0.9.1 \
   -q '.assets[]|select(.name=="herdr-macos-aarch64")|.digest'   # compare:
 shasum -a 256 /tmp/hdrbin/herdr-macos-aarch64
 mv /tmp/hdrbin/herdr-macos-aarch64 /tmp/hdrbin/herdr && chmod 755 /tmp/hdrbin/herdr
-TMT_TEST_HERDR=/tmp/hdrbin/herdr pnpm exec vitest run --config test/native/vitest.config.ts test/native/herdr.test.ts
+TMT_TEST_HERDR=/tmp/hdrbin/herdr pnpm exec vp test run --config test/native/vitest.config.ts test/native/herdr.test.ts
 ```
 
 It starts a headless server on a short private socket with update checks off,
@@ -1294,7 +1303,7 @@ driver and carries over with its server ID once approved:
 git worktree add --detach ../tmt-previous <revision before #1082>
 (cd ../tmt-previous/rust && cargo build --locked -p tmt-cli --bin tmt)
 TMT_TEST_HERDR=/tmp/hdrbin/herdr TMT_TEST_PREVIOUS_TMT="$(cd ../tmt-previous && pwd)/rust/target/debug/tmt" \
-  pnpm exec vitest run --config test/native/vitest.config.ts test/native/herdr.test.ts
+  pnpm exec vp test run --config test/native/vitest.config.ts test/native/herdr.test.ts
 ```
 
 The Herdr host driver (the `tmt-driver-herdr` library, whose executable is a
@@ -1393,7 +1402,7 @@ must contain no deleted TypeScript source and must not present Rust as a
 cross-language percentage. Run focused tooling tests with:
 
 ```bash
-(cd typescript && corepack pnpm exec vitest run test/tooling)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling)
 ```
 
 Native process tests must prove the missing-native negative control and selected
@@ -1449,7 +1458,7 @@ host:
 docker build --build-arg TMT_NATIVE_PROFILE=release -f typescript/test/e2e/Dockerfile -t "tmt-performance:$worktree" .
 docker run --rm --init --network none \
   -e TMT_PERFORMANCE_BASELINE=1 "tmt-performance:$worktree" \
-  sh -c 'cd /workspace/typescript && pnpm exec vitest run --config test/e2e/vitest.config.ts test/e2e/performance-baseline.e2e.test.ts'
+  sh -c 'cd /workspace/typescript && pnpm exec vp test run --config test/e2e/vitest.config.ts test/e2e/performance-baseline.e2e.test.ts'
 docker image rm "tmt-performance:$worktree"
 ```
 
@@ -2306,7 +2315,7 @@ is capped at 40 commits. Errors and caps fail visibly. Test with fixtures only:
 
 ```bash
 cd typescript
-pnpm exec vitest run test/tooling/release-pr-safety.test.ts
+pnpm exec vp test run --config vitest.config.ts test/tooling/release-pr-safety.test.ts
 pnpm test:run
 pnpm check
 cd ..
@@ -2390,7 +2399,7 @@ Fixture and full verification commands:
 
 ```bash
 cd typescript
-pnpm exec vitest run test/tooling/pr-title-check.test.ts test/tooling/release-pr-safety.test.ts
+pnpm exec vp test run --config vitest.config.ts test/tooling/pr-title-check.test.ts test/tooling/release-pr-safety.test.ts
 pnpm test:run
 pnpm check
 cd ..
@@ -2574,7 +2583,7 @@ uses only a stub. No official remote installer/release exists.
 (cd rust && cargo clippy --offline --locked -p tmt-remote --all-targets -- -D warnings)
 (cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
 node typescript/scripts/release-please-config.mjs --check
-(cd typescript && corepack pnpm exec vitest run test/tooling/release-please-config.test.ts test/tooling/ci-scope.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-please-config.test.ts test/tooling/ci-scope.test.ts)
 ```
 
 The door embeds `extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js`,
@@ -2633,7 +2642,7 @@ Build and verify it from the repository root:
 (cd rust && cargo clippy --offline --locked -p tmt-colab --all-targets -- -D warnings)
 (cd rust && cargo test --offline --locked -p tmt-cli --test architecture)
 node typescript/scripts/release-please-config.mjs --check
-(cd typescript && corepack pnpm exec vitest run test/tooling/ci-scope.test.ts)
+(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts)
 ```
 
 Tests inject temporary data roots; never point them at the real TMT directory.
@@ -2882,7 +2891,7 @@ items. Test locally without credentials or mutations:
 
 ```bash
 cd typescript
-corepack pnpm exec vitest run test/tooling/project-release.test.ts
+corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts
 corepack pnpm check:tooling
 cd ..
 actionlint .github/workflows/project-release.yml

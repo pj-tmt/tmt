@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { expect } from 'vitest';
+import { expect } from 'vite-plus/test';
 import { runCli, type Sandbox } from './cli-process.js';
 import { createArtifact } from './native-artifact.js';
 

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import userEvent from '@testing-library/user-event';
 import type { Block } from './block-contract.js';
 import {

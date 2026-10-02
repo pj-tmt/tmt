@@ -12,7 +12,7 @@ import {
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 import {
   expectError,

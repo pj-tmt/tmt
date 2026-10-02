@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import sample from '../../../../../contracts/prop-pack-v2-sample.tmtprop.json' with { type: 'json' };
 import customizationVectors from '../../../../../contracts/prop-customization-vectors.json';
 import { indexedCells } from '../rendering/indexed-art.js';

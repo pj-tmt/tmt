@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 
 // #519/#872: Stop records context usage and completed-request counters from

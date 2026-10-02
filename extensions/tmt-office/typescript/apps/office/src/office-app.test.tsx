@@ -1,7 +1,7 @@
 import { createMemoryHistory } from '@tanstack/react-router';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { OfficeApp } from './office-app.js';
 import { createOfficeRouter } from './router.js';
 

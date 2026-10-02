@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { readBoundedBody } from './response-body.js';
 
 it('joins exact-limit chunks without trusting content length', async () => {

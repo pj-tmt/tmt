@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createPlatformArt, PLATFORM_FRAMES } from './platform-art.js';
 
 const evidence = vi.hoisted(() => ({ disposed: 0, decoded: 0 }));

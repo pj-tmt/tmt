@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import builtinDocument from '../../../../../contracts/builtin-props-v1.tmtprop.json' with { type: 'json' };
 import vectors from '../../../../../contracts/prop-block-vectors.json' with { type: 'json' };
 import {

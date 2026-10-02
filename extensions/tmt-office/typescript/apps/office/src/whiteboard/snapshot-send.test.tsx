@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { PROFILE_CATALOG } from '../profiles/profile-contract.js';
 import type { ProfilePort, ProfileProjection } from '../profiles/profile-contract.js';
 import type { DispatchInput, DispatchReceipt } from '../local/dispatch-contract.js';

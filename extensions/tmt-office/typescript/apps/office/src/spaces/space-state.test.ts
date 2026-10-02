@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vite-plus/test';
 import { createSpaceState } from './space-state.js';
 import type { SpacePage, SpacePort } from './space-contract.js';
 

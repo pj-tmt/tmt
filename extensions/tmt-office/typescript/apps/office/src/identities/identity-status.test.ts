@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { decodeIdentityStatus, isStatusFresh, statusCue } from './identity-status.js';
 
 const status = {

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 const read = (relative: string) => readFileSync(path.join(repository, relative), 'utf8');

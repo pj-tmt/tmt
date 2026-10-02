@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { LocalHttpError, startLocalRuntime } from './local-runtime.js';
 import { REQUEST_HISTORY_PAGE_BYTES } from './request-history-contract.js';
 

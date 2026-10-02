@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import document from '../../../../../contracts/commons-preset-v1.json';
 import discussion from '../../../../../contracts/discussion-extension-v1.json';
 import discussionInstance from '../../../../../contracts/lobby-extension-v1.json';

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import vectors from '../../../../../contracts/modules-v2-vectors.json';
 import { officeWorldFixture } from '../../../../../../../typescript/test/support/office-world.js';
 import { decodeModuleMap } from './module-contract.js';

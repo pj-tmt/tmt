@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { documentPoint, dragBox, elementBounds, hitElement, moveElement } from './geometry.js';
 import type { WhiteboardElement } from './scene-contract.js';
 
