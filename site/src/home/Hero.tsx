@@ -27,21 +27,8 @@ export function Hero() {
           <p className="mb-3.5 text-[17px] leading-normal sm:text-[18px]">
             tmt passes messages between agents and keeps a receipt for every reply. The board, colab
             and meet are built on that one core. It is made for any agent, any harness and any
-            machine; the list below shows what runs today and what is on the way.
+            machine; the row below shows what runs today and what is on the way.
           </p>
-          <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0 font-mono text-xs">
-            {chips.map((chip) => (
-              <li
-                key={chip.name}
-                className={`rounded-full border px-2.5 py-1 ${
-                  chip.note ? "border-dashed border-rule text-dim" : "border-rule text-muted"
-                }`}
-              >
-                {chip.name}
-                {chip.note && <Tag kind={chip.note} />}
-              </li>
-            ))}
-          </ul>
           <p className="mt-5 mb-0 font-mono text-sm">
             <Link
               to="/"
@@ -57,6 +44,22 @@ export function Hero() {
         </div>
         <BoardScene />
       </div>
+      <ul
+        aria-label="Works with"
+        className="mt-7 mb-0 flex list-none flex-wrap gap-1.5 p-0 font-mono text-xs"
+      >
+        {chips.map((chip) => (
+          <li
+            key={chip.name}
+            className={`rounded-full border px-2.5 py-1 ${
+              chip.note ? "border-dashed border-rule text-dim" : "border-rule text-muted"
+            }`}
+          >
+            {chip.name}
+            {chip.note && <Tag kind={chip.note} />}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
