@@ -54,7 +54,7 @@ completed-request counters; measure changes within an epoch. Cached input
 already belongs to input.
 Use its epoch/sequence and completeness/gap evidence, never context-size
 differences or a missing value as zero. Hook timestamps are not heartbeats.
-USER-GUIDE.md owns user instructions and ARCHITECTURE.md owns the bounded
+The [handbook](https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/working.mdx) owns user instructions and ARCHITECTURE.md owns the bounded
 provider normalization and scan contract.
 
 ## Delivery safety
@@ -713,7 +713,7 @@ that fails before the provider confirms the session marks it stale; a stale
 session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
 combine `--resume` with an explicit command, and never resend a task after a
 failed resume. Details:
-<https://github.com/wkh237/tmt/blob/main/USER-GUIDE.md#resume-a-remembered-session>.
+<https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/working.mdx#tmt-resume>.
 
 TMT records the owned command's exit and keeps the pane binding. Its exit status
 is the command's status, or 128 plus a terminating signal number. It reaps only

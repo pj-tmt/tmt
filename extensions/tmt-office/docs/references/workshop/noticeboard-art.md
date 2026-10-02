@@ -1,6 +1,6 @@
 # Commons noticeboard artwork
 
-Runtime artifact: [commons-props-v2.tmtprop.json](../../../../extensions/tmt-office/contracts/commons-props-v2.tmtprop.json).
+Runtime artifact: [commons-props-v2.tmtprop.json](../../../contracts/commons-props-v2.tmtprop.json).
 The pack contains one freestanding noticeboard with four independently authored
 upright views. It grants no discussion capability by itself.
 

@@ -5,7 +5,7 @@ downward front fascia, green skybridges and freestanding furnishings. High walls
 doorframes and wall-decoration authoring are no longer visual requirements.
 The [modular v1 package](modular-v1/README.md) supplies retained artwork and
 provenance, not the current wall geometry or editor specification.
-[Rooms and walls](../../../../extensions/tmt-office/contracts/rooms-and-walls.md) remains the
+[Rooms and walls](../../../contracts/rooms-and-walls.md) remains the
 single product-behavior owner; images are design targets, not runtime evidence.
 
 [Anchored chat](04-agent-anchored-chat.png) is retained only for compact

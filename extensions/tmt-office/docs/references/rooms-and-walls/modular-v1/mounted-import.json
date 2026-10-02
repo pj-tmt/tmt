@@ -3,7 +3,7 @@
   "sha256": "2bbe7815dcf5ba26d217d267e0ee4d3da70cffc0b16b42977dbe4336bf5a1e6c",
   "size": [1254, 1254],
   "label": "Modular wall objects",
-  "output": "../../../../../extensions/tmt-office/contracts/modular-mounted-v2.tmtprop.json",
+  "output": "../../../../contracts/modular-mounted-v2.tmtprop.json",
   "props": [
     {
       "key": "mounted-window",

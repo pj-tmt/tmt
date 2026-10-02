@@ -165,5 +165,5 @@ tmt learn --skill
 tmt install claude --json   # A correct existing link reports changed: false
 ```
 
-Use [the user guide](../USER-GUIDE.md) for the first live exchange, recovery,
-roles, and configuration.
+Use [Working](../site/src/chapters/working.mdx) for the first live exchange,
+recovery and roles, and [Settings](../site/src/chapters/settings.mdx) for configuration.

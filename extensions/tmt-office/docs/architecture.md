@@ -1,7 +1,7 @@
 # Office architecture
 
 Current browser and data ownership is defined here. [Design](design.md),
-[planned commands](commands.md) and [contracts](../../extensions/tmt-office/contracts/README.md)
+[planned commands](commands.md) and [contracts](../contracts/README.md)
 separate proposed capabilities from implemented behavior.
 
 ## Current implementation
@@ -19,12 +19,12 @@ Console-managed tester gate controls direct client create/read of owner-only wor
 Firestore Rules enforce both gates, immutable fields and default-deny paths.
 This is not an invitation, presence or connected-agent implementation.
 
-Rules also implement the [agent grant boundary](../../extensions/tmt-office/contracts/agent-grant-v1.md):
+Rules also implement the [agent grant boundary](../contracts/agent-grant-v1.md):
 trusted per-agent principals can access only an assigned UUID block with matching
 installation/identity claims, live capability/lease and current owner admission.
 Direct client grant writes are owner-only revocation; clients cannot issue or
 enlarge one. The trusted issuer also accepts scoped agent/proof retirement
-cancellation through its [pairing contract](../../extensions/tmt-office/contracts/pairing-v1.md#retirement-cancellation). This
+cancellation through its [pairing contract](../contracts/pairing-v1.md#retirement-cancellation). This
 supports explicit retained-block reassignment during owner approval. Native
 credential consumption is owned
 by the optional companion described below. Retained UUID blocks
@@ -95,7 +95,7 @@ Firebase setup is implied.
 | `rust/`                                            | Existing local CLI, domain and concrete adapters               | Office assets, Node or a Firebase account required by ordinary commands |
 | `extensions/tmt-office/rust/tmt-office`            | Companion executable, embedded SPA and local HTTP service      | A second implementation of core identity, messaging or storage policy   |
 | `extensions/tmt-office/rust/tmt-office-storage`    | Office database, schema and resumable migration of Office rows | Core storage internals, copied identity/room authority or core writes   |
-| `docs/office`                                      | Definitions, scenarios and operational guidance                | Describing planned behavior as shipped                                  |
+| `extensions/tmt-office/docs`                       | Definitions, scenarios and operational guidance                | Describing planned behavior as shipped                                  |
 
 ### Offline local service
 
@@ -125,7 +125,7 @@ nearest expiry and resamples on visibility, without network or per-actor polling
 suppresses them for an identity with an open conversation HUD. Info retains exact
 text and update/expiry timestamps, independently of endpoint presence. Avatar saves
 and directory refreshes never use profile revision to order or overwrite status.
-The [identity status contract](../../contracts/identity-status-v1.md) owns semantics.
+The [identity status contract](../../../contracts/identity-status-v1.md) owns semantics.
 
 `world-map/world-yjs` owns the mounted layout's Y.Doc and selective Y.UndoManager.
 Stable object/module/area UUIDs are separate map entries; an entity's placement or
@@ -241,12 +241,12 @@ no doorway art. Skybridges and platforms share the same floor plane. Constructio
 ghosts use that same flat footprint. V6 authoring no longer offers the Walls
 library or mounting action; historical mounted content still requires explicit
 conversion, not silent deletion. See the owning
-[platform contract](../../extensions/tmt-office/contracts/modules-v2.md#version-6-cosmic-platforms).
+[platform contract](../contracts/modules-v2.md#version-6-cosmic-platforms).
 This describes the current implementation. The
-[modular-cell target](../../extensions/tmt-office/contracts/rooms-and-walls.md#user-built-world-and-area-lifecycle)
+[modular-cell target](../contracts/rooms-and-walls.md#user-built-world-and-area-lifecycle)
 derives circulation and boundaries from fixed slots, replacing freeform authoring
 without independently editable module/floor graphs.
-Native [versioned modular topology](../../extensions/tmt-office/contracts/modules-v2.md) projects module
+Native [versioned modular topology](../contracts/modules-v2.md) projects module
 slots into the same map validator and preserves the source in the world codec.
 Browser `world-map/map-source` owns the v1–v8 source union and read-only projection
 cache. Rendering, population and object discovery consume that geometry; world
@@ -298,7 +298,7 @@ the same form links a selected existing area without replacing furniture or
 retargeting any resource. Clearing an area binding never deletes an identity or
 canonical room. Yjs still owns only the layout change, not canonical-room creation.
 New installations receive the native furnished v8 platform preset described in
-[root architecture](../../ARCHITECTURE.md#typescript-workspace-boundary). Existing-world
+[root architecture](../../../ARCHITECTURE.md#typescript-workspace-boundary). Existing-world
 conversion uses the explicit module-upgrade preview described in root architecture;
 retained layouts keep object editing and explicit area removal to repair rejected inputs.
 A new preset never replaces saved content.
@@ -317,7 +317,7 @@ kinds. Coordinate forms apply one complete bounded edit, rather than admitting
 partial numeric input. Full wall-face visual acceptance remains in progress.
 Web destinations use the
 existing extension binding and guarded review path, as defined in
-[extension v1](../../extensions/tmt-office/contracts/extension-v1.md#web-destinations).
+[extension v1](../contracts/extension-v1.md#web-destinations).
 
 `scene-application` and `scene-frames` retain renderer initialization, resize,
 teardown and invalidation-only scheduling; hidden views do not render.
@@ -422,7 +422,7 @@ retain the complete upright envelope. The art's feet anchor at the base front;
 rotations preserve its physical center. Authoring recipes adopt a base only on
 an explicit placement, move or turn on v6+ platform maps, never while reading a
 world or editing an earlier map projection. The
-[world contract](../../extensions/tmt-office/contracts/world-v1.md) owns its bounds and admission.
+[world contract](../contracts/world-v1.md) owns its bounds and admission.
 A precision rotation action remains
 available for keyboard users and uses the same centered rotation and placement
 validator. Grid rounding is relative to the canonical footprint, so odd-sized
@@ -518,7 +518,7 @@ lifecycle, and `drawing.ts` owns the admitted scene painter. Pen previews append
 and paint incremental segments, not full-scene state on every pointer event.
 The editor is shared by a direct local route and a lazy-mounted spatial panel;
 snapshot capture and request delivery retain separate state owners.
-[Whiteboard v1](../../extensions/tmt-office/contracts/whiteboard-v1.md) owns
+[Whiteboard v1](../contracts/whiteboard-v1.md) owns
 document fields, work budgets, resource behavior and the immutable reference contract.
 Native `office_whiteboard::snapshot` now owns capture metadata and exact saved-revision
 policy; `tmt-office-storage::office_whiteboard::snapshot` appends the retained scene, selected IDs
@@ -542,7 +542,7 @@ companion protocol, calling the same retained repository as HTTP. Its parent-sid
 shared bounded process owner. CLI file export stays outside the companion and uses
 the adapter's private-staging/no-clobber publisher. Local reference projections
 share conformance vectors; copying references submits no request. The
-[dispatch capability](../../extensions/tmt-office/contracts/dispatch-v1.md)
+[dispatch capability](../contracts/dispatch-v1.md)
 now composes explicit UUID recipients over the native request service, with one
 transaction for inbox writes and its immutable operation receipt. `LocalRuntime.dispatch`
 admits input and checks returned operation/audience over shared auth and cancellation.
@@ -560,7 +560,7 @@ selection, review and acceptance display without mirroring request state.
 instruction, retaining the underlying board while explicitly guarding request
 draft disposal. It adds no reference grammar, snapshot or dispatch store.
 `local/broadcaster` selects no-reply semantics. Capture/image retries remain separate.
-Meeting membership has its own [stored resource](../../extensions/tmt-office/contracts/meeting-room-v1.md).
+Meeting membership has its own [stored resource](../contracts/meeting-room-v1.md).
 Full-roster dispatch checks revision and effective UUID audience within the enqueue transaction;
 replay of accepted operations does not consult later membership. `RoomPicker`
 edits/adopts rosters through the local port, sharing the controlled
@@ -606,12 +606,12 @@ The revision-aware draft owner does not move into PixiJS. The former per-block
 HTTP/private transport and browser port are removed. Retained schema-19 layouts distinguish identity UUIDs from
 the installation lobby through `LocalBlockTarget`. Whole-world migration reads
 them without creating rows, preserving saved empty overrides and resource bindings.
-The [local target contract](../../extensions/tmt-office/contracts/local-block-targets.md) records
+The [local target contract](../contracts/local-block-targets.md) records
 that retained source format, not the new local editing interface.
-The [local service contract](../../extensions/tmt-office/contracts/local-service-v1.md) owns its
+The [local service contract](../contracts/local-service-v1.md) owns its
 routes and bounded shared prop resolution.
 
-The [map v1 foundation](../../extensions/tmt-office/contracts/map-v1.md) is the topology
+The [map v1 foundation](../contracts/map-v1.md) is the topology
 owner, separate from resource contents and existing stored block layouts. Native
 admission derives reachability and walls; browser `world-map` only decodes bounded
 values, projects draft geometry and applies module or retained-area edits. It must
@@ -623,7 +623,7 @@ storage operation. The CLI requires an explicit revision and the read fingerprin
 at revision zero; it never selects an identity or starts the service implicitly.
 Legacy native/browser scenario fixture conversion is unfinished; production
 local block transport has been removed.
-The native [whole-world value](../../extensions/tmt-office/contracts/world-v1.md) now composes
+The native [whole-world value](../contracts/world-v1.md) now composes
 map and prop admission, retaining ordered placements and reporting invalidated
 object IDs. Wall/window/door rules are core-owned. Schema 28 and
 `tmt-office-storage::office_world` now provide atomic revisioned saves and explicit legacy
@@ -693,7 +693,7 @@ composition and inert `IndexedRaster` used by retained robot art; there is no pe
 storage or network lookup.
 
 The local directional-prop implementation extends the same catalog with
-[prop pack v2](../../extensions/tmt-office/contracts/prop-pack-v2.md). `office_prop` owns versioned
+[prop pack v2](../contracts/prop-pack-v2.md). `office_prop` owns versioned
 admission, framed identity and the derived prop-only input budgets; schema 18
 widens only the prop BLOB constraint while preserving exact installed bytes.
 `propFrame` owns browser orientation selection, and `rendering/indexed-art.ts`
@@ -733,7 +733,7 @@ confirmed art is added to the mounted catalog observation, not a browser store.
 The local editor's Add menu uses built-in and observed custom packs under the
 whole-world draft/Save owner. The retained paired block editor uses its existing
 block owner; it does not write the local world. Avatar admission independently
-supports [v1 and v2](../../extensions/tmt-office/contracts/avatar-pack-v2.md), not prop-pack schemas.
+supports [v1 and v2](../contracts/avatar-pack-v2.md), not prop-pack schemas.
 
 The local discussion board follows the same companion boundary without sharing
 the layout model. Lobby and room-bound entries mount one board view in a native
@@ -762,7 +762,7 @@ dialog focus/Escape behavior and keeps editable resource drafts mounted across c
 The read-only notebook panel instead unmounts on close, aborting pending reads and
 revalidating on reopen. `notebooks` owns the typed read port, inert text view and
 explicit saved-identity attachment controls. It never owns note storage or writes;
-the [existing notes owner](../../ARCHITECTURE.md#saved-identity-notes) resolves files.
+the [existing notes owner](../../../ARCHITECTURE.md#saved-identity-notes) resolves files.
 The renderer receives inert `SceneComponent` values,
 never capability names or board operations. `scene-components` owns action plaques,
 hover/focus and matching hit geometry; `scene-props` shares admitted artwork
@@ -770,10 +770,10 @@ painting with ordinary furniture. Plaques retain readable screen size while the
 world zooms; changes invalidate on demand, not through an animation loop.
 `contracts/record.ts` owns generic exact-record/text checks reused by artwork and
 extension admission; artwork-specific limits remain with their existing contracts.
-The [v1 binding contract](../../extensions/tmt-office/contracts/extension-v1.md) defines current
+The [v1 binding contract](../contracts/extension-v1.md) defines current
 scope. Editable persisted extension placement, general external loading and broader
 host capabilities remain under the accepted
-[extension design](../../extensions/tmt-office/contracts/functional-props.md).
+[extension design](../contracts/functional-props.md).
 
 Local service startup opens and closes the shared storage before publishing its
 ready receipt or accepting browser workers. First-run migrations therefore finish
@@ -805,7 +805,7 @@ version.
 
 There is no work connector, deployed service or shared browser runtime package yet.
 The independently versioned native `tmt-office` companion currently implements
-the [typed local protocol](../../extensions/tmt-office/contracts/native-companion.md), including
+the [typed local protocol](../contracts/native-companion.md), including
 pairing, local status, an authorized assigned-block existence check and
 revision-safe block show/apply. Pure native scene validation lives in
 `tmt-office-model::office_block`; readable JSON belongs to `tmt-office-model::codec::office_block`.
@@ -820,7 +820,7 @@ resource-lease renewal, identity retirement hook consumption and protected
 scope records. The public alpha companion is distributed through the verified
 native release path; local service and whole-world operation availability in a
 published pair still depends on a
-coordinated release. Follow [native installation guidance](../NATIVE-INSTALL.md)
+coordinated release. Follow [native installation guidance](../../../docs/NATIVE-INSTALL.md)
 for release status and compatibility rather than maintaining another version ledger
 here. The CLI's explicit `office` subtree installs, inspects, updates and deactivates
 it through existing native owners; other CLI operations do not execute or probe it.
@@ -843,7 +843,7 @@ The same editor/state/codec handles home and UUID blocks; switching targets remo
 the editor and discards unsaved drafts. Submitted writes may still complete against
 their original target, but cannot repopulate another editor. Layout mutations do
 not edit grants, profiles or notebooks. Expiry labels are observations, never
-presence or permission decisions. See the [grant contract](../../extensions/tmt-office/contracts/agent-grant-v1.md#owner-inventory)
+presence or permission decisions. See the [grant contract](../contracts/agent-grant-v1.md#owner-inventory)
 for paging consistency and limitations.
 
 ### Trusted pairing issuer
@@ -851,7 +851,7 @@ for paging consistency and limitations.
 `extensions/tmt-office/typescript/services/office/functions` is a separate Node 22 Functions package, not a CLI
 runtime or SPA dependency. Official Admin/Functions SDKs own token verification,
 signing, Firestore transactions and HTTP platform integration; no custom JWT or
-database client is introduced. Its [pairing contract](../../extensions/tmt-office/contracts/pairing-v1.md)
+database client is introduced. Its [pairing contract](../contracts/pairing-v1.md)
 owns the wire format and recovery policy.
 
 `pairing-contract` owns bounded wire decoding; `pairing-record` owns strict
@@ -905,13 +905,13 @@ disabled source grant in the same transaction. Its transfer receipt prevents
 concurrent or ancestral reuse; only a verified abandoned unclaimed reservation
 may be superseded. Grant validation remains shared with claim and renewal.
 No block content, profile or notebook is copied. The exact transition belongs in
-[pairing v1](../../extensions/tmt-office/contracts/pairing-v1.md#retained-block-reassignment).
+[pairing v1](../contracts/pairing-v1.md#retained-block-reassignment).
 
 ### Public deployment discovery
 
 `auth/firebase-config.ts` owns Firebase configuration and issuer selection.
 Vite publishes only the allowlisted
-[native deployment descriptor](../../extensions/tmt-office/contracts/native-pairing.md) at
+[native deployment descriptor](../contracts/native-pairing.md) at
 `/.well-known/tmt-office.json`; private environment values are never spread into
 it. Preview and unconfigured cloud publish no usable descriptor. Invalid
 configured deployments fail the build. Browser transport consumes this same

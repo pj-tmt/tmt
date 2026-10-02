@@ -97,7 +97,7 @@ describe('CI area selection', () => {
     expect(
       selectCiAreas([
         'extensions/tmt-office/typescript/apps/office/src/main.tsx',
-        'docs/office/architecture.md',
+        'extensions/tmt-office/docs/architecture.md',
       ])
     ).toEqual({
       native: false,
@@ -167,7 +167,6 @@ describe('CI area selection', () => {
   it.each([
     'ARCHITECTURE.md',
     'DEVELOPMENT.md',
-    'USER-GUIDE.md',
     'docs/extension-api.md',
     '.agents/skills/tmt-dev/SKILL.md',
     '.github/pull_request_template.md',
@@ -190,7 +189,7 @@ describe('CI area selection', () => {
 
   it('keeps look-alikes of the narrowed classes failing closed', () => {
     for (const lookAlike of [
-      'docs/office.md.orig',
+      'extensions/tmt-office/docs.md.orig',
       'docs/new/nested.md',
       'README.md.bak',
       'typescript/test/e2e/squad.e2e.test.ts.orig',
@@ -280,12 +279,12 @@ describe('CI area selection', () => {
       nativeOffice: false,
     });
     for (const read of [
-      'docs/office/architecture.md',
+      'extensions/tmt-office/docs/architecture.md',
       'extensions/tmt-office/README.md',
       'typescript/test/e2e/harness.ts',
       'typescript/test/support/office-world.ts',
       'contracts/office/profile-v1.md',
-      'docs/office.md.orig',
+      'extensions/tmt-office/docs.md.orig',
     ]) {
       expect(selectCiAreas(['ARCHITECTURE.md', read]).nativeOffice).toBe(true);
     }
@@ -856,7 +855,7 @@ describe('Office-owned browser PR selection', () => {
     'extensions/tmt-office/rust/tmt-office/src/main.rs',
     'extensions/tmt-office/contracts/world-v1.md',
     'extensions/tmt-office/skills/tmt-office/SKILL.md',
-    'docs/office/architecture.md',
+    'extensions/tmt-office/docs/architecture.md',
     'typescript/test/native/office-storage.test.ts',
   ])('selects Office-owned path %s', (file) => {
     expect(selectOfficeBrowser([file])).toBe(true);
@@ -895,7 +894,7 @@ describe('Office-owned browser PR selection', () => {
     'typescript/test/support-other/fixture.ts',
     'typescript/test/e2e/harness-other/fixture.ts',
     'typescript/test/e2e/binding.e2e.test.ts',
-    'docs/office-other/architecture.md',
+    'extensions/tmt-office-other/docs/architecture.md',
     'extensions/tmt-squad/rust/tmt-squad/src/main.rs',
   ])('does not spend PR browser runners on non-Office path %s', (file) => {
     expect(selectOfficeBrowser([file])).toBe(false);
@@ -935,8 +934,8 @@ describe('CI diff and command integration', () => {
       git(['init', '--quiet']);
       writeFileSync(path.join(root, 'README.md'), 'fixture\n');
       const base = commit();
-      mkdirSync(path.join(root, 'docs/office'), { recursive: true });
-      const historicalSource = path.join(root, 'docs/office/name with\nnewline.ts');
+      mkdirSync(path.join(root, 'extensions/tmt-office/docs'), { recursive: true });
+      const historicalSource = path.join(root, 'extensions/tmt-office/docs/name with\nnewline.ts');
       writeFileSync(historicalSource, 'export const fixture = true;\n');
       const historical = commit();
       expect(readChangedCiAreas(base, historical, root)).toEqual({
@@ -1086,7 +1085,7 @@ describe('CI diff and command integration', () => {
       expect(remoteLog.text()).toContain(
         '| tmt-remote | remote-rust | native, office, native_office |'
       );
-      const officePath = path.join(root, 'docs/office/fixture.md');
+      const officePath = path.join(root, 'extensions/tmt-office/docs/fixture.md');
       mkdirSync(path.dirname(officePath), { recursive: true });
       writeFileSync(officePath, 'Office fixture\n');
       const officeHead = commit();
@@ -1096,6 +1095,7 @@ describe('CI diff and command integration', () => {
         return outputs(output.text()).office_browser;
       };
       expect(browserSelected(remoteHead, officeHead)).toBe('true');
+      mkdirSync(path.join(root, 'docs'), { recursive: true });
       renameSync(officePath, path.join(root, 'docs/moved.md'));
       const movedHead = commit();
       expect(browserSelected(officeHead, movedHead)).toBe('true');

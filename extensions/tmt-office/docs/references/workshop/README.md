@@ -4,7 +4,7 @@ These retained interaction concepts are not product screenshots or proof that a
 feature exists. The [visual reference index](../rooms-and-walls/README.md)
 owns the current wall-free platform direction; the older illustrations do not
 define geometry or editor modes. The
-[functional-extension contract](../../../../extensions/tmt-office/contracts/functional-props.md)
+[functional-extension contract](../../../contracts/functional-props.md)
 owns behavior; this reference set owns visual intent.
 
 | Reference                                                 | Required visual relationship                                                                              |
@@ -24,7 +24,7 @@ Interactive objects deliberately stand out from decoration: contrasting sci-fi
 teal docking outlines and high-contrast action markers are welcome against
 the warm room. They remain visible before hover; focus reveals a clear action
 label. Keep pixel edges crisp and the idle scene still. The
-[interaction contract](../../../../extensions/tmt-office/contracts/functional-props.md#interaction-affordance)
+[interaction contract](../../../contracts/functional-props.md#interaction-affordance)
 owns availability and input behavior; this is not permission to imply unsupported
 actions with decorative lights or badges.
 
@@ -46,7 +46,7 @@ are not part of the current reference set.
 
 The [generated whiteboard source](whiteboard-source-v1.png) supplies the textured
 oak frame, metal joints, marker tray and four upright views. The runtime uses the
-[indexed v2 pack](../../../../extensions/tmt-office/contracts/whiteboard-props-v2.tmtprop.json),
+[indexed v2 pack](../../../contracts/whiteboard-props-v2.tmtprop.json),
 not a geometric placeholder or the source image. Its resource binding, footprint
 and host-drawn interaction cues remain separate from the art. See the
 [prompt and mechanical compilation notes](whiteboard-art-prompt.md).
@@ -56,7 +56,7 @@ and host-drawn interaction cues remain separate from the art. See the
 [Generated source](broadcaster-sprite-source-v1.png) supplies four directional
 views of an oak-and-teal microphone station. It was generated with the built-in
 imagegen tool, then mechanically downsampled and palette-indexed into the runtime
-[v2 pack](../../../../extensions/tmt-office/contracts/broadcaster-props-v2.tmtprop.json), four
+[v2 pack](../../../contracts/broadcaster-props-v2.tmtprop.json), four
 64×64 frames. The image contains appearance only; the host adds action cues.
 The prompt requested: "A transparent four-view pixel-art sprite sheet for a warm
 office broadcast station: oak cabinet, dark teal control panel, mint display,
@@ -65,7 +65,7 @@ views; consistent scale; no text, UI, people or room background."
 
 ## Study furniture artwork
 
-The [study pack](../../../../extensions/tmt-office/contracts/study-furniture-v2.tmtprop.json)
+The [study pack](../../../contracts/study-furniture-v2.tmtprop.json)
 adds a bookcase, reading lamp and desktop terminal without changing earlier
 immutable packs. Each has four upright South/West/North/East frames at eight
 source pixels per tile. The sources were generated with the built-in imagegen
@@ -89,7 +89,7 @@ suggestion, never an automatic replacement for an existing room.
 ## Detailed robot artwork
 
 The [generated source](robot-source-v2.png) is mechanically reduced to the
-[32×48 v2 robot pack](../../../../extensions/tmt-office/contracts/workshop-robot-v2.tmtavatar.json).
+[32×48 v2 robot pack](../../../contracts/workshop-robot-v2.tmtavatar.json).
 The runtime consumes its 133-entry indexed palette, not the large PNG. Native
 pack validation and browser admission accept the same file. Source alpha is
 normalized to the format's transparent/opaque cells without a backdrop.

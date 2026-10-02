@@ -47,19 +47,17 @@ layout permission does not change component ownership, CI selection or release p
 | `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead.                                                                  |
 | `design/`                 | Design tokens (from #901) and, after #998, CLI style guidance.                                                                         |
 
-Current exceptions and moves are **pending**, not shipped:
+Current temporary homes and pending moves:
 
-- #997 (PR B) removes `USER-GUIDE.md` after repointing links to matching handbook
-  chapters and handing off unmatched content. It moves `docs/office/` to
-  `extensions/tmt-office/docs/` and `scripts/art/` to
-  `extensions/tmt-office/scripts/art/`.
 - #998 (PR C, after the queue drains) moves `docs/extension-api.md` to
   `contracts/extension-api.md`, and `docs/cli-style.md` to `design/cli-style.md`.
   It renames `contracts/remote-client-v1.md` to `contracts/remote-channel-v1.md`.
   `REQUEST-RESPONSE.md` is a contract and moves to `contracts/request-response-v1.md`.
   Release-verification procedures
   in `docs/native-release-verification.md` fold into DEVELOPMENT's release section.
-- The handbook has resumed (#1000). `docs/` remains a temporary home under #997/#998.
+- The handbook owns user guidance. Office documentation and art helpers live in
+  `extensions/tmt-office/docs/` and `extensions/tmt-office/scripts/art/`.
+  `docs/` remains a temporary home under #998.
   `docs/NATIVE-INSTALL.md` and `docs/performance.md` stay there pending their move to
   `site/` under #998; the directory exception remains until its retained contents move.
 
@@ -94,9 +92,9 @@ colab contract lives under `extensions/tmt-colab/contracts/` (see the
 native companion, followed by installed-browser acceptance; ordinary CLI builds
 remain independent. [DEVELOPMENT.md](DEVELOPMENT.md#office-browser-verification)
 owns the direct commands and their order. Read
-[Office architecture](docs/office/architecture.md) for current SPA ownership,
+[Office architecture](extensions/tmt-office/docs/architecture.md) for current SPA ownership,
 the chosen React/Vite/TanStack/Jotai stack and the
-[Office design](docs/office/design.md) for planned trust/lifecycle semantics.
+[Office design](extensions/tmt-office/docs/design.md) for planned trust/lifecycle semantics.
 Office runtime code must not import local SQLite/process adapters or native test helpers.
 The accepted [World extension design](extensions/tmt-office/contracts/functional-props.md)
 separates spatial composition from concrete board/notebook/broadcast features.
@@ -376,7 +374,7 @@ overwritten by its older local inverse. History is session-local, with an explic
 update-byte-budget checkpoint, not stored in SQLite. Domain decoders still admit
 projections. `use-world-editor` retains the existing serialized JSON/CAS persistence
 and pauses on conflicts; Yjs adds no provider, remote authority or second database.
-See [Office architecture](docs/office/architecture.md) for history lifecycle and limits.
+See [Office architecture](extensions/tmt-office/docs/architecture.md) for history lifecycle and limits.
 The [world value foundation](extensions/tmt-office/contracts/world-v1.md) composes that map with
 stable placement IDs. `tmt-office-model::office_world` validates floor/wall support,
 door clearance and window exclusions over the map index. Shared prop appearance
@@ -438,7 +436,7 @@ inspection requires the same bearer/Origin admission as dispatch. Operation look
 and dispatch replay share the existing immutable ledger decoder; lookup cannot
 resubmit. Browser `LocalRuntime.requests` owns only bounded typed transport and
 response-scope checks, not another request cache or completion policy.
-The [workshop references](docs/office/references/workshop/README.md)
+The [workshop references](extensions/tmt-office/docs/references/workshop/README.md)
 own visual intent, not evidence that proposed extension APIs are implemented.
 Its browser E2E may reuse the established test-only process and artifact owners.
 The pairing issuer is implemented for local emulator verification and disabled
@@ -556,7 +554,7 @@ projection, not the scene state owner; see the versioned
 schema 18 do not change avatar admission or unrelated command envelopes.
 Reviewed modular source art is encoded offline into the same immutable v2 prop
 packs; both native and browser registries admit those exact contract bytes.
-The optional `scripts/art` authoring tool is not a runtime decoder or validator.
+The optional `extensions/tmt-office/scripts/art` authoring tool is not a runtime decoder or validator.
 Its source-hashed crop manifest and derivative policy live with the visual package.
 `props/furniture-upgrades` maps reviewed static furniture to compatible directional
 successors only during authoring. It is not a render-time alias: retained digests
@@ -599,7 +597,7 @@ bounded space projection. The pairing transaction reserves that source grant
 with a transfer receipt and records immutable approval intent; no second
 assignment registry or resource copy is introduced.
 The detailed lifecycle and verification map lives only in
-[Office architecture](docs/office/architecture.md); exact persisted data belongs
+[Office architecture](extensions/tmt-office/docs/architecture.md); exact persisted data belongs
 in [Office contracts](extensions/tmt-office/contracts/README.md).
 
 `extensions/tmt-office/typescript/services/office` owns isolated emulator infrastructure, Rules and the trusted
@@ -620,7 +618,7 @@ removal leaves the reference intact and falls back to the stored default appeara
 Avatar built-ins use the same validated native registry for list/show, profile
 admission and the authenticated browser catalog. They do not seed database rows
 or consume retained-pack quotas; custom catalog revisions remain storage-owned.
-Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
+Community exchange and exploration remain a [sandbox plan](extensions/tmt-office/docs/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
 ### CI selection and worker model
@@ -694,7 +692,7 @@ archive verification retain macOS before publication. Advisory Office browser
 checks remain separate; the repository owner controls merge-queue rulesets.
 
 The advisory Office browser workflow has a separate ownership-based PR flag,
-`office_browser`: Office-owned component paths, `docs/office/**` and the browser
+`office_browser`: Office-owned component paths and the browser
 verification machinery select its emulator/image work. The selector owns the
 browser-specific workflow/emulator/context-policy exception so that machinery
 exercises itself. Shared dependency/selector/generic fixture changes, ordinary

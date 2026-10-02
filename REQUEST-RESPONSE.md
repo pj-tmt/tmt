@@ -11,7 +11,7 @@ A cooperating agent submits its complete final body successfully, then may show
 a short truthful summary of work, verification and unresolved items. Submission
 means delivered, not successful work; summary failure cannot undo an accepted
 reply. [Architecture](ARCHITECTURE.md) owns implementation boundaries and
-[the user guide](USER-GUIDE.md) provides usage examples.
+[the Working handbook chapter](site/src/chapters/working.mdx) provides usage examples.
 
 ## Durable final submission
 

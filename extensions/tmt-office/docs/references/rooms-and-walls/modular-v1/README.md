@@ -1,7 +1,7 @@
 # Modular Office visual package v1
 
 Status: historical high-wall design package and retained generated art sources.
-The current [platform contract](../../../../../extensions/tmt-office/contracts/rooms-and-walls.md)
+The current [platform contract](../../../../contracts/rooms-and-walls.md)
 supersedes its wall geometry, doorway, mounted-authoring and wall-HUD requirements.
 This package owns source artwork and reproducible imports, not editor workflows
 or a shipped skin system. Unimported views require extraction-time validation
@@ -11,10 +11,10 @@ The local workstation derivative now admits a desk, terminal, bookcase and four 
 chair views through the existing v2 prop catalog. It does not replace the old
 packs or certify unimported views. Its
 [import manifest](workstation-import.json) owns reviewed crop bounds and source
-hash. `scripts/art/encode-props.py` reproduces the contract JSON; install its
-optional authoring dependencies from `scripts/art/requirements.txt`, then pass
+hash. `extensions/tmt-office/scripts/art/encode-props.py` reproduces the contract JSON; install its
+optional authoring dependencies from `extensions/tmt-office/scripts/art/requirements.txt`, then pass
 the manifest path to check exact bytes (add `--write` only to regenerate).
-`scripts/art/test_encode_props.py` checks source fences and reproducibility.
+`extensions/tmt-office/scripts/art/test_encode_props.py` checks source fences and reproducibility.
 Native/browser validators remain the admission authority.
 
 The [mounted-object import](mounted-import.json) uses the same encoder for a
@@ -49,7 +49,7 @@ profile selection and restart persistence; GPU fixtures cover all four variants
 and missing-pack fallback. The local native catalog now supplies all four as
 built-in choices without installation or SQLite seeding. Existing default and
 explicitly selected appearances remain unchanged until the user saves a choice.
-The [avatar-pack contract](../../../../../extensions/tmt-office/contracts/avatar-pack-v2.md)
+The [avatar-pack contract](../../../../contracts/avatar-pack-v2.md)
 owns installation and selection. Side and rear source views remain unimported.
 
 Prop derivatives use 8 pixels per tile within guarded square frames; avatars use
@@ -59,7 +59,7 @@ cutoff. Original PNGs remain unchanged. This is explicitly not lossless alpha
 admission. Lounge furniture and desk/terminal/bookcase are static billboards; only the rolling chair has four authored
 views. Compare actual rendering before expanding this policy to other assets.
 
-[The product contract](../../../../../extensions/tmt-office/contracts/rooms-and-walls.md) owns
+[The product contract](../../../../contracts/rooms-and-walls.md) owns
 behavior. [The manifest](assets.json) owns dimensions and the row-major component
 inventory. [Generation prompts](generation.json) record built-in tool inputs and
 corrections, not additional product requirements.

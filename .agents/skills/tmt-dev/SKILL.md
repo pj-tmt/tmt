@@ -54,7 +54,7 @@ Read the repository guidance before planning work:
 ## Architecture maintenance
 
 Rust is the sole CLI runtime; the optional Office SPA is a separate browser
-application. Read [Office architecture](../../../docs/office/architecture.md)
+application. Read [Office architecture](../../../extensions/tmt-office/docs/architecture.md)
 when touching the app, workspace or planned cloud/connector boundaries. Node
 modules under scripts and test directories are developer tooling. Keep Office,
 native process, Docker and tooling checks distinct,

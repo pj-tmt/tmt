@@ -98,7 +98,6 @@
         "DEVELOPMENT.md",
         "README.md",
         "REQUEST-RESPONSE.md",
-        "USER-GUIDE.md",
         "docs/*.md",
         ".agents/**",
         ".github/pull_request_template.md"
@@ -135,7 +134,7 @@
       "id": "office-web",
       "consumers": ["office"],
       "why": "The Office application and its documentation: checked by the Office web jobs only.",
-      "paths": ["extensions/tmt-office/typescript/apps/office/**", "docs/office/**"]
+      "paths": ["extensions/tmt-office/typescript/apps/office/**", "extensions/tmt-office/docs/**"]
     },
     {
       "id": "native-source",

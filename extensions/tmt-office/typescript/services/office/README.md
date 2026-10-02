@@ -21,7 +21,7 @@ retry and revocation. Non-emulator activation defaults off. No Functions are
 deployed by building or testing; production IAM, endpoint abuse controls,
 retention and costs require separate review and authorization.
 
-See [the architecture](../../docs/office/architecture.md). Add functions only
+See [the architecture](../../../docs/architecture.md). Add functions only
 when a trusted operation cannot be safely implemented with reviewed rules and
 client contracts. Never place local TMT database or process access here.
 
@@ -47,7 +47,7 @@ docker compose -f services/office/compose.yaml down
 State is ephemeral: there are no mounted data volumes or automatic imports.
 
 For the optional local sign-in UI and the opt-in `browser-tests` Docker target,
-follow [Local browser sign-in](../../DEVELOPMENT.md#local-browser-sign-in).
+follow [Local browser sign-in](../../../../../DEVELOPMENT.md#local-browser-sign-in).
 The default image/Compose service does not install Chromium or start the app.
 It also does not start Functions. The integrated `browser-tests` target builds
 the service and starts its loopback-only Functions emulator on port 5001.

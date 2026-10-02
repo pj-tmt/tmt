@@ -248,12 +248,7 @@ const OFFICE_BROWSER_INPUTS = new Set([
  * Empty or unknown paths select no browser work; required CI stays conservative.
  */
 export function selectOfficeBrowser(paths, map = componentMap()) {
-  return paths.some(
-    (path) =>
-      ownerOf(path, map) === 'office' ||
-      path.startsWith('docs/office/') ||
-      OFFICE_BROWSER_INPUTS.has(path)
-  );
+  return paths.some((path) => ownerOf(path, map) === 'office' || OFFICE_BROWSER_INPUTS.has(path));
 }
 
 /**

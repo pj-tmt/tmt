@@ -4,7 +4,7 @@
   "size": [1254, 1254],
   "label": "Directional facilities",
   "credit": "TMT · generated directional furniture artwork",
-  "output": "../../../../extensions/tmt-office/contracts/directional-facilities-v2.tmtprop.json",
+  "output": "../../../contracts/directional-facilities-v2.tmtprop.json",
   "props": [
     {
       "key": "lobby-whiteboard",

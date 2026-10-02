@@ -12,7 +12,7 @@ durable requests/replies and recovers unconfirmed sends.
 This is the consolidated implementation goal. The target is an owner-built,
 single-floor, modular Office centered on a Lobby. Fixed-size personal-office cells
 extend cardinally; a separate meeting zone extends without repacking the office.
-Identity creation never builds a room. The [visual reference index](../../../docs/office/references/rooms-and-walls/README.md)
+Identity creation never builds a room. The [visual reference index](../docs/references/rooms-and-walls/README.md)
 identifies the current modular design package. Illustrations
 are not runtime evidence; this document overrides incidental generated details.
 Do not publish or replace the user's running preview as part of this local stage.
@@ -324,7 +324,7 @@ editable across finish changes; boards and whiteboards are freestanding objects.
 Names, board contents, live status and action cues are rendered from their
 existing owners, never inferred from or baked into decorative pixels.
 
-The [modular visual package](../../../docs/office/references/rooms-and-walls/modular-v1/README.md)
+The [modular visual package](../docs/references/rooms-and-walls/modular-v1/README.md)
 owns the art inventory and visual acceptance details. Generated sheets are source
 art, not admitted sprite atlases; verify alpha, extraction, authored scale,
 directional views, palette bounds and seam alignment before runtime integration.
