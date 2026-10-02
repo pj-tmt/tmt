@@ -72,6 +72,76 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
         )
 }
 
+/// Commands the Herdr driver hint follows: any a person or agent runs in a
+/// pane, failures included, but not machine output, completion, driver
+/// management itself, or installation plumbing.
+pub fn eligible_for_driver_hint(parsed: &Parsed) -> bool {
+    !parsed.mode.json
+        && !matches!(
+            parsed.invocation,
+            Invocation::Extension { .. }
+                | Invocation::Api
+                | Invocation::Help(_)
+                | Invocation::Version
+                | Invocation::Completion(_)
+                | Invocation::Complete(_)
+                | Invocation::Driver(_)
+                | Invocation::ProviderHook { .. }
+                | Invocation::NativeInstall { .. }
+                | Invocation::NativeRefreshSkills
+                | Invocation::NativeUpgradeExtensions { .. }
+        )
+}
+
+/// The hint for a Herdr pane, where no approved driver serves Herdr. Herdr
+/// was a built-in host until #1082, so bindings made there wait for its
+/// driver; the place is the pane on its server.
+fn driver_hint(
+    pane: Option<&str>,
+    socket: Option<&str>,
+    herdr_approved: bool,
+) -> Option<(&'static str, String)> {
+    let (pane, socket) = (pane?, socket?);
+    if pane.is_empty() || socket.is_empty() || herdr_approved {
+        return None;
+    }
+    Some((
+        "Herdr panes need the Herdr driver: tmt driver install herdr",
+        format!("{socket} {pane}"),
+    ))
+}
+
+/// Shows the Herdr driver hint after a command's own result, once a day for
+/// each pane, unless hints are off. Returns whether it was shown.
+pub fn present_driver_hint() -> bool {
+    if !hints_enabled() {
+        return false;
+    }
+    let pane = std::env::var("HERDR_PANE_ID").ok();
+    let socket = std::env::var("HERDR_SOCKET_PATH").ok();
+    if pane.is_none() || socket.is_none() {
+        return false;
+    }
+    let herdr_approved = tmt_adapters::host::external::approved()
+        .iter()
+        .any(|record| record.name == "herdr");
+    let Some((hint, place)) = driver_hint(pane.as_deref(), socket.as_deref(), herdr_approved)
+    else {
+        return false;
+    };
+    let Ok(paths) = ConfigPaths::discover() else {
+        return false;
+    };
+    let day = tmt_adapters::request_runtime::wall_time_ms() / 86_400_000;
+    if !tmt_adapters::hint_cadence::due_today(&paths.global_dir, "herdr-driver", &place, day) {
+        return false;
+    }
+    let mut stderr = tmt_cli_style::stream::stderr();
+    let terminal = stderr.terminal();
+    write_hint(&mut stderr, terminal, hint);
+    true
+}
+
 /// Exactly one line follows a successful human result. Outcome transitions
 /// take precedence; passive drift is inspected only on a terminal and only
 /// when no outcome hint was selected. Inspection never mutates guidance.
@@ -203,6 +273,41 @@ mod tests {
         ] {
             parsed.invocation = invocation;
             assert!(!eligible_for_drift(&parsed));
+        }
+    }
+
+    #[test]
+    fn the_driver_hint_needs_a_herdr_pane_without_an_approved_driver() {
+        let (hint, place) = driver_hint(Some("w1:p2"), Some("/s.sock"), false).unwrap();
+        assert_eq!(
+            hint,
+            "Herdr panes need the Herdr driver: tmt driver install herdr"
+        );
+        assert_eq!(place, "/s.sock w1:p2");
+        assert!(driver_hint(Some("w1:p2"), Some("/s.sock"), true).is_none());
+        assert!(driver_hint(None, Some("/s.sock"), false).is_none());
+        assert!(driver_hint(Some("w1:p2"), None, false).is_none());
+        assert!(driver_hint(Some(""), Some("/s.sock"), false).is_none());
+    }
+
+    #[test]
+    fn the_driver_hint_skips_machine_and_driver_commands() {
+        let mut parsed = Parsed {
+            invocation: Invocation::Whoami,
+            mode: OutputMode::default(),
+        };
+        assert!(eligible_for_driver_hint(&parsed));
+        parsed.mode.json = true;
+        assert!(!eligible_for_driver_hint(&parsed));
+        parsed.mode.json = false;
+        for invocation in [
+            Invocation::Version,
+            Invocation::Help(Vec::new()),
+            Invocation::Complete(Vec::new()),
+            Invocation::NativeRefreshSkills,
+        ] {
+            parsed.invocation = invocation;
+            assert!(!eligible_for_driver_hint(&parsed));
         }
     }
 
