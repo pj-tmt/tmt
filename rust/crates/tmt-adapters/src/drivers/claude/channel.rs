@@ -16,13 +16,17 @@ use crate::{
         },
     },
 };
+use nix::{
+    errno::Errno,
+    poll::{PollFd, PollFlags, PollTimeout, poll},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
     fs,
     io::{self, BufRead, Read, Write},
-    os::unix::net::UnixStream,
+    os::{fd::AsFd, unix::net::UnixStream},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -958,6 +962,10 @@ fn exchange_within(
     if write_until(stream, &bytes, deadline).is_err() {
         return uncertain();
     }
+    read_reply(stream, deadline)
+}
+
+fn read_reply(stream: &mut UnixStream, deadline: Instant) -> Sent {
     let Ok(line) = read_line_until(stream, deadline, REPLY_LIMIT) else {
         return uncertain();
     };
@@ -1015,7 +1023,28 @@ pub(super) fn read_line_until(
     let mut line = Vec::new();
     let mut chunk = [0u8; 8192];
     while (line.len() as u64) < limit {
-        stream.set_read_timeout(Some(remaining(deadline)?))?;
+        // On macOS, SO_RCVTIMEO can return EINVAL after the peer closes even
+        // while its complete reply is buffered. Poll the exclusively owned
+        // socket instead: data and EOF are readable without changing options.
+        // Recompute the shared write/read budget so trickles cannot renew it.
+        let timeout = PollTimeout::try_from(remaining(deadline)?.as_millis().saturating_add(1))
+            .map_err(io::Error::other)?;
+        let mut events = [PollFd::new(stream.as_fd(), PollFlags::POLLIN)];
+        match poll(&mut events, timeout) {
+            Err(Errno::EINTR) => continue,
+            Err(error) => return Err(error.into()),
+            Ok(_) => {}
+        }
+        remaining(deadline)?;
+        let ready = events[0]
+            .revents()
+            .ok_or_else(|| io::Error::other("Invalid poll events"))?;
+        if ready.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL) {
+            return Err(io::Error::other("Channel socket read failed"));
+        }
+        if !ready.intersects(PollFlags::POLLIN | PollFlags::POLLHUP) {
+            continue;
+        }
         let room = chunk.len().min((limit as usize) - line.len());
         match stream.read(&mut chunk[..room]) {
             Ok(0) => break,
