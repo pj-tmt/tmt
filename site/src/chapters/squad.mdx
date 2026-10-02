@@ -71,6 +71,20 @@ By default the board is **team**: the squad's members as rows, the selected memb
 | / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                                                                 |
 | d · ctrl-r               | fold or unfold the detail pane (see Panes below) · refresh now                                                                                                                                                                                                         |
 
+### Token rate
+
+The Team layout shows the squad's token rate at the right of the summary line, such as `1.2k tok/s 1m ▂▅▇▃`. It adds up the tokens of requests that finished in the window across members, so it moves in steps as requests finish, not while a model is writing. Press **w** to cycle 5s, 1m (the default), 30m and 1h; until a window has filled, its label shows the time covered so far. `0` means no finished requests, `≥` means some members could not be read, and the meter is hidden when no member reports usage. Members whose driver never reports usage are listed under `?`. The bars show the trend: `▁` is zero and a blank is no data.
+
+Turn it on or tune it under `[board.token_rate]` for every squad, or `[squad.<name>.board.token_rate]` for one:
+
+<Code>{`
+[board.token_rate]
+enabled = true
+window = "1m"         # 5s, 1m, 30m or 1h
+every = "5s"          # how often it samples, 5s to 10s; the 5s window needs 5s
+reduced_motion = false
+`}</Code>
+
 ### Tabs: one per squad
 
 The first line of the board holds its tabs: one per squad, plus two built in. **leads** lists every squad's lead in one place, and **all** has one row per squad with its lead, its member count and what needs you. Enter on a row in **all** opens that squad's tab.
