@@ -1,5 +1,5 @@
 {
-  "provenance": "Independent Python 3 stdlib struct/hashlib/base64 oracle. Envelopes first generated with Python 3.14.7 at contract ed7a3436 and unchanged; device enrollment, possession, pairing code and fingerprint vectors follow remote-channel-v1 at a835e16b. Example key/MAC bytes prove framing, not cryptographic validity.",
+  "provenance": "Independent Python 3 stdlib struct/hashlib/base64 oracle. Envelopes first generated with Python 3.14.7 at contract ed7a3436 and unchanged; device enrollment, possession, pairing code and fingerprint vectors follow remote-channel-v1 at a835e16b; extension certificate vectors follow its Extension channel API section. Example key/MAC bytes prove framing, not cryptographic validity.",
   "envelopes": [
     {
       "name": "request",
@@ -167,6 +167,92 @@
       "publicKey": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "indexes": [1704, 937, 1323, 986],
       "words": ["steak", "inside", "pistol", "kitten"]
+    }
+  ],
+  "extCerts": [
+    {
+      "name": "colab-sign",
+      "input": {
+        "extension": "colab",
+        "purpose": "sign",
+        "publicKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "issuedAtMs": 1790770000000
+      },
+      "hex": "0000000f746d742d6578742d636572742d763100000005636f6c6162000000047369676e00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000000d31373930373730303030303030",
+      "sha256": "dd8823c18dbbfb38e1b46d88428c71c13f4534ee1de5959c989f25e15099d319"
+    },
+    {
+      "name": "enc-max-time",
+      "input": {
+        "extension": "my-ext2",
+        "purpose": "enc",
+        "publicKey": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuedAtMs": 9007199254740991
+      },
+      "hex": "0000000f746d742d6578742d636572742d7631000000076d792d6578743200000003656e6300000020ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000001039303037313939323534373430393931",
+      "sha256": "e0aad8f1ee95676dee763c03ba3473b8c4c07972eda66b162efbc6e2807f1529"
+    },
+    {
+      "name": "zero-time",
+      "input": {
+        "extension": "a",
+        "purpose": "sign",
+        "publicKey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "issuedAtMs": 0
+      },
+      "hex": "0000000f746d742d6578742d636572742d76310000000161000000047369676e00000020d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0000000130",
+      "sha256": "3ba45d9dc2d90e90c91a44e27596cc5a3a511c3ec1bd20d775684735e5d851b6"
+    }
+  ],
+  "invalidExtCerts": [
+    {
+      "reason": "uppercase extension",
+      "extension": "Colab",
+      "purpose": "sign",
+      "publicKeyLength": 32,
+      "issuedAtMs": 0
+    },
+    {
+      "reason": "empty extension",
+      "extension": "",
+      "purpose": "sign",
+      "publicKeyLength": 32,
+      "issuedAtMs": 0
+    },
+    {
+      "reason": "leading digit",
+      "extension": "2colab",
+      "purpose": "sign",
+      "publicKeyLength": 32,
+      "issuedAtMs": 0
+    },
+    {
+      "reason": "long extension",
+      "extension": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "purpose": "sign",
+      "publicKeyLength": 32,
+      "issuedAtMs": 0
+    },
+    {
+      "reason": "unknown purpose",
+      "extension": "colab",
+      "purpose": "verify",
+      "publicKeyLength": 32,
+      "issuedAtMs": 0
+    },
+    {
+      "reason": "short key",
+      "extension": "colab",
+      "purpose": "sign",
+      "publicKeyLength": 31,
+      "issuedAtMs": 0
+    },
+    {
+      "reason": "time past 2^53-1",
+      "extension": "colab",
+      "purpose": "sign",
+      "publicKeyLength": 32,
+      "issuedAtMs": 9007199254740992
     }
   ],
   "pairingCodes": [

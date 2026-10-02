@@ -7,6 +7,7 @@ import {
   envelopeSigningBytes,
   enrollmentSigningBytes,
   enrollmentPossessionSigningBytes,
+  extCertSigningBytes,
   base64url,
   base64urlBytes,
   fingerprintIndexes,
@@ -15,7 +16,7 @@ import {
   serverProofInput,
 } from '../src/canonical-bytes.js';
 import macVectors from '../../../rust/tmt-remote/tests/fixtures/mac-vectors.json' with { type: 'json' };
-import type { Envelope, Enrollment } from '../src/canonical-bytes.js';
+import type { Envelope, Enrollment, ExtCert } from '../src/canonical-bytes.js';
 import vectors from './vectors.json' with { type: 'json' };
 
 const bytes = (hex: string): Uint8Array => Uint8Array.from(Buffer.from(hex, 'hex'));
@@ -262,3 +263,23 @@ test('independent base64url vectors and strict refusals', () => {
   for (const vector of vectors.base64url.invalid)
     assert.throws(() => base64urlBytes(vector.text, vector.length), /base64url/, vector.reason);
 });
+for (const vector of vectors.extCerts) {
+  test(`independent extension certificate bytes: ${vector.name}`, () => {
+    const { input } = vector;
+    matches(
+      extCertSigningBytes({ ...input, publicKey: bytes(input.publicKey) } as ExtCert),
+      vector,
+    );
+  });
+}
+for (const vector of vectors.invalidExtCerts) {
+  test(`extension certificate refuses ${vector.reason}`, () => {
+    const value = {
+      extension: vector.extension,
+      purpose: vector.purpose,
+      publicKey: new Uint8Array(vector.publicKeyLength),
+      issuedAtMs: vector.issuedAtMs,
+    } as ExtCert;
+    assert.throws(() => extCertSigningBytes(value));
+  });
+}

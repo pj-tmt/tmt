@@ -480,6 +480,15 @@ added for real SDK integration. Worker restart loads CryptoKey and frozen IDs fr
 creates a new session and recovers operation state before any explicit retry. Never automatically
 resend.
 
+One narrow exception to the gesture rule is `tmt-ext-cert-v1`: the browser SDK may certify an
+extension key without a gesture, for example on an extension's first use. The SDK takes the
+extension name from the door's mount mapping for the calling page, never from a caller argument or a
+visible path segment, so a page certifies keys only for its own extension. It runs only in
+same-origin trusted extension code: `/sdk/remote-v1.js` loads only into trusted extension chrome,
+and sandboxed opaque-origin renderer frames never load it or reach the device key. At most one
+certificate exists per (extension, purpose, key). The exception never covers operations or
+`session.open`, whose gesture and signing rules are unchanged.
+
 Remote keeps files only in its own subtree of the data root reported by `tmt api` operation
 `storage.root`, with owner-only directories, 0600 secret/state files, no-follow bounded
 regular-file admission and durable atomic state replacement. Never rewrite core DB/config or
@@ -509,16 +518,21 @@ Remote offers extensions five parts. Each is consumed through remote; an extensi
 reimplements one.
 
 **Device context.** A request, upgrade or relay frame from a paired owner device reaches the
-extension with the authenticated device context `{deviceId, kind, origin, name, owner:true,
-grantRevision}`. A cloud edge attributes a non-owner principal it authenticated for that extension
-as `{principal, owner:false}`; on the local door a non-owner request arrives without a device
-context and the extension authenticates it (below). Extensions query the current principal from the CLI
-and browser SDK and subscribe to device revocation and renaming events (for example to rotate page
-epochs). An extension that needs its own keys generates them on the device and asks the device key
-to certify them: the device signs LP(`tmt-ext-cert-v1`) || LP(extension) || LP(purpose) ||
-LP(raw extension public key) || LP(decimal issuedAtMs), where purpose is `sign` or `enc`. The
-certificate binds an extension key to a device; it grants no remote authority by itself, and
-extension cryptography stays owned by the extension.
+extension with the authenticated device context `{deviceId, kind, origin, name, publicKey,
+owner:true, grantRevision}`, where `publicKey` is the grant's raw 32-byte Ed25519 device key as
+canonical unpadded base64url, the only form remote forwards. A cloud edge attributes a non-owner
+principal it authenticated for that extension as `{principal, owner:false}`; on the local door a
+non-owner request arrives without a device context and the extension authenticates it (below).
+Extensions query the current principal from the CLI and browser SDK and subscribe to device
+revocation and renaming events, each carrying `deviceId` (for example to drop a device's extension
+key or rotate page epochs); the event stream is not yet implemented (#1100). An extension that needs
+its own keys generates them on the device and asks the device key to certify them: the device signs
+LP(`tmt-ext-cert-v1`) || LP(extension) || LP(purpose) || LP(raw extension public key) || LP(decimal
+issuedAtMs), where extension is its mounted name (a lowercase ASCII letter, then lowercase letters,
+digits or hyphens, at most 32 bytes) and purpose is `sign` or `enc`. The certificate binds an
+extension key to a device; it grants no remote authority by itself, and extension cryptography stays
+owned by the extension. The extension verifies it against the `publicKey` of a device context with
+the matching `deviceId`.
 
 **Route mounting.** The door mounts each enabled, owner-installed extension under `/x/<extension>/`,
 forwarding HTTP requests, static assets and WebSocket upgrades to the extension process over an
@@ -658,7 +672,10 @@ removed and envelope bytes are unchanged. The pairing ceremony is implemented th
 `tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
 grant and the receipt with `serverProof` (#1039). Door sessions (`session.open` on `/append`, the
 `/x/` cookie and the device context it carries to mounts) and `tmt remote devices` list and revoke
-are implemented (#1039). The remote-served browser pairing page is not yet implemented.
+are implemented (#1039). The device SDK in `remote-client` (non-extractable
+WebCrypto device key, pairing client with `serverProof` verification, `session.open` client and
+`tmt-ext-cert-v1` certification) and the Rust and Python certificate vectors are implemented; the
+remote-served browser pairing page and `/sdk/remote-v1.js` are not yet implemented.
 
 Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
 local door, device sign-in and relay where it meets this contract, rather than being rewritten.

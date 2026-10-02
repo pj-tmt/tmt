@@ -1,6 +1,7 @@
 """Independent stdlib oracle, never imports/invokes product code.
 Envelope field order transcribed from remote-client-v1 at ed7a3436; device enrollment,
-possession, pairing code and fingerprint rules from remote-channel-v1 (#956, a835e16b).
+possession, pairing code and fingerprint rules from remote-channel-v1 (#956, a835e16b);
+extension key certificate (tmt-ext-cert-v1) framing from its Extension channel API section.
 Unicode inputs establish exact UTF-8 behavior. Regenerate here; --check compares the
 committed artifacts.
 """
@@ -46,6 +47,12 @@ WORDLIST_SOURCE = ('https://raw.githubusercontent.com/bitcoin/bips/'
                    'ce1862ac6bcffa1dd20aad858380e51e66e949ea/bip-0039/english.txt')
 
 
+def ext_cert(value):
+    fields = ['tmt-ext-cert-v1', value['extension'], value['purpose'],
+              bytes.fromhex(value['publicKey']), str(value['issuedAtMs'])]
+    return b''.join(lp(field) for field in fields)
+
+
 def fingerprint(public_key):
     raw = WORDLIST.read_bytes()
     if hashlib.sha256(raw).hexdigest() != WORDLIST_SHA256:
@@ -89,7 +96,7 @@ mac = bytes(range(32,64))
 raw = enrollment(candidate)
 rfc8032_key = bytes.fromhex('d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a')
 result = dict(
-    provenance='Independent Python 3 stdlib struct/hashlib/base64 oracle. Envelopes first generated with Python 3.14.7 at contract ed7a3436 and unchanged; device enrollment, possession, pairing code and fingerprint vectors follow remote-channel-v1 at a835e16b. Example key/MAC bytes prove framing, not cryptographic validity.',
+    provenance='Independent Python 3 stdlib struct/hashlib/base64 oracle. Envelopes first generated with Python 3.14.7 at contract ed7a3436 and unchanged; device enrollment, possession, pairing code and fingerprint vectors follow remote-channel-v1 at a835e16b; extension certificate vectors follow its Extension channel API section. Example key/MAC bytes prove framing, not cryptographic validity.',
     envelopes=[fixture(name,value,envelope(value)) for name,value in [
         ('request',request),('response-u64-max',response),('session-open',control),('unicode',unicode_request)]],
     enrollments=[fixture(name,value,enrollment(value)) for name,value in [
@@ -98,6 +105,24 @@ result = dict(
                        lp('tmt-device-pair-possession-v1') + lp(raw) + lp(mac)),
     wordlist=dict(source=WORDLIST_SOURCE, sha256=WORDLIST_SHA256),
     fingerprints=[fingerprint(key) for key in [bytes(range(32)), rfc8032_key, bytes([255]*32)]],
+    extCerts=[fixture(name, value, ext_cert(value)) for name, value in [
+        ('colab-sign', dict(extension='colab', purpose='sign', publicKey=bytes(range(32)).hex(),
+                            issuedAtMs=1790770000000)),
+        ('enc-max-time', dict(extension='my-ext2', purpose='enc', publicKey=bytes([255] * 32).hex(),
+                              issuedAtMs=9007199254740991)),
+        ('zero-time', dict(extension='a', purpose='sign', publicKey=rfc8032_key.hex(), issuedAtMs=0)),
+    ]],
+    # Each refusal changes one condition of the colab-sign case.
+    invalidExtCerts=[
+        dict(reason='uppercase extension', extension='Colab', purpose='sign', publicKeyLength=32, issuedAtMs=0),
+        dict(reason='empty extension', extension='', purpose='sign', publicKeyLength=32, issuedAtMs=0),
+        dict(reason='leading digit', extension='2colab', purpose='sign', publicKeyLength=32, issuedAtMs=0),
+        dict(reason='long extension', extension='a' * 33, purpose='sign', publicKeyLength=32, issuedAtMs=0),
+        dict(reason='unknown purpose', extension='colab', purpose='verify', publicKeyLength=32, issuedAtMs=0),
+        dict(reason='short key', extension='colab', purpose='sign', publicKeyLength=31, issuedAtMs=0),
+        dict(reason='time past 2^53-1', extension='colab', purpose='sign', publicKeyLength=32,
+             issuedAtMs=9007199254740992),
+    ],
     pairingCodes=[code_text(code) for code in [bytes(range(16)), bytes(16), bytes([255]*16)]],
     base64url=dict(
         valid=[dict(hex=raw.hex(), length=len(raw), text=b64url(raw))

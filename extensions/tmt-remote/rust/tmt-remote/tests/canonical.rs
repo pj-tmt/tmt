@@ -292,3 +292,31 @@ fn independent_python_base64url_vectors_and_strict_refusals() {
         );
     }
 }
+#[test]
+fn independent_python_extension_certificate_vectors() {
+    let fixtures = fixtures();
+    for v in fixtures["extCerts"].as_array().unwrap() {
+        let i = &v["input"];
+        let public_key: [u8; 32] = bytes(text(i, "publicKey")).try_into().unwrap();
+        let value = canonical::ExtCert {
+            extension: text(i, "extension"),
+            purpose: text(i, "purpose"),
+            public_key: &public_key,
+            issued_at_ms: i["issuedAtMs"].as_u64().unwrap(),
+        };
+        expected(v, &canonical::ext_cert(&value).unwrap());
+    }
+    // A wrong key length cannot be expressed: the builder takes exactly 32 bytes.
+    for v in fixtures["invalidExtCerts"].as_array().unwrap() {
+        if v["publicKeyLength"] != 32 {
+            continue;
+        }
+        let value = canonical::ExtCert {
+            extension: text(v, "extension"),
+            purpose: text(v, "purpose"),
+            public_key: &[0; 32],
+            issued_at_ms: v["issuedAtMs"].as_u64().unwrap(),
+        };
+        assert!(canonical::ext_cert(&value).is_err(), "{}", v["reason"]);
+    }
+}
