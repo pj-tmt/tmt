@@ -143,6 +143,40 @@ pub(super) fn bounded(mut document: Value, json_mode: bool) -> io::Result<String
     }
 }
 
+/// Samples from the same formatter that publishes human and JSON inspect commands.
+#[cfg(test)]
+pub(crate) fn hint_commands() -> Vec<String> {
+    [false, true]
+        .into_iter()
+        .map(|incoming| {
+            requests(1, "1071f0fc-45f2-4ebc-94ed-05d98e204dcd", incoming)["inspect"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect()
+}
+
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Incoming X items: {count} unacknowledged; pull with tmt inbox --identity '{identity}' --json\n",
+        &["\n"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).",
+        &[" ("],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt {} --identity '{identity}' --json",
+        &[""],
+        &[("{}", "inbox")],
+    ),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,37 +298,3 @@ mod tests {
         );
     }
 }
-
-/// Samples from the same formatter that publishes human and JSON inspect commands.
-#[cfg(test)]
-pub(crate) fn hint_commands() -> Vec<String> {
-    [false, true]
-        .into_iter()
-        .map(|incoming| {
-            requests(1, "1071f0fc-45f2-4ebc-94ed-05d98e204dcd", incoming)["inspect"]
-                .as_str()
-                .unwrap()
-                .to_owned()
-        })
-        .collect()
-}
-
-// Source-checked command samples for the printed-command guard.
-#[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
-    crate::cli_style_tests::HintSpec::core(
-        "Incoming X items: {count} unacknowledged; pull with tmt inbox --identity '{identity}' --json\n",
-        &["\n"],
-        &[],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).",
-        &[" ("],
-        &[],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "tmt {} --identity '{identity}' --json",
-        &[""],
-        &[("{}", "inbox")],
-    ),
-];

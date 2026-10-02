@@ -53,6 +53,15 @@ pub fn parse(settings: &[(String, String)]) -> Result<Theme, tmt_cli_style::them
     Ok(theme)
 }
 
+// Source-checked command samples for the printed-command guard.
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::skipped(
+        "auto is a board theme; use tmt sq theme set auto or the board picker. It is valid in squad.toml [board.theme] and [squad.<name>.theme], not global config.json",
+        "External extension grammar is owned by its CLI; core parsing cannot validate it.",
+    ),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,12 +129,3 @@ mod tests {
         );
     }
 }
-
-// Source-checked command samples for the printed-command guard.
-#[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
-    crate::cli_style_tests::HintSpec::skipped(
-        "auto is a board theme; use tmt sq theme set auto or the board picker. It is valid in squad.toml [board.theme] and [squad.<name>.theme], not global config.json",
-        "External extension grammar is owned by its CLI; core parsing cannot validate it.",
-    ),
-];
