@@ -2655,8 +2655,14 @@ is the public surface for the official extensions over this path. Its facade
 retains dispatch, consent, errors, interruption, rendering and uninstall; private
 `extension_install_command/` modules own install, repair, list/upgrade and skills
 settlement through the existing native-installer and owned-skill adapters. The names
-come from the fixed product table, never from PATH or archive data. Install, upgrade
-and uninstall require consent (`--yes`, or an interactive prompt), and refuse a
+come from the fixed product table, never from PATH or archive data. Installable
+eligibility is separate from historical product recognition: Office is frozen,
+so install and explicit extension upgrade refuse before consent or acquisition.
+Root upgrade skips Office without inspecting its installation. Listing omits an
+absent Office, marks an existing or partially removed Office as frozen, and never
+looks up an Office upgrade, even with `--check`. Historical receipts and Office
+skill catalog names remain available for listing and consented removal. Other
+install, upgrade and uninstall operations require consent (`--yes`, or an interactive prompt), and refuse a
 non-interactive run without it. `ls` reads local receipts only. `--check` adds a
 bounded release lookup (`latest_release_version`, metadata only), and a failed
 lookup reports `unknown`. Shadowing canonicalizes every `tmt-<name>` on PATH and

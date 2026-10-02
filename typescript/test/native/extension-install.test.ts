@@ -80,15 +80,6 @@ describe('tmt extension install surface', () => {
       expect(listed).toEqual({
         extensions: [
           {
-            name: 'office',
-            installed: false,
-            version: null,
-            channel: null,
-            pinned: null,
-            commands: ['tmt-office'],
-            shadowedBy: [],
-          },
-          {
             name: 'squad',
             installed: true,
             version: '0.1.0-alpha.1',
@@ -457,7 +448,7 @@ describe('tmt extension install surface', () => {
 
 describe('aggregate official upgrades', () => {
   it(
-    'keeps independent CLI/Squad pins and reports an invalid Office without undoing them',
+    'keeps independent CLI/Squad pins and skips frozen Office even with invalid state',
     { timeout: 60000 },
     async () => {
       await withSandbox(async (sandbox) => {
@@ -507,17 +498,12 @@ describe('aggregate official upgrades', () => {
           },
         ]);
         writeFileSync(path.join(prefix, 'bin/tmt-office'), 'not a managed installation');
-        const failed = await runCli(managed, ['upgrade', '--yes', '--json'], {
+        const skipped = await runCli(managed, ['upgrade', '--yes', '--json'], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
         });
-        expect(failed.status).toBe(1);
-        expect(parseWholeStdout(failed).products).toMatchObject([
+        expect(skipped.status, skipped.stderr + skipped.stdout).toBe(0);
+        expect(parseWholeStdout(skipped).products).toMatchObject([
           { product: 'cli', status: 'skippedPinned' },
-          {
-            product: 'office',
-            status: 'failed',
-            error: { code: 'EXTENSION_INSTALLATION_INVALID' },
-          },
           { product: 'squad', status: 'skippedPinned' },
         ]);
         expect(readFileSync(squadReceipt).equals(before)).toBe(true);

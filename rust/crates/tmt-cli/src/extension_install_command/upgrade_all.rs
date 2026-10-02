@@ -1,5 +1,5 @@
 //! One consent decision over installed official extensions; activation keeps its existing owner.
-use super::{ask_declining, failure, installed, list_upgrade::upgrade_at};
+use super::{INSTALLABLE_EXTENSIONS, ask_declining, failure, installed, list_upgrade::upgrade_at};
 use crate::{consent, invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
 use std::{
@@ -14,10 +14,7 @@ use tmt_adapters::native_install::{self, Product};
 fn plan(prefix: &Path) -> Plan {
     let mut outcomes = Vec::new();
     let mut pending = Vec::new();
-    for product in Product::ALL
-        .into_iter()
-        .filter(|product| *product != Product::Cli)
-    {
+    for &product in INSTALLABLE_EXTENSIONS {
         let result: Result<Option<Value>, Failure> = (|| {
             if !installed(product, prefix)? {
                 return Ok(None);
