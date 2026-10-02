@@ -10,7 +10,8 @@ use std::{
 };
 use subprocess::{Exec, ExecExt, Job, JobExt, Redirection};
 
-const PULSE: Duration = Duration::from_millis(50);
+// Bound stop-flag latency without extending the absolute request deadline.
+const PULSE: Duration = Duration::from_millis(20);
 const CLEANUP: Duration = Duration::from_secs(1);
 
 fn failure(kind: FailureKind, cause: Option<io::Error>) -> InvokeError {
