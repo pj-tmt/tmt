@@ -615,7 +615,13 @@ not run. A seeding run has no diff to select from, so it takes the full native s
 Native package matrix. Both pull requests and `merge_group` candidates run those
 checks. Merge groups use the selector's explicit `full` mode, selecting native
 and Office verification plus both disjoint E2E shards, without path filtering.
-The same fail-closed aggregators apply to the combined queue candidate. Advisory
+Merge groups omit only the macOS raw-runtime builds and packed-install jobs;
+those jobs are separate from Linux and share their verification steps through
+YAML anchors. The native aggregate requires their exact `skipped` results on
+`merge_group`, and success on full-scope PRs; missing or failed results never pass.
+All Linux rows remain required. Release builds and archive verification retain
+macOS before publication. The same fail-closed aggregators apply to the combined
+queue candidate. Advisory
 Office browser checks remain separate. Workflow support does not enable the
 merge queue; the repository owner configures the ruleset after rollout.
 

@@ -271,7 +271,8 @@ and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
 Merge-group candidates run full verification through `node typescript/scripts/ci-scope.mjs full`,
-including both E2E shard lists and all four required checks. PR path selection is
+including both E2E shard lists and all four required checks, with the macOS
+exception described in the runtime smoke matrix below. PR path selection is
 unchanged. Check event wiring with `pnpm exec vitest run test/tooling/ci-scope.test.ts`
 from `typescript/` and `actionlint .github/workflows/ci.yml` from the root.
 [Architecture](ARCHITECTURE.md) owns the event, gate and main-ref cache policy;
@@ -1253,7 +1254,7 @@ replace the Rust commands, native process suite or Docker runs.
 
 ## Runtime smoke matrix
 
-The six required native smoke environments are:
+The six native smoke environments required on full-scope PRs are:
 
 - macOS x64 and macOS arm64;
 - Linux glibc x64 and Linux glibc arm64;
@@ -1269,6 +1270,12 @@ runs outside the checkout with isolated HOME/state, no Node or Rust on the
 product PATH, and checks version/help, exact embedded skill bytes, managed skill installation and
 SQLite reopen/persistence. Cross-compilation alone is never claimed as runtime
 evidence.
+
+Merge-group runs retain the two Linux builds and four Linux smoke rows. They
+skip the separate macOS build and install jobs, whose `skipped` results the
+aggregate requires explicitly only on that event. PRs still run both macOS
+architectures, and native release workflows still build and verify macOS before
+publication. The queue tests each cumulative group head (HEADGREEN).
 
 The same distinction applies to release artifacts: raw PR executables prove
 source-runtime behavior only. They do not prove archive inventory, notices,
