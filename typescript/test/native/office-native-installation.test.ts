@@ -36,7 +36,7 @@ function avatarCreateSkill(): Buffer {
 
 describe('native installation process contract', () => {
   it(
-    'exposes explicit Office installation, local status and recoverable deactivation',
+    'reports retained Office status and recovers deactivation without acquiring a release',
     { timeout: 60_000 },
     async () => {
       await withSandbox(async (sandbox) => {
@@ -49,61 +49,52 @@ describe('native installation process contract', () => {
         expectError(await office(['status']), 'OFFICE_NOT_INSTALLED');
         expectError(await office(['sync']), 'OFFICE_NOT_INSTALLED');
         expectError(await office([]), 'OFFICE_NOT_INSTALLED');
-        expectError(await office(['install']), 'OFFICE_CONSENT_REQUIRED');
         expectError(await office(['uninstall']), 'OFFICE_CONSENT_REQUIRED');
-        expectError(
-          await office(['install', '--yes', '--archive', 'missing', '--manifest', 'missing']),
-          'OFFICE_INSTALL_FAILED'
-        );
         expect(existsSync(prefix)).toBe(false);
         const fixture = await createArtifact(sandbox, officeVersion, new Uint8Array(), 'office');
-        const args = [
-          'install',
-          '--yes',
-          '--archive',
-          fixture.archive,
-          '--manifest',
-          fixture.manifest,
-        ];
-        const installed = await office(args);
+        // Model a retained pre-freeze release and its separately owned skills.
+        const installed = await runCli(
+          sandbox,
+          [
+            '__native-install',
+            '--product',
+            'office',
+            '--channel',
+            'alpha',
+            '--prefix',
+            prefix,
+            '--archive',
+            fixture.archive,
+            '--manifest',
+            fixture.manifest,
+            '--json',
+          ],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
         expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-        const installedDocument = parseWholeStdout(installed);
-        expect(installedDocument).toMatchObject({
-          installed: true,
-          changed: true,
-          version: officeVersion,
-          skills: {
-            installed: [
-              {
-                skill: 'tmt-avatar-create',
-                target: path.join(sandbox.home, '.agents', 'skills', 'tmt-avatar-create'),
-                changed: true,
-              },
-              {
-                skill: 'tmt-office',
-                target: path.join(sandbox.home, '.agents', 'skills', 'tmt-office'),
-                changed: true,
-              },
-              {
-                skill: 'tmt-prop-create',
-                target: path.join(sandbox.home, '.agents', 'skills', 'tmt-prop-create'),
-                changed: true,
-              },
-            ],
-          },
+        const skills = [
+          { name: 'tmt-office', bytes: officeSkill() },
+          { name: 'tmt-prop-create', bytes: propCreateSkill() },
+          { name: 'tmt-avatar-create', bytes: avatarCreateSkill() },
+        ];
+        const published = await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({
+            version: 1,
+            operation: 'skills.install',
+            input: {
+              owner: 'office',
+              consent: true,
+              skills: skills.map(({ name, bytes }) => ({
+                name,
+                files: [{ path: 'SKILL.md', content: bytes.toString('utf8') }],
+              })),
+            },
+          }),
         });
+        expect(published.status, published.stdout + published.stderr).toBe(0);
         const officeSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-office');
         const propSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-prop-create');
         const avatarSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-avatar-create');
-        expect(readFileSync(path.join(realpathSync(officeSkillTarget), 'SKILL.md'))).toEqual(
-          officeSkill()
-        );
-        expect(readFileSync(path.join(realpathSync(propSkillTarget), 'SKILL.md'))).toEqual(
-          propCreateSkill()
-        );
-        expect(readFileSync(path.join(realpathSync(avatarSkillTarget), 'SKILL.md'))).toEqual(
-          avatarCreateSkill()
-        );
         expect(existsSync(path.join(sandbox.home, '.agents', 'skills', 'tmux-team'))).toBe(false);
         expect(existsSync(path.join(sandbox.home, '.agents', 'skills', 'tmt-inbox'))).toBe(false);
         const status = await office(['status']);
@@ -133,16 +124,6 @@ describe('native installation process contract', () => {
         });
         expect(existsSync(sandbox.database)).toBe(false);
         expect(existsSync(path.join(sandbox.globalDir, 'office'))).toBe(false);
-        expect(parseWholeStdout(await office(args))).toMatchObject({
-          changed: false,
-          skills: {
-            installed: [
-              { skill: 'tmt-avatar-create', changed: false },
-              { skill: 'tmt-office', changed: false },
-              { skill: 'tmt-prop-create', changed: false },
-            ],
-          },
-        });
         const payload = readFileSync(path.join(prefix, 'bin/tmt-office'));
         const releases = path.join(prefix, 'lib/tmt-office/releases');
         const release = readdirSync(releases)[0];
@@ -163,53 +144,6 @@ describe('native installation process contract', () => {
         expect(parseWholeStdout(await office(['uninstall', '--yes']))).toMatchObject({
           changed: false,
         });
-        unlinkSync(officeSkillTarget);
-        writeFileSync(officeSkillTarget, 'user-owned Office skill');
-        const partial = await office(args);
-        expect(expectError(partial, 'OFFICE_SKILLS_FAILED')).toMatchObject({
-          installed: true,
-          changed: true,
-          version: officeVersion,
-          skills: {
-            installed: [{ skill: 'tmt-avatar-create', changed: false }],
-          },
-        });
-        expect(readFileSync(officeSkillTarget, 'utf8')).toBe('user-owned Office skill');
-        expect(parseWholeStdout(await office(['status']))).toMatchObject({ installed: true });
-
-        const recovered = parseWholeStdout(await office([...args, '--force']));
-        expect(recovered).toMatchObject({
-          changed: false,
-          skills: {
-            installed: [
-              { skill: 'tmt-avatar-create', changed: false },
-              { skill: 'tmt-office', changed: true },
-              { skill: 'tmt-prop-create', changed: false },
-            ],
-          },
-        });
-        const backup = (
-          recovered.skills as { installed: Array<{ skill: string; backup?: string }> }
-        ).installed.find((item) => item.skill === 'tmt-office')?.backup;
-        expect(backup).toBeDefined();
-        expect(readFileSync(backup!, 'utf8')).toBe('user-owned Office skill');
-        expect(readFileSync(path.join(officeSkillTarget, 'SKILL.md'))).toEqual(officeSkill());
-
-        unlinkSync(officeSkillTarget);
-        writeFileSync(officeSkillTarget, 'second user-owned Office skill');
-        const plainForced = await runCli(
-          sandbox,
-          ['office', '--prefix', prefix, ...args, '--force'],
-          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
-        );
-        expect(plainForced.status, plainForced.stdout + plainForced.stderr).toBe(0);
-        expect(plainForced.stderr).toBe('');
-        expect(plainForced.stdout).toContain(
-          `Installed shared skill 'tmt-office' at ${officeSkillTarget}\n`
-        );
-        const plainBackup = plainForced.stdout.match(/Recoverable backup: (.+)\n/)?.[1];
-        expect(plainBackup).toBeDefined();
-        expect(readFileSync(plainBackup!, 'utf8')).toBe('second user-owned Office skill');
         expect(existsSync(sandbox.database)).toBe(false);
       });
     }
@@ -277,7 +211,10 @@ describe('native installation process contract', () => {
         const shown = parseWholeStdout(await office(['board', 'show', created.entryId])) as {
           thread: { title: string; body: string };
         };
-        expect(shown.thread).toMatchObject({ title: 'after title', body: 'after body' });
+        expect(shown.thread).toMatchObject({
+          title: 'after title',
+          body: 'after body',
+        });
 
         const replyBody = 'one durable reply';
         const reply = await office([
@@ -296,7 +233,10 @@ describe('native installation process contract', () => {
           thread: { title: string; body: string };
           replies: { body: string }[];
         };
-        expect(document.thread).toMatchObject({ title: 'after title', body: 'after body' });
+        expect(document.thread).toMatchObject({
+          title: 'after title',
+          body: 'after body',
+        });
         expect(document.replies.map((entry) => entry.body)).toEqual([replyBody]);
       });
     }

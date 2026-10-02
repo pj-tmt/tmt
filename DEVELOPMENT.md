@@ -1212,7 +1212,7 @@ mutation as setup.
 
 Office companion scenarios are grouped under `test/native/office-*.test.ts`; retained-install
 fixtures use `__native-install` without acquiring or publishing a product release.
-The public Office acquisition contract remains separately asserted while it ships.
+Frozen public Office acquisition refusal is asserted separately in `office-freeze.test.ts`.
 
 Use `withSandbox` for callback-owned native fixtures. Its descriptor clones
 share active runs; disposal stops outstanding commands before deleting files
