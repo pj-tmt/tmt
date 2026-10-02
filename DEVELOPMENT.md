@@ -1303,7 +1303,7 @@ driver and carries over with its server ID once approved:
 git worktree add --detach ../tmt-previous <revision before #1082>
 (cd ../tmt-previous/rust && cargo build --locked -p tmt-cli --bin tmt)
 TMT_TEST_HERDR=/tmp/hdrbin/herdr TMT_TEST_PREVIOUS_TMT="$(cd ../tmt-previous && pwd)/rust/target/debug/tmt" \
-  pnpm exec vitest run --config test/native/vitest.config.ts test/native/herdr.test.ts
+  pnpm exec vp test run --config test/native/vitest.config.ts test/native/herdr.test.ts
 ```
 
 The Herdr host driver (the `tmt-driver-herdr` library, whose executable is a
