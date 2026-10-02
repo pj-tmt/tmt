@@ -267,7 +267,7 @@ describe('fetchUpgrade and proveStaged', () => {
   };
   const prove = (
     directory: string,
-    input: { product: string; tag: string; target?: string; skill?: string }
+    input: { product: string; tag: string; target?: string; skill?: string; sourceRoot?: string }
   ) => {
     const calls: { script: string; args: string[] }[] = [];
     const result = proveStaged({
@@ -375,7 +375,8 @@ describe('fetchUpgrade and proveStaged', () => {
       product: 'cli',
       tag: 'v5.0.0-alpha.9',
       target: 'x86_64-unknown-linux-musl',
-      skill: 'skills/tmux-team/SKILL.md',
+      skill: 'release-source/skills/tmux-team/SKILL.md',
+      sourceRoot: '/candidate-source',
     });
     expect(result.previous).toBe('v5.0.0-alpha.8');
     expect(calls).toHaveLength(1);
@@ -392,7 +393,8 @@ describe('fetchUpgrade and proveStaged', () => {
       path.join(directory, target, 'previous', 'dist-manifest.json')
     );
     expect(value(args, '--target')).toBe(target);
-    expect(value(args, '--skill')).toBe('skills/tmux-team/SKILL.md');
+    expect(value(args, '--skill')).toBe('release-source/skills/tmux-team/SKILL.md');
+    expect(value(args, '--source-root')).toBe('/candidate-source');
   });
 
   it('drives an extension with the staged CLI', () => {

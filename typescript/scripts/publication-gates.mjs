@@ -21,7 +21,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { ownerOf, parseComponentMap } from './ci-scope.mjs';
-import { HOLD_ASSET } from './plan-release-builds.mjs';
+import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { clearHold, ghApi, readHold, recordHold } from './release-draft-assets.mjs';
 import { selectPrevious } from './release-upgrade.mjs';
 import {
@@ -357,6 +357,8 @@ function main(argv, environment) {
     options: {
       product: { type: 'string' },
       tag: { type: 'string' },
+      rerun: { type: 'boolean', default: false },
+      'rerun-gate': { type: 'string', default: '' },
       'release-hold': { type: 'boolean', default: false },
       'upgrade-result': { type: 'string', default: '' },
       'upgrade-outcome': { type: 'string', default: '' },
@@ -376,10 +378,35 @@ function main(argv, environment) {
   if (!release) throw new Error(`There is no release ${values.tag}.`);
   if (release.draft !== true) throw new Error(`Release ${values.tag} is already published.`);
   const sha = release.target_commitish;
+  // Re-read the durable hold at each job boundary; never clear a different release or gate.
+  const rerunHold = (gate = '') => {
+    const hold = readHold({ api, tag: values.tag, download: assetText({ repository }) });
+    const names = new Set((release.assets ?? []).map(({ name }) => name));
+    if (
+      !names.has(BUNDLE_ASSET) ||
+      names.has(FAILURE_ASSET) ||
+      !hold ||
+      hold.tag !== values.tag ||
+      hold.sha !== sha ||
+      !GATES.includes(hold.gate) ||
+      (gate && hold.gate !== gate)
+    ) {
+      throw new Error(
+        'Rerun gate or marker mismatch; requires a matching bundled hold with a known gate, tag and commit. The hold is unchanged.'
+      );
+    }
+    return hold;
+  };
 
   if (command === 'early') {
     const map = parseComponentMap(readFileSync('.github/components.json', 'utf8'));
+    if (values.rerun && values['release-hold'])
+      throw new Error('Rerun and release-hold are separate runs.');
     let skip = '';
+    let rerunGate = '';
+    if (values.rerun) {
+      rerunGate = rerunHold().gate;
+    }
     if (values['release-hold']) {
       const hold = readHold({ api, tag: values.tag, download: assetText({ repository }) });
       if (!hold) throw new Error(`Draft ${values.tag} carries no ${HOLD_ASSET} to release.`);
@@ -402,10 +429,19 @@ function main(argv, environment) {
       }),
       skip: EARLY_GATES.includes(skip) ? skip : '',
     });
-    if (held) recordHold({ api, tag: values.tag, hold: { sha, ...held, runUrl } });
+    if (held && !values.rerun) recordHold({ api, tag: values.tag, hold: { sha, ...held, runUrl } });
     report(environment, renderGateSummary({ tag: values.tag, results, held }));
-    output(environment, { held: held?.gate ?? '', skip });
+    output(environment, {
+      held: held?.gate ?? '',
+      skip,
+      ...(values.rerun ? { rerun_gate: rerunGate } : {}),
+    });
   } else if (command === 'finish') {
+    const rerunGate = values['rerun-gate'];
+    if (rerunGate) {
+      if (values.skip) throw new Error('Rerun cannot skip a gate; the hold is unchanged.');
+      rerunHold(rerunGate);
+    }
     const skipped = values.skip === 'upgrade';
     const outcome = skipped
       ? pass()
@@ -416,8 +452,9 @@ function main(argv, environment) {
           url: runUrl,
         });
     const held = outcome.ok ? null : { gate: 'upgrade', reason: outcome.reason };
-    if (held) recordHold({ api, tag: values.tag, hold: { sha, ...held, runUrl } });
-    else clearHold({ api, tag: values.tag });
+    if (held) {
+      if (!rerunGate) recordHold({ api, tag: values.tag, hold: { sha, ...held, runUrl } });
+    } else clearHold({ api, tag: values.tag });
     report(
       environment,
       renderGateSummary({

@@ -5,7 +5,9 @@ name: Native release artifacts
 # gates and publishes a draft that passes them, then checks the published release. A run that
 # stopped before publishing resumes with the complete drafts that carry no hold. A dispatch with
 # `hold` runs the gates again for a held draft without the gate its marker names, and publishes
-# it when the rest pass. A dispatch that prepares one bundle from a main commit (`prepare`)
+# it when the rest pass. `rerun` instead re-proves every gate with current main tooling,
+# preserving the hold on failure and following normal publication only after all pass.
+# A dispatch that prepares one bundle from a main commit (`prepare`)
 # has no draft and publishes nothing. Ordinary pull requests do not run this costly matrix.
 #
 # The group holds the whole run and queues rather than cancels. GitHub keeps one pending run
@@ -36,6 +38,12 @@ on:
         type: string
       hold:
         description: Tag of a complete draft whose publication is held; runs its gates again without the gate its marker names (turn prepare off)
+        required: false
+        default: ''
+        type: string
+
+      rerun:
+        description: Owner-authorized rerun of every gate for a held draft using current main tooling (turn prepare off)
         required: false
         default: ''
         type: string
@@ -74,22 +82,20 @@ jobs:
           PREPARE: ${{ inputs.prepare }}
           RETRY: ${{ inputs.retry }}
           HOLD: ${{ inputs.hold }}
+          RERUN: ${{ inputs.rerun }}
         run: |
           # Only released products may enter either preparation or draft publication.
           node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"
           if [ "$PREPARE" = true ]; then
-            if [ -n "$RETRY" ] || [ -n "$HOLD" ]; then
-              echo 'A retry and a released hold need prepare turned off.' >&2
+            if [ -n "$RETRY" ] || [ -n "$HOLD" ] || [ -n "$RERUN" ]; then
+              echo 'A retry and a released hold need prepare turned off. A rerun also needs prepare turned off.' >&2
               exit 1
             fi
             # One pipeline for this main commit, no draft release.
             printf '%s\n' 'matrix={"include":[{"tag":"","sha":""}]}' 'any=true' >> "$GITHUB_OUTPUT"
-          elif [ -n "$RETRY" ]; then
-            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs --product "$PRODUCT" --retry "$RETRY"
-          elif [ -n "$HOLD" ]; then
-            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs --product "$PRODUCT" --hold "$HOLD"
           else
-            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs --product "$PRODUCT"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs \
+              --product "$PRODUCT" --retry "$RETRY" --hold "$HOLD" --rerun "$RERUN"
           fi
 
   bundle:
@@ -116,3 +122,4 @@ jobs:
       sha: ${{ matrix.sha }}
       retry: ${{ inputs.retry != '' && inputs.retry == matrix.tag }}
       hold: ${{ inputs.hold != '' && inputs.hold == matrix.tag }}
+      rerun: ${{ inputs.rerun != '' && inputs.rerun == matrix.tag }}

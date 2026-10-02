@@ -45,7 +45,8 @@ describe('per-product release run (native-release.yml)', () => {
   it('plans from the drafts after it holds the group, then builds them oldest first, one at a time', () => {
     const plan = job(run, 'plan');
     expect(plan).toContain("if: github.ref == 'refs/heads/main'");
-    expect(plan).toContain('typescript/scripts/plan-release-builds.mjs --product "$PRODUCT"');
+    expect(plan).toContain('typescript/scripts/plan-release-builds.mjs');
+    expect(plan).toContain('--product "$PRODUCT"');
     expect(plan).toContain('--retry "$RETRY"');
     const bundleJob = job(run, 'bundle');
     expect(bundleJob).toContain('needs: plan');
@@ -60,7 +61,9 @@ describe('per-product release run (native-release.yml)', () => {
       /prepare:\n {8}description:[^\n]*\n {8}required: true\n {8}default: true\n {8}type: boolean/
     );
     expect(job(run, 'plan')).toContain(`'matrix={"include":[{"tag":"","sha":""}]}'`);
-    expect(job(run, 'plan')).toContain('A retry and a released hold need prepare turned off.');
+    expect(job(run, 'plan')).toContain(
+      'A retry and a released hold need prepare turned off. A rerun also needs prepare turned off.'
+    );
   });
 
   it('refuses parked Office before preparation or draft planning, retaining released products', () => {
@@ -108,6 +111,7 @@ describe('per-product release run (native-release.yml)', () => {
             PREPARE: 'true',
             RETRY: '',
             HOLD: '',
+            RERUN: '',
             GITHUB_OUTPUT: output,
           },
           encoding: 'utf8',
@@ -494,7 +498,8 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(conclude).toContain('exit 1');
     expect(conclude).toContain("if: ${{ !cancelled() && needs.fetch.result == 'success' }}");
     expect(prove).toContain('release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG"');
-    expect(prove).toContain('--skill skills/tmux-team/SKILL.md');
+    expect(prove).toContain('skill=skills/tmux-team/SKILL.md');
+    expect(prove).toContain('--skill "$skill"');
     // The macOS toolchain lookup is warmed before the archives run.
     expect(prove.indexOf('warm-xcrun')).toBeGreaterThan(0);
     expect(prove.indexOf('warm-xcrun')).toBeLessThan(prove.indexOf('release-upgrade.mjs prove'));
@@ -509,7 +514,7 @@ describe('publication gates (native-release-bundle.yml)', () => {
   it('runs the gates for a draft that was just attached, a complete draft awaiting publication, or a held draft whose hold is released', () => {
     expect(gates).toContain('needs: [check, attach]');
     expect(gates).toContain(
-      "if: ${{ !cancelled() && inputs.tag != '' && needs.check.result == 'success' && ((needs.check.outputs.todo == 'true' && needs.attach.result == 'success') || inputs.hold || needs.check.outputs.awaiting == 'true') }}"
+      "if: ${{ !cancelled() && inputs.tag != '' && needs.check.result == 'success' && ((needs.check.outputs.todo == 'true' && needs.attach.result == 'success') || inputs.hold || inputs.rerun || needs.check.outputs.awaiting == 'true') }}"
     );
     // A complete draft that an earlier run did not publish is checked and published again.
     expect(job(bundle, 'check')).toContain('awaiting: ${{ steps.check.outputs.awaiting }}');
@@ -687,8 +692,8 @@ describe('the release run releases a hold (native-release.yml)', () => {
     expect(run).toMatch(
       /hold:\n {8}description:[^\n]*\n {8}required: false\n {8}default: ''\n {8}type: string/
     );
-    expect(plan).toContain('plan-release-builds.mjs --product "$PRODUCT" --hold "$HOLD"');
-    expect(plan).toContain('if [ -n "$RETRY" ] || [ -n "$HOLD" ]; then');
+    expect(plan).toContain('--product "$PRODUCT" --retry "$RETRY" --hold "$HOLD" --rerun "$RERUN"');
+    expect(plan).toContain('if [ -n "$RETRY" ] || [ -n "$HOLD" ] || [ -n "$RERUN" ]; then');
     expect(job(run, 'bundle')).toContain(
       "hold: ${{ inputs.hold != '' && inputs.hold == matrix.tag }}"
     );
@@ -721,5 +726,28 @@ describe('write access and release code', () => {
         expect(writes && checksOutRelease, `${name} job ${jobName}`).toBe(false);
       }
     }
+  });
+});
+
+describe('held release rerun workflow boundary', () => {
+  it('passes rerun through the planner, bundle and all gates without a skip', () => {
+    expect(run).toContain("rerun: ${{ inputs.rerun != '' && inputs.rerun == matrix.tag }}");
+    expect(job(bundle, 'gates')).toContain('--rerun');
+    expect(job(bundle, 'finish')).toContain('--rerun-gate "$RERUN_GATE"');
+    expect(job(bundle, 'upgrade')).toContain('current-tooling: ${{ inputs.rerun }}');
+  });
+  it('runs main tooling while keeping release source expectations separate', () => {
+    const upgrade = read('.github/workflows/native-release-upgrade.yml');
+    expect(job(upgrade, 'fetch')).toContain(
+      'inputs.current-tooling && github.sha || steps.sha.outputs.sha'
+    );
+    const prove = job(upgrade, 'prove');
+    expect(prove).toContain(
+      'ref: ${{ inputs.current-tooling && github.sha || needs.fetch.outputs.sha }}'
+    );
+    expect(prove).toContain('path: release-source');
+    expect(prove).toContain('source_args=(--source-root "$GITHUB_WORKSPACE/release-source")');
+    expect(prove).toContain('skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"');
+    expect(prove).not.toMatch(/GH_TOKEN|github\.token|secrets\./);
   });
 });

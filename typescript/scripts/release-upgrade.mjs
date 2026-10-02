@@ -152,7 +152,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory }) {
  * verifier script over the target's files and throws when it fails. Returns the previous tag, or
  * null when there was nothing to upgrade from.
  */
-export function proveStaged({ directory, product, tag, target, run, skill }) {
+export function proveStaged({ directory, product, tag, target, run, skill, sourceRoot }) {
   const plan = JSON.parse(readFileSync(path.join(directory, PLAN), 'utf8'));
   if (plan.product !== product || plan.tag !== tag) {
     throw new Error(`The staged assets are for ${plan.tag}, not for ${tag}.`);
@@ -190,7 +190,12 @@ export function proveStaged({ directory, product, tag, target, run, skill }) {
   ];
   if (product === 'cli') {
     if (!skill) throw new Error('A CLI upgrade proof needs --skill.');
-    run('verify-native-installation.mjs', [...common, '--skill', skill]);
+    run('verify-native-installation.mjs', [
+      ...common,
+      '--skill',
+      skill,
+      ...(sourceRoot ? ['--source-root', sourceRoot] : []),
+    ]);
   } else {
     const driver = staged('driver', 'cli');
     run('verify-native-extension-upgrade.mjs', [
@@ -310,6 +315,7 @@ function main(argv, environment) {
       target: { type: 'string' },
       directory: { type: 'string' },
       sha: { type: 'string' },
+      'source-root': { type: 'string' },
       skill: { type: 'string', default: 'skills/tmux-team/SKILL.md' },
     },
   });
@@ -330,6 +336,7 @@ function main(argv, environment) {
       tag: values.tag,
       target: values.target,
       skill: values.skill,
+      sourceRoot: values['source-root'],
       run: (script, args) => {
         const result = spawnSync('node', [path.join(here, script), ...args], { stdio: 'inherit' });
         if (result.error) throw result.error;

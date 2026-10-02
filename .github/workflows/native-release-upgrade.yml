@@ -22,6 +22,11 @@ on:
         required: false
         default: ''
         type: string
+      current-tooling:
+        description: Use this main run's scripts with release-source data (owner-authorized held-draft rerun)
+        required: false
+        default: false
+        type: boolean
     outputs:
       outcome:
         description: proved, nothing (no earlier published release) or predates (the commit has no proof scripts)
@@ -54,8 +59,9 @@ permissions:
 
 # Two kinds of job. `fetch` holds the write token that can see draft assets, so it checks out this
 # repository's default ref and never runs the release's code: it downloads and digest-checks the
-# assets and hands them over as a run artifact. `prove` runs the release commit's own scripts, so
-# it is read-only and has no token in its environment.
+# assets and hands them over as a run artifact. `prove` normally runs release-commit scripts;
+# a rerun uses this main run's scripts with a separate release-source data checkout. Both
+# paths are read-only with no token in the environment.
 jobs:
   fetch:
     name: Fetch the assets of ${{ inputs.tag }}
@@ -103,7 +109,7 @@ jobs:
         id: assess
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.sha.outputs.sha }}
+          RELEASE_SHA: ${{ inputs.current-tooling && github.sha || steps.sha.outputs.sha }}
         run: |
           node typescript/scripts/release-upgrade.mjs assess --directory "$RUNNER_TEMP/upgrade-assets" --sha "$RELEASE_SHA"
       - name: Hand the assets to the proof
@@ -135,12 +141,19 @@ jobs:
     permissions:
       contents: read
     steps:
-      # The commit the release was made from: the CLI archive embeds the skills of that commit,
-      # and the verifier compares them with the files next to it.
+      # Ordinary proof uses release tooling; rerun pins repaired tooling to this main run.
+      # CLI expected skills and migration counts still come from the release commit.
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ inputs.current-tooling && github.sha || needs.fetch.outputs.sha }}
+      # Candidate data stays at the release commit; none of this checkout's scripts run.
+      - uses: actions/checkout@v4
+        if: inputs.current-tooling
+        with:
+          persist-credentials: false
           ref: ${{ needs.fetch.outputs.sha }}
+          path: release-source
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
       - name: Install verification dependencies
@@ -158,11 +171,18 @@ jobs:
           PRODUCT: ${{ inputs.product }}
           RELEASE_TAG: ${{ inputs.tag }}
           TARGET: ${{ matrix.target }}
+          CURRENT_TOOLING: ${{ inputs.current-tooling }}
         run: |
           # The log is kept so the conclusion can name the first error; pipefail keeps the exit status.
           set -o pipefail
+          source_args=()
+          skill=skills/tmux-team/SKILL.md
+          if [ "$CURRENT_TOOLING" = true ]; then
+            source_args=(--source-root "$GITHUB_WORKSPACE/release-source")
+            skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"
+          fi
           node typescript/scripts/release-upgrade.mjs prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
-            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill skills/tmux-team/SKILL.md \
+            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill "$skill" "${source_args[@]}" \
             2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"
       - name: Keep the log of a failed proof
         if: failure()

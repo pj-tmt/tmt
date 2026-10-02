@@ -39,6 +39,7 @@ export function proveStaged(input: {
   target: string;
   run: (script: string, args: string[]) => void;
   skill?: string;
+  sourceRoot?: string;
 }): { previous: string | null };
 export const PROOF_FILES: readonly string[];
 export function assessUpgrade(input: {

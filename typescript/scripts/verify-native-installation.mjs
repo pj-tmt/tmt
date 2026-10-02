@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { selectNativeArtifact, withNativeArtifact } from './native-artifact-policy.mjs';
 import {
@@ -15,9 +16,15 @@ import { runPackedCommand } from './packed-command.mjs';
 
 const { values } = parseArgs({
   options: Object.fromEntries(
-    ['archive', 'manifest', 'previous-archive', 'previous-manifest', 'target', 'skill'].map(
-      (name) => [name, { type: 'string' }]
-    )
+    [
+      'archive',
+      'manifest',
+      'previous-archive',
+      'previous-manifest',
+      'target',
+      'skill',
+      'source-root',
+    ].map((name) => [name, { type: 'string' }])
   ),
 });
 for (const name of [
@@ -30,6 +37,10 @@ for (const name of [
 ]) {
   assert(values[name], `--${name} is required`);
 }
+// Tooling may be newer than the candidate; expected skills and migrations are candidate data.
+const sourceRoot = values['source-root']
+  ? pathToFileURL(`${path.resolve(values['source-root'])}/`)
+  : new URL('../../', import.meta.url);
 const current = selectNativeArtifact(values.manifest, values.archive, values.target, 'cli', {
   release: true,
 });
@@ -121,14 +132,14 @@ await withNativeArtifact(values.archive, current, async (source) => {
       assert.equal(
         run(['learn', '--skill', 'tmt-office']),
         fs.readFileSync(
-          new URL('../../extensions/tmt-office/skills/tmt-office/SKILL.md', import.meta.url),
+          new URL('extensions/tmt-office/skills/tmt-office/SKILL.md', sourceRoot),
           'utf8'
         )
       );
       assert.equal(
         run(['learn', '--skill', 'tmt-avatar-create']),
         fs.readFileSync(
-          new URL('../../extensions/tmt-office/skills/tmt-avatar-create/SKILL.md', import.meta.url),
+          new URL('extensions/tmt-office/skills/tmt-avatar-create/SKILL.md', sourceRoot),
           'utf8'
         )
       );
@@ -145,7 +156,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
         checkMigratedState({
           before,
           after: snapshotState(database, written),
-          expected: expectedMigrations(),
+          expected: expectedMigrations(sourceRoot),
         }),
         [],
         `The candidate did not migrate the state ${previous.version} wrote cleanly`

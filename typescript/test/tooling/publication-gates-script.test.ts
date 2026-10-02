@@ -13,6 +13,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { publishDraft } from '../../scripts/release-publish.mjs';
+import { planReleaseBuilds } from '../../scripts/plan-release-builds.mjs';
+import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
 import { REQUIRED_CONTEXTS } from '../../scripts/publication-gates.mjs';
 
 const script = fileURLToPath(new URL('../../scripts/publication-gates.mjs', import.meta.url));
@@ -40,6 +43,9 @@ if (method === 'POST') {
   fs.copyFileSync(args[args.indexOf('--input') + 1], path.join(state.uploads, url.searchParams.get('name')));
   out('{}');
 } else if (method === 'DELETE') {
+  const id = Number(args.find((arg) => arg.includes('/assets/')).split('/assets/')[1]);
+  for (const release of state.releases) release.assets = release.assets.filter((asset) => asset.id !== id);
+  fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state));
   out('{}');
 } else if (joined.includes('releases/assets/')) {
   out(state.assetTexts[joined.split('releases/assets/')[1]] ?? '');
@@ -71,7 +77,7 @@ interface Scenario {
   body?: string;
   checkRuns?: typeof green;
   immutable?: boolean;
-  hold?: { gate: string; reason: string } | null;
+  hold?: { gate: string; reason: string; tag?: string; sha?: string } | null;
   draftCommit?: 'candidate' | 'branch';
   published?: boolean;
   draftTag?: string;
@@ -128,7 +134,11 @@ function scenario(options: Scenario = {}) {
     ],
     checkRuns: options.checkRuns ?? green,
     assetTexts: {
-      '150': JSON.stringify(options.hold ?? { gate: 'migration', reason: 'held earlier' }),
+      '150': JSON.stringify({
+        tag: options.draftTag ?? 'v5.0.0-alpha.9',
+        sha: candidate,
+        ...(options.hold ?? { gate: 'migration', reason: 'held earlier' }),
+      }),
     } as Record<string, string>,
     releases: [
       {
@@ -198,7 +208,33 @@ function scenario(options: Scenario = {}) {
     const file = path.join(state.uploads, name);
     return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
   };
-  return { run, calls, uploaded, candidate };
+  const readState = () =>
+    JSON.parse(readFileSync(stateFile, 'utf8')) as {
+      releases: DraftRelease[];
+      assetTexts: Record<string, string>;
+    };
+  const publication = () =>
+    publishDraft({
+      api: {
+        upload: () => {
+          throw new Error('Unexpected publication upload');
+        },
+        deleteAsset: () => {
+          throw new Error('Unexpected publication delete');
+        },
+        listReleases: () => readState().releases,
+        publish: (tag) => {
+          const current = readState();
+          current.releases = current.releases.map((release) =>
+            release.tag_name === tag ? { ...release, draft: false } : release
+          );
+          writeFileSync(stateFile, JSON.stringify(current));
+        },
+      },
+      product: 'cli',
+      tag: 'v5.0.0-alpha.9',
+    });
+  return { run, calls, uploaded, candidate, readState, publication };
 }
 
 const early = ['early', '--product', 'cli', '--tag', 'v5.0.0-alpha.9'];
@@ -407,5 +443,85 @@ describe('publication-gates.mjs finish', () => {
         (call) => call.includes('DELETE') && call.some((arg) => arg.endsWith('/assets/150'))
       )
     ).toBe(true);
+  });
+});
+
+// Planner selection and gate effects are separate evidence: a planned rerun cannot publish
+// until early and upgrade proof pass, and failure must not rewrite the original marker.
+describe('held-draft rerun publication decisions', () => {
+  it('reruns every early gate, then clears the marker only after upgrade passes', () => {
+    const { run, calls, readState, publication } = scenario({
+      hold: { gate: 'upgrade', reason: 'old tooling failed' },
+    });
+    expect(
+      planReleaseBuilds({ releases: readState().releases, product: 'cli', rerun: 'v5.0.0-alpha.9' })
+        .builds
+    ).toHaveLength(1);
+    expect(publication).toThrow('is held');
+    const planned = run([...early, '--rerun']);
+    expect(planned.status).toBe(0);
+    expect(planned.output).toContain('held=\nskip=\nrerun_gate=upgrade\n');
+    for (const gate of ['channel', 'commit', 'immutability', 'monotonic', 'migration']) {
+      expect(planned.summary).toContain(`- passed \`${gate}\``);
+    }
+    expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
+    const result = run(finish('success', 'proved', ['--rerun-gate', 'upgrade']));
+    expect(result.status).toBe(0);
+    expect(result.summary).toContain('Every gate passed. The next job publishes the release.');
+    expect(calls().filter((call) => call.includes('DELETE'))).toHaveLength(1);
+    expect(publication().flags).toContain('--latest=true');
+    expect(
+      readState().releases.find((release) => release.tag_name === 'v5.0.0-alpha.9')?.draft
+    ).toBe(false);
+  });
+
+  it.each(['failure', 'cancelled', 'skipped'])(
+    'keeps the original marker when upgrade is %s',
+    (result) => {
+      const { run, calls, uploaded, readState, publication } = scenario({
+        hold: { gate: 'upgrade', reason: 'original cause' },
+      });
+      const marker = readState().assetTexts['150'];
+      expect(run([...early, '--rerun']).status).toBe(0);
+      const decision = run(finish(result, 'proved', ['--rerun-gate', 'upgrade']));
+      expect(decision.status).toBe(0);
+      expect(decision.output).toContain('held=upgrade');
+      expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
+      expect(uploaded('publication-held.json')).toBeNull();
+      expect(readState().assetTexts['150']).toBe(marker);
+      expect(publication).toThrow('is held');
+    }
+  );
+
+  it('keeps the original marker when an early gate still fails', () => {
+    const { run, calls } = scenario({
+      subject: 'feat!: still breaking',
+      hold: { gate: 'migration', reason: 'original cause' },
+    });
+    const result = run([...early, '--rerun']);
+    expect(result.output).toContain('held=migration');
+    expect(result.summary).toContain('- FAILED `migration`');
+    expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
+  });
+
+  it.each([
+    { gate: 'unknown', reason: 'invalid gate' },
+    { gate: 'upgrade', reason: 'wrong tag', tag: 'v5.0.0-alpha.8' },
+    { gate: 'upgrade', reason: 'wrong SHA', sha: 'a'.repeat(40) },
+  ])('refuses mismatching marker %o without mutations', (hold) => {
+    const { run, calls } = scenario({ hold });
+    expect(run([...early, '--rerun']).status).toBe(1);
+    expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
+  });
+
+  it('refuses a non-held draft and a finish gate mismatch or skip', () => {
+    expect(scenario({ hold: null }).run([...early, '--rerun']).status).toBe(1);
+    const { run, calls } = scenario({ hold: { gate: 'upgrade', reason: 'original' } });
+    expect(run(finish('success', 'proved', ['--rerun-gate', 'migration'])).status).toBe(1);
+    expect(
+      run(finish('success', 'proved', ['--rerun-gate', 'upgrade', '--skip', 'upgrade'])).status
+    ).toBe(1);
+    expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
+    expect(run([...early, '--rerun', '--release-hold']).status).toBe(1);
   });
 });
