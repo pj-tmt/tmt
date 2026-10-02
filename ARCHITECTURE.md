@@ -44,7 +44,7 @@ layout permission does not change component ownership, CI selection or release p
 | `contracts/`              | Core public contracts and their normative fixtures.                                                                                    |
 | `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
 | `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
-| `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead.                                                                  |
+| `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead. Translated pages: `site/src/i18n/<lang>/`.                       |
 | `design/`                 | Shared design tokens and CLI style guidance.                                                                                           |
 
 Homes of moved guidance:
@@ -68,7 +68,16 @@ and bounded responsibility. Update this map and the JSON allowlist together;
 remove an exception when its last tracked entry moves or is deleted. The tooling
 layout test checks every tracked file's component owner and that tracked top-level
 entries are a subset of the allowlist, and rejects temporary exceptions with no
-tracked entry; ignored local outputs are outside that map.
+tracked entry; ignored local outputs are outside that map. Handbook translations
+are the one place repository prose may be non-English
+([AGENTS](AGENTS.md#repository-content-language)). The allowlist's optional
+`languageExceptions` key maps a language directory (`site/src/i18n/ja`,
+`site/src/i18n/zh`) to its HTML language tag (`ja`, `zh-Hant`); a language's entry
+lands with its first tracked translation. The test fails a listed directory with no
+tracked file, a code outside that closed set, and a tracked file under
+`site/src/i18n/` outside a listed directory.
+Site translations follow the sync rule in
+[DEVELOPMENT's handbook section](DEVELOPMENT.md#handbook-website).
 For add/move review and rename hygiene, use the
 [layout procedure](.agents/skills/tmt-layout/SKILL.md).
 

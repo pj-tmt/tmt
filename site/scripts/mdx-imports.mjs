@@ -1,10 +1,23 @@
 // Fails when a chapter uses a JSX component it does not import (#999): MDX
 // reports that only at runtime, after the page has shipped.
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
-const dir = new URL("../src/chapters/", import.meta.url);
+const root = new URL("../src/", import.meta.url);
+// English chapters and every translation directory under src/i18n/.
+const dirs = [new URL("chapters/", root)];
+const i18n = new URL("i18n/", root);
+if (existsSync(i18n)) {
+  for (const entry of readdirSync(i18n, { withFileTypes: true })) {
+    if (entry.isDirectory()) dirs.push(new URL(`${entry.name}/`, i18n));
+  }
+}
 const problems = [];
-for (const file of readdirSync(dir).filter((name) => name.endsWith(".mdx"))) {
+const pages = dirs.flatMap((dir) =>
+  readdirSync(dir)
+    .filter((name) => name.endsWith(".mdx"))
+    .map((name) => ({ dir, name })),
+);
+for (const { dir, name: file } of pages) {
   const text = readFileSync(new URL(file, dir), "utf8");
   const imported = new Set();
   for (const [, names] of text.matchAll(/^import\s*\{([^}]*)\}\s*from/gm)) {
@@ -21,7 +34,10 @@ for (const file of readdirSync(dir).filter((name) => name.endsWith(".mdx"))) {
   const prose = text.replace(/^```[\s\S]*?^```/gm, "").replace(/`[^`]*`/g, "");
   for (const [, name] of prose.matchAll(/<([A-Z][\w.]*)/g)) {
     const root = name.split(".")[0];
-    if (!imported.has(root)) problems.push(`${file}: <${name}> is used but not imported`);
+    if (!imported.has(root))
+      problems.push(
+        `${new URL(file, dir).pathname.split("/src/")[1]}: <${name}> is used but not imported`,
+      );
   }
 }
 if (problems.length) {

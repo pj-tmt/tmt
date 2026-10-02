@@ -12,7 +12,8 @@
     "lint": "vp lint --deny-warnings --react-plugin src scripts vite.config.ts \"$(git rev-parse --show-toplevel)/design/tokens\"",
     "format": "vp fmt . \"$(git rev-parse --show-toplevel)/design/tokens\"",
     "format:check": "vp fmt --check . \"$(git rev-parse --show-toplevel)/design/tokens\"",
-    "check": "pnpm type:check && pnpm lint && pnpm format:check && node scripts/mdx-imports.mjs"
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "check": "pnpm type:check && pnpm lint && pnpm format:check && node scripts/mdx-imports.mjs && node scripts/i18n-sync.mjs && pnpm test:scripts"
   },
   "dependencies": {
     "@mdx-js/react": "3.1.1",
@@ -29,7 +30,9 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "6.1.1",
+    "remark-frontmatter": "5.0.0",
     "remark-gfm": "4.0.1",
+    "remark-mdx-frontmatter": "6.0.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5.3.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",

@@ -1,7 +1,9 @@
 import mdx from "@mdx-js/rollup";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
+import remarkMdxFrontmatter from "remark-mdx-frontmatter";
 import { defineConfig, lazyPlugins } from "vite-plus";
 import { designTokens } from "../design/tokens/tokens-plugin.ts";
 
@@ -14,7 +16,12 @@ export default defineConfig({
   plugins: lazyPlugins(() => [
     {
       enforce: "pre",
-      ...mdx({ remarkPlugins: [remarkGfm], providerImportSource: "@mdx-js/react" }),
+      // Translated pages (src/i18n) start with a YAML block: it is kept out of the
+      // page and exported as `frontmatter`. See scripts/i18n-sync.mjs.
+      ...mdx({
+        remarkPlugins: [remarkGfm, remarkFrontmatter, remarkMdxFrontmatter],
+        providerImportSource: "@mdx-js/react",
+      }),
     },
     react({ include: /\.(mdx|tsx|ts)$/ }),
     designTokens(),

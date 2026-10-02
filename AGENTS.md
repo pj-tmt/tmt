@@ -78,6 +78,14 @@ messages, and pull request metadata. Non-language symbols and technically
 required fixture data are allowed when necessary; explain any such exception
 in English.
 
+One exception: the prose of a translated handbook page may be written in the
+language of the directory `site/src/i18n/<lang>/` that holds it (`ja` or `zh`).
+A language is allowed once the `languageExceptions` key of
+[`.github/repository-layout.json`](.github/repository-layout.json) lists its
+directory, which lands with that language's first translation. English remains the
+source and the language of everything else, including those pages' front matter,
+code, comments, tests, commits and pull request metadata.
+
 ## Durable documentation
 
 Keep living documents focused on current results, definitions, contracts and

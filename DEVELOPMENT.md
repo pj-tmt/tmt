@@ -576,11 +576,36 @@ planned.
 cd site
 pnpm install --frozen-lockfile
 pnpm dev                        # local preview at http://127.0.0.1:5173/tmt/
-pnpm check                      # types, Vite+ lint/format and MDX imports
+pnpm check                      # types, Vite+ lint/format, MDX imports, translation sync and its tests
 pnpm build                      # dist/ for GitHub Pages, one index.html per route
 SITE_BASE=/ pnpm build          # for a root path, such as a custom domain
 SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # a preview at an unknown path
 ```
+
+### Translations
+
+English is the source. A translation of `site/src/chapters/<page>.mdx` is
+`site/src/i18n/<lang>/<page>.mdx` (`ja`, `zh`) and starts with front matter:
+
+```yaml
+---
+source: site/src/chapters/<page>.mdx
+sourceRevision: <git hash-object site/src/chapters/<page>.mdx>
+title: <the translated page title>
+---
+```
+
+`sourceRevision` is the git blob SHA of the English page the translation was written
+from, so the check needs no git history. `pnpm check` runs `scripts/i18n-sync.mjs`:
+a page whose English source has changed since is reported as stale, as a warning
+(a GitHub annotation in CI) that does not fail the check; a missing front matter,
+a `source` that is not the same-named English chapter, or a malformed
+`sourceRevision` fails it. After updating a translation, set `sourceRevision` to the
+new blob SHA. A chapter without a translation falls back to English. The directory
+list comes from `languageExceptions` in `.github/repository-layout.json`
+([AGENTS](AGENTS.md#repository-content-language) owns the language exception), and
+`scripts/mdx-imports.mjs` checks translated pages too. The block is kept out of the
+page and exported as `frontmatter`.
 
 `.github/workflows/site.yml` checks and builds the site on pull requests and
 `main`. It deploys to GitHub Pages only from a manual run on `main` with
