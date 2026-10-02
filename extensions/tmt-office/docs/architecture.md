@@ -3,7 +3,7 @@
 Office is frozen and kept internal. Source, contracts, retained installations and
 user data remain, but no new Office releases or official acquisition are offered.
 See the [command reference](commands.md) for retained-install operations and
-[DEVELOPMENT](../../DEVELOPMENT.md#revive-office) for the maintainer-approved revival procedure.
+[DEVELOPMENT](../../../DEVELOPMENT.md#revive-office) for the maintainer-approved revival procedure.
 
 Current browser and data ownership is defined here. [Design](design.md),
 [planned commands](commands.md) and [contracts](../contracts/README.md)

@@ -20,7 +20,7 @@ Use the same `--prefix <folder>` as the existing installation; omission selects
 `~/.local`. Removal preserves release files and application data. A partial
 removal stays listable and can be completed by repeating explicit removal.
 Revival is a maintainer decision owned by
-[DEVELOPMENT](../../DEVELOPMENT.md#revive-office), not an installation workaround.
+[DEVELOPMENT](../../../DEVELOPMENT.md#revive-office), not an installation workaround.
 Acquisition syntax in historical release records is not current installation guidance.
 
 ### Retained companion operation

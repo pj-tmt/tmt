@@ -3,7 +3,7 @@
 Status: frozen/internal; local-first M1 semantics plus a separately scoped remote pilot proposal;
 delivered SPA, Rules and pairing boundaries are described in
 [architecture](architecture.md).
-The [revival procedure](../../DEVELOPMENT.md#revive-office) requires maintainer approval.
+The [revival procedure](../../../DEVELOPMENT.md#revive-office) requires maintainer approval.
 This document owns policy and user-visible semantics; the
 [wire schema](../contracts/v1.schema.json) owns message shapes.
 

@@ -152,7 +152,7 @@ Its contract is owned by [architecture](ARCHITECTURE.md#local-extension-api-v1).
 
 Office is frozen for official installation and publication. Existing installations,
 source, contracts and data remain; local contributor verification is still supported.
-The [Office command reference](docs/office/commands.md) describes retained installations.
+The [Office command reference](extensions/tmt-office/docs/commands.md) describes retained installations.
 
 ### Revive Office
 
@@ -166,7 +166,7 @@ Keep this procedure as the single owner of the revival steps:
    Cargo `package.metadata.dist` setting, the native-release product choices, and
    the CLI's `INSTALLABLE_EXTENSIONS` together. Regenerate with
    `node typescript/scripts/release-please-config.mjs` and verify with `--check`.
-   Follow the [release verification guide](docs/native-release-verification.md)
+   Follow the [native release verification](#native-release-verification)
    for the generated config/manifest and compatible archive checks; do not reset
    a historical release version or recreate a published tag.
 3. Run the release-policy, workflow and release-config tooling tests, and the
@@ -179,7 +179,7 @@ Keep this procedure as the single owner of the revival steps:
    Run the [Office browser verification](#office-browser-verification) and affected
    local-service checks before enabling broader CI or proposing a release.
 5. Update the user-facing frozen status and Office reference pages together.
-   Send handbook diffs to its single writer, tmt-lead. Obtain the separate release
+   Coordinate any handbook changes with its single writer, tmt-design-lead. Obtain the separate release
    approval and complete the release guide's acceptance before publication.
 
 ### Local development
