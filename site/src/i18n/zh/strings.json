@@ -17,7 +17,7 @@
   "home": {
     "eyebrow": "首頁",
     "title": "一個簡單的核心，*無限*種 AI 協作方式。",
-    "lede": "tmt 在 agent 之間傳遞訊息，並為每則回覆保留一張 receipt。board、colab 和 meet 都建立在這個核心上。它適用於任何 agent、任何 harness、任何機器；下面這一列是目前能用的，以及即將推出的。",
+    "lede": "tmt 在 agent 之間傳遞訊息，並為每則回覆保留一張 receipt。board、colab 和 meet 都建立在這個核心上。它適用於任何 agent、任何 harness、任何機器；下面列出現在就能用的，和之後會有的。",
     "worksWith": "支援",
     "yourHarness": "你的 harness",
     "yourServer": "你的伺服器",
@@ -49,7 +49,7 @@
     },
     "marks": {
       "label": "board 和每個指令使用的標記，每個標記只有一個意思。",
-      "intro": "board 保持安靜，好讓唯一需要你的事顯眼。每個指令都使用同樣的標記。",
+      "intro": "board 平常很安靜，只有需要你處理的事會跳出來。每個指令都用同一套標記。",
       "boardOnly": "僅限 board",
       "items": [
         {
@@ -69,16 +69,16 @@
           "text": "等你決定"
         },
         {
-          "name": "受阻",
-          "text": "失敗或受阻"
+          "name": "卡住",
+          "text": "失敗或卡住"
         },
         {
           "name": "完成",
           "text": "完成"
         },
         {
-          "name": "接續",
-          "text": "引導接續動作，絕不代表某一列的狀態"
+          "name": "恢復",
+          "text": "帶出恢復動作，不是列的狀態"
         },
         {
           "name": "已收合",
@@ -99,7 +99,7 @@
       {
         "title": "2 · board",
         "hint": "整個團隊，一個畫面",
-        "caption": "agent 變多了？`tmt sq board` 在一個畫面裡顯示整個團隊：誰在工作、誰在等你、誰受阻。它隨 Squad 擴充套件提供。同一批 agent，多開一個視窗。"
+        "caption": "agent 變多了？`tmt sq board` 在一個畫面裡顯示整個團隊：誰在工作、誰在等你、誰卡住。它隨 Squad 擴充套件提供。同一批 agent，多開一個視窗。"
       },
       {
         "title": "3 · colab",
