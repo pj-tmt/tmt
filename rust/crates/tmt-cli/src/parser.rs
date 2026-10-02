@@ -269,13 +269,14 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 command,
                 resume,
                 save: flag(m, "save"),
-                channel: flag(m, "channel"),
+                channel: channel_mode(m),
             }
         }
         ["resume"] => Invocation::Resume {
             name: text(m, "name").expect("required resume name"),
             forget: flag(m, "forget"),
             retry: flag(m, "retry"),
+            channel: channel_mode(m),
         },
         ["channel", action @ ("inspect" | "recover")] => {
             let selector = match text(m, "binding") {
@@ -775,6 +776,16 @@ fn duration(value: &str) -> Result<f64, String> {
     Err(format!(
         "Invalid time format: {value}. Use number (seconds) or number with ms/s/m suffix."
     ))
+}
+
+fn channel_mode(matches: &ArgMatches) -> ChannelMode {
+    if flag(matches, "channel") {
+        ChannelMode::Required
+    } else if flag(matches, "no-channel") {
+        ChannelMode::Disabled
+    } else {
+        ChannelMode::Default
+    }
 }
 
 // Source-checked command samples for the printed-command guard.

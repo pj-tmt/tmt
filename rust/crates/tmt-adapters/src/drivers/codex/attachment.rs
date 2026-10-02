@@ -87,6 +87,61 @@ impl LaunchOptions {
         Ok(result)
     }
 
+    /// Only the launcher's typed exact-resume target authorizes the generated
+    /// resume grammar. Arbitrary user resume/fork argv still fails `parse`.
+    pub fn for_launch(
+        command: &RuntimeCommand,
+        cwd: &Path,
+        resume: Option<&ProviderSessionId>,
+    ) -> Result<Self, AttachmentError> {
+        let Some(session) = resume else {
+            return Self::parse(command, cwd);
+        };
+        let invalid = || AttachmentError::UnsupportedArgument("exact resume".into());
+        uuid::Uuid::parse_str(session.as_str()).map_err(|_| invalid())?;
+        let mut args = command.args.as_slice();
+        if args.first().is_none_or(|arg| arg != "resume") {
+            return Err(invalid());
+        }
+        args = &args[1..];
+        let mut options = Vec::new();
+        if args.first().is_some_and(|arg| arg == "-m") {
+            if args.len() < 3 {
+                return Err(invalid());
+            }
+            options.extend_from_slice(&args[..2]);
+            args = &args[2..];
+        }
+        if args.first().is_none_or(|arg| arg != session.as_str()) {
+            return Err(invalid());
+        }
+        args = &args[1..];
+        if !args.is_empty() && args != [OsString::from("--no-daemon")] {
+            return Err(invalid());
+        }
+        Self::parse(
+            &RuntimeCommand {
+                executable: command.executable.clone(),
+                args: options,
+            },
+            cwd,
+        )
+    }
+
+    pub fn thread_resume_params(&self, session: &ProviderSessionId) -> serde_json::Value {
+        let mut params =
+            serde_json::json!({"threadId": session.as_str(), "cwd": self.working_directory});
+        // The generated resume grammar carries at most one explicit model.
+        if let Some(model) = self
+            .foreground
+            .windows(2)
+            .find(|pair| pair[0] == "-m" || pair[0] == "--model")
+        {
+            params["model"] = model[1].to_string_lossy().into_owned().into();
+        }
+        params
+    }
+
     fn option(&mut self, name: &str, value: OsString, cwd: &Path) -> Result<(), AttachmentError> {
         if matches!(name, "-C" | "--cd") {
             let path = PathBuf::from(value);

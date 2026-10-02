@@ -4,7 +4,7 @@
 //! reconcile a driver-created provider session with the admission evidence. The
 //! driver owns everything provider-specific; none of it is spelled here.
 
-use crate::{output::Failure, run_command::storage_failure};
+use crate::{invocation::ChannelMode, output::Failure, run_command::storage_failure};
 use std::{
     ffi::{OsStr, OsString},
     path::PathBuf,
@@ -29,44 +29,122 @@ use tmt_core::{
 #[cfg(test)]
 mod tests;
 
-/// The provider channel a `--channel` launch enrolls, verified before any binding
-/// or spawn. A launch that cannot enroll fails; it never silently starts without
-/// the channel.
+/// A preflight result retains the reason until the plain foreground can start,
+/// so one launch prints at most one fallback notice.
+pub(super) struct Prepared<'a> {
+    pub channel: Option<&'a dyn RuntimeChannel>,
+    pub directory: PathBuf,
+    pub notice: Option<String>,
+}
+
 pub(super) fn preflight<'a>(
     registry: &'a RuntimeRegistry,
+    mode: ChannelMode,
     claim: Option<&HarnessId>,
     executable: &OsStr,
     paths: &ConfigPaths,
-) -> Result<(&'a dyn RuntimeChannel, PathBuf), Failure> {
-    let unsupported = || {
-        Failure::new(
-            "CHANNEL_UNSUPPORTED",
-            "--channel needs a command whose agent driver has a message channel (for example: tmt run --channel worker claude).",
-            1,
-        )
+) -> Result<Prepared<'a>, Failure> {
+    prepare(
+        claim.and_then(|harness| registry.channel(harness)),
+        mode,
+        executable,
+        paths.channel_directory(),
+    )
+}
+
+fn prepare<'a>(
+    channel: Option<&'a dyn RuntimeChannel>,
+    mode: ChannelMode,
+    executable: &OsStr,
+    directory: PathBuf,
+) -> Result<Prepared<'a>, Failure> {
+    let mut prepared = Prepared {
+        channel: None,
+        directory,
+        notice: None,
     };
-    let channel = claim
-        .and_then(|harness| registry.channel(harness))
-        .ok_or_else(unsupported)?;
-    let directory = paths.channel_directory();
-    let advisory = channel
-        .preflight(
-            executable,
-            &directory,
-            Instant::now() + Duration::from_secs(5),
-        )
-        .map_err(|error| {
-            let code = match error {
-                ChannelError::ProviderVersion { .. } => "CHANNEL_PROVIDER_UNSUPPORTED",
-                _ => "CHANNEL_UNAVAILABLE",
-            };
-            Failure::new(code, format!("{error} No command was launched."), 1)
-        })?;
-    // Shown before the provider takes the terminal, and only for a launch that goes on.
-    if let Some(advisory) = advisory {
-        super::diagnostic(&advisory);
+    if mode == ChannelMode::Disabled
+        || (mode == ChannelMode::Default
+            && channel.is_none_or(|channel| !channel.enabled_by_default()))
+    {
+        return Ok(prepared);
     }
-    Ok((channel, directory))
+    let result: Result<&dyn RuntimeChannel, Failure> = (|| {
+        let channel = channel.ok_or_else(|| {
+            Failure::new(
+                "CHANNEL_UNSUPPORTED",
+                "This command has no message channel support.",
+                1,
+            )
+        })?;
+        let advisory = channel
+            .preflight(
+                executable,
+                &prepared.directory,
+                Instant::now() + Duration::from_secs(5),
+            )
+            .map_err(enrollment_failure)?;
+        if let Some(reason) = advisory {
+            super::diagnostic(&reason);
+        }
+        Ok(channel)
+    })();
+    match result {
+        Ok(channel) => prepared.channel = Some(channel),
+        Err(error) if mode == ChannelMode::Default => {
+            prepared.notice = Some(error.message.to_string())
+        }
+        Err(error) => return Err(error),
+    }
+    Ok(prepared)
+}
+
+pub(super) fn enrollment_failure(error: ChannelError) -> Failure {
+    let code = match error {
+        ChannelError::Unsupported => "CHANNEL_UNSUPPORTED",
+        ChannelError::ProviderVersion { .. } | ChannelError::ProviderUnqualified { .. } => {
+            "CHANNEL_PROVIDER_UNSUPPORTED"
+        }
+        _ => "CHANNEL_UNAVAILABLE",
+    };
+    Failure::new(code, error.to_string(), 1)
+}
+
+/// Fallback never recovers or guesses away retained enrollment. The driver's
+/// failed-start cleanup must have retired its evidence before a plain launch.
+pub(super) fn verify_plain_fallback(
+    registry: &RuntimeRegistry,
+    storage: &mut Storage,
+    binding: &Binding,
+    directory: &std::path::Path,
+) -> Result<(), Failure> {
+    verify_claim(storage, binding)?;
+    let evidence = registry
+        .enrolled_in_pane(
+            directory,
+            &tmt_adapters::runtime::channel::PaneAddress {
+                server: &binding.server,
+                pane_id: &binding.pane_id,
+                pane_pid: binding.pane_pid,
+            },
+            Some(&binding.id),
+            Instant::now() + Duration::from_secs(3),
+        )
+        .map_err(|error| Failure::new("CHANNEL_UNAVAILABLE", error.message(), 1))?;
+    if evidence.enrolled {
+        return Err(Failure::new(
+            "CHANNEL_UNAVAILABLE",
+            "A live or unconfirmed enrollment remains in this pane; no plain command was launched.",
+            1,
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn paste_notice(name: &str, reason: &str) -> String {
+    // Provider output and identity names cannot turn one notice into many lines.
+    let line = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("{} uses paste delivery: {}", line(name), line(reason))
 }
 
 /// Whether the binding stored now is still the one this launch claimed: the same

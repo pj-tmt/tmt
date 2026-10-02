@@ -200,6 +200,8 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
           ...fixture.executables.cli.args,
           'run',
           '--resume',
+          // This hook-only fixture exercises plain exact resume, not app-server attachment.
+          '--no-channel',
           'Codex Reader',
         ]
           .map(quote)

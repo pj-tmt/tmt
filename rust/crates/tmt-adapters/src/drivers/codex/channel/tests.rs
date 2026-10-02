@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn preflight_accepts_qualified_builds_and_only_advises_later_0159_patches() {
+fn preflight_accepts_only_qualified_builds_and_classifies_later_0159_as_unavailable() {
     for version in [
         b"codex-cli 0.159.2".as_slice(),
         b"codex-cli 0.159.3\n",
@@ -10,9 +10,13 @@ fn preflight_accepts_qualified_builds_and_only_advises_later_0159_patches() {
         assert!(matches!(version_advisory(version), Ok(None)));
     }
     for version in ["codex-cli 0.159.4", "codex-cli 0.159.999"] {
-        let note = version_advisory(version.as_bytes()).unwrap().unwrap();
-        assert!(note.contains(version));
-        assert!(note.contains("owned endpoint handshake must pass"));
+        let Err(ChannelError::ProviderUnqualified { reason }) =
+            version_advisory(version.as_bytes())
+        else {
+            panic!("unqualified build must be unavailable");
+        };
+        assert!(reason.contains(version));
+        assert!(reason.contains("has not been qualified"));
     }
     for version in [
         b"".as_slice(),

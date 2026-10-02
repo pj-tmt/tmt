@@ -1502,7 +1502,12 @@ They use the existing private E2E fixture and a model-free Rust
 focused run, build both `tmt-cli` and that example; no installed provider or
 credentials are used. The tests independently check native queue receipts,
 durable replies, the shared enrollment/pane gates, and per-pane terminal writes
-with a plain-session positive control. Provider live continuity evidence is
+with an explicit `--no-channel` plain-session positive control. Default launch
+and exact resume cover qualified enrollment, refusal/advisory/startup fallback
+with exactly one reason line, strict refusal, unchanged original resume argv,
+thread-ID mismatch rejection, retained-evidence refusal, and Ctrl-C cleanup.
+Launcher unit tests toggle the channel port's advertised default independently
+of provider names. Provider live continuity evidence is
 separate; see [the contract](contracts/codex-channel-v1.md#verification-boundaries).
 
 `reply-batching` owns fixed pane windows, disabled grouping, uncertainty and

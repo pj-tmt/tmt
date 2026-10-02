@@ -11,6 +11,9 @@ use std::{ffi::OsStr, path::Path, time::Instant};
 
 pub struct CodexChannel;
 impl RuntimeChannel for CodexChannel {
+    fn enabled_by_default(&self) -> bool {
+        true
+    }
     fn enrolled(&self, directory: &Path, binding_id: &str) -> Result<bool, ChannelFault> {
         delivery::enrolled(directory, binding_id)
     }
@@ -84,7 +87,7 @@ impl RuntimeChannel for CodexChannel {
             plan.pane.pane_pid,
         )
         .map_err(|_| ChannelError::Unattributed)?;
-        LaunchOptions::parse(plan.command, plan.working_directory).map_err(|error| {
+        LaunchOptions::for_launch(plan.command, plan.working_directory, plan.resume_session).map_err(|error| {
             use super::attachment::AttachmentError;
             ChannelError::UnsupportedArguments(match error {
                 AttachmentError::UnsupportedPermission(option) => option,
@@ -118,9 +121,11 @@ fn version_advisory(output: &[u8]) -> Result<Option<String>, ChannelError> {
     });
     match parts.as_deref() {
         Some([0, 159, 2 | 3] | [0, 160, 0]) => Ok(None),
-        Some([0, 159, patch]) if *patch > 3 => Ok(Some(format!(
-            "Codex build {found:?} has not been qualified; the owned endpoint handshake must pass before launch."
-        ))),
+        Some([0, 159, patch]) if *patch > 3 => Err(ChannelError::ProviderUnqualified {
+            reason: format!(
+                "Codex build {found:?} has not been qualified for the message channel."
+            ),
+        }),
         _ => Err(ChannelError::ProviderVersion { found }),
     }
 }

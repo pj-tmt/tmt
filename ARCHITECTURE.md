@@ -2443,7 +2443,11 @@ scoped. The same contract owns this persistence definition and its launcher/cras
 `drivers/codex/server` and `attachment` own endpoint/foreground
 planning. A launch-owned process group and private capability share one
 cleanup owner; process cleanup precedes inode-checked file removal. Attachment
-planning resolves cwd once and names an exact thread. The channel contract owns
+planning resolves cwd once and names an exact thread. Typed exact resume travels
+through the private supervisor startup request; Codex uses `thread/resume` and
+validates the returned UUID against the selected session before foreground
+attachment, never inferring a session from arbitrary user argv or creating a
+replacement thread. The channel contract owns
 the startup, credential and failure limits; live-provider continuity and model-free product routing have separate evidence.
 Codex owns folder-trust onboarding: its user answers the TUI prompt; the channel
 never approves it or writes trust configuration (see the channel contract).
@@ -2486,13 +2490,24 @@ without terminal paste. [`contracts/claude-channel-v1.md`](contracts/claude-chan
 owns the behavior and the shipped-versus-planned status (#329); this is the
 ownership map.
 
+- The launcher chooses one `ChannelMode` (Default, Disabled, Required) from
+  mutually exclusive run/resume flags. `RuntimeChannel::enabled_by_default`
+  advertises only the driver's default; CLI policy contains no provider-name
+  branch. Codex enables its default and Claude keeps the port's opt-in default.
+  `run_command::channel` owns launcher policy and stable strict errors; each
+  driver classifies preflight outcomes as unavailable or informational.
+  Default failure before foreground startup can use only the original command,
+  with one paste-delivery reason line, after binding authority and existing
+  pane-enrollment evidence permit it. Failed-start provider cleanup retains
+  evidence when unconfirmed; the launcher never recovers it to obtain fallback.
 - `tmt_adapters::runtime::channel` defines the port. `RuntimeChannel` verifies the
   provider (`preflight`) and enrolls one launch (`enroll`) into a lease,
   `ChannelEnrollment`: the foreground command the launcher spawns verbatim, the
   provider child's environment (never ambient or persisted), optionally the
   provider session the driver created before the child starts, `foreground_started`
   and a consuming `withdraw`. `ChannelPlan` carries the identity and a `PaneAddress`
-  (tmux server incarnation, pane ID, pane process), which the driver persists in its
+  (tmux server incarnation, pane ID, pane process), plus an optional typed exact
+  resume session selected by the launcher. The driver persists pane attribution in
   enrollment before the child starts. The launcher calls `foreground_started` once
   with the exact child incarnation it spawned and observed, before admission, and
   retires the lease only when no child was spawned or its wait returned; on any other

@@ -2,7 +2,10 @@
 
 use super::{
     RunRequest,
-    channel::{HeldLease, admitted_key, claim_is_current, preflight, verify_claim},
+    channel::{
+        HeldLease, admitted_key, claim_is_current, enrollment_failure, paste_notice, preflight,
+        verify_claim, verify_plain_fallback,
+    },
     diagnostic, incarnation, observe, observe_admission,
     resume::{mark_resume_pending, select_command, settle_resume},
     storage_failure,
@@ -144,10 +147,15 @@ pub(super) fn run_bound(
         .as_ref()
         .and_then(|harness| registry.lifecycle(harness))
         .unwrap_or(&NoLifecycle);
-    // Verified before any binding or spawn; a launch that cannot enroll fails.
-    let channel = channel
-        .then(|| preflight(&registry, claim.as_ref(), &launch.command.executable, paths))
-        .transpose()?;
+    // Policy is selected once; the driver only advertises its Default choice.
+    let mode = channel;
+    let mut channel = preflight(
+        &registry,
+        mode,
+        claim.as_ref(),
+        &launch.command.executable,
+        paths,
+    )?;
     host.resolve_servers(storage).map_err(endpoint_failure)?;
     let bound = if auto_named {
         binding::bind_auto_identity(storage, &mut host.session(), pane, name, save)
@@ -257,45 +265,64 @@ pub(super) fn run_bound(
     // out of here it is dropped and the driver's record stays. Declared before the
     // child, so an abandoned child is cleaned up first.
     let mut lease = HeldLease::default();
-    if let Some((channel, directory)) = &channel {
-        let unavailable = |message: &str| {
-            Failure::new(
-                "CHANNEL_UNAVAILABLE",
-                format!("{message} No command was launched."),
-                1,
-            )
-        };
-        let owner = owner
-            .as_ref()
-            .ok_or_else(|| unavailable("Could not observe this launch's own process."))?;
-        // The authority to enroll is this launch's own claim of the binding,
-        // still current right now.
+    if let Some(port) = channel.channel {
+        // Loss of binding authority is terminal in every mode.
         verify_claim(storage, binding)?;
-        let tmt = tmt_adapters::core_executable::selected().map_err(|error| {
-            unavailable("Could not resolve this executable for the channel server.")
+        let enrolled = (|| {
+            let owner = owner.as_ref().ok_or_else(|| {
+                Failure::new(
+                    "CHANNEL_UNAVAILABLE",
+                    "Could not observe this launch's own process.",
+                    1,
+                )
+            })?;
+            let tmt = tmt_adapters::core_executable::selected().map_err(|error| {
+                Failure::new(
+                    "CHANNEL_UNAVAILABLE",
+                    "Could not resolve this executable for the channel server.",
+                    1,
+                )
                 .caused_by(error)
-        })?;
-        let working_directory = std::env::current_dir().map_err(|error| {
-            unavailable("Could not read the launch directory.").caused_by(error)
-        })?;
-        lease.hold(
-            channel
-                .enroll(&ChannelPlan {
-                    binding_id: &binding.id,
-                    identity_id: &binding.identity_id,
-                    pane: PaneAddress {
-                        server: &binding.server,
-                        pane_id: &binding.pane_id,
-                        pane_pid: binding.pane_pid,
-                    },
-                    owner,
-                    command: &launch.command,
-                    working_directory: &working_directory,
-                    tmt: &tmt,
-                    directory,
-                })
-                .map_err(|error| unavailable(&error.to_string()))?,
-        );
+            })?;
+            let working_directory = std::env::current_dir().map_err(|error| {
+                Failure::new(
+                    "CHANNEL_UNAVAILABLE",
+                    "Could not read the launch directory.",
+                    1,
+                )
+                .caused_by(error)
+            })?;
+            port.enroll(&ChannelPlan {
+                binding_id: &binding.id,
+                identity_id: &binding.identity_id,
+                pane: PaneAddress {
+                    server: &binding.server,
+                    pane_id: &binding.pane_id,
+                    pane_pid: binding.pane_pid,
+                },
+                owner,
+                command: &launch.command,
+                resume_session: launch
+                    .resumed
+                    .as_ref()
+                    .map(|session| &session.provider_session),
+                working_directory: &working_directory,
+                tmt: &tmt,
+                directory: &channel.directory,
+            })
+            .map_err(enrollment_failure)
+        })();
+        match enrolled {
+            Ok(enrolled) => lease.hold(enrolled),
+            Err(error) if mode == crate::invocation::ChannelMode::Default => {
+                channel.notice = Some(error.message.to_string());
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    if let Some(reason) = &channel.notice {
+        verify_plain_fallback(&registry, storage, binding, &channel.directory)?;
+        diagnostic(&paste_notice(name, reason));
     }
     if auto_named {
         let mut stderr = tmt_cli_style::stream::stderr();

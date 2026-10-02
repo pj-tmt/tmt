@@ -231,6 +231,7 @@ fn enrollment_refuses_missing_attribution_before_starting_anything() {
         args: vec![],
     };
     let plan = ChannelPlan {
+        resume_session: None,
         binding_id: "11111111-1111-4111-8111-111111111111",
         identity_id: "33333333-3333-4333-8333-333333333333",
         pane: PaneAddress {
@@ -273,6 +274,7 @@ fn unsupported_permissions_refuse_before_spawn_or_record_creation() {
             args: args.iter().map(std::ffi::OsString::from).collect(),
         };
         let plan = ChannelPlan {
+            resume_session: None,
             binding_id: "11111111-1111-4111-8111-111111111111",
             identity_id: "33333333-3333-4333-8333-333333333333",
             pane: PaneAddress {

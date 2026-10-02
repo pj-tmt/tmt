@@ -13,6 +13,8 @@ $ tmt run reviewer claude --model sonnet   # name this pane and start Claude Cod
 $ tmt run reviewer                         # later: start the remembered agent
 `}</Cmd>
 
+Codex uses its message channel by default; Claude uses paste unless you pass `--channel`. `--no-channel` selects plain paste delivery for one launch, and `--channel` requires a channel or fails. The flags conflict and go before the name. A channel pane never falls back to paste; [Codex's delivery guide](/drivers/codex#message-delivery) explains the notice when setup cannot finish.
+
 You can also start first and name later. `tmt run claude` starts the agent at once under a temporary name such as `claude-12ab34cd56ef`, and prints one line saying how to rename it. From the agent's shell tool, `tmt name reviewer` gives it its real name and keeps the same conversation. Naming doesn't save the name: add `-s` to `tmt name` or `tmt run` for that. Naming never merges two identities, so if one is already called `claude`, `tmt run claude` refuses. Use `tmt run claude claude` to launch that one, or `tmt run reviewer claude` for another name.
 
 ### `tmt resume`
@@ -25,6 +27,8 @@ $ tmt resume --forget reviewer  # drop the remembered conversation
 `}</Cmd>
 
 tmt only remembers what a driver reports through the agent's hooks. `/clear` or a new session replaces it, and switching an identity to another agent program drops the old one. Removing the identity deletes it too. If the conversation no longer exists, tmt says so and doesn't start a fresh one behind your back. Start fresh on purpose with `tmt run reviewer`. You pick the pane: tmt doesn't reopen your tmux layout. `tmt run --resume <name>` still works as an alias.
+
+Exact resume takes the same channel flags. Codex's default reattaches the remembered thread and never starts a fresh one.
 
 When a resume fails before the agent confirms the session, tmt marks it stale and won't try it again until you decide: `tmt resume --retry reviewer` tries once more, and `--forget` drops it. Ctrl-C never marks a session stale.
 

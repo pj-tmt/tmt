@@ -1,3 +1,12 @@
+/// The launcher selects one channel policy, independent of provider names.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ChannelMode {
+    #[default]
+    Default,
+    Disabled,
+    Required,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Invocation {
     Extension {
@@ -20,8 +29,8 @@ pub enum Invocation {
         command: Vec<std::ffi::OsString>,
         resume: bool,
         save: bool,
-        /// Enroll the agent's provider channel for this launch.
-        channel: bool,
+        /// Channel policy selected by the launcher grammar.
+        channel: ChannelMode,
     },
     /// The hidden stdio server a provider starts for an enrolled launch.
     ChannelServer {
@@ -34,6 +43,7 @@ pub enum Invocation {
         name: String,
         forget: bool,
         retry: bool,
+        channel: ChannelMode,
     },
     /// `tmt channel inspect|recover`: one binding's message-channel enrollments.
     Channel(ChannelRequest),

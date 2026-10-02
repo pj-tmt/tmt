@@ -876,6 +876,7 @@ fn plan<'a>(
     server: &'a ServerEvidence,
 ) -> ChannelPlan<'a> {
     ChannelPlan {
+        resume_session: None,
         binding_id: BINDING,
         identity_id: IDENTITY,
         pane: address(server),
@@ -2183,6 +2184,7 @@ mod pane {
         let owner = live_owner();
         let server = server();
         ClaudeChannel.enroll(&ChannelPlan {
+            resume_session: None,
             binding_id,
             identity_id: IDENTITY,
             pane: address(&server),

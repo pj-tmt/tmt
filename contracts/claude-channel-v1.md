@@ -1,6 +1,6 @@
 # Claude channel delivery (v1)
 
-This document owns the launch opt-in, the channel endpoint, the enrollment
+This document owns the shared launch policy, Claude opt-in, the channel endpoint, the enrollment
 lifecycle, the delivery result mapping, the supported provider range and the
 `tmt channel` recovery command shared by every driver with a channel.
 [ARCHITECTURE.md](../ARCHITECTURE.md) owns module boundaries; the request
@@ -29,12 +29,27 @@ processing.
 
 ## Opt-in and the launch lease
 
-- Only `tmt run --channel <identity> <claude command…>` enrolls a session.
-  `--channel` is a plain flag before the identity; it is rejected with `resume`,
-  and for a command whose driver has no channel, a provider outside the supported
-  range, a command line the driver cannot plan around, or a launch whose own
-  process cannot be observed. Rejection happens before any spawn; TMT never
-  silently launches without the channel.
+- The launcher selects one mode for both run and exact resume: Default when
+  neither flag is present, Disabled for `--no-channel`, Required for `--channel`.
+  The flags conflict in clap and go before the identity; `resume --forget`
+  conflicts with either flag. Drivers advertise only their default through
+  `RuntimeChannel::enabled_by_default`; the CLI contains no provider-name policy.
+  Claude advertises false and stays opt-in; the
+  [Codex contract](codex-channel-v1.md#default-launch-policy)
+  owns its default enrollment and exact-thread attachment.
+- A driver's preflight classifies an outcome as unavailable or informational.
+  Informational advisories are shown and enrollment proceeds, including Claude's
+  accepted-but-untested 2.x builds; its handshake decides readiness. Codex's
+  unqualified-build advisory is unavailable, as its contract defines.
+  Required refuses unavailable outcomes before foreground startup:
+  `CHANNEL_UNSUPPORTED` for no port, `CHANNEL_PROVIDER_UNSUPPORTED` for a refused
+  or unqualified build, and `CHANNEL_UNAVAILABLE` for other enrollment failures.
+  Default attempts only advertised channels. An unavailable attempt may run the
+  original plain command with one visible reason line,
+  `warning: tmt: <name> uses paste delivery: <reason>`, only after failed-start
+  cleanup and existing pane evidence permit it and binding authority still holds.
+  Unknown or retained enrollment stays terminal. Disabled does not enroll and
+  never bypasses the no-paste evidence check.
 - The driver owns the launch plan through `runtime::channel::RuntimeChannel`.
   `enroll` receives the user's command (selected executable and argv, resume
   substitution included), the launch directory, the identity and the pane address
@@ -71,7 +86,7 @@ processing.
   ready". `enroll` refuses a pane that cannot be identified (an empty identifier or
   a zero PID): a record that could not be matched to its pane later would be
   invisible to every guard. A session with no record never opted in.
-- A launch without `--channel` touches no channel state, and no launcher removes
+- A Claude launch without `--channel` creates no channel state, and no launcher removes
   another launch's enrollment, except that `enroll` prunes ended launches (see
   "Enrollment ownership and serialization").
 - Non-enrolled sessions, other drivers and every other launch keep their current

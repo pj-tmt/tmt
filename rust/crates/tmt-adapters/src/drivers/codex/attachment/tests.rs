@@ -258,3 +258,44 @@ fn unmapped_permission_config_and_values_are_explicitly_refused() {
     let options = LaunchOptions::parse(&selected, Path::new("/owned")).unwrap();
     assert_eq!(options.server_arguments(), selected.args);
 }
+
+#[test]
+fn exact_resume_requires_typed_target_and_preserves_model_without_extra_input() {
+    let session = ProviderSessionId::new("11111111-1111-4111-8111-111111111111").unwrap();
+    let command = RuntimeCommand {
+        executable: "codex".into(),
+        args: [
+            "resume",
+            "-m",
+            "fixture-model",
+            session.as_str(),
+            "--no-daemon",
+        ]
+        .map(OsString::from)
+        .to_vec(),
+    };
+    let cwd = Path::new("/fixture");
+    assert!(LaunchOptions::parse(&command, cwd).is_err());
+    let options = LaunchOptions::for_launch(&command, cwd, Some(&session)).unwrap();
+    assert_eq!(
+        options.thread_resume_params(&session),
+        serde_json::json!({"threadId":session.as_str(),"cwd":"/fixture","model":"fixture-model"})
+    );
+    assert_eq!(
+        options.server_arguments(),
+        ["-c", "model=\"fixture-model\""]
+    );
+    let mut extra = command.clone();
+    extra.args.push("prompt".into());
+    assert!(LaunchOptions::for_launch(&extra, cwd, Some(&session)).is_err());
+    let other = ProviderSessionId::new("22222222-2222-4222-8222-222222222222").unwrap();
+    assert!(LaunchOptions::for_launch(&command, cwd, Some(&other)).is_err());
+    assert!(
+        LaunchOptions::for_launch(
+            &command,
+            cwd,
+            Some(&ProviderSessionId::new("invalid").unwrap())
+        )
+        .is_err()
+    );
+}
