@@ -2002,6 +2002,10 @@ do not satisfy native target acceptance. This optional image is not the tmux
 E2E harness or a publication workflow.
 
 Negative archive tests use real tar fixtures and causal guard assertions.
+The native-artifact-policy hard-link fixture uses synchronous tar construction:
+the asynchronous packer's pending-link queue can hang under out-of-order filesystem
+callbacks. Keep this tiny fixture outside that queue, and verify the resulting
+archive contains a real `Link` entry before asserting the unchanged policy rejection.
 Exercise checksum corruption, truncation, missing executable/notices, links,
 unexpected paths, duplicates, bounds and cleanup; never accept any arbitrary
 process error as proof of the intended check. Inspect exact manifest and archive
