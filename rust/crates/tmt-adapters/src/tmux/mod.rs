@@ -9,7 +9,6 @@ mod metadata;
 mod transport;
 pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};
 pub use focus::{ClientView, FocusError, Invoker};
-pub use transport::{DeliveryError, DeliveryStage};
 
 #[cfg(test)]
 mod evidence_tests;
@@ -164,6 +163,16 @@ impl fmt::Display for TmuxError {
             }
         }
         write!(output, ".")
+    }
+}
+
+impl crate::host::DeliveryCause for TmuxError {
+    fn socket_permission_denied(&self) -> bool {
+        TmuxError::socket_permission_denied(self)
+    }
+
+    fn cleanup_failed(&self) -> bool {
+        TmuxError::cleanup_failed(self)
     }
 }
 
@@ -474,7 +483,7 @@ impl<R: CommandRunner> Tmux<R> {
         target: &str,
         options: OperationOptions<'_>,
     ) -> Result<Option<String>, TmuxError> {
-        let output = optional_observation(self.execute(
+        let output = self.execute(
             vec![
                 "display-message".into(),
                 "-p".into(),
@@ -484,9 +493,25 @@ impl<R: CommandRunner> Tmux<R> {
             ],
             options,
             TmuxFailure::Command,
-        ))?;
-        let Some(output) = output else {
-            return Ok(None);
+        );
+        let output = match output {
+            Ok(output) => output,
+            // A completed tmux lookup can report a missing target. Execution
+            // failures are unavailable evidence, not proof that the pane is absent.
+            Err(error)
+                if !error.cleanup_failed()
+                    && !error.socket_permission_denied()
+                    && matches!(
+                        error.cause.as_ref().map(|cause| cause.kind),
+                        Some(CommandFailure::Exit {
+                            code: Some(_),
+                            signal: None
+                        })
+                    ) =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
         };
         let id = output.trim();
         Ok(valid_pane_id(id).then(|| id.into()))
@@ -597,8 +622,9 @@ impl<R: CommandRunner> Tmux<R> {
     }
 }
 
-/// Expected unavailable evidence is best-effort; failed resource cleanup is
-/// exceptional and must reach the invocation owner, never become "not found".
+/// Optional caller evidence is best-effort. Explicit target lookup must not use
+/// this policy: unavailable execution cannot establish that a pane is absent.
+/// Cleanup and socket-denial errors always reach the invocation owner.
 fn optional_observation<T>(result: Result<T, TmuxError>) -> Result<Option<T>, TmuxError> {
     match result {
         Ok(value) => Ok(Some(value)),

@@ -13,12 +13,20 @@
 //   node release-upgrade.mjs fetch --product cli|office|squad --tag TAG --directory DIR
 //   node release-upgrade.mjs assess --directory DIR --sha SHA   proved, nothing or predates
 //   node release-upgrade.mjs prove --product P --tag TAG --target T --directory DIR [--skill S]
+//   node release-upgrade.mjs reason --directory DIR   why the proof failed, from the hosts' logs
 // A CLI candidate runs the managed-install lifecycle verifier over the two archives. An extension
 // candidate is installed and upgraded by the newest published CLI, which is what a user's
 // `tmt extension install <extension>` runs, because an extension release carries no CLI.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -216,6 +224,40 @@ export function assessUpgrade({ plan, hasFileAt }) {
   return { outcome: 'proved', reason: '' };
 }
 
+/** `text` as one line of at most `limit` characters: control characters become spaces. */
+function oneLine(text, limit) {
+  const line = text
+    .replace(/\p{Cc}+/gu, ' ')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+  return line.length > limit ? `${line.slice(0, limit - 3)}...` : line;
+}
+
+/**
+ * Why one host's proof failed, from its log: the first error a verifier threw, on one line. The
+ * release commit's own scripts wrote the log, so it is data, never trusted beyond that.
+ */
+export function failureCause(log) {
+  const error = /^(?:Assertion)?Error(?: \[[A-Z_]+\])?: (.+)$/m.exec(log);
+  return oneLine(error?.[1] ?? 'the proof failed without an error message', 300);
+}
+
+/**
+ * One sentence for the hold reason from the logs of the hosts that failed: each distinct cause
+ * once, with the hosts it happened on.
+ */
+export function combineFailures(failures) {
+  const hosts = new Map();
+  for (const { target, log } of failures) {
+    const cause = failureCause(log);
+    hosts.set(cause, [...(hosts.get(cause) ?? []), target].sort());
+  }
+  return oneLine(
+    [...hosts].map(([cause, targets]) => `${cause} (${targets.join(', ')})`).join('; '),
+    600
+  );
+}
+
 const COMMIT = /^[0-9a-f]{40}$/;
 
 /**
@@ -301,6 +343,24 @@ function main(argv, environment) {
     );
     return;
   }
+  if (command === 'reason') {
+    // The proof's hosts leave `upgrade-proof-log-<target>/upgrade-proof.log`; a missing directory
+    // means no host failed, which is no reason at all.
+    required(['directory']);
+    const failures = existsSync(values.directory)
+      ? readdirSync(values.directory)
+          .filter((name) => name.startsWith('upgrade-proof-log-'))
+          .map((name) => ({
+            target: name.slice('upgrade-proof-log-'.length),
+            log: readFileSync(path.join(values.directory, name, 'upgrade-proof.log'), 'utf8'),
+          }))
+      : [];
+    const reason = failures.length === 0 ? '' : combineFailures(failures);
+    if (reason) report(`The upgrade proof failed: ${reason}`);
+    if (environment.GITHUB_OUTPUT) appendFileSync(environment.GITHUB_OUTPUT, `reason=${reason}\n`);
+    else process.stdout.write(`${reason}\n`);
+    return;
+  }
   const repository = environment.GITHUB_REPOSITORY;
   if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
   if (command === 'assess') {
@@ -353,7 +413,7 @@ function main(argv, environment) {
         : `No published ${values.product} release precedes ${values.tag}; nothing was fetched.`
     );
   } else {
-    throw new Error('Usage: release-upgrade.mjs resolve|fetch|assess|prove --tag TAG ...');
+    throw new Error('Usage: release-upgrade.mjs resolve|fetch|assess|prove|reason --tag TAG ...');
   }
 }
 

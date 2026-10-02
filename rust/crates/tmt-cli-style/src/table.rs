@@ -218,7 +218,7 @@ pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
             match column {
                 Column::Fixed => Track::fixed(basis),
                 Column::Detail | Column::Name => Track {
-                    basis,
+                    basis: grid::Basis::Cells(basis),
                     min: basis.min(MINIMUM),
                     max: None,
                     grow: 0,
@@ -278,7 +278,7 @@ fn styled(cell: &Cell, theme: Option<(Theme, Depth)>) -> comfy_table::Cell {
     if theme.is_some() {
         return themed(rendered, token.themed(theme));
     }
-    if let Some(color) = token.color().map(dark) {
+    if let Some(color) = token.color().map(ansi) {
         rendered = rendered.fg(color);
     }
     match token {
@@ -311,8 +311,9 @@ fn themed(mut rendered: comfy_table::Cell, style: anstyle::Style) -> comfy_table
     rendered
 }
 
-/// Every one of the 16 palette entries in crossterm's names, where the
-/// "dark" names are the standard entries and the plain names the bright.
+/// Themed ANSI colors and unthemed tokens use this one palette map.
+/// All 16 entries use crossterm's names: "dark" names are the standard
+/// entries and plain names are the bright entries.
 fn ansi(color: anstyle::AnsiColor) -> Color {
     use anstyle::AnsiColor as Ansi;
     match color {
@@ -332,21 +333,6 @@ fn ansi(color: anstyle::AnsiColor) -> Color {
         Ansi::BrightMagenta => Color::Magenta,
         Ansi::BrightCyan => Color::Cyan,
         Ansi::BrightWhite => Color::White,
-    }
-}
-
-/// crossterm's "dark" names are the standard (non-bright) palette entries
-/// 1–6, the same entries the token names in [`Token::color`].
-fn dark(color: anstyle::AnsiColor) -> Color {
-    use anstyle::AnsiColor as Ansi;
-    match color {
-        Ansi::Red => Color::DarkRed,
-        Ansi::Green => Color::DarkGreen,
-        Ansi::Yellow => Color::DarkYellow,
-        Ansi::Blue => Color::DarkBlue,
-        Ansi::Magenta => Color::DarkMagenta,
-        Ansi::Cyan => Color::DarkCyan,
-        _ => Color::Reset,
     }
 }
 

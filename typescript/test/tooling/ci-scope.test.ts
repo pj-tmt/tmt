@@ -26,9 +26,11 @@ import {
   readChangedCiAreas,
   renderSelectionEvidence,
   runCiScope,
+  rustGatePasses,
   scopedChecks,
   selectCiAreas,
   selectNativeScope,
+  selectOfficeBrowser,
 } from '../../scripts/ci-scope.mjs';
 
 const { runPackedCommand } = await import(
@@ -454,6 +456,7 @@ describe('component map', () => {
     expect(owner('extensions/tmt-squad/rust/tmt-squad/src/main.rs')).toBe('squad');
     expect(owner('typescript/test/native/office-board.test.ts')).toBe('office');
     expect(owner('typescript/test/e2e/squad.e2e.test.ts')).toBe('squad');
+    expect(owner('typescript/test/e2e/squad-reminder.e2e.test.ts')).toBe('squad');
     expect(owner('extensions/tmt-squad-other/file.rs')).toBe('cli');
     expect(owner('extensions/tmt-officer/file.rs')).toBe('cli');
   });
@@ -505,6 +508,7 @@ describe('component map', () => {
     [['extensions/tmt-squad/rust/tmt-squad/src/main.rs'], 'squad'],
     [['extensions/tmt-squad/skills/tmt-squad/SKILL.md', 'ARCHITECTURE.md'], 'squad'],
     [['typescript/test/e2e/squad.e2e.test.ts', 'typescript/test/native/squad.test.ts'], 'squad'],
+    [['typescript/test/e2e/squad-reminder.e2e.test.ts'], 'squad'],
     [['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'rust/Cargo.lock'], 'full'],
     [
       ['extensions/tmt-squad/rust/tmt-squad/src/main.rs', 'rust/crates/tmt-cli-style/src/lib.rs'],
@@ -533,7 +537,7 @@ describe('component map', () => {
         'extension-install.test.ts',
         'extension-upgrade-proof.test.ts',
       ],
-      e2eFiles: ['squad.e2e.test.ts'],
+      e2eFiles: ['squad.e2e.test.ts', 'squad-reminder.e2e.test.ts'],
     });
     expect(scopedChecks('full', map)).toEqual({ nativeTests: [], e2eFiles: [] });
     expect(scopedChecks('none', map)).toEqual({ nativeTests: [], e2eFiles: [] });
@@ -759,14 +763,16 @@ describe('remote Rust retains full CI coverage', () => {
       e2eShard2: 'success',
       runtimeBuild: 'success',
       packedInstall: 'success',
+      macosRuntimeBuild: 'success',
+      macosPackedInstall: 'success',
     };
-    expect(nativeGatePasses(scope, results)).toBe(true);
+    expect(nativeGatePasses(scope, results, 'true')).toBe(true);
     for (const job of Object.keys(results)) {
       for (const result of ['skipped', 'failure', 'cancelled', undefined]) {
-        expect(nativeGatePasses(scope, { ...results, [job]: result })).toBe(false);
+        expect(nativeGatePasses(scope, { ...results, [job]: result }, 'true')).toBe(false);
       }
     }
-    expect(nativeGatePasses('remote', results)).toBe(false);
+    expect(nativeGatePasses('remote', results, 'true')).toBe(false);
   });
 
   it.each([
@@ -826,15 +832,68 @@ esac
       if (fixture.status === 0 || fixture.testStatus !== 0)
         expected.push('test --locked --workspace');
       if (fixture.status === 0)
-        expected.push(
-          '+1.88.0 build --locked --workspace',
-          'build --locked --workspace',
-          'build --locked --example storage-probe'
-        );
+        expected.push('build --locked --workspace', 'build --locked --example storage-probe');
       expect(calls).toEqual(expected);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('Office-owned browser PR selection', () => {
+  it.each([
+    'extensions/tmt-office/typescript/apps/office/src/main.tsx',
+    'extensions/tmt-office/rust/tmt-office/src/main.rs',
+    'extensions/tmt-office/contracts/world-v1.md',
+    'extensions/tmt-office/skills/tmt-office/SKILL.md',
+    'docs/office/architecture.md',
+    'typescript/test/native/office-storage.test.ts',
+  ])('selects Office-owned path %s', (file) => {
+    expect(selectOfficeBrowser([file])).toBe(true);
+    expect(selectOfficeBrowser(['rust/Cargo.lock', file])).toBe(true);
+  });
+
+  it.each([
+    '.github/workflows/office-browser.yml',
+    '.dockerignore',
+    'typescript/scripts/verify-office-emulators.mjs',
+    'extensions/tmt-office/typescript/services/office/Dockerfile',
+    'extensions/tmt-office/typescript/apps/office/e2e/native-office-fixture.ts',
+  ])('verifies browser machinery when it changes: %s', (file) => {
+    expect(selectOfficeBrowser([file])).toBe(true);
+  });
+
+  it.each([
+    '.github/components.json',
+    'typescript/package.json',
+    'typescript/pnpm-lock.yaml',
+    'typescript/pnpm-workspace.yaml',
+    'typescript/scripts/ci-scope.mjs',
+    'typescript/scripts/ci-scope.d.mts',
+    'typescript/test/tooling/ci-scope.test.ts',
+    'typescript/test/support/cli-process.ts',
+    'typescript/test/e2e/harness.ts',
+    'typescript/test/e2e/harness/fixture.ts',
+    'rust/crates/tmt-adapters/src/api.rs',
+    'rust/Cargo.lock',
+    'contracts/remote-client-v1.md',
+    'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
+    '.github/workflows/ci.yml',
+    'docs/cli-style.md',
+    'unmapped/new-file',
+    'extensions/tmt-office-other/src/main.rs',
+    'typescript/test/support-other/fixture.ts',
+    'typescript/test/e2e/harness-other/fixture.ts',
+    'typescript/test/e2e/binding.e2e.test.ts',
+    'docs/office-other/architecture.md',
+    'extensions/tmt-squad/rust/tmt-squad/src/main.rs',
+  ])('does not spend PR browser runners on non-Office path %s', (file) => {
+    expect(selectOfficeBrowser([file])).toBe(false);
+  });
+
+  it('keeps empty-diff required checks conservative without claiming an Office change', () => {
+    expect(selectOfficeBrowser([])).toBe(false);
+    expect(selectCiAreas([])).toEqual({ native: true, office: true, nativeOffice: true });
   });
 });
 
@@ -967,6 +1026,7 @@ describe('CI diff and command integration', () => {
         native: 'true',
         office: 'false',
         native_office: 'true',
+        office_browser: 'false',
         native_scope: 'full',
         scoped_native_tests: '',
       });
@@ -997,10 +1057,11 @@ describe('CI diff and command integration', () => {
         native: 'true',
         office: 'false',
         native_office: 'false',
+        office_browser: 'false',
         native_scope: 'squad',
         scoped_native_tests:
           'squad.test.ts extension-install.test.ts extension-upgrade-proof.test.ts',
-        e2e_shard_1: 'squad.e2e.test.ts',
+        e2e_shard_1: 'squad.e2e.test.ts squad-reminder.e2e.test.ts',
         e2e_shard_2: '',
       });
       expect(scopedLog.text()).toContain('native scope squad.');
@@ -1015,6 +1076,24 @@ describe('CI diff and command integration', () => {
       expect(remoteLog.text()).toContain(
         '| tmt-remote | remote-rust | native, office, native_office |'
       );
+      const officePath = path.join(root, 'docs/office/fixture.md');
+      mkdirSync(path.dirname(officePath), { recursive: true });
+      writeFileSync(officePath, 'Office fixture\n');
+      const officeHead = commit();
+      const browserSelected = (baseHead: string, nextHead: string) => {
+        const output = capture();
+        runCiScope([baseHead, nextHead], { cwd: root, stdout: output, stderr: capture() });
+        return outputs(output.text()).office_browser;
+      };
+      expect(browserSelected(remoteHead, officeHead)).toBe('true');
+      renameSync(officePath, path.join(root, 'docs/moved.md'));
+      const movedHead = commit();
+      expect(browserSelected(officeHead, movedHead)).toBe('true');
+      writeFileSync(officePath, 'Office fixture\n');
+      const restoredHead = commit();
+      rmSync(officePath);
+      const deletedHead = commit();
+      expect(browserSelected(restoredHead, deletedHead)).toBe('true');
 
       expect(() => runCiScope(['only-one'], { cwd: root, stdout, stderr })).toThrow(
         'exact base and head'
@@ -1026,6 +1105,124 @@ describe('CI diff and command integration', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(`${root}-summary.md`, { force: true });
+    }
+  }, 5000);
+
+  it('selects cumulative merge-group endpoints and fails closed when the diff is unreadable', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-queue-'));
+    const git = (args: string[]) =>
+      runPackedCommand('git', args, {
+        cwd: root,
+        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+      });
+    const commit = (name: string, contents: string) => {
+      mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
+      writeFileSync(path.join(root, name), contents);
+      git(['add', '.']);
+      git([
+        '-c',
+        'user.name=TMT Test',
+        '-c',
+        'user.email=test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '--quiet',
+        '-m',
+        'Test fixture',
+      ]);
+      return git(['rev-parse', 'HEAD']).trim();
+    };
+    const select = (args: string[], cwd = root) => {
+      let output = '';
+      let evidence = '';
+      runCiScope(args, {
+        cwd,
+        stdout: {
+          write: (text) => {
+            output += text;
+          },
+        },
+        stderr: {
+          write: (text) => {
+            evidence += text;
+          },
+        },
+      });
+      return {
+        evidence,
+        outputs: Object.fromEntries(
+          output
+            .trim()
+            .split('\n')
+            .map((line) => line.split('='))
+        ),
+      };
+    };
+    try {
+      git(['init', '--quiet']);
+      const base = commit('README.md', 'base');
+      commit('docs/first.md', 'first PR');
+      const docs = commit('docs/second.md', 'second PR');
+      const docsRun = select(['merge-group', base, docs]);
+      expect(docsRun.outputs).toMatchObject({
+        native: 'false',
+        office: 'false',
+        native_scope: 'none',
+        e2e_shard_1: '',
+        e2e_shard_2: '',
+      });
+      expect(docsRun.evidence).toContain(`${base.slice(0, 12)}..${docs.slice(0, 12)}`);
+      expect(docsRun.evidence).toContain('docs/first.md');
+      expect(docsRun.evidence).toContain('docs/second.md');
+      expect(docsRun.outputs).toEqual(select([base, docs]).outputs);
+      const squad = commit('extensions/tmt-squad/rust/tmt-squad/src/main.rs', '// squad');
+      const squadRun = select(['merge-group', base, squad]);
+      expect(squadRun.outputs).toMatchObject({
+        native: 'true',
+        office: 'false',
+        native_scope: 'squad',
+        e2e_shard_2: '',
+      });
+      expect(squadRun.outputs.e2e_shard_1).toBe('squad.e2e.test.ts squad-reminder.e2e.test.ts');
+      expect(squadRun.outputs).toEqual(select([base, squad]).outputs);
+      const shared = commit('unknown-input', 'shared');
+      const full = select(['full']).outputs;
+      expect(select(['merge-group', base, shared]).outputs).toEqual(full);
+      const empty = select(['merge-group', docs, docs]);
+      expect(empty.outputs).toEqual(full);
+      expect(empty.evidence).toContain('diff is empty; using full verification');
+      for (const args of [
+        ['merge-group', '0'.repeat(40), docs],
+        ['merge-group', base, '0'.repeat(40)],
+        ['merge-group', '--help', docs],
+        ['merge-group'],
+      ]) {
+        const fallback = select(args);
+        expect(fallback.outputs).toEqual(full);
+        expect(fallback.evidence).toContain('diff unreadable; using full verification');
+      }
+      // Divergent endpoints prove queue mode uses two-dot rather than PR merge-base selection.
+      git(['checkout', '--quiet', '--detach', base]);
+      const core = commit('rust/fixture.rs', '// core');
+      expect(select(['merge-group', core, docs]).outputs.native_scope).toBe('full');
+      expect(select([core, docs]).outputs.native_scope).toBe('none');
+      // A real shallow checkout lacks the base object: it must not become an empty/none diff.
+      const shallow = path.join(root, 'shallow');
+      git([
+        '-c',
+        'advice.detachedHead=false',
+        'clone',
+        '--quiet',
+        '--depth=1',
+        `file://${root}`,
+        shallow,
+      ]);
+      const fallback = select(['merge-group', base, core], shallow);
+      expect(fallback.outputs).toEqual(full);
+      expect(fallback.evidence).toContain('diff unreadable; using full verification');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   }, 5000);
 
@@ -1087,7 +1284,7 @@ describe('required CI gate', () => {
     expect(ciGatePasses(native[0], [...native[1]])).toBe(true);
   });
 
-  /** The results of the six native jobs, all `success` unless overridden. */
+  /** The results of the eight native jobs, all `success` unless overridden. */
   const native = (overrides: Record<string, string> = {}) => ({
     nativeRust: 'success',
     unitTests: 'success',
@@ -1095,6 +1292,8 @@ describe('required CI gate', () => {
     e2eShard2: 'success',
     runtimeBuild: 'success',
     packedInstall: 'success',
+    macosRuntimeBuild: 'success',
+    macosPackedInstall: 'success',
     ...overrides,
   });
   const allSkipped = {
@@ -1104,12 +1303,16 @@ describe('required CI gate', () => {
     e2eShard2: 'skipped',
     runtimeBuild: 'skipped',
     packedInstall: 'skipped',
+    macosRuntimeBuild: 'skipped',
+    macosPackedInstall: 'skipped',
   };
   const squadRun = native({
     unitTests: 'skipped',
     e2eShard2: 'skipped',
     runtimeBuild: 'skipped',
     packedInstall: 'skipped',
+    macosRuntimeBuild: 'skipped',
+    macosPackedInstall: 'skipped',
   });
 
   it.each([
@@ -1117,7 +1320,7 @@ describe('required CI gate', () => {
     ['squad', squadRun],
     ['none', allSkipped],
   ])('accepts exactly the %s native results', (scope, expected) => {
-    expect(nativeGatePasses(scope, expected)).toBe(true);
+    expect(nativeGatePasses(scope, expected, 'true')).toBe(true);
   });
 
   it.each([
@@ -1138,14 +1341,81 @@ describe('required CI gate', () => {
     ['office', squadRun, 'a component without scoped checks'],
     ['squad', { ...squadRun, packedInstall: '' }, 'an empty result'],
   ])('rejects %s with %o (%s)', (scope, actual) => {
-    expect(nativeGatePasses(scope, actual)).toBe(false);
+    expect(nativeGatePasses(scope, actual, 'true')).toBe(false);
+  });
+
+  it('allows exactly the macOS omissions on merge groups and rejects missing evidence', () => {
+    const queue = native({ macosRuntimeBuild: 'skipped', macosPackedInstall: 'skipped' });
+    expect(nativeGatePasses('full', queue, 'false')).toBe(true);
+    expect(nativeGatePasses('full', queue, 'true')).toBe(false);
+    expect(nativeGatePasses('full', native(), 'false')).toBe(false);
+    for (const [job, expected] of Object.entries(queue)) {
+      for (const result of ['success', 'skipped', 'failure', 'cancelled', '', undefined]) {
+        if (result === expected) continue;
+        expect(nativeGatePasses('full', { ...queue, [job]: result }, 'false')).toBe(false);
+      }
+    }
+    for (const macos of ['', 'unknown', undefined]) {
+      expect(nativeGatePasses('full', queue, macos as string)).toBe(false);
+      expect(nativeGatePasses('none', allSkipped, macos as string)).toBe(false);
+      expect(nativeGatePasses('squad', squadRun, macos as string)).toBe(false);
+    }
+    expect(nativeGatePasses('squad', squadRun, 'false')).toBe(true);
+    expect(nativeGatePasses('none', allSkipped, 'false')).toBe(true);
   });
 
   it('rejects missing native results rather than claiming a pass', () => {
-    expect(nativeGatePasses('full', {} as never)).toBe(false);
-    expect(nativeGatePasses('none', undefined as never)).toBe(false);
+    expect(nativeGatePasses('full', {} as never, 'true')).toBe(false);
+    expect(nativeGatePasses('none', undefined as never, 'true')).toBe(false);
     const { e2eShard2: _missing, ...withoutShard } = native();
-    expect(nativeGatePasses('full', withoutShard as never)).toBe(false);
+    expect(nativeGatePasses('full', withoutShard as never, 'true')).toBe(false);
+  });
+
+  describe('Native Rust contracts gate', () => {
+    it.each(['full', 'squad', 'none'])('requires both workers for %s', (scope) => {
+      const expected = scope === 'none' ? 'skipped' : 'success';
+      expect(rustGatePasses(scope, [expected, expected])).toBe(true);
+      for (const other of ['success', 'skipped', 'failure', 'cancelled', '', undefined]) {
+        if (other === expected) continue;
+        expect(rustGatePasses(scope, [other, expected] as string[])).toBe(false);
+        expect(rustGatePasses(scope, [expected, other] as string[])).toBe(false);
+      }
+      for (const results of [[], [expected], [expected, expected, expected], undefined]) {
+        expect(rustGatePasses(scope, results as string[])).toBe(false);
+      }
+    });
+
+    it.each(['', 'unknown', 'office'])('rejects unavailable/unsupported scope %s', (scope) => {
+      expect(rustGatePasses(scope, ['success', 'success'])).toBe(false);
+      expect(rustGatePasses(scope, ['skipped', 'skipped'])).toBe(false);
+    });
+
+    it('enforces the Rust worker result contract in the actual command', () => {
+      const script = fileURLToPath(new URL('../../scripts/ci-scope.mjs', import.meta.url));
+      const options = { cwd: process.cwd(), env: process.env };
+      for (const [scope, values] of [
+        ['full', ['success', 'success']],
+        ['squad', ['success', 'success']],
+        ['none', ['skipped', 'skipped']],
+      ] as const) {
+        expect(
+          runPackedCommand(process.execPath, [script, 'gate-rust', scope, ...values], options)
+        ).toBe('');
+      }
+      for (const args of [
+        ['full', 'failure', 'success'],
+        ['full', 'success', 'cancelled'],
+        ['squad', 'success', 'skipped'],
+        ['none', 'success', 'skipped'],
+        ['full', 'success'],
+        ['full', 'success', 'success', 'success'],
+        ['', 'skipped', 'skipped'],
+      ]) {
+        expect(() =>
+          runPackedCommand(process.execPath, [script, 'gate-rust', ...args], options)
+        ).toThrow();
+      }
+    });
   });
 
   describe('Docker E2E gate', () => {
@@ -1207,13 +1477,56 @@ describe('required CI gate', () => {
       ]) {
         expect(() => runCiScope(args, io()), args.join(' ')).toThrow('Docker E2E shards');
       }
+      const queueResults = [
+        'success',
+        'success',
+        'success',
+        'success',
+        'success',
+        'success',
+        'skipped',
+        'skipped',
+      ];
+      runCiScope(['gate-native', 'false', 'full', ...queueResults], io());
+      for (const macos of ['true', '', 'unknown']) {
+        expect(() => runCiScope(['gate-native', macos, 'full', ...queueResults], io())).toThrow(
+          'native CI work'
+        );
+      }
+      expect(() =>
+        runCiScope(['gate-native', 'false', 'full', ...queueResults.slice(1)], io())
+      ).toThrow('native CI work');
       runCiScope(
-        ['gate-native', 'squad', 'success', 'skipped', 'success', 'skipped', 'skipped', 'skipped'],
+        [
+          'gate-native',
+          'true',
+          'squad',
+          'success',
+          'skipped',
+          'success',
+          'skipped',
+          'skipped',
+          'skipped',
+          'skipped',
+          'skipped',
+        ],
         io()
       );
       expect(() =>
         runCiScope(
-          ['gate-native', 'full', 'success', 'success', 'success', 'skipped', 'success', 'success'],
+          [
+            'gate-native',
+            'true',
+            'full',
+            'success',
+            'success',
+            'success',
+            'skipped',
+            'success',
+            'success',
+            'success',
+            'success',
+          ],
           io()
         )
       ).toThrow('native CI work');
@@ -1225,18 +1538,77 @@ describe('required CI gate', () => {
     expect(ciGatePasses('', ['skipped', 'skipped', 'skipped', 'skipped', 'skipped'])).toBe(false);
   });
 
+  it('keeps all PR runtime rows but skips only the separate macOS jobs on merge groups', () => {
+    const workflow = readFileSync(
+      fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
+      'utf8'
+    );
+    const job = (name: string) => {
+      const start = workflow.indexOf(`\n  ${name}:\n`);
+      expect(start).toBeGreaterThan(0);
+      const next = workflow.slice(start + 1).search(/\n {2}[a-z0-9-]+:\n/);
+      return workflow.slice(start, next < 0 ? undefined : start + 1 + next);
+    };
+    const build = job('native-runtime-build');
+    const macBuild = job('native-runtime-build-macos');
+    const packed = job('packed-native-install');
+    const macPacked = job('packed-native-install-macos');
+    expect(build.match(/- target: (.+)/g)).toEqual([
+      '- target: x86_64-unknown-linux-musl',
+      '- target: aarch64-unknown-linux-musl',
+    ]);
+    expect(macBuild.match(/- target: (.+)/g)).toEqual([
+      '- target: x86_64-apple-darwin',
+      '- target: aarch64-apple-darwin',
+    ]);
+    expect(packed.match(/- label: (.+)/g)).toEqual([
+      '- label: Linux glibc x64',
+      '- label: Linux glibc arm64',
+      '- label: Linux musl x64',
+      '- label: Linux musl arm64',
+    ]);
+    expect(macPacked.match(/- label: (.+)/g)).toEqual([
+      '- label: macOS x64',
+      '- label: macOS arm64',
+    ]);
+    expect(macBuild).toContain(
+      "if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.native_scope == 'full'"
+    );
+    expect(macPacked).toContain(
+      "if: needs.changes.outputs.macos == 'true' && needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
+    );
+    expect(macPacked).toContain('needs: [changes, native-runtime-build-macos]');
+    expect(packed).toContain('needs: [changes, native-runtime-build]');
+    expect(build).toContain('steps: &native-runtime-build-steps');
+    expect(macBuild).toContain('steps: *native-runtime-build-steps');
+    expect(packed).toContain('steps: &packed-native-install-steps');
+    expect(macPacked).toContain('steps: *packed-native-install-steps');
+    for (const section of [build, macBuild]) {
+      expect(section).toContain('name: Build native runtime (${{ matrix.target }})');
+    }
+    for (const section of [packed, macPacked]) {
+      expect(section).toContain('name: Packed install (${{ matrix.label }})');
+    }
+    const gate = job('native-install-gate');
+    expect(gate).toContain('MACOS_SELECTED: ${{ needs.changes.outputs.macos }}');
+    for (const name of ['native-runtime-build-macos', 'packed-native-install-macos']) {
+      expect(gate).toContain(`        ${name},`);
+    }
+  });
+
   it('builds the selected release CLI without replacing debug Rust verification', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
       'utf8'
     );
-    const start = workflow.indexOf('\n  native-rust:\n');
+    const start = workflow.indexOf('\n  native-rust-checks:\n');
     const native = workflow.slice(start, workflow.indexOf('\n  unit-tests:\n', start));
     expect(native).toContain('cargo build --locked --release -p tmt-cli');
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
     expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');
-    expect(native).toContain('cargo +1.88.0 build --locked');
+    expect(native).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
+    expect(native).not.toMatch(/cargo \+\d/);
     expect(native).toContain('cargo build --locked -p tmt-office');
     expect(native).toContain('rust/target/debug/examples/storage-probe');
     expect(native).toContain('pnpm test:native --reporter=verbose');
@@ -1279,6 +1651,65 @@ describe('required CI gate', () => {
     );
   });
 
+  it('keeps complete disjoint fallback shards and wires merge-group selection with read-only caches', () => {
+    const capture = () => {
+      let value = '';
+      return {
+        write: (text: string) => {
+          value += text;
+        },
+        text: () => value,
+      };
+    };
+    const stdout = capture();
+    const stderr = capture();
+    runCiScope(['full'], { cwd: '/no-diff-required', stdout, stderr });
+    const outputs: Record<string, string> = Object.fromEntries(
+      stdout
+        .text()
+        .trim()
+        .split('\n')
+        .map((line) => line.split('='))
+    );
+    expect(outputs).toMatchObject({ native: 'true', office: 'true', native_scope: 'full' });
+    const first = outputs.e2e_shard_1.split(' ');
+    const second = outputs.e2e_shard_2.split(' ');
+    expect(first.length).toBeGreaterThan(0);
+    expect(second.length).toBeGreaterThan(0);
+    expect(first.filter((file) => second.includes(file))).toEqual([]);
+    expect([...first, ...second].sort()).toEqual(listE2eFiles());
+    expect(stderr.text()).toContain('no path filtering');
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/ci.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workflow).toContain('\n  merge_group:\n');
+    expect(workflow).toContain(
+      "VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}"
+    );
+    expect(workflow).toContain("if: steps.event.outputs.verify != 'true'");
+    expect(workflow).toContain('verify: ${{ steps.event.outputs.verify }}');
+    expect(workflow).toContain('macos: ${{ steps.event.outputs.macos }}');
+    expect(workflow).toContain("MACOS: ${{ github.event_name != 'merge_group' }}");
+    expect(workflow).toContain('fetch-depth: 0');
+    expect(workflow).toContain('BASE_SHA: ${{ github.event.merge_group.base_sha }}');
+    expect(workflow).toContain('HEAD_SHA: ${{ github.event.merge_group.head_sha }}');
+    expect(workflow).toContain(
+      'run: node typescript/scripts/ci-scope.mjs merge-group "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"'
+    );
+    const writers = workflow.match(/^\s+save-if:.*$/gm) ?? [];
+    expect(writers).toHaveLength(3);
+    for (const writer of writers) {
+      expect(writer.trim()).toBe(
+        "save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}"
+      );
+    }
+    for (const name of ['code-quality', 'docker-e2e', 'native-install-gate']) {
+      const body = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+      expect(body).toContain("always() && needs.changes.outputs.verify != 'false'");
+    }
+  });
+
   it('gives every native step and job an explicit scope, and gates on exactly those results', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
@@ -1300,29 +1731,52 @@ describe('required CI gate', () => {
 
     const changes = job('changes');
     for (const output of ['scoped_native_tests', 'e2e_shard_1', 'e2e_shard_2']) {
-      expect(changes).toContain(`${output}: \${{ steps.scope.outputs.${output} }}`);
+      expect(changes).toContain(
+        `${output}: \${{ steps.scope.outputs.${output} || steps.queue.outputs.${output} }}`
+      );
     }
     // A seeding run (no pull request, no diff) builds the whole workspace, so it is the full scope.
     expect(changes).toContain(
-      'native_scope: ${{ steps.scope.outputs.native_scope || steps.seed.outputs.native_scope }}'
+      'native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}'
     );
     expect(changes).toContain("printf 'native=true\\noffice=false\\nnative_scope=full\\n'");
     // Jobs about the CLI runtime and tooling run only for the full scope; the runtime build also
-    // runs for the seeding runs, whose scope is full, and the other two only for pull requests.
+    // runs for the seeding runs, whose scope is full, and the other two only for verification events.
     expect(job('native-runtime-build')).toContain(
       "if: needs.changes.outputs.native_scope == 'full'"
     );
     for (const name of ['unit-tests', 'packed-native-install']) {
       expect(job(name), name).toContain(
-        "if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'"
+        "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
       );
     }
     // The Rust job runs for every native scope, the E2E job for every native scope of a pull request.
-    expect(job('native-rust')).toContain("if: needs.changes.outputs.native == 'true'");
+    for (const name of ['native-rust-checks', 'native-msrv']) {
+      expect(job(name)).toContain("if: needs.changes.outputs.native == 'true'");
+    }
+    const rustGate = job('native-rust');
+    expect(rustGate).toContain('needs: [changes, native-rust-checks, native-msrv]');
+    expect(rustGate).toContain(
+      "if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}"
+    );
+    expect(rustGate).toContain('CHECKS_RESULT: ${{ needs.native-rust-checks.result }}');
+    expect(rustGate).toContain('MSRV_RESULT: ${{ needs.native-msrv.result }}');
+    expect(rustGate).toContain(
+      'ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CHECKS_RESULT" "$MSRV_RESULT"'
+    );
+    expect(job('native-msrv')).toContain('shared-key: native-rust-msrv');
+    expect(job('native-msrv')).toContain(
+      "save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}"
+    );
+    expect(job('native-msrv')).toContain('["workspace"]["package"]["rust-version"]');
+    expect(job('native-msrv')).toContain('RUSTUP_TOOLCHAIN=%s');
+    expect(job('native-msrv')).toContain('rustup toolchain install "$MSRV" --profile minimal');
+    expect(job('native-msrv')).not.toMatch(/rustup toolchain install \d/);
+    expect(job('native-msrv')).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
     // The E2E suite is two shard jobs; only the first runs for a scoped component, and
     // only the first of a full run also runs the Rust adapter tests.
     expect(job('docker-e2e-shard-1')).toContain(
-      "if: github.event_name == 'pull_request' && needs.changes.outputs.native == 'true'"
+      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native == 'true'"
     );
     expect(job('docker-e2e-shard-1')).toContain(
       'TMT_E2E_FILES: ${{ needs.changes.outputs.e2e_shard_1 }}'
@@ -1331,7 +1785,7 @@ describe('required CI gate', () => {
       "TMT_E2E_ADAPTER_TESTS: ${{ needs.changes.outputs.native_scope == 'full' && '1' || '0' }}"
     );
     expect(job('docker-e2e-shard-2')).toContain(
-      "if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'"
+      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
     );
     expect(job('docker-e2e-shard-2')).toContain(
       'TMT_E2E_FILES: ${{ needs.changes.outputs.e2e_shard_2 }}'
@@ -1344,15 +1798,21 @@ describe('required CI gate', () => {
     const e2eGate = job('docker-e2e');
     expect(e2eGate).toContain('name: Docker E2E\n');
     expect(e2eGate).toContain('needs: [changes, docker-e2e-shard-1, docker-e2e-shard-2]');
-    // Like the other gates, only for pull requests: a seeding run has no gate to satisfy.
-    expect(e2eGate).toContain("if: ${{ always() && github.event_name == 'pull_request' }}");
+    // Like the other gates, only for verification events: a seeding run has no gate to satisfy.
+    expect(e2eGate).toContain("if: ${{ always() && needs.changes.outputs.verify != 'false' }}");
     expect(e2eGate).toContain('SHARD_1_RESULT: ${{ needs.docker-e2e-shard-1.result }}');
     expect(e2eGate).toContain('SHARD_2_RESULT: ${{ needs.docker-e2e-shard-2.result }}');
     expect(e2eGate).toContain(
       'ci-scope.mjs gate-e2e "$NATIVE_SCOPE" "$SHARD_1_RESULT" "$SHARD_2_RESULT"'
     );
     // Each required check name belongs to exactly one job, and no shard reuses one.
-    for (const required of ['Code quality', 'Unit tests', 'Docker E2E', 'Native package matrix']) {
+    for (const required of [
+      'Code quality',
+      'Unit tests',
+      'Docker E2E',
+      'Native Rust contracts',
+      'Native package matrix',
+    ]) {
       expect(workflow.match(new RegExp(`^ {4}name: ${required}$`, 'gm')), required).toHaveLength(1);
     }
     expect(workflow.match(/^ {4}name: Docker E2E shard \d\/2$/gm)).toHaveLength(2);
@@ -1365,12 +1825,12 @@ describe('required CI gate', () => {
       'Install shell test dependency',
       'Install test dependencies',
     ];
-    for (const { name, scope } of steps(job('native-rust'))) {
+    for (const { name, scope } of steps(job('native-rust-checks'))) {
       if (shared.includes(name)) expect(scope, name).toBeUndefined();
       else expect(scope, `${name} needs an explicit native scope`).toMatch(/native_scope/);
     }
     const scoped = (scope: string) =>
-      steps(job('native-rust'))
+      steps(job('native-rust-checks'))
         .filter((step) => step.scope === `needs.changes.outputs.native_scope == '${scope}'`)
         .map((step) => step.name);
     expect(scoped('full')).toEqual([
@@ -1384,12 +1844,12 @@ describe('required CI gate', () => {
       'Build Squad process fixtures',
       'Verify Squad native contracts',
     ]);
-    expect(job('native-rust')).toContain('Reject an unknown native scope');
-    // The gate names the same six jobs, in the order nativeGatePasses expects.
+    expect(job('native-rust-checks')).toContain('Reject an unknown native scope');
+    // The gate names the same eight jobs, in the order nativeGatePasses expects.
     const gate = job('native-install-gate');
     expect(gate).toContain('NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}');
     expect(gate).toContain(
-      'ci-scope.mjs gate-native "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"'
+      'ci-scope.mjs gate-native "$MACOS_SELECTED" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"'
     );
     for (const [variable, jobName] of [
       ['CONTRACT_RESULT', 'native-rust'],
@@ -1398,6 +1858,8 @@ describe('required CI gate', () => {
       ['SHARD_2_RESULT', 'docker-e2e-shard-2'],
       ['BUILD_RESULT', 'native-runtime-build'],
       ['MATRIX_RESULT', 'packed-native-install'],
+      ['MACOS_BUILD_RESULT', 'native-runtime-build-macos'],
+      ['MACOS_MATRIX_RESULT', 'packed-native-install-macos'],
     ]) {
       expect(gate).toContain(`${variable}: \${{ needs.${jobName}.result }}`);
     }
@@ -1436,7 +1898,9 @@ describe('required CI gate', () => {
     }
     // The selector decides the emulator partition of a pull request.
     expect(job(browser, 'office-emulator')).toContain('needs: [changes, image]');
-    expect(job(browser, 'office-emulator')).toContain("needs.changes.outputs.office == 'true'");
+    expect(job(browser, 'office-emulator')).toContain(
+      "needs.changes.outputs.office_browser == 'true'"
+    );
   });
 
   // #424 and #574: the native Office shards and the local Office partitions fail on most runs, so
@@ -1479,16 +1943,20 @@ describe('required CI gate', () => {
     // `false` for a scheduled or dispatched run.
     const changes = job('changes');
     expect(changes).not.toMatch(/^ {4}if:/m);
-    expect(changes).toContain("office: ${{ steps.scope.outputs.office || 'false' }}");
+    expect(changes).toContain(
+      "office_browser: ${{ steps.scope.outputs.office_browser || 'false' }}"
+    );
     expect(changes.match(/^ {6}(?:- )?(?:name: [^\n]+\n {8})?if: /gm)).toHaveLength(3);
     expect(changes.match(/if: github\.event_name == 'pull_request'/g)).toHaveLength(3);
 
     // The job-level conditions are exactly these: the emulator partition follows the selection,
-    // the image is built for it or for the paused partitions, and those skip pull requests.
+    // weekly/manual runs include all partitions, while paused partitions still skip PRs.
     const condition = (name: string) => /^ {4}if: (.*)$/m.exec(job(name))?.[1];
-    expect(condition('office-emulator')).toBe("needs.changes.outputs.office == 'true'");
+    expect(condition('office-emulator')).toBe(
+      "github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'"
+    );
     expect(condition('image')).toBe(
-      "github.event_name != 'pull_request' || needs.changes.outputs.office == 'true'"
+      "github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'"
     );
     expect(condition('office-local')).toBe("github.event_name != 'pull_request'");
     expect(condition('native-office-browser')).toBe("github.event_name != 'pull_request'");
@@ -1500,3 +1968,22 @@ describe('required CI gate', () => {
     expect(job('office-local')).toContain('name: office-browser-${{ matrix.partition }}-results');
   });
 });
+
+it.each(['Cargo.toml', 'src/store.rs', 'tests/state.rs'])(
+  'keeps private Colab Rust %s in full workspace CI',
+  (suffix) => {
+    const files = ['extensions/tmt-colab/rust/tmt-colab/' + suffix];
+    expect(explainCiSelection(files)).toMatchObject([
+      { owner: 'tmt-colab', rule: 'colab-rust', native: true, office: true, nativeOffice: true },
+    ]);
+    expect(selectNativeScope(files)).toBe('full');
+    expect(
+      isReleased(
+        parseComponentMap(
+          readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+        ),
+        'tmt-colab'
+      )
+    ).toBe(false);
+  }
+);

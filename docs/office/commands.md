@@ -12,7 +12,7 @@ with pairing or a running connector.
 tmt office install --yes
 tmt office status --json
 tmt office upgrade
-tmt office uninstall --yes
+tmt office rm --yes
 ```
 
 All accept `--prefix <folder>` inside the Office subtree; omission selects
@@ -72,14 +72,14 @@ tmt office profile apply --local --identity Alice --file profile.json --if-revis
 tmt office prop validate --file pack.tmtprop.json --json
 tmt office prop preview --file pack.tmtprop.json --json
 tmt office prop install --local --file pack.tmtprop.json --if-revision 0 --json
-tmt office prop remove --local sha256:<digest> --if-revision 1 --json
-tmt office prop list --local --json
+tmt office prop rm --local sha256:<digest> --if-revision 1 --json
+tmt office prop ls --local --json
 tmt office prop show --local sha256:<digest> --json
 tmt office avatar validate --file bot.tmtavatar.json --json
 tmt office avatar preview --file bot.tmtavatar.json --json
 tmt office avatar install --local --file bot.tmtavatar.json --if-revision 0 --json
-tmt office avatar remove --local sha256:<digest> --if-revision 1 --json
-tmt office avatar list --local --json
+tmt office avatar rm --local sha256:<digest> --if-revision 1 --json
+tmt office avatar ls --local --json
 tmt office avatar show --local sha256:<digest> --json
 tmt office extension validate --file definition.json --instance instance.json --json
 tmt office stop
@@ -207,7 +207,7 @@ retrying because the commit outcome is not assumed.
 ```sh
 tmt identity status set "Reviewing the layout" --mood focused --for 60m --identity Alice
 tmt identity status show --identity Alice --json
-tmt identity status clear --identity Alice
+tmt identity status rm --identity Alice
 ```
 
 These core commands also work while Office is stopped, for saved identities and
@@ -245,12 +245,12 @@ one-shot commands work while the browser service is stopped:
 
 ```sh
 tmt office board post --general --identity Alice --title "Review" --body "Please review." --json
-tmt office board list --repo origin --view updated --limit 20 --json
-tmt office board list --room "Design review" --view updated --json
+tmt office board ls --repo origin --view updated --limit 20 --json
+tmt office board ls --room "Design review" --view updated --json
 tmt office board show <thread-id> --reply-limit 20 --json
 tmt office board reply <thread-id> --owner --file reply.txt --json
 tmt office board edit <entry-id> --identity Alice --title "Revised" --body "Updated" --if-revision 1 --json
-tmt office board delete <entry-id> --owner --moderate --if-revision 1 --json
+tmt office board rm <entry-id> --owner --moderate --if-revision 1 --json
 ```
 
 `--repo` resolves a named Git remote locally into a credential-free category;

@@ -1,6 +1,6 @@
 //! Test-only stand-in for the invoking `tmt`: the same `tmt api` code path and
 //! the two JSON commands the service uses. It never observes panes: the
-//! fixtures bind none, and bound presence is `tmt list`'s own contract, tested
+//! fixtures bind none, and bound presence is `tmt ls`'s own contract, tested
 //! in core.
 
 use super::{CoreFault, LocalCore};
@@ -46,7 +46,7 @@ impl LocalCore for InProcessCore {
         let mut storage =
             Storage::open(&self.paths.database).map_err(|_| CoreFault::unavailable())?;
         let result = match args {
-            // An unbound identity is offline in `tmt list --json`.
+            // An unbound identity is offline in `tmt ls --json`.
             ["list"] => storage
                 .list_identities()
                 .map(|identities| {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::host::DeliveryStage;
 use crate::process::CommandFailure;
 use crate::scripted_runner::{ScriptedRunner, failure, failure_with_kind};
 use std::{
@@ -30,7 +31,7 @@ fn assert_socket(calls: &[crate::scripted_runner::Invocation]) {
 }
 
 #[test]
-fn send_uses_explicit_socket_protected_payload_owned_buffer_and_one_enter() {
+fn send_pastes_the_text_as_given_with_an_explicit_socket_owned_buffer_and_one_enter() {
     let runner = ScriptedRunner::new([Ok(""), Ok(""), Ok("")]);
     let tmux = Tmux::new(runner);
     let waited = RefCell::new(Vec::new());
@@ -48,7 +49,8 @@ fn send_uses_explicit_socket_protected_payload_owned_buffer_and_one_enter() {
     assert_eq!(calls.len(), 3);
     assert_socket(&calls);
     assert_eq!(&calls[0].args[..4], ["-S", SOCKET, "set-buffer", "-b"]);
-    assert_eq!(&calls[0].args[5..], ["--", "if (！ready)！\n尾\n"]);
+    // The transport adds only the final newline; the `!` policy is core's.
+    assert_eq!(&calls[0].args[5..], ["--", "if (!ready)!\n尾\n"]);
     assert_eq!(&calls[1].args[..4], ["-S", SOCKET, "paste-buffer", "-b"]);
     assert_eq!(calls[1].args[4], calls[0].args[4]);
     assert_eq!(&calls[1].args[5..], ["-d", "-t", PANE, "-p"]);
@@ -112,7 +114,7 @@ fn set_buffer_failure_has_one_literal_fallback_with_the_same_payload() {
     );
     assert_eq!(
         &calls[2].args[2..],
-        ["send-keys", "-l", "-t", PANE, "--", "-n weird！\nLine\n"]
+        ["send-keys", "-l", "-t", PANE, "--", "-n weird!\nLine\n"]
     );
     assert_eq!(
         &calls[3].args[..],
@@ -158,9 +160,9 @@ fn paste_failure_preserves_primary_uncertainty_and_never_replays() {
     assert_eq!(error.stage, DeliveryStage::Paste);
     assert!(error.uncertain());
     assert!(!error.cleanup_failed());
-    assert_eq!(error.cause.kind, TmuxFailure::Command);
+    assert_eq!(error.cause::<TmuxError>().kind, TmuxFailure::Command);
     assert_eq!(
-        error.cause.cause.as_ref().unwrap().kind,
+        error.cause::<TmuxError>().cause.as_ref().unwrap().kind,
         CommandFailure::Timeout
     );
     let calls = tmux.runner.calls.borrow();
@@ -179,7 +181,7 @@ fn paste_cleanup_failure_remains_observable_without_fallback() {
     assert_eq!(error.stage, DeliveryStage::Paste);
     assert!(error.uncertain());
     assert!(error.cleanup_failed());
-    assert!(error.cleanup_error.is_some());
+    assert!(error.cleanup_step_failed());
     assert_eq!(tmux.runner.calls.borrow().len(), 3);
 }
 
@@ -217,8 +219,8 @@ fn failed_child_cleanup_suppresses_literal_fallback_and_keeps_both_causes() {
     assert_eq!(error.stage, DeliveryStage::Prepare);
     assert!(!error.uncertain());
     assert!(error.cleanup_failed());
-    assert!(error.cause.cleanup_failed());
-    assert!(error.cleanup_error.is_some());
+    assert!(error.cause::<TmuxError>().cleanup_failed());
+    assert!(error.cleanup_step_failed());
     assert_eq!(tmux.runner.calls.borrow().len(), 2);
 }
 
@@ -231,8 +233,8 @@ fn primary_cleanup_failure_alone_suppresses_literal_fallback() {
         .send_with_wait(SOCKET, PANE, "body", Duration::ZERO, |_| {})
         .unwrap_err();
     assert_eq!(error.stage, DeliveryStage::Prepare);
-    assert!(error.cause.cleanup_failed());
-    assert!(error.cleanup_error.is_none());
+    assert!(error.cause::<TmuxError>().cleanup_failed());
+    assert!(!error.cleanup_step_failed());
     assert!(error.cleanup_failed());
     assert_eq!(tmux.runner.calls.borrow().len(), 2);
 }
@@ -246,8 +248,8 @@ fn secondary_cleanup_failure_alone_suppresses_literal_fallback() {
         .send_with_wait(SOCKET, PANE, "body", Duration::ZERO, |_| {})
         .unwrap_err();
     assert_eq!(error.stage, DeliveryStage::Prepare);
-    assert!(!error.cause.cleanup_failed());
-    assert!(error.cleanup_error.is_some());
+    assert!(!error.cause::<TmuxError>().cleanup_failed());
+    assert!(error.cleanup_step_failed());
     assert!(error.cleanup_failed());
     assert_eq!(tmux.runner.calls.borrow().len(), 2);
 }
@@ -367,4 +369,24 @@ fn capture_accepts_maximum_lines_and_a_complete_four_mib_body() {
         ]
     );
     assert_eq!(calls[0].max_output_bytes, 4 * 1024 * 1024);
+}
+
+#[test]
+fn a_denied_socket_before_any_pane_input_reads_as_socket_permission() {
+    let mut denied = crate::process::CommandError::new(CommandFailure::Exit {
+        code: Some(1),
+        signal: None,
+    });
+    denied.output = Some(crate::process::CommandOutput {
+        stdout: Vec::new(),
+        stderr: b"error connecting to /tmp/private.sock (Permission denied)\n".to_vec(),
+    });
+    let tmux = Tmux::new(ScriptedRunner::new([Err(denied), Err(failure(true))]));
+
+    let error = tmux
+        .send_with_wait(SOCKET, PANE, "body", Duration::ZERO, |_| {})
+        .unwrap_err();
+    assert_eq!(error.stage, DeliveryStage::Prepare);
+    assert!(error.socket_permission_denied());
+    assert!(error.cause::<TmuxError>().socket_permission_denied());
 }

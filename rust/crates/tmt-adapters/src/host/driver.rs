@@ -53,6 +53,17 @@ pub trait HostDriver {
     /// `Unsupported` before any evidence is read, and core uses the inbox.
     fn has_input(&self) -> bool;
 
+    /// Submits `message` to the agent the host recognizes in the binding's
+    /// pane. `Unsupported` when the host has no agent-aware input or sees no
+    /// agent there; [`send`] then pastes it as raw input. Every other result
+    /// is final: an agent that is blocked or not ready refuses the message,
+    /// and raw input must not go around that.
+    fn prompt(
+        &mut self,
+        binding: &Binding,
+        message: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>>;
+
     /// Pastes `message` into the binding's pane and submits it.
     fn input(&mut self, binding: &Binding, message: &str) -> Result<(), DeliveryError>;
 
@@ -135,13 +146,16 @@ pub fn send(
     let Some(binding) = &entry.binding else {
         return ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified));
     };
-    match driver.input(binding, message) {
-        Ok(()) => ActionResult::Completed(DeliveryAcceptance::Submitted),
-        Err(error) if error.uncertain() => {
-            ActionResult::Failed(SendFailure::Uncertain(ActionError::Delivery(error)))
-        }
-        Err(error) => ActionResult::Failed(SendFailure::NotSent(ActionError::Delivery(error))),
-    }
+    let message = &tmt_core::driver::pane_input_text(message);
+    driver
+        .prompt(binding, message)
+        .or_unsupported(|| match driver.input(binding, message) {
+            Ok(()) => ActionResult::Completed(DeliveryAcceptance::Submitted),
+            Err(error) if error.uncertain() => {
+                ActionResult::Failed(SendFailure::Uncertain(ActionError::Delivery(error)))
+            }
+            Err(error) => ActionResult::Failed(SendFailure::NotSent(ActionError::Delivery(error))),
+        })
 }
 
 /// Requires present endpoint evidence (as before input) but no running
@@ -174,7 +188,7 @@ pub fn focus(
 /// whose driver isn't installed. It never claims evidence: a probe is
 /// `Unknown`, so the binding is neither verified nor retired; it has no
 /// input, so a send falls through to the inbox; and it can't be focused.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Unavailable {
     name: String,
 }
@@ -224,6 +238,14 @@ impl HostDriver for Unavailable {
 
     fn has_input(&self) -> bool {
         false
+    }
+
+    fn prompt(
+        &mut self,
+        _: &Binding,
+        _: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<ActionError>> {
+        ActionResult::Unsupported
     }
 
     fn input(&mut self, _: &Binding, _: &str) -> Result<(), DeliveryError> {

@@ -16,6 +16,7 @@ pub enum Verb {
     Refresh,
     Run,
     NextPane,
+    Toggle,
     /// The row's action menu (the plain host's Enter).
     Menu,
     /// Opens the tab of the row's squad (the `all` tab's Enter).
@@ -36,6 +37,7 @@ impl Verb {
             "refresh" => Self::Refresh,
             "run" => Self::Run,
             "next-pane" => Self::NextPane,
+            "toggle" => Self::Toggle,
             "menu" => Self::Menu,
             "tab" => Self::Tab,
             "talk" => Self::Talk,
@@ -55,6 +57,7 @@ impl Verb {
             Self::Refresh => "refresh",
             Self::Run => "run",
             Self::NextPane => "next-pane",
+            Self::Toggle => "toggle",
             Self::Menu => "menu",
             Self::Tab => "tab",
             Self::Talk => "talk",
@@ -122,6 +125,12 @@ impl Action {
         let verb =
             Verb::parse(verb_name).ok_or_else(|| format!("'{verb_name}' is not an action"))?;
         let args = match verb {
+            Verb::Toggle => {
+                if crate::config::Pane::parse(rest).is_none() {
+                    return Err("toggle takes one pane: rows, notes, detail or replies".into());
+                }
+                vec![Template::parse(rest)?]
+            }
             Verb::Copy => vec![Template::parse(if rest.is_empty() {
                 DEFAULT_COPY
             } else {
@@ -247,6 +256,8 @@ pub fn preset(tmux: bool) -> Bindings {
         ("y", "copy"),
         ("n", "notes"),
         ("tab", "next-pane"),
+        ("d", "toggle detail"),
+        ("ctrl-r", "refresh"),
     ]
     .into_iter()
     // Only a host that can show a pane can jump to the lead.
@@ -372,6 +383,15 @@ mod tests {
     }
 
     #[test]
+    fn both_hosts_default_to_ctrl_r_and_leave_f5_unbound() {
+        for tmux in [false, true] {
+            let bindings = preset(tmux);
+            assert_eq!(bindings["ctrl-r"].verb, Verb::Refresh);
+            assert!(!bindings.contains_key("f5"));
+        }
+    }
+
+    #[test]
     fn presets_differ_only_where_the_host_cannot_jump() {
         let (tmux, plain) = (preset(true), preset(false));
         assert_eq!(tmux["L"].verb, Verb::Jump);
@@ -388,5 +408,30 @@ mod tests {
         assert_eq!(tmux["double-click"].verb, Verb::Jump);
         assert!(!tmux.contains_key("click") && !plain.contains_key("click"));
         assert_eq!(tmux["o"], plain["o"]);
+    }
+    #[test]
+    fn toggle_is_one_literal_pane_and_uses_the_existing_presets() {
+        for pane in ["rows", "notes", "detail", "replies"] {
+            let action = Action::parse(&format!("toggle {pane}")).unwrap();
+            assert_eq!(action.verb, Verb::Toggle);
+            assert_eq!(action.args[0].literal(), Some(pane));
+        }
+        for line in [
+            "toggle",
+            "toggle all",
+            "toggle {pane}",
+            "toggle detail notes",
+            "toggle \"detail\"",
+        ] {
+            assert!(Action::parse(line).is_err(), "{line}");
+        }
+        for tmux in [false, true] {
+            assert_eq!(preset(tmux)["d"].text, "toggle detail");
+        }
+        assert_eq!(
+            parse_bindings([("d", Some("toggle notes"))].into_iter(), "bind").unwrap()["d"].args[0]
+                .literal(),
+            Some("notes")
+        );
     }
 }

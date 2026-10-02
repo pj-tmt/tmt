@@ -1,13 +1,11 @@
-import { readWorkspace } from '../../scripts/release-please-config.mjs';
+import { readWorkspace, type Workspace } from '../../scripts/release-please-config.mjs';
 
-let cliVersion: string | undefined;
+let crates: Workspace['crates'] | undefined;
 
-/** The version `tmt --version` prints, resolved by Cargo once per test suite. */
-export function workspaceVersion(): string {
-  if (cliVersion === undefined) {
-    const cli = readWorkspace().crates.find(({ name }) => name === 'tmt-cli');
-    if (!cli) throw new Error('Cargo workspace has no tmt-cli crate.');
-    cliVersion = cli.version;
-  }
-  return cliVersion;
+/** A crate's Cargo-resolved version, with workspace metadata read once per test suite. */
+export function workspaceVersion(crateName: string): string {
+  crates ??= readWorkspace().crates;
+  const crate = crates.find(({ name }) => name === crateName);
+  if (!crate) throw new Error(`Cargo workspace has no ${crateName} crate.`);
+  return crate.version;
 }

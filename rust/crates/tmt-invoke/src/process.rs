@@ -1,4 +1,7 @@
-use crate::{Cleanup, ExitStatus, FailureKind, InvokeError, Output, Phase, Request, Stream};
+use crate::{
+    Cleanup, EnvironmentPolicy, ExitStatus, FailureKind, InvokeError, Output, Phase, ProcessGroup,
+    Request, Stream,
+};
 use nix::{errno::Errno, sys::signal::killpg, unistd::Pid};
 use std::{
     io::{self, Write},
@@ -7,7 +10,8 @@ use std::{
 };
 use subprocess::{Exec, ExecExt, Job, JobExt, Redirection};
 
-const PULSE: Duration = Duration::from_millis(50);
+// Bound stop-flag latency without extending the absolute request deadline.
+const PULSE: Duration = Duration::from_millis(20);
 const CLEANUP: Duration = Duration::from_secs(1);
 
 fn failure(kind: FailureKind, cause: Option<io::Error>) -> InvokeError {
@@ -33,17 +37,26 @@ pub(crate) fn invoke(
     stop: Option<&AtomicBool>,
 ) -> Result<Output, InvokeError> {
     remaining(request.deadline, stop)?;
-    let job = Exec::cmd(request.program)
+    let mut command = Exec::cmd(request.program);
+    if let EnvironmentPolicy::ClearAllowlist(names) = request.launch.environment {
+        command = command
+            .env_clear()
+            .env_extend(std::env::vars_os().filter(|(name, _)| names.contains(name)));
+    }
+    if request.launch.process_group == ProcessGroup::New {
+        command = command.setpgid();
+    }
+    let job = command
         .args(request.args.iter().cloned())
         .stdin(request.input.to_vec())
         .stdout(Redirection::Pipe)
         .stderr(Redirection::Pipe)
-        .setpgid()
         .start()
         .map_err(|cause| failure(FailureKind::Spawn, Some(cause)))?;
     let mut child = Child {
         job,
         finished: false,
+        group: request.launch.process_group,
     };
     let observed = observe(
         &mut child.job,
@@ -150,10 +163,16 @@ impl Write for Capped {
 struct Child {
     job: Job,
     finished: bool,
+    group: ProcessGroup,
 }
 
 impl Child {
     fn cleanup(&mut self) -> Cleanup {
+        if self.group == ProcessGroup::InheritCaller {
+            // No signal, wait or group inspection: this group belongs to the caller.
+            self.job.detach();
+            return Cleanup::CallerOwned;
+        }
         let signal = self.job.send_signal_group(9);
         let waited = self.job.wait_timeout(CLEANUP);
         if !matches!(waited, Ok(Some(_))) {

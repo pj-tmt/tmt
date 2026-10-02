@@ -15,18 +15,18 @@ Colors are semantic tokens (`palette::Token`). Each maps to one of the terminal'
 16 palette entries or to an effect, so the user's theme decides the shade. No RGB
 or 256-color values are used.
 
-| Token            | Rendering | Use                                 |
-| ---------------- | --------- | ----------------------------------- |
-| `accent`         | blue      | running, `hint:`, row actions       |
-| `ok`             | green     | success (`✓`)                       |
-| `warn`           | yellow    | needs attention                     |
-| `error`          | red       | `error:`, failed                    |
-| `dim`            | dim       | counts, times, offline, secondary   |
-| `title`          | bold      | section titles and help headings    |
-| `literal`        | bold      | commands and flags a reader types   |
+| Token            | Rendering | Use                                   |
+| ---------------- | --------- | ------------------------------------- |
+| `accent`         | blue      | running, `hint:`, row actions         |
+| `ok`             | green     | success (`✓`)                         |
+| `warn`           | yellow    | needs attention                       |
+| `error`          | red       | `error:`, failed                      |
+| `dim`            | dim       | counts, times, offline, secondary     |
+| `title`          | bold      | section titles and help headings      |
+| `literal`        | bold      | commands and flags a reader types     |
 | driver `claude`  | magenta   | `review`: an address driven by Claude |
 | driver `codex`   | cyan      | `link`: an address driven by Codex    |
-| any other driver | dim       | including the `tmux:%N` transport   |
+| any other driver | dim       | including the `tmux:%N` transport     |
 
 Help uses the same tokens through clap `Styles`. A full-screen view, such as the
 Squad board, draws only design tokens, through `theme::screen::style`. This crate
@@ -59,7 +59,19 @@ as (`ok` is `working`, `warn` is `waiting`, `error` is `blocked`; a driver token
 carries its design token, which the CLI picks from the descriptor's hue). Full-screen views get the same
 styles for ratatui from `theme::screen::style`, behind the crate's `ratatui`
 feature, so core links no ratatui. A test keeps the built-in values equal to the
-design tokens.
+design tokens. A contrast test reads the same file and enforces 4.5:1 for
+body text and semantic foregrounds, and 3:1 for `muted`/`dim`, on the designed
+background, the selection background and representative terminal backgrounds.
+
+The Squad board uses `muted` for inactive tabs, summaries, column headers,
+pane titles and footer hints; `dim` remains for borders, empty values, times,
+staleness and scroll marks. Focus uses `accent` and bold, while attention tabs
+keep their attention token. The selected row uses the `selection` background
+and keeps its text/state/provider foregrounds. Without a background color
+(`terminal`, `mono`, 16 colors or `NO_COLOR`), selection uses reverse video.
+Unselected body text keeps the terminal's default foreground. Selected squad and
+pane tabs keep their foreground and width, adding the same selection background
+or reverse fallback.
 
 A `Terminal` carries the stream's theme and depth; `paint` and table cells use
 `Token::themed`, and a stream without a theme renders exactly the 16-color
@@ -71,7 +83,8 @@ the `Terminal` they build rather than configuring the process.
 
 ## Marks
 
-Each mark has one meaning everywhere (`mark::Mark`). A row's leading state mark is
+Each mark has one meaning everywhere (`mark::Mark` for command-line marks; the
+fold mark below is board-only). A row's leading state mark is
 `●`, `○` or `◌`:
 
 | Mark | Meaning                                                            |
@@ -84,6 +97,7 @@ Each mark has one meaning everywhere (`mark::Mark`). A row's leading state mark 
 | `✗`  | failed                                                             |
 | `!`  | warning                                                            |
 | `◆`  | waits on your decision                                             |
+| `▸`  | folded Squad board pane (board only)                                |
 
 ## Lists
 
@@ -150,6 +164,16 @@ Human output shows readable forms (`value`). `--json` always keeps the full valu
 - Line messages use these labels, lowercase everywhere; marks are for list rows.
 - One-line messages drop a single final period. The stored message, and
   therefore `--json`, keeps it.
+
+## Command names
+
+Use `ls` for listing, `rm` for removal/reset, `mv` for identity renaming, and
+`show` for displaying a record. Root `uninstall` retains its distinct whole-product
+meaning; descriptive domain verbs remain when a shell verb would mislead. Old
+long spellings stay accepted as hidden aliases: help, docs and examples show the
+primary names; completion may offer both. Removal help must state exactly what
+is removed or reset and what is retained. The recursive `list_spelling_report`
+guard checks `ls` with a hidden `list` alias in every nested listing command.
 
 ## Help
 

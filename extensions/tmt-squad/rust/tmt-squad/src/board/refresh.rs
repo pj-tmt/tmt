@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     attention::Attention,
-    config::{Board, BoardMode, Config, Direction, Layout, NotesRender, Pane},
+    config::{Board, BoardMode, Config, Direction, NotesRender, Pane},
     core::Core,
     provider::{self, Provider},
     requests,
@@ -22,50 +22,178 @@ use crate::{
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+        mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    },
     time::Duration,
 };
 
 /// How often an idle worker checks for changes between interval reloads.
 const CHECK_EVERY: Duration = Duration::from_secs(1);
 
+/// The event fence and its invoke stop adapter advance under one short lock.
+/// Taking an obsolete token never borrows the current generation's live flag.
+#[derive(Default)]
+struct Generation {
+    number: AtomicU64,
+    stop: Mutex<crate::runner::Cancellation>,
+}
+
+impl Generation {
+    fn cancellation(&self, expected: u64) -> crate::runner::Cancellation {
+        let stop = self.stop.lock().unwrap();
+        if self.number.load(Ordering::Acquire) == expected {
+            stop.clone()
+        } else {
+            let obsolete = crate::runner::Cancellation::default();
+            obsolete.cancel();
+            obsolete
+        }
+    }
+
+    fn advance(&self) -> u64 {
+        let mut stop = self.stop.lock().unwrap();
+        stop.cancel();
+        let next = self.number.fetch_add(1, Ordering::AcqRel) + 1;
+        *stop = crate::runner::Cancellation::default();
+        next
+    }
+}
+
 pub struct Worker {
-    requests: Sender<Option<String>>,
-    pub results: Receiver<Snapshot>,
+    requests: Sender<Reload>,
+    generation: Arc<Generation>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Worker {
     /// `tmux` selects the host preset: whether a jump can show a pane.
-    pub fn spawn(core: Core, tmux: bool) -> Self {
-        let (requests, pending) = mpsc::channel::<Option<String>>();
-        let (sender, results) = mpsc::channel();
-        std::thread::spawn(move || {
+    pub fn spawn(core: Core, tmux: bool, events: Sender<super::BoardEvent>) -> Self {
+        let (requests, pending) = mpsc::channel();
+        let generation = Arc::new(Generation::default());
+        let read_generation = Arc::clone(&generation);
+        let thread = std::thread::spawn(move || {
+            let initial = core.cancellable(read_generation.cancellation(0));
             let mut kept = Kept {
                 bodies: BTreeMap::new(),
                 fetch: fetcher(),
             };
             // The board's pane and squad.toml's place never change, so both
             // are read once.
-            let caller = crate::me::caller(&core).ok().flatten();
-            let mut changes = Changes::new(
-                core.clone(),
-                Config::locate(&core).ok(),
-                provider::Cache::directory(),
-            );
+            let caller = crate::me::caller(&initial).ok().flatten();
+            let mut changes =
+                Changes::new(Config::locate(&initial).ok(), provider::Cache::directory());
             serve(
                 &pending,
-                &sender,
+                |snapshot, generation| {
+                    events
+                        .send(super::BoardEvent::Snapshot {
+                            cancellation: read_generation.cancellation(generation),
+                            snapshot: Box::new(snapshot),
+                        })
+                        .is_ok()
+                },
                 CHECK_EVERY,
-                || changes.stamp(),
-                |wanted| load(&core, tmux, caller.as_ref(), wanted, &mut kept),
+                &read_generation.number,
+                |generation| {
+                    changes.stamp(&core.cancellable(read_generation.cancellation(generation)))
+                },
+                |wanted, generation| {
+                    load(
+                        &core.cancellable(read_generation.cancellation(generation)),
+                        tmux,
+                        caller.as_ref(),
+                        wanted,
+                        &mut kept,
+                    )
+                },
+                |job, generation| {
+                    let cancellation = read_generation.cancellation(generation);
+                    let reader = core.cancellable(cancellation.clone());
+                    let attention = job.complete(&reader);
+                    cancellation.cancelled()
+                        || events
+                            .send(super::BoardEvent::Attention {
+                                cancellation,
+                                attention,
+                            })
+                            .is_ok()
+                },
             );
         });
-        Self { requests, results }
+        Self {
+            requests,
+            generation,
+            thread: Some(thread),
+        }
     }
 
     /// None loads the first squad.
-    pub fn request(&self, squad: Option<String>) {
-        let _ = self.requests.send(squad);
+    pub fn request(&self, squad: Option<String>, preempt: bool) {
+        let generation = if preempt {
+            self.generation.advance()
+        } else {
+            self.generation.number.load(Ordering::Acquire)
+        };
+        let _ = self.requests.send(Reload { squad, generation });
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.generation.advance();
+        // Disconnect before joining: the worker exits its bounded cancelled
+        // child read, and an idle worker exits recv immediately.
+        let (replacement, _) = mpsc::channel();
+        drop(std::mem::replace(&mut self.requests, replacement));
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Reload {
+    squad: Option<String>,
+    generation: u64,
+}
+
+struct Loaded {
+    snapshot: Snapshot,
+    attention: Option<AttentionJob>,
+}
+
+impl Loaded {
+    fn only(snapshot: Snapshot) -> Self {
+        Self {
+            snapshot,
+            attention: None,
+        }
+    }
+}
+
+/// Other tabs' attention follows the shown snapshot on the same worker.
+/// A new switch cancels this lower-priority work through the same core reader.
+struct AttentionJob {
+    config: Config,
+    squads: Vec<Squad>,
+    shown: String,
+    me: Option<crate::me::Me>,
+    document: Value,
+}
+
+impl AttentionJob {
+    fn complete(self, core: &Core) -> BTreeMap<String, Attention> {
+        let others = self
+            .squads
+            .iter()
+            .filter(|squad| squad.name != self.shown)
+            .collect::<Vec<_>>();
+        let mut documents = roster_documents(core, &self.config, &others, self.me.as_ref(), None);
+        documents.insert(self.shown, self.document);
+        tab_attention(&documents)
     }
 }
 
@@ -129,20 +257,24 @@ fn fetcher() -> Sender<Fetch> {
 /// squad's load, unless its view has automatic reload off. The input loop's
 /// interval reloads are requests like any other and never wait on this.
 fn serve(
-    pending: &Receiver<Option<String>>,
-    sender: &Sender<Snapshot>,
+    pending: &Receiver<Reload>,
+    mut publish: impl FnMut(Snapshot, u64) -> bool,
     check_every: Duration,
-    mut stamp: impl FnMut() -> Stamp,
-    mut load: impl FnMut(Option<String>) -> Snapshot,
+    generation: &AtomicU64,
+    mut stamp: impl FnMut(u64) -> Stamp,
+    mut load: impl FnMut(Option<String>, u64) -> Loaded,
+    mut attention: impl FnMut(AttentionJob, u64) -> bool,
 ) {
     // The squad last loaded, whether it reloads automatically, and the
     // stamp taken just before that load.
-    let mut last: Option<(Option<String>, bool, Stamp)> = None;
+    let mut last: Option<(Reload, bool, Stamp)> = None;
     loop {
         let mut wanted = match pending.recv_timeout(check_every) {
             Ok(wanted) => wanted,
             Err(RecvTimeoutError::Timeout) => match &last {
-                Some((squad, true, seen)) if seen.moved(&stamp()) => squad.clone(),
+                Some((reload, true, seen)) if seen.moved(&stamp(reload.generation)) => {
+                    reload.clone()
+                }
                 _ => continue,
             },
             Err(RecvTimeoutError::Disconnected) => break,
@@ -151,15 +283,37 @@ fn serve(
             wanted = newer;
         }
         // Taken before the load, so a change during it shows at the next check.
-        let seen = stamp();
-        let snapshot = load(wanted);
+        let seen = stamp(wanted.generation);
+        if generation.load(Ordering::Acquire) != wanted.generation {
+            continue;
+        }
+        let Loaded {
+            snapshot,
+            attention: job,
+        } = load(wanted.squad, wanted.generation);
+        if generation.load(Ordering::Acquire) != wanted.generation {
+            continue;
+        }
         // A squad that failed to load keeps the default interval.
         let automatic = snapshot
             .view
             .as_ref()
             .map_or(true, |view| view.refresh.is_some());
-        last = Some((snapshot.squad.clone(), automatic, seen));
-        if sender.send(snapshot).is_err() {
+        last = Some((
+            Reload {
+                squad: snapshot.squad.clone(),
+                generation: wanted.generation,
+            },
+            automatic,
+            seen,
+        ));
+        if !publish(snapshot, wanted.generation) {
+            break;
+        }
+        if let Some(job) = job
+            && generation.load(Ordering::Acquire) == wanted.generation
+            && !attention(job, wanted.generation)
+        {
             break;
         }
     }
@@ -171,18 +325,18 @@ fn load(
     caller: Option<&crate::me::Caller>,
     wanted: Option<String>,
     kept: &mut Kept,
-) -> Snapshot {
+) -> Loaded {
     let squads = match Squad::list(core) {
         Ok(squads) => squads,
         Err(error) => {
-            return Snapshot {
+            return Loaded::only(Snapshot {
                 tabs: Vec::new(),
                 hidden: Vec::new(),
                 pinned: 0,
                 attention: BTreeMap::new(),
                 squad: wanted,
                 view: Err(error.to_string()),
-            };
+            });
         }
     };
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
@@ -213,7 +367,7 @@ fn load(
         None => tabs.first().cloned(),
     };
     let Some(key) = chosen else {
-        return Snapshot {
+        return Loaded::only(Snapshot {
             tabs,
             hidden,
             pinned,
@@ -223,43 +377,58 @@ fn load(
                 None => "No squad exists yet; run: tmt squad init <name>".into(),
             }),
             squad: wanted,
-        };
+        });
     };
     let mut attention = BTreeMap::new();
+    let mut deferred = None;
     let view = (|| {
-        let config = config?;
-        let me = crate::me::you(crate::me::current(core, &config)?, caller);
+        let config = config.as_ref().map_err(Clone::clone)?;
+        let me = crate::me::you(crate::me::current(core, config)?, caller);
         let (view, found) = if key == LEADS {
-            leads_view(core, tmux, &config, &squads, &tabs, me)?
+            leads_view(core, tmux, config, &squads, &tabs, me)?
         } else if key == ALL {
-            all_view(core, &config, &squads, &tabs, me)?
+            all_view(core, config, &squads, &tabs, me)?
         } else {
             let squad = squads
                 .iter()
                 .find(|squad| squad.name == key)
                 .expect("chosen from the listed squads");
-            squad_view(core, tmux, &config, &squads, squad, me, kept)?
+            let result = squad_view(core, tmux, config, squad, me.clone(), kept)?;
+            deferred = Some((me, result.0.document.clone()));
+            result
         };
         attention = found;
         Ok(view)
     })()
     .map_err(|error: crate::core::SquadError| error.to_string());
-    Snapshot {
-        tabs,
-        hidden,
-        pinned,
-        attention,
-        squad: Some(key),
-        view,
+    let job = config
+        .ok()
+        .zip(deferred)
+        .map(|(config, (me, document))| AttentionJob {
+            config,
+            squads,
+            shown: key.clone(),
+            me,
+            document,
+        });
+    Loaded {
+        snapshot: Snapshot {
+            tabs,
+            hidden,
+            pinned,
+            attention,
+            squad: Some(key),
+            view,
+        },
+        attention: job,
     }
 }
 
-/// One squad's full view, and every tab's attention.
+/// One squad's full view and its attention; other tabs follow publication.
 fn squad_view(
     core: &Core,
     tmux: bool,
     config: &Config,
-    squads: &[Squad],
     squad: &Squad,
     me: Option<crate::me::Me>,
     kept: &mut Kept,
@@ -267,7 +436,7 @@ fn squad_view(
     let layout = config.layout(&squad.name)?;
     let (theme, theme_notice) = config.theme(&squad.name)?;
     let states = config.states(&squad.name, layout)?;
-    let board = config.board(&squad.name, layout)?;
+    let board = config.board(&squad.name)?;
     let sections = config.sections(&squad.name)?;
     let rows = config.rows(&squad.name)?;
     let providers = config.providers(&squad.name)?;
@@ -279,10 +448,10 @@ fn squad_view(
         squad,
         reminders,
         &providers,
-        crate::observe::Reads {
+        crate::observe::Mode::Read(crate::observe::Reads {
             metadata: rows.reads_metadata(),
             notes: shows_notes,
-        },
+        }),
     )?;
     // Providers run on the fetcher thread, never while the board draws.
     if !providers.is_empty() {
@@ -308,13 +477,7 @@ fn squad_view(
             rows: &rows,
         },
     )?;
-    let others: Vec<&Squad> = squads
-        .iter()
-        .filter(|other| other.name != squad.name)
-        .collect();
-    let mut documents = roster_documents(core, config, &others, me.as_ref(), None);
-    documents.insert(squad.name.clone(), document.clone());
-    let attention = tab_attention(&documents);
+    let attention = BTreeMap::from([(squad.name.clone(), Attention::of(&document))]);
     let mut replies = match &sent {
         Some(sent) if board.panes.contains(&Pane::Replies) => requests::replies(sent, &document),
         _ => Vec::new(),
@@ -330,8 +493,8 @@ fn squad_view(
         Notes::NotShown
     };
     let view = View {
+        derived: Default::default(),
         rows,
-        colors: states.colors,
         render: config.notes_render(&squad.name)?,
         bindings: config.bindings(tmux)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
@@ -371,8 +534,8 @@ fn leads_view(
     let mut bindings = config.bindings(tmux)?;
     bindings.extend(settings.leads);
     let view = View {
+        derived: Default::default(),
         rows: crate::rows::Rows::leads(),
-        colors: config.states(LEADS, Layout::Crew)?.colors,
         render: NotesRender::Markdown,
         bindings,
         section_bindings: Vec::new(),
@@ -416,7 +579,7 @@ fn all_view(
         [
             ("enter", Some("tab")),
             ("double-click", Some("tab")),
-            ("f5", Some("refresh")),
+            ("ctrl-r", Some("refresh")),
         ]
         .into_iter(),
         "tabs.all",
@@ -424,8 +587,8 @@ fn all_view(
     .expect("the all tab's preset");
     bindings.extend(settings.all);
     let view = View {
+        derived: Default::default(),
         rows: crate::rows::Rows::overview(),
-        colors: BTreeMap::new(),
         render: NotesRender::Markdown,
         bindings,
         section_bindings: Vec::new(),
@@ -631,6 +794,7 @@ mod tests {
             meta: Default::default(),
             seen: Value::Null,
             numbers: Default::default(),
+            colors: Default::default(),
             failed: Default::default(),
         }
     }
@@ -640,7 +804,7 @@ mod tests {
     fn serving(
         automatic: bool,
     ) -> (
-        Sender<Option<String>>,
+        Sender<Reload>,
         Receiver<Option<String>>,
         std::sync::Arc<std::sync::atomic::AtomicU64>,
     ) {
@@ -656,10 +820,11 @@ mod tests {
         std::thread::spawn(move || {
             serve(
                 &pending,
-                &sender,
+                |snapshot, _| sender.send(snapshot).is_ok(),
                 Duration::from_millis(10),
-                || Stamp::cursor(read.load(Ordering::SeqCst)),
-                |wanted| {
+                &AtomicU64::new(0),
+                |_| Stamp::cursor(read.load(Ordering::SeqCst)),
+                |wanted, _| {
                     let _ = loaded.send(wanted.clone());
                     let mut snapshot = crate::board::app::tests::snapshot(
                         wanted.as_deref().unwrap_or("first"),
@@ -668,8 +833,9 @@ mod tests {
                     if let Ok(view) = &mut snapshot.view {
                         view.refresh = automatic.then_some(Duration::from_secs(3600));
                     }
-                    snapshot
+                    Loaded::only(snapshot)
                 },
+                |_, _| true,
             );
             drop(results);
         });
@@ -678,35 +844,70 @@ mod tests {
 
     const WAIT: Duration = Duration::from_millis(300);
 
+    #[test]
+    fn advancing_generation_stops_all_old_readers_and_never_resets_them() {
+        let generation = Generation::default();
+        let old = generation.cancellation(0);
+        assert!(!old.cancelled());
+        assert_eq!(generation.advance(), 1);
+        assert!(old.cancelled());
+        assert!(generation.cancellation(0).cancelled());
+        let current = generation.cancellation(1);
+        assert!(!current.cancelled());
+        assert_eq!(generation.advance(), 2);
+        assert!(old.cancelled() && current.cancelled());
+        assert!(!generation.cancellation(2).cancelled());
+    }
+
     /// A moved stamp reloads the last squad at once, well before its
     /// hour-long interval; an unmoved one never does.
     #[test]
     fn the_worker_reloads_early_only_when_the_stamp_moves() {
         use std::sync::atomic::Ordering;
         let (requests, loads, cursor) = serving(true);
-        requests.send(Some("product".into())).unwrap();
+        requests
+            .send(Reload {
+                squad: Some("product".into()),
+                generation: 0,
+            })
+            .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
         assert!(loads.recv_timeout(WAIT).is_err(), "nothing changed");
         cursor.store(2, Ordering::SeqCst);
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
         assert!(loads.recv_timeout(WAIT).is_err(), "once per change");
         // A request is served as before and becomes the squad to watch.
-        requests.send(Some("infra".into())).unwrap();
+        requests
+            .send(Reload {
+                squad: Some("infra".into()),
+                generation: 0,
+            })
+            .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("infra".into())));
         cursor.store(3, Ordering::SeqCst);
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("infra".into())));
     }
 
-    /// `refresh = "off"` means F5 and actions only: no early reload either.
+    /// `refresh = "off"` means ctrl-r and actions only: no early reload either.
     #[test]
     fn a_view_with_automatic_reload_off_is_never_reloaded_early() {
         use std::sync::atomic::Ordering;
         let (requests, loads, cursor) = serving(false);
-        requests.send(Some("product".into())).unwrap();
+        requests
+            .send(Reload {
+                squad: Some("product".into()),
+                generation: 0,
+            })
+            .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
         cursor.store(2, Ordering::SeqCst);
         assert!(loads.recv_timeout(WAIT).is_err());
-        requests.send(Some("product".into())).unwrap();
+        requests
+            .send(Reload {
+                squad: Some("product".into()),
+                generation: 0,
+            })
+            .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
     }
 
@@ -780,14 +981,14 @@ mod tests {
             (
                 "infra".to_owned(),
                 squad(Some(
-                    json!({"id": "R", "name": "rin", "state": "blocked", "fields": {}}),
+                    json!({"id": "R", "name": "rin", "state": "blocked", "fields": {}, "colors": {"state": "red"}}),
                 )),
             ),
             ("quiet".to_owned(), squad(None)),
             (
                 "product".to_owned(),
                 squad(Some(
-                    json!({"id": "S", "name": "sol", "pending": "approve", "fields": {}}),
+                    json!({"id": "S", "name": "sol", "pending": "approve", "fields": {}, "colors": {"state": "review"}}),
                 )),
             ),
             (
@@ -814,6 +1015,9 @@ mod tests {
             [("product", "sol"), ("infra", "rin"), ("hidden", "sol")]
         );
         assert_eq!(rows[0]["fields"]["squad"], "product", "the squad column");
+        assert_eq!(rows[0]["colors"]["state"], "review");
+        assert_eq!(rows[1]["colors"]["state"], "red");
+        assert!(rows[2].get("colors").is_none());
 
         let attention = tab_attention(&documents);
         assert_eq!(
@@ -893,5 +1097,142 @@ mod tests {
                 blocked: 1
             }
         );
+    }
+    #[test]
+    fn a_superseded_load_is_never_published_and_queued_switches_collapse() {
+        let (sender, pending) = mpsc::channel();
+        let mut sender = Some(sender);
+        sender
+            .as_ref()
+            .unwrap()
+            .send(Reload {
+                squad: Some("old".into()),
+                generation: 0,
+            })
+            .unwrap();
+        let generation = AtomicU64::new(0);
+        let mut loaded = Vec::new();
+        let mut published = Vec::new();
+        serve(
+            &pending,
+            |snapshot, _| {
+                published.push(snapshot.squad);
+                true
+            },
+            Duration::from_secs(1),
+            &generation,
+            |_| Stamp::cursor(1),
+            |squad, _| {
+                loaded.push(squad.clone());
+                if squad.as_deref() == Some("old") {
+                    generation.store(1, Ordering::Release);
+                    for name in ["middle", "new"] {
+                        sender
+                            .as_ref()
+                            .unwrap()
+                            .send(Reload {
+                                squad: Some(name.into()),
+                                generation: 1,
+                            })
+                            .unwrap();
+                    }
+                } else {
+                    drop(sender.take());
+                }
+                Loaded::only(crate::board::app::tests::snapshot(
+                    squad.as_deref().unwrap(),
+                    json!([]),
+                ))
+            },
+            |_, _| panic!("no attention job"),
+        );
+        assert_eq!(loaded, [Some("old".into()), Some("new".into())]);
+        assert_eq!(published, [Some("new".into())]);
+    }
+
+    #[test]
+    fn the_shown_snapshot_is_published_before_other_tab_attention() {
+        let (sender, pending) = mpsc::channel();
+        sender
+            .send(Reload {
+                squad: Some("product".into()),
+                generation: 0,
+            })
+            .unwrap();
+        drop(sender);
+        let steps = std::cell::RefCell::new(Vec::new());
+        let config = Config::read(
+            std::env::temp_dir().join(format!("squad-attention-order-{}.toml", std::process::id())),
+        )
+        .unwrap();
+        let mut config = Some(config);
+        serve(
+            &pending,
+            |_, _| {
+                steps.borrow_mut().push("shown");
+                true
+            },
+            Duration::from_secs(1),
+            &AtomicU64::new(0),
+            |_| Stamp::cursor(1),
+            |_, _| Loaded {
+                snapshot: crate::board::app::tests::snapshot("product", json!([])),
+                attention: Some(AttentionJob {
+                    config: config.take().unwrap(),
+                    squads: Vec::new(),
+                    shown: "product".into(),
+                    me: None,
+                    document: json!({}),
+                }),
+            },
+            |_, _| {
+                steps.borrow_mut().push("attention");
+                true
+            },
+        );
+        assert_eq!(*steps.borrow(), ["shown", "attention"]);
+    }
+    #[test]
+    fn squad_leads_and_all_default_to_ctrl_r_refresh_and_keep_their_override_owners() {
+        let path = std::env::temp_dir().join(format!("squad-ctrl-r-{}.toml", std::process::id()));
+        let executable = path.with_extension("tmt");
+        crate::test_support::write_executable(
+            &executable,
+            "#!/bin/sh\n[ \"$1\" = ls ] || exit 2\nprintf \"%s\\n\" \'{\"identities\":[]}\'\n",
+        );
+        let core = Core::at(executable.clone());
+        for (body, squad, leads, all) in [
+            (
+                "",
+                crate::action::Verb::Refresh,
+                crate::action::Verb::Refresh,
+                crate::action::Verb::Refresh,
+            ),
+            (
+                "[bind]\nctrl-r = \"copy\"\n[tabs.leads.bind]\nctrl-r = \"notes\"\n[tabs.all.bind]\nctrl-r = \"notes\"\n",
+                crate::action::Verb::Copy,
+                crate::action::Verb::Notes,
+                crate::action::Verb::Notes,
+            ),
+        ] {
+            std::fs::write(&path, body).unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            for tmux in [false, true] {
+                let squad_bindings = config.bindings(tmux).unwrap();
+                assert_eq!(squad_bindings["ctrl-r"].verb, squad);
+                assert!(!squad_bindings.contains_key("f5"));
+                let leads_bindings = leads_view(&core, tmux, &config, &[], &[], None)
+                    .unwrap()
+                    .0
+                    .bindings;
+                assert_eq!(leads_bindings["ctrl-r"].verb, leads);
+                assert!(!leads_bindings.contains_key("f5"));
+                let all_bindings = all_view(&core, &config, &[], &[], None).unwrap().0.bindings;
+                assert_eq!(all_bindings["ctrl-r"].verb, all);
+                assert!(!all_bindings.contains_key("f5"));
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(executable).unwrap();
     }
 }

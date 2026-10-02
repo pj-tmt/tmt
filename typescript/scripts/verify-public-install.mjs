@@ -6,8 +6,9 @@
 //              the tag, the installed `tmt` is the one PATH selects, the managed skills are the
 //              tag's, and `tmt upgrade --channel alpha --json` reads the live metadata and says
 //              the installation is current (or that a newer alpha has appeared since).
-//   extension  the newest published CLI, installed the same way, runs `tmt <extension> install`
-//              against the published release; the version is the tag's and no CLI link appears.
+//   extension  the newest published CLI, installed the same way, runs `tmt extension install
+//              <extension>` against the published release; `tmt extension list` reports the
+//              tag's version and no CLI link appears.
 // A failure is a result, never a rollback. Only data of the release is read from `--source`, a
 // checkout of the tag; none of its code runs here.
 //   node verify-public-install.mjs --product P --tag TAG --source DIR [--target T] [--result-file F]
@@ -248,19 +249,6 @@ export async function smokeRelease({
   }
 
   const extensionPrefix = path.join(root, 'extension prefix');
-  if (
-    !(await check(`${product} command`, async () => {
-      try {
-        tmt([product, 'install', '--help']);
-      } catch (error) {
-        throw new Error(
-          `the newest published CLI (${cliVersion}) has no \`${product} install\` command, so it cannot install ${tag}`,
-          { cause: error }
-        );
-      }
-    }))
-  )
-    return results;
   const extensionInstalled = await check(`${product} install`, async () => {
     const report = JSON.parse(
       await withAttempts(
@@ -268,8 +256,9 @@ export async function smokeRelease({
         () =>
           tmt(
             [
-              product,
+              'extension',
               'install',
+              product,
               '--yes',
               '--json',
               '--channel',
@@ -287,14 +276,17 @@ export async function smokeRelease({
     return report.version;
   });
   if (!extensionInstalled) return results;
-  await check(`${product} status`, async () => {
-    const status = JSON.parse(tmt([product, 'status', '--json', '--prefix', extensionPrefix]));
-    if (status.version !== version)
-      throw new Error(`status reports ${status.version}, not ${version}`);
+  await check(`${product} list`, async () => {
+    const { extensions } = JSON.parse(
+      tmt(['extension', 'list', '--json', '--prefix', extensionPrefix])
+    );
+    const listed = extensions.find(({ name }) => name === product);
+    if (listed?.version !== version)
+      throw new Error(`the list reports ${listed?.version}, not ${version}`);
     if (existsSync(path.join(extensionPrefix, 'bin', 'tmt'))) {
       throw new Error('an extension install must not create the CLI link');
     }
-    return status.version;
+    return listed.version;
   });
   return results;
 }

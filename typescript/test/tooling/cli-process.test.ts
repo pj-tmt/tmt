@@ -61,6 +61,23 @@ afterEach(() => {
 
 it('owns the default tmux socket directory and removes it with the sandbox', async () => {
   let socketRoot = '';
+  const sentinel = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-parent-environment-'));
+  roots.push(sentinel);
+  fs.writeFileSync(path.join(sentinel, 'marker'), 'parent fixture');
+  const pollutedKeys = [
+    'TMUX',
+    'TMUX_PANE',
+    'TMUX_TEAM_HOME',
+    'TMT_DRIVER_CALL',
+    'NO_COLOR',
+    'FORCE_COLOR',
+    'CODEX_THREAD_ID',
+    'CLAUDECODE',
+    'PI_CODING_AGENT_DIR',
+    'OPENCODE_CONFIG_DIR',
+  ];
+  for (const key of pollutedKeys) vi.stubEnv(key, 'parent fixture');
+  vi.stubEnv('HOME', sentinel);
   vi.stubEnv('TMUX_TMPDIR', '/not-the-test-owned-tmux-directory');
   try {
     await withSandbox(async (sandbox) => {
@@ -72,16 +89,74 @@ it('owns the default tmux socket directory and removes it with the sandbox', asy
           ...sandbox,
           cli: {
             executable: process.execPath,
-            args: ['-e', 'process.stdout.write(process.env.TMUX_TMPDIR)'],
+            args: ['-e', 'process.stdout.write(JSON.stringify(process.env))'],
           },
         },
         []
       );
       expect(result.status).toBe(0);
-      expect(result.stdout).toBe(socketRoot);
+      const childEnv = JSON.parse(result.stdout);
+      expect(childEnv).toMatchObject({
+        HOME: sandbox.home,
+        XDG_CONFIG_HOME: sandbox.xdgConfigHome,
+        XDG_DATA_HOME: path.join(sandbox.root, 'xdg-data'),
+        XDG_STATE_HOME: path.join(sandbox.root, 'xdg-state'),
+        XDG_CACHE_HOME: path.join(sandbox.root, 'xdg-cache'),
+        CODEX_HOME: path.join(sandbox.home, '.codex'),
+        TMPDIR: path.join(sandbox.root, 'tmp'),
+        TMUX_TMPDIR: socketRoot,
+        PATH: [path.dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(
+          path.delimiter
+        ),
+        LANG: 'en_US.UTF-8',
+        LC_ALL: 'en_US.UTF-8',
+      });
+      for (const key of pollutedKeys) expect(childEnv).not.toHaveProperty(key);
+      expect(fs.readdirSync(sentinel)).toEqual(['marker']);
+      expect(fs.readFileSync(path.join(sentinel, 'marker'), 'utf8')).toBe('parent fixture');
       expect(result.stderr).toBe('');
     });
     expect(fs.existsSync(socketRoot)).toBe(false);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it('passes only the declared runtime connection variables to sandbox children', async () => {
+  const sessionBus = 'unix:path=/test-owned/session-bus';
+  vi.stubEnv('DBUS_SESSION_BUS_ADDRESS', sessionBus);
+  const excludedKeys = [
+    'DBUS_SYSTEM_BUS_ADDRESS',
+    'GNOME_KEYRING_CONTROL',
+    'XDG_RUNTIME_DIR',
+    'FIREBASE_AUTH_EMULATOR_HOST',
+    'TMT_TEST_BROWSER_CHANNEL',
+  ];
+  for (const key of excludedKeys) vi.stubEnv(key, 'unrelated parent value');
+  const observe = () =>
+    withSandbox(async (sandbox) => {
+      const result = await runCli(
+        {
+          ...sandbox,
+          cli: {
+            executable: process.execPath,
+            args: ['-e', 'console.log(JSON.stringify(process.env))'],
+          },
+        },
+        []
+      );
+      expect(result.status).toBe(0);
+      const childEnv = JSON.parse(result.stdout);
+      expect(childEnv.HOME).toBe(sandbox.home);
+      expect(childEnv.XDG_CONFIG_HOME).toBe(sandbox.xdgConfigHome);
+      for (const key of [...excludedKeys, 'TMT_TEST_CLI', 'TMT_TEST_PEER_CLI'])
+        expect(childEnv).not.toHaveProperty(key);
+      return childEnv;
+    });
+  try {
+    expect(await observe()).toHaveProperty('DBUS_SESSION_BUS_ADDRESS', sessionBus);
+    vi.stubEnv('DBUS_SESSION_BUS_ADDRESS', undefined);
+    expect(await observe()).not.toHaveProperty('DBUS_SESSION_BUS_ADDRESS');
   } finally {
     vi.unstubAllEnvs();
   }

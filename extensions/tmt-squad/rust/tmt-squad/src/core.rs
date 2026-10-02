@@ -7,7 +7,7 @@ use std::{
     ffi::OsString,
     fmt,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const TIMEOUT: Duration = Duration::from_secs(15);
@@ -70,6 +70,8 @@ fn unavailable(message: &str) -> SquadError {
 #[derive(Clone)]
 pub struct Core {
     executable: PathBuf,
+    cancellation: Option<runner::Cancellation>,
+    deadline: Option<Instant>,
 }
 
 impl Core {
@@ -87,7 +89,11 @@ impl Core {
             }),
         };
         executable
-            .map(|executable| Self { executable })
+            .map(|executable| Self {
+                executable,
+                cancellation: None,
+                deadline: None,
+            })
             .ok_or_else(|| {
                 unavailable("Could not find the tmt executable; run through `tmt squad`.")
             })
@@ -96,7 +102,24 @@ impl Core {
     /// A given executable, for tests that stand a script in for tmt.
     #[cfg(test)]
     pub fn at(executable: PathBuf) -> Self {
-        Self { executable }
+        Self {
+            executable,
+            cancellation: None,
+            deadline: None,
+        }
+    }
+
+    pub fn cancellable(&self, cancellation: runner::Cancellation) -> Self {
+        Self {
+            cancellation: Some(cancellation),
+            ..self.clone()
+        }
+    }
+
+    /// Context calls share their invocation deadline and the host-owned group.
+    pub fn until(mut self, deadline: Instant) -> Self {
+        self.deadline = Some(deadline);
+        self
     }
 
     /// The tmt this invocation reaches, as extension dispatch supplied it.
@@ -131,15 +154,28 @@ impl Core {
     }
 
     fn call(&self, argv: &[OsString], input: &[u8]) -> Result<Value, SquadError> {
-        let finished =
-            runner::run(&self.executable, argv, input, TIMEOUT, OUTPUT_LIMIT).map_err(|error| {
-                unavailable(match error {
-                    RunError::Spawn => "Could not start tmt.",
-                    RunError::Timeout => "tmt did not finish in time; the outcome is unknown.",
-                    RunError::OutputLimit => "tmt output exceeded squad's bound.",
-                    RunError::Io => "Could not read tmt output; the outcome is unknown.",
-                })
-            })?;
+        let result = match self.deadline {
+            Some(deadline) => {
+                runner::run_inherited(&self.executable, argv, input, deadline, OUTPUT_LIMIT)
+            }
+            None => runner::run_cancellable(
+                &self.executable,
+                argv,
+                input,
+                TIMEOUT,
+                OUTPUT_LIMIT,
+                self.cancellation.as_ref(),
+            ),
+        };
+        let finished = result.map_err(|error| {
+            unavailable(match error {
+                RunError::Spawn => "Could not start tmt.",
+                RunError::Timeout => "tmt did not finish in time; the outcome is unknown.",
+                RunError::OutputLimit => "tmt output exceeded squad's bound.",
+                RunError::Io => "Could not read tmt output; the outcome is unknown.",
+                RunError::Cancelled => "The board load was superseded.",
+            })
+        })?;
         let document: Value = serde_json::from_slice(&finished.stdout)
             .map_err(|_| unavailable("tmt returned no JSON document."))?;
         if finished.success {

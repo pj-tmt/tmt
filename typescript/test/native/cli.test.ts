@@ -6,8 +6,8 @@ import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-p
 import { workspaceVersion } from '../support/workspace-version.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 
-// The version the binary prints is the workspace version, which a release pull request bumps.
-const cliVersion = workspaceVersion();
+// Use the CLI crate version, whether declared directly or inherited from the workspace.
+const cliVersion = workspaceVersion('tmt-cli');
 
 // The shared selector validates the repository native build before allocating
 // each sandbox. Explicit descriptors remain available for moved executables.

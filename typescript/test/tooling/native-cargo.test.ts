@@ -41,11 +41,12 @@ function recordedArgs(argsFile: string): string[] {
 }
 
 describe('native cargo wrapper', () => {
-  it('is executable and forwards build and metadata arguments before adding locked', async () => {
-    expect(fs.existsSync(wrapper)).toBe(true);
-    expect(fs.statSync(wrapper).mode & 0o111).not.toBe(0);
+  it.each(['build', 'metadata'])(
+    'is executable and forwards %s arguments before adding locked',
+    async (command) => {
+      expect(fs.existsSync(wrapper)).toBe(true);
+      expect(fs.statSync(wrapper).mode & 0o111).not.toBe(0);
 
-    for (const command of ['build', 'metadata']) {
       await withSandbox(async (sandbox) => {
         const fake = createFakeCargo(sandbox);
         const args = [command, '--target', 'target with spaces', '--features', 'quote"value'];
@@ -59,7 +60,7 @@ describe('native cargo wrapper', () => {
         expect(recordedArgs(fake.argsFile)).toEqual([...args, '--locked']);
       });
     }
-  });
+  );
 
   it.each([
     ['-vV'],

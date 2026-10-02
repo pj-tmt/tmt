@@ -186,10 +186,11 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
         ],
         // Squad is a public-interface consumer: it reaches TMT only through
-        // commands and `tmt api`. Its one workspace dependency is the leaf
-        // `tmt-cli-style`, which carries no TMT behavior.
+        // commands and `tmt api`. Neutral invoke/style leaves carry no core behavior.
         "tmt-squad" => &[
             "tmt-cli-style",
+            // Same neutral bounded process owner used by Remote and Colab.
+            "tmt-invoke",
             "clap",
             "serde_json",
             "toml_edit",
@@ -204,6 +205,32 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "nix",
         ],
         "tmt-invoke" => &["subprocess", "nix"],
+        "tmt-tui" => &["roxmltree", "tmt-cli-style"],
+        "tmt-colab" => &[
+            "ed25519-dalek",
+            "getrandom",
+            "nix",
+            "rusqlite",
+            "sha2",
+            "clap",
+            "httparse",
+            "serde_json",
+            "signal-hook",
+            "tmt-cli-style",
+            "tmt-invoke",
+        ],
+        // Colab model owns pure codecs and fixed crypto, not core or extension behavior.
+        "tmt-colab-model" => &[
+            "x25519-dalek",
+            "aes-gcm",
+            "base64",
+            "ed25519-dalek",
+            "getrandom",
+            "hmac",
+            "serde",
+            "serde_json",
+            "sha2",
+        ],
         "tmt-remote" => &[
             "ed25519-dalek",
             "hmac",
@@ -224,7 +251,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .iter()
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
-            if d["kind"] == "dev" && name != "tmt-invoke" {
+            if d["kind"] == "dev" && !["tmt-invoke", "tmt-tui"].contains(&name) {
                 let target = d["target"].as_str();
                 let entry = format!("({name:?}, {dependency:?}, {target:?}),");
                 let ledger = "DEV_DEPENDENCIES in rust/crates/tmt-cli/tests/architecture/policy.rs";
@@ -549,11 +576,27 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
+            if source.package == "tmt-colab-model"
+                && ((root.starts_with("tmt_") && root != "tmt_colab_model")
+                    || (["std", "core"].contains(&root)
+                        && ["fs", "io", "net", "process", "env", "thread"].contains(&module)))
+            {
+                violations.push(format!(
+                    "{location}: colab model cannot acquire runtime authority via {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_colab_model" && source.package != "tmt-colab-model" {
+                violations.push(format!(
+                    "{location}: unreviewed colab model consumer {}",
+                    source.package
+                ));
+            }
             // Public-interface extensions name their own library and approved leaves only.
-            if ["tmt-squad", "tmt-remote"].contains(&source.package.as_str())
+            if ["tmt-squad", "tmt-remote", "tmt-colab"].contains(&source.package.as_str())
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
-                && !(source.package == "tmt-remote" && root == "tmt_invoke")
+                && root != "tmt_invoke"
                 && root != source.package.replace('-', "_")
             {
                 violations.push(format!(
@@ -566,6 +609,21 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 violations.push(format!(
                     "{location}: invoke leaf cannot reach {}",
                     path.join("::")
+                ));
+            }
+            if source.package == "tmt-tui"
+                && root.starts_with("tmt_")
+                && !["tmt_tui", "tmt_cli_style"].contains(&root)
+            {
+                violations.push(format!(
+                    "{location}: TUI leaf cannot reach {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_tui" && source.package != "tmt-tui" {
+                violations.push(format!(
+                    "{location}: unreviewed TUI consumer {}",
+                    source.package
                 ));
             }
             // Terminal hosts are reached through the host port (#486); only it

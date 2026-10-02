@@ -12,9 +12,9 @@ use std::{
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-struct Fixture(PathBuf);
+pub(crate) struct Fixture(pub(crate) PathBuf);
 impl Fixture {
-    fn new(script: &str) -> Self {
+    pub(crate) fn new(script: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "tmt-invoke-{}-{}",
             std::process::id(),
@@ -52,6 +52,7 @@ impl Fixture {
                 input,
                 deadline: Instant::now() + timeout,
                 max_stream_bytes: limit,
+                launch: Default::default(),
             },
             stop,
         )
@@ -157,8 +158,12 @@ fn each_stream_has_its_own_exact_bound_including_zero() {
 fn stdin_and_both_output_pipes_make_progress_under_pressure() {
     let input = vec![b'i'; 256 * 1024];
     let fixture = Fixture::new("head -c 262144 /dev/zero; head -c 262144 /dev/zero >&2; cat");
+    // Quiet/loaded maxima: 13.7/16.7 ms; ~20 ms at 1 ms pulses with 12 CPU workers.
+    // subprocess 1.2.1 retains write/read progress across TimedOut; no livelock found.
+    // One 5 s Deadline miss under heavy full-workspace load remains unexplained.
+    // 30 s matches real-process success budgets in tmt-adapters host/external/tests.rs.
     let output = fixture
-        .call(&[], &input, Duration::from_secs(5), 512 * 1024, None)
+        .call(&[], &input, Duration::from_secs(30), 512 * 1024, None)
         .unwrap();
     assert_eq!(&output.stdout[..256 * 1024], vec![0; 256 * 1024]);
     assert_eq!(&output.stdout[256 * 1024..], input);
@@ -239,6 +244,7 @@ fn failed_spawn_and_expired_request_never_leave_a_child() {
             input: b"",
             deadline: Instant::now(),
             max_stream_bytes: 64,
+            launch: Default::default(),
         },
         None,
     )
@@ -253,6 +259,7 @@ fn failed_spawn_and_expired_request_never_leave_a_child() {
             input: b"",
             deadline: Instant::now() + Duration::from_secs(5),
             max_stream_bytes: 64,
+            launch: Default::default(),
         },
         None,
     )
@@ -353,4 +360,91 @@ fn discovery_child() {
         _ => panic!("unknown discovery fixture"),
     }
     println!("discovery fixture checked");
+}
+
+#[test]
+fn child_environment_policy_does_not_mutate_the_caller() {
+    use std::os::unix::ffi::OsStringExt;
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "tests::environment_policy_child",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("INVOKE_KEEP", "space and 'literal'")
+        .env("INVOKE_SECRET", "excluded-test-secret")
+        .env("INVOKE_BYTES", OsString::from_vec(vec![b'x', 0xff]))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("environment fixture checked"));
+}
+
+#[test]
+#[ignore = "isolated environment fixture launched by the parent test"]
+fn environment_policy_child() {
+    use std::os::unix::ffi::OsStrExt;
+    let snapshot = || {
+        let mut vars: Vec<_> = std::env::vars_os().collect();
+        vars.sort();
+        vars
+    };
+    let before = snapshot();
+    let capture = |environment| {
+        let output = invoke(
+            Request {
+                program: Path::new("/usr/bin/env"),
+                args: &[],
+                input: b"",
+                deadline: Instant::now() + Duration::from_secs(5),
+                max_stream_bytes: 4096,
+                launch: LaunchOptions {
+                    environment,
+                    ..Default::default()
+                },
+            },
+            None,
+        )
+        .unwrap();
+        assert!(output.status.success() && output.stderr.is_empty());
+        output.stdout
+    };
+    let inherited = capture(EnvironmentPolicy::default());
+    assert!(
+        inherited
+            .windows(b"INVOKE_SECRET=excluded-test-secret".len())
+            .any(|w| w == b"INVOKE_SECRET=excluded-test-secret")
+    );
+    assert!(capture(EnvironmentPolicy::ClearAllowlist(&[])).is_empty());
+    let names = [
+        "INVOKE_KEEP".into(),
+        "INVOKE_BYTES".into(),
+        "INVOKE_MISSING".into(),
+        "INVOKE_KEEP".into(),
+    ];
+    let allowed = capture(EnvironmentPolicy::ClearAllowlist(&names));
+    let mut lines: Vec<_> = allowed
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .collect();
+    lines.sort();
+    assert_eq!(
+        lines,
+        [
+            b"INVOKE_BYTES=x\xff".as_slice(),
+            b"INVOKE_KEEP=space and 'literal'".as_slice()
+        ]
+    );
+    assert_eq!(
+        std::env::var_os("INVOKE_BYTES").unwrap().as_bytes(),
+        b"x\xff"
+    );
+    assert_eq!(snapshot(), before);
+    println!("environment fixture checked");
 }
