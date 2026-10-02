@@ -1,8 +1,12 @@
 use super::*;
 
 #[test]
-fn preflight_requires_the_supported_line_and_minimum_before_advising() {
-    for version in [b"codex-cli 0.159.2".as_slice(), b"codex-cli 0.159.3\n"] {
+fn preflight_accepts_qualified_builds_and_only_advises_later_0159_patches() {
+    for version in [
+        b"codex-cli 0.159.2".as_slice(),
+        b"codex-cli 0.159.3\n",
+        b"codex-cli 0.160.0\n",
+    ] {
         assert!(matches!(version_advisory(version), Ok(None)));
     }
     for version in ["codex-cli 0.159.4", "codex-cli 0.159.999"] {
@@ -20,7 +24,11 @@ fn preflight_requires_the_supported_line_and_minimum_before_advising() {
         b"codex-cli 0.159.3-beta",
         b"codex-cli 0.159.1",
         b"codex-cli 0.158.99",
-        b"codex-cli 0.160.0",
+        b"codex-cli 0.160.1",
+        b"codex-cli 0.160.999",
+        b"codex-cli 0.161.0",
+        b"codex-cli 0.160.0-beta",
+        b"codex-cli 0.160.+0",
         b"codex-cli 1.159.3",
         b"codex-cli 0.159.18446744073709551616",
         b"codex-cli 0.159.\xff",

@@ -186,7 +186,7 @@ fn supported_version(user_agent: &str) -> bool {
     else {
         return false;
     };
-    !originator.is_empty() && matches!(version, "0.159.2" | "0.159.3")
+    !originator.is_empty() && matches!(version, "0.159.2" | "0.159.3" | "0.160.0")
 }
 
 #[cfg(test)]
