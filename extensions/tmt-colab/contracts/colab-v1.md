@@ -12,8 +12,8 @@ owns core resources, request/dispatch behavior, errors, limits and retention;
 colab MUST use that API rather than redefine it. The
 [remote-client byte rules](../../../contracts/remote-client-v1.md#bytes-ids-and-the-fixed-m1-suite)
 own LP framing, list framing, exact UTF-8 and canonical binary encodings. Only
-those byte primitives are reused; Remote's authority and transport profile are
-not inherited. Extension contracts and vectors remain under this extension,
+those byte primitives are reused here; the [channel boundary](#channel-boundary)
+names the sections that move to remote. Extension contracts and vectors remain under this extension,
 following the [Office contract convention](../../tmt-office/contracts/README.md#single-source-of-truth).
 
 Inputs are the [owning design](https://github.com/wkh237/tmt/issues/828#issuecomment-5932303929)
@@ -28,6 +28,33 @@ and [squad acceptance](https://github.com/wkh237/tmt/issues/830#issuecomment-593
 supply decoder, renderer, anchoring, door and TLS evidence. They leave production
 containment, durable transport and nonce-shell validation to the named slices.
 Baseline and hostile-corpus containment acceptance remain C0 review gates.
+
+## Channel boundary
+
+Colab is an app on remote. The [remote channel contract](../../../contracts/remote-client-v1.md#extension-channel-api)
+owns owner-device identity, door route mounting, the opaque relay, agent
+operations, agent status and backends/deploy; colab consumes that API and ships
+no door, sign-in, pairing or backend of its own once its routes mount on the
+remote door. Colab keeps canonical values and content cryptography, encrypted
+objects, links, page membership and roles, epochs, sharing and rotation,
+snapshots, decoder isolation, renderer and anchors, Send and its ledger, page
+retention policy and conformance. Each affected section below carries a marker:
+
+| Section                                   | Disposition                                                                                                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trust root, statements and device chains  | Split: space ID, owner membership log and page members' device certificates stay; owner-device enrollment and chains move to remote device identity. |
+| Browser management requests               | Stay as colab requests carried over the relay; the sender is the remote device context.                                                              |
+| Local sign-in and owner-device enrollment | Move to remote device identity and pairing.                                                                                                          |
+| Pairing and machine-local grants          | Retired: pairing moves to remote; agent access follows remote trust grants.                                                                          |
+| Explicit Send and bridge ledger           | Split: explicit Send and the ledger stay; dispatch and recovery use remote operations.                                                               |
+| Sync and backend admission                | Split: edge admission, bindings and transport frames move to the remote relay; page, epoch, role and writer checks stay as colab's admission hook.   |
+| Retention and management                  | Split: page expiry policy and warnings stay; backend enforcement uses remote-provisioned resources that colab declares.                              |
+
+Until the remote implementation lands, the moved sections describe the local
+colab pilot; its working code relocates into `tmt-remote` rather than being
+rewritten. The retired machine-sender amendment's principles (page membership
+never implies agent access; frozen operation ID and bytes; uncertainty recovery;
+recipient-only results) are owned by the remote channel contract.
 
 ## Product boundary and threat model
 
@@ -208,6 +235,8 @@ isolate mutually hostile agents.
 
 ## Trust root, statements and device chains
 
+**Channel boundary: split.** Owner-device enrollment and chains move to remote device identity; the space ID, owner membership log and page members' device certificates stay.
+
 The URL's space ID pins the Ed25519 owner key through the space-ID derivation.
 A substituted key MUST reject. The owner signs a hash-chained membership log,
 starting at revision `1` with previous hash zero32. Successors advance revision
@@ -244,6 +273,8 @@ or signing delegation. Every log statement is produced and signed by the owner's
 and baseline through the owner; `create` imports source without executing it.
 
 ### Browser management requests
+
+**Channel boundary: stays,** carried over the relay with the remote device context as sender.
 
 The owner's enrolled browser never receives the root key. To request sharing,
 member/link changes, epoch advance, script policy or retention, it submits a
@@ -302,6 +333,8 @@ use the owner-pinned machine key from `bridge.add`; a bridge cannot certify
 human/link devices. Keys from transport records cannot replace log bindings.
 
 ### Local sign-in and owner-device enrollment
+
+**Channel boundary: moves** to remote device identity and pairing.
 
 `serve` prints a single-use sign-in URL whose secret is a uniformly random
 128-bit code carried only in its fragment, with expiry at most ten minutes.
@@ -570,6 +603,8 @@ or rejects explicitly; it MUST NOT silently discard accepted durable data.
 
 ## Pairing and machine-local grants
 
+**Channel boundary: retired.** Pairing moves to remote; agent access follows remote trust grants.
+
 Page enrollment, including the one-time sign-in link printed by `serve`, grants
 page access only. Agent access requires `colab-pair-v1`, distinct from Remote
 `local-v1`. Machine-local grants contain `grantId, deviceKey, agentIds,
@@ -626,6 +661,8 @@ renewal or changed scope. Later show “result unknown”; `devices` exposes the
 machine's grant. Altered transcripts/devices/offers/tags MUST reject.
 
 ## Explicit Send and bridge ledger
+
+**Channel boundary: split.** Explicit Send and the ledger stay; dispatch and recovery use remote operations.
 
 Comments, sync, replay, compaction and HTML scripts MUST NOT dispatch agent work.
 Only explicit Send in trusted parent UI signs an immutable intent after showing
@@ -770,6 +807,8 @@ remapping rule above. No anchor is valid across a stale renderId.
 
 ## Sync and backend admission
 
+**Channel boundary: split.** Edge admission, bindings and transport frames move to the remote relay; page, epoch, role and writer checks stay as colab's admission hook.
+
 **Colab-v1 deliberately replaces #478 signed-edge admission** with Auth/Rules
 or server-session admission of ciphertext, plus client verification and
 machine-bridge signature/grant admission before effects. It claims no inherited
@@ -863,6 +902,8 @@ authorization. Tests use demo Firestore emulators and local workerd/Miniflare
 only, no cloud accounts, billing or deployments.
 
 ## Retention and management
+
+**Channel boundary: split.** Page expiry policy and warnings stay; backend enforcement uses remote-provisioned resources that colab declares.
 
 Cloud expiry is 30 days after last page update by default, with a per-page
 positive day count or forever override. Each write sets expiry; checkpoints and

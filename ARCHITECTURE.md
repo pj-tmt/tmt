@@ -3042,7 +3042,7 @@ authentication, sync, decoder, browser and backend work remains proposed.** The 
 owns envelopes, membership, page/epoch state, sync, renderer, enrollment, pairing,
 bridge policy and acceptance gates. The #828 design owns product/UI choices;
 #829/#830 are bounded spike evidence. The executable is local-build-only; no deployment or official release is registered.
-The proposed [machine-sender amendment](extensions/tmt-colab/contracts/colab-machines-v1.md) owns the distinct machine principal, destination-local grant and recipient-only result path.
+The [channel boundary](extensions/tmt-colab/contracts/colab-v1.md#channel-boundary) marks which colab-v1 sections move to remote, stay or retire.
 
 Current executable dependencies are `tmt-invoke`, `tmt-cli-style` and reviewed
 workspace pins. The proposed `tmt-colab-model` integration will own pure values,
