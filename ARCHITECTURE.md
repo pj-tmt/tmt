@@ -46,7 +46,7 @@ layout permission does not change component ownership, CI selection or release p
 | `scripts/`                | Shared root shell/build/development helpers.                                                                                           |
 | `skills/`                 | Canonical bundled user-agent guidance.                                                                                                 |
 | `site/`                   | User handbook and its build; handbook text remains owned by tmt-lead.                                                                  |
-| `design/` (planned, #998) | CLI presentation/style guidance and design tokens; not created or allowlisted yet.                                                     |
+| `design/`                 | Design tokens (from #901) and, after #998, CLI style guidance.                                                                         |
 
 Current exceptions and moves are **pending**, not shipped:
 
@@ -57,12 +57,12 @@ Current exceptions and moves are **pending**, not shipped:
 - #998 (PR C, after the queue drains) moves `docs/extension-api.md` to
   `contracts/extension-api.md`, and `docs/cli-style.md` to `design/cli-style.md`.
   It renames `contracts/remote-client-v1.md` to `contracts/remote-channel-v1.md`.
-  `REQUEST-RESPONSE.md` moves to `contracts/` if tmt-lead confirms it is a contract;
-  otherwise its guidance folds into DEVELOPMENT. Release-verification procedures
+  `REQUEST-RESPONSE.md` is a contract and moves to `contracts/request-response-v1.md`.
+  Release-verification procedures
   in `docs/native-release-verification.md` fold into DEVELOPMENT's release section.
-- `docs/` remains a temporary home under #997/#998. `docs/NATIVE-INSTALL.md` and
-  `docs/performance.md` stay there until the handbook resumes, then move to `site/`
-  under #998; the directory exception remains until its retained contents move.
+- The handbook has resumed (#1000). `docs/` remains a temporary home under #997/#998.
+  `docs/NATIVE-INSTALL.md` and `docs/performance.md` stay there pending their move to
+  `site/` under #998; the directory exception remains until its retained contents move.
 - #996 removes `nx`, `nx.bat`, `nx.json` and `.nx/`. Whichever PR lands second
   reconciles those exceptions against its merged base.
 

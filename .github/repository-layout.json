@@ -13,6 +13,7 @@
     "LICENSE",
     "README.md",
     "contracts",
+    "design",
     "dist-workspace.toml",
     "extensions",
     "release-please-config.json",
