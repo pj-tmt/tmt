@@ -1,4 +1,5 @@
 //! Remote private state on real temporary data roots.
+use rusqlite::Connection;
 use std::{
     fs,
     os::unix::fs::{PermissionsExt, symlink},
@@ -42,18 +43,30 @@ fn machine_key_and_identity_are_created_once_and_stable() {
     let layout = Layout::open(&root.0).unwrap();
     assert_eq!(mode(&root.remote()), 0o700);
     let key = MachineKey::open(&layout).unwrap().public();
-    let machine = Store::open(&layout).unwrap().machine().unwrap();
+    let machine = Store::open(&layout.serve_lock().unwrap())
+        .unwrap()
+        .machine()
+        .unwrap();
     assert_eq!(mode(&root.remote().join("machine.key")), 0o600);
     assert_eq!(mode(&root.remote().join("remote.db")), 0o600);
     let reopened = Layout::open(&root.0).unwrap();
     assert_eq!(MachineKey::open(&reopened).unwrap().public(), key);
-    assert_eq!(Store::open(&reopened).unwrap().machine().unwrap(), machine);
+    assert_eq!(
+        Store::open(&reopened.serve_lock().unwrap())
+            .unwrap()
+            .machine()
+            .unwrap(),
+        machine
+    );
     assert!(machine.route_prefix.starts_with("/r/") && machine.route_prefix.len() == 35);
     // Distinct roots get distinct identities.
     let other = Root::new();
     let other_layout = Layout::open(&other.0).unwrap();
     assert_ne!(MachineKey::open(&other_layout).unwrap().public(), key);
-    let other_machine = Store::open(&other_layout).unwrap().machine().unwrap();
+    let other_machine = Store::open(&other_layout.serve_lock().unwrap())
+        .unwrap()
+        .machine()
+        .unwrap();
     assert_ne!(other_machine.id, machine.id);
     assert_ne!(other_machine.route_prefix, machine.route_prefix);
 }
@@ -104,14 +117,17 @@ fn unsafe_directories_files_and_keys_fail_closed() {
         [7; 31]
     );
     // A symlinked state file is never followed.
-    fs::remove_file(root.remote().join("remote.db")).ok();
     let target = root.0.join("elsewhere.db");
     fs::write(&target, b"").unwrap();
     symlink(&target, root.remote().join("remote.db")).unwrap();
     assert_eq!(
-        Store::open(&layout).err().unwrap().code,
+        Store::open(&layout.serve_lock().unwrap())
+            .err()
+            .unwrap()
+            .code,
         "REMOTE_STATE_UNSAFE"
     );
+    assert!(fs::read(&target).unwrap().is_empty(), "target untouched");
     // A symlinked remote directory is refused.
     let other = Root::new();
     let real = other.0.join("real");
@@ -149,4 +165,81 @@ fn second_serve_lock_on_one_root_refuses() {
     );
     drop(held);
     assert!(layout.serve_lock().is_ok());
+}
+
+#[test]
+fn only_the_serve_lock_holder_opens_the_database() {
+    let root = Root::new();
+    let serving = Layout::open(&root.0).unwrap().serve_lock().unwrap();
+    let mut store = Store::open(&serving).unwrap();
+    // A second opener in any process must first take the same lock, and cannot.
+    let other = Layout::open(&root.0).unwrap();
+    assert_eq!(
+        other.serve_lock().err().unwrap().code,
+        "REMOTE_ALREADY_SERVING"
+    );
+    assert!(store.machine().is_ok());
+    drop(store);
+    drop(serving);
+    assert!(Store::open(&other.serve_lock().unwrap()).is_ok());
+}
+
+#[test]
+fn schema_history_uses_core_migrations() {
+    let root = Root::new();
+    let layout = Layout::open(&root.0).unwrap();
+    drop(Store::open(&layout.serve_lock().unwrap()).unwrap());
+    let db = root.remote().join("remote.db");
+    let inspect = Connection::open(&db).unwrap();
+    let history: Vec<(i64, String)> = inspect
+        .prepare("SELECT version, name FROM _migrations ORDER BY version")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(history, [(1, "machine".to_owned())]);
+    let journal: String = inspect
+        .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(journal, "delete");
+    drop(inspect);
+    // Reopening applies nothing twice.
+    drop(Store::open(&layout.serve_lock().unwrap()).unwrap());
+    let count: i64 = Connection::open(&db)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+    // A newer build's history refuses instead of being reinterpreted.
+    Connection::open(&db)
+        .unwrap()
+        .execute("INSERT INTO _migrations VALUES (2, 'future', 'now')", [])
+        .unwrap();
+    assert_eq!(
+        Store::open(&layout.serve_lock().unwrap())
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_STATE_UNSUPPORTED"
+    );
+    // A renamed step refuses as damaged history.
+    let damage = Connection::open(&db).unwrap();
+    damage
+        .execute("DELETE FROM _migrations WHERE version = 2", [])
+        .unwrap();
+    damage
+        .execute(
+            "UPDATE _migrations SET name = 'other' WHERE version = 1",
+            [],
+        )
+        .unwrap();
+    drop(damage);
+    assert_eq!(
+        Store::open(&layout.serve_lock().unwrap())
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
 }

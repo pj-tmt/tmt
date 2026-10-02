@@ -87,10 +87,10 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             })? as usize;
         let root = core.storage_root(&stop)?;
         let layout = Layout::open(&root)?;
-        let _serving = layout.serve_lock()?;
+        let serving = layout.serve_lock()?;
         // Published on first serve; pairing receipts carry its public key.
         let _machine_key = MachineKey::open(&layout)?;
-        let machine = Store::open(&layout)?.machine()?;
+        let machine = Store::open(&serving)?.machine()?;
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?;
         let door = Door::bind(*serve.get_one::<u16>("port").unwrap())?;
         let address = format!("{}{}", door.origin, routes.prefix());

@@ -3669,8 +3669,15 @@ until its routes mount on the remote door.
 colab keyring: an owned 0700 directory, owned 0600 regular files opened without
 following symlinks, a lock-guarded create-only Ed25519 machine key
 (`machine.key`, a software file with no hardware claim) and one foreground
-serve lock per data root. `store::Store` owns `remote.db` (SQLite, schema
-version 1) and creates the machine identity once: a UUIDv4 machine ID and the
+serve lock per data root. `store::Store` owns `remote.db` (SQLite) and opens only
+with the `state::Serving` proof that the serve lock is held: while serve runs it
+is the database's only opener and writer, and every other path (pairing, device
+management) reaches remote state only through serve, over the owner-only control socket that pairing adds. Its
+schema history uses core's `_migrations` table (append-only, recorded names must
+match, a newer history refuses) with `foreign_keys=ON`. Unlike core's shared
+WAL database it keeps `journal_mode=DELETE`, since there is no concurrent
+reader, and `synchronous=FULL`, so committed grants and receipts survive power
+loss. Schema 1 creates the machine identity once: a UUIDv4 machine ID and the
 `/r/<32 lowercase hex>` route prefix, both stable across restarts and neither a
 credential. Unsafe state fails closed before the door binds. Colab keeps its own
 copy of the layout code until a shared leaf exists (#1041).

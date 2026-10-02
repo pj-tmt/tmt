@@ -100,14 +100,36 @@ impl Layout {
         Ok(file)
     }
     /// One foreground remote per data root; held for the life of `serve`.
-    pub fn serve_lock(&self) -> Result<Flock<File>, RemoteError> {
-        Flock::lock(self.file("serve.lock")?, FlockArg::LockExclusiveNonblock).map_err(|(_, e)| {
-            if e == nix::errno::Errno::EWOULDBLOCK {
-                RemoteError::new("REMOTE_ALREADY_SERVING", "Remote is already serving.")
-            } else {
-                io(e)
-            }
+    /// The returned [`Serving`] is the only way to open remote state, so a
+    /// second process cannot open the database while serve runs.
+    pub fn serve_lock(&self) -> Result<Serving, RemoteError> {
+        let lock = Flock::lock(self.file("serve.lock")?, FlockArg::LockExclusiveNonblock).map_err(
+            |(_, e)| {
+                if e == nix::errno::Errno::EWOULDBLOCK {
+                    RemoteError::new("REMOTE_ALREADY_SERVING", "Remote is already serving.")
+                } else {
+                    io(e)
+                }
+            },
+        )?;
+        Ok(Serving {
+            layout: Layout {
+                directory: self.directory.clone(),
+            },
+            _lock: lock,
         })
+    }
+}
+/// Proof that this process holds the data root's serve lock. Serve is the only
+/// writer and opener of remote state while it runs; every other path (pairing,
+/// device management) reaches that state through serve's control socket.
+pub struct Serving {
+    layout: Layout,
+    _lock: Flock<File>,
+}
+impl Serving {
+    pub fn layout(&self) -> &Layout {
+        &self.layout
     }
 }
 fn validate_file(file: &File) -> Result<(), RemoteError> {
