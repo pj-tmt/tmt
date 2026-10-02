@@ -22,7 +22,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -106,15 +106,53 @@ impl DeviceContext {
         value
     }
 }
-/// Resolves a door session cookie to an owner device. Pairing supplies the
-/// real implementation; until then no request carries a device context.
+/// Resolves a door session cookie to an owner device, rechecking its grant.
+/// `session::DoorSessions` is the serving implementation.
 pub trait Sessions: Send + Sync {
-    fn context(&self, cookie: Option<&str>) -> Option<DeviceContext>;
+    /// `cookie` is the request's raw `Cookie` header.
+    fn context(&self, cookie: Option<&str>) -> Option<Admitted>;
 }
 pub struct NoSessions;
 impl Sessions for NoSessions {
-    fn context(&self, _: Option<&str>) -> Option<DeviceContext> {
+    fn context(&self, _: Option<&str>) -> Option<Admitted> {
         None
+    }
+}
+/// An owner request admitted through a live door session.
+pub struct Admitted {
+    pub context: DeviceContext,
+    pub session: Arc<SessionState>,
+}
+/// What a session's tunnels share with it: ending the session (revocation or
+/// a newer session for the device) closes them, and their traffic counts as use.
+pub struct SessionState {
+    ended: AtomicBool,
+    used: Mutex<Instant>,
+}
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            ended: AtomicBool::new(false),
+            used: Mutex::new(Instant::now()),
+        }
+    }
+}
+impl SessionState {
+    pub fn end(&self) {
+        self.ended.store(true, Ordering::Release);
+    }
+    pub fn ended(&self) -> bool {
+        self.ended.load(Ordering::Acquire)
+    }
+    pub fn touch(&self) {
+        if let Ok(mut used) = self.used.lock() {
+            *used = Instant::now();
+        }
+    }
+    pub fn idle(&self) -> Duration {
+        self.used
+            .lock()
+            .map_or(Duration::MAX, |used| used.elapsed())
     }
 }
 
@@ -188,7 +226,14 @@ impl Mounts {
         Some(TunnelSlot(Arc::clone(active)))
     }
     /// Run a splice on its own thread so it leaves the door's edge sockets.
-    fn adopt(&self, client: TcpStream, extension: UnixStream, slot: TunnelSlot, idle: Duration) {
+    fn adopt(
+        &self,
+        client: TcpStream,
+        extension: UnixStream,
+        slot: TunnelSlot,
+        idle: Duration,
+        session: Option<Arc<SessionState>>,
+    ) {
         let Ok(mut tunnels) = self.tunnels.lock() else {
             return;
         };
@@ -204,7 +249,7 @@ impl Mounts {
             .name("remote-tunnel".into())
             .spawn(move || {
                 let _slot = slot;
-                splice(client, extension, idle);
+                splice(client, extension, idle, session.as_deref());
             });
         if let Ok(thread) = spawned {
             tunnels.running.push((retained, thread));
@@ -290,9 +335,10 @@ impl Mounts {
         else {
             return Some(Reply::empty(503));
         };
-        let context = self.sessions.context(request.cookie.as_deref());
+        let admitted = self.sessions.context(request.cookie.as_deref());
         let deadline = Instant::now() + limits::MOUNT_RESPONSE;
-        let forwarded = self.forward(&request, rest, extension, context.as_ref(), websocket);
+        let context = admitted.as_ref().map(|a| &a.context);
+        let forwarded = self.forward(&request, rest, extension, context, websocket);
         if send(&mut stream, forwarded.as_bytes(), deadline)
             .and_then(|()| send(&mut stream, &request.body, deadline))
             .is_err()
@@ -317,7 +363,8 @@ impl Mounts {
                     .and_then(|()| write_all(client, &body, deadline))
                     .is_ok()
             {
-                self.adopt(owned, stream, slot, extension.tunnel_idle);
+                let session = admitted.map(|a| a.session);
+                self.adopt(owned, stream, slot, extension.tunnel_idle, session);
             }
             return None;
         }
@@ -515,7 +562,13 @@ fn read_head(stream: &mut UnixStream, deadline: Instant) -> io::Result<ReplyHead
 /// unflushed, so a slow peer applies backpressure instead of growing memory.
 /// Pending bytes that make no progress within the write bound end the tunnel,
 /// and door shutdown closes the client socket, which ends it too.
-fn splice(mut client: TcpStream, mut extension: UnixStream, idle: Duration) {
+/// `session` is the owner session the upgrade was admitted under, if any.
+fn splice(
+    mut client: TcpStream,
+    mut extension: UnixStream,
+    idle: Duration,
+    session: Option<&SessionState>,
+) {
     let client = &mut client;
     const CHUNK: usize = 16 * 1024;
     let _ = (|| -> io::Result<()> {
@@ -528,6 +581,9 @@ fn splice(mut client: TcpStream, mut extension: UnixStream, idle: Duration) {
         let mut activity = Instant::now();
         loop {
             if closing && upstream.is_empty() && downstream.is_empty() {
+                return Ok(());
+            }
+            if session.is_some_and(SessionState::ended) {
                 return Ok(());
             }
             if upstream.is_empty() && downstream.is_empty() && activity.elapsed() >= idle {
@@ -569,6 +625,7 @@ fn splice(mut client: TcpStream, mut extension: UnixStream, idle: Duration) {
                 closing |= fill(client, &mut upstream, CHUNK)?;
                 if !upstream.is_empty() {
                     activity = Instant::now();
+                    session.inspect(|s| s.touch());
                 }
             }
             if extension_events.intersects(PollFlags::POLLIN | hangup)
@@ -578,6 +635,7 @@ fn splice(mut client: TcpStream, mut extension: UnixStream, idle: Duration) {
                 closing |= fill(&mut extension, &mut downstream, CHUNK)?;
                 if !downstream.is_empty() {
                     activity = Instant::now();
+                    session.inspect(|s| s.touch());
                 }
             }
             if drain(client, &mut downstream)? | drain(&mut extension, &mut upstream)? {

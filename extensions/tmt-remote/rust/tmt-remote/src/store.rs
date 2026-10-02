@@ -192,36 +192,63 @@ impl Store {
         transaction.commit().map_err(database)
     }
     pub fn grant(&self, client_id: &str) -> Result<Option<Grant>, RemoteError> {
-        let row = self.connection.query_row(
-            "SELECT client_id, public_key, kind, origin, name, agents, scopes, mode,
-                    issued_at_ms, expires_at_ms, revision, disabled
-             FROM grants WHERE client_id = ?1",
+        match self.connection.query_row(
+            &format!("SELECT {GRANT_COLUMNS} FROM grants WHERE client_id = ?1"),
             [client_id],
-            |r| {
-                let key: Vec<u8> = r.get(1)?;
-                let scopes: String = r.get(6)?;
-                Ok(Grant {
-                    client_id: r.get(0)?,
-                    public_key: key.try_into().unwrap_or([0; 32]),
-                    kind: r.get(2)?,
-                    origin: r.get(3)?,
-                    name: r.get(4)?,
-                    agents: r.get(5)?,
-                    scopes: scopes.split(' ').map(str::to_owned).collect(),
-                    mode: r.get(7)?,
-                    issued_at_ms: r.get::<_, i64>(8)? as u64,
-                    expires_at_ms: r.get::<_, Option<i64>>(9)?.map(|v| v as u64),
-                    revision: r.get::<_, i64>(10)? as u64,
-                    disabled: r.get(11)?,
-                })
-            },
-        );
-        match row {
+            grant_row,
+        ) {
             Ok(grant) => Ok(Some(grant)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(database(e)),
         }
     }
+    /// Every grant, revoked ones included, oldest first.
+    pub fn grants(&self) -> Result<Vec<Grant>, RemoteError> {
+        self.connection
+            .prepare(&format!(
+                "SELECT {GRANT_COLUMNS} FROM grants ORDER BY issued_at_ms, client_id"
+            ))
+            .and_then(|mut query| query.query_map([], grant_row)?.collect())
+            .map_err(database)
+    }
+    /// Disable a device's grant and advance its revision, so every session and
+    /// context bound to the old revision fails its recheck. Revoking an already
+    /// revoked grant changes nothing; an unknown device is `None`.
+    pub fn revoke(&mut self, client_id: &str) -> Result<Option<Grant>, RemoteError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        transaction
+            .execute(
+                "UPDATE grants SET disabled = 1, revision = revision + 1
+                 WHERE client_id = ?1 AND disabled = 0",
+                [client_id],
+            )
+            .map_err(database)?;
+        transaction.commit().map_err(database)?;
+        self.grant(client_id)
+    }
+}
+const GRANT_COLUMNS: &str = "client_id, public_key, kind, origin, name, agents, scopes, mode,
+    issued_at_ms, expires_at_ms, revision, disabled";
+fn grant_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Grant> {
+    let key: Vec<u8> = r.get(1)?;
+    let scopes: String = r.get(6)?;
+    Ok(Grant {
+        client_id: r.get(0)?,
+        public_key: key.try_into().unwrap_or([0; 32]),
+        kind: r.get(2)?,
+        origin: r.get(3)?,
+        name: r.get(4)?,
+        agents: r.get(5)?,
+        scopes: scopes.split(' ').map(str::to_owned).collect(),
+        mode: r.get(7)?,
+        issued_at_ms: r.get::<_, i64>(8)? as u64,
+        expires_at_ms: r.get::<_, Option<i64>>(9)?.map(|v| v as u64),
+        revision: r.get::<_, i64>(10)? as u64,
+        disabled: r.get(11)?,
+    })
 }
 fn migrate(connection: &mut Connection) -> Result<(), RemoteError> {
     connection

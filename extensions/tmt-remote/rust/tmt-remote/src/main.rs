@@ -12,11 +12,13 @@ use tmt_cli_style::{CommandSpec, Example, Interaction, Mode, OutputModes, Route}
 use tmt_remote::{
     control::{self, Control},
     core::CoreClient,
+    devices::{Devices, device_json},
     error::RemoteError,
     http::{Door, Handler},
-    mount::{Mounts, NoSessions},
+    mount::Mounts,
     pairing::{Pairing, Timing},
     routes::Routes,
+    session::{self, DoorSessions},
     site::Site,
     state::{Layout, MachineKey},
     store::{Store, uuid_v4},
@@ -40,6 +42,32 @@ const PAIR: CommandSpec = CommandSpec {
     }],
     outputs: OutputModes::HumanAndJson,
     details: "The device opens the link or enters the code. Compare the four words on both sides, then confirm once.\nThe grant reaches all agents, sends directly and does not expire; revoke it to end it.\n--json streams one event per line and reads confirm or refuse from stdin.",
+};
+const DEVICES: CommandSpec = CommandSpec {
+    name: "devices",
+    summary: "List paired devices or revoke one",
+    examples: &[
+        Example {
+            command: "tmt remote devices",
+            note: "Show each device with its fingerprint words",
+        },
+        Example {
+            command: "tmt remote devices revoke <client-id>",
+            note: "End a device's access now",
+        },
+    ],
+    outputs: OutputModes::HumanAndJson,
+    details: "Revoking disables the grant before it reports success and ends the device's door session and open pages.\nWorks whether or not tmt remote serve is running.",
+};
+const REVOKE: CommandSpec = CommandSpec {
+    name: "revoke",
+    summary: "Revoke one paired device",
+    examples: &[Example {
+        command: "tmt remote devices revoke <client-id>",
+        note: "The client ID is shown by tmt remote devices",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Revoking a revoked device reports it again. Pair again to trust the device anew.",
 };
 const SERVE: CommandSpec = CommandSpec {
     name: "serve",
@@ -67,11 +95,23 @@ fn grammar() -> Command {
             ),
         )
         .subcommand(tmt_cli_style::command(&PAIR))
+        .subcommand(
+            tmt_cli_style::command(&DEVICES).subcommand(
+                tmt_cli_style::command(&REVOKE).arg(
+                    Arg::new("client-id")
+                        .required(true)
+                        .help("Device client ID from tmt remote devices"),
+                ),
+            ),
+        )
 }
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
     if name == "pair" {
         return pair(arguments.get_flag("json"));
+    }
+    if name == "devices" {
+        return devices(arguments);
     }
     let serve = arguments;
     let stop = Arc::new(AtomicBool::new(false));
@@ -111,22 +151,34 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         let machine_key = MachineKey::open(&layout)?;
         let mut store = Store::open(&serving)?;
         let machine = store.machine()?;
+        let store = Arc::new(Mutex::new(store));
         let door = Door::bind(*serve.get_one::<u16>("port").unwrap())?;
-        // Each run is a new window; grants survive it.
+        // Each run is a new window; grants survive it, sessions do not.
+        let window_id = uuid_v4()?;
         let pairing = Arc::new(Pairing::new(
             machine.id.clone(),
-            uuid_v4()?,
+            window_id.clone(),
             machine_key.public(),
             door.origin.clone(),
-            Arc::new(Mutex::new(store)),
+            Arc::clone(&store),
             Timing::CONTRACT,
         ));
+        let sessions = Arc::new(DoorSessions::new(
+            machine.id.clone(),
+            window_id,
+            door.origin.clone(),
+            machine_key,
+            Arc::clone(&store),
+            session::IDLE,
+        ));
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?
-            .with_pairing(Arc::clone(&pairing));
+            .with_pairing(Arc::clone(&pairing))
+            .with_sessions(Arc::clone(&sessions));
         let address = format!("{}{}", door.origin, routes.prefix());
         let control = Control::start(
             &serving,
             pairing,
+            Arc::new(Devices::new(store, Some(Arc::clone(&sessions)))),
             control::Door {
                 origin: door.origin.clone(),
                 prefix: machine.route_prefix.clone(),
@@ -134,7 +186,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         )?;
         let site = Arc::new(Site {
             routes,
-            mounts: Mounts::new(root, &door.origin, Arc::new(NoSessions)),
+            mounts: Mounts::new(root, &door.origin, sessions),
         });
         let json_output = serve.get_flag("json");
         let mut output = tmt_cli_style::stream::stdout(json_output);
@@ -282,6 +334,110 @@ fn pair(json_output: bool) -> Result<(), RemoteError> {
     }
     paired
 }
+/// `tmt remote devices [revoke <client-id>]`, through the running serve or,
+/// when none runs, directly under the serve lock.
+fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
+    let revoke = arguments.subcommand_matches("revoke");
+    let json_output = arguments.get_flag("json") || revoke.is_some_and(|m| m.get_flag("json"));
+    let request = match revoke {
+        Some(m) => json!({"op":"revoke","clientId":m.get_one::<String>("client-id").unwrap()}),
+        None => json!({"op":"devices"}),
+    };
+    let stop = AtomicBool::new(false);
+    let root = CoreClient::discover()?.storage_root(&stop)?;
+    let answer = match std::fs::canonicalize(&root)
+        .map_err(|_| not_running())
+        .and_then(|root| control::connect(&root.join("remote")))
+    {
+        Ok(mut stream) => {
+            stream.write_all(format!("{request}\n").as_bytes())?;
+            let mut line = String::new();
+            BufReader::new(stream).read_line(&mut line)?;
+            let answer: serde_json::Value = serde_json::from_str(&line).map_err(|_| {
+                RemoteError::new("REMOTE_IO", "Remote sent an invalid control line.")
+            })?;
+            if let Some(error) = answer.get("error") {
+                return Err(RemoteError::new(
+                    error["code"].as_str().unwrap_or("REMOTE_IO"),
+                    error["message"]
+                        .as_str()
+                        .unwrap_or("Device management failed."),
+                ));
+            }
+            answer
+        }
+        Err(error) if error.code == "REMOTE_NOT_RUNNING" => {
+            let serving = Layout::open(&root)?.serve_lock()?;
+            let devices = Devices::new(Arc::new(Mutex::new(Store::open(&serving)?)), None);
+            match &request["clientId"] {
+                serde_json::Value::String(id) => {
+                    json!({"device": device_json(&devices.revoke(id)?)})
+                }
+                _ => {
+                    json!({"devices": devices.list()?.iter().map(device_json).collect::<Vec<_>>()})
+                }
+            }
+        }
+        Err(error) => return Err(error),
+    };
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        writeln!(output, "{answer}")?;
+        return Ok(());
+    }
+    let terminal = output.terminal();
+    if let Some(device) = answer.get("device") {
+        let name = device["name"].as_str().unwrap_or("");
+        return Ok(tmt_cli_style::message::success(
+            &mut output,
+            terminal,
+            &format!("Revoked {name}"),
+        )?);
+    }
+    use tmt_cli_style::{
+        list::Section,
+        mark::Mark,
+        table::{Cell, Column, Table},
+    };
+    let listed = answer["devices"].as_array().cloned().unwrap_or_default();
+    let mut rows = Table::new(&[
+        Column::Fixed,
+        Column::Name,
+        Column::Fixed,
+        Column::Detail,
+        Column::Fixed,
+    ]);
+    for device in &listed {
+        let mark = if device["revoked"] == true {
+            Mark::Offline
+        } else {
+            Mark::Running
+        };
+        let text = |key: &str| Cell::from(device[key].as_str().unwrap_or(""));
+        rows.row([
+            Cell::styled(mark.symbol(), mark.token()),
+            text("name"),
+            text("kind"),
+            text("words"),
+            text("clientId"),
+        ]);
+    }
+    Section {
+        title: "DEVICES",
+        count: Some(listed.len()),
+        rows,
+        note: None,
+        hint: None,
+    }
+    .write(&mut output, terminal)?;
+    Ok(())
+}
+/// Whether any subcommand on the chain asked for `--json`.
+fn wants_json(matches: &clap::ArgMatches) -> bool {
+    matches.subcommand().is_some_and(|(_, m)| {
+        m.try_get_one::<bool>("json").ok().flatten() == Some(&true) || wants_json(m)
+    })
+}
 fn not_running() -> RemoteError {
     RemoteError::new(
         "REMOTE_NOT_RUNNING",
@@ -313,10 +469,7 @@ fn main() -> ExitCode {
     match run(&matches) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            if matches
-                .subcommand()
-                .is_some_and(|(_, m)| m.get_flag("json"))
-            {
+            if wants_json(&matches) {
                 let _ = writeln!(
                     tmt_cli_style::stream::stdout(true),
                     "{}",

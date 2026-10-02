@@ -3747,7 +3747,9 @@ following symlinks, a lock-guarded create-only Ed25519 machine key
 serve lock per data root. `store::Store` owns `remote.db` (SQLite) and opens only
 with the `state::Serving` proof that the serve lock is held: while serve runs it
 is the database's only opener and writer, and every other path (pairing, device
-management) reaches remote state only through serve, over its owner-only control socket. Its
+management) reaches remote state only through serve, over its owner-only control socket.
+Without a running serve, `tmt remote devices` takes the serve lock itself, so
+the database still has one opener. Its
 schema history uses core's `_migrations` table (append-only, recorded names must
 match, a newer history refuses) with `foreign_keys=ON`. Unlike core's shared
 WAL database it keeps `journal_mode=DELETE`, since there is no concurrent
@@ -3760,8 +3762,9 @@ code until a shared leaf exists (#1041).
 
 `control::Control` binds `<dataRoot>/remote/control.sock` (0600, in the 0700
 state directory) under the serve lock and speaks one JSON object per line; a
-stale socket from an earlier serve is replaced, anything else refuses. `tmt
-remote pair` is its only client today. `pairing::Pairing` owns the single offer
+stale socket from an earlier serve is replaced, anything else refuses. Its
+operations are `pair` (for `tmt remote pair`) and `devices` and `revoke` (for
+`tmt remote devices`). `pairing::Pairing` owns the single offer
 of the current run (window): a random 16-byte code and 128-bit challenge held only
 in serve's memory, a ten-minute deadline, and its phase (open, pinned candidate,
 confirmed). `/pair` admits strict enrollment JSON (exactly the contract fields,
@@ -3779,7 +3782,22 @@ Confirmation inserts the default grant (all agents, the default scopes,
 `K_response` and `serverProof` over the exact receipt JSON, erases the code and
 keeps only the candidate, receipt and proof for exact-retry recovery until the
 original deadline. A failed grant write ends the offer with no grant. The
-browser pairing page and door sessions are later slices.
+browser pairing page is a later slice.
+
+`session::DoorSessions` admits the signed `session.open` control on
+`<prefix>/append`: exactly the envelope fields, this machine and window, a live
+grant (not revoked, not expired), the envelope and request Origin equal to the
+grant origin (a `browser` grant to this door's own origin; none for `cli`), a
+timestamp within 60 seconds, a `{clientNonce}` payload whose nonce was not used
+by that device within two minutes, and the device signature over the canonical
+bytes. It answers a machine-signed response and, for a `browser` device, sets
+the `tmt_door` cookie (256-bit token, `Path=/x/`, HttpOnly, SameSite=Strict)
+whose SHA-256 is all serve keeps. Sessions live in serve memory, one per device:
+a newer session, revocation, 12 hours without use or stop ends one, and
+reopening is another signed `session.open`. Every refusal is the generic 404.
+`/r/` routes refuse any cookie, so a cookie alone never reaches an operation or
+pairing. `devices::Devices` lists grants and revokes one by disabling it and
+advancing its revision before acknowledging, then ends the device's session.
 
 `site::Site` is the door's handler: `/x/` paths go to `mount::Mounts`, all
 others to the `/r/` binding. Mounts forward `/x/<extension>/` to
@@ -3792,8 +3810,11 @@ for every upgrade, a method allowlist and per-extension request/reply bounds.
 It forwards the path below the prefix, a small header allowlist and a
 `tmt-mount` header, never the door-session cookie; it adds `tmt-device-context`
 (ASCII JSON of the extension channel API's owner device context) only when the
-`mount::Sessions` port resolves an owner session, and never copies one from a
-client. Until pairing supplies sessions, every forwarded request is non-owner.
+`mount::Sessions` port (`DoorSessions` in serve) resolves the door cookie to an
+owner session, and never copies one from a client. Each resolution rechecks the
+grant's revocation, revision and expiry; without a live session a request is
+forwarded as non-owner. A tunnel opened under a session closes within one
+100 ms poll when that session ends, and its traffic counts as session use.
 The extension owns its reply: status, content type, CSP and other headers pass
 through; the door only fills absent security defaults and drops `Set-Cookie`.
 Replies stream one chunk at a time. WebSocket upgrades are spliced as unparsed

@@ -207,6 +207,11 @@ impl MachineKey {
     pub fn public(&self) -> [u8; 32] {
         self.key.verifying_key().to_bytes()
     }
+    /// Sign machine-authored bytes, such as a response envelope's signature input.
+    pub fn sign(&self, message: &[u8]) -> [u8; 64] {
+        use ed25519_dalek::Signer;
+        self.key.sign(message).to_bytes()
+    }
 }
 fn cleanup_temporaries(layout: &Layout) -> Result<(), RemoteError> {
     let mut removed = false;

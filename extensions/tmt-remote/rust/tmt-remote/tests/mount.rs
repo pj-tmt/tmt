@@ -20,7 +20,7 @@ use std::{
 use tmt_remote::{
     http::{Door, Handler},
     limits,
-    mount::{DeviceContext, EXTENSIONS, Extension, Mounts, NoSessions, Sessions},
+    mount::{Admitted, DeviceContext, EXTENSIONS, Extension, Mounts, NoSessions, Sessions},
     routes::Routes,
     site::Site,
 };
@@ -29,13 +29,16 @@ const OWNER: &str = "tmt_door=owner";
 /// Test session resolver: one cookie value is an owner device.
 struct OneOwner;
 impl Sessions for OneOwner {
-    fn context(&self, cookie: Option<&str>) -> Option<DeviceContext> {
-        (cookie == Some(OWNER)).then(|| DeviceContext {
-            device_id: "00000000-0000-4000-8000-000000000004".into(),
-            kind: "browser".into(),
-            origin: "http://127.0.0.1:1".into(),
-            name: "Laptop \u{e9}\"\n".into(),
-            grant_revision: 3,
+    fn context(&self, cookie: Option<&str>) -> Option<Admitted> {
+        (cookie == Some(OWNER)).then(|| Admitted {
+            context: DeviceContext {
+                device_id: "00000000-0000-4000-8000-000000000004".into(),
+                kind: "browser".into(),
+                origin: "http://127.0.0.1:1".into(),
+                name: "Laptop \u{e9}\"\n".into(),
+                grant_revision: 3,
+            },
+            session: Arc::default(),
         })
     }
 }

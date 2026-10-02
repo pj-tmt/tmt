@@ -1,10 +1,12 @@
-//! Remote binding routes on the door. Every `/r/` request is refused until pairing lands.
+//! Remote binding routes on the door: `/pair` enrollment and the `session.open`
+//! control on `/append`. Every other `/r/` request is refused.
 use crate::{
     canonical,
     error::RemoteError,
     http::{Handler, Head, Reply, Request},
     limits,
     pairing::{Pairing, Submission},
+    session::DoorSessions,
     transport::{LoopbackTransport, Transport},
 };
 use serde_json::json;
@@ -20,6 +22,8 @@ pub struct Routes {
     prefix: String,
     /// Present while serve can pair; without it `/pair` refuses like any route.
     pairing: Option<Arc<Pairing>>,
+    /// Present while serve can open door sessions.
+    sessions: Option<Arc<DoorSessions>>,
     body_limit: usize,
     transport: LoopbackTransport,
     attempts: Mutex<Attempts>,
@@ -44,6 +48,7 @@ impl Routes {
         Ok(Self {
             prefix,
             pairing: None,
+            sessions: None,
             body_limit: 4 * (input_limit + limits::METADATA_BYTES).div_ceil(3)
                 + limits::METADATA_BYTES,
             transport: LoopbackTransport::default(),
@@ -55,6 +60,10 @@ impl Routes {
     }
     pub fn with_pairing(mut self, pairing: Arc<Pairing>) -> Self {
         self.pairing = Some(pairing);
+        self
+    }
+    pub fn with_sessions(mut self, sessions: Arc<DoorSessions>) -> Self {
+        self.sessions = Some(sessions);
         self
     }
     /// Route prefix; not a credential.
@@ -86,7 +95,8 @@ impl Handler for Routes {
         if head.method != "POST" || head.upgrade {
             return Err(Reply::empty(404));
         }
-        // Door sessions are admitted only once pairing issues them.
+        // The door cookie is scoped to `/x/`, so a cookie here is never a
+        // session and a cookie alone can never reach an operation or pairing.
         if head.cookie.is_some()
             || head.content_type != Some("application/json")
             || head.content_length.is_none()
@@ -104,7 +114,21 @@ impl Handler for Routes {
     }
     fn handle(&self, request: Request, _: &mut TcpStream) -> Option<Reply> {
         let denied = match self.suffix(&request.path) {
-            Some("/append") => self.transport.append(&request.body),
+            Some("/append") => {
+                let opened = self
+                    .sessions
+                    .as_ref()
+                    .and_then(|sessions| sessions.open(request.origin.as_deref(), &request.body));
+                let Some(opened) = opened else {
+                    return Some(Reply::empty(404));
+                };
+                let mut reply = Reply::empty(200);
+                reply.body = opened.response;
+                if let Some(cookie) = opened.cookie {
+                    reply.headers.push(("set-cookie".into(), cookie));
+                }
+                return Some(reply);
+            }
             Some("/subscribe") => self.transport.subscribe(&request.body),
             Some("/ack") => self.transport.ack(&request.body),
             Some("/pair") => {
