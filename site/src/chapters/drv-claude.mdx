@@ -49,7 +49,7 @@ It needs Claude Code 2.1.285 or newer in the 2.x line. tmt checks before it star
 
 - **An enrolled pane is never pasted to.** That holds for every command: `talk`, reply notices and a raw pane address all use the channel or stop. If the channel can't carry a request (not ready, unreachable, or its launch has ended), `talk` says nothing was sent and nothing was pasted, and the request waits in the agent's inbox.
 - **No receipt.** Claude doesn't confirm a channel message. When the write goes through, `talk` reports delivery as unconfirmed and keeps waiting for the agent's `tmt reply`. tmt never resends it.
-- **A crashed launch can leave its record behind.** If tmt can't tell whether that Claude still runs in the pane, `talk` refuses to paste and names the file to remove, once you've checked that no Claude of that launch is left.
+- **A crashed launch can leave its record behind.** If tmt can't tell whether that Claude still runs in the pane, `talk` refuses to paste and prints the `tmt channel` command to inspect or recover it. `tmt channel inspect` shows what the record names; once you've checked that no Claude of that launch is left in the pane, run the printed `tmt channel recover`. It removes only that record, never stops a process or pastes anything, and refuses unless every process the record names is conclusively gone. Running it again is safe.
 
 ### Usage counters
 
