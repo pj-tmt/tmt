@@ -105,7 +105,7 @@ mod tests {
             dir.join("squad.toml"),
         );
         let fake = dir.join("tmt");
-        crate::test_support::write_executable(
+        crate::test_support::write_ready_executable(
             &fake,
             &format!(
                 "#!/bin/sh\ncat >> '{log}'; echo >> '{log}'\n\

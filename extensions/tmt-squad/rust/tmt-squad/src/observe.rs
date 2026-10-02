@@ -204,7 +204,7 @@ mod tests {
             // Read fixtures stay disabled: enabled tests inject a private cache via observe_with.
             fs::write(root.join("squad.toml"), "").unwrap();
             let executable = root.join("tmt");
-            crate::test_support::write_executable(
+            crate::test_support::write_ready_executable(
                 &executable,
                 r#"#!/bin/sh
 root=${0%/*}

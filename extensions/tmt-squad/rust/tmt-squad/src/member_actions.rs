@@ -250,7 +250,7 @@ mod tests {
             };
             fs::write(root.join("whoami"), whoami.to_string()).unwrap();
             let executable = root.join("tmt");
-            crate::test_support::write_executable(
+            crate::test_support::write_ready_executable(
                 &executable,
                 r#"#!/bin/sh
 root=${0%/*}
