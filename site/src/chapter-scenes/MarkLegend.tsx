@@ -2,6 +2,10 @@ import { useStrings } from "../lang/useStrings";
 
 // Each mark in the colour the board draws it in. Meanings are the canonical
 // ones in design/cli-style.md; ▸ is drawn only on the board.
+// The exact characters of design/tokens/tokens.json, drawn as text, never as
+// emoji: U+FE0E asks for the text form where a fallback font would pick emoji.
+const TEXT_PRESENTATION = "\uFE0E";
+
 const TONE: Record<string, string> = {
   "●": "text-t-working",
   "○": "text-t-dim",
@@ -29,9 +33,10 @@ export function MarkLegend() {
           >
             <span
               aria-hidden="true"
-              className={`font-mono text-[40px] leading-none font-bold ${TONE[item.mark] ?? ""}`}
+              className={`font-mono text-[36px] leading-none [font-variant-emoji:text] ${TONE[item.mark] ?? ""}`}
             >
               {item.mark}
+              {TEXT_PRESENTATION}
             </span>
             <b className="font-mono text-[13px] font-semibold">
               {item.name}
