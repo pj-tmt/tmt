@@ -410,6 +410,7 @@ impl Messages<'_> {
             return send(registry, &self.rendered());
         };
         let mut unacknowledged = false;
+        let mut awaiting_approval = false;
         for (index, notice) in attempt.notices.iter().enumerate() {
             let claimed = match storage.borrow_mut().mark_reply_notice_attempted(
                 &attempt.batch.id,
@@ -438,6 +439,12 @@ impl Messages<'_> {
                         WakeState::Sent
                     }
                 }
+                // A blocked frame is definitely unsent and final for routing, but
+                // does not prevent independent later notices from being attempted.
+                ActionResult::Failed(SendFailure::AwaitingApproval(_)) => {
+                    awaiting_approval = true;
+                    WakeState::Unavailable
+                }
                 // The first frame retains ordinary routing, including NotSent
                 // fallback. A later failure must never replay an accepted prefix.
                 other if index == 0 => return other,
@@ -463,7 +470,12 @@ impl Messages<'_> {
             attempt
                 .progress
                 .set(NoticeProgress::Driver { settled: index + 1 });
-            if !accepted {
+            if !accepted
+                && !matches!(
+                    outcome,
+                    ActionResult::Failed(SendFailure::AwaitingApproval(_))
+                )
+            {
                 return match outcome {
                     ActionResult::Unsupported => {
                         ActionResult::Failed(SendFailure::Denied(Delivery::Unavailable))
@@ -475,6 +487,9 @@ impl Messages<'_> {
                     ActionResult::Completed(_) => unreachable!("accepted outcomes continue"),
                 };
             }
+        }
+        if awaiting_approval {
+            return ActionResult::Failed(SendFailure::AwaitingApproval(Delivery::AwaitingApproval));
         }
         ActionResult::Completed(if unacknowledged {
             DeliveryAcceptance::Unacknowledged
@@ -1116,3 +1131,6 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod notice_tests;

@@ -2112,8 +2112,11 @@ attention. `request::notification::batch` owns the quiet/deadline policy;
 `reply_notice` composes enrollment evidence, enqueue, binding-fenced delivery and
 one-shot settlement. `reply_notice_command` schedules finite detached workers,
 with process-incarnation CAS claims before waits, sealed batch membership, and
-per-frame attempt evidence before transport. A unique SQLite sending claim
-serializes worker transport per binding, including separate zero-window notices.
+per-frame attempt evidence before transport. An approval-blocked registered frame
+is settled definitely unsent and does not stop independent later frames; joined
+host notices retain the host's single final approval result without input fallback.
+A unique SQLite sending claim serializes worker transport per binding, including
+separate zero-window notices.
 Only exact process-death evidence may release a stranded sending claim; attempted
 frames retire uncertain and untouched members remain queued. Workers hold no
 transaction while sleeping or probing. A failed send never replays; later eligible enqueue can
