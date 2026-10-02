@@ -426,6 +426,12 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             Invocation::ExtensionHooks(ExtensionHooksRequest::Disable(required(m, "name")))
         }
         ["extension", "hooks", "ls"] => Invocation::ExtensionHooks(ExtensionHooksRequest::List),
+        ["driver", "install"] => Invocation::Driver(DriverRequest::Install {
+            path: required(m, "path"),
+            yes: flag(m, "yes"),
+        }),
+        ["driver", "ls"] => Invocation::Driver(DriverRequest::List),
+        ["driver", "rm"] => Invocation::Driver(DriverRequest::Remove(required(m, "name"))),
         ["extension", "install"] => {
             Invocation::ExtensionInstall(ExtensionInstallRequest::Install {
                 name: required(m, "name"),

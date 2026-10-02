@@ -43,9 +43,9 @@ Driver output is untrusted input. tmt parses it with limits, checks every ID and
 - **Storage.** A driver never opens tmt's database, and tmt never passes it data paths or tokens. That is a contract, not an operating-system guarantee, so tmt never relies on a driver behaving.
 - **Consent.** Changes to an agent's settings still go through `tmt setup`, after the user agrees.
 
-### Taking over from a built-in driver
+### Taking over from a built-in driver (planned)
 
-A runtime driver may take over a program a built-in driver already recognizes, by declaring a higher priority. That's how a community Claude Code driver with extra features can replace the built-in one. It stays visible: install lists every built-in program the driver would take over, and `tmt driver ls` shows which driver handles which program. A driver can't take a built-in driver's name, and two installed drivers can't claim the same program; the user removes one.
+A runtime driver will be able to take over a program a built-in driver already recognizes, by declaring a higher priority. That's how a community Claude Code driver with extra features will replace the built-in one. It will stay visible: install will list every built-in program the driver would take over, and `tmt driver ls` will show which driver handles which program. A driver won't be able to take a built-in driver's name, and two installed drivers won't be able to claim the same program; the user will remove one.
 
 ### Rules every driver follows
 
@@ -57,4 +57,4 @@ A runtime driver may take over a program a built-in driver already recognizes, b
 
 ### Publish it
 
-A driver is packaged and released like an extension, with its own version, and installed with `tmt driver install`. The protocol contract and a conformance suite that checks your driver against it will ship with the first external driver.
+Runtime drivers will be packaged and released like extensions, with their own version. Today `tmt driver install <path>` approves a host driver executable after showing what it will run. The protocol contract and a conformance suite will ship with the first external driver.

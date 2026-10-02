@@ -23,7 +23,7 @@ use std::{
     fmt,
     path::{Path, PathBuf},
     sync::Mutex,
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tmt_driver_protocol::{
     Answer, CALL_ENV, Capabilities, DecodeError, DriverError, Grammar, Op, PROTOCOL, Request,
@@ -167,8 +167,15 @@ impl<R: CommandRunner> DriverProcess<R> {
     }
 }
 
+/// How long approval waits for `capabilities`. The driver is still told the
+/// protocol's deadline; this only keeps a busy machine (a cold start, a
+/// loaded scheduler) from refusing a working driver at a one-off, consented
+/// step. Calls at run time keep the protocol's bounds.
+const APPROVAL_WAIT: Duration = Duration::from_secs(10);
+
 /// A candidate driver's `capabilities`, before it is approved: nothing about
-/// it is trusted yet, so this runs it once under the operation's bounds.
+/// it is trusted yet, so this runs it once, under the operation's output
+/// bound and [`APPROVAL_WAIT`].
 pub fn probe(
     runner: &impl CommandRunner,
     executable: &Path,
@@ -184,7 +191,7 @@ pub fn probe(
         executable,
         op,
         &request,
-        Instant::now() + op.bounds().deadline,
+        Instant::now() + APPROVAL_WAIT.max(op.bounds().deadline),
     )
     .map_err(|error| format!("it did not answer capabilities: {error}"))?;
     decode_capabilities(&output).map_err(|error| error.to_string())

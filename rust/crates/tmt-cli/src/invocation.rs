@@ -78,6 +78,7 @@ pub enum Invocation {
     FocusClient,
     Config(ConfigRequest),
     ExtensionHooks(ExtensionHooksRequest),
+    Driver(DriverRequest),
     ExtensionInstall(ExtensionInstallRequest),
     Identity(IdentityRequest),
     Room(RoomOperation),
@@ -238,6 +239,14 @@ pub enum ExtensionInstallRequest {
         prefix: Option<String>,
         check: bool,
     },
+}
+
+/// `tmt driver`: approve, list and remove consented host drivers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DriverRequest {
+    Install { path: String, yes: bool },
+    List,
+    Remove(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
