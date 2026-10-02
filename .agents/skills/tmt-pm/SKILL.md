@@ -37,6 +37,8 @@ owns the procedure only.
      stale.
    - _Unstaffed_: a squad with In Progress or blocked work and no active
      member.
+   - _Board drift_: a squad's `tmt sq ls --squad <name>` members differ
+     from the active members working for that squad.
    - _Waiting on the maintainer_: a decision marked pending in an issue or
      PR comment.
    - _Oversized_: a tracker or child whose progress the board cannot show.
