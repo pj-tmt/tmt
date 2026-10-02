@@ -46,13 +46,13 @@ a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
 `waiting`, `working`, `review`, `blocked`, `link` and `selection` (a
 background). A `Theme` is a built-in base plus per-role overrides:
 
-| Base        | Rendering                                                                |
-| ----------- | ------------------------------------------------------------------------ |
+| Base        | Rendering                                                                      |
+| ----------- | ------------------------------------------------------------------------------ |
 | `auto`      | resolves a supplied terminal background to `tmt` or `tmt-light`; dark fallback |
-| `tmt`       | the tokens' dark values in 24-bit color; the default                     |
-| `tmt-light` | the tokens' light values in 24-bit color                                 |
-| `terminal`  | the tokens' terminal column: the terminal's own 16 colors                |
-| `mono`      | bold (`accent`, `waiting`, `review`, `blocked`) and dim (`muted`, `dim`) |
+| `tmt`       | the tokens' dark values in 24-bit color; the default                           |
+| `tmt-light` | the tokens' light values in 24-bit color                                       |
+| `terminal`  | the tokens' terminal column: the terminal's own 16 colors                      |
+| `mono`      | bold (`accent`, `waiting`, `review`, `blocked`) and dim (`muted`, `dim`)       |
 
 `Base::Auto` is selectable; `Theme::default()` remains `tmt`. Callers resolve
 an automatic base with `Theme::resolve`, retaining token overrides. Rendering
@@ -61,7 +61,22 @@ COLORFGBG and OSC 11 interpretation, linear luminance classification, and a
 bounded reader with an injected monotonic clock. The caller owns query eligibility,
 terminal I/O and received input. Its total OSC budget is 100 ms, including the
 write, and at most 256 received bytes; replies at or after the deadline are not
-accepted. Squad integration supplies terminal detection at the board boundary.
+accepted.
+
+The Squad board defaults to `auto`; a concrete configured base wins. It resolves
+once before its input and refresh workers start, using COLORFGBG first and then
+OSC 11 only for an interactive colored full-screen view. Squad's existing
+terminal guard owns the query after entering raw mode. No query runs for lists,
+help, JSON, pipes, `TERM=dumb`, `NO_COLOR` or disabled color. Startup input read
+during the query (at most 100 ms) is discarded; late OSC replies are filtered
+before board actions. An unavailable signal uses `tmt`. Picker previews reuse the
+same signal and save the requested `auto` base, without changing CLI defaults.
+
+`tmt sq theme ls` lists `auto` first. With COLORFGBG it shows `auto (tmt-light)`
+or `auto (tmt)` and source `detected`. Without a measurement it shows `auto`
+with detail `matches the terminal when the board opens`, the configured source,
+and JSON `resolvedBase: null`. An auto result retains its configuration layer in
+`baseSource`; concrete bases keep their usual source.
 
 An override is `#rrggbb`, a color name (`blue`, `bright black`, …), `default`,
 `bold`, `dim` or `reverse`; `Theme::parse` reports a mistake with its setting's
@@ -112,7 +127,7 @@ fold mark below is board-only). A row's leading state mark is
 | `✗`  | failed or blocked                                                  |
 | `!`  | warning                                                            |
 | `◆`  | waits on your decision                                             |
-| `▸`  | folded Squad board pane (board only)                                |
+| `▸`  | folded Squad board pane (board only)                               |
 
 ## Lists
 

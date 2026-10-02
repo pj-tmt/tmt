@@ -44,6 +44,18 @@ pub const EXACT_BODIES: &[Exact] = &[
     },
     Exact {
         package: "tmt-squad",
+        file: "board/terminal/background.rs",
+        function: "query",
+        reason: "bounded OSC 11 background query owned by the board terminal lifecycle",
+    },
+    Exact {
+        package: "tmt-squad",
+        file: "board/terminal/background.rs",
+        function: "seed",
+        reason: "recognizes partial OSC protocol bytes consumed during the startup query",
+    },
+    Exact {
+        package: "tmt-squad",
         file: "board/terminal.rs",
         function: "enter",
         reason: "the ratatui board enters the alternate screen",

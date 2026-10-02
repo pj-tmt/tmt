@@ -247,6 +247,7 @@ impl Base {
     /// A short description shared by theme lists and pickers.
     pub fn description(self) -> &'static str {
         match self {
+            Self::Auto => "match your terminal (light or dark)",
             Self::Tmt => "soft truecolor for dark terminals",
             Self::TmtLight => "the same palette for light terminals",
             Self::Terminal => "your terminal's own 16 colors",

@@ -2226,7 +2226,7 @@ sort = ["state", "-name"]
             "themeError": {"key": "theme.base", "message": "unknown base dark."}
         }));
         let (theme, notice) = config.theme("product").unwrap();
-        assert_eq!(theme.base, Base::Tmt);
+        assert_eq!(theme.base, Base::Auto);
         assert_eq!(
             notice.as_deref(),
             Some("theme.base unknown base dark; the board ignores the invalid CLI theme")
@@ -2238,7 +2238,7 @@ sort = ["state", "-name"]
             "themeError": null
         }));
         let (fallback, notice) = config.theme("product").unwrap();
-        assert_eq!(fallback.base, Base::Tmt);
+        assert_eq!(fallback.base, Base::Auto);
         assert_eq!(
             fallback.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),
             theme.style(Role::Waiting, tmt_cli_style::Depth::TrueColor),

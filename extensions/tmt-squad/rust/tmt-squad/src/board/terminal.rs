@@ -2,6 +2,8 @@
 //! alternate screen only between `Guard::enter` and restore, which also runs
 //! on error, panic and TERM/HUP. A terminal left in raw mode is a defect, not a cosmetic issue.
 
+pub(super) mod background;
+
 use ratatui::crossterm::{
     cursor::{Hide, Show},
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -20,11 +22,22 @@ use std::{
 pub trait Screen {
     fn enter(&mut self) -> io::Result<()>;
     fn leave(&mut self) -> io::Result<()>;
+    fn query_background(&mut self) -> io::Result<tmt_cli_style::theme::background::QueryReply> {
+        Ok(tmt_cli_style::theme::background::QueryReply {
+            background: None,
+            received: Vec::new(),
+            reply: None,
+        })
+    }
 }
 
 pub struct Crossterm;
 
 impl Screen for Crossterm {
+    fn query_background(&mut self) -> io::Result<tmt_cli_style::theme::background::QueryReply> {
+        background::query()
+    }
+
     fn enter(&mut self) -> io::Result<()> {
         enable_raw_mode()?;
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture, Hide)
@@ -61,6 +74,10 @@ impl<S: Screen> Guard<S> {
             screen,
             active: true,
         })
+    }
+
+    pub fn query_background(&mut self) -> io::Result<tmt_cli_style::theme::background::QueryReply> {
+        self.screen.query_background()
     }
 
     pub fn restore(&mut self) -> io::Result<()> {
@@ -116,9 +133,21 @@ mod tests {
     struct Fake {
         log: Rc<RefCell<Vec<&'static str>>>,
         fail_enter: bool,
+        fail_query: bool,
     }
 
     impl Screen for Fake {
+        fn query_background(&mut self) -> io::Result<tmt_cli_style::theme::background::QueryReply> {
+            self.log.borrow_mut().push("query");
+            if self.fail_query {
+                return Err(io::Error::other("query failed"));
+            }
+            Ok(tmt_cli_style::theme::background::QueryReply {
+                background: None,
+                received: Vec::new(),
+                reply: None,
+            })
+        }
         fn enter(&mut self) -> io::Result<()> {
             self.log.borrow_mut().push("enter");
             if self.fail_enter {
@@ -148,6 +177,20 @@ mod tests {
         }));
         assert!(result.is_err());
         assert_eq!(*fake.log.borrow(), ["enter", "leave"], "unwinding restores");
+    }
+
+    #[test]
+    fn query_runs_inside_the_guard_and_failure_still_restores() {
+        for fail_query in [false, true] {
+            let fake = Fake {
+                fail_query,
+                ..Fake::default()
+            };
+            let mut guard = Guard::enter(fake.clone()).unwrap();
+            assert_eq!(guard.query_background().is_err(), fail_query);
+            drop(guard);
+            assert_eq!(*fake.log.borrow(), ["enter", "query", "leave"]);
+        }
     }
 
     #[test]
