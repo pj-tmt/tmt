@@ -201,6 +201,10 @@ fn frozen_retries_and_fresh_seals_have_distinct_ids_and_keys() {
         object::open(&a, &ctx, &master, key.verifying_key().as_bytes()).unwrap(),
         b"same text"
     );
+    assert_eq!(
+        object::open(&b, &ctx, &master, key.verifying_key().as_bytes()).unwrap(),
+        b"same text"
+    );
     assert!(object::seal(&ctx, &master, &key, &vec![0; 256 * 1024 + 1]).is_err());
 }
 #[test]

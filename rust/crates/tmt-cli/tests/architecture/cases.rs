@@ -1581,6 +1581,7 @@ fn colab_persistence_keeps_core_remote_and_office_isolated() {
 #[test]
 fn colab_model_has_only_fixed_crypto_and_no_runtime_authority() {
     for name in [
+        "hpke",
         "x25519-dalek",
         "aes-gcm",
         "base64",
@@ -1599,7 +1600,7 @@ fn colab_model_has_only_fixed_crypto_and_no_runtime_authority() {
             .is_empty()
         );
     }
-    for name in ["tmt-core", "tmt-adapters", "tmt-remote", "hpke", "rusqlite"] {
+    for name in ["tmt-core", "tmt-adapters", "tmt-remote", "rusqlite"] {
         assert_eq!(
             policy::dependency_violations(&package(
                 "tmt-colab-model",

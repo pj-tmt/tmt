@@ -1584,6 +1584,7 @@ The private Rust model has no server or CLI. From `rust/`, run
 workspace boundary changes also require the architecture guard above.
 Tests consume frozen contract vectors without Python. To check/regenerate the
 independent namespace/sign-in oracle, use Python with `cryptography` installed:
-`python3 extensions/tmt-colab/contracts/vectors/model-reference.py` from the
+`python3 extensions/tmt-colab/contracts/vectors/model-reference.py` and
+`python3 extensions/tmt-colab/contracts/vectors/authority-reference.py` from the
 repository root; add `--write` only after reviewing changed bytes. Fixture keys
 are public test data. This foundation does not satisfy the complete L1 gates.
