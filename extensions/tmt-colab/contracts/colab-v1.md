@@ -468,13 +468,25 @@ an epoch advance with a baseline, and no earlier epoch keys, old own streams,
 deleted text or old snapshots. A mode change affects later joins only; keys a
 recipient already holds are never recalled. Trusted share UI MUST state which
 mode applies before adding a member or link.
+
+Forward wraps are bounded. Under `shared`, a page shares at most its 64 most
+recent epochs (the current epoch plus 63 earlier, the same bound as public
+`publishedKeys`); older epochs are not wrapped to later joiners, and the share
+UI says that history before that point is not shared. One join is delivered as
+one or more wrap lists of at most 512 entries each, all committed in the same
+owner transition (one local SQLite, Firestore or DO storage transaction), so a
+join either receives every bounded wrap or none. Acceptance includes a page at
+the epoch cap and a multi-page join that needs several wrap lists.
+
 Existing anchors remap through quote/context at the epoch reset and detach on
 mismatch; old Yjs relative positions MUST NOT be applied to a new document.
 Offline edits in the old epoch MUST NOT be silently reissued under the new one;
 authority and an explicit new edit are required.
 
 Links follow the same mode. Under `shared`, `link.add` carries wraps of the
-retained earlier epoch keys to the link key. Under `current`, a link join reads
+retained earlier epoch keys to the link key. Trusted share UI MUST then state
+plainly that anyone with the link can read the page's whole shared history,
+including deleted text, snapshots, comments and agent replies. Under `current`, a link join reads
 everything in the current epoch since its last advance and no earlier epochs; an
 owner can cut that window with an epoch advance. There is no automatic
 per-link-holder history reset.
@@ -509,7 +521,9 @@ public first advances the epoch with a baseline, then publishes only the new
 epoch key in an owner-signed statement. This discloses current live source and
 everything protected by that key thereafter: own streams, comments, intents,
 agent-reply copies and attachments. Earlier epochs are published too unless the
-page history mode is `current`. Trusted confirmation MUST state that exact
+page history mode is `current`: trusted confirmation MUST state plainly that
+going public publishes the whole shared history, including deleted text,
+snapshots, comments and agent replies, and MUST state that exact
 scope. Public HTML with private discussion is not supported by this key boundary.
 Public readership grants no writing, device certification, grant or Send access.
 
