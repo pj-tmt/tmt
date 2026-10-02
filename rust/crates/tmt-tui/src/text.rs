@@ -59,7 +59,8 @@ pub fn lines(text: &str, width: u16, flow: TextFlow) -> Vec<String> {
     let mut remaining = escaped.as_str();
     let mut result = Vec::new();
     for index in 0..limit {
-        if !wrapping || remaining.width() <= width || index + 1 == limit {
+        let head = prefix(remaining, width);
+        if !wrapping || head.len() == remaining.len() || index + 1 == limit {
             result.push(fit(
                 remaining,
                 width,
@@ -68,7 +69,6 @@ pub fn lines(text: &str, width: u16, flow: TextFlow) -> Vec<String> {
             ));
             break;
         }
-        let head = prefix(remaining, width);
         if head.is_empty() {
             result.push(fit(remaining, width, false, true));
             break;
