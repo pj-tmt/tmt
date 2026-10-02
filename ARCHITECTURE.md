@@ -3612,7 +3612,6 @@ and build dispatch remain available. Published releases and tagged drafts do not
 hold creation. REST reads use explicit workflow credentials and bounded pages;
 no release or tag is mutated by either gate.
 
-
 `release.yml` never publishes. `native-release-upgrade.yml` proves, for a draft or
 published release, its upgrade from the last published release of the same product on the
 four matching hosts. It only reads releases: a write-token job on `main`'s code fetches the
