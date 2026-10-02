@@ -1,28 +1,24 @@
 import { Cmd } from "../components/Cmd";
-import { Lede } from "../components/marks";
 import { LsSample } from "../components/samples";
 import { PaneDemo, basicLoop, resumeAfterReboot } from "../demos/PaneDemo";
 
-<div className="font-mono text-xs leading-none font-semibold tracking-[0.08em] text-muted uppercase">
-  tmt handbook
-</div>
+import { Hero } from "../home/Hero";
+import { Journey } from "../home/Journey";
 
-<h1 className="mt-4.5 mb-5 font-mono text-[clamp(34px,6vw,58px)] leading-[1.02] font-bold tracking-[-0.02em] text-balance">
-  {"One channel for all your agents."}
-  <br />
-  {"Built to "}
-  <span className="text-accent">extend</span>
-  {"."}
-</h1>
+<Hero />
 
-<Lede>
-  tmt gives each agent a durable name, delivers its work, and keeps the reply, even across restarts.
-</Lede>
+<h2
+  id="start"
+  className="mt-16 mb-3 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance"
+>
+  {"Start with "}
+  <em className="text-accent not-italic">one message</em>
+  {". Grow into a team."}
+</h2>
 
-<PaneDemo
-  {...basicLoop}
-  label="Step-by-step walkthrough in three tmux panes: start Claude Code and Codex, name them reviewer and builder from inside their CLIs, name the server log pane server-log, ask reviewer for a fix that it delegates to builder, then have reviewer read server-log to find a bug. Captions describe each step."
-/>
+Start with the talk, reply and receipt in step 1. Board, colab and meet all sit on that same foundation, and you can stop at any step: what you have still works.
+
+<Journey />
 
 ### Install
 
@@ -46,6 +42,11 @@ $ tmt check reviewer                  # look at the pane if something seems stuc
 `}</Cmd>
 
 The agent doesn't have to remember that line: the request it receives carries the exact `tmt reply` command, receipt included.
+
+<PaneDemo
+  {...basicLoop}
+  label="Step-by-step walkthrough in three tmux panes: start Claude Code and Codex, name them reviewer and builder from inside their CLIs, name the server log pane server-log, ask reviewer for a fix that it delegates to builder, then have reviewer read server-log to find a bug. Captions describe each step."
+/>
 
 Then manage the names you have:
 

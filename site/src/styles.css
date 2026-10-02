@@ -131,3 +131,11 @@ td code,
 th code {
   white-space: nowrap;
 }
+
+/* A scene fades in when the journey moves to its next step. */
+@keyframes grow {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}

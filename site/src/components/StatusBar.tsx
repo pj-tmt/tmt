@@ -119,11 +119,9 @@ export function StatusBar({ current }: { current: Page }) {
           />
           <div
             id="chapter-menu"
-            className="absolute inset-x-0 top-full max-h-[calc(100dvh-48px)] overflow-y-auto border-b border-term-edge bg-term px-4 py-3 text-t-text"
+            className="absolute top-full left-0 max-h-[calc(100dvh-48px)] w-max max-w-full min-w-64 overflow-y-auto border-r border-b border-term-edge bg-term px-4 py-3 text-t-text"
           >
-            <div className="mx-auto max-w-[900px]">
-              <ChapterTree current={current} onPick={() => setMenuOpen(false)} />
-            </div>
+            <ChapterTree current={current} onPick={() => setMenuOpen(false)} />
           </div>
         </>
       )}
